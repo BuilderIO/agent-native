@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { IconRefresh, IconSettings } from "@tabler/icons-react";
+import {
+  IconRefresh,
+  IconSettings,
+  IconShare,
+  IconExternalLink,
+} from "@tabler/icons-react";
 import { useTerminal } from "./hooks/useTerminal";
 import { SettingsPanel } from "./components/SettingsPanel";
 import {
@@ -16,16 +21,24 @@ export function App() {
   const [settings, setSettings] = useState<LaunchSettings>(loadSettings);
   const [showSettings, setShowSettings] = useState(false);
   const [showRestartConfirm, setShowRestartConfirm] = useState(false);
+  const [showShareMenu, setShowShareMenu] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
   const restartRef = useRef<HTMLDivElement>(null);
+  const shareRef = useRef<HTMLDivElement>(null);
+
+  const [appName, setAppName] = useState("Agent Native");
 
   const { termRef, iframeRef, connected, connect, restart, fit } = useTerminal({
     appPort: APP_PORT,
   });
 
-  // Connect on mount
+  // Connect on mount + fetch app info
   useEffect(() => {
     connect(settings);
+    fetch("/api/app-info")
+      .then((r) => r.json())
+      .then((info) => { if (info.name) setAppName(info.name); })
+      .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Save settings on change
@@ -40,25 +53,25 @@ export function App() {
   // Close popovers on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (
-        settingsRef.current &&
-        !settingsRef.current.contains(e.target as Node)
-      ) {
+      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) {
         setShowSettings(false);
       }
-      if (
-        restartRef.current &&
-        !restartRef.current.contains(e.target as Node)
-      ) {
+      if (restartRef.current && !restartRef.current.contains(e.target as Node)) {
         setShowRestartConfirm(false);
+      }
+      if (shareRef.current && !shareRef.current.contains(e.target as Node)) {
+        setShowShareMenu(false);
       }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // Resizable panes
-  const [termWidth, setTermWidth] = useState<number | null>(null);
+  // Resizable panes — persist width in localStorage
+  const [termWidth, setTermWidth] = useState<number | null>(() => {
+    const saved = localStorage.getItem("harness:termWidth");
+    return saved ? Number(saved) : null;
+  });
   const isResizing = useRef(false);
 
   const onMouseDown = useCallback(() => {
@@ -82,6 +95,9 @@ export function App() {
         document.body.style.userSelect = "";
         if (iframeRef.current) iframeRef.current.style.pointerEvents = "";
         fit();
+        if (termWidth !== null) {
+          localStorage.setItem("harness:termWidth", String(termWidth));
+        }
       }
     };
     document.addEventListener("mousemove", onMouseMove);
@@ -90,7 +106,7 @@ export function App() {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
     };
-  }, [fit, iframeRef]);
+  }, [fit, iframeRef, termWidth]);
 
   // Resize terminal on window resize
   useEffect(() => {
@@ -99,34 +115,36 @@ export function App() {
     return () => window.removeEventListener("resize", handler);
   }, [fit]);
 
+  const copyUrl = () => {
+    navigator.clipboard.writeText(`http://localhost:${APP_PORT}`);
+    setShowShareMenu(false);
+  };
+
   return (
-    <div className="flex h-screen bg-black">
+    <div className="flex h-screen bg-[#1e1e1e]">
       {/* Terminal pane */}
       <div
-        className="flex flex-col"
-        style={{ width: termWidth ?? "50%", flexShrink: 0 }}
+        className="flex flex-col min-h-0"
+        style={{ width: termWidth ?? "36%", flexShrink: 0 }}
       >
-        {/* Header */}
-        <div className="relative flex items-center gap-2 px-3 py-2 bg-[#0a0a0a] border-b border-white/10 text-xs text-white/50">
-          <span
-            className={`w-2 h-2 rounded-full ${
-              connected ? "bg-green-500" : "bg-red-500"
-            }`}
-          />
-          <span className="text-white/70">Claude Code</span>
+        {/* Terminal header */}
+        <div className="flex items-center gap-2 px-3 h-10 shrink-0">
+          <span className="text-[13px] font-medium text-white/90">
+            {appName}
+          </span>
           <span className="flex-1" />
 
           {/* Restart */}
           <div ref={restartRef} className="relative">
             <button
               onClick={() => setShowRestartConfirm((v) => !v)}
-              className="p-1 rounded text-white/40 hover:text-white/80 hover:bg-white/5 transition-colors"
+              className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
               title="Restart Claude Code"
             >
-              <IconRefresh size={15} stroke={1.5} />
+              <IconRefresh size={14} stroke={1.5} />
             </button>
             {showRestartConfirm && (
-              <div className="absolute top-8 right-0 bg-[#0a0a0a] border border-white/10 rounded-lg p-3 z-50 min-w-[200px] shadow-2xl">
+              <div className="absolute top-8 right-0 bg-[#2a2a2a] border border-white/10 rounded-lg p-3 z-50 min-w-[200px] shadow-2xl">
                 <p className="text-xs text-white/70 mb-2">
                   Restart Claude Code? This will end the current session.
                 </p>
@@ -152,47 +170,87 @@ export function App() {
           </div>
 
           {/* Settings */}
-          <div ref={settingsRef}>
+          <div ref={settingsRef} className="relative">
             <button
               onClick={() => setShowSettings((v) => !v)}
-              className="p-1 rounded text-white/40 hover:text-white/80 hover:bg-white/5 transition-colors"
-              title="Launch settings"
+              className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
+              title="Settings"
             >
-              <IconSettings size={15} stroke={1.5} />
+              <IconSettings size={14} stroke={1.5} />
             </button>
             {showSettings && (
-              <SettingsPanel settings={settings} onChange={updateSettings} />
+              <SettingsPanel
+                settings={settings}
+                onChange={updateSettings}
+                appPort={APP_PORT}
+                iframeRef={iframeRef}
+                connected={connected}
+              />
+            )}
+          </div>
+
+          {/* Share */}
+          <div ref={shareRef} className="relative">
+            <button
+              onClick={() => setShowShareMenu((v) => !v)}
+              className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
+              title="Share"
+            >
+              <IconShare size={14} stroke={1.5} />
+            </button>
+            {showShareMenu && (
+              <div className="absolute top-8 right-0 bg-[#2a2a2a] border border-white/10 rounded-lg p-3 z-50 min-w-[260px] shadow-2xl">
+                <h3 className="text-[13px] font-semibold text-white/90 mb-2">
+                  Share
+                </h3>
+                <button
+                  onClick={copyUrl}
+                  className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded text-xs text-white/60 hover:text-white/90 hover:bg-white/5 transition-colors"
+                >
+                  <IconExternalLink size={13} stroke={1.5} />
+                  Copy local URL
+                </button>
+                <div className="border-t border-white/10 my-2" />
+                <p className="text-[11px] text-white/40 leading-relaxed">
+                  Need sharing, collaboration, or remote access? Use the{" "}
+                  <a
+                    href="https://www.builder.io"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:text-blue-300"
+                  >
+                    Builder harness
+                  </a>{" "}
+                  for real-time multiplayer, cloud deployment, and shareable links.
+                </p>
+              </div>
             )}
           </div>
         </div>
 
         {/* Terminal */}
         <div ref={termRef} className="flex-1 min-h-0 p-1" />
-
-        {/* Status bar */}
-        <div className="flex justify-between px-3 py-1 bg-[#0a0a0a] border-t border-white/10 text-[11px]">
-          <span className={connected ? "text-green-500" : "text-red-500"}>
-            {connected ? "Connected" : "Disconnected"}
-          </span>
-        </div>
       </div>
 
       {/* Drag handle */}
       <div
         onMouseDown={onMouseDown}
-        className="w-1.5 bg-white/5 cursor-col-resize flex items-center justify-center hover:bg-blue-500/40 transition-colors"
+        className="w-1 cursor-col-resize flex items-center justify-center hover:bg-blue-500/30 transition-colors"
       >
-        <div className="w-0.5 h-8 bg-white/15 rounded-full" />
+        <div className="w-px h-8 bg-white/10 rounded-full" />
       </div>
 
-      {/* App pane */}
-      <div className="flex-1 flex flex-col">
-        <iframe
-          ref={iframeRef}
-          src={`http://localhost:${APP_PORT}`}
-          className="flex-1 border-none w-full h-full"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-        />
+      {/* Preview pane — full height */}
+      <div className="flex-1 flex flex-col min-h-0 p-2 pl-0">
+        <div className="flex-1 rounded-xl overflow-hidden bg-black">
+          <iframe
+            ref={iframeRef}
+            src={`http://localhost:${APP_PORT}`}
+            className="w-full h-full border-none"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-presentation"
+            allow="fullscreen"
+          />
+        </div>
       </div>
     </div>
   );

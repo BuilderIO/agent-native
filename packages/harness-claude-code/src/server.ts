@@ -1,8 +1,9 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import { createServer } from 'http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import * as pty from 'node-pty';
 import os from 'os';
 import path from 'path';
+import fs from 'fs';
 
 // Parse CLI args
 function parseArgs(args: string[]): {
@@ -42,7 +43,25 @@ const config = parseArgs(process.argv.slice(2));
 const appDir = path.resolve(config.appDir);
 const shell = os.platform() === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin/zsh';
 
-const server = createServer();
+// Read app package.json for name
+let appName = path.basename(appDir);
+try {
+  const pkg = JSON.parse(fs.readFileSync(path.join(appDir, 'package.json'), 'utf-8'));
+  if (pkg.name) appName = pkg.name.replace(/^@[^/]+\//, ''); // strip scope
+} catch {}
+
+const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+  if (req.url === '/api/app-info') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.end(JSON.stringify({ name: appName, dir: appDir }));
+    return;
+  }
+  res.writeHead(404);
+  res.end();
+});
 const wss = new WebSocketServer({ server, path: '/ws' });
 
 // WebSocket handling — each connection gets a PTY

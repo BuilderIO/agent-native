@@ -15,6 +15,9 @@ const config = defineConfig({
     tanstackStart(),
     viteReact(),
   ],
+  optimizeDeps: {
+    exclude: ['lightningcss', 'fsevents'],
+  },
   ssr: {
     external: ['lightningcss', 'fsevents'],
     noExternal: ['@tailwindcss/vite'],

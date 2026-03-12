@@ -16,12 +16,10 @@ function ScriptsDocs() {
   return (
     <DocsLayout toc={TOC}>
       <h1 className="mb-2 text-4xl font-semibold tracking-tight">Scripts</h1>
-      <p className="mb-8 text-base text-[var(--fg-secondary)]">
+      <p className="mb-4 text-base text-[var(--fg-secondary)]">
         <code>@agent-native/core</code> provides a script dispatcher and utilities for
         building agent-callable scripts.
       </p>
-
-      <hr />
 
       <h2 id="script-dispatcher">Script Dispatcher</h2>
       <p>

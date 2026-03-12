@@ -4,6 +4,21 @@ Framework for **agent-native** application development — where an AI agent and
 
 Think Next.js, but for apps where the AI agent is a first-class citizen: it reads and writes the same files as the UI, communicates through a chat bridge, and can even modify the app's own code.
 
+## Harnesses
+
+Agent-native apps run inside a **harness** — a host environment that provides the AI agent and displays your app UI side by side.
+
+| | Claude Code Harness | Builder Harness |
+|---|---|---|
+| **Deployment** | Local only | Local or cloud |
+| **Agent** | Claude Code CLI (PTY) | Claude, Codex, etc |
+| **Collaboration** | Solo | Real-time multiplayer |
+| **Visual editing** | No | Yes |
+| **Parallel agents** | No | Yes |
+| **Best for** | Solo dev, local testing, OSS | Teams, production, visual collaboration |
+
+Both harnesses support all core features: postMessage chat bridge, SSE file watcher, and script system. Your app code is identical regardless of harness. See the [full comparison in the docs](https://agent-native.dev/docs/harnesses).
+
 ## Quick Start
 
 ```bash
@@ -204,16 +219,6 @@ await sync.initFileSync();
 ```
 
 Features: startup sync, real-time Firestore listeners, chokidar file watchers, three-way merge with LCS-based conflict resolution, `.conflict` sidecar files for unresolvable conflicts.
-
-## Harnesses
-
-Agent-native apps run inside a **harness** — a host environment that provides the AI agent and displays the app UI side by side.
-
-- **Claude Code Harness** — Local, open-source, CLI-powered. Ships with `@agent-native/harness-claude-code`. Runs an xterm.js terminal alongside your app iframe, powered by Claude Code CLI via a real PTY. Best for solo development, local testing, and open-source projects.
-
-- **Builder Harness** — Local or cloud, provided by Builder.io. Supports real-time collaboration, visual editing, and parallel agent execution. Best for teams, production deployments, and visual editing workflows.
-
-Both harnesses support all core agent-native features: the postMessage chat bridge, SSE file watcher, and script system. Your app code is identical regardless of which harness you use. See the [full comparison in the docs](https://agent-native.dev/docs/harnesses).
 
 ## License
 

@@ -16,12 +16,10 @@ function ClientDocs() {
   return (
     <DocsLayout toc={TOC}>
       <h1 className="mb-2 text-4xl font-semibold tracking-tight">Client</h1>
-      <p className="mb-8 text-base text-[var(--fg-secondary)]">
+      <p className="mb-4 text-base text-[var(--fg-secondary)]">
         <code>@agent-native/core</code> provides React hooks and utilities for
         the browser-side of agent-native apps.
       </p>
-
-      <hr />
 
       <h2 id="sendtoagentchat">sendToAgentChat(opts)</h2>
       <p>Send a message to the agent chat via postMessage. Used to delegate AI tasks from UI interactions.</p>

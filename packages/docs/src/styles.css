@@ -127,7 +127,7 @@ pre {
 hr {
   border: none;
   border-top: 1px solid var(--border);
-  margin: 32px 0;
+  margin: 24px 0;
 }
 
 h1,
@@ -142,23 +142,23 @@ h4 {
 /* Docs prose */
 .docs-content h2 {
   font-size: 24px;
-  margin-top: 48px;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
+  margin-top: 32px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
 }
 
 .docs-content h3 {
   font-size: 18px;
-  margin-top: 32px;
-  margin-bottom: 12px;
+  margin-top: 24px;
+  margin-bottom: 8px;
 }
 
 .docs-content p {
   font-size: 14px;
   line-height: 1.7;
   color: var(--fg);
-  margin: 12px 0;
+  margin: 8px 0;
 }
 
 .docs-content li {

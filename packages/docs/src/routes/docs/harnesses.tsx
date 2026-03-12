@@ -15,12 +15,10 @@ function HarnessesDocs() {
   return (
     <DocsLayout toc={TOC}>
       <h1 className="mb-2 text-4xl font-semibold tracking-tight">Harnesses</h1>
-      <p className="mb-8 text-base text-[var(--fg-secondary)]">
+      <p className="mb-4 text-base text-[var(--fg-secondary)]">
         Agent-native apps run inside a <strong>harness</strong> — a host environment that provides
         the AI agent and displays the app UI side by side.
       </p>
-
-      <hr />
 
       <h2 id="claude-code-harness">Claude Code Harness (Local)</h2>
       <ul>

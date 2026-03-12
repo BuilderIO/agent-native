@@ -17,11 +17,9 @@ function DocsIndex() {
   return (
     <DocsLayout toc={TOC}>
       <h1 className="mb-2 text-4xl font-semibold tracking-tight">Getting Started</h1>
-      <p className="mb-8 text-base text-[var(--fg-secondary)]">
+      <p className="mb-4 text-base text-[var(--fg-secondary)]">
         Welcome to the Agent-Native documentation!
       </p>
-
-      <hr />
 
       <h2 id="installation">Installation</h2>
       <p>Create a new project:</p>

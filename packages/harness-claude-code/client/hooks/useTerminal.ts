@@ -22,10 +22,10 @@ export function useTerminal({ appPort }: UseTerminalOptions) {
 
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 12,
+      fontSize: 11,
       fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
       theme: {
-        background: "#000000",
+        background: "#1e1e1e",
         foreground: "#e0e0e0",
         cursor: "#58a6ff",
         selectionBackground: "#264f78",

@@ -15,12 +15,10 @@ function ServerDocs() {
   return (
     <DocsLayout toc={TOC}>
       <h1 className="mb-2 text-4xl font-semibold tracking-tight">Server</h1>
-      <p className="mb-8 text-base text-[var(--fg-secondary)]">
+      <p className="mb-4 text-base text-[var(--fg-secondary)]">
         <code>@agent-native/core</code> provides Express utilities for building your API server
         with file watching and SSE.
       </p>
-
-      <hr />
 
       <h2 id="createserver">createServer(options?)</h2>
       <p>Creates a pre-configured Express app with standard middleware:</p>
