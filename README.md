@@ -27,12 +27,11 @@ An agent-native app follows five principles:
 
 ## What You Get
 
-AgentNative extracts the shared foundation from production apps into two packages:
+AgentNative extracts the shared foundation from production apps into one package:
 
 | Import | What it does |
 |--------|-------------|
-| `@agent-native/core` | `createServer()`, `createFileWatcher()`, `createSSEHandler()`, `createProductionServer()`, `runScript()`, `parseArgs()`, `loadEnv()`, `fail()`, path validators |
-| `@agent-native/client` | `agentChat`, `sendToAgentChat()`, `useAgentChatGenerating()`, `useFileWatcher()`, `cn()` |
+| `@agent-native/core` | `createServer()`, `createFileWatcher()`, `createSSEHandler()`, `createProductionServer()`, `runScript()`, `parseArgs()`, `loadEnv()`, `fail()`, `agentChat`, `sendToAgentChat()`, `useAgentChatGenerating()`, `useFileWatcher()`, `cn()`, path validators |
 | `@agent-native/core/vite` | `defineConfig()` and `defineServerConfig()` — full Vite setup in 1 line |
 | `@agent-native/core/tailwind` | Tailwind preset with HSL color system, shadcn/ui tokens, animations |
 | `@agent-native/core/adapters/firestore` | Bidirectional file sync with three-way merge and conflict resolution |
@@ -85,7 +84,7 @@ createProductionServer(createAppServer());
 ### Client — Chat Bridge
 
 ```ts
-import { sendToAgentChat } from "@agent-native/client";
+import { sendToAgentChat } from "@agent-native/core";
 
 sendToAgentChat({
   message: "Generate a summary of this document",
@@ -97,7 +96,7 @@ sendToAgentChat({
 ### Client — File Watcher Hook
 
 ```tsx
-import { useFileWatcher } from "@agent-native/client";
+import { useFileWatcher } from "@agent-native/core";
 import { useQueryClient } from "@tanstack/react-query";
 
 function App() {
@@ -118,7 +117,7 @@ runScript();
 ```ts
 // scripts/my-task.ts
 import { parseArgs, loadEnv } from "@agent-native/core";
-import { agentChat } from "@agent-native/client";
+import { agentChat } from "@agent-native/core";
 
 export default async function myTask(args: string[]) {
   loadEnv();

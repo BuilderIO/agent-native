@@ -26,8 +26,6 @@ function DocsIndex() {
       <h2 id="installation">Installation</h2>
       <p>Create a new project:</p>
       <CodeBlock code="npx @agent-native/core create my-app" lang="bash" />
-      <p>Or add to an existing project:</p>
-      <CodeBlock code="pnpm add @agent-native/core @agent-native/client" lang="bash" />
 
       <h2 id="project-structure">Project Structure</h2>
       <p>Every agent-native app follows the same convention:</p>
@@ -80,8 +78,7 @@ export default {
           </thead>
           <tbody>
             {[
-              ['@agent-native/core', 'Server + scripts: createServer, createFileWatcher, createSSEHandler, createProductionServer, runScript, parseArgs, loadEnv, fail, etc.'],
-              ['@agent-native/client', 'Browser hooks, chat bridge, utilities: agentChat, sendToAgentChat, useAgentChatGenerating, useFileWatcher, cn'],
+              ['@agent-native/core', 'Server, client, scripts: createServer, createFileWatcher, createSSEHandler, createProductionServer, runScript, parseArgs, loadEnv, fail, agentChat, sendToAgentChat, useAgentChatGenerating, useFileWatcher, cn'],
               ['@agent-native/core/vite', 'defineConfig(), defineServerConfig()'],
               ['@agent-native/core/tailwind', 'Tailwind preset (HSL colors, shadcn/ui tokens, animations)'],
               ['@agent-native/core/adapters/firestore', 'FileSync, threeWayMerge, loadSyncConfig'],

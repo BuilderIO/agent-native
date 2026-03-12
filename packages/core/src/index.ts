@@ -1,5 +1,5 @@
-// Server-side framework for agent-native apps.
-// Browser-side utilities are in @agent-native/client.
+// Framework for agent-native apps.
+// Import everything from "@agent-native/core".
 
 // Server
 export {
@@ -12,6 +12,18 @@ export {
   type SSEHandlerOptions,
   type ProductionServerOptions,
 } from "./server/index.js";
+
+// Client
+export {
+  sendToAgentChat,
+  useAgentChatGenerating,
+  useFileWatcher,
+  cn,
+  type AgentChatMessage,
+} from "./client/index.js";
+
+// Shared (isomorphic)
+export { agentChat } from "./shared/index.js";
 
 // Scripts
 export {
