@@ -1,0 +1,13 @@
+# Documentation (not needed in package)
+RAMBLINGS.md
+FUSION-APPS.md
+INFO.md
+
+# Development files
+.git
+.gitignore
+.DS_Store
+*.log
+
+# Source (dist is published, templates are included via "files")
+# Note: src/templates IS included via package.json "files" field
