@@ -8,3 +8,7 @@ docs/superpowers
 
 # Screenshot artifacts from design iterations
 packages/docs/*.png
+
+# Internal notes
+RAMBLINGS.md
+FUSION-APPS.md
