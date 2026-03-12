@@ -8,7 +8,10 @@
     "create-agent-native": "./dist/cli/index.js"
   },
   "exports": {
-    ".": "./dist/index.js",
+    ".": {
+      "browser": "./dist/index.browser.js",
+      "default": "./dist/index.js"
+    },
     "./vite": "./dist/vite/index.js",
     "./server": "./dist/server/index.js",
     "./client": "./dist/client/index.js",

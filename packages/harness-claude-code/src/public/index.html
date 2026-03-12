@@ -20,8 +20,6 @@
     #drag-handle:hover { background: #388bfd; }
     #drag-handle .grip { width: 2px; height: 32px; background: #484f58; border-radius: 1px; }
     #app-pane { flex: 1; display: flex; flex-direction: column; background: #f6f8fa; }
-    #app-header { padding: 8px 12px; background: #fff; border-bottom: 1px solid #d0d7de; color: #57606a; font-size: 12px; display: flex; align-items: center; justify-content: space-between; }
-    #app-header a { color: #0969da; text-decoration: none; font-size: 11px; }
     #app-iframe { flex: 1; border: none; width: 100%; height: 100%; }
     #status-bar { padding: 4px 12px; background: #161b22; border-top: 1px solid #30363d; color: #484f58; font-size: 11px; display: flex; justify-content: space-between; }
     #status-bar .connected { color: #3fb950; }
@@ -43,10 +41,6 @@
     </div>
     <div id="drag-handle"><div class="grip"></div></div>
     <div id="app-pane">
-      <div id="app-header">
-        <span id="app-url"></span>
-        <a id="app-open-link" href="#" target="_blank">Open in new tab &#8599;</a>
-      </div>
       <iframe id="app-iframe" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"></iframe>
     </div>
   </div>
@@ -61,10 +55,6 @@
     // Set up iframe
     const iframe = document.getElementById('app-iframe');
     iframe.src = appUrl;
-    document.getElementById('app-url').textContent = appUrl;
-    const openLink = document.getElementById('app-open-link');
-    openLink.href = appUrl;
-
     // Set up terminal
     const term = new Terminal({
       cursorBlink: true,
@@ -90,6 +80,13 @@
     term.open(document.getElementById('terminal-container'));
     fitAddon.fit();
 
+    // Send terminal size to PTY via WebSocket
+    function sendResize() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      }
+    }
+
     // WebSocket connection
     const wsUrl = `ws://${location.host}/ws`;
     let ws;
@@ -102,6 +99,8 @@
       ws.onopen = () => {
         statusEl.textContent = 'Connected';
         statusEl.className = 'connected';
+        // Send initial size to PTY
+        sendResize();
       };
 
       ws.onmessage = (event) => {
@@ -163,6 +162,7 @@
       const newWidth = Math.max(200, Math.min(e.clientX, containerWidth - 200));
       terminalPane.style.flex = `0 0 ${newWidth}px`;
       fitAddon.fit();
+      sendResize();
     });
 
     document.addEventListener('mouseup', () => {
@@ -172,11 +172,12 @@
         document.body.style.userSelect = '';
         iframe.style.pointerEvents = '';
         fitAddon.fit();
+        sendResize();
       }
     });
 
     // Resize terminal on window resize
-    window.addEventListener('resize', () => fitAddon.fit());
+    window.addEventListener('resize', () => { fitAddon.fit(); sendResize(); });
   </script>
 </body>
 </html>

@@ -1,10 +1,11 @@
 import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
-import { spawn } from 'child_process';
+import * as pty from 'node-pty';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -45,6 +46,7 @@ function parseArgs(args: string[]): {
 
 const config = parseArgs(process.argv.slice(2));
 const appDir = path.resolve(config.appDir);
+const shell = os.platform() === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin/zsh';
 
 const app = express();
 const server = createServer(app);
@@ -60,44 +62,69 @@ app.get('/', (_req, res) => {
   res.type('html').send(html);
 });
 
-// WebSocket handling
+// WebSocket handling — each connection gets a PTY
 wss.on('connection', (ws: WebSocket) => {
-  console.log('[harness] WebSocket connected, spawning:', config.command);
+  console.log('[harness] WebSocket connected, spawning PTY:', config.command);
 
-  const child = spawn(config.command, [], {
-    cwd: appDir,
-    env: { ...process.env, TERM: 'xterm-256color' },
-    shell: true,
-  });
-
-  child.stdout.on('data', (chunk: Buffer) => {
+  let ptyProcess: pty.IPty;
+  try {
+    ptyProcess = pty.spawn(shell, ['-l', '-c', config.command], {
+      name: 'xterm-256color',
+      cols: 120,
+      rows: 40,
+      cwd: appDir,
+      env: (() => {
+        const env = { ...process.env, TERM: 'xterm-256color' };
+        // Remove Claude Code nesting detection env vars so a fresh session can spawn
+        delete env.CLAUDECODE;
+        delete env.CLAUDE_CODE_SESSION;
+        return env;
+      })() as Record<string, string>,
+    });
+  } catch (err) {
+    console.error('[harness] Failed to spawn PTY:', err);
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send(chunk);
+      ws.send(`\r\n\x1b[31m[harness] Failed to spawn PTY: ${err}\x1b[0m\r\n`);
+      ws.close();
     }
-  });
+    return;
+  }
 
-  child.stderr.on('data', (chunk: Buffer) => {
+  console.log(`[harness] PTY spawned (pid: ${ptyProcess.pid})`);
+
+  ptyProcess.onData((data: string) => {
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send(chunk);
+      ws.send(data);
     }
   });
 
-  ws.on('message', (data: Buffer) => {
-    if (child.stdin.writable) {
-      child.stdin.write(data);
-    }
-  });
-
-  child.on('exit', (code) => {
-    console.log(`[harness] Process exited with code ${code}`);
+  ptyProcess.onExit(({ exitCode }) => {
+    console.log(`[harness] PTY exited with code ${exitCode}`);
     if (ws.readyState === WebSocket.OPEN) {
       ws.close();
     }
   });
 
+  ws.on('message', (data: Buffer | string) => {
+    const str = typeof data === 'string' ? data : data.toString();
+
+    // Handle resize messages from the client
+    try {
+      const msg = JSON.parse(str);
+      if (msg.type === 'resize' && msg.cols && msg.rows) {
+        ptyProcess.resize(msg.cols, msg.rows);
+        return;
+      }
+    } catch {
+      // Not JSON — regular terminal input
+    }
+
+    ptyProcess.write(str);
+  });
+
   ws.on('close', () => {
-    console.log('[harness] WebSocket closed, killing child process');
-    child.kill();
+    console.log('[harness] WebSocket closed, killing PTY');
+    ptyProcess.kill();
   });
 });
 

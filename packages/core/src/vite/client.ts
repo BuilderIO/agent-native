@@ -40,7 +40,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       host: "::",
       port: options.port ?? 8080,
       fs: {
-        allow: ["./client", "./shared", ...(options.fsAllow ?? [])],
+        allow: [".", ...(options.fsAllow ?? [])],
         deny: [
           ".env",
           ".env.*",
