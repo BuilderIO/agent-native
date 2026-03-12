@@ -1,5 +1,5 @@
 /**
- * Isomorphic Fusion Chat Utility
+ * Isomorphic Agent Chat Utility
  *
  * Works in both browser and Node.js contexts:
  * - Browser: sends via postMessage to the parent window
@@ -7,7 +7,7 @@
  *   which the Electron host translates to postMessage
  */
 
-export interface FusionChatMessage {
+export interface AgentChatMessage {
   /** The visible prompt text shown in the chat input */
   message: string;
   /** Hidden context appended to the prompt (not shown to user, but sent to AI) */
@@ -16,24 +16,24 @@ export interface FusionChatMessage {
   submit?: boolean;
 }
 
-const FUSION_MESSAGE_TYPE = "builder.submitChat";
+const AGENT_CHAT_MESSAGE_TYPE = "builder.submitChat";
 
 const isBrowser =
   typeof window !== "undefined" && typeof window.postMessage === "function";
 
 /**
- * Send a structured message to Fusion AI chat.
+ * Send a structured message to the agent chat.
  * Automatically detects environment (browser vs Node.js) and uses the right transport.
  */
-function send(data: FusionChatMessage): void {
-  const payload = { type: FUSION_MESSAGE_TYPE, data };
+function send(data: AgentChatMessage): void {
+  const payload = { type: AGENT_CHAT_MESSAGE_TYPE, data };
 
   if (isBrowser) {
     const target = window.parent !== window ? window.parent : window;
     try {
       target.postMessage(payload, "*");
     } catch (err) {
-      console.error("[fusionChat] postMessage failed:", err);
+      console.error("[agentChat] postMessage failed:", err);
     }
   } else {
     // Node.js: use BUILDER_PARENT_MESSAGE stdout format for Electron integration
@@ -45,23 +45,23 @@ function send(data: FusionChatMessage): void {
 }
 
 /**
- * Submit a message to Fusion chat (auto-submits by default).
+ * Submit a message to the agent chat (auto-submits by default).
  */
 function submit(message: string, context?: string): void {
   send({ message, context, submit: true });
 }
 
 /**
- * Prefill the Fusion chat input without submitting (user reviews first).
+ * Prefill the agent chat input without submitting (user reviews first).
  */
 function prefill(message: string, context?: string): void {
   send({ message, context, submit: false });
 }
 
-export const fusionChat = {
-  /** Send raw FusionChatMessage — full control over all fields */
+export const agentChat = {
+  /** Send raw AgentChatMessage — full control over all fields */
   send,
-  /** Auto-submit a message to Fusion chat */
+  /** Auto-submit a message to agent chat */
   submit,
   /** Prefill the chat input for user review before sending */
   prefill,

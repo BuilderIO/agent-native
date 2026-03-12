@@ -1,63 +1,66 @@
 import { createFileRoute } from '@tanstack/react-router'
+import DocsLayout from '../../components/DocsLayout'
+import CodeBlock from '../../components/CodeBlock'
 
 export const Route = createFileRoute('/docs/')({ component: DocsIndex })
 
+const TOC = [
+  { id: 'installation', label: 'Installation' },
+  { id: 'project-structure', label: 'Project Structure' },
+  { id: 'vite-configuration', label: 'Vite Configuration' },
+  { id: 'typescript-tailwind', label: 'TypeScript & Tailwind' },
+  { id: 'subpath-exports', label: 'Subpath Exports' },
+  { id: 'architecture-principles', label: 'Architecture Principles' },
+]
+
 function DocsIndex() {
   return (
-    <main className="page-wrap px-4 pb-8 pt-10">
-      <h1 className="display-title mb-4 text-3xl font-bold tracking-tight text-[var(--sea-ink)] sm:text-4xl">
-        Getting Started
-      </h1>
-      <p className="mb-8 max-w-2xl text-base text-[var(--sea-ink-soft)]">
-        Agent-Native is a framework for building apps where an AI agent and UI share state through files.
+    <DocsLayout toc={TOC}>
+      <h1 className="mb-2 text-4xl font-semibold tracking-tight">Getting Started</h1>
+      <p className="mb-8 text-base text-[var(--fg-secondary)]">
+        Welcome to the Agent-Native documentation!
       </p>
 
-      <section className="prose-section mb-10">
-        <h2>Installation</h2>
-        <p>Create a new project:</p>
-        <Pre code="npx @agent-native/core create my-app" />
-        <p>Or add to an existing project:</p>
-        <Pre code="pnpm add @agent-native/core" />
-      </section>
+      <hr />
 
-      <section className="prose-section mb-10">
-        <h2>Project Structure</h2>
-        <p>Every agent-native app follows the same convention:</p>
-        <Pre code={`my-app/
+      <h2 id="installation">Installation</h2>
+      <p>Create a new project:</p>
+      <CodeBlock code="npx @agent-native/core create my-app" lang="bash" />
+      <p>Or add to an existing project:</p>
+      <CodeBlock code="pnpm add @agent-native/core" lang="bash" />
+
+      <h2 id="project-structure">Project Structure</h2>
+      <p>Every agent-native app follows the same convention:</p>
+      <CodeBlock code={`my-app/
   client/          # React frontend (Vite SPA)
     App.tsx        # Entry point
     components/    # UI components
     lib/utils.ts   # cn() utility
   server/          # Express backend
-    index.ts       # createAppServer() — routes + middleware
+    index.ts       # createAppServer()
     node-build.ts  # Production entry point
   shared/          # Isomorphic code (client & server)
   scripts/         # Agent-callable scripts
     run.ts         # Script dispatcher
-  data/            # App data files (watched by SSE)`} />
-      </section>
+  data/            # App data files (watched by SSE)`} lang="text" />
 
-      <section className="prose-section mb-10">
-        <h2>Vite Configuration</h2>
-        <p>Two config files — client SPA and server build:</p>
-        <Pre code={`// vite.config.ts
+      <h2 id="vite-configuration">Vite Configuration</h2>
+      <p>Two config files — client SPA and server build:</p>
+      <CodeBlock code={`// vite.config.ts
 import { defineConfig } from "@agent-native/core/vite";
 export default defineConfig();`} />
-        <Pre code={`// vite.config.server.ts
+      <CodeBlock code={`// vite.config.server.ts
 import { defineServerConfig } from "@agent-native/core/vite";
 export default defineServerConfig();`} />
-        <p>
-          <code>defineConfig()</code> sets up React SWC, path aliases (<code>@/</code> → <code>client/</code>,{' '}
-          <code>@shared/</code> → <code>shared/</code>), fs restrictions, and the Express dev plugin
-          that mounts your server as Vite middleware.
-        </p>
-      </section>
+      <p>
+        <code>defineConfig()</code> sets up React SWC, path aliases (<code>@/</code> {'->'} <code>client/</code>,{' '}
+        <code>@shared/</code> {'->'} <code>shared/</code>), fs restrictions, and the Express dev plugin.
+      </p>
 
-      <section className="prose-section mb-10">
-        <h2>TypeScript & Tailwind</h2>
-        <Pre code={`// tsconfig.json
+      <h2 id="typescript-tailwind">TypeScript & Tailwind</h2>
+      <CodeBlock code={`// tsconfig.json
 { "extends": "@agent-native/core/tsconfig.base.json" }`} />
-        <Pre code={`// tailwind.config.ts
+      <CodeBlock code={`// tailwind.config.ts
 import type { Config } from "tailwindcss";
 import preset from "@agent-native/core/tailwind";
 
@@ -65,56 +68,40 @@ export default {
   presets: [preset],
   content: ["./client/**/*.{ts,tsx}"],
 } satisfies Config;`} />
-      </section>
 
-      <section className="prose-section mb-10">
-        <h2>Subpath Exports</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--line)]">
-                <th className="py-2 pr-4 text-left font-semibold text-[var(--sea-ink)]">Import</th>
-                <th className="py-2 text-left font-semibold text-[var(--sea-ink)]">Exports</th>
+      <h2 id="subpath-exports">Subpath Exports</h2>
+      <div className="overflow-x-auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Import</th>
+              <th>Exports</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              ['@agent-native/core', 'All server, client, shared, and script exports (createServer, useFileWatcher, agentChat, parseArgs, etc.)'],
+              ['@agent-native/core/vite', 'defineConfig(), defineServerConfig()'],
+              ['@agent-native/core/tailwind', 'Tailwind preset (HSL colors, shadcn/ui tokens, animations)'],
+              ['@agent-native/core/adapters/firestore', 'FileSync, threeWayMerge, loadSyncConfig'],
+            ].map(([imp, desc]) => (
+              <tr key={imp}>
+                <td>{imp}</td>
+                <td>{desc}</td>
               </tr>
-            </thead>
-            <tbody className="text-[var(--sea-ink-soft)]">
-              {[
-                ['@agent-native/core/vite', 'defineConfig(), defineServerConfig()'],
-                ['@agent-native/core/server', 'createServer(), createFileWatcher(), createSSEHandler(), createProductionServer()'],
-                ['@agent-native/core/client', 'sendToFusionChat(), useFusionChatGenerating(), useFileWatcher(), cn()'],
-                ['@agent-native/core/shared', 'fusionChat.send(), .submit(), .prefill()'],
-                ['@agent-native/core/scripts', 'runScript(), parseArgs(), loadEnv(), fail(), isValidPath()'],
-                ['@agent-native/core/tailwind', 'Tailwind preset (HSL colors, shadcn/ui tokens, animations)'],
-                ['@agent-native/core/adapters/firestore', 'FileSync, threeWayMerge, loadSyncConfig'],
-              ].map(([imp, desc]) => (
-                <tr key={imp} className="border-b border-[var(--line)]">
-                  <td className="py-2 pr-4 font-mono text-xs text-[var(--lagoon-deep)]">{imp}</td>
-                  <td className="py-2">{desc}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-      <section className="prose-section mb-10">
-        <h2>Architecture Principles</h2>
-        <ol className="list-decimal space-y-3 pl-5 text-[var(--sea-ink-soft)]">
-          <li><strong className="text-[var(--sea-ink)]">Files as database</strong> — All app state lives in files. Both UI and agent read/write the same files.</li>
-          <li><strong className="text-[var(--sea-ink)]">All AI through agent chat</strong> — No inline LLM calls. UI delegates to the AI via <code>sendToFusionChat()</code>.</li>
-          <li><strong className="text-[var(--sea-ink)]">Scripts for agent ops</strong> — <code>pnpm script &lt;name&gt;</code> dispatches to callable script files.</li>
-          <li><strong className="text-[var(--sea-ink)]">Bidirectional SSE events</strong> — File watcher keeps UI in sync with agent changes in real-time.</li>
-          <li><strong className="text-[var(--sea-ink)]">Agent can update code</strong> — The agent modifies the app itself.</li>
-        </ol>
-      </section>
-    </main>
-  )
-}
-
-function Pre({ code }: { code: string }) {
-  return (
-    <pre className="my-3 overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-xs leading-relaxed text-[var(--sea-ink)]">
-      <code>{code}</code>
-    </pre>
+      <h2 id="architecture-principles">Architecture Principles</h2>
+      <ol className="list-decimal space-y-3 pl-5">
+        <li><strong>Files as database</strong> — All app state lives in files. Both UI and agent read/write the same files.</li>
+        <li><strong>All AI through agent chat</strong> — No inline LLM calls. UI delegates to the AI via <code>sendToAgentChat()</code>.</li>
+        <li><strong>Scripts for agent ops</strong> — <code>pnpm script &lt;name&gt;</code> dispatches to callable script files.</li>
+        <li><strong>Bidirectional SSE events</strong> — File watcher keeps UI in sync with agent changes in real-time.</li>
+        <li><strong>Agent can update code</strong> — The agent modifies the app itself.</li>
+      </ol>
+    </DocsLayout>
   )
 }

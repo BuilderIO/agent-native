@@ -1,17 +1,17 @@
 import { useState, useEffect, useCallback } from "react";
-import { sendToFusionChat, type FusionChatMessage } from "./fusion-chat.js";
+import { sendToAgentChat, type AgentChatMessage } from "./agent-chat.js";
 
 /**
- * Hook that wraps sendToFusionChat with a loading state.
+ * Hook that wraps sendToAgentChat with a loading state.
  *
  * Returns [isGenerating, send] where:
  * - isGenerating: true after send() is called, false when the
  *   builder.fusion.chatRunning event fires with detail.isRunning === false
- * - send: wrapper around sendToFusionChat that sets isGenerating to true
+ * - send: wrapper around sendToAgentChat that sets isGenerating to true
  */
-export function useFusionChatGenerating(): [
+export function useAgentChatGenerating(): [
   boolean,
-  (opts: FusionChatMessage) => void,
+  (opts: AgentChatMessage) => void,
 ] {
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -27,9 +27,9 @@ export function useFusionChatGenerating(): [
       window.removeEventListener("builder.fusion.chatRunning", handler);
   }, []);
 
-  const send = useCallback((opts: FusionChatMessage) => {
+  const send = useCallback((opts: AgentChatMessage) => {
     setIsGenerating(true);
-    sendToFusionChat(opts);
+    sendToAgentChat(opts);
   }, []);
 
   return [isGenerating, send];

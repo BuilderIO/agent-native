@@ -15,6 +15,15 @@ const config = defineConfig({
     tanstackStart(),
     viteReact(),
   ],
+  ssr: {
+    external: ['lightningcss', 'fsevents'],
+    noExternal: ['@tailwindcss/vite'],
+  },
+  build: {
+    rollupOptions: {
+      external: ['lightningcss', 'fsevents'],
+    },
+  },
 })
 
 export default config

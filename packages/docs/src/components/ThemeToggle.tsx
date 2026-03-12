@@ -31,6 +31,12 @@ function applyThemeMode(mode: ThemeMode) {
   document.documentElement.style.colorScheme = resolved
 }
 
+const ICONS: Record<ThemeMode, string> = {
+  light: '\u2600',
+  dark: '\u263E',
+  auto: '\u25D1',
+}
+
 export default function ThemeToggle() {
   const [mode, setMode] = useState<ThemeMode>('auto')
 
@@ -64,8 +70,8 @@ export default function ThemeToggle() {
 
   const label =
     mode === 'auto'
-      ? 'Theme mode: auto (system). Click to switch to light mode.'
-      : `Theme mode: ${mode}. Click to switch mode.`
+      ? 'Theme: auto (system)'
+      : `Theme: ${mode}`
 
   return (
     <button
@@ -73,9 +79,9 @@ export default function ThemeToggle() {
       onClick={toggleMode}
       aria-label={label}
       title={label}
-      className="rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] px-3 py-1.5 text-sm font-semibold text-[var(--sea-ink)] shadow-[0_8px_22px_rgba(30,90,72,0.08)] transition hover:-translate-y-0.5"
+      className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
     >
-      {mode === 'auto' ? 'Auto' : mode === 'dark' ? 'Dark' : 'Light'}
+      {ICONS[mode]}
     </button>
   )
 }

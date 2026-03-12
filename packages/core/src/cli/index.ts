@@ -20,7 +20,7 @@ Usage:
 
 Examples:
   npx @agent-native/core create my-app
-  agent-native create fusion-analytics`);
+  agent-native create my-analytics-app`);
     break;
   default:
     console.error(`Unknown command: ${command}`);

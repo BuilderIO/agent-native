@@ -4,6 +4,9 @@
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "dev:deck": "pnpm --filter @agent-native/example-deck-generator dev",
+    "dev:harness": "pnpm --filter @agent-native/harness-claude-code dev -- --app-dir ./packages/example-deck-generator",
+    "dev:docs": "pnpm --filter @agent-native/docs dev"
   }
 }

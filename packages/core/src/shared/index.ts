@@ -1,1 +1,1 @@
-export { fusionChat, type FusionChatMessage } from "./fusion-chat.js";
+export { agentChat, type AgentChatMessage } from "./agent-chat.js";

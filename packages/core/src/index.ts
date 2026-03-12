@@ -1,18 +1,31 @@
-// Main entry point — re-exports from all subpackages for convenience.
-// Prefer importing from specific subpaths (e.g. "@agent-native/core/server")
-// for better tree-shaking and to avoid pulling in unnecessary dependencies.
+// Main entry — import everything from "@agent-native/core"
+// Only vite, tailwind, and adapters need subpath imports.
 
+// Server
 export {
   createServer,
   createFileWatcher,
   createSSEHandler,
   createProductionServer,
+  type CreateServerOptions,
+  type FileWatcherOptions,
+  type SSEHandlerOptions,
+  type ProductionServerOptions,
 } from "./server/index.js";
 
-export { sendToFusionChat, useFusionChatGenerating, useFileWatcher, cn } from "./client/index.js";
+// Client
+export {
+  sendToAgentChat,
+  useAgentChatGenerating,
+  useFileWatcher,
+  cn,
+  type AgentChatMessage,
+} from "./client/index.js";
 
-export { fusionChat } from "./shared/index.js";
+// Shared (isomorphic)
+export { agentChat } from "./shared/index.js";
 
+// Scripts
 export {
   runScript,
   loadEnv,

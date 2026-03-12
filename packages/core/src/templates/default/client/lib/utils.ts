@@ -1,1 +1,1 @@
-export { cn } from "@agent-native/core/client";
+export { cn } from "@agent-native/core";

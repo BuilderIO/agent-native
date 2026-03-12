@@ -10,7 +10,7 @@
 /**
  * Run the script dispatcher. Call this from your app's scripts/run.ts:
  *
- *   import { runScript } from "@agent-native/core/scripts";
+ *   import { runScript } from "@agent-native/core";
  *   runScript();
  */
 export async function runScript(): Promise<void> {

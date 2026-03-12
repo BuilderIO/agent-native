@@ -1,11 +1,11 @@
 /**
- * Fusion Chat Bridge (browser)
+ * Agent Chat Bridge (browser)
  *
- * Sends structured messages to the Fusion AI chat from UI interactions.
+ * Sends structured messages to the agent chat from UI interactions.
  * Messages are sent via postMessage to the parent window (or self if top-level).
  */
 
-export interface FusionChatMessage {
+export interface AgentChatMessage {
   /** The visible prompt message sent to the chat */
   message: string;
   /** Hidden context appended to the message (not shown in chat UI) */
@@ -22,14 +22,14 @@ export interface FusionChatMessage {
   uploadedReferenceImages?: string[];
 }
 
-const FUSION_MESSAGE_TYPE = "builder.submitChat";
+const AGENT_CHAT_MESSAGE_TYPE = "builder.submitChat";
 
 /**
- * Send a message to the Fusion AI chat via postMessage.
+ * Send a message to the agent chat via postMessage.
  */
-export function sendToFusionChat(opts: FusionChatMessage): void {
+export function sendToAgentChat(opts: AgentChatMessage): void {
   const payload = {
-    type: FUSION_MESSAGE_TYPE,
+    type: AGENT_CHAT_MESSAGE_TYPE,
     data: opts,
   };
 

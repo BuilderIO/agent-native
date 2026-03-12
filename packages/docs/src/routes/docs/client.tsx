@@ -1,54 +1,79 @@
 import { createFileRoute } from '@tanstack/react-router'
+import DocsLayout from '../../components/DocsLayout'
+import CodeBlock from '../../components/CodeBlock'
 
 export const Route = createFileRoute('/docs/client')({ component: ClientDocs })
 
+const TOC = [
+  { id: 'sendtoagentchat', label: 'sendToAgentChat()' },
+  { id: 'agentchatmessage', label: 'AgentChatMessage', indent: true },
+  { id: 'useagentchatgenerating', label: 'useAgentChatGenerating()' },
+  { id: 'usefilewatcher', label: 'useFileWatcher()' },
+  { id: 'cn', label: 'cn()' },
+]
+
 function ClientDocs() {
   return (
-    <main className="page-wrap px-4 pb-8 pt-10">
-      <h1 className="display-title mb-4 text-3xl font-bold tracking-tight text-[var(--sea-ink)] sm:text-4xl">
-        Client
-      </h1>
-      <p className="mb-8 max-w-2xl text-base text-[var(--sea-ink-soft)]">
-        <code>@agent-native/core/client</code> provides React hooks and utilities for
+    <DocsLayout toc={TOC}>
+      <h1 className="mb-2 text-4xl font-semibold tracking-tight">Client</h1>
+      <p className="mb-8 text-base text-[var(--fg-secondary)]">
+        <code>@agent-native/core</code> provides React hooks and utilities for
         the browser-side of agent-native apps.
       </p>
 
-      <section className="prose-section mb-10">
-        <h2>sendToFusionChat(opts)</h2>
-        <p>Send a message to the Fusion AI chat via postMessage. Used to delegate AI tasks from UI interactions.</p>
-        <Pre code={`import { sendToFusionChat } from "@agent-native/core/client";
+      <hr />
+
+      <h2 id="sendtoagentchat">sendToAgentChat(opts)</h2>
+      <p>Send a message to the agent chat via postMessage. Used to delegate AI tasks from UI interactions.</p>
+      <CodeBlock code={`import { sendToAgentChat } from "@agent-native/core";
 
 // Auto-submit a prompt with hidden context
-sendToFusionChat({
+sendToAgentChat({
   message: "Generate alt text for this image",
   context: "Image path: /api/projects/hero.jpg",
   submit: true,
 });
 
 // Prefill without submitting (user reviews first)
-sendToFusionChat({
+sendToAgentChat({
   message: "Rewrite this in a conversational tone",
   context: selectedText,
   submit: false,
 });`} />
-        <h3>FusionChatMessage</h3>
-        <Props items={[
-          ['message', 'string', 'The visible prompt sent to the chat'],
-          ['context', 'string?', 'Hidden context appended (not shown in chat UI)'],
-          ['submit', 'boolean?', 'true = auto-submit, false = prefill only'],
-          ['projectSlug', 'string?', 'Optional project slug for structured context'],
-          ['preset', 'string?', 'Optional preset name for downstream consumers'],
-          ['referenceImagePaths', 'string[]?', 'Optional reference image paths'],
-        ]} />
-      </section>
 
-      <section className="prose-section mb-10">
-        <h2>useFusionChatGenerating()</h2>
-        <p>React hook that wraps sendToFusionChat with loading state tracking:</p>
-        <Pre code={`import { useFusionChatGenerating } from "@agent-native/core/client";
+      <h3 id="agentchatmessage">AgentChatMessage</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Option</th>
+            <th>Type</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[
+            ['message', 'string', 'The visible prompt sent to the chat'],
+            ['context', 'string?', 'Hidden context appended (not shown in chat UI)'],
+            ['submit', 'boolean?', 'true = auto-submit, false = prefill only'],
+            ['projectSlug', 'string?', 'Optional project slug for structured context'],
+            ['preset', 'string?', 'Optional preset name for downstream consumers'],
+            ['referenceImagePaths', 'string[]?', 'Optional reference image paths'],
+          ].map(([name, type, desc]) => (
+            <tr key={name}>
+              <td>{name}</td>
+              <td className="font-mono text-xs">{type}</td>
+              <td>{desc}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <h2 id="useagentchatgenerating">useAgentChatGenerating()</h2>
+      <p>React hook that wraps sendToAgentChat with loading state tracking:</p>
+      <CodeBlock code={`import { useAgentChatGenerating } from "@agent-native/core";
 
 function GenerateButton() {
-  const [isGenerating, send] = useFusionChatGenerating();
+  const [isGenerating, send] = useAgentChatGenerating();
 
   return (
     <button
@@ -63,16 +88,14 @@ function GenerateButton() {
     </button>
   );
 }`} />
-        <p>
-          <code>isGenerating</code> turns true on send, false when
-          the <code>builder.fusion.chatRunning</code> event fires with <code>isRunning: false</code>.
-        </p>
-      </section>
+      <p>
+        <code>isGenerating</code> turns true on send, false when
+        the <code>builder.fusion.chatRunning</code> event fires with <code>isRunning: false</code>.
+      </p>
 
-      <section className="prose-section mb-10">
-        <h2>useFileWatcher(options?)</h2>
-        <p>React hook that connects to the SSE endpoint and invalidates react-query caches on file changes:</p>
-        <Pre code={`import { useFileWatcher } from "@agent-native/core/client";
+      <h2 id="usefilewatcher">useFileWatcher(options?)</h2>
+      <p>React hook that connects to the SSE endpoint and invalidates react-query caches on file changes:</p>
+      <CodeBlock code={`import { useFileWatcher } from "@agent-native/core";
 import { useQueryClient } from "@tanstack/react-query";
 
 function App() {
@@ -81,65 +104,47 @@ function App() {
   useFileWatcher({
     queryClient,
     queryKeys: ["files", "projects", "versionHistory"],
-    eventsUrl: "/api/events", // default
+    eventsUrl: "/api/events",
     onEvent: (data) => console.log("File changed:", data),
   });
 
   return <div>...</div>;
 }`} />
-        <h3>Options</h3>
-        <Props items={[
-          ['queryClient', 'QueryClient?', 'React-query client for cache invalidation'],
-          ['queryKeys', 'string[]?', 'Query key prefixes to invalidate. Default: ["file", "fileTree"]'],
-          ['eventsUrl', 'string?', 'SSE endpoint URL. Default: "/api/events"'],
-          ['onEvent', '(data) => void', 'Optional callback for each SSE event'],
-        ]} />
-      </section>
 
-      <section className="prose-section mb-10">
-        <h2>cn(...inputs)</h2>
-        <p>Utility for merging class names (clsx + tailwind-merge):</p>
-        <Pre code={`import { cn } from "@agent-native/core/client";
+      <h3>Options</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Option</th>
+            <th>Type</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[
+            ['queryClient', 'QueryClient?', 'React-query client for cache invalidation'],
+            ['queryKeys', 'string[]?', 'Query key prefixes to invalidate. Default: ["file", "fileTree"]'],
+            ['eventsUrl', 'string?', 'SSE endpoint URL. Default: "/api/events"'],
+            ['onEvent', '(data) => void', 'Optional callback for each SSE event'],
+          ].map(([name, type, desc]) => (
+            <tr key={name}>
+              <td>{name}</td>
+              <td className="font-mono text-xs">{type}</td>
+              <td>{desc}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <h2 id="cn">cn(...inputs)</h2>
+      <p>Utility for merging class names (clsx + tailwind-merge):</p>
+      <CodeBlock code={`import { cn } from "@agent-native/core";
 
 <div className={cn(
   "px-4 py-2 rounded",
   isActive && "bg-primary text-primary-foreground",
   className
 )} />`} />
-      </section>
-    </main>
-  )
-}
-
-function Pre({ code }: { code: string }) {
-  return (
-    <pre className="my-3 overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-xs leading-relaxed text-[var(--sea-ink)]">
-      <code>{code}</code>
-    </pre>
-  )
-}
-
-function Props({ items }: { items: [string, string, string][] }) {
-  return (
-    <div className="my-3 overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--surface)]">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-[var(--line)]">
-            <th className="px-4 py-2 text-left font-semibold text-[var(--sea-ink)]">Option</th>
-            <th className="px-4 py-2 text-left font-semibold text-[var(--sea-ink)]">Type</th>
-            <th className="px-4 py-2 text-left font-semibold text-[var(--sea-ink)]">Description</th>
-          </tr>
-        </thead>
-        <tbody className="text-[var(--sea-ink-soft)]">
-          {items.map(([name, type, desc]) => (
-            <tr key={name} className="border-b border-[var(--line)] last:border-0">
-              <td className="px-4 py-2 font-mono text-xs text-[var(--lagoon-deep)]">{name}</td>
-              <td className="px-4 py-2 font-mono text-xs">{type}</td>
-              <td className="px-4 py-2">{desc}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    </DocsLayout>
   )
 }

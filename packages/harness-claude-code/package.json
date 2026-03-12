@@ -1,0 +1,20 @@
+{
+  "name": "@agent-native/harness-claude-code",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/ws": "^8.18.1",
+    "@types/node": "^24.2.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.2"
+  }
+}

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent-Native Harness</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; font-family: system-ui; background: #0d1117; }
+    #container { display: flex; height: 100%; }
+    #terminal-pane { flex: 0 0 50%; display: flex; flex-direction: column; background: #0d1117; }
+    #terminal-header { padding: 8px 12px; background: #161b22; border-bottom: 1px solid #30363d; color: #8b949e; font-size: 12px; display: flex; align-items: center; gap: 8px; }
+    #terminal-header .dot { width: 8px; height: 8px; border-radius: 50%; }
+    #terminal-header .dot.green { background: #3fb950; }
+    #terminal-header .dot.yellow { background: #d29922; }
+    #terminal-header .dot.red { background: #f85149; }
+    #terminal-container { flex: 1; padding: 4px; }
+    #drag-handle { width: 6px; background: #21262d; cursor: col-resize; display: flex; align-items: center; justify-content: center; transition: background 0.2s; }
+    #drag-handle:hover { background: #388bfd; }
+    #drag-handle .grip { width: 2px; height: 32px; background: #484f58; border-radius: 1px; }
+    #app-pane { flex: 1; display: flex; flex-direction: column; background: #f6f8fa; }
+    #app-header { padding: 8px 12px; background: #fff; border-bottom: 1px solid #d0d7de; color: #57606a; font-size: 12px; display: flex; align-items: center; justify-content: space-between; }
+    #app-header a { color: #0969da; text-decoration: none; font-size: 11px; }
+    #app-iframe { flex: 1; border: none; width: 100%; height: 100%; }
+    #status-bar { padding: 4px 12px; background: #161b22; border-top: 1px solid #30363d; color: #484f58; font-size: 11px; display: flex; justify-content: space-between; }
+    #status-bar .connected { color: #3fb950; }
+    #status-bar .disconnected { color: #f85149; }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div id="terminal-pane">
+      <div id="terminal-header">
+        <span class="dot green"></span>
+        <span>Claude Code</span>
+      </div>
+      <div id="terminal-container"></div>
+      <div id="status-bar">
+        <span id="ws-status" class="disconnected">Connecting...</span>
+        <span id="app-dir"></span>
+      </div>
+    </div>
+    <div id="drag-handle"><div class="grip"></div></div>
+    <div id="app-pane">
+      <div id="app-header">
+        <span id="app-url"></span>
+        <a id="app-open-link" href="#" target="_blank">Open in new tab &#8599;</a>
+      </div>
+      <iframe id="app-iframe" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"></iframe>
+    </div>
+  </div>
+
+  <script type="module">
+    import { Terminal } from 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/+esm';
+    import { FitAddon } from 'https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/+esm';
+
+    const APP_PORT = __APP_PORT__;
+    const appUrl = `http://localhost:${APP_PORT}`;
+
+    // Set up iframe
+    const iframe = document.getElementById('app-iframe');
+    iframe.src = appUrl;
+    document.getElementById('app-url').textContent = appUrl;
+    const openLink = document.getElementById('app-open-link');
+    openLink.href = appUrl;
+
+    // Set up terminal
+    const term = new Terminal({
+      cursorBlink: true,
+      fontSize: 13,
+      fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
+      theme: {
+        background: '#0d1117',
+        foreground: '#c9d1d9',
+        cursor: '#58a6ff',
+        selectionBackground: '#264f78',
+        black: '#484f58',
+        red: '#ff7b72',
+        green: '#3fb950',
+        yellow: '#d29922',
+        blue: '#58a6ff',
+        magenta: '#bc8cff',
+        cyan: '#39d353',
+        white: '#b1bac4',
+      }
+    });
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(document.getElementById('terminal-container'));
+    fitAddon.fit();
+
+    // WebSocket connection
+    const wsUrl = `ws://${location.host}/ws`;
+    let ws;
+    const statusEl = document.getElementById('ws-status');
+
+    function connect() {
+      ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => {
+        statusEl.textContent = 'Connected';
+        statusEl.className = 'connected';
+      };
+
+      ws.onmessage = (event) => {
+        const data = event.data instanceof ArrayBuffer
+          ? new TextDecoder().decode(event.data)
+          : event.data;
+        term.write(data);
+      };
+
+      ws.onclose = () => {
+        statusEl.textContent = 'Disconnected';
+        statusEl.className = 'disconnected';
+        term.write('\r\n\x1b[31m[harness] Connection closed. Reconnecting in 3s...\x1b[0m\r\n');
+        setTimeout(connect, 3000);
+      };
+
+      ws.onerror = () => {
+        ws.close();
+      };
+    }
+    connect();
+
+    // Terminal input -> WebSocket -> Claude stdin
+    term.onData((data) => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(data);
+      }
+    });
+
+    // postMessage bridge: app iframe -> claude stdin
+    window.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'builder.submitChat') {
+        const message = event.data.data?.message;
+        if (message && ws && ws.readyState === WebSocket.OPEN) {
+          // Type the message into Claude Code's terminal
+          ws.send(message + '\r');
+          // Visual feedback in terminal
+          // (Claude will echo it back via stdout)
+        }
+      }
+    });
+
+    // Resizable panes
+    const handle = document.getElementById('drag-handle');
+    const terminalPane = document.getElementById('terminal-pane');
+    let isResizing = false;
+
+    handle.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      // Prevent iframe from eating mouse events
+      iframe.style.pointerEvents = 'none';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizing) return;
+      const containerWidth = document.getElementById('container').offsetWidth;
+      const newWidth = Math.max(200, Math.min(e.clientX, containerWidth - 200));
+      terminalPane.style.flex = `0 0 ${newWidth}px`;
+      fitAddon.fit();
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (isResizing) {
+        isResizing = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        iframe.style.pointerEvents = '';
+        fitAddon.fit();
+      }
+    });
+
+    // Resize terminal on window resize
+    window.addEventListener('resize', () => fitAddon.fit());
+  </script>
+</body>
+</html>

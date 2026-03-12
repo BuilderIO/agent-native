@@ -12,7 +12,7 @@ export const Route = createRootRoute({
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       { title: 'Agent-Native — Framework for AI-Native Apps' },
-      { name: 'description', content: 'Build apps where AI agents and UI share state through files. Like Next.js, but for agent-native development.' },
+      { name: 'description', content: 'Build apps where AI agents and UI share state through files.' },
     ],
     links: [
       { rel: 'stylesheet', href: appCss },
@@ -29,7 +29,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <HeadContent />
       </head>
-      <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)]">
+      <body className="font-sans antialiased">
         {children}
         <Scripts />
       </body>

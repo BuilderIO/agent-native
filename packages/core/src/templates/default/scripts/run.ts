@@ -4,6 +4,6 @@
  * Usage: pnpm script <script-name> [--args]
  */
 
-import { runScript } from "@agent-native/core/scripts";
+import { runScript } from "@agent-native/core";
 
 runScript();
