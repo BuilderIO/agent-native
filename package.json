@@ -6,7 +6,10 @@
     "dev": "pnpm -r --parallel dev",
     "typecheck": "pnpm -r typecheck",
     "dev:deck": "pnpm --filter @agent-native/example-deck-generator dev",
-    "dev:harness": "pnpm --filter @agent-native/harness-claude-code dev -- --app-dir ../example-deck-generator",
+    "dev:harness": "concurrently -n ws,ui -c blue,green \"pnpm --filter @agent-native/harness-claude-code dev:server -- --app-dir ../example-deck-generator\" \"pnpm --filter @agent-native/harness-claude-code dev:client\"",
     "dev:docs": "pnpm --filter @agent-native/docs dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
   }
 }

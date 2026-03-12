@@ -25,6 +25,22 @@ export interface AgentChatMessage {
 const AGENT_CHAT_MESSAGE_TYPE = "builder.submitChat";
 
 /**
+ * Listen for chatRunning messages from the harness (postMessage)
+ * and re-dispatch as a CustomEvent so hooks like useAgentChatGenerating() work.
+ */
+if (typeof window !== "undefined") {
+  window.addEventListener("message", (event) => {
+    if (event.data?.type === "builder.fusion.chatRunning") {
+      window.dispatchEvent(
+        new CustomEvent("builder.fusion.chatRunning", {
+          detail: event.data.detail,
+        })
+      );
+    }
+  });
+}
+
+/**
  * Send a message to the agent chat via postMessage.
  */
 export function sendToAgentChat(opts: AgentChatMessage): void {

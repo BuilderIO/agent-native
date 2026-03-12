@@ -205,6 +205,16 @@ await sync.initFileSync();
 
 Features: startup sync, real-time Firestore listeners, chokidar file watchers, three-way merge with LCS-based conflict resolution, `.conflict` sidecar files for unresolvable conflicts.
 
+## Harnesses
+
+Agent-native apps run inside a **harness** — a host environment that provides the AI agent and displays the app UI side by side.
+
+- **Claude Code Harness** — Local, open-source, CLI-powered. Ships with `@agent-native/harness-claude-code`. Runs an xterm.js terminal alongside your app iframe, powered by Claude Code CLI via a real PTY. Best for solo development, local testing, and open-source projects.
+
+- **Builder Harness** — Local or cloud, provided by Builder.io. Supports real-time collaboration, visual editing, and parallel agent execution. Best for teams, production deployments, and visual editing workflows.
+
+Both harnesses support all core agent-native features: the postMessage chat bridge, SSE file watcher, and script system. Your app code is identical regardless of which harness you use. See the [full comparison in the docs](https://agent-native.dev/docs/harnesses).
+
 ## License
 
 MIT

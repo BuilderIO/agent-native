@@ -5,6 +5,7 @@ const NAV_ITEMS = [
   { label: 'Server', to: '/docs/server' as const },
   { label: 'Client', to: '/docs/client' as const },
   { label: 'Scripts', to: '/docs/scripts' as const },
+  { label: 'Harnesses', to: '/docs/harnesses' as const },
 ]
 
 export default function DocsSidebar() {

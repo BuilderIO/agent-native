@@ -1,14 +1,8 @@
-import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
 import * as pty from 'node-pty';
-import { fileURLToPath } from 'url';
-import path from 'path';
-import fs from 'fs';
 import os from 'os';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import path from 'path';
 
 // Parse CLI args
 function parseArgs(args: string[]): {
@@ -48,27 +42,19 @@ const config = parseArgs(process.argv.slice(2));
 const appDir = path.resolve(config.appDir);
 const shell = os.platform() === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin/zsh';
 
-const app = express();
-const server = createServer(app);
+const server = createServer();
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-// Read and prepare the HTML template
-const htmlPath = path.join(__dirname, 'public', 'index.html');
-const htmlTemplate = fs.readFileSync(htmlPath, 'utf-8');
-
-// Serve index.html with appPort injected
-app.get('/', (_req, res) => {
-  const html = htmlTemplate.replace('__APP_PORT__', String(config.appPort));
-  res.type('html').send(html);
-});
-
 // WebSocket handling — each connection gets a PTY
-wss.on('connection', (ws: WebSocket) => {
-  console.log('[harness] WebSocket connected, spawning PTY:', config.command);
+wss.on('connection', (ws: WebSocket, req) => {
+  const url = new URL(req.url || '', `http://${req.headers.host}`);
+  const extraFlags = url.searchParams.get('flags') || '';
+  const fullCommand = extraFlags ? `${config.command} ${extraFlags}` : config.command;
+  console.log('[harness] WebSocket connected, spawning PTY:', fullCommand);
 
   let ptyProcess: pty.IPty;
   try {
-    ptyProcess = pty.spawn(shell, ['-l', '-c', config.command], {
+    ptyProcess = pty.spawn(shell, ['-l', '-c', fullCommand], {
       name: 'xterm-256color',
       cols: 120,
       rows: 40,
@@ -129,8 +115,7 @@ wss.on('connection', (ws: WebSocket) => {
 });
 
 server.listen(config.port, () => {
-  console.log(`[harness] Listening on http://localhost:${config.port}`);
+  console.log(`[harness] WebSocket server on ws://localhost:${config.port}/ws`);
   console.log(`[harness] App dir: ${appDir}`);
-  console.log(`[harness] App iframe: http://localhost:${config.appPort}`);
   console.log(`[harness] Command: ${config.command}`);
 });
