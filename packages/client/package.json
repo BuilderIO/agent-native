@@ -1,0 +1,31 @@
+{
+  "name": "@agent-native/client",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Browser-side utilities for agent-native apps — chat bridge, React hooks, and helpers",
+  "license": "MIT",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^2.6.0"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": { "optional": true }
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.23",
+    "react": "^18.3.1",
+    "typescript": "^5.9.2"
+  }
+}

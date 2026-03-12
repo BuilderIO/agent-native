@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useFileWatcher } from "@agent-native/core";
+import { useFileWatcher } from "@agent-native/client";
 import "./global.css";
 
 const queryClient = new QueryClient();

@@ -17,7 +17,7 @@ function ClientDocs() {
     <DocsLayout toc={TOC}>
       <h1 className="mb-2 text-4xl font-semibold tracking-tight">Client</h1>
       <p className="mb-8 text-base text-[var(--fg-secondary)]">
-        <code>@agent-native/core</code> provides React hooks and utilities for
+        <code>@agent-native/client</code> provides React hooks and utilities for
         the browser-side of agent-native apps.
       </p>
 
@@ -25,7 +25,7 @@ function ClientDocs() {
 
       <h2 id="sendtoagentchat">sendToAgentChat(opts)</h2>
       <p>Send a message to the agent chat via postMessage. Used to delegate AI tasks from UI interactions.</p>
-      <CodeBlock code={`import { sendToAgentChat } from "@agent-native/core";
+      <CodeBlock code={`import { sendToAgentChat } from "@agent-native/client";
 
 // Auto-submit a prompt with hidden context
 sendToAgentChat({
@@ -70,7 +70,7 @@ sendToAgentChat({
 
       <h2 id="useagentchatgenerating">useAgentChatGenerating()</h2>
       <p>React hook that wraps sendToAgentChat with loading state tracking:</p>
-      <CodeBlock code={`import { useAgentChatGenerating } from "@agent-native/core";
+      <CodeBlock code={`import { useAgentChatGenerating } from "@agent-native/client";
 
 function GenerateButton() {
   const [isGenerating, send] = useAgentChatGenerating();
@@ -95,7 +95,7 @@ function GenerateButton() {
 
       <h2 id="usefilewatcher">useFileWatcher(options?)</h2>
       <p>React hook that connects to the SSE endpoint and invalidates react-query caches on file changes:</p>
-      <CodeBlock code={`import { useFileWatcher } from "@agent-native/core";
+      <CodeBlock code={`import { useFileWatcher } from "@agent-native/client";
 import { useQueryClient } from "@tanstack/react-query";
 
 function App() {
@@ -138,7 +138,7 @@ function App() {
 
       <h2 id="cn">cn(...inputs)</h2>
       <p>Utility for merging class names (clsx + tailwind-merge):</p>
-      <CodeBlock code={`import { cn } from "@agent-native/core";
+      <CodeBlock code={`import { cn } from "@agent-native/client";
 
 <div className={cn(
   "px-4 py-2 rounded",

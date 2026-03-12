@@ -5,7 +5,7 @@
  */
 
 import { parseArgs } from "@agent-native/core";
-import { agentChat } from "@agent-native/core";
+import { agentChat } from "@agent-native/client";
 
 export default async function hello(args: string[]) {
   const parsed = parseArgs(args);

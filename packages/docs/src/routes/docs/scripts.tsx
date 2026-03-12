@@ -50,10 +50,10 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 
       <h2 id="shared-agent-chat">Shared Agent Chat</h2>
       <p>
-        <code>@agent-native/core</code> provides an isomorphic chat bridge that works in
+        <code>@agent-native/client</code> provides an isomorphic chat bridge that works in
         both browser and Node.js:
       </p>
-      <CodeBlock code={`import { agentChat } from "@agent-native/core";
+      <CodeBlock code={`import { agentChat } from "@agent-native/client";
 
 // Auto-submit a message
 agentChat.submit("Generate a report for Q4");

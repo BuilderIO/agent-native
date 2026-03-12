@@ -83,8 +83,11 @@ body {
   background: var(--selection);
 }
 
-a {
+a:not([class*="text-"]) {
   color: var(--accent);
+}
+
+a {
   text-decoration: none;
 }
 

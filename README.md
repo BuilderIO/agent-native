@@ -20,22 +20,20 @@ Your app is running at `http://localhost:8080`.
 An agent-native app follows five principles:
 
 1. **Files as database** — All state lives in files. No traditional DB needed. UI and agent read/write the same files.
-2. **All AI through the agent chat** — No inline LLM calls. The UI delegates to the AI via a chat bridge (`sendToFusionChat()`).
+2. **All AI through the agent chat** — No inline LLM calls. The UI delegates to the AI via a chat bridge (`sendToAgentChat()`).
 3. **Scripts for agent operations** — `pnpm script <name>` dispatches to callable scripts the agent can invoke.
 4. **Bidirectional SSE events** — A file watcher streams changes to the UI in real-time, so agent edits appear instantly.
 5. **Agent can update code** — The agent modifies the app itself. It's a feature, not a bug.
 
 ## What You Get
 
-AgentNative extracts the shared foundation from production apps into a single package:
+AgentNative extracts the shared foundation from production apps into two packages:
 
 | Import | What it does |
 |--------|-------------|
+| `@agent-native/core` | `createServer()`, `createFileWatcher()`, `createSSEHandler()`, `createProductionServer()`, `runScript()`, `parseArgs()`, `loadEnv()`, `fail()`, path validators |
+| `@agent-native/client` | `agentChat`, `sendToAgentChat()`, `useAgentChatGenerating()`, `useFileWatcher()`, `cn()` |
 | `@agent-native/core/vite` | `defineConfig()` and `defineServerConfig()` — full Vite setup in 1 line |
-| `@agent-native/core/server` | `createServer()`, `createFileWatcher()`, `createSSEHandler()`, `createProductionServer()` |
-| `@agent-native/core/client` | `sendToFusionChat()`, `useFusionChatGenerating()`, `useFileWatcher()`, `cn()` |
-| `@agent-native/core/shared` | `fusionChat` — isomorphic (browser postMessage + Node stdout) |
-| `@agent-native/core/scripts` | `runScript()`, `parseArgs()`, `loadEnv()`, `fail()`, path validators |
 | `@agent-native/core/tailwind` | Tailwind preset with HSL color system, shadcn/ui tokens, animations |
 | `@agent-native/core/adapters/firestore` | Bidirectional file sync with three-way merge and conflict resolution |
 
@@ -61,7 +59,7 @@ export default defineServerConfig();
 
 ```ts
 // server/index.ts
-import { createServer, createFileWatcher, createSSEHandler } from "@agent-native/core/server";
+import { createServer, createFileWatcher, createSSEHandler } from "@agent-native/core";
 
 export function createAppServer() {
   const app = createServer();
@@ -79,7 +77,7 @@ export function createAppServer() {
 
 ```ts
 // server/node-build.ts
-import { createProductionServer } from "@agent-native/core/server";
+import { createProductionServer } from "@agent-native/core";
 import { createAppServer } from "./index.js";
 createProductionServer(createAppServer());
 ```
@@ -87,9 +85,9 @@ createProductionServer(createAppServer());
 ### Client — Chat Bridge
 
 ```ts
-import { sendToFusionChat } from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/client";
 
-sendToFusionChat({
+sendToAgentChat({
   message: "Generate a summary of this document",
   context: documentContent,
   submit: true,
@@ -99,7 +97,7 @@ sendToFusionChat({
 ### Client — File Watcher Hook
 
 ```tsx
-import { useFileWatcher } from "@agent-native/core/client";
+import { useFileWatcher } from "@agent-native/client";
 import { useQueryClient } from "@tanstack/react-query";
 
 function App() {
@@ -113,20 +111,20 @@ function App() {
 
 ```ts
 // scripts/run.ts
-import { runScript } from "@agent-native/core/scripts";
+import { runScript } from "@agent-native/core";
 runScript();
 ```
 
 ```ts
 // scripts/my-task.ts
-import { parseArgs, loadEnv } from "@agent-native/core/scripts";
-import { fusionChat } from "@agent-native/core/shared";
+import { parseArgs, loadEnv } from "@agent-native/core";
+import { agentChat } from "@agent-native/client";
 
 export default async function myTask(args: string[]) {
   loadEnv();
   const { project } = parseArgs(args);
   // do work...
-  fusionChat.submit(`Finished processing ${project}`);
+  agentChat.submit(`Finished processing ${project}`);
 }
 ```
 

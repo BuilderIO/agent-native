@@ -45,13 +45,13 @@ Run with: `pnpm script my-script --arg value`
 
 **Sending to agent chat from UI:**
 ```ts
-import { sendToAgentChat } from "@agent-native/core";
+import { sendToAgentChat } from "@agent-native/client";
 sendToAgentChat({ message: "Generate something", context: "...", submit: true });
 ```
 
 **Sending to agent chat from scripts:**
 ```ts
-import { agentChat } from "@agent-native/core";
+import { agentChat } from "@agent-native/client";
 agentChat.submit("Generate something");
 ```
 
