@@ -1,0 +1,3 @@
+{
+  "extends": "@agent-native/core/tsconfig.base.json"
+}

@@ -1,4 +1,4 @@
-# AgentNative
+# Agent-Native
 
 Framework for **agent-native** application development — where an AI agent and UI share state through files.
 
@@ -7,7 +7,7 @@ Think Next.js, but for apps where the AI agent is a first-class citizen: it read
 ## Quick Start
 
 ```bash
-npx agentnative create my-app
+npx @agent-native/core create my-app
 cd my-app
 pnpm install
 pnpm dev
@@ -31,13 +31,13 @@ AgentNative extracts the shared foundation from production apps into a single pa
 
 | Import | What it does |
 |--------|-------------|
-| `agentnative/vite` | `defineConfig()` and `defineServerConfig()` — full Vite setup in 1 line |
-| `agentnative/server` | `createServer()`, `createFileWatcher()`, `createSSEHandler()`, `createProductionServer()` |
-| `agentnative/client` | `sendToFusionChat()`, `useFusionChatGenerating()`, `useFileWatcher()`, `cn()` |
-| `agentnative/shared` | `fusionChat` — isomorphic (browser postMessage + Node stdout) |
-| `agentnative/scripts` | `runScript()`, `parseArgs()`, `loadEnv()`, `fail()`, path validators |
-| `agentnative/tailwind` | Tailwind preset with HSL color system, shadcn/ui tokens, animations |
-| `agentnative/adapters/firestore` | Bidirectional file sync with three-way merge and conflict resolution |
+| `@agent-native/core/vite` | `defineConfig()` and `defineServerConfig()` — full Vite setup in 1 line |
+| `@agent-native/core/server` | `createServer()`, `createFileWatcher()`, `createSSEHandler()`, `createProductionServer()` |
+| `@agent-native/core/client` | `sendToFusionChat()`, `useFusionChatGenerating()`, `useFileWatcher()`, `cn()` |
+| `@agent-native/core/shared` | `fusionChat` — isomorphic (browser postMessage + Node stdout) |
+| `@agent-native/core/scripts` | `runScript()`, `parseArgs()`, `loadEnv()`, `fail()`, path validators |
+| `@agent-native/core/tailwind` | Tailwind preset with HSL color system, shadcn/ui tokens, animations |
+| `@agent-native/core/adapters/firestore` | Bidirectional file sync with three-way merge and conflict resolution |
 
 ## Usage
 
@@ -45,7 +45,7 @@ AgentNative extracts the shared foundation from production apps into a single pa
 
 ```ts
 // vite.config.ts
-import { defineConfig } from "agentnative/vite";
+import { defineConfig } from "@agent-native/core/vite";
 export default defineConfig();
 ```
 
@@ -53,7 +53,7 @@ export default defineConfig();
 
 ```ts
 // vite.config.server.ts
-import { defineServerConfig } from "agentnative/vite";
+import { defineServerConfig } from "@agent-native/core/vite";
 export default defineServerConfig();
 ```
 
@@ -61,7 +61,7 @@ export default defineServerConfig();
 
 ```ts
 // server/index.ts
-import { createServer, createFileWatcher, createSSEHandler } from "agentnative/server";
+import { createServer, createFileWatcher, createSSEHandler } from "@agent-native/core/server";
 
 export function createAppServer() {
   const app = createServer();
@@ -79,7 +79,7 @@ export function createAppServer() {
 
 ```ts
 // server/node-build.ts
-import { createProductionServer } from "agentnative/server";
+import { createProductionServer } from "@agent-native/core/server";
 import { createAppServer } from "./index.js";
 createProductionServer(createAppServer());
 ```
@@ -87,7 +87,7 @@ createProductionServer(createAppServer());
 ### Client — Chat Bridge
 
 ```ts
-import { sendToFusionChat } from "agentnative/client";
+import { sendToFusionChat } from "@agent-native/core/client";
 
 sendToFusionChat({
   message: "Generate a summary of this document",
@@ -99,7 +99,7 @@ sendToFusionChat({
 ### Client — File Watcher Hook
 
 ```tsx
-import { useFileWatcher } from "agentnative/client";
+import { useFileWatcher } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 
 function App() {
@@ -113,14 +113,14 @@ function App() {
 
 ```ts
 // scripts/run.ts
-import { runScript } from "agentnative/scripts";
+import { runScript } from "@agent-native/core/scripts";
 runScript();
 ```
 
 ```ts
 // scripts/my-task.ts
-import { parseArgs, loadEnv } from "agentnative/scripts";
-import { fusionChat } from "agentnative/shared";
+import { parseArgs, loadEnv } from "@agent-native/core/scripts";
+import { fusionChat } from "@agent-native/core/shared";
 
 export default async function myTask(args: string[]) {
   loadEnv();
@@ -135,7 +135,7 @@ export default async function myTask(args: string[]) {
 ```ts
 // tailwind.config.ts
 import type { Config } from "tailwindcss";
-import preset from "agentnative/tailwind";
+import preset from "@agent-native/core/tailwind";
 
 export default {
   presets: [preset],
@@ -148,7 +148,7 @@ export default {
 ```json
 // tsconfig.json
 {
-  "extends": "agentnative/tsconfig.base.json"
+  "extends": "@agent-native/core/tsconfig.base.json"
 }
 ```
 
@@ -194,7 +194,7 @@ my-app/
 For apps that need bidirectional file sync across instances:
 
 ```ts
-import { FileSync } from "agentnative/adapters/firestore";
+import { FileSync } from "@agent-native/core/adapters/firestore";
 
 const sync = new FileSync({
   appId: "my-app",
