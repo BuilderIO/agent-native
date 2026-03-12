@@ -1,0 +1,82 @@
+{
+  "name": "agentnative",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Framework for agent-native application development — where AI agents and UI share state via files",
+  "license": "MIT",
+  "bin": {
+    "agentnative": "./dist/cli/index.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./vite": "./dist/vite/index.js",
+    "./server": "./dist/server/index.js",
+    "./client": "./dist/client/index.js",
+    "./shared": "./dist/shared/index.js",
+    "./scripts": "./dist/scripts/index.js",
+    "./adapters/firestore": "./dist/adapters/firestore/index.js",
+    "./tailwind": "./dist/tailwind.preset.js",
+    "./tsconfig.base.json": "./tsconfig.base.json"
+  },
+  "files": [
+    "dist",
+    "tsconfig.base.json",
+    "src/templates"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.0",
+    "clsx": "^2.1.1",
+    "dotenv": "^17.2.1",
+    "minimatch": "^10.0.0",
+    "tailwind-merge": "^2.6.0"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": ">=5",
+    "@vitejs/plugin-react-swc": ">=4",
+    "autoprefixer": ">=10",
+    "cors": ">=2",
+    "express": ">=5",
+    "postcss": ">=8",
+    "react": ">=18",
+    "react-dom": ">=18",
+    "tailwindcss": ">=3",
+    "tailwindcss-animate": ">=1",
+    "typescript": ">=5",
+    "vite": ">=6"
+  },
+  "peerDependenciesMeta": {
+    "@tanstack/react-query": { "optional": true },
+    "tailwindcss": { "optional": true },
+    "tailwindcss-animate": { "optional": true },
+    "autoprefixer": { "optional": true },
+    "postcss": { "optional": true },
+    "cors": { "optional": true },
+    "express": { "optional": true },
+    "@vitejs/plugin-react-swc": { "optional": true },
+    "vite": { "optional": true }
+  },
+  "devDependencies": {
+    "@tanstack/react-query": "^5.84.2",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.2.1",
+    "@types/react": "^18.3.23",
+    "@vitejs/plugin-react-swc": "^4.0.0",
+    "autoprefixer": "^10.4.21",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "firebase-admin": "^13.0.0",
+    "postcss": "^8.5.6",
+    "react": "^18.3.1",
+    "tailwindcss": "^3.4.17",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.2"
+  }
+}

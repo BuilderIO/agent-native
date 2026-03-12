@@ -1,0 +1,3 @@
+{
+  "extends": "agentnative/tsconfig.base.json"
+}
