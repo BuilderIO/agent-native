@@ -2,10 +2,12 @@ import { Link } from '@tanstack/react-router'
 
 const NAV_ITEMS = [
   { label: 'Getting Started', to: '/docs' as const },
+  { label: 'Architecture', to: '/docs/architecture' as const },
   { label: 'Server', to: '/docs/server' as const },
   { label: 'Client', to: '/docs/client' as const },
   { label: 'Scripts', to: '/docs/scripts' as const },
   { label: 'Harnesses', to: '/docs/harnesses' as const },
+  { label: 'Creating Templates', to: '/docs/creating-templates' as const },
 ]
 
 export default function DocsSidebar() {

@@ -20,7 +20,9 @@ import { Route as TemplatesAnalyticsRouteImport } from './routes/templates/analy
 import { Route as DocsServerRouteImport } from './routes/docs/server'
 import { Route as DocsScriptsRouteImport } from './routes/docs/scripts'
 import { Route as DocsHarnessesRouteImport } from './routes/docs/harnesses'
+import { Route as DocsCreatingTemplatesRouteImport } from './routes/docs/creating-templates'
 import { Route as DocsClientRouteImport } from './routes/docs/client'
+import { Route as DocsArchitectureRouteImport } from './routes/docs/architecture'
 
 const TemplatesRoute = TemplatesRouteImport.update({
   id: '/templates',
@@ -77,16 +79,28 @@ const DocsHarnessesRoute = DocsHarnessesRouteImport.update({
   path: '/docs/harnesses',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DocsCreatingTemplatesRoute = DocsCreatingTemplatesRouteImport.update({
+  id: '/docs/creating-templates',
+  path: '/docs/creating-templates',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DocsClientRoute = DocsClientRouteImport.update({
   id: '/docs/client',
   path: '/docs/client',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocsArchitectureRoute = DocsArchitectureRouteImport.update({
+  id: '/docs/architecture',
+  path: '/docs/architecture',
   getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/templates': typeof TemplatesRouteWithChildren
+  '/docs/architecture': typeof DocsArchitectureRoute
   '/docs/client': typeof DocsClientRoute
+  '/docs/creating-templates': typeof DocsCreatingTemplatesRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
   '/docs/scripts': typeof DocsScriptsRoute
   '/docs/server': typeof DocsServerRoute
@@ -99,7 +113,9 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/docs/architecture': typeof DocsArchitectureRoute
   '/docs/client': typeof DocsClientRoute
+  '/docs/creating-templates': typeof DocsCreatingTemplatesRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
   '/docs/scripts': typeof DocsScriptsRoute
   '/docs/server': typeof DocsServerRoute
@@ -114,7 +130,9 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/templates': typeof TemplatesRouteWithChildren
+  '/docs/architecture': typeof DocsArchitectureRoute
   '/docs/client': typeof DocsClientRoute
+  '/docs/creating-templates': typeof DocsCreatingTemplatesRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
   '/docs/scripts': typeof DocsScriptsRoute
   '/docs/server': typeof DocsServerRoute
@@ -130,7 +148,9 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/templates'
+    | '/docs/architecture'
     | '/docs/client'
+    | '/docs/creating-templates'
     | '/docs/harnesses'
     | '/docs/scripts'
     | '/docs/server'
@@ -143,7 +163,9 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/docs/architecture'
     | '/docs/client'
+    | '/docs/creating-templates'
     | '/docs/harnesses'
     | '/docs/scripts'
     | '/docs/server'
@@ -157,7 +179,9 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/templates'
+    | '/docs/architecture'
     | '/docs/client'
+    | '/docs/creating-templates'
     | '/docs/harnesses'
     | '/docs/scripts'
     | '/docs/server'
@@ -172,7 +196,9 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   TemplatesRoute: typeof TemplatesRouteWithChildren
+  DocsArchitectureRoute: typeof DocsArchitectureRoute
   DocsClientRoute: typeof DocsClientRoute
+  DocsCreatingTemplatesRoute: typeof DocsCreatingTemplatesRoute
   DocsHarnessesRoute: typeof DocsHarnessesRoute
   DocsScriptsRoute: typeof DocsScriptsRoute
   DocsServerRoute: typeof DocsServerRoute
@@ -258,11 +284,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsHarnessesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/docs/creating-templates': {
+      id: '/docs/creating-templates'
+      path: '/docs/creating-templates'
+      fullPath: '/docs/creating-templates'
+      preLoaderRoute: typeof DocsCreatingTemplatesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/docs/client': {
       id: '/docs/client'
       path: '/docs/client'
       fullPath: '/docs/client'
       preLoaderRoute: typeof DocsClientRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/docs/architecture': {
+      id: '/docs/architecture'
+      path: '/docs/architecture'
+      fullPath: '/docs/architecture'
+      preLoaderRoute: typeof DocsArchitectureRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -291,7 +331,9 @@ const TemplatesRouteWithChildren = TemplatesRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   TemplatesRoute: TemplatesRouteWithChildren,
+  DocsArchitectureRoute: DocsArchitectureRoute,
   DocsClientRoute: DocsClientRoute,
+  DocsCreatingTemplatesRoute: DocsCreatingTemplatesRoute,
   DocsHarnessesRoute: DocsHarnessesRoute,
   DocsScriptsRoute: DocsScriptsRoute,
   DocsServerRoute: DocsServerRoute,
