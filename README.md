@@ -12,7 +12,7 @@ Start from a production-ready template. Each one replaces tools you're paying fo
 
 <table>
 <tr>
-<td width="25%" align="center">
+<td width="25%" align="center" valign="top">
 
 **Analytics**
 
@@ -23,7 +23,7 @@ Start from a production-ready template. Each one replaces tools you're paying fo
 Connect any data source, prompt for any chart. Build reusable dashboards, not throwaway Q&A.
 
 </td>
-<td width="25%" align="center">
+<td width="25%" align="center" valign="top">
 
 **Content**
 
@@ -34,7 +34,7 @@ Connect any data source, prompt for any chart. Build reusable dashboards, not th
 Write and organize content with an agent that knows your brand and publishing workflow.
 
 </td>
-<td width="25%" align="center">
+<td width="25%" align="center" valign="top">
 
 **Slides**
 
@@ -45,7 +45,7 @@ Write and organize content with an agent that knows your brand and publishing wo
 Generate and edit React-based presentations via prompt or point-and-click.
 
 </td>
-<td width="25%" align="center">
+<td width="25%" align="center" valign="top">
 
 **Video**
 
