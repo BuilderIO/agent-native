@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import CodeBlock from '../components/CodeBlock'
 
 export const Route = createFileRoute('/')({ component: Home })
@@ -17,6 +18,7 @@ const templates = [
       </svg>
     ),
     color: 'var(--accent)',
+    screenshot: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fffc907f64236432c85693fe211e893e3?format=webp&width=800',
   },
   {
     name: 'Content',
@@ -31,6 +33,7 @@ const templates = [
       </svg>
     ),
     color: '#7928ca',
+    screenshot: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa595d3ee03114c7886b7d1c99abb60c9?format=webp&width=800',
   },
   {
     name: 'Slides',
@@ -46,6 +49,7 @@ const templates = [
       </svg>
     ),
     color: '#f59e0b',
+    screenshot: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd58c13a4ffce486987ac299216d0658c?format=webp&width=800',
   },
   {
     name: 'Video',
@@ -60,6 +64,7 @@ const templates = [
       </svg>
     ),
     color: '#ec4899',
+    screenshot: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffa3191d908634af487e37749aa7b0e42?format=webp&width=800',
   },
 ]
 
@@ -110,9 +115,9 @@ cd my-app
 pnpm install
 pnpm dev`
 
-function TemplateLaunchButton({ template }: { template: typeof templates[number] }) {
-  const [showCli, setShowCli] = useState(false)
+function CliPopover({ template, buttonRef, onClose }: { template: typeof templates[number]; buttonRef: React.RefObject<HTMLButtonElement | null>; onClose: () => void }) {
   const [copied, setCopied] = useState(false)
+  const popoverRef = useRef<HTMLDivElement>(null)
 
   function handleCopy() {
     navigator.clipboard.writeText(template.cliCommand)
@@ -120,8 +125,74 @@ function TemplateLaunchButton({ template }: { template: typeof templates[number]
     setTimeout(() => setCopied(false), 2000)
   }
 
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        popoverRef.current && !popoverRef.current.contains(e.target as Node) &&
+        buttonRef.current && !buttonRef.current.contains(e.target as Node)
+      ) {
+        onClose()
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [onClose, buttonRef])
+
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 })
+
+  useEffect(() => {
+    function update() {
+      if (!buttonRef.current) return
+      const rect = buttonRef.current.getBoundingClientRect()
+      setPos({ top: rect.bottom + 6, left: rect.left, width: rect.width })
+    }
+    update()
+    window.addEventListener('scroll', update, true)
+    window.addEventListener('resize', update)
+    return () => {
+      window.removeEventListener('scroll', update, true)
+      window.removeEventListener('resize', update)
+    }
+  }, [buttonRef])
+
+  return createPortal(
+    <div
+      ref={popoverRef}
+      className="fixed z-50 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] p-2 shadow-lg"
+      style={{ top: pos.top, left: pos.left, width: pos.width }}
+    >
+      <div className="flex items-center gap-2 rounded-md bg-[var(--bg)] px-2 py-1.5">
+        <code className="block whitespace-nowrap overflow-x-auto text-[10px] leading-relaxed text-[var(--fg)]">
+          {template.cliCommand}
+        </code>
+        <button
+          onClick={handleCopy}
+          className="shrink-0 rounded-md p-1 text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+          aria-label="Copy command"
+        >
+          {copied ? (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          ) : (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+          )}
+        </button>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+function TemplateLaunchButton({ template }: { template: typeof templates[number] }) {
+  const [showCli, setShowCli] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+
   return (
-    <div className="relative mt-auto flex flex-col gap-2 pt-3">
+    <div className="mt-auto flex flex-col gap-2 pt-3">
       <a
         href="https://builder.io"
         target="_blank"
@@ -134,6 +205,7 @@ function TemplateLaunchButton({ template }: { template: typeof templates[number]
         Launch
       </a>
       <button
+        ref={buttonRef}
         onClick={() => setShowCli(!showCli)}
         className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-transparent px-4 py-2 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
       >
@@ -143,31 +215,7 @@ function TemplateLaunchButton({ template }: { template: typeof templates[number]
         </svg>
         Run locally
       </button>
-      {showCli && (
-        <div className="absolute top-full left-0 z-10 mt-2 w-full rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] p-2 shadow-lg">
-          <div className="flex items-center gap-2 rounded-md bg-[var(--bg)] px-2 py-1.5">
-            <code className="block whitespace-nowrap overflow-x-auto text-[10px] leading-relaxed text-[var(--fg)]">
-              {template.cliCommand}
-            </code>
-            <button
-              onClick={handleCopy}
-              className="shrink-0 rounded-md p-1 text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
-              aria-label="Copy command"
-            >
-              {copied ? (
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-              )}
-            </button>
-          </div>
-        </div>
-      )}
+      {showCli && <CliPopover template={template} buttonRef={buttonRef} onClose={() => setShowCli(false)} />}
     </div>
   )
 }
@@ -269,13 +317,13 @@ function Home() {
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2">
           {templates.map((t) => (
             <div key={t.name} className="feature-card flex flex-col gap-3 overflow-hidden">
               <div
-                className="-mx-[24px] -mt-[24px] mb-1 flex aspect-video items-center justify-center overflow-hidden border-b border-[var(--border)] bg-[var(--bg-secondary)]"
+                className="-mx-[24px] -mt-[24px] mb-1 flex aspect-[4/3] items-center justify-center overflow-hidden border-b border-[var(--border)] bg-[var(--bg-secondary)]"
               >
-                <span className="text-xs text-[var(--fg-secondary)]">Screenshot</span>
+                <img src={t.screenshot} alt={`${t.name} template screenshot`} className="h-full w-full object-cover object-top" />
               </div>
               <h3 className="text-base font-semibold">{t.name}</h3>
               <p className="m-0 text-xs text-[var(--accent)]">{t.replaces}</p>

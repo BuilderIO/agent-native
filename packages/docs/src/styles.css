@@ -83,7 +83,8 @@ body {
   background: var(--selection);
 }
 
-a:not([class*="text-"]) {
+.docs-content a:not([class*="text-"]),
+a:not([class]) {
   color: var(--accent);
 }
 
