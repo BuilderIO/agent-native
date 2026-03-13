@@ -1,0 +1,279 @@
+# Agent-Native — Complete Documentation
+
+> Framework for building AI-native applications where agents and UI share state through files.
+
+Agent-Native is an open source framework for building full-featured applications powered by AI agents. Apps are React frontends with Express backends. All state lives in files — the agent and UI read/write the same source of truth.
+
+---
+
+# Getting Started
+
+## Installation
+
+```bash
+npx @agent-native/core create my-app
+```
+
+## Project Structure
+
+```
+my-app/
+  client/          # React frontend (Vite SPA)
+    App.tsx        # Entry point
+    components/    # UI components
+    lib/utils.ts   # cn() utility
+  server/          # Express backend
+    index.ts       # createAppServer()
+    node-build.ts  # Production entry point
+  shared/          # Isomorphic code (client & server)
+  scripts/         # Agent-callable scripts
+    run.ts         # Script dispatcher
+  data/            # App data files (watched by SSE)
+```
+
+## Vite Configuration
+
+```ts
+// vite.config.ts
+import { defineConfig } from "@agent-native/core/vite";
+export default defineConfig();
+```
+
+```ts
+// vite.config.server.ts
+import { defineServerConfig } from "@agent-native/core/vite";
+export default defineServerConfig();
+```
+
+## TypeScript & Tailwind
+
+```json
+// tsconfig.json
+{ "extends": "@agent-native/core/tsconfig.base.json" }
+```
+
+```ts
+// tailwind.config.ts
+import type { Config } from "tailwindcss";
+import preset from "@agent-native/core/tailwind";
+
+export default {
+  presets: [preset],
+  content: ["./client/**/*.{ts,tsx}"],
+} satisfies Config;
+```
+
+## Subpath Exports
+
+| Import | Exports |
+|--------|---------|
+| `@agent-native/core` | createServer, createFileWatcher, createSSEHandler, createProductionServer, runScript, parseArgs, loadEnv, fail, agentChat, sendToAgentChat, useAgentChatGenerating, useFileWatcher, cn |
+| `@agent-native/core/vite` | defineConfig(), defineServerConfig() |
+| `@agent-native/core/tailwind` | Tailwind preset (HSL colors, shadcn/ui tokens, animations) |
+| `@agent-native/core/adapters/firestore` | FileSync, threeWayMerge, loadSyncConfig |
+
+## Architecture Principles
+
+1. **Files as database** — All app state lives in files. Both UI and agent read/write the same files.
+2. **All AI through agent chat** — No inline LLM calls. UI delegates to the AI via `sendToAgentChat()`.
+3. **Scripts for agent ops** — `pnpm script <name>` dispatches to callable script files.
+4. **Bidirectional SSE events** — File watcher keeps UI in sync with agent changes in real-time.
+5. **Agent can update code** — The agent modifies the app itself.
+
+---
+
+# Server API
+
+## createServer(options?)
+
+Creates a pre-configured Express app with standard middleware (cors, json, urlencoded, /api/ping).
+
+```ts
+import { createServer } from "@agent-native/core";
+const app = createServer();
+```
+
+Options: `cors` (CorsOptions | false), `jsonLimit` (string, default "50mb"), `pingMessage` (string), `disablePing` (boolean).
+
+## createFileWatcher(dir, options?)
+
+Creates a chokidar file watcher for real-time file change detection.
+
+```ts
+import { createFileWatcher } from "@agent-native/core";
+const watcher = createFileWatcher("./data");
+```
+
+Options: `ignored` (glob/regex), `emitInitial` (boolean, default false).
+
+## createSSEHandler(watcher, options?)
+
+Creates an Express route handler that streams file changes as Server-Sent Events.
+
+```ts
+app.get("/api/events", createSSEHandler(watcher));
+```
+
+Each SSE message: `{ "type": "change", "path": "data/file.json" }`
+
+Options: `extraEmitters` (Array<{ emitter, event }>).
+
+## createProductionServer(app, options?)
+
+Starts a production server with SPA fallback and graceful shutdown.
+
+```ts
+import { createProductionServer } from "@agent-native/core";
+createProductionServer(createAppServer());
+```
+
+Options: `port` (number/string, default 3000), `spaDir` (string, default "dist/spa"), `appName` (string).
+
+---
+
+# Client Hooks & Utilities
+
+## sendToAgentChat(opts)
+
+Send a message to the agent chat via postMessage.
+
+```ts
+import { sendToAgentChat } from "@agent-native/core";
+
+sendToAgentChat({
+  message: "Generate alt text for this image",
+  context: "Image path: /api/projects/hero.jpg",
+  submit: true,
+});
+```
+
+AgentChatMessage fields: `message` (string), `context` (string?), `submit` (boolean?), `projectSlug` (string?), `preset` (string?), `referenceImagePaths` (string[]?).
+
+## useAgentChatGenerating()
+
+React hook with loading state tracking.
+
+```tsx
+const [isGenerating, send] = useAgentChatGenerating();
+```
+
+## useFileWatcher(options?)
+
+React hook that connects to SSE endpoint and invalidates react-query caches on file changes.
+
+```tsx
+useFileWatcher({
+  queryClient,
+  queryKeys: ["files", "projects"],
+  eventsUrl: "/api/events",
+  onEvent: (data) => console.log("File changed:", data),
+});
+```
+
+## cn(...inputs)
+
+Utility for merging class names (clsx + tailwind-merge).
+
+---
+
+# Scripts
+
+## Script Dispatcher
+
+```ts
+// scripts/run.ts
+import { runScript } from "@agent-native/core";
+runScript();
+```
+
+```ts
+// scripts/hello.ts
+import { parseArgs } from "@agent-native/core";
+
+export default async function hello(args: string[]) {
+  const { name } = parseArgs(args);
+  console.log(`Hello, ${name ?? "world"}!`);
+}
+```
+
+```bash
+pnpm script hello --name Steve
+```
+
+## parseArgs(args)
+
+Parse `--key value` or `--key=value` format arguments.
+
+## Shared Agent Chat
+
+Isomorphic chat bridge for browser and Node.js:
+
+```ts
+import { agentChat } from "@agent-native/core";
+agentChat.submit("Generate a report for Q4");
+agentChat.prefill("Draft an email to...", contextData);
+```
+
+## Utility Functions
+
+- `loadEnv(path?)` — Load .env file
+- `camelCaseArgs(args)` — Convert kebab-case keys to camelCase
+- `isValidPath(p)` — Validate relative path
+- `isValidProjectPath(p)` — Validate project slug
+- `ensureDir(dir)` — mkdir -p helper
+- `fail(message)` — Print error and exit(1)
+
+## Firestore Adapter
+
+Bidirectional file sync with three-way merge:
+
+```ts
+import { FileSync } from "@agent-native/core/adapters/firestore";
+const sync = new FileSync({ appId, ownerId, contentRoot, getFileCollection });
+await sync.initFileSync();
+```
+
+---
+
+# Harnesses
+
+Apps run inside a **harness** — a host that provides the AI agent alongside your app UI.
+
+## Claude Code Harness (Local, Open Source)
+
+- xterm.js terminal + app iframe
+- Powered by Claude Code CLI via node-pty
+- Settings panel for launch flags
+- Best for: solo development, testing
+
+## Builder Harness (Cloud)
+
+- Real-time collaboration
+- Visual editing + AI agent
+- Parallel agent execution
+- Best for: teams, production
+
+## Protocol
+
+1. **postMessage bridge** — app sends `builder.submitChat` messages to the harness
+2. **Chat running events** — harness sends `builder.fusion.chatRunning` events to the app
+3. **File watching** — SSE keeps UI in sync
+4. **Script system** — `pnpm script <name>` dispatches to scripts
+
+App code is identical regardless of harness.
+
+---
+
+# Templates
+
+## Analytics
+BI platform with 20+ data connectors (BigQuery, HubSpot, Stripe, Jira, Sentry, GitHub, Slack, Grafana, Google Cloud, etc.), SQL query explorer, reusable dashboards, 550+ metric data dictionary, 50+ pre-built scripts, and natural language chart generation.
+
+## Content
+Content workspace with project/document organization, rich text editor, brand-aware AI writing, media management, CMS publishing (WordPress, Contentful, Builder), real-time sync via SSE, and script automation for batch operations.
+
+## Slides
+AI presentation builder with 8 slide layouts (title, section, content, two-column, image, statement, full-bleed, blank), Gemini image generation with style references, logo/image search, drag-drop reordering, presentation mode with speaker notes, sharing, and undo/redo.
+
+## Video
+Video composition studio built on Remotion with track-based animation (duration, keyframe, expression tracks), 30+ easing curves, multi-keyframe editing, interactive cursor system (arrow, pointer, I-beam), 6D camera controls (pan, zoom, 3D tilt), and 12 example compositions. Renders to MP4/WebM at 1920x1080, 30fps.

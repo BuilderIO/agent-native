@@ -65,7 +65,6 @@ pnpm dev:harness`} />
             ['File watcher (SSE)', 'Yes', 'Yes'],
             ['Script system', 'Yes', 'Yes'],
             ['Open source', 'Yes', 'No'],
-            ['Cost', 'Free (BYOK)', 'Builder.io plan'],
           ].map(([feature, claude, builder]) => (
             <tr key={feature}>
               <td>{feature}</td>

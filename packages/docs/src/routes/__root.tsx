@@ -1,4 +1,4 @@
-import { HeadContent, Link, Outlet, Scripts, createRootRoute } from '@tanstack/react-router'
+import { HeadContent, Link, Outlet, Scripts, createRootRoute, useLocation } from '@tanstack/react-router'
 import Header from '../components/Header'
 import Footer from '../components/Footer'
 
@@ -7,6 +7,20 @@ import appCss from '../styles.css?url'
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`
 
 const GA_SCRIPT = `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-ESF7FYXGN9');`
+
+const JSON_LD = JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Agent-Native',
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'Cross-platform',
+  description: 'Open source framework for building AI-native applications where agents and UI share state through files.',
+  url: 'https://agent-native.com',
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+  license: 'https://opensource.org/licenses/MIT',
+  sourceOrganization: { '@type': 'Organization', name: 'Builder.io', url: 'https://builder.io' },
+  codeRepository: 'https://github.com/BuilderIO/agent-native',
+})
 
 export const Route = createRootRoute({
   head: () => ({
@@ -18,6 +32,9 @@ export const Route = createRootRoute({
       { property: 'og:image', content: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F593e5010f7e74ca3b9beb8ec594652b5?format=webp&width=1200' },
       { property: 'og:title', content: 'Agent-Native — Framework for AI-Native Apps' },
       { property: 'og:description', content: 'Build apps where AI agents and UI share state through files.' },
+      { property: 'og:type', content: 'website' },
+      { property: 'og:url', content: 'https://agent-native.com' },
+      { property: 'og:site_name', content: 'Agent-Native' },
       { name: 'twitter:card', content: 'summary_large_image' },
       { name: 'twitter:image', content: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F593e5010f7e74ca3b9beb8ec594652b5?format=webp&width=1200' },
     ],
@@ -32,6 +49,13 @@ export const Route = createRootRoute({
   notFoundComponent: NotFound,
 })
 
+function CanonicalLink() {
+  const location = useLocation()
+  const path = location.pathname.replace(/\/$/, '') || '/'
+  const canonical = `https://agent-native.com${path}`
+  return <link rel="canonical" href={canonical} />
+}
+
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
@@ -39,6 +63,8 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <script async src="https://www.googletagmanager.com/gtag/js?id=G-ESF7FYXGN9" />
         <script dangerouslySetInnerHTML={{ __html: GA_SCRIPT }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON_LD }} />
+        <CanonicalLink />
         <HeadContent />
       </head>
       <body className="font-sans antialiased" suppressHydrationWarning>

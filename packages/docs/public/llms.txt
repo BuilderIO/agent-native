@@ -1,0 +1,50 @@
+# Agent-Native
+
+> Framework for building AI-native applications where agents and UI share state through files.
+
+Agent-Native is an open source framework for building full-featured applications powered by AI agents. Apps are React frontends with Express backends. All state lives in files — the agent and UI read/write the same source of truth. No traditional database needed.
+
+## Key Concepts
+
+- **Files as Database**: All app state lives in JSON/markdown files. Agent and UI share the same source of truth.
+- **AI Through the Agent**: No inline LLM calls. The UI delegates to the agent via a chat bridge (`sendToAgentChat()`).
+- **Agent Updates Code**: The agent can modify the app itself. Your tools get better over time.
+- **Real-time Sync**: File watcher streams changes via SSE. When the agent writes a file, the UI updates instantly.
+- **Scripts System**: Agent-callable scripts via `pnpm script <name>` for complex operations.
+- **Harnesses**: Apps run inside a harness (Claude Code CLI or Builder.io Cloud) that provides the AI agent alongside your UI.
+
+## Quick Start
+
+```bash
+npx @agent-native/core create my-app --template analytics
+cd my-app
+pnpm install
+pnpm dev
+```
+
+## Templates
+
+- **Analytics**: BI platform with 20+ data connectors, SQL query explorer, dashboards, data dictionary
+- **Content**: Content workspace with brand-aware AI writing, CMS publishing, media management
+- **Slides**: AI presentation builder with 8 layouts, image generation, visual editing
+- **Video**: Video composition studio built on Remotion with track-based animation
+
+## Documentation (Markdown)
+
+All documentation pages are available as raw markdown by appending `.md` to any docs URL:
+
+- [Getting Started](https://agent-native.com/docs/getting-started.md)
+- [Server API](https://agent-native.com/docs/server.md)
+- [Client Hooks](https://agent-native.com/docs/client.md)
+- [Scripts](https://agent-native.com/docs/scripts.md)
+- [Harnesses](https://agent-native.com/docs/harnesses.md)
+
+## Full Documentation
+
+For the complete documentation in a single file, see: [llms-full.txt](https://agent-native.com/llms-full.txt)
+
+## Links
+
+- Website: https://agent-native.com
+- GitHub: https://github.com/BuilderIO/agent-native
+- npm: https://www.npmjs.com/package/@agent-native/core
