@@ -60,8 +60,8 @@ useFileWatcher({
   queryClient,
   queryKeys: [], // don't auto-invalidate everything
   onEvent: (data) => {
-    if (data.path?.includes("decks")) {
-      queryClient.invalidateQueries({ queryKey: ["decks"] });
+    if (data.path?.includes("projects")) {
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
     } else if (data.path?.includes("settings")) {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
     }
@@ -73,8 +73,8 @@ To prevent cache thrashing during rapid agent writes, set `staleTime` on your qu
 
 ```ts
 useQuery({
-  queryKey: ["decks"],
-  queryFn: fetchDecks,
+  queryKey: ["projects"],
+  queryFn: fetchProjects,
   staleTime: 2000, // don't refetch within 2 seconds
 });
 ```
@@ -99,14 +99,14 @@ The `useFileWatcher` hook spreads `queryKeys` into its `useEffect` dependency ar
 
 ```ts
 // Bad: new array every render → reconnects constantly
-useFileWatcher({ queryClient, queryKeys: ["decks", "slides"] });
+useFileWatcher({ queryClient, queryKeys: ["projects", "tasks"] });
 
 // Good: stable reference
-const QUERY_KEYS = ["decks", "slides"];
+const QUERY_KEYS = ["projects", "tasks"];
 useFileWatcher({ queryClient, queryKeys: QUERY_KEYS });
 
 // Also good: useMemo
-const keys = useMemo(() => ["decks", "slides"], []);
+const keys = useMemo(() => ["projects", "tasks"], []);
 useFileWatcher({ queryClient, queryKeys: keys });
 ```
 
