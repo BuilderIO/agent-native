@@ -30,6 +30,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
+    "test": "vitest --run",
     "prepublishOnly": "npm run build",
     "release": "npm version patch && npm publish --access public"
   },
@@ -99,6 +100,7 @@
     "tailwindcss": "^3.4.17",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.9.2",
-    "vite": "^7.1.2"
+    "vite": "^7.1.2",
+    "vitest": "^3.2.4"
   }
 }
