@@ -30,7 +30,7 @@ export async function runScript(): Promise<void> {
 
   // Dynamically import and run the script
   try {
-    const mod = await import(`./${scriptName}.js`);
+    const mod = await import(/* @vite-ignore */ `./${scriptName}.js`);
     const args = process.argv.slice(3);
     await mod.default(args);
   } catch (err: any) {

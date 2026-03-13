@@ -13,8 +13,15 @@ export default defineConfig({
         target: "ws://localhost:3333",
         ws: true,
       },
-      "/api": {
+      // Harness-specific endpoint (WS server only serves this one route)
+      "/api/app-info": {
         target: "http://localhost:3333",
+      },
+      // App API routes — the iframe shares our origin, so its fetch("/api/...")
+      // calls arrive here. Forward them to the app's Express server.
+      "/api": {
+        target: `http://localhost:${APP_PORT}`,
+        changeOrigin: true,
       },
       // In single-port mode, apps run with --base <prefix> so all their
       // assets are served under that prefix. No path rewriting needed —
