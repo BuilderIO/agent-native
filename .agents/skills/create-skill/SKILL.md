@@ -123,14 +123,6 @@ description: >-
 - Pattern skills: descriptive names (`files-as-database`, `delegate-to-agent`)
 - Workflow/generator skills: verb-noun (`create-script`, `capture-learnings`)
 
-## Constraints
-
-- **Description under 40 words** — Skills are loaded into context. Keep descriptions tight.
-- **SKILL.md under 500 lines** — Move detailed content to `references/` files.
-- **Every skill needs a "Related Skills" section** — Skills compose with each other.
-- **Every skill should relate to one of the 5 rules** — Or be explicitly "utility."
-- **Standard markdown headings** — No XML tags or custom formats.
-
 ## Anti-Patterns
 
 - **Inline LLM calls** — Skills must not call LLMs directly (violates Rule 2)
