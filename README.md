@@ -18,7 +18,7 @@ Start from a production-ready template. Each one replaces tools you're paying fo
 
 <img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800" alt="Analytics template" width="100%" />
 
-*Replaces Amplitude, Mixpanel*
+**AI-Native Amplitude, Mixpanel**
 
 Connect any data source, prompt for any chart. Build reusable dashboards, not throwaway Q&A.
 
@@ -31,7 +31,7 @@ Connect any data source, prompt for any chart. Build reusable dashboards, not th
 
 <img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800" alt="Content template" width="100%" />
 
-*Replaces Notion, Google Docs*
+**AI-Native Notion, Google Docs**
 
 Write and organize content with an agent that knows your brand and publishing workflow.
 
@@ -44,7 +44,7 @@ Write and organize content with an agent that knows your brand and publishing wo
 
 <img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c09b451d40c4a74a89a38d69170c2d8?format=webp&width=800" alt="Slides template" width="100%" />
 
-*Replaces Google Slides, Pitch*
+**AI-Native Google Slides, Pitch**
 
 Generate and edit React-based presentations via prompt or point-and-click.
 
@@ -57,7 +57,7 @@ Generate and edit React-based presentations via prompt or point-and-click.
 
 <img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b8bfcc18a1d4c47a491da3b2d4148a4?format=webp&width=800" alt="Video template" width="100%" />
 
-*Replaces manual video editing*
+**AI-Native video editing**
 
 Create and edit Remotion video compositions with agent assistance.
 
