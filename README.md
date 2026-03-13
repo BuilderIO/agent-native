@@ -10,12 +10,54 @@ Other products charge you for rigid software you can't change. Agent-native give
 
 Start from a production-ready template. Each one replaces tools you're paying for — except you own everything and can customize it however you want.
 
-| Template | Replaces | What it does |
-|---|---|---|
-| **Analytics** | Amplitude, Mixpanel | Connect any data source, prompt for any chart. Build reusable dashboards, not throwaway Q&A. |
-| **Content** | Notion, Google Docs | Write and organize content with an agent that knows your brand and publishing workflow. |
-| **Slides** | Google Slides, Pitch | Generate and edit React-based presentations via prompt or point-and-click. |
-| **Video** | Manual editing | Create and edit Remotion video compositions with agent assistance. |
+<table>
+<tr>
+<td width="25%" align="center">
+
+**Analytics**
+
+<img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800" alt="Analytics template" width="100%" />
+
+*Replaces Amplitude, Mixpanel*
+
+Connect any data source, prompt for any chart. Build reusable dashboards, not throwaway Q&A.
+
+</td>
+<td width="25%" align="center">
+
+**Content**
+
+<img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800" alt="Content template" width="100%" />
+
+*Replaces Notion, Google Docs*
+
+Write and organize content with an agent that knows your brand and publishing workflow.
+
+</td>
+<td width="25%" align="center">
+
+**Slides**
+
+<img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c09b451d40c4a74a89a38d69170c2d8?format=webp&width=800" alt="Slides template" width="100%" />
+
+*Replaces Google Slides, Pitch*
+
+Generate and edit React-based presentations via prompt or point-and-click.
+
+</td>
+<td width="25%" align="center">
+
+**Video**
+
+<img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b8bfcc18a1d4c47a491da3b2d4148a4?format=webp&width=800" alt="Video template" width="100%" />
+
+*Replaces manual video editing*
+
+Create and edit Remotion video compositions with agent assistance.
+
+</td>
+</tr>
+</table>
 
 Every template is forkable, open source, and designed to be customized. Try them with example data before connecting your own sources.
 
@@ -28,7 +70,7 @@ pnpm install
 pnpm dev
 ```
 
-Or **[launch a template in Builder](https://builder.io)** — no setup required.
+Or **[launch a template](https://agent-native.com/templates)** — no setup required.
 
 ## How It Works
 
