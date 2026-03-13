@@ -102,10 +102,6 @@ If `sendToAgentChat()` isn't reaching the agent, check:
 
 Scripts may call external APIs (image generation, search, etc.) — but the AI reasoning and orchestration still goes through the agent. A script is a tool the agent uses, not a replacement for the agent.
 
-## Known Violations
-
-The `GenerateSlidesDialog` pattern (server route calling an LLM directly) is a Rule 2 violation. The correct approach: the UI sends a message to the agent via `sendToAgentChat()`, and the agent generates slides by writing to data files. If you encounter similar patterns, refactor them to go through the agent chat.
-
 ## Security
 
 - **`postMessage` wildcard origin** — `sendToAgentChat()` uses `target.postMessage(payload, "*")` which sends to any origin. This is acceptable for local development but must specify the target origin in production deployments.
