@@ -4,91 +4,81 @@ import CodeBlock from '../components/CodeBlock'
 
 export const Route = createFileRoute('/')({ component: Home })
 
-const features = [
+const templates = [
   {
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
-        <polyline points="13 2 13 9 20 9" />
-      </svg>
-    ),
-    title: 'Files as Database',
+    name: 'Analytics',
     description:
-      'All state lives in files. UI and agent read/write the same files. No traditional DB needed.',
-  },
-  {
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      </svg>
-    ),
-    title: 'AI Through Chat',
-    description:
-      'No inline LLM calls. UI delegates to the AI via a chat bridge. Clean separation of concerns.',
-  },
-  {
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="4 17 10 11 4 5" />
-        <line x1="12" y1="19" x2="20" y2="19" />
-      </svg>
-    ),
-    title: 'Scripts for Agents',
-    description:
-      'pnpm script dispatches to callable scripts the agent can invoke autonomously.',
-  },
-  {
+      'Agent-native Amplitude. Prompt for any chart, answer any question, connect to any data source. No SQL required.',
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
       </svg>
     ),
-    title: 'Real-time SSE',
-    description:
-      'File watcher streams changes to the UI instantly. Agent edits appear in real-time.',
+    color: 'var(--accent)',
   },
   {
+    name: 'Content',
+    description:
+      'Agent-native Notion. Write, edit, and organize content with an agent that understands your brand and publishing workflow.',
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 20h9" />
-        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
       </svg>
     ),
-    title: 'Agent Updates Code',
+    color: '#7928ca',
+  },
+  {
+    name: 'Slides',
     description:
-      'The agent can modify the app itself. Self-evolving applications by design.',
+      'Agent-native Google Slides. Generate and edit React-based presentations via prompt or UI. Describe what you want and refine.',
+    icon: (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+        <line x1="8" y1="21" x2="16" y2="21" />
+        <line x1="12" y1="17" x2="12" y2="21" />
+      </svg>
+    ),
+    color: '#f59e0b',
+  },
+  {
+    name: 'Video',
+    description:
+      'Agent-native video generation. Create and edit Remotion compositions with agent assistance — from storyboard to render.',
+    icon: (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <polygon points="23 7 16 12 23 17 23 7" />
+        <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+      </svg>
+    ),
+    color: '#ec4899',
   },
 ]
 
-const quickStartCode = `# Create a new agent-native app
-npx @agent-native/core create my-app
+const principles = [
+  {
+    title: 'Files as Database',
+    description: 'All state lives in files. UI and agent read/write the same files. No traditional DB needed.',
+  },
+  {
+    title: 'AI Through Chat',
+    description: 'No inline LLM calls. The UI delegates to the AI agent via a chat bridge.',
+  },
+  {
+    title: 'Agent Updates Code',
+    description: 'The agent can modify the app itself. Fork a template and keep evolving it.',
+  },
+  {
+    title: 'Real-time SSE',
+    description: 'File watcher streams changes to the UI instantly. Agent edits appear in real-time.',
+  },
+]
+
+const quickStartCode = `# Fork a template and start building
+npx @agent-native/core create my-app --template analytics
 cd my-app
 pnpm install
 pnpm dev`
-
-const beforeCode = `// vite.config.ts — manual setup
-import { defineConfig, Plugin } from "vite";
-import react from "@vitejs/plugin-react-swc";
-import path from "path";
-
-export default defineConfig(({ mode }) => ({
-  server: {
-    host: "::",
-    port: 8080,
-    fs: {
-      allow: ["./client", "./shared"],
-      deny: [".env", "**/.git/**"],
-    },
-  },
-  build: { outDir: "dist/spa" },
-  plugins: [react(), expressPlugin()],
-  // ... plus express plugin function
-}));`
-
-const afterCode = `// vite.config.ts — with @agent-native/core
-import { defineConfig } from "@agent-native/core/vite";
-
-export default defineConfig();`
 
 function TerminalCommand() {
   const [copied, setCopied] = useState(false)
@@ -130,20 +120,20 @@ function Home() {
       <section className="hero-section">
         <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-1.5 text-sm text-[var(--fg-secondary)]">
           <span className="inline-block h-2 w-2 rounded-full bg-[var(--accent)]" />
-          Now in public beta
+          Open source framework
         </div>
 
         <h1 className="mx-auto max-w-3xl">
-          The Framework for{' '}
+          Software You{' '}
           <span className="bg-gradient-to-r from-[var(--accent)] to-[#7928ca] bg-clip-text text-transparent">
-            Agent-Native
-          </span>{' '}
-          Apps
+            Own
+          </span>
+          , Powered by AI
         </h1>
 
         <p className="mx-auto mb-10 max-w-2xl text-lg leading-relaxed text-[var(--fg-secondary)]">
-          Build applications where AI agents and UI share state through files.
-          Like Next.js, but for agent-native development.
+          Agent-native apps give you the power of SaaS with the control of custom software.
+          Fork a template, launch in minutes, and let AI help you customize it to your exact needs.
         </p>
 
         <div className="flex items-center justify-center gap-4">
@@ -158,7 +148,7 @@ function Home() {
             </svg>
           </Link>
           <a
-            href="https://github.com/agent-native"
+            href="https://github.com/BuilderIO/agent-native"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
@@ -173,26 +163,97 @@ function Home() {
         <TerminalCommand />
       </section>
 
-      {/* Feature Grid */}
+      {/* The Problem */}
       <section className="py-20">
         <div className="mb-12 text-center">
           <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-            What's in Agent-Native?
+            The best of both worlds
           </h2>
-          <p className="mx-auto max-w-xl text-base text-[var(--fg-secondary)]">
-            Everything you need to build apps where AI agents are first-class citizens.
+          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+            SaaS tools aren't built for AI. Chat-based agents have no UI. Custom apps take months to build.
+            Agent-native apps are a new category — fork a template, own the code, and let AI evolve it with you.
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {features.map((feature) => (
-            <div key={feature.title} className="feature-card flex flex-col gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--accent-light)] text-[var(--accent)]">
-                {feature.icon}
+        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:grid-cols-2">
+          <div className="bg-[var(--bg)] p-6">
+            <div className="mb-2 text-sm font-medium text-red-400">SaaS tools</div>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Polished UI but rigid. Can't customize. AI bolted on as an afterthought. You don't own your data or workflows.
+            </p>
+          </div>
+          <div className="bg-[var(--bg)] p-6">
+            <div className="mb-2 text-sm font-medium text-red-400">Raw AI agents</div>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Powerful but no structured UI. Inaccessible to non-devs. No guardrails, no real-time collaboration.
+            </p>
+          </div>
+          <div className="bg-[var(--bg)] p-6">
+            <div className="mb-2 text-sm font-medium text-red-400">Custom apps</div>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Full control but months of work. AI is disconnected from the UI. Can't see what you see or react to what you click.
+            </p>
+          </div>
+          <div className="bg-[var(--bg)] p-6">
+            <div className="mb-2 text-sm font-medium text-[var(--accent)]">Agent-native apps</div>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Fork a template, launch in minutes. Own the code. AI and UI are unified — the agent can update the app itself.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Templates */}
+      <section className="border-t border-[var(--border)] py-20">
+        <div className="mb-12 text-center">
+          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+            Start from a template
+          </h2>
+          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+            Each template is a fully working app you can launch in minutes and customize over time.
+            Every feature works with AI — if it doesn't, we don't ship it.
+          </p>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          {templates.map((t) => (
+            <div key={t.name} className="feature-card flex flex-col gap-3">
+              <div
+                className="flex h-10 w-10 items-center justify-center rounded-lg"
+                style={{ backgroundColor: `${t.color}15`, color: t.color }}
+              >
+                {t.icon}
               </div>
-              <h3 className="text-base font-semibold">{feature.title}</h3>
+              <h3 className="text-base font-semibold">{t.name}</h3>
               <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                {feature.description}
+                {t.description}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <p className="mt-8 text-center text-sm text-[var(--fg-secondary)]">
+          Every template is forkable and open source. Connect your own data sources, customize the UI, extend with new features — all by asking.
+        </p>
+      </section>
+
+      {/* How it works */}
+      <section className="border-t border-[var(--border)] py-20">
+        <div className="mb-12 text-center">
+          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+            How it works
+          </h2>
+          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+            The agent and the UI are one. Your app lives inside the agent workspace. Anything the UI can do, the agent can do via natural language — and vice versa.
+          </p>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {principles.map((p) => (
+            <div key={p.title} className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+              <h3 className="mb-2 text-sm font-semibold">{p.title}</h3>
+              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                {p.description}
               </p>
             </div>
           ))}
@@ -203,10 +264,10 @@ function Home() {
       <section className="border-t border-[var(--border)] py-20">
         <div className="mb-12 text-center">
           <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-            Get running in seconds
+            Launch in minutes
           </h2>
           <p className="mx-auto max-w-xl text-base text-[var(--fg-secondary)]">
-            One command to scaffold a full agent-native app with React, SSE, and an AI chat bridge.
+            One command to fork a template. Connect your integrations, and start building.
           </p>
         </div>
 
@@ -215,46 +276,13 @@ function Home() {
         </div>
       </section>
 
-      {/* Before / After */}
-      <section className="border-t border-[var(--border)] py-20">
-        <div className="mb-12 text-center">
-          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-            Less config, more building
-          </h2>
-          <p className="mx-auto max-w-xl text-base text-[var(--fg-secondary)]">
-            Agent-Native replaces boilerplate with sensible defaults. Compare the setup yourself.
-          </p>
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-2">
-          <div>
-            <div className="mb-3 flex items-center gap-2">
-              <span className="inline-flex items-center rounded-full bg-red-500/10 px-3 py-1 text-xs font-medium text-red-500">
-                Before
-              </span>
-              <span className="text-sm text-[var(--fg-secondary)]">40+ lines of config</span>
-            </div>
-            <CodeBlock code={beforeCode} lang="typescript" />
-          </div>
-          <div>
-            <div className="mb-3 flex items-center gap-2">
-              <span className="inline-flex items-center rounded-full bg-green-500/10 px-3 py-1 text-xs font-medium text-green-500">
-                After
-              </span>
-              <span className="text-sm text-[var(--fg-secondary)]">2 lines</span>
-            </div>
-            <CodeBlock code={afterCode} lang="typescript" />
-          </div>
-        </div>
-      </section>
-
       {/* Bottom CTA */}
       <section className="border-t border-[var(--border)] py-20 text-center">
         <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-          Ready to build?
+          Own your software
         </h2>
-        <p className="mx-auto mb-8 max-w-md text-base text-[var(--fg-secondary)]">
-          Start building agent-native apps today. Open source and free forever.
+        <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
+          Stop renting rigid SaaS. Fork a template, customize it to your exact workflow, and let AI keep evolving it. Open source and free forever.
         </p>
         <div className="flex items-center justify-center gap-4">
           <Link
@@ -268,7 +296,7 @@ function Home() {
             </svg>
           </Link>
           <a
-            href="https://github.com/agent-native"
+            href="https://github.com/BuilderIO/agent-native"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
