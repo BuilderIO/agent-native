@@ -40,17 +40,6 @@ The agent modifies files on disk, but the UI runs in the browser. SSE bridges th
 - Don't spread `queryKeys` inline on every render — use a stable reference (see Dependency Array below)
 - Don't create your own EventSource connections alongside `useFileWatcher` — use the `onEvent` callback for custom handling
 
-## Multiple Directories
-
-`createFileWatcher("./data")` watches the entire `data/` tree recursively. You do NOT need separate watchers per data model. If you have data in multiple top-level directories, create one watcher per directory and pass both to `createSSEHandler`:
-
-```ts
-const dataWatcher = createFileWatcher("./data");
-const configWatcher = createFileWatcher("./config");
-// Use extraEmitters to combine multiple sources
-app.get("/api/events", createSSEHandler(dataWatcher));
-```
-
 ## Query Key Mapping
 
 By default, `useFileWatcher` invalidates all listed query keys on every file change. For apps with multiple data models, this causes unnecessary refetches. Use path-based filtering via the `onEvent` callback:
@@ -79,20 +68,6 @@ useQuery({
 });
 ```
 
-## Reconnection
-
-`EventSource` has built-in automatic reconnection — if the SSE connection drops, the browser reconnects automatically. Handle errors for logging:
-
-```ts
-useFileWatcher({
-  queryClient,
-  queryKeys: ["files"],
-  // The hook already logs errors; add onEvent for custom error handling
-});
-```
-
-If the server restarts, the EventSource reconnects and the UI catches up on the next file change.
-
 ## Dependency Array
 
 The `useFileWatcher` hook spreads `queryKeys` into its `useEffect` dependency array. If `queryKeys` is a new array reference on every render, the EventSource will disconnect and reconnect on every render. Fix: use a stable reference.
@@ -112,14 +87,11 @@ useFileWatcher({ queryClient, queryKeys: keys });
 
 ## Performance
 
-**SSE event storms** — When the agent writes many files rapidly (e.g., 15 files in 2 seconds during self-modification), each write fires a chokidar event → SSE broadcast → React Query invalidation. With 4 query keys, that's 60 `invalidateQueries` calls.
+When the agent writes many files rapidly (e.g., during self-modification), each write fires a chokidar event → SSE broadcast → React Query invalidation. This can cause excessive refetching.
 
 Mitigations:
 - Use `staleTime: 2000` on React Query to debounce refetches
 - Use path-based filtering (see Query Key Mapping) to limit which queries invalidate
-- On Linux with many directories, you may need to increase `fs.inotify.max_user_watches`
-
-**Connection limits** — Browsers limit concurrent SSE connections per domain (typically 6 for HTTP/1.1). For production with multiple tabs, consider HTTP/2 or a shared connection strategy.
 
 ## Troubleshooting
 
@@ -130,12 +102,6 @@ Mitigations:
 | Watcher not detecting changes | Is the path correct? `createFileWatcher("./data")` is relative to CWD. Check the server's working directory. |
 | Constant reconnections | Check if `queryKeys` is a stable reference (see Dependency Array above). Also check for server crashes in terminal output. |
 | High CPU / event storms | The agent is writing many files rapidly. Add `staleTime` to queries and use path-based filtering. |
-
-## Security
-
-- **Strip absolute paths** — SSE events include file paths. The `createSSEHandler` sends the path as chokidar reports it (relative to the watched directory). Avoid exposing absolute filesystem paths to the browser.
-- **Authentication** — In production, add authentication to the `/api/events` endpoint. Without it, anyone can stream all file changes.
-- **Connection limits** — Cap concurrent SSE connections to prevent resource exhaustion.
 
 ## Related Skills
 
