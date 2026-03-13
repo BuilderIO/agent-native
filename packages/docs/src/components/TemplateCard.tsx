@@ -9,7 +9,7 @@ export const templates = [
     description:
       'Connect any data source, prompt for any chart. Build reusable dashboards — not throwaway Q&A. No SQL required.',
     color: 'var(--accent)',
-    screenshot: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fffc907f64236432c85693fe211e893e3?format=webp&width=800',
+    screenshot: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800',
   },
   {
     name: 'Content',
@@ -18,7 +18,7 @@ export const templates = [
     description:
       'Write and organize content with an agent that knows your brand, connects to your CMS, and follows your publishing workflow.',
     color: '#7928ca',
-    screenshot: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa595d3ee03114c7886b7d1c99abb60c9?format=webp&width=800',
+    screenshot: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800',
   },
   {
     name: 'Slides',
@@ -27,7 +27,7 @@ export const templates = [
     description:
       'Generate and edit React-based presentations via prompt or point-and-click. Describe what you want, refine as you go.',
     color: '#f59e0b',
-    screenshot: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd58c13a4ffce486987ac299216d0658c?format=webp&width=800',
+    screenshot: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c09b451d40c4a74a89a38d69170c2d8?format=webp&width=800',
   },
   {
     name: 'Video',
@@ -36,7 +36,7 @@ export const templates = [
     description:
       'Create and edit Remotion video compositions with agent assistance — from storyboard to render, all in code you own.',
     color: '#ec4899',
-    screenshot: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffa3191d908634af487e37749aa7b0e42?format=webp&width=800',
+    screenshot: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b8bfcc18a1d4c47a491da3b2d4148a4?format=webp&width=800',
   },
 ]
 
