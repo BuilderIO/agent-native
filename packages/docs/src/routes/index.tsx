@@ -147,6 +147,7 @@ function TerminalCommand() {
 
 function Home() {
   return (
+    <>
     <main className="mx-auto max-w-[1200px] px-6">
       {/* Hero */}
       <section className="hero-section">
@@ -195,8 +196,10 @@ function Home() {
         <TerminalCommand />
       </section>
 
-      {/* Templates */}
-      <section className="py-20">
+      </main>
+
+      {/* Templates - breaks out of max-width on ultra-wide screens */}
+      <section className="py-20 px-6">
         <div className="mb-12 text-center">
           <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
             Start with a full featured template
@@ -207,7 +210,19 @@ function Home() {
           </p>
         </div>
 
-        <TemplateCarousel />
+        {/* Carousel on smaller screens, grid on ultra-wide */}
+        <div className="2xl:hidden">
+          <div className="mx-auto max-w-[1200px]">
+            <TemplateCarousel />
+          </div>
+        </div>
+        <div className="hidden 2xl:block">
+          <div className="mx-auto grid max-w-[1680px] grid-cols-4 gap-5">
+            {templates.map((t) => (
+              <TemplateCard key={t.name} template={t} />
+            ))}
+          </div>
+        </div>
 
         <div className="mt-8 text-center">
           <Link
@@ -222,6 +237,8 @@ function Home() {
           </Link>
         </div>
       </section>
+
+      <main className="mx-auto max-w-[1200px] px-6">
 
       {/* The best of both worlds */}
       <section className="border-t border-[var(--border)] py-20">
@@ -500,5 +517,6 @@ function Home() {
         </div>
       </section>
     </main>
+    </>
   )
 }
