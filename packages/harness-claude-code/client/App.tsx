@@ -243,7 +243,7 @@ export function App() {
 
         {/* Terminal */}
         <div className="flex-1 min-h-0 relative">
-          <div ref={termRef} className="w-full h-full p-1" />
+          <div ref={termRef} className="w-full h-full py-1 pl-3 pr-1" />
 
           {/* Setup overlay — shown when Claude CLI needs to be installed */}
           {(setupStatus.status === 'installing' || setupStatus.status === 'not-found' || setupStatus.status === 'failed') && (
