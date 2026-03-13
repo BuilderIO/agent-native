@@ -74,33 +74,21 @@ function TemplateCarousel() {
   }
 
   return (
-    <div className="relative">
-      {canScrollLeft && (
-        <button
-          onClick={() => scroll('left')}
-          className="absolute -left-4 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg)] text-[var(--fg-secondary)] shadow-lg transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
-          aria-label="Scroll left"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-        </button>
-      )}
-      {canScrollRight && (
-        <button
-          onClick={() => scroll('right')}
-          className="absolute -right-4 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg)] text-[var(--fg-secondary)] shadow-lg transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
-          aria-label="Scroll right"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
-        </button>
-      )}
+    <div className="flex items-center gap-3">
+      <button
+        onClick={() => scroll('left')}
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg)] text-[var(--fg-secondary)] shadow-sm transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)] ${canScrollLeft ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+        aria-label="Scroll left"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="15 18 9 12 15 6" />
+        </svg>
+      </button>
+
       <div
         ref={scrollRef}
         onScroll={updateScrollState}
-        className="-mx-6 overflow-x-auto px-6 pb-4 scrollbar-hide"
+        className="min-w-0 flex-1 overflow-x-auto pb-4 scrollbar-hide"
       >
         <div className="flex gap-4" style={{ width: 'max-content' }}>
           {templates.map((t) => (
@@ -110,6 +98,16 @@ function TemplateCarousel() {
           ))}
         </div>
       </div>
+
+      <button
+        onClick={() => scroll('right')}
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg)] text-[var(--fg-secondary)] shadow-sm transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)] ${canScrollRight ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+        aria-label="Scroll right"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      </button>
     </div>
   )
 }
