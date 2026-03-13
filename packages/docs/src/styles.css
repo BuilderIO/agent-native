@@ -92,7 +92,7 @@ a {
 }
 
 a:hover {
-  text-decoration: underline;
+  text-decoration: none;
 }
 
 code {
@@ -294,10 +294,6 @@ html.dark .shiki span {
   transition: border-color 200ms ease, background-color 200ms ease;
 }
 
-.feature-card:hover {
-  border-color: var(--fg-secondary);
-  background: var(--bg-secondary);
-}
 
 /* Home hero */
 .hero-section {

@@ -7,7 +7,7 @@ export default function Header() {
       <nav className="mx-auto flex h-16 max-w-[1440px] items-center gap-6 px-6">
         <Link
           to="/"
-          className="flex items-center gap-2 text-[var(--fg)] no-underline hover:no-underline"
+          className="flex items-center gap-2 text-[var(--fg)] no-underline"
         >
           <span className="text-base font-bold tracking-tight">Agent-Native</span>
         </Link>

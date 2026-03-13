@@ -7,7 +7,8 @@ export const Route = createFileRoute('/')({ component: Home })
 const templates = [
   {
     name: 'Analytics',
-    replaces: 'Replaces Amplitude, Mixpanel',
+    replaces: 'Replaces or augments Amplitude, Mixpanel',
+    cliCommand: 'npx @agent-native/core create my-app --template analytics',
     description:
       'Connect any data source, prompt for any chart. Build reusable dashboards — not throwaway Q&A. No SQL required.',
     icon: (
@@ -19,7 +20,8 @@ const templates = [
   },
   {
     name: 'Content',
-    replaces: 'Replaces Notion, Google Docs',
+    replaces: 'Replaces or augments Notion, Google Docs',
+    cliCommand: 'npx @agent-native/core create my-app --template content',
     description:
       'Write and organize content with an agent that knows your brand, connects to your CMS, and follows your publishing workflow.',
     icon: (
@@ -32,7 +34,8 @@ const templates = [
   },
   {
     name: 'Slides',
-    replaces: 'Replaces Google Slides, Pitch',
+    replaces: 'Replaces or augments Google Slides, Pitch',
+    cliCommand: 'npx @agent-native/core create my-app --template slides',
     description:
       'Generate and edit React-based presentations via prompt or point-and-click. Describe what you want, refine as you go.',
     icon: (
@@ -46,7 +49,8 @@ const templates = [
   },
   {
     name: 'Video',
-    replaces: 'Replaces manual video editing',
+    replaces: 'Replaces or augments manual video editing',
+    cliCommand: 'npx @agent-native/core create my-app --template video',
     description:
       'Create and edit Remotion video compositions with agent assistance — from storyboard to render, all in code you own.',
     icon: (
@@ -105,6 +109,68 @@ npx @agent-native/core create my-app --template analytics
 cd my-app
 pnpm install
 pnpm dev`
+
+function TemplateLaunchButton({ template }: { template: typeof templates[number] }) {
+  const [showCli, setShowCli] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  function handleCopy() {
+    navigator.clipboard.writeText(template.cliCommand)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className="relative mt-auto flex flex-col gap-2 pt-3">
+      <a
+        href="https://builder.io"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-black no-underline transition hover:bg-gray-200 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+        </svg>
+        Launch
+      </a>
+      <button
+        onClick={() => setShowCli(!showCli)}
+        className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-transparent px-4 py-2 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="4 17 10 11 4 5" />
+          <line x1="12" y1="19" x2="20" y2="19" />
+        </svg>
+        Run locally
+      </button>
+      {showCli && (
+        <div className="absolute top-full left-0 z-10 mt-2 w-full rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] p-2 shadow-lg">
+          <div className="flex items-center gap-2 rounded-md bg-[var(--bg)] px-2 py-1.5">
+            <code className="block whitespace-nowrap overflow-x-auto text-[10px] leading-relaxed text-[var(--fg)]">
+              {template.cliCommand}
+            </code>
+            <button
+              onClick={handleCopy}
+              className="shrink-0 rounded-md p-1 text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+              aria-label="Copy command"
+            >
+              {copied ? (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function TerminalCommand() {
   const [copied, setCopied] = useState(false)
@@ -205,23 +271,23 @@ function Home() {
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {templates.map((t) => (
-            <div key={t.name} className="feature-card flex flex-col gap-3">
+            <div key={t.name} className="feature-card flex flex-col gap-3 overflow-hidden">
               <div
-                className="flex h-10 w-10 items-center justify-center rounded-lg"
-                style={{ backgroundColor: `${t.color}15`, color: t.color }}
+                className="-mx-[24px] -mt-[24px] mb-1 flex aspect-video items-center justify-center overflow-hidden border-b border-[var(--border)] bg-[var(--bg-secondary)]"
               >
-                {t.icon}
+                <span className="text-xs text-[var(--fg-secondary)]">Screenshot</span>
               </div>
               <h3 className="text-base font-semibold">{t.name}</h3>
               <p className="m-0 text-xs text-[var(--accent)]">{t.replaces}</p>
               <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
                 {t.description}
               </p>
+              <TemplateLaunchButton template={t} />
             </div>
           ))}
         </div>
 
-        <div className="mt-10 text-center">
+        <div className="mt-8 text-center">
           <p className="mb-4 text-sm text-[var(--fg-secondary)]">
             Every template is forkable and open source. The community can build and share their own.
           </p>
@@ -229,13 +295,13 @@ function Home() {
             href="https://builder.io"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:bg-gray-200 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+            className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
-            Launch a Template in Builder
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
-              <polyline points="12 5 19 12 12 19" />
             </svg>
+            Create your own
           </a>
         </div>
       </section>
@@ -448,7 +514,7 @@ function Home() {
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
               </svg>
-              <h3 className="text-base font-semibold">Builder Cloud</h3>
+              <h3 className="text-base font-semibold">Builder.io Cloud</h3>
             </div>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li>One-click launch from templates</li>
