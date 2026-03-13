@@ -32,7 +32,11 @@ scripts/         # Agent-callable scripts
   *.ts           # Individual scripts (pnpm script <name>)
 
 data/            # App data files (watched by SSE)
+
+.agents/skills/  # Agent skills — detailed guidance for each rule
 ```
+
+Skills in `.agents/skills/` provide detailed guidance for each architectural rule. Read them before making changes.
 
 ### Key Patterns
 

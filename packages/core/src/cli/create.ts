@@ -85,6 +85,23 @@ export function createApp(name?: string): void {
     fs.renameSync(gitignoreSrc, gitignoreDst);
   }
 
+  // Ensure .claude/skills -> .agents/skills symlink exists for Claude Code discovery.
+  // The template includes this symlink tracked in git, but recreate it as a safety net
+  // (e.g. if git didn't preserve the symlink on Windows).
+  const agentsSkills = path.join(targetDir, ".agents", "skills");
+  const claudeDir = path.join(targetDir, ".claude");
+  const claudeSkills = path.join(claudeDir, "skills");
+  if (fs.existsSync(agentsSkills) && !fs.existsSync(claudeSkills)) {
+    fs.mkdirSync(claudeDir, { recursive: true });
+    const rel = path.relative(claudeDir, agentsSkills);
+    const type = process.platform === "win32" ? "junction" : "dir";
+    try {
+      fs.symlinkSync(rel, claudeSkills, type);
+    } catch {
+      copyDir(agentsSkills, claudeSkills);
+    }
+  }
+
   console.log(`\nDone! Created ${name} at ${targetDir}\n`);
   console.log(`Next steps:`);
   console.log(`  cd ${name}`);
@@ -92,15 +109,33 @@ export function createApp(name?: string): void {
   console.log(`  pnpm dev          # Start dev server at http://localhost:8080`);
   console.log(`  pnpm build        # Build for production`);
   console.log(`  pnpm start        # Start production server`);
+  console.log(``);
+  console.log(`Your app includes agent skills in .agents/skills/.`);
+  console.log(`These teach the AI agent how to work within the framework's architecture.`);
 }
 
-function copyDir(src: string, dest: string): void {
+function copyDir(src: string, dest: string, root?: string): void {
+  const resolvedRoot = root ?? path.resolve(src);
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyDir(srcPath, destPath);
+    if (entry.isSymbolicLink()) {
+      const target = fs.readlinkSync(srcPath);
+      // Resolve one level (path math only, no disk follow) to check
+      // whether the symlink stays inside the template tree.
+      const resolvedTarget = path.resolve(path.dirname(srcPath), target);
+      if (resolvedTarget.startsWith(resolvedRoot)) {
+        // Internal symlink (e.g. .claude/skills -> ../.agents/skills) — preserve it
+        fs.symlinkSync(target, destPath);
+      } else if (fs.statSync(srcPath).isDirectory()) {
+        // External symlink to directory — dereference and copy contents
+        copyDir(srcPath, destPath, resolvedRoot);
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
+    } else if (entry.isDirectory()) {
+      copyDir(srcPath, destPath, resolvedRoot);
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
