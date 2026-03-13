@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { Link } from '@tanstack/react-router'
 
 export const templates = [
   {
     name: 'Analytics',
+    slug: 'analytics',
     replaces: 'Replaces or augments Amplitude, Mixpanel',
     cliCommand: 'npx @agent-native/core create my-app --template analytics',
     description:
@@ -13,6 +15,7 @@ export const templates = [
   },
   {
     name: 'Content',
+    slug: 'content',
     replaces: 'Replaces or augments Notion, Google Docs',
     cliCommand: 'npx @agent-native/core create my-app --template content',
     description:
@@ -22,6 +25,7 @@ export const templates = [
   },
   {
     name: 'Slides',
+    slug: 'slides',
     replaces: 'Replaces or augments Google Slides, Pitch',
     cliCommand: 'npx @agent-native/core create my-app --template slides',
     description:
@@ -31,7 +35,8 @@ export const templates = [
   },
   {
     name: 'Video',
-    replaces: 'Replaces or augments manual video editing',
+    slug: 'video',
+    replaces: 'Replaces or augments video editing',
     cliCommand: 'npx @agent-native/core create my-app --template video',
     description:
       'Create and edit Remotion video compositions with agent assistance — from storyboard to render, all in code you own.',
@@ -150,10 +155,10 @@ function TemplateLaunchButton({ template }: { template: Template }) {
 export function TemplateCard({ template }: { template: Template }) {
   return (
     <div className="feature-card flex flex-col gap-3 overflow-hidden">
-      <div className="-mx-[24px] -mt-[24px] mb-1 flex aspect-[4/3] items-center justify-center overflow-hidden border-b border-[var(--border)] bg-[var(--bg-secondary)]">
+      <Link to={`/templates/${template.slug}`} className="-mx-[24px] -mt-[24px] mb-1 flex aspect-[4/3] items-center justify-center overflow-hidden border-b border-[var(--border)] bg-[var(--bg-secondary)] transition hover:opacity-90">
         <img src={template.screenshot} alt={`${template.name} template screenshot`} className="h-full w-full object-cover object-top" />
-      </div>
-      <h3 className="text-base font-semibold">{template.name}</h3>
+      </Link>
+      <h3 className="text-base font-semibold"><Link to={`/templates/${template.slug}`} className="text-[var(--fg)] no-underline hover:text-[var(--accent)]">{template.name}</Link></h3>
       <p className="m-0 text-xs text-[var(--accent)]">{template.replaces}</p>
       <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
         {template.description}

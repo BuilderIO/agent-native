@@ -6,7 +6,7 @@ import netlify from '@netlify/vite-plugin-tanstack-start'
 import viteReact from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-const config = defineConfig({
+const config = defineConfig(({ command }) => ({
   plugins: [
     devtools(),
     tailwindcss(),
@@ -16,7 +16,7 @@ const config = defineConfig({
         crawlLinks: true,
       },
     }),
-    netlify(),
+    command === 'build' && netlify(),
     viteReact(),
   ],
   resolve: {
@@ -34,6 +34,6 @@ const config = defineConfig({
       external: ['lightningcss', 'fsevents'],
     },
   },
-})
+}))
 
 export default config

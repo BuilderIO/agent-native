@@ -11,7 +11,12 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TemplatesRouteImport } from './routes/templates'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TemplatesIndexRouteImport } from './routes/templates/index'
 import { Route as DocsIndexRouteImport } from './routes/docs/index'
+import { Route as TemplatesVideoRouteImport } from './routes/templates/video'
+import { Route as TemplatesSlidesRouteImport } from './routes/templates/slides'
+import { Route as TemplatesContentRouteImport } from './routes/templates/content'
+import { Route as TemplatesAnalyticsRouteImport } from './routes/templates/analytics'
 import { Route as DocsServerRouteImport } from './routes/docs/server'
 import { Route as DocsScriptsRouteImport } from './routes/docs/scripts'
 import { Route as DocsHarnessesRouteImport } from './routes/docs/harnesses'
@@ -27,10 +32,35 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TemplatesIndexRoute = TemplatesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => TemplatesRoute,
+} as any)
 const DocsIndexRoute = DocsIndexRouteImport.update({
   id: '/docs/',
   path: '/docs/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const TemplatesVideoRoute = TemplatesVideoRouteImport.update({
+  id: '/video',
+  path: '/video',
+  getParentRoute: () => TemplatesRoute,
+} as any)
+const TemplatesSlidesRoute = TemplatesSlidesRouteImport.update({
+  id: '/slides',
+  path: '/slides',
+  getParentRoute: () => TemplatesRoute,
+} as any)
+const TemplatesContentRoute = TemplatesContentRouteImport.update({
+  id: '/content',
+  path: '/content',
+  getParentRoute: () => TemplatesRoute,
+} as any)
+const TemplatesAnalyticsRoute = TemplatesAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => TemplatesRoute,
 } as any)
 const DocsServerRoute = DocsServerRouteImport.update({
   id: '/docs/server',
@@ -55,31 +85,45 @@ const DocsClientRoute = DocsClientRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/templates': typeof TemplatesRoute
+  '/templates': typeof TemplatesRouteWithChildren
   '/docs/client': typeof DocsClientRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
   '/docs/scripts': typeof DocsScriptsRoute
   '/docs/server': typeof DocsServerRoute
+  '/templates/analytics': typeof TemplatesAnalyticsRoute
+  '/templates/content': typeof TemplatesContentRoute
+  '/templates/slides': typeof TemplatesSlidesRoute
+  '/templates/video': typeof TemplatesVideoRoute
   '/docs/': typeof DocsIndexRoute
+  '/templates/': typeof TemplatesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/templates': typeof TemplatesRoute
   '/docs/client': typeof DocsClientRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
   '/docs/scripts': typeof DocsScriptsRoute
   '/docs/server': typeof DocsServerRoute
+  '/templates/analytics': typeof TemplatesAnalyticsRoute
+  '/templates/content': typeof TemplatesContentRoute
+  '/templates/slides': typeof TemplatesSlidesRoute
+  '/templates/video': typeof TemplatesVideoRoute
   '/docs': typeof DocsIndexRoute
+  '/templates': typeof TemplatesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/templates': typeof TemplatesRoute
+  '/templates': typeof TemplatesRouteWithChildren
   '/docs/client': typeof DocsClientRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
   '/docs/scripts': typeof DocsScriptsRoute
   '/docs/server': typeof DocsServerRoute
+  '/templates/analytics': typeof TemplatesAnalyticsRoute
+  '/templates/content': typeof TemplatesContentRoute
+  '/templates/slides': typeof TemplatesSlidesRoute
+  '/templates/video': typeof TemplatesVideoRoute
   '/docs/': typeof DocsIndexRoute
+  '/templates/': typeof TemplatesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -90,16 +134,25 @@ export interface FileRouteTypes {
     | '/docs/harnesses'
     | '/docs/scripts'
     | '/docs/server'
+    | '/templates/analytics'
+    | '/templates/content'
+    | '/templates/slides'
+    | '/templates/video'
     | '/docs/'
+    | '/templates/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/templates'
     | '/docs/client'
     | '/docs/harnesses'
     | '/docs/scripts'
     | '/docs/server'
+    | '/templates/analytics'
+    | '/templates/content'
+    | '/templates/slides'
+    | '/templates/video'
     | '/docs'
+    | '/templates'
   id:
     | '__root__'
     | '/'
@@ -108,12 +161,17 @@ export interface FileRouteTypes {
     | '/docs/harnesses'
     | '/docs/scripts'
     | '/docs/server'
+    | '/templates/analytics'
+    | '/templates/content'
+    | '/templates/slides'
+    | '/templates/video'
     | '/docs/'
+    | '/templates/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  TemplatesRoute: typeof TemplatesRoute
+  TemplatesRoute: typeof TemplatesRouteWithChildren
   DocsClientRoute: typeof DocsClientRoute
   DocsHarnessesRoute: typeof DocsHarnessesRoute
   DocsScriptsRoute: typeof DocsScriptsRoute
@@ -137,12 +195,47 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/templates/': {
+      id: '/templates/'
+      path: '/'
+      fullPath: '/templates/'
+      preLoaderRoute: typeof TemplatesIndexRouteImport
+      parentRoute: typeof TemplatesRoute
+    }
     '/docs/': {
       id: '/docs/'
       path: '/docs'
       fullPath: '/docs/'
       preLoaderRoute: typeof DocsIndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/templates/video': {
+      id: '/templates/video'
+      path: '/video'
+      fullPath: '/templates/video'
+      preLoaderRoute: typeof TemplatesVideoRouteImport
+      parentRoute: typeof TemplatesRoute
+    }
+    '/templates/slides': {
+      id: '/templates/slides'
+      path: '/slides'
+      fullPath: '/templates/slides'
+      preLoaderRoute: typeof TemplatesSlidesRouteImport
+      parentRoute: typeof TemplatesRoute
+    }
+    '/templates/content': {
+      id: '/templates/content'
+      path: '/content'
+      fullPath: '/templates/content'
+      preLoaderRoute: typeof TemplatesContentRouteImport
+      parentRoute: typeof TemplatesRoute
+    }
+    '/templates/analytics': {
+      id: '/templates/analytics'
+      path: '/analytics'
+      fullPath: '/templates/analytics'
+      preLoaderRoute: typeof TemplatesAnalyticsRouteImport
+      parentRoute: typeof TemplatesRoute
     }
     '/docs/server': {
       id: '/docs/server'
@@ -175,9 +268,29 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface TemplatesRouteChildren {
+  TemplatesAnalyticsRoute: typeof TemplatesAnalyticsRoute
+  TemplatesContentRoute: typeof TemplatesContentRoute
+  TemplatesSlidesRoute: typeof TemplatesSlidesRoute
+  TemplatesVideoRoute: typeof TemplatesVideoRoute
+  TemplatesIndexRoute: typeof TemplatesIndexRoute
+}
+
+const TemplatesRouteChildren: TemplatesRouteChildren = {
+  TemplatesAnalyticsRoute: TemplatesAnalyticsRoute,
+  TemplatesContentRoute: TemplatesContentRoute,
+  TemplatesSlidesRoute: TemplatesSlidesRoute,
+  TemplatesVideoRoute: TemplatesVideoRoute,
+  TemplatesIndexRoute: TemplatesIndexRoute,
+}
+
+const TemplatesRouteWithChildren = TemplatesRoute._addFileChildren(
+  TemplatesRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  TemplatesRoute: TemplatesRoute,
+  TemplatesRoute: TemplatesRouteWithChildren,
   DocsClientRoute: DocsClientRoute,
   DocsHarnessesRoute: DocsHarnessesRoute,
   DocsScriptsRoute: DocsScriptsRoute,
