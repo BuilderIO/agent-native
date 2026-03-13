@@ -21,7 +21,7 @@ export default function Header() {
             Docs
           </Link>
           <a
-            href="https://github.com/agent-native"
+            href="https://github.com/BuilderIO/agent-native"
             target="_blank"
             rel="noreferrer"
             className="header-link"

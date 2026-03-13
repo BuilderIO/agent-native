@@ -151,7 +151,7 @@ function Home() {
 
         <h1 className="mx-auto max-w-3xl">
           Agentic Applications{' '}
-          <span className="bg-gradient-to-r from-[var(--accent)] to-[#7928ca] bg-clip-text text-transparent">
+          <span className="inline-block bg-gradient-to-r from-[var(--accent)] to-[#7928ca] bg-clip-text text-transparent">
             You Own
           </span>
         </h1>
@@ -191,8 +191,120 @@ function Home() {
         <TerminalCommand />
       </section>
 
-      {/* The Trio */}
+      {/* Templates */}
       <section className="py-20">
+        <div className="mb-12 text-center">
+          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+            Start with a full featured template
+          </h2>
+          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+            High-quality, vetted templates that replace tools you're paying for — except you own the code and can customize everything.
+            Try them with example data before connecting your own sources.
+          </p>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {templates.map((t) => (
+            <div key={t.name} className="feature-card flex flex-col gap-3">
+              <div
+                className="flex h-10 w-10 items-center justify-center rounded-lg"
+                style={{ backgroundColor: `${t.color}15`, color: t.color }}
+              >
+                {t.icon}
+              </div>
+              <h3 className="text-base font-semibold">{t.name}</h3>
+              <p className="m-0 text-xs text-[var(--accent)]">{t.replaces}</p>
+              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                {t.description}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-10 text-center">
+          <p className="mb-4 text-sm text-[var(--fg-secondary)]">
+            Every template is forkable and open source. The community can build and share their own.
+          </p>
+          <a
+            href="https://builder.io"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:bg-gray-200 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+          >
+            Launch a Template in Builder
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+          </a>
+        </div>
+      </section>
+
+      {/* The best of both worlds */}
+      <section className="border-t border-[var(--border)] py-20">
+        <div className="mb-12 text-center">
+          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+            The best of both worlds
+          </h2>
+          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+            SaaS tools are rigid and bolting AI on as an afterthought. Raw AI agents are powerful but have no UI — throw your team at a chat interface and they don't know what to prompt. Agent-native apps combine both.
+          </p>
+        </div>
+
+        <div className="mx-auto max-w-3xl overflow-hidden rounded-xl border border-[var(--border)]">
+          <table className="comparison-table w-full text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
+                <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
+                <th className="px-5 py-3 text-left font-semibold text-red-400">SaaS Tools</th>
+                <th className="px-5 py-3 text-left font-semibold text-red-400">Raw AI Agents</th>
+                <th className="px-5 py-3 text-left font-semibold text-red-400">Internal Tools</th>
+                <th className="px-5 py-3 text-left font-semibold text-[var(--accent)]">Agent-Native</th>
+              </tr>
+            </thead>
+            <tbody className="text-[var(--fg-secondary)]">
+              <tr className="border-b border-[var(--border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">UI</td>
+                <td className="px-5 py-3">Polished but rigid</td>
+                <td className="px-5 py-3">None</td>
+                <td className="px-5 py-3">Months to build</td>
+                <td className="px-5 py-3 text-[var(--fg)]">Full UI, fork &amp; go</td>
+              </tr>
+              <tr className="border-b border-[var(--border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">AI</td>
+                <td className="px-5 py-3">Bolted on</td>
+                <td className="px-5 py-3">Powerful, no guardrails</td>
+                <td className="px-5 py-3">Disconnected</td>
+                <td className="px-5 py-3 text-[var(--fg)]">Agent-first, deeply integrated</td>
+              </tr>
+              <tr className="border-b border-[var(--border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">Customization</td>
+                <td className="px-5 py-3">Can't</td>
+                <td className="px-5 py-3">Prompt-only</td>
+                <td className="px-5 py-3">Full but slow</td>
+                <td className="px-5 py-3 text-[var(--fg)]">Agent modifies the app</td>
+              </tr>
+              <tr className="border-b border-[var(--border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">Ownership</td>
+                <td className="px-5 py-3">Rented</td>
+                <td className="px-5 py-3">N/A</td>
+                <td className="px-5 py-3">Yours but costly</td>
+                <td className="px-5 py-3 text-[var(--fg)]">You own the code</td>
+              </tr>
+              <tr>
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">Non-dev friendly</td>
+                <td className="px-5 py-3">Yes</td>
+                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3">Rarely</td>
+                <td className="px-5 py-3 text-[var(--fg)]">Guided UI + agent</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* The Trio */}
+      <section className="border-t border-[var(--border)] py-20">
         <div className="mb-12 text-center">
           <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
             Agent + UI + Computer
@@ -240,94 +352,6 @@ function Home() {
               File system, browser, code execution. No MCPs needed for most tasks. Agents work directly with files and tools.
             </p>
           </div>
-        </div>
-      </section>
-
-      {/* Why agent-native */}
-      <section className="border-t border-[var(--border)] py-20">
-        <div className="mb-12 text-center">
-          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-            The best of both worlds
-          </h2>
-          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-            SaaS tools are rigid and bolting AI on as an afterthought. Raw AI agents are powerful but have no UI — throw your team at a chat interface and they don't know what to prompt. Agent-native apps combine both: guided UIs your team can use, powered by an agent that can do anything autonomously.
-          </p>
-        </div>
-
-        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:grid-cols-2">
-          <div className="bg-[var(--bg)] p-6">
-            <div className="mb-2 text-sm font-medium text-red-400">SaaS tools</div>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Polished UI but rigid. Can't customize. AI bolted on. You don't own your data, code, or workflows.
-            </p>
-          </div>
-          <div className="bg-[var(--bg)] p-6">
-            <div className="mb-2 text-sm font-medium text-red-400">Raw AI agents</div>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Powerful but no structured UI. No guidance for non-devs. No reusable dashboards — just throwaway Q&A.
-            </p>
-          </div>
-          <div className="bg-[var(--bg)] p-6">
-            <div className="mb-2 text-sm font-medium text-red-400">Hacky internal tools</div>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Blank canvas, no real UI or guidance. Months of custom dev work. Everyone working off a blank prompt.
-            </p>
-          </div>
-          <div className="bg-[var(--bg)] p-6">
-            <div className="mb-2 text-sm font-medium text-[var(--accent)]">Agent-native apps</div>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Fork a template, launch in minutes. Full UI and AI, deeply connected. The agent can update the app itself. You own everything.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Templates */}
-      <section className="border-t border-[var(--border)] py-20">
-        <div className="mb-12 text-center">
-          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-            Start from a template
-          </h2>
-          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-            High-quality, vetted templates that replace tools you're paying for — except you own the code and can customize everything.
-            Try them with example data before connecting your own sources.
-          </p>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          {templates.map((t) => (
-            <div key={t.name} className="feature-card flex flex-col gap-3">
-              <div
-                className="flex h-10 w-10 items-center justify-center rounded-lg"
-                style={{ backgroundColor: `${t.color}15`, color: t.color }}
-              >
-                {t.icon}
-              </div>
-              <h3 className="text-base font-semibold">{t.name}</h3>
-              <p className="m-0 text-xs text-[var(--accent)]">{t.replaces}</p>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                {t.description}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-10 text-center">
-          <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-            Every template is forkable and open source. The community can build and share their own.
-          </p>
-          <a
-            href="https://builder.io"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:bg-gray-200 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-          >
-            Launch a Template in Builder
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="5" y1="12" x2="19" y2="12" />
-              <polyline points="12 5 19 12 12 19" />
-            </svg>
-          </a>
         </div>
       </section>
 
