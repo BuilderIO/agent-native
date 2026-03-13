@@ -2,14 +2,14 @@
   "name": "agentnative",
   "private": true,
   "scripts": {
-    "setup": "pnpm install && pnpm -r build && pnpm install",
+    "setup": "pnpm install && pnpm --filter @agent-native/core build && pnpm install",
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",
     "typecheck": "pnpm -r typecheck",
     "dev:deck": "pnpm --filter @agent-native/example-deck-generator dev",
     "dev:harness": "concurrently -n ws,ui -c blue,green \"pnpm --filter @agent-native/harness-claude-code dev:server -- --app-dir ../example-deck-generator\" \"pnpm --filter @agent-native/harness-claude-code dev:client\"",
     "dev:all": "concurrently -n app,ws,ui -c yellow,blue,green \"pnpm --filter @agent-native/example-deck-generator dev\" \"pnpm --filter @agent-native/harness-claude-code dev:server -- --app-dir ../example-deck-generator\" \"APP_PORT=8080 pnpm --filter @agent-native/harness-claude-code dev:client\"",
-    "dev:all:single-port": "concurrently -n app,docs,ws,ui -c yellow,magenta,blue,green \"pnpm --filter @agent-native/example-deck-generator dev -- --base /app/\" \"pnpm --filter @agent-native/docs dev:proxied\" \"pnpm --filter @agent-native/harness-claude-code dev:server -- --app-dir ../example-deck-generator\" \"APP_PORT=8080 DOCS_PORT=3000 pnpm --filter @agent-native/harness-claude-code dev:client\"",
+    "dev:all:single-port": "concurrently -n app,docs,ws,ui -c yellow,magenta,blue,green \"pnpm --filter @agent-native/example-deck-generator exec vite --base /app/\" \"pnpm --filter @agent-native/docs dev:proxied\" \"pnpm --filter @agent-native/harness-claude-code dev:server -- --app-dir ../example-deck-generator\" \"APP_PORT=8080 DOCS_PORT=3000 pnpm --filter @agent-native/harness-claude-code dev:client\"",
     "dev:docs": "pnpm --filter @agent-native/docs dev"
   },
   "devDependencies": {
