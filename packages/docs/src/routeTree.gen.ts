@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TemplatesRouteImport } from './routes/templates'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DocsIndexRouteImport } from './routes/docs/index'
 import { Route as DocsServerRouteImport } from './routes/docs/server'
@@ -16,6 +17,11 @@ import { Route as DocsScriptsRouteImport } from './routes/docs/scripts'
 import { Route as DocsHarnessesRouteImport } from './routes/docs/harnesses'
 import { Route as DocsClientRouteImport } from './routes/docs/client'
 
+const TemplatesRoute = TemplatesRouteImport.update({
+  id: '/templates',
+  path: '/templates',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -49,6 +55,7 @@ const DocsClientRoute = DocsClientRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/templates': typeof TemplatesRoute
   '/docs/client': typeof DocsClientRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
   '/docs/scripts': typeof DocsScriptsRoute
@@ -57,6 +64,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/templates': typeof TemplatesRoute
   '/docs/client': typeof DocsClientRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
   '/docs/scripts': typeof DocsScriptsRoute
@@ -66,6 +74,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/templates': typeof TemplatesRoute
   '/docs/client': typeof DocsClientRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
   '/docs/scripts': typeof DocsScriptsRoute
@@ -76,6 +85,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/templates'
     | '/docs/client'
     | '/docs/harnesses'
     | '/docs/scripts'
@@ -84,6 +94,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/templates'
     | '/docs/client'
     | '/docs/harnesses'
     | '/docs/scripts'
@@ -92,6 +103,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/templates'
     | '/docs/client'
     | '/docs/harnesses'
     | '/docs/scripts'
@@ -101,6 +113,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  TemplatesRoute: typeof TemplatesRoute
   DocsClientRoute: typeof DocsClientRoute
   DocsHarnessesRoute: typeof DocsHarnessesRoute
   DocsScriptsRoute: typeof DocsScriptsRoute
@@ -110,6 +123,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/templates': {
+      id: '/templates'
+      path: '/templates'
+      fullPath: '/templates'
+      preLoaderRoute: typeof TemplatesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -157,6 +177,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  TemplatesRoute: TemplatesRoute,
   DocsClientRoute: DocsClientRoute,
   DocsHarnessesRoute: DocsHarnessesRoute,
   DocsScriptsRoute: DocsScriptsRoute,

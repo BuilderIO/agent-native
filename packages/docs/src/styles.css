@@ -26,7 +26,7 @@
 
 :root[data-theme="dark"] {
   --fg: #ededed;
-  --fg-secondary: #888;
+  --fg-secondary: #a0a0a0;
   --bg: #000;
   --bg-secondary: #0a0a0a;
   --border: #1f1f1f;
@@ -43,7 +43,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --fg: #ededed;
-    --fg-secondary: #888;
+    --fg-secondary: #a0a0a0;
     --bg: #000;
     --bg-secondary: #0a0a0a;
     --border: #1f1f1f;
@@ -83,7 +83,7 @@ body {
   background: var(--selection);
 }
 
-a:not([class*="text-"]) {
+.docs-content a:not([class*="text-"]) {
   color: var(--accent);
 }
 
@@ -92,7 +92,7 @@ a {
 }
 
 a:hover {
-  text-decoration: underline;
+  text-decoration: none;
 }
 
 code {
@@ -294,10 +294,6 @@ html.dark .shiki span {
   transition: border-color 200ms ease, background-color 200ms ease;
 }
 
-.feature-card:hover {
-  border-color: var(--fg-secondary);
-  background: var(--bg-secondary);
-}
 
 /* Home hero */
 .hero-section {
@@ -318,6 +314,15 @@ html.dark .shiki span {
   .hero-section h1 {
     font-size: 64px;
   }
+}
+
+/* Hide scrollbar for carousel */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }
 
 /* Transitions */

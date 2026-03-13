@@ -1,76 +1,49 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import CodeBlock from '../components/CodeBlock'
+import { templates, TemplateCard } from '../components/TemplateCard'
 
 export const Route = createFileRoute('/')({ component: Home })
 
-const templates = [
-  {
-    name: 'Analytics',
-    description:
-      'Agent-native Amplitude. Prompt for any chart, answer any question, connect to any data source. No SQL required.',
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-      </svg>
-    ),
-    color: 'var(--accent)',
-  },
-  {
-    name: 'Content',
-    description:
-      'Agent-native Notion. Write, edit, and organize content with an agent that understands your brand and publishing workflow.',
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-      </svg>
-    ),
-    color: '#7928ca',
-  },
-  {
-    name: 'Slides',
-    description:
-      'Agent-native Google Slides. Generate and edit React-based presentations via prompt or UI. Describe what you want and refine.',
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-        <line x1="8" y1="21" x2="16" y2="21" />
-        <line x1="12" y1="17" x2="12" y2="21" />
-      </svg>
-    ),
-    color: '#f59e0b',
-  },
-  {
-    name: 'Video',
-    description:
-      'Agent-native video generation. Create and edit Remotion compositions with agent assistance — from storyboard to render.',
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <polygon points="23 7 16 12 23 17 23 7" />
-        <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-      </svg>
-    ),
-    color: '#ec4899',
-  },
-]
 
 const principles = [
   {
     title: 'Files as Database',
-    description: 'All state lives in files. UI and agent read/write the same files. No traditional DB needed.',
+    description: 'All state lives in files. The agent and UI read and write the same source of truth. No traditional database needed.',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+        <polyline points="13 2 13 9 20 9" />
+      </svg>
+    ),
   },
   {
-    title: 'AI Through Chat',
-    description: 'No inline LLM calls. The UI delegates to the AI agent via a chat bridge.',
+    title: 'AI Through the Agent',
+    description: 'No inline LLM calls. The UI delegates to the agent via a chat bridge. One AI, always customizable with skills and instructions.',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </svg>
+    ),
   },
   {
     title: 'Agent Updates Code',
-    description: 'The agent can modify the app itself. Fork a template and keep evolving it.',
+    description: 'The agent can modify the app itself. Your tools get better over time. Fork a template and keep evolving it.',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="16 18 22 12 16 6" />
+        <polyline points="8 6 2 12 8 18" />
+      </svg>
+    ),
   },
   {
-    title: 'Real-time SSE',
-    description: 'File watcher streams changes to the UI instantly. Agent edits appear in real-time.',
+    title: 'Real-time Sync',
+    description: 'File watcher streams changes via SSE. When the agent writes a file, the UI updates instantly. No polling, no refresh.',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+      </svg>
+    ),
   },
 ]
 
@@ -79,6 +52,65 @@ npx @agent-native/core create my-app --template analytics
 cd my-app
 pnpm install
 pnpm dev`
+
+
+function TemplateCarousel() {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [canScrollLeft, setCanScrollLeft] = useState(false)
+  const [canScrollRight, setCanScrollRight] = useState(true)
+
+  function updateScrollState() {
+    const el = scrollRef.current
+    if (!el) return
+    setCanScrollLeft(el.scrollLeft > 4)
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4)
+  }
+
+  function scroll(dir: 'left' | 'right') {
+    const el = scrollRef.current
+    if (!el) return
+    const cardWidth = 380 + 16 // card + gap
+    el.scrollBy({ left: dir === 'left' ? -cardWidth : cardWidth, behavior: 'smooth' })
+  }
+
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={() => scroll('left')}
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg)] text-[var(--fg-secondary)] shadow-sm transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)] ${canScrollLeft ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+        aria-label="Scroll left"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="15 18 9 12 15 6" />
+        </svg>
+      </button>
+
+      <div
+        ref={scrollRef}
+        onScroll={updateScrollState}
+        className="min-w-0 flex-1 overflow-x-auto pb-4 scrollbar-hide"
+      >
+        <div className="flex gap-4" style={{ width: 'max-content' }}>
+          {templates.map((t) => (
+            <div key={t.name} className="w-[calc((1200px-2*16px)/3)] max-w-[380px] min-w-[300px] shrink-0">
+              <TemplateCard template={t} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <button
+        onClick={() => scroll('right')}
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg)] text-[var(--fg-secondary)] shadow-sm transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)] ${canScrollRight ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+        aria-label="Scroll right"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      </button>
+    </div>
+  )
+}
 
 function TerminalCommand() {
   const [copied, setCopied] = useState(false)
@@ -124,24 +156,24 @@ function Home() {
         </div>
 
         <h1 className="mx-auto max-w-3xl">
-          Software You{' '}
-          <span className="bg-gradient-to-r from-[var(--accent)] to-[#7928ca] bg-clip-text text-transparent">
-            Own
+          Agentic Applications{' '}
+          <span className="inline-block bg-gradient-to-r from-[var(--accent)] to-[#7928ca] bg-clip-text text-transparent">
+            You Own
           </span>
-          , Powered by AI
         </h1>
 
         <p className="mx-auto mb-10 max-w-2xl text-lg leading-relaxed text-[var(--fg-secondary)]">
-          Agent-native apps give you the power of SaaS with the control of custom software.
-          Fork a template, launch in minutes, and let AI help you customize it to your exact needs.
+          Other products charge you for rigid software you can't customize.
+          Agent-native gives you full-featured apps you own, powered by an AI agent that can use and evolve them.
+          Fork a template, launch in minutes, customize everything.
         </p>
 
         <div className="flex items-center justify-center gap-4">
           <Link
-            to="/docs"
+            to="/templates"
             className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:bg-gray-200 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
-            Get Started
+            Launch a Template
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="5" y1="12" x2="19" y2="12" />
               <polyline points="12 5 19 12 12 19" />
@@ -163,78 +195,147 @@ function Home() {
         <TerminalCommand />
       </section>
 
-      {/* The Problem */}
+      {/* Templates */}
       <section className="py-20">
+        <div className="mb-12 text-center">
+          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+            Start with a full featured template
+          </h2>
+          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+            High-quality, vetted templates that replace tools you're paying for — except you own the code and can customize everything.
+            Try them with example data before connecting your own sources.
+          </p>
+        </div>
+
+        <TemplateCarousel />
+
+        <div className="mt-8 text-center">
+          <Link
+            to="/templates"
+            className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+          >
+            View all templates
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+          </Link>
+        </div>
+      </section>
+
+      {/* The best of both worlds */}
+      <section className="border-t border-[var(--border)] py-20">
         <div className="mb-12 text-center">
           <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
             The best of both worlds
           </h2>
           <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-            SaaS tools aren't built for AI. Chat-based agents have no UI. Custom apps take months to build.
-            Agent-native apps are a new category — fork a template, own the code, and let AI evolve it with you.
+            SaaS tools are rigid and bolting AI on as an afterthought. Raw AI agents are powerful but have no UI — throw your team at a chat interface and they don't know what to prompt. Agent-native apps combine both.
           </p>
         </div>
 
-        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:grid-cols-2">
-          <div className="bg-[var(--bg)] p-6">
-            <div className="mb-2 text-sm font-medium text-red-400">SaaS tools</div>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Polished UI but rigid. Can't customize. AI bolted on as an afterthought. You don't own your data or workflows.
-            </p>
-          </div>
-          <div className="bg-[var(--bg)] p-6">
-            <div className="mb-2 text-sm font-medium text-red-400">Raw AI agents</div>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Powerful but no structured UI. Inaccessible to non-devs. No guardrails, no real-time collaboration.
-            </p>
-          </div>
-          <div className="bg-[var(--bg)] p-6">
-            <div className="mb-2 text-sm font-medium text-red-400">Custom apps</div>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Full control but months of work. AI is disconnected from the UI. Can't see what you see or react to what you click.
-            </p>
-          </div>
-          <div className="bg-[var(--bg)] p-6">
-            <div className="mb-2 text-sm font-medium text-[var(--accent)]">Agent-native apps</div>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Fork a template, launch in minutes. Own the code. AI and UI are unified — the agent can update the app itself.
-            </p>
-          </div>
+        <div className="mx-auto max-w-3xl overflow-hidden rounded-xl border border-[var(--border)]">
+          <table className="comparison-table w-full text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
+                <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
+                <th className="px-5 py-3 text-left font-semibold text-red-400">SaaS Tools</th>
+                <th className="px-5 py-3 text-left font-semibold text-red-400">Raw AI Agents</th>
+                <th className="px-5 py-3 text-left font-semibold text-red-400">Internal Tools</th>
+                <th className="px-5 py-3 text-left font-semibold text-[var(--accent)]">Agent-Native</th>
+              </tr>
+            </thead>
+            <tbody className="text-[var(--fg-secondary)]">
+              <tr className="border-b border-[var(--border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">UI</td>
+                <td className="px-5 py-3">Polished but rigid</td>
+                <td className="px-5 py-3">None</td>
+                <td className="px-5 py-3">Months to build</td>
+                <td className="px-5 py-3 text-[var(--fg)]">Full UI, fork &amp; go</td>
+              </tr>
+              <tr className="border-b border-[var(--border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">AI</td>
+                <td className="px-5 py-3">Bolted on</td>
+                <td className="px-5 py-3">Powerful, no guardrails</td>
+                <td className="px-5 py-3">Disconnected</td>
+                <td className="px-5 py-3 text-[var(--fg)]">Agent-first, deeply integrated</td>
+              </tr>
+              <tr className="border-b border-[var(--border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">Customization</td>
+                <td className="px-5 py-3">Can't</td>
+                <td className="px-5 py-3">Prompt-only</td>
+                <td className="px-5 py-3">Full but slow</td>
+                <td className="px-5 py-3 text-[var(--fg)]">Agent modifies the app</td>
+              </tr>
+              <tr className="border-b border-[var(--border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">Ownership</td>
+                <td className="px-5 py-3">Rented</td>
+                <td className="px-5 py-3">N/A</td>
+                <td className="px-5 py-3">Yours but costly</td>
+                <td className="px-5 py-3 text-[var(--fg)]">You own the code</td>
+              </tr>
+              <tr>
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">Non-dev friendly</td>
+                <td className="px-5 py-3">Yes</td>
+                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3">Rarely</td>
+                <td className="px-5 py-3 text-[var(--fg)]">Guided UI + agent</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </section>
 
-      {/* Templates */}
+      {/* The Trio */}
       <section className="border-t border-[var(--border)] py-20">
         <div className="mb-12 text-center">
           <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-            Start from a template
+            Agent + UI + Computer
           </h2>
           <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-            Each template is a fully working app you can launch in minutes and customize over time.
-            Every feature works with AI — if it doesn't, we don't ship it.
+            Every agent-native app is three things working together: an AI agent, a full application UI, and a computer (file system, browser, code execution). Everything the UI can do, the agent can do — and vice versa.
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          {templates.map((t) => (
-            <div key={t.name} className="feature-card flex flex-col gap-3">
-              <div
-                className="flex h-10 w-10 items-center justify-center rounded-lg"
-                style={{ backgroundColor: `${t.color}15`, color: t.color }}
-              >
-                {t.icon}
-              </div>
-              <h3 className="text-base font-semibold">{t.name}</h3>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                {t.description}
-              </p>
+        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:grid-cols-3">
+          <div className="bg-[var(--bg)] p-6 text-center">
+            <div className="mb-3 flex justify-center text-[var(--accent)]">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
             </div>
-          ))}
+            <div className="mb-1 text-sm font-semibold">Agent</div>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Autonomous AI that reads, writes, browses, and executes code. Customizable with skills and instructions.
+            </p>
+          </div>
+          <div className="bg-[var(--bg)] p-6 text-center">
+            <div className="mb-3 flex justify-center text-[#7928ca]">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <line x1="3" y1="9" x2="21" y2="9" />
+                <line x1="9" y1="21" x2="9" y2="9" />
+              </svg>
+            </div>
+            <div className="mb-1 text-sm font-semibold">Application</div>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Full UI with dashboards, user flows, visualizations. Guided experiences your whole team can use.
+            </p>
+          </div>
+          <div className="bg-[var(--bg)] p-6 text-center">
+            <div className="mb-3 flex justify-center text-[#f59e0b]">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                <line x1="8" y1="21" x2="16" y2="21" />
+                <line x1="12" y1="17" x2="12" y2="21" />
+              </svg>
+            </div>
+            <div className="mb-1 text-sm font-semibold">Computer</div>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              File system, browser, code execution. No MCPs needed for most tasks. Agents work directly with files and tools.
+            </p>
+          </div>
         </div>
-
-        <p className="mt-8 text-center text-sm text-[var(--fg-secondary)]">
-          Every template is forkable and open source. Connect your own data sources, customize the UI, extend with new features — all by asking.
-        </p>
       </section>
 
       {/* How it works */}
@@ -244,13 +345,16 @@ function Home() {
             How it works
           </h2>
           <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-            The agent and the UI are one. Your app lives inside the agent workspace. Anything the UI can do, the agent can do via natural language — and vice versa.
+            One framework, one mindset. Everything the UI can do, the agent can do via natural language. Everything the agent can do, the UI exposes through point-and-click interfaces.
           </p>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {principles.map((p) => (
             <div key={p.title} className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+              <div className="mb-3 text-[var(--accent)]">
+                {p.icon}
+              </div>
               <h3 className="mb-2 text-sm font-semibold">{p.title}</h3>
               <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
                 {p.description}
@@ -260,6 +364,89 @@ function Home() {
         </div>
       </section>
 
+      {/* Built for teams */}
+      <section className="border-t border-[var(--border)] py-20">
+        <div className="mb-12 text-center">
+          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+            Built for teams
+          </h2>
+          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+            Anyone on your team can customize the software to their needs without piling on developers.
+            Enterprise-grade roles, permissions, and git-based workflows keep everything manageable at scale.
+          </p>
+        </div>
+
+        <div className="mx-auto grid max-w-3xl gap-4 sm:grid-cols-3">
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-2 text-sm font-semibold">Roles &amp; Permissions</h3>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Control who can update the app, who can use it, and who can modify agent behavior.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-2 text-sm font-semibold">Git-based Workflows</h3>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Pull requests and reviews for software changes that matter. You own your repo.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-2 text-sm font-semibold">Works Everywhere</h3>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Call your agent from Slack, Telegram, or any chat interface. Set up daily digests, automated workflows, and more.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Harnesses */}
+      <section className="border-t border-[var(--border)] py-20">
+        <div className="mb-12 text-center">
+          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+            Run anywhere
+          </h2>
+          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+            Agent-native apps run inside a harness — a host that provides the AI agent alongside your app UI. Run locally with open-source tools or in the cloud with Builder for collaboration and team features.
+          </p>
+        </div>
+
+        <div className="mx-auto grid max-w-3xl gap-4 sm:grid-cols-2">
+          <div className="rounded-xl border border-[var(--border)] p-6">
+            <div className="mb-3 flex items-center gap-2">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                <line x1="8" y1="21" x2="16" y2="21" />
+                <line x1="12" y1="17" x2="12" y2="21" />
+              </svg>
+              <h3 className="text-base font-semibold">Local / Open Source</h3>
+            </div>
+            <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
+              <li>Run with Claude Code CLI or any local harness</li>
+              <li>Full permissions, full control</li>
+              <li>Free and open source</li>
+              <li>Solo development and testing</li>
+            </ul>
+          </div>
+          <div className="rounded-xl border-2 border-[var(--accent)] p-6">
+            <div className="mb-3 flex items-center gap-2">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+              </svg>
+              <h3 className="text-base font-semibold">Builder.io Cloud</h3>
+            </div>
+            <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
+              <li>One-click launch from templates</li>
+              <li>Real-time multiplayer collaboration</li>
+              <li>Visual editing, roles and permissions</li>
+              <li>Cloud computers for every user</li>
+            </ul>
+          </div>
+        </div>
+
+        <p className="mt-6 text-center text-sm text-[var(--fg-secondary)]">
+          Your app code is identical regardless of harness. Start local, go to cloud when you need teams.
+        </p>
+      </section>
+
       {/* Quick Start */}
       <section className="border-t border-[var(--border)] py-20">
         <div className="mb-12 text-center">
@@ -267,7 +454,7 @@ function Home() {
             Launch in minutes
           </h2>
           <p className="mx-auto max-w-xl text-base text-[var(--fg-secondary)]">
-            One command to fork a template. Connect your integrations, and start building.
+            One command to fork a template locally. Or click to launch in Builder — no setup required.
           </p>
         </div>
 
@@ -279,21 +466,28 @@ function Home() {
       {/* Bottom CTA */}
       <section className="border-t border-[var(--border)] py-20 text-center">
         <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-          Own your software
+          Software you own, built for the agentic era
         </h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          Stop renting rigid SaaS. Fork a template, customize it to your exact workflow, and let AI keep evolving it. Open source and free forever.
+          Stop renting rigid SaaS. Fork a template, customize it to your exact workflow, and let the agent keep evolving it.
+          Open source. Forkable. Yours.
         </p>
         <div className="flex items-center justify-center gap-4">
           <Link
-            to="/docs"
+            to="/templates"
             className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:bg-gray-200 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
-            Read the Docs
+            Launch a Template
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="5" y1="12" x2="19" y2="12" />
               <polyline points="12 5 19 12 12 19" />
             </svg>
+          </Link>
+          <Link
+            to="/docs"
+            className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+          >
+            Read the Docs
           </Link>
           <a
             href="https://github.com/BuilderIO/agent-native"
