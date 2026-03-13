@@ -22,6 +22,8 @@ Start from a production-ready template. Each one replaces tools you're paying fo
 
 Connect any data source, prompt for any chart. Build reusable dashboards, not throwaway Q&A.
 
+<a href="https://agent-native.com/templates/analytics"><img src=".github/assets/launch-button.svg" alt="Launch Analytics" height="36" /></a>
+
 </td>
 <td width="25%" align="center" valign="top">
 
@@ -32,6 +34,8 @@ Connect any data source, prompt for any chart. Build reusable dashboards, not th
 *Replaces Notion, Google Docs*
 
 Write and organize content with an agent that knows your brand and publishing workflow.
+
+<a href="https://agent-native.com/templates/content"><img src=".github/assets/launch-button.svg" alt="Launch Content" height="36" /></a>
 
 </td>
 <td width="25%" align="center" valign="top">
@@ -44,6 +48,8 @@ Write and organize content with an agent that knows your brand and publishing wo
 
 Generate and edit React-based presentations via prompt or point-and-click.
 
+<a href="https://agent-native.com/templates/slides"><img src=".github/assets/launch-button.svg" alt="Launch Slides" height="36" /></a>
+
 </td>
 <td width="25%" align="center" valign="top">
 
@@ -54,6 +60,8 @@ Generate and edit React-based presentations via prompt or point-and-click.
 *Replaces manual video editing*
 
 Create and edit Remotion video compositions with agent assistance.
+
+<a href="https://agent-native.com/templates/video"><img src=".github/assets/launch-button.svg" alt="Launch Video" height="36" /></a>
 
 </td>
 </tr>
