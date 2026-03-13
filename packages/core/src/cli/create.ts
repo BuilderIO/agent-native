@@ -89,9 +89,9 @@ export function createApp(name?: string): void {
   console.log(`Next steps:`);
   console.log(`  cd ${name}`);
   console.log(`  pnpm install`);
-  console.log(`  pnpm dev`);
-  console.log(``);
-  console.log(`Your app will be running at http://localhost:8080`);
+  console.log(`  pnpm dev          # Start dev server at http://localhost:8080`);
+  console.log(`  pnpm build        # Build for production`);
+  console.log(`  pnpm start        # Start production server`);
 }
 
 function copyDir(src: string, dest: string): void {

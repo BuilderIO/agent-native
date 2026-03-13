@@ -5,7 +5,7 @@
   "description": "Framework for agent-native application development — where AI agents and UI share state via files",
   "license": "MIT",
   "bin": {
-    "create-agent-native": "./dist/cli/index.js"
+    "agent-native": "./dist/cli/index.js"
   },
   "exports": {
     ".": {
