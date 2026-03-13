@@ -114,16 +114,28 @@ export function createApp(name?: string): void {
   console.log(`These teach the AI agent how to work within the framework's architecture.`);
 }
 
-function copyDir(src: string, dest: string): void {
+function copyDir(src: string, dest: string, root?: string): void {
+  const resolvedRoot = root ?? path.resolve(src);
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
     if (entry.isSymbolicLink()) {
       const target = fs.readlinkSync(srcPath);
-      fs.symlinkSync(target, destPath);
+      // Resolve one level (path math only, no disk follow) to check
+      // whether the symlink stays inside the template tree.
+      const resolvedTarget = path.resolve(path.dirname(srcPath), target);
+      if (resolvedTarget.startsWith(resolvedRoot)) {
+        // Internal symlink (e.g. .claude/skills -> ../.agents/skills) — preserve it
+        fs.symlinkSync(target, destPath);
+      } else if (fs.statSync(srcPath).isDirectory()) {
+        // External symlink to directory — dereference and copy contents
+        copyDir(srcPath, destPath, resolvedRoot);
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
     } else if (entry.isDirectory()) {
-      copyDir(srcPath, destPath);
+      copyDir(srcPath, destPath, resolvedRoot);
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
