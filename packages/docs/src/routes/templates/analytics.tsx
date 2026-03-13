@@ -7,10 +7,10 @@ export const Route = createFileRoute('/templates/analytics')({
   head: () => ({
     meta: [
       { title: 'AI-Native Analytics — Open Source Alternative to Amplitude & Mixpanel' },
-      { name: 'description', content: 'Build AI-powered analytics dashboards you own. Open source alternative to Amplitude, Mixpanel, and Looker. Connect any data source, prompt for any chart, build reusable dashboards with AI assistance.' },
+      { name: 'description', content: 'Build AI-powered analytics dashboards you own. Open source alternative to Amplitude, Mixpanel, and Looker. 20+ data connectors, SQL query explorer, reusable dashboards, data dictionary, 50+ scripts, and natural language chart generation.' },
       { property: 'og:title', content: 'AI-Native Analytics — Open Source Alternative to Amplitude & Mixpanel' },
-      { property: 'og:description', content: 'Build AI-powered analytics dashboards you own. Connect any data source, prompt for any chart.' },
-      { name: 'keywords', content: 'AI analytics, open source analytics, Amplitude alternative, Mixpanel alternative, AI dashboard builder, AI data visualization, agent-native analytics, AI-powered BI tool' },
+      { property: 'og:description', content: 'Build AI-powered analytics dashboards you own. 20+ data connectors, SQL query explorer, and natural language chart generation.' },
+      { name: 'keywords', content: 'AI analytics, open source analytics, Amplitude alternative, Mixpanel alternative, Looker alternative, AI dashboard builder, AI data visualization, agent-native analytics, AI-powered BI tool, open source business intelligence, AI chart generator, natural language SQL, BigQuery dashboard' },
     ],
   }),
 })
@@ -29,9 +29,9 @@ function CliCopy() {
       onClick={handleCopy}
       className="group flex items-center gap-3 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-5 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)]"
     >
-      <span className="text-[var(--fg-secondary)]">$</span>
-      <span className="text-[var(--fg)]">{template.cliCommand}</span>
-      <span className="ml-2 text-[var(--fg-secondary)] opacity-0 transition group-hover:opacity-100">
+      <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
+      <span className="truncate text-[var(--fg)]">{template.cliCommand}</span>
+      <span className="ml-auto shrink-0 text-[var(--fg-secondary)] opacity-0 transition group-hover:opacity-100">
         {copied ? (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
         ) : (
@@ -66,11 +66,12 @@ function AnalyticsTemplate() {
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
               Stop paying for rigid analytics tools that can't answer the questions you actually have.
-              Connect any data source, ask for any chart in natural language, and build reusable dashboards — not throwaway Q&A.
-              You own the code. Customize everything.
+              This template gives you a full BI platform with 20+ data connectors, a SQL query explorer, reusable dashboards, and a data dictionary with 550+ metric definitions — all with an AI agent that can build charts, write queries, and even modify the app itself.
+              Connect BigQuery, HubSpot, Stripe, Jira, Sentry, Slack, GitHub, and more.
+              You own the code.
             </p>
 
-            <div className="mb-8 flex flex-wrap items-center gap-3">
+            <div className="mb-8 flex flex-col items-start gap-3">
               <a
                 href="https://builder.io"
                 target="_blank"
@@ -91,42 +92,63 @@ function AnalyticsTemplate() {
       </section>
 
       <section className="border-t border-[var(--border)] py-16">
-        <h2 className="mb-8 text-2xl font-bold tracking-tight">What you can do</h2>
+        <h2 className="mb-4 text-2xl font-bold tracking-tight">What you can do</h2>
+        <p className="mb-8 max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+          A complete business intelligence platform with an AI agent. Connect your data, build dashboards, explore with SQL, and maintain a living data dictionary — all in code you own.
+        </p>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Natural Language Queries</h3>
+            <h3 className="mb-2 text-sm font-semibold">20+ Data Connectors</h3>
             <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Ask questions in plain English. "Show me weekly signups by source for the last quarter." No SQL required.
+              BigQuery, HubSpot, Stripe, Jira, Sentry, GitHub, Slack, Grafana, Google Cloud, Apollo, Gong, Notion, Twitter, Pylon, DataForSEO, Common Room, and more. The agent writes new connectors on demand.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-2 text-sm font-semibold">SQL Query Explorer</h3>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Direct BigQuery access with query history, row count tracking, SQL preview, shareable URLs, and export-ready results. Build event-based filters, group by dimensions, and pick chart types visually.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-2 text-sm font-semibold">Reusable Dashboards</h3>
             <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Build dashboards that persist and update — not throwaway chat responses. Pin charts, arrange layouts, share with your team.
+              Build dashboards that persist and update — not throwaway chat responses. Multi-view subviews, date range controls (7d/30d/90d/custom), author tracking, and resizable panel layouts.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Any Data Source</h3>
+            <h3 className="mb-2 text-sm font-semibold">Data Dictionary</h3>
             <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Connect databases, APIs, CSV files, or any data source. The agent writes the connectors for you.
+              550+ metric definitions with query templates, example outputs, join patterns, update frequency, data lag, and known gotchas. Synced from Notion with community-driven validation scoring and AI-powered suggestions.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">AI Chart Generation</h3>
+            <h3 className="mb-2 text-sm font-semibold">Rich Visualizations</h3>
             <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Describe the visualization you want — bar charts, funnels, cohort analysis, heatmaps — and the agent builds it.
+              Area charts, time series, cumulative net charts, revenue comparisons, data tables, leaderboards, and kanban boards. Dark mode optimized, responsive tooltips, currency/percentage formatters.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Self-Improving</h3>
+            <h3 className="mb-2 text-sm font-semibold">50+ Pre-built Scripts</h3>
             <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              The agent can modify the app itself. Need a new chart type or custom metric? Ask for it and the app evolves.
+              Ready-to-run scripts for BigQuery schema inspection, chart generation, sentiment analysis, conversion funnels, deal pipeline analysis, social engagement metrics, and provider-specific queries.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Fully Open Source</h3>
+            <h3 className="mb-2 text-sm font-semibold">Ad-Hoc Analysis System</h3>
             <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Fork the template, own the code, customize everything. No vendor lock-in, no per-seat pricing, no data leaving your infrastructure.
+              Deep-dive investigation framework for one-time business questions. Step-by-step diagnostic walkthroughs, automatic date tracking, and the ability to promote insights into permanent dashboards.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-2 text-sm font-semibold">Data Quality & Trust</h3>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              NULL rate validation, data completeness checks, metric trust scoring, and BigQuery cost tracking. Community-driven validation with reviewer approvals and gamified contribution leaderboards.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-2 text-sm font-semibold">Agent-Assisted Creation</h3>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Describe what you want — "Show me weekly signups by source for the last quarter" — and the agent writes the query, builds the chart, and adds it to a dashboard. It can even modify the app to add new chart types.
             </p>
           </div>
         </div>
@@ -158,10 +180,22 @@ function AnalyticsTemplate() {
                 <td className="px-5 py-3 text-[var(--fg)]">Yes, persistent charts</td>
               </tr>
               <tr className="border-b border-[var(--border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">Data ownership</td>
-                <td className="px-5 py-3">Their servers</td>
-                <td className="px-5 py-3">Upload required</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Your infrastructure</td>
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">Data connectors</td>
+                <td className="px-5 py-3">Built-in SDKs</td>
+                <td className="px-5 py-3">Manual upload</td>
+                <td className="px-5 py-3 text-[var(--fg)]">20+ sources + custom</td>
+              </tr>
+              <tr className="border-b border-[var(--border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">Data dictionary</td>
+                <td className="px-5 py-3">Basic</td>
+                <td className="px-5 py-3">None</td>
+                <td className="px-5 py-3 text-[var(--fg)]">550+ metrics with context</td>
+              </tr>
+              <tr className="border-b border-[var(--border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">Self-improving</td>
+                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3 text-[var(--fg)]">Agent modifies the app</td>
               </tr>
               <tr className="border-b border-[var(--border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">Customization</td>
@@ -183,7 +217,7 @@ function AnalyticsTemplate() {
       <section className="border-t border-[var(--border)] py-16 text-center">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">Get started in minutes</h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          Fork the analytics template, connect your data, and start building dashboards with AI.
+          Fork the analytics template, connect your data sources, and start building dashboards with AI.
         </p>
         <div className="flex items-center justify-center gap-4">
           <a

@@ -6,11 +6,11 @@ export const Route = createFileRoute('/templates/video')({
   component: VideoTemplate,
   head: () => ({
     meta: [
-      { title: 'AI-Native Video — Open Source AI Video Editor & Generator' },
-      { name: 'description', content: 'Create and edit video compositions with AI. Open source AI video editor built on Remotion. Generate videos from prompts, edit with an agent, render programmatically — all in code you own.' },
-      { property: 'og:title', content: 'AI-Native Video — Open Source AI Video Editor & Generator' },
-      { property: 'og:description', content: 'Create and edit video compositions with AI assistance.' },
-      { name: 'keywords', content: 'AI video editor, AI video generator, open source video editor, Remotion video, AI video creation, agent-native video, programmatic video, AI motion graphics' },
+      { title: 'AI-Native Video — Open Source AI Video Editor & Remotion Studio' },
+      { name: 'description', content: 'Create and edit video compositions with AI. Open source video studio built on Remotion. Track-based animation system, 30+ easing curves, interactive cursor system, 6D camera controls, keyframe editing, and 12 example compositions.' },
+      { property: 'og:title', content: 'AI-Native Video — Open Source AI Video Editor & Remotion Studio' },
+      { property: 'og:description', content: 'Create and edit video compositions with AI. Full animation studio built on Remotion.' },
+      { name: 'keywords', content: 'AI video editor, AI video generator, open source video editor, Remotion video, AI video creation, agent-native video, programmatic video, AI motion graphics, AI animation tool, open source animation studio, React video editor' },
     ],
   }),
 })
@@ -29,9 +29,9 @@ function CliCopy() {
       onClick={handleCopy}
       className="group flex items-center gap-3 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-5 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)]"
     >
-      <span className="text-[var(--fg-secondary)]">$</span>
-      <span className="text-[var(--fg)]">{template.cliCommand}</span>
-      <span className="ml-2 text-[var(--fg-secondary)] opacity-0 transition group-hover:opacity-100">
+      <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
+      <span className="truncate text-[var(--fg)]">{template.cliCommand}</span>
+      <span className="ml-auto shrink-0 text-[var(--fg-secondary)] opacity-0 transition group-hover:opacity-100">
         {copied ? (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
         ) : (
@@ -65,12 +65,13 @@ function VideoTemplate() {
             </h1>
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
-              Create and edit video compositions with an AI agent.
-              Built on Remotion, this template lets you go from storyboard to rendered video — all through natural language.
-              Describe scenes, adjust timing, add effects. You own the code.
+              A full video composition studio built on Remotion with an AI agent.
+              Track-based animation system with 30+ easing curves, multi-keyframe editing, an interactive cursor system, 6D camera controls (pan, zoom, 3D tilt), and 12 example compositions — from kinetic text to full UI product demos.
+              Describe what you want, the agent builds it. Tweak in the timeline or let the agent iterate.
+              You own the code.
             </p>
 
-            <div className="mb-8 flex flex-wrap items-center gap-3">
+            <div className="mb-8 flex flex-col items-start gap-3">
               <a
                 href="https://builder.io"
                 target="_blank"
@@ -91,42 +92,63 @@ function VideoTemplate() {
       </section>
 
       <section className="border-t border-[var(--border)] py-16">
-        <h2 className="mb-8 text-2xl font-bold tracking-tight">What you can do</h2>
+        <h2 className="mb-4 text-2xl font-bold tracking-tight">What you can do</h2>
+        <p className="mb-8 max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+          A professional animation studio in the browser. Build product demos, explainer videos, animated social content, and UI mockup recordings — all with an AI agent and a visual timeline editor.
+        </p>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Prompt-to-Video</h3>
+            <h3 className="mb-2 text-sm font-semibold">Track-Based Animation</h3>
             <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Describe your video concept and the agent builds the composition — scenes, transitions, text overlays, and timing.
+              Every animation is a track in the timeline — visible, editable, and reorderable. Duration tracks with drag handles, keyframe tracks with diamond markers, and expression tracks for programmatic animations.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-2 text-sm font-semibold">30+ Easing Curves</h3>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Linear, power (1-4), back, bounce, circ, elastic, expo, sine — each with in/out/inOut variants plus Remotion spring physics. Visual curve picker shows the shape of each easing.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-2 text-sm font-semibold">Multi-Keyframe Editing</h3>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Per-property keyframes at arbitrary frames, each with independent easing. Box-select multiple keyframes, shift-click to add/remove, and drag groups while preserving relative timing.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-2 text-sm font-semibold">Interactive Cursor System</h3>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Three cursor styles (arrow, pointer hand, text I-beam) with hover zone detection, smooth transitions, and click animations. Perfect for product demos and UI walkthroughs.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-2 text-sm font-semibold">6D Camera Controls</h3>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Pan (X/Y), zoom (scale), and 3D tilt (rotateX/Y) with perspective depth. Anti-pixelation rendering at 3× internal scale ensures crisp output even at high zoom levels.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-2 text-sm font-semibold">12 Example Compositions</h3>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Kinetic text, logo reveals, slideshows, interactive UI showcases (Jira, Slack, project boards), component demos, and blank templates. Fork and customize any of them.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-2 text-sm font-semibold">Expression Animations</h3>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Programmatic animations for complex effects — typing reveals, particle bursts, stagger effects. Adjustable parameters let users tweak without touching code. Marked with purple "fx" badges in the timeline.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-2 text-sm font-semibold">Remotion-Powered</h3>
             <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Built on Remotion — videos are React components. Add any animation, data visualization, or interactive element.
+              Built on Remotion — videos are React components at 1920×1080, 30fps. Add any React component, data visualization, or interactive element. Render to MP4/WebM via Remotion CLI.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Agent-Assisted Editing</h3>
+            <h3 className="mb-2 text-sm font-semibold">Agent-Assisted Creation</h3>
             <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              "Speed up the intro." "Add a fade between scenes." "Change the background music timing." Edit conversationally.
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Programmatic Rendering</h3>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Render videos programmatically. Generate batches of personalized videos, social content, or data-driven visualizations.
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Live Preview</h3>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              See changes in real time as the agent edits. Scrub through the timeline, preview transitions, and iterate fast.
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Fully Open Source</h3>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Fork the template, own the code, customize everything. No watermarks, no render limits, no vendor lock-in.
+              Describe what you want — "A logo reveal with particle burst and spring physics" — and the agent builds the composition, tracks, and animations. Refine conversationally or in the timeline UI.
             </p>
           </div>
         </div>
@@ -139,23 +161,35 @@ function VideoTemplate() {
             <thead>
               <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">Traditional Editors</th>
+                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">After Effects / Premiere</th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">AI Video Tools</th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--accent)]">Agent-Native Video</th>
               </tr>
             </thead>
             <tbody className="text-[var(--fg-secondary)]">
               <tr className="border-b border-[var(--border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">Timeline editor</td>
+                <td className="px-5 py-3">Professional</td>
+                <td className="px-5 py-3">None / basic</td>
+                <td className="px-5 py-3 text-[var(--fg)]">Visual tracks + keyframes</td>
+              </tr>
+              <tr className="border-b border-[var(--border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">AI assistance</td>
                 <td className="px-5 py-3">None / basic</td>
                 <td className="px-5 py-3">Generation only</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Full create + edit</td>
+                <td className="px-5 py-3 text-[var(--fg)]">Full create + edit + iterate</td>
               </tr>
               <tr className="border-b border-[var(--border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">Programmatic</td>
-                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3">ExtendScript</td>
                 <td className="px-5 py-3">API-only</td>
-                <td className="px-5 py-3 text-[var(--fg)]">React + API</td>
+                <td className="px-5 py-3 text-[var(--fg)]">React components</td>
+              </tr>
+              <tr className="border-b border-[var(--border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">Interactive elements</td>
+                <td className="px-5 py-3">Manual</td>
+                <td className="px-5 py-3">None</td>
+                <td className="px-5 py-3 text-[var(--fg)]">Cursor + hover zones</td>
               </tr>
               <tr className="border-b border-[var(--border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">Customization</td>
@@ -163,15 +197,9 @@ function VideoTemplate() {
                 <td className="px-5 py-3">Templates only</td>
                 <td className="px-5 py-3 text-[var(--fg)]">Full source code</td>
               </tr>
-              <tr className="border-b border-[var(--border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">Batch rendering</td>
-                <td className="px-5 py-3">Manual</td>
-                <td className="px-5 py-3">Limited</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Built-in</td>
-              </tr>
               <tr>
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">Pricing</td>
-                <td className="px-5 py-3">License / subscription</td>
+                <td className="px-5 py-3">$55+/mo subscription</td>
                 <td className="px-5 py-3">Per-render</td>
                 <td className="px-5 py-3 text-[var(--fg)]">Free & open source</td>
               </tr>
@@ -183,7 +211,7 @@ function VideoTemplate() {
       <section className="border-t border-[var(--border)] py-16 text-center">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">Get started in minutes</h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          Fork the video template and start creating videos with AI.
+          Fork the video template and start creating compositions with AI.
         </p>
         <div className="flex items-center justify-center gap-4">
           <a

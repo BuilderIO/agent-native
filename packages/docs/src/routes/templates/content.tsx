@@ -10,7 +10,7 @@ export const Route = createFileRoute('/templates/content')({
       { name: 'description', content: 'Write and organize content with an AI agent that knows your brand. Open source alternative to Notion and Google Docs. AI-powered writing, editing, and publishing workflows you own.' },
       { property: 'og:title', content: 'AI-Native Content — Open Source Alternative to Notion & Google Docs' },
       { property: 'og:description', content: 'Write and organize content with an AI agent that knows your brand.' },
-      { name: 'keywords', content: 'AI content editor, open source Notion alternative, Google Docs alternative, AI writing tool, AI content management, agent-native content, AI-powered CMS, AI document editor' },
+      { name: 'keywords', content: 'AI content editor, open source Notion alternative, Google Docs alternative, AI writing tool, AI content management, agent-native content, AI-powered CMS, AI document editor, AI content creation, open source writing app' },
     ],
   }),
 })
@@ -29,9 +29,9 @@ function CliCopy() {
       onClick={handleCopy}
       className="group flex items-center gap-3 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-5 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)]"
     >
-      <span className="text-[var(--fg-secondary)]">$</span>
-      <span className="text-[var(--fg)]">{template.cliCommand}</span>
-      <span className="ml-2 text-[var(--fg-secondary)] opacity-0 transition group-hover:opacity-100">
+      <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
+      <span className="truncate text-[var(--fg)]">{template.cliCommand}</span>
+      <span className="ml-auto shrink-0 text-[var(--fg-secondary)] opacity-0 transition group-hover:opacity-100">
         {copied ? (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
         ) : (
@@ -66,11 +66,12 @@ function ContentTemplate() {
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
               Stop writing in tools that don't understand your brand.
-              This template gives you a full content editor with an AI agent that knows your voice, connects to your CMS, and follows your publishing workflow.
-              You own the code. Customize everything.
+              This template gives you a full content workspace with an AI agent that knows your voice, connects to your CMS, and follows your publishing workflow.
+              Projects, documents, media management, and a rich editor — all backed by files you own.
+              The agent can create drafts, rewrite copy, organize your content library, and even modify the app to add features you need.
             </p>
 
-            <div className="mb-8 flex flex-wrap items-center gap-3">
+            <div className="mb-8 flex flex-col items-start gap-3">
               <a
                 href="https://builder.io"
                 target="_blank"
@@ -91,42 +92,63 @@ function ContentTemplate() {
       </section>
 
       <section className="border-t border-[var(--border)] py-16">
-        <h2 className="mb-8 text-2xl font-bold tracking-tight">What you can do</h2>
+        <h2 className="mb-4 text-2xl font-bold tracking-tight">What you can do</h2>
+        <p className="mb-8 max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+          A complete content workspace with AI built in. Organize projects, write documents, manage media, and publish — all with an agent that understands your brand.
+        </p>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Brand-Aware Writing</h3>
+            <h3 className="mb-2 text-sm font-semibold">Project & Document Organization</h3>
             <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              The agent learns your brand voice, style guide, and tone. Every draft sounds like you, not a chatbot.
+              Organize content into projects with nested documents and resource files. A sidebar with tree navigation, search, and quick switching — like Notion, but you own the code.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">CMS Integration</h3>
+            <h3 className="mb-2 text-sm font-semibold">Rich Text Editor</h3>
             <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Connect to your existing CMS — WordPress, Contentful, Builder, or any headless CMS. Write here, publish everywhere.
+              A full-featured editor with formatting, headings, lists, code blocks, and embedded media. All content stored as files — markdown, HTML, or any format you prefer.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Publishing Workflows</h3>
+            <h3 className="mb-2 text-sm font-semibold">Brand-Aware AI Writing</h3>
             <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Define review and approval workflows. The agent handles drafts, revisions, and scheduling.
+              The agent learns your brand voice, style guide, and tone through instructions and examples. Every draft sounds like you, not a chatbot. Feedback makes it smarter over time.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-2 text-sm font-semibold">Media Management</h3>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Browse and manage media assets alongside your content. Upload images, reference files, and resources — all stored in the file system and accessible to the agent.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-2 text-sm font-semibold">CMS Publishing</h3>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Connect to WordPress, Contentful, Builder, or any headless CMS via scripts. Write here, publish everywhere. The agent can handle the entire workflow.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-2 text-sm font-semibold">AI Editing & Rewriting</h3>
             <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Highlight text and ask for rewrites, expansions, summaries, or tone adjustments. The agent edits in place.
+              Ask the agent to rewrite, expand, summarize, or adjust tone on any selection. It edits files directly and the UI updates in real time via SSE.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Content Organization</h3>
+            <h3 className="mb-2 text-sm font-semibold">Real-Time Sync</h3>
             <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Organize documents with folders, tags, and search. The agent can find, summarize, and cross-reference your content library.
+              Agent edits appear instantly. Files are the single source of truth — when the agent writes to a file, SSE broadcasts the change and the UI updates without refresh.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-2 text-sm font-semibold">Script Automation</h3>
+            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+              Callable scripts for batch operations — bulk content generation, cross-referencing, publishing pipelines, and more. The agent runs scripts autonomously when needed.
             </p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-2 text-sm font-semibold">Fully Open Source</h3>
             <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Fork the template, own the code, customize everything. No vendor lock-in, no per-seat pricing.
+              Fork the template, own the code, customize everything. No vendor lock-in, no per-seat pricing. Your content stays on your infrastructure.
             </p>
           </div>
         </div>
@@ -162,6 +184,12 @@ function ContentTemplate() {
                 <td className="px-5 py-3">Separate step</td>
                 <td className="px-5 py-3">Manual copy-paste</td>
                 <td className="px-5 py-3 text-[var(--fg)]">Integrated workflow</td>
+              </tr>
+              <tr className="border-b border-[var(--border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">Self-improving</td>
+                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3 text-[var(--fg)]">Agent modifies the app</td>
               </tr>
               <tr className="border-b border-[var(--border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">Customization</td>
