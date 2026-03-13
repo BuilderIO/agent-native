@@ -19,10 +19,10 @@ import { Route as TemplatesContentRouteImport } from './routes/templates/content
 import { Route as TemplatesAnalyticsRouteImport } from './routes/templates/analytics'
 import { Route as DocsServerRouteImport } from './routes/docs/server'
 import { Route as DocsScriptsRouteImport } from './routes/docs/scripts'
+import { Route as DocsKeyConceptsRouteImport } from './routes/docs/key-concepts'
 import { Route as DocsHarnessesRouteImport } from './routes/docs/harnesses'
 import { Route as DocsCreatingTemplatesRouteImport } from './routes/docs/creating-templates'
 import { Route as DocsClientRouteImport } from './routes/docs/client'
-import { Route as DocsArchitectureRouteImport } from './routes/docs/architecture'
 
 const TemplatesRoute = TemplatesRouteImport.update({
   id: '/templates',
@@ -74,6 +74,11 @@ const DocsScriptsRoute = DocsScriptsRouteImport.update({
   path: '/docs/scripts',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DocsKeyConceptsRoute = DocsKeyConceptsRouteImport.update({
+  id: '/docs/key-concepts',
+  path: '/docs/key-concepts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DocsHarnessesRoute = DocsHarnessesRouteImport.update({
   id: '/docs/harnesses',
   path: '/docs/harnesses',
@@ -89,19 +94,14 @@ const DocsClientRoute = DocsClientRouteImport.update({
   path: '/docs/client',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DocsArchitectureRoute = DocsArchitectureRouteImport.update({
-  id: '/docs/architecture',
-  path: '/docs/architecture',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/templates': typeof TemplatesRouteWithChildren
-  '/docs/architecture': typeof DocsArchitectureRoute
   '/docs/client': typeof DocsClientRoute
   '/docs/creating-templates': typeof DocsCreatingTemplatesRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
+  '/docs/key-concepts': typeof DocsKeyConceptsRoute
   '/docs/scripts': typeof DocsScriptsRoute
   '/docs/server': typeof DocsServerRoute
   '/templates/analytics': typeof TemplatesAnalyticsRoute
@@ -113,10 +113,10 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/docs/architecture': typeof DocsArchitectureRoute
   '/docs/client': typeof DocsClientRoute
   '/docs/creating-templates': typeof DocsCreatingTemplatesRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
+  '/docs/key-concepts': typeof DocsKeyConceptsRoute
   '/docs/scripts': typeof DocsScriptsRoute
   '/docs/server': typeof DocsServerRoute
   '/templates/analytics': typeof TemplatesAnalyticsRoute
@@ -130,10 +130,10 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/templates': typeof TemplatesRouteWithChildren
-  '/docs/architecture': typeof DocsArchitectureRoute
   '/docs/client': typeof DocsClientRoute
   '/docs/creating-templates': typeof DocsCreatingTemplatesRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
+  '/docs/key-concepts': typeof DocsKeyConceptsRoute
   '/docs/scripts': typeof DocsScriptsRoute
   '/docs/server': typeof DocsServerRoute
   '/templates/analytics': typeof TemplatesAnalyticsRoute
@@ -148,10 +148,10 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/templates'
-    | '/docs/architecture'
     | '/docs/client'
     | '/docs/creating-templates'
     | '/docs/harnesses'
+    | '/docs/key-concepts'
     | '/docs/scripts'
     | '/docs/server'
     | '/templates/analytics'
@@ -163,10 +163,10 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/docs/architecture'
     | '/docs/client'
     | '/docs/creating-templates'
     | '/docs/harnesses'
+    | '/docs/key-concepts'
     | '/docs/scripts'
     | '/docs/server'
     | '/templates/analytics'
@@ -179,10 +179,10 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/templates'
-    | '/docs/architecture'
     | '/docs/client'
     | '/docs/creating-templates'
     | '/docs/harnesses'
+    | '/docs/key-concepts'
     | '/docs/scripts'
     | '/docs/server'
     | '/templates/analytics'
@@ -196,10 +196,10 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   TemplatesRoute: typeof TemplatesRouteWithChildren
-  DocsArchitectureRoute: typeof DocsArchitectureRoute
   DocsClientRoute: typeof DocsClientRoute
   DocsCreatingTemplatesRoute: typeof DocsCreatingTemplatesRoute
   DocsHarnessesRoute: typeof DocsHarnessesRoute
+  DocsKeyConceptsRoute: typeof DocsKeyConceptsRoute
   DocsScriptsRoute: typeof DocsScriptsRoute
   DocsServerRoute: typeof DocsServerRoute
   DocsIndexRoute: typeof DocsIndexRoute
@@ -277,6 +277,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsScriptsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/docs/key-concepts': {
+      id: '/docs/key-concepts'
+      path: '/docs/key-concepts'
+      fullPath: '/docs/key-concepts'
+      preLoaderRoute: typeof DocsKeyConceptsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/docs/harnesses': {
       id: '/docs/harnesses'
       path: '/docs/harnesses'
@@ -296,13 +303,6 @@ declare module '@tanstack/react-router' {
       path: '/docs/client'
       fullPath: '/docs/client'
       preLoaderRoute: typeof DocsClientRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/docs/architecture': {
-      id: '/docs/architecture'
-      path: '/docs/architecture'
-      fullPath: '/docs/architecture'
-      preLoaderRoute: typeof DocsArchitectureRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -331,10 +331,10 @@ const TemplatesRouteWithChildren = TemplatesRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   TemplatesRoute: TemplatesRouteWithChildren,
-  DocsArchitectureRoute: DocsArchitectureRoute,
   DocsClientRoute: DocsClientRoute,
   DocsCreatingTemplatesRoute: DocsCreatingTemplatesRoute,
   DocsHarnessesRoute: DocsHarnessesRoute,
+  DocsKeyConceptsRoute: DocsKeyConceptsRoute,
   DocsScriptsRoute: DocsScriptsRoute,
   DocsServerRoute: DocsServerRoute,
   DocsIndexRoute: DocsIndexRoute,
