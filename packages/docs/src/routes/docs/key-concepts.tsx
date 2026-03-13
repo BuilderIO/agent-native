@@ -189,7 +189,7 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`} />
       <ol className="list-decimal space-y-1 pl-5">
         <li>Agent writes to <code>data/dashboards/main.json</code></li>
         <li>Chokidar detects the change</li>
-        <li>SSE pushes <code>{'{ 'type': 'change', 'path': 'data/dashboards/main.json' }'}</code> to the browser</li>
+        <li>SSE pushes <code>{'{ "type": "change", "path": "data/dashboards/main.json" }'}</code> to the browser</li>
         <li><code>useFileWatcher</code> invalidates matching react-query caches</li>
         <li>Components re-fetch and render the new data</li>
       </ol>
