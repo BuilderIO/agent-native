@@ -1,7 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { templates } from '../../components/TemplateCard'
-import CodeBlock from '../../components/CodeBlock'
 
 export const Route = createFileRoute('/templates/analytics')({
   component: AnalyticsTemplate,
