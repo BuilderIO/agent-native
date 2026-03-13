@@ -16,8 +16,12 @@ import {
 const APP_PORT = Number(
   new URLSearchParams(location.search).get("appPort") || "8080"
 );
-// In single-port mode, the app is proxied through /app/ on the same origin
-const SINGLE_PORT = new URLSearchParams(location.search).get("singlePort") === "1";
+// Single-port mode: app is proxied through /app/ on the same origin.
+// Auto-detect: if ?singlePort=1 is set OR if there's no explicit appPort param
+// and we're not on the app's own port, assume single-port mode.
+const SINGLE_PORT =
+  new URLSearchParams(location.search).get("singlePort") === "1" ||
+  (!new URLSearchParams(location.search).has("appPort") && location.port !== "8080");
 const APP_URL = SINGLE_PORT ? "/app/" : `http://localhost:${APP_PORT}`;
 
 export function App() {
