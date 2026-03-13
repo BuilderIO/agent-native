@@ -45,6 +45,7 @@ function CliCopy() {
 function SlidesTemplate() {
   return (
     <main className="mx-auto max-w-[1200px] px-6">
+      {/* Hero */}
       <section className="py-20">
         <div className="mb-4">
           <Link to="/templates" className="inline-flex items-center gap-1 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]">
@@ -65,11 +66,7 @@ function SlidesTemplate() {
             </h1>
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
-              Stop dragging boxes around in slide editors.
-              Describe the presentation you want, and the agent generates a complete deck — with layouts, content, and AI-generated images.
-              Then refine it conversationally or with point-and-click visual editing.
-              Eight slide layouts, drag-and-drop reordering, speaker notes, image generation, logo search, sharing, and a full-screen presentation mode.
-              You own the code.
+              Describe your presentation. The agent generates a complete deck with layouts, content, and images. Refine conversationally or edit visually.
             </p>
 
             <div className="mb-8 flex flex-col items-start gap-3">
@@ -92,69 +89,93 @@ function SlidesTemplate() {
         </div>
       </section>
 
+      {/* How it works - numbered steps */}
       <section className="border-t border-[var(--border)] py-16">
-        <h2 className="mb-4 text-2xl font-bold tracking-tight">What you can do</h2>
-        <p className="mb-8 max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-          A full slide editor and presentation studio with an AI agent. Generate decks from prompts, edit visually, generate images, and present — all in code you own.
+        <h2 className="mb-8 text-2xl font-bold tracking-tight">How it works</h2>
+        <div className="mx-auto grid max-w-3xl gap-6 sm:grid-cols-3">
+          {[
+            { step: '1', title: 'Describe', desc: 'Tell the agent your topic, audience, and tone. Attach reference PDFs or images.' },
+            { step: '2', title: 'Generate', desc: 'The agent builds a complete deck — structure, content, layouts, and image prompts.' },
+            { step: '3', title: 'Refine', desc: 'Edit visually, conversationally, or in code. Changes appear instantly via SSE.' },
+          ].map((s) => (
+            <div key={s.step} className="text-center">
+              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--accent)] text-sm font-bold text-white">{s.step}</div>
+              <h3 className="mb-1 text-sm font-semibold">{s.title}</h3>
+              <p className="m-0 text-sm text-[var(--fg-secondary)]">{s.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Core features - icon cards */}
+      <section className="border-t border-[var(--border)] py-16">
+        <h2 className="mb-3 text-2xl font-bold tracking-tight">Everything you need</h2>
+        <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
+          A full presentation studio with AI built in.
         </p>
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Prompt-to-Deck</h3>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Describe your presentation topic and audience, optionally attach reference PDFs or images. The agent generates a complete deck with structure, content, layouts, and image prompts.
-            </p>
+            <h3 className="mb-1 text-sm font-semibold">8 Slide Layouts</h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">Title, section, content, two-column, image, statement, full-bleed, and blank.</p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Visual + Code Editing</h3>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Click any element to edit styles, double-click text to edit content. Switch to code mode for raw HTML control. The agent can also edit slides by writing directly to JSON files.
-            </p>
+            <h3 className="mb-1 text-sm font-semibold">Visual + Code Editing</h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">Click to edit styles, double-click for text. Switch to raw HTML for full control.</p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">8 Slide Layouts</h3>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Title, section divider, content with bullets, two-column, image, statement, full-bleed image, and blank — each with sensible defaults and customizable styling.
-            </p>
+            <h3 className="mb-1 text-sm font-semibold">AI Image Generation</h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">Generate images with Gemini. Style references for brand consistency. 3 variations to pick from.</p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">AI Image Generation</h3>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Generate images with Gemini directly in the editor. Style references ensure brand consistency. The agent generates 3 variations and you pick your favorite.
-            </p>
+            <h3 className="mb-1 text-sm font-semibold">Logo & Image Search</h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">Search company logos via Logo.dev or Brandfetch. Google Images for stock photos.</p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Logo & Image Search</h3>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Search for company logos via Logo.dev or Brandfetch. Search Google Images for stock photos. Upload your own assets. All accessible from the image overlay menu.
-            </p>
+            <h3 className="mb-1 text-sm font-semibold">Drag & Drop Reordering</h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">Reorder slides in the sidebar. Duplicate or delete with hover actions.</p>
           </div>
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Drag & Drop Reordering</h3>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Reorder slides by dragging thumbnails in the sidebar. Duplicate or delete slides with hover actions. Add new slides via prompt at any position.
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Presentation Mode</h3>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Full-screen immersive presentation with keyboard navigation, auto-hiding controls, and slide counter. Speaker notes for each slide. Start from any slide.
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Sharing & Undo/Redo</h3>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              Generate share links for read-only presentation access. Full undo/redo history (Cmd+Z) with labeled entries. Navigate to any point in history.
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-2 text-sm font-semibold">Conversational Refinement</h3>
-            <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-              "Make the title bigger." "Add a chart on slide 3." "Change the color scheme to blue." The agent edits slides in real time — changes appear instantly via SSE.
-            </p>
+            <h3 className="mb-1 text-sm font-semibold">Presentation Mode</h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">Full-screen with keyboard nav, auto-hiding controls, and speaker notes.</p>
           </div>
         </div>
       </section>
 
+      {/* Two-column highlight */}
+      <section className="border-t border-[var(--border)] py-16">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="rounded-xl border border-[var(--border)] p-6">
+            <h3 className="mb-2 text-base font-semibold">Sharing & Collaboration</h3>
+            <p className="mb-4 text-sm text-[var(--fg-secondary)]">Generate share links for read-only presentation access. Full undo/redo history with labeled entries.</p>
+            <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
+              <li className="flex items-start gap-2">
+                <svg className="mt-0.5 shrink-0 text-[var(--accent)]" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                Share links with read-only access
+              </li>
+              <li className="flex items-start gap-2">
+                <svg className="mt-0.5 shrink-0 text-[var(--accent)]" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                Cmd+Z undo/redo with full history
+              </li>
+              <li className="flex items-start gap-2">
+                <svg className="mt-0.5 shrink-0 text-[var(--accent)]" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                Navigate to any point in history
+              </li>
+            </ul>
+          </div>
+          <div className="rounded-xl border border-[var(--border)] p-6">
+            <h3 className="mb-2 text-base font-semibold">Conversational Refinement</h3>
+            <p className="mb-4 text-sm text-[var(--fg-secondary)]">The agent edits slides in real time. Changes appear instantly via SSE.</p>
+            <div className="space-y-3 rounded-lg bg-[var(--bg-secondary)] p-4 font-mono text-sm">
+              <div className="text-[var(--fg-secondary)]">"Make the title bigger"</div>
+              <div className="text-[var(--fg-secondary)]">"Add a chart on slide 3"</div>
+              <div className="text-[var(--fg-secondary)]">"Change the color scheme to blue"</div>
+              <div className="text-[var(--fg-secondary)]">"Add speaker notes for slide 5"</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Comparison table */}
       <section className="border-t border-[var(--border)] py-16">
         <h2 className="mb-8 text-2xl font-bold tracking-tight">How it compares</h2>
         <div className="overflow-hidden rounded-xl border border-[var(--border)]">
@@ -187,12 +208,6 @@ function SlidesTemplate() {
                 <td className="px-5 py-3 text-[var(--fg)]">Gemini with style refs</td>
               </tr>
               <tr className="border-b border-[var(--border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">Self-improving</td>
-                <td className="px-5 py-3">No</td>
-                <td className="px-5 py-3">No</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Agent modifies the app</td>
-              </tr>
-              <tr className="border-b border-[var(--border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">Customization</td>
                 <td className="px-5 py-3">Themes only</td>
                 <td className="px-5 py-3">Prompt only</td>
@@ -209,10 +224,11 @@ function SlidesTemplate() {
         </div>
       </section>
 
+      {/* CTA */}
       <section className="border-t border-[var(--border)] py-16 text-center">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">Get started in minutes</h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          Fork the slides template and start creating presentations with AI.
+          Fork the template and start creating presentations with AI.
         </p>
         <div className="flex items-center justify-center gap-4">
           <a
