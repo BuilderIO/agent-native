@@ -2,6 +2,16 @@ import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from '@tanstack/react-router'
 
+declare global {
+  interface Window {
+    gtag?: (...args: any[]) => void
+  }
+}
+
+export function trackEvent(action: string, params: Record<string, string>) {
+  window.gtag?.('event', action, params)
+}
+
 export const templates = [
   {
     name: 'Analytics',
@@ -54,6 +64,7 @@ function CliPopover({ template, buttonRef, onClose }: { template: Template; butt
   function handleCopy() {
     navigator.clipboard.writeText(template.cliCommand)
     setCopied(true)
+    trackEvent('copy_cli_command', { template: template.slug, location: 'card' })
     setTimeout(() => setCopied(false), 2000)
   }
 
@@ -129,6 +140,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
         href="https://builder.io"
         target="_blank"
         rel="noopener noreferrer"
+        onClick={() => trackEvent('launch_template_cloud', { template: template.slug, location: 'card' })}
         className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-black no-underline transition hover:bg-gray-200 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -138,7 +150,10 @@ function TemplateLaunchButton({ template }: { template: Template }) {
       </a>
       <button
         ref={buttonRef}
-        onClick={() => setShowCli(!showCli)}
+        onClick={() => {
+          if (!showCli) trackEvent('click_run_locally', { template: template.slug, location: 'card' })
+          setShowCli(!showCli)
+        }}
         className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-transparent px-4 py-2 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { templates, TemplateCard } from '../../components/TemplateCard'
+import { templates, TemplateCard, trackEvent } from '../../components/TemplateCard'
 
 export const Route = createFileRoute('/templates/')({ component: TemplatesPage })
 
@@ -30,6 +30,7 @@ function TemplatesPage() {
           href="https://builder.io"
           target="_blank"
           rel="noopener noreferrer"
+          onClick={() => trackEvent('create_your_own', { location: 'templates_index' })}
           className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
