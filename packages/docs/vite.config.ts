@@ -22,6 +22,11 @@ const config = defineConfig(({ command }) => ({
   resolve: {
     tsconfigPaths: true,
   },
+  server: {
+    watch: {
+      ignored: ['**/routeTree.gen.ts'],
+    },
+  },
   optimizeDeps: {
     exclude: ['lightningcss', 'fsevents'],
   },

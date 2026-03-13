@@ -21,7 +21,7 @@ function HarnessesDocs() {
       </p>
 
       <h2 id="claude-code-harness">Claude Code Harness (Local)</h2>
-      <ul>
+      <ul className="list-disc space-y-1 pl-5">
         <li>Open source, ships with <code>@agent-native/harness-claude-code</code></li>
         <li>Runs locally — xterm.js terminal on the left, your app iframe on the right</li>
         <li>Powered by Claude Code CLI via a real PTY (node-pty)</li>
@@ -36,7 +36,7 @@ function HarnessesDocs() {
 pnpm dev:harness`} />
 
       <h2 id="builder-harness">Builder Harness (Cloud)</h2>
-      <ul>
+      <ul className="list-disc space-y-1 pl-5">
         <li>Provided by Builder.io — available at builder.io</li>
         <li>Runs locally or in the cloud</li>
         <li>Real-time collaboration — multiple users can watch/interact simultaneously</li>
@@ -77,7 +77,7 @@ pnpm dev:harness`} />
 
       <h2 id="how-it-works">How It Works</h2>
       <p>Both harnesses support the same core agent-native protocol:</p>
-      <ol>
+      <ol className="list-decimal space-y-3 pl-5">
         <li>
           <strong>postMessage bridge</strong> — app sends <code>builder.submitChat</code> messages up
           to the harness
