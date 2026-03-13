@@ -7,6 +7,7 @@
   },
   "scripts": {
     "dev": "vite dev --port 3000",
+    "dev:proxied": "vite dev --port 3000 --base /docs/",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run"

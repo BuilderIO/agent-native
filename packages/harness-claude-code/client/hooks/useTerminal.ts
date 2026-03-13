@@ -3,6 +3,11 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { settingsToFlags, type LaunchSettings } from "../lib/settings";
 
+export type SetupStatus = {
+  status: 'none' | 'installing' | 'installed' | 'not-found' | 'failed';
+  message: string;
+};
+
 export interface UseTerminalOptions {
   appPort: number;
 }
@@ -15,6 +20,7 @@ export function useTerminal({ appPort }: UseTerminalOptions) {
   const autoReconnect = useRef(true);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [connected, setConnected] = useState(false);
+  const [setupStatus, setSetupStatus] = useState<SetupStatus>({ status: 'none', message: '' });
 
   // Initialize terminal
   useEffect(() => {
@@ -106,6 +112,28 @@ export function useTerminal({ appPort }: UseTerminalOptions) {
         event.data instanceof ArrayBuffer
           ? new TextDecoder().decode(event.data)
           : event.data;
+
+      // Handle structured JSON messages from the server
+      try {
+        const msg = JSON.parse(data);
+        if (msg.type === 'setup-status') {
+          setSetupStatus({ status: msg.status, message: msg.message });
+          if (msg.status === 'not-found' || msg.status === 'failed') {
+            // Don't auto-reconnect on setup failures
+            autoReconnect.current = false;
+          } else if (msg.status === 'installed') {
+            // Claude was just installed — reconnect to spawn it
+            autoReconnect.current = true;
+          }
+          return; // Don't write JSON to terminal
+        }
+      } catch {
+        // Not JSON — regular terminal output
+      }
+
+      // Clear setup status once we get real terminal output
+      setSetupStatus((prev) => prev.status !== 'none' ? { status: 'none', message: '' } : prev);
+
       term.write(data);
 
       // Idle detection: Claude shows "❯" when waiting for input
@@ -169,6 +197,7 @@ export function useTerminal({ appPort }: UseTerminalOptions) {
     termRef,
     iframeRef,
     connected,
+    setupStatus,
     connect,
     restart,
     fit,

@@ -5,7 +5,8 @@ import path from "path";
 import fs from "fs";
 
 const command = process.argv[2];
-const args = process.argv.slice(3);
+// Filter out bare "--" separators that pnpm inserts between its args and script args
+const args = process.argv.slice(3).filter((a) => a !== "--");
 
 function findViteBin(): string {
   // Look for vite in node_modules/.bin

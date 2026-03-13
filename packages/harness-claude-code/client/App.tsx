@@ -31,7 +31,7 @@ export function App() {
 
   const [appName, setAppName] = useState("Agent Native");
 
-  const { termRef, iframeRef, connected, connect, restart, fit } = useTerminal({
+  const { termRef, iframeRef, connected, setupStatus, connect, restart, fit } = useTerminal({
     appPort: APP_PORT,
   });
 
@@ -235,7 +235,55 @@ export function App() {
         </div>
 
         {/* Terminal */}
-        <div ref={termRef} className="flex-1 min-h-0 p-1" />
+        <div className="flex-1 min-h-0 relative">
+          <div ref={termRef} className="w-full h-full p-1" />
+
+          {/* Setup overlay — shown when Claude CLI needs to be installed */}
+          {(setupStatus.status === 'installing' || setupStatus.status === 'not-found' || setupStatus.status === 'failed') && (
+            <div className="absolute inset-0 bg-[#1e1e1e]/95 flex items-center justify-center z-10">
+              <div className="text-center max-w-sm px-6">
+                {setupStatus.status === 'installing' ? (
+                  <>
+                    <div className="w-8 h-8 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin mx-auto mb-4" />
+                    <h3 className="text-sm font-medium text-white/90 mb-2">
+                      Installing Claude Code
+                    </h3>
+                    <p className="text-xs text-white/50 leading-relaxed">
+                      Running <code className="bg-white/10 px-1.5 py-0.5 rounded text-[11px]">npm install -g @anthropic-ai/claude-code</code>
+                    </p>
+                    <p className="text-[11px] text-white/30 mt-3">This may take a minute...</p>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
+                      <span className="text-red-400 text-lg">!</span>
+                    </div>
+                    <h3 className="text-sm font-medium text-white/90 mb-2">
+                      Claude Code Not Found
+                    </h3>
+                    <p className="text-xs text-white/50 leading-relaxed mb-4">
+                      {setupStatus.message}
+                    </p>
+                    <p className="text-xs text-white/40 leading-relaxed">
+                      Install manually:
+                    </p>
+                    <code className="block bg-white/10 px-3 py-2 rounded text-[11px] text-white/70 mt-2">
+                      npm install -g @anthropic-ai/claude-code
+                    </code>
+                    <button
+                      onClick={() => {
+                        restart(settings);
+                      }}
+                      className="mt-4 px-3 py-1.5 text-xs bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 rounded transition-colors"
+                    >
+                      Retry
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Drag handle */}

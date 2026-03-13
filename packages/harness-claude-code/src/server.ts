@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
+import { execSync } from 'child_process';
 import * as pty from 'node-pty';
 import os from 'os';
 import path from 'path';
@@ -64,12 +65,63 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
 });
 const wss = new WebSocketServer({ server, path: '/ws' });
 
+// Check if a command exists on PATH
+function commandExists(cmd: string): boolean {
+  try {
+    execSync(`command -v ${cmd}`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Install claude and notify client via WebSocket
+async function installClaude(ws: WebSocket): Promise<boolean> {
+
+  // Send structured JSON messages the client can parse
+  const sendStatus = (status: string, message: string) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'setup-status', status, message }));
+    }
+  };
+
+  sendStatus('installing', 'Installing Claude Code CLI...');
+
+  try {
+    // Try npm global install
+    execSync('npm install -g @anthropic-ai/claude-code', {
+      stdio: 'pipe',
+      timeout: 120000,
+    });
+
+    if (commandExists('claude')) {
+      sendStatus('installed', 'Claude Code CLI installed successfully!');
+      return true;
+    }
+  } catch (err) {
+    console.error('[harness] npm install failed:', err);
+  }
+
+  sendStatus('failed', 'Failed to install Claude Code CLI. Please install it manually: npm install -g @anthropic-ai/claude-code');
+  return false;
+}
+
 // WebSocket handling — each connection gets a PTY
-wss.on('connection', (ws: WebSocket, req) => {
+wss.on('connection', async (ws: WebSocket, req) => {
   const url = new URL(req.url || '', `http://${req.headers.host}`);
   const extraFlags = url.searchParams.get('flags') || '';
   const fullCommand = extraFlags ? `${config.command} ${extraFlags}` : config.command;
   console.log('[harness] WebSocket connected, spawning PTY:', fullCommand);
+
+  // Check if claude is installed; if not, try to install it
+  if (config.command === 'claude' && !commandExists('claude')) {
+    console.log('[harness] Claude CLI not found, attempting install...');
+    const installed = await installClaude(ws);
+    if (!installed) {
+      if (ws.readyState === WebSocket.OPEN) ws.close();
+      return;
+    }
+  }
 
   let ptyProcess: pty.IPty;
   try {
@@ -79,7 +131,7 @@ wss.on('connection', (ws: WebSocket, req) => {
       rows: 40,
       cwd: appDir,
       env: (() => {
-        const env = { ...process.env, TERM: 'xterm-256color' };
+        const env: Record<string, string | undefined> = { ...process.env, TERM: 'xterm-256color' };
         // Remove Claude Code nesting detection env vars so a fresh session can spawn
         delete env.CLAUDECODE;
         delete env.CLAUDE_CODE_SESSION;
@@ -97,6 +149,9 @@ wss.on('connection', (ws: WebSocket, req) => {
 
   console.log(`[harness] PTY spawned (pid: ${ptyProcess.pid})`);
 
+  // Track early exits (exit code 127 = command not found)
+  let spawned = true;
+
   ptyProcess.onData((data: string) => {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(data);
@@ -105,6 +160,14 @@ wss.on('connection', (ws: WebSocket, req) => {
 
   ptyProcess.onExit(({ exitCode }) => {
     console.log(`[harness] PTY exited with code ${exitCode}`);
+    if (exitCode === 127 && ws.readyState === WebSocket.OPEN) {
+      // Command not found — send structured error so client doesn't reconnect-loop
+      ws.send(JSON.stringify({
+        type: 'setup-status',
+        status: 'not-found',
+        message: `Command "${config.command}" not found. Please install it first.`,
+      }));
+    }
     if (ws.readyState === WebSocket.OPEN) {
       ws.close();
     }
