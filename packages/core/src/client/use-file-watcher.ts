@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 interface QueryClient {
   invalidateQueries(opts: { queryKey: string[] }): void;
@@ -20,35 +20,51 @@ export function useFileWatcher(options: {
   eventsUrl?: string;
   onEvent?: (data: any) => void;
 } = {}): void {
-  const { queryClient, onEvent } = options;
-  const keys = options.queryKeys ?? ["file", "fileTree"];
-  const url = options.eventsUrl ?? "/api/events";
+  const {
+    queryClient,
+    queryKeys = ["file", "fileTree"],
+    eventsUrl = "/api/events",
+  } = options;
+
+  const url = eventsUrl;
+
+  // Stable refs — updated every render, read inside the effect
+  const onEventRef = useRef(options.onEvent);
+  onEventRef.current = options.onEvent;
+
+  const keysRef = useRef(queryKeys);
+  keysRef.current = queryKeys;
 
   useEffect(() => {
     const eventSource = new EventSource(url);
 
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-
-        if (queryClient) {
-          for (const key of keys) {
-            queryClient.invalidateQueries({ queryKey: [key] });
-          }
+    eventSource.onopen = () => {
+      // Invalidate all keys on reconnection to catch events missed during downtime
+      if (queryClient) {
+        for (const key of keysRef.current) {
+          queryClient.invalidateQueries({ queryKey: [key] });
         }
-
-        onEvent?.(data);
-      } catch (err) {
-        console.error("[useFileWatcher] error parsing event data", err);
       }
     };
 
-    eventSource.onerror = (err) => {
-      console.error("[useFileWatcher] SSE connection error", err);
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (queryClient) {
+          for (const key of keysRef.current) {
+            queryClient.invalidateQueries({ queryKey: [key] });
+          }
+        }
+        onEventRef.current?.(data);
+      } catch (e) {
+        console.warn("[useFileWatcher] Failed to parse SSE event:", e);
+      }
     };
 
-    return () => {
-      eventSource.close();
+    eventSource.onerror = () => {
+      console.warn("[useFileWatcher] EventSource error, will reconnect");
     };
-  }, [url, queryClient, onEvent, ...keys]);
+
+    return () => eventSource.close();
+  }, [url, queryClient]); // only reconnect on genuine config changes
 }
