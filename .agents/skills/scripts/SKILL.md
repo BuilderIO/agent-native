@@ -55,9 +55,7 @@ import { runScript } from "@agent-native/core";
 runScript();
 ```
 
-`runScript()` validates the script name against `/^[a-z][a-z0-9-]*$/` and dynamically imports the matching file. This is the canonical approach for new apps.
-
-**Alternative: Explicit registry** — If you need compile-time safety or complex argument handling, use a dispatch table with explicit imports. This trades discoverability for type checking.
+This is the canonical approach for new apps. Script names must be lowercase with hyphens only (e.g., `my-script`).
 
 ## Guidelines
 
@@ -67,21 +65,7 @@ runScript();
 - **Use `fail()`** for user-friendly error messages (exits with message, no stack trace).
 - **Write results to files.** The agent and UI will pick them up via the file watcher.
 - **Use `agentChat.submit()`** to report results or errors back to the agent chat.
-- **Import from `@agent-native/core`** — Don't redefine `parseArgs()` or other utilities locally. The core package exports everything scripts need.
-
-## Typed Arguments Pattern
-
-`parseArgs()` returns `Record<string, string>`. For scripts with specific required arguments, validate explicitly:
-
-```ts
-const parsed = parseArgs(args);
-const prompt = parsed.prompt;
-const outputPath = parsed.output;
-if (!prompt) fail("--prompt is required");
-if (!outputPath) fail("--output is required");
-
-// prompt and outputPath are now narrowed to string
-```
+- **Import from `@agent-native/core`** — Don't redefine `parseArgs()` or other utilities locally.
 
 ## Common Patterns
 
@@ -119,16 +103,9 @@ export default async function transform(args: string[]) {
 }
 ```
 
-## Security
-
-- **Validate file path arguments** — Use `isValidPath()` from `@agent-native/core` before reading or writing files based on script arguments. This prevents path traversal attacks.
-- **Destructure specific env vars** — Use `const apiKey = process.env.MY_API_KEY` instead of passing the full `process.env` to functions.
-- **Never use `exec()` with string interpolation** — If you need to run shell commands, use `execFile()` with an argument array, not template literals in `exec()`.
-- **Never log `process.env`** — Even during debugging, this can leak secrets.
-
 ## Troubleshooting
 
-- **Script not found** — Check that the filename matches the command name exactly. `pnpm script foo-bar` looks for `scripts/foo-bar.ts`. Names must match `/^[a-z][a-z0-9-]*$/`.
+- **Script not found** — Check that the filename matches the command name exactly. `pnpm script foo-bar` looks for `scripts/foo-bar.ts`.
 - **Args not parsing** — Ensure args use `--key value` or `--key=value` format. Boolean flags use `--flag` (sets value to `"true"`).
 - **Script runs but UI doesn't update** — Make sure results are written to a path under `data/` that the file watcher monitors.
 
