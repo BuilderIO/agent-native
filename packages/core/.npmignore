@@ -9,5 +9,8 @@ INFO.md
 .DS_Store
 *.log
 
+# Test files (defense-in-depth — tsconfig.json also excludes them from build)
+**/*.spec.*
+
 # Source (dist is published, templates are included via "files")
 # Note: src/templates IS included via package.json "files" field
