@@ -1,23 +1,23 @@
 # Agent-Native
 
-**Software you own, powered by AI.**
+**Agentic applications you own.**
 
-Agent-native apps give you the power of SaaS with the control of custom software. Fork a template, launch in minutes, and let AI help you customize it to your exact needs.
+Agent-native is an open source framework for building apps where an AI agent, a full application UI, and a computer work together as one. Fork a template, launch in minutes, and let AI help you customize it to your exact needs.
 
-SaaS tools are rigid and bolting AI on as an afterthought. Raw AI agents are powerful but have no UI. Agent-native is a new category — the agent and the UI are one, and you own the code.
+Other products charge you for rigid software you can't change. Agent-native gives you the code — you own it, you customize it, you evolve it with AI.
 
 ## Templates
 
-Start from a production-ready template and make it yours:
+Start from a production-ready template. Each one replaces tools you're paying for — except you own everything and can customize it however you want.
 
 | Template | Replaces | What it does |
 |---|---|---|
-| **Analytics** | Amplitude, Mixpanel | Prompt for any chart, connect any data source. No SQL required. |
-| **Content** | Notion, Google Docs | Write and organize content with an agent that knows your brand. |
-| **Slides** | Google Slides, Pitch | Generate and edit React-based presentations via prompt or UI. |
-| **Video** | — | Create and edit Remotion video compositions with agent assistance. |
+| **Analytics** | Amplitude, Mixpanel | Connect any data source, prompt for any chart. Build reusable dashboards, not throwaway Q&A. |
+| **Content** | Notion, Google Docs | Write and organize content with an agent that knows your brand and publishing workflow. |
+| **Slides** | Google Slides, Pitch | Generate and edit React-based presentations via prompt or point-and-click. |
+| **Video** | Manual editing | Create and edit Remotion video compositions with agent assistance. |
 
-Every template is forkable, open source, and designed to be customized. Connect your own data sources, change the UI, add features — just ask.
+Every template is forkable, open source, and designed to be customized. Try them with example data before connecting your own sources.
 
 ## Quick Start
 
@@ -28,36 +28,34 @@ pnpm install
 pnpm dev
 ```
 
-Your app runs at `http://localhost:8080`. Open it in a [harness](#harnesses) to get the agent + UI side by side.
+Or **[launch a template in Builder](https://builder.io)** — no setup required.
 
-## Why Agent-Native?
+## How It Works
 
-Agent-native apps follow a simple architecture that makes AI a first-class citizen:
+Agent-native apps follow five rules:
 
-- **Files as database** — All state lives in files. Agents are great at reading, writing, and navigating file trees.
-- **AI through chat** — The UI delegates to the agent via a chat bridge. No inline LLM calls.
-- **Agent updates code** — The agent can modify the app itself. Fork and evolve — your tools get better over time.
-- **Real-time sync** — File watcher streams changes to the UI instantly. Agent edits appear in real-time.
-
-This is the same shift we saw with mobile-native. Legacy systems are trying to bolt AI onto architectures that weren't designed for it. Agent-native means every feature is built to work with AI from day one.
+- **Files as database** — All state lives in files. The agent and UI share the same source of truth.
+- **AI through the agent** — No inline LLM calls. The UI delegates to the agent via a chat bridge. One AI, customizable with skills and instructions.
+- **Agent updates code** — The agent can modify the app itself. Your tools get better over time.
+- **Real-time sync** — File watcher streams changes via SSE. Agent edits appear instantly.
+- **Agent + UI + Computer** — The powerful trio. Everything the UI can do, the agent can do — and vice versa.
 
 ## Harnesses
 
 Agent-native apps run inside a **harness** — a host that provides the AI agent alongside your app UI.
 
-| | Claude Code Harness | Builder Harness |
+| | Local / Open Source | Builder Cloud |
 |---|---|---|
-| **Deployment** | Local only | Local or cloud |
-| **Agent** | Claude Code CLI | Claude, Codex, etc |
+| **Run** | Claude Code CLI or any local harness | One-click launch from templates |
 | **Collaboration** | Solo | Real-time multiplayer |
-| **Visual editing** | No | Yes |
+| **Features** | Full permissions, full control | Visual editing, roles & permissions |
 | **Best for** | Solo dev, local testing, OSS | Teams, production |
 
-Your app code is identical regardless of harness.
+Your app code is identical regardless of harness. Start local, go to cloud when you need teams.
 
 ## Docs
 
-Full documentation, API reference, and guides at **[agent-native.com](https://agent-native.com)**.
+Full documentation at **[agent-native.com](https://agent-native.com)**.
 
 ## License
 
