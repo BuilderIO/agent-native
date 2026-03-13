@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useState } from 'react'
-import { templates } from '../../components/TemplateCard'
+import { templates, trackEvent } from '../../components/TemplateCard'
 
 export const Route = createFileRoute('/templates/slides')({
   component: SlidesTemplate,
@@ -22,6 +22,7 @@ function CliCopy() {
   function handleCopy() {
     navigator.clipboard.writeText(template.cliCommand)
     setCopied(true)
+    trackEvent('copy_cli_command', { template: template.slug, location: 'landing_page' })
     setTimeout(() => setCopied(false), 2000)
   }
   return (
@@ -74,6 +75,7 @@ function SlidesTemplate() {
                 href="https://builder.io"
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() => trackEvent('launch_template_cloud', { template: template.slug, location: 'hero' })}
                 className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:bg-gray-200 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" /></svg>
@@ -235,6 +237,7 @@ function SlidesTemplate() {
             href="https://builder.io"
             target="_blank"
             rel="noopener noreferrer"
+            onClick={() => trackEvent('launch_template_cloud', { template: template.slug, location: 'bottom_cta' })}
             className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:bg-gray-200 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
             Launch in Cloud
