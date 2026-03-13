@@ -1,3 +1,3 @@
 [build]
   command = "pnpm install && pnpm --filter @agent-native/docs build"
-  publish = "dist/client"
+  publish = "packages/docs/dist/client"
