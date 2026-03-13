@@ -37,7 +37,6 @@ The agent modifies files on disk, but the UI runs in the browser. SSE bridges th
 
 - Don't poll for changes — SSE handles it
 - Don't create per-model `fs.watch()` instances — `createFileWatcher("./data")` watches recursively. One watcher is enough.
-- Don't worry about `queryKeys` or `onEvent` stability — the hook uses `useRef` internally
 - Don't create your own EventSource connections alongside `useFileWatcher` — use the `onEvent` callback for custom handling
 
 ## Query Key Mapping
@@ -68,23 +67,6 @@ useQuery({
 });
 ```
 
-## Dependency Array
-
-The `useFileWatcher` hook uses `useRef` internally for both `queryKeys` and `onEvent`, so callers can safely pass inline arrays and arrow functions without causing EventSource reconnections. The effect only re-runs when `url` or `queryClient` changes.
-
-```ts
-// This is fine — no reconnection churn
-useFileWatcher({ queryClient, queryKeys: ["projects", "tasks"] });
-
-// Inline callbacks are also fine
-useFileWatcher({
-  queryClient,
-  onEvent: (data) => console.log(data),
-});
-```
-
-On reconnection (including after network blips), the hook automatically invalidates all query keys to catch events missed during downtime.
-
 ## Performance
 
 When the agent writes many files rapidly (e.g., during self-modification), each write fires a chokidar event → SSE broadcast → React Query invalidation. This can cause excessive refetching.
@@ -100,7 +82,7 @@ Mitigations:
 | UI not updating after agent writes | Is `useFileWatcher` called with the correct `queryClient`? Are the `queryKeys` matching your `useQuery` keys? |
 | SSE not firing | Open browser devtools → Network tab → filter by EventStream. Is `/api/events` connected? Is the server running? |
 | Watcher not detecting changes | Is the path correct? `createFileWatcher("./data")` is relative to CWD. Check the server's working directory. |
-| Constant reconnections | The hook handles unstable refs internally. Check for server crashes in terminal output or rapid `url`/`queryClient` changes. |
+| Constant reconnections | Check for server crashes in terminal output. |
 | High CPU / event storms | The agent is writing many files rapidly. Add `staleTime` to queries and use path-based filtering. |
 
 ## Related Skills
