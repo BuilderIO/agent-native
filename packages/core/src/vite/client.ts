@@ -1,5 +1,5 @@
 import path from "path";
-import type { UserConfig } from "vite";
+import type { Plugin, UserConfig } from "vite";
 import { expressPlugin, type ExpressPluginOptions } from "./express-plugin.js";
 
 export interface ClientConfigOptions {
@@ -17,6 +17,39 @@ export interface ClientConfigOptions {
   fsAllow?: string[];
   /** Additional fs.deny patterns */
   fsDeny?: string[];
+}
+
+/**
+ * Vite plugin that prevents the built-in base middleware from redirecting
+ * "/" → "/app/" (or whatever the base is). When agent-native apps run with
+ * --base /app/ in single-port mode, Vite's baseMiddleware sends a 302 from
+ * "/" to the base path. This breaks Electron webview and iframe embeds
+ * that load the app at the root. Instead, we rewrite "/" to the base path
+ * internally so the app serves without a visible redirect.
+ */
+function baseRedirectGuard(): Plugin {
+  return {
+    name: "agent-native-base-redirect-guard",
+    apply: "serve",
+    configureServer(server) {
+      // Return a function so the middleware is added AFTER Vite's internal
+      // middleware is built — but we insert BEFORE by using the pre-hook
+      // approach: configureServer hooks that return nothing run before
+      // internal middleware.
+      server.middlewares.use((req, _res, next) => {
+        const base = server.config.base;
+        if (
+          base &&
+          base !== "/" &&
+          (req.url === "/" || req.url === "/index.html")
+        ) {
+          // Rewrite to the base path so Vite serves the app directly
+          req.url = base;
+        }
+        next();
+      });
+    },
+  };
 }
 
 /**
@@ -55,6 +88,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       outDir: options.outDir ?? "dist/spa",
     },
     plugins: [
+      baseRedirectGuard(),
       reactPlugin?.(),
       expressPlugin(options.express),
       ...(options.plugins ?? []),
