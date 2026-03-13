@@ -3,6 +3,16 @@
 import { execSync, spawn } from "child_process";
 import path from "path";
 import fs from "fs";
+import { fileURLToPath } from "url";
+
+// Resolve version once at module scope — used by both --version and --help
+let _version = "unknown";
+try {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  // dist/cli/index.js → ../../package.json
+  const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../package.json"), "utf-8"));
+  _version = pkg.version;
+} catch {}
 
 const command = process.argv[2];
 // Filter out bare "--" separators that pnpm inserts between its args and script args
@@ -91,23 +101,14 @@ switch (command) {
 
   case "--version":
   case "-v": {
-    const pkgPath = path.resolve(
-      path.dirname(new URL(import.meta.url).pathname),
-      "../../package.json",
-    );
-    try {
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-      console.log(pkg.version);
-    } catch {
-      console.log("unknown");
-    }
+    console.log(_version);
     break;
   }
 
   case "--help":
   case "-h":
   case undefined:
-    console.log(`agent-native v0.2.0
+    console.log(`agent-native v${_version}
 
 Usage:
   agent-native dev              Start development server
