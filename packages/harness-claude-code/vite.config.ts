@@ -26,6 +26,7 @@ export default defineConfig({
   ],
   server: {
     port: 3334,
+    allowedHosts: true,
     proxy: {
       "/ws": {
         target: "ws://localhost:3333",
