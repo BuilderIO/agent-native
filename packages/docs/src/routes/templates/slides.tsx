@@ -62,7 +62,7 @@ function SlidesTemplate() {
             </div>
 
             <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
-              AI-Native Slides
+              Agent-Native Slide Deck Generation
             </h1>
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
