@@ -72,7 +72,6 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     server: {
       host: "::",
       port: options.port ?? 8080,
-      allowedHosts: true,
       fs: {
         allow: [".", ...(options.fsAllow ?? [])],
         deny: [
