@@ -53,7 +53,7 @@
     "tailwindcss": ">=3",
     "tailwindcss-animate": ">=1",
     "typescript": ">=5",
-    "vite": ">=6"
+    "vite": ">=7"
   },
   "peerDependenciesMeta": {
     "@tanstack/react-query": {
@@ -100,7 +100,7 @@
     "tailwindcss": "^3.4.17",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.9.2",
-    "vite": "^7.1.2",
+    "vite": "^8.0.0",
     "vitest": "^3.2.4"
   }
 }
