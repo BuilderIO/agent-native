@@ -33,6 +33,7 @@ function run(cmd: string, cmdArgs: string[], opts?: { stdio?: "inherit" | "pipe"
 switch (command) {
   case "dev": {
     // Like `next dev` — runs Vite dev server with express plugin
+    // Supports --base <path> for mounting under a prefix (e.g. agent-native dev --base /app/)
     const vite = findViteBin();
     run(vite, args);
     break;
