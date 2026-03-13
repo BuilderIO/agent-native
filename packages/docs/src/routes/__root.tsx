@@ -1,4 +1,4 @@
-import { HeadContent, Outlet, Scripts, createRootRoute } from '@tanstack/react-router'
+import { HeadContent, Link, Outlet, Scripts, createRootRoute } from '@tanstack/react-router'
 import Header from '../components/Header'
 import Footer from '../components/Footer'
 
@@ -29,6 +29,7 @@ export const Route = createRootRoute({
   }),
   component: RootComponent,
   shellComponent: RootDocument,
+  notFoundComponent: NotFound,
 })
 
 function RootDocument({ children }: { children: React.ReactNode }) {
@@ -45,6 +46,36 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <Scripts />
       </body>
     </html>
+  )
+}
+
+function NotFound() {
+  return (
+    <main className="mx-auto flex min-h-[60vh] max-w-[600px] flex-col items-center justify-center px-6 text-center">
+      <div className="mb-6 text-[120px] font-bold leading-none tracking-tighter text-[var(--border)]">
+        404
+      </div>
+      <h1 className="mb-3 text-2xl font-semibold tracking-tight">
+        Page not found
+      </h1>
+      <p className="mb-8 text-base leading-relaxed text-[var(--fg-secondary)]">
+        The page you're looking for doesn't exist or has been moved.
+      </p>
+      <div className="flex items-center gap-3">
+        <Link
+          to="/"
+          className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:bg-gray-200 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+        >
+          Go home
+        </Link>
+        <Link
+          to="/docs"
+          className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+        >
+          Read the docs
+        </Link>
+      </div>
+    </main>
   )
 }
 
