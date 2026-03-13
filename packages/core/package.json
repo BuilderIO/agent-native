@@ -31,6 +31,7 @@
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run",
+    "prepack": "cp ../../README.md ./README.md",
     "prepublishOnly": "npm run build",
     "release": "npm version patch && npm publish --access public"
   },

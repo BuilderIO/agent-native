@@ -9,6 +9,9 @@ docs/superpowers
 # Screenshot artifacts from design iterations
 packages/docs/*.png
 
+# Copied at publish time via prepack
+packages/core/README.md
+
 # Internal notes
 RAMBLINGS.md
 FUSION-APPS.md
