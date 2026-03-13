@@ -64,16 +64,20 @@ export function SettingsPanel({ settings, onChange, appPort, iframeRef, connecte
     });
   };
 
+  const singlePort = new URLSearchParams(location.search).get("singlePort") === "1";
+
   const navigate = useCallback((path: string) => {
     const trimmed = path.trim();
     if (!trimmed) return;
     const normalized = trimmed.startsWith("/") ? trimmed : "/" + trimmed;
     if (iframeRef.current) {
-      iframeRef.current.src = `http://localhost:${appPort}${normalized}`;
+      iframeRef.current.src = singlePort
+        ? `/app${normalized}`
+        : `http://localhost:${appPort}${normalized}`;
     }
     setUrlInput(normalized);
     addToHistory(normalized);
-  }, [iframeRef, appPort]);
+  }, [iframeRef, appPort, singlePort]);
 
   const toggleStar = (path: string) => {
     setStarred((prev) => {

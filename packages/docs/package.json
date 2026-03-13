@@ -26,6 +26,7 @@
     "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
+    "@netlify/vite-plugin-tanstack-start": "^1.2.21",
     "@tailwindcss/typography": "^0.5.16",
     "@tanstack/devtools-vite": "latest",
     "@testing-library/dom": "^10.4.1",

@@ -16,6 +16,9 @@ import {
 const APP_PORT = Number(
   new URLSearchParams(location.search).get("appPort") || "8080"
 );
+// In single-port mode, the app is proxied through /app/ on the same origin
+const SINGLE_PORT = new URLSearchParams(location.search).get("singlePort") === "1";
+const APP_URL = SINGLE_PORT ? "/app/" : `http://localhost:${APP_PORT}`;
 
 export function App() {
   const [settings, setSettings] = useState<LaunchSettings>(loadSettings);
@@ -116,7 +119,10 @@ export function App() {
   }, [fit]);
 
   const copyUrl = () => {
-    navigator.clipboard.writeText(`http://localhost:${APP_PORT}`);
+    const url = SINGLE_PORT
+      ? `${location.origin}/app/`
+      : `http://localhost:${APP_PORT}`;
+    navigator.clipboard.writeText(url);
     setShowShareMenu(false);
   };
 
@@ -245,7 +251,7 @@ export function App() {
         <div className="flex-1 rounded-xl overflow-hidden bg-black">
           <iframe
             ref={iframeRef}
-            src={`http://localhost:${APP_PORT}`}
+            src={APP_URL}
             className="w-full h-full border-none"
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-presentation"
             allow="fullscreen"
