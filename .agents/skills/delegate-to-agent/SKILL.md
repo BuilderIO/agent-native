@@ -58,7 +58,7 @@ The `submit` option controls whether the message is sent automatically or placed
 
 ```ts
 // Auto-submit: routine operation
-sendToAgentChat({ message: "Regenerate the slide thumbnails", submit: true });
+sendToAgentChat({ message: "Update the project summary", submit: true });
 
 // Prefill: let user review before sending
 sendToAgentChat({
@@ -66,29 +66,6 @@ sendToAgentChat({
   submit: false,
 });
 ```
-
-## Handling Delegated Requests
-
-When the agent receives a message via `sendToAgentChat()`, the typical workflow is:
-
-1. **Read current state** — Check `data/` files for context
-2. **Check UI state** — Read `data-*` attributes on `document.documentElement` or `window.__appState` for current selection/context
-3. **Do the work** — Write results to files in `data/`
-4. **Optionally run scripts** — Use `pnpm script <name>` for complex operations
-5. **Verify** — The SSE watcher updates the UI automatically; no explicit notification needed
-
-## How the Transport Works
-
-`sendToAgentChat()` sends messages via `postMessage` to the parent window (or `window` itself if top-level). The harness (e.g., `harness-claude-code`) receives these messages and forwards them to the agent.
-
-```
-UI Component → sendToAgentChat() → postMessage → Harness → Agent
-```
-
-If `sendToAgentChat()` isn't reaching the agent, check:
-- Is the app running inside the harness iframe?
-- Is the harness listening for `builder.submitChat` messages?
-- Check browser devtools console for postMessage errors
 
 ## Don't
 
@@ -101,11 +78,6 @@ If `sendToAgentChat()` isn't reaching the agent, check:
 ## Exception
 
 Scripts may call external APIs (image generation, search, etc.) — but the AI reasoning and orchestration still goes through the agent. A script is a tool the agent uses, not a replacement for the agent.
-
-## Security
-
-- **`postMessage` wildcard origin** — `sendToAgentChat()` uses `target.postMessage(payload, "*")` which sends to any origin. This is acceptable for local development but must specify the target origin in production deployments.
-- **Prompt injection from user input** — When constructing messages from user input (form fields, selected text), be aware that the user's content becomes part of the agent's prompt. Sanitize or clearly delineate user-provided content from instructions.
 
 ## Related Skills
 
