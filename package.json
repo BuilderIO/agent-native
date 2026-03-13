@@ -2,6 +2,7 @@
   "name": "agentnative",
   "private": true,
   "scripts": {
+    "postinstall": "pnpm --filter @agent-native/core build",
     "setup": "pnpm install && pnpm --filter @agent-native/core build && pnpm install",
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",

@@ -22,7 +22,7 @@
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
     "@types/ws": "^8.18.1",
-    "@vitejs/plugin-react": "^4.4.0",
+    "@vitejs/plugin-react-swc": "^4.0.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "autoprefixer": "^10.4.21",
