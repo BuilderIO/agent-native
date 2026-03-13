@@ -1,5 +1,5 @@
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import react from "@vitejs/plugin-react-swc";
 
 const APP_PORT = parseInt(process.env.APP_PORT || "8080", 10);
 const DOCS_PORT = parseInt(process.env.DOCS_PORT || "3000", 10);
