@@ -5,7 +5,25 @@ const APP_PORT = parseInt(process.env.APP_PORT || "8080", 10);
 const DOCS_PORT = parseInt(process.env.DOCS_PORT || "3000", 10);
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Redirect /docs and /app to their trailing-slash versions so the
+    // upstream Vite servers (which require the trailing slash with --base)
+    // don't send absolute Location headers pointing at their own port.
+    {
+      name: "trailing-slash-redirect",
+      configureServer(server) {
+        server.middlewares.use((req, _res, next) => {
+          if (req.url === "/docs" || req.url === "/app") {
+            _res.writeHead(301, { Location: req.url + "/" });
+            _res.end();
+            return;
+          }
+          next();
+        });
+      },
+    },
+  ],
   server: {
     port: 3334,
     proxy: {
