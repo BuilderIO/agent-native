@@ -1,3 +1,11 @@
+---
+name: delegate-to-agent
+description: >-
+  How to delegate all AI work to the agent chat. Use when delegating AI work
+  from UI or scripts to the agent, when tempted to add inline LLM calls, or
+  when sending messages to the agent from application code.
+---
+
 # Delegate All AI to the Agent
 
 ## Rule
@@ -16,7 +24,7 @@ import { sendToAgentChat } from "@agent-native/core";
 
 sendToAgentChat({
   message: "Generate a summary of this document",
-  context: documentContent,  // optional context to include
+  context: documentContent,  // optional hidden context (not shown in chat UI)
   submit: true,              // auto-submit to the agent
 });
 ```
@@ -38,6 +46,27 @@ function MyComponent() {
 }
 ```
 
+## `submit` vs Prefill
+
+The `submit` option controls whether the message is sent automatically or placed in the chat input for user review:
+
+| `submit` value | Behavior | Use when |
+|---|---|---|
+| `true` | Auto-submits to the agent immediately | Routine operations the user has already approved |
+| `false` | Prefills the chat input for user review | High-stakes operations (deleting data, modifying code, API calls with side effects) |
+| omitted | Uses the project's default setting | General-purpose delegation |
+
+```ts
+// Auto-submit: routine operation
+sendToAgentChat({ message: "Update the project summary", submit: true });
+
+// Prefill: let user review before sending
+sendToAgentChat({
+  message: "Delete all projects older than 30 days",
+  submit: false,
+});
+```
+
 ## Don't
 
 - Don't `import Anthropic from "@anthropic-ai/sdk"` in client or server code
@@ -49,3 +78,10 @@ function MyComponent() {
 ## Exception
 
 Scripts may call external APIs (image generation, search, etc.) — but the AI reasoning and orchestration still goes through the agent. A script is a tool the agent uses, not a replacement for the agent.
+
+## Related Skills
+
+- **scripts** — The agent invokes scripts via `pnpm script <name>` to perform complex operations
+- **self-modifying-code** — The agent operates through the chat bridge to make code changes
+- **files-as-database** — The agent writes results to data files after processing requests
+- **sse-file-watcher** — The UI updates automatically when the agent writes files
