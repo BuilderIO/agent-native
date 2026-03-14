@@ -6,7 +6,7 @@ const BRAND_DIR = path.join(process.cwd(), "data", "brand");
 const REFS_DIR = path.join(BRAND_DIR, "references");
 const PROFILE_PATH = path.join(BRAND_DIR, "style-profile.json");
 
-export default async function main(args: string[]) {
+export default async function main(_args: string[]) {
   loadEnv();
 
   const apiKey = process.env.GEMINI_API_KEY;
