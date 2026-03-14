@@ -346,6 +346,150 @@ html.dark .shiki span {
   display: none;
 }
 
+/* SaaS Tools vs Raw AI Agents comparison section */
+.approaches-section {
+  background: var(--bg);
+}
+
+.approaches-table-wrapper {
+  margin: 0 auto;
+  max-width: 720px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.approaches-table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.approaches-table {
+  width: 100%;
+  min-width: 480px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.approaches-th {
+  padding: 12px 20px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.approaches-col-dim {
+  width: 30%;
+}
+
+.approaches-col-saas,
+.approaches-col-agent {
+  width: 35%;
+}
+
+.approaches-col-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.approaches-col-label--bad {
+  color: #f87171;
+}
+
+.approaches-td {
+  padding: 12px 20px;
+  color: var(--fg-secondary);
+  vertical-align: middle;
+}
+
+.approaches-td--dim {
+  font-weight: 500;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.approaches-solution {
+  margin: 40px auto 0;
+  max-width: 560px;
+  text-align: center;
+}
+
+.approaches-solution-badge {
+  display: inline-block;
+  margin-bottom: 12px;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.approaches-solution-tagline {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--fg);
+  margin: 0 0 12px;
+  background: linear-gradient(135deg, var(--accent), #7928ca);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.approaches-solution-desc {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--fg-secondary);
+  margin: 0;
+}
+
+@media (max-width: 767px) {
+  .approaches-table-wrapper {
+    /* Break out of parent px-6 padding to go full-width */
+    margin-left: -24px;
+    margin-right: -24px;
+    width: calc(100% + 48px);
+    max-width: none;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+
+  .approaches-table-scroll {
+    /* Show a subtle scrollbar on mobile so users know it scrolls */
+    scrollbar-width: auto;
+  }
+
+  .approaches-th,
+  .approaches-td {
+    padding: 10px 16px;
+  }
+
+  /* First column sticks to left edge so dimension labels stay readable */
+  .approaches-td--dim,
+  .approaches-th.approaches-col-dim {
+    position: sticky;
+    left: 0;
+    background: var(--bg);
+    z-index: 1;
+  }
+
+  thead .approaches-col-dim {
+    background: var(--bg-secondary);
+  }
+
+  .approaches-solution-tagline {
+    font-size: 22px;
+  }
+}
+
 /* Transitions */
 button,
 a {
