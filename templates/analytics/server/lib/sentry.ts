@@ -10,7 +10,8 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 100;
 
 function getToken(): string {
-  const token = process.env.SENTRY_SERVER_TOKEN ?? process.env.SENTRY_AUTH_TOKEN;
+  const token =
+    process.env.SENTRY_SERVER_TOKEN ?? process.env.SENTRY_AUTH_TOKEN;
   if (!token) throw new Error("SENTRY_SERVER_TOKEN env var required");
   return token;
 }
@@ -71,7 +72,12 @@ export interface SentryIssue {
   platform: string;
   project: { id: string; name: string; slug: string };
   type: string;
-  metadata: { type?: string; value?: string; filename?: string; function?: string };
+  metadata: {
+    type?: string;
+    value?: string;
+    filename?: string;
+    function?: string;
+  };
   count: string;
   userCount: number;
   firstSeen: string;
@@ -109,7 +115,7 @@ export async function listProjects(): Promise<SentryProject[]> {
 export async function listIssues(
   projectSlug?: string,
   query?: string,
-  statsPeriod?: string
+  statsPeriod?: string,
 ): Promise<SentryIssue[]> {
   const params = new URLSearchParams();
   if (query) params.set("query", query);
@@ -118,23 +124,23 @@ export async function listIssues(
 
   if (projectSlug) {
     return apiGet<SentryIssue[]>(
-      `/projects/${ORG_SLUG}/${projectSlug}/issues/?${params.toString()}`
+      `/projects/${ORG_SLUG}/${projectSlug}/issues/?${params.toString()}`,
     );
   }
   return apiGet<SentryIssue[]>(
-    `/organizations/${ORG_SLUG}/issues/?${params.toString()}`
+    `/organizations/${ORG_SLUG}/issues/?${params.toString()}`,
   );
 }
 
 export async function getIssueEvents(issueId: string): Promise<SentryEvent[]> {
   return apiGet<SentryEvent[]>(
-    `/organizations/${ORG_SLUG}/issues/${issueId}/events/`
+    `/organizations/${ORG_SLUG}/issues/${issueId}/events/`,
   );
 }
 
 export async function getOrganizationStats(
   statsPeriod?: string,
-  category?: string
+  category?: string,
 ): Promise<SentryOrgStats> {
   const params = new URLSearchParams();
   params.set("field", "sum(quantity)");
@@ -146,6 +152,6 @@ export async function getOrganizationStats(
   }
   params.set("groupBy", "outcome");
   return apiGet<SentryOrgStats>(
-    `/organizations/${ORG_SLUG}/stats_v2/?${params.toString()}`
+    `/organizations/${ORG_SLUG}/stats_v2/?${params.toString()}`,
   );
 }

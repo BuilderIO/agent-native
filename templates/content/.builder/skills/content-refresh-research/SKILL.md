@@ -36,6 +36,7 @@ Validate the output folder has a `seed/` subfolder with at least one URL:
 **If `seed/` does not exist or `seed/urls.txt` is empty:**
 
 Stop with:
+
 ```
 No seed folder found. Run /content-seed first to stage the original post URL.
 
@@ -79,6 +80,7 @@ Proceed only after the user confirms (or if budget is sufficient).
 Check for a `--resume` flag in the arguments.
 
 **If `--resume` is present:**
+
 1. Scan `phases/` for refresh-specific files (`00-original-post-analysis.yaml`, `01-refresh-keyword-research.yaml`, `02-refresh-serp-analysis.yaml`, `03-delta-analysis.yaml`)
 2. Check for `refresh-scope.yaml` (Gate 1 complete)
 3. Find the last completed refresh phase
@@ -183,21 +185,22 @@ Present the delta analysis using **AskUserQuestion**:
 
 **Show the user:**
 
-| Field | Value |
-|-------|-------|
-| Original post | Title + URL |
-| Primary keyword | Old ranking → Current ranking |
-| SERP changes | New competitors, new features |
-| Sections to KEEP | Count + list |
-| Sections to REWRITE | Count + list with reasons |
-| Sections to ADD | Count + list with reasons |
-| Recommended scope | metadata-only / selective / full |
-| Content goal change | None / recommended change |
-| Estimated effort | Phases that will run |
+| Field               | Value                            |
+| ------------------- | -------------------------------- |
+| Original post       | Title + URL                      |
+| Primary keyword     | Old ranking → Current ranking    |
+| SERP changes        | New competitors, new features    |
+| Sections to KEEP    | Count + list                     |
+| Sections to REWRITE | Count + list with reasons        |
+| Sections to ADD     | Count + list with reasons        |
+| Recommended scope   | metadata-only / selective / full |
+| Content goal change | None / recommended change        |
+| Estimated effort    | Phases that will run             |
 
 **Question:** "Delta analysis complete. How do you want to proceed?"
 
 **Options:**
+
 1. **Accept recommendation** -- Proceed with the recommended scope
 2. **Override to selective** -- Force selective rewrite
 3. **Override to full** -- Force full rewrite regardless of delta
@@ -257,6 +260,7 @@ Use **AskUserQuestion** to present options based on the resolved scope:
 **Question:** "Research complete. What would you like to do next?"
 
 **Options:**
+
 1. **Write the refreshed post** -- Run `/content-refresh-write [folder]` after `/clear` for a fresh context (recommended)
 2. **Continue in same session** -- Continue with `/content-refresh --resume` (single-session fallback)
 3. **Review artifacts** -- Read the delta analysis or individual phase files
@@ -267,6 +271,7 @@ Use **AskUserQuestion** to present options based on the resolved scope:
 **Question:** "Research complete. Scope is metadata-only -- no content changes needed."
 
 **Options:**
+
 1. **Optimize** -- Run `/content-optimize [folder]` after `/clear` (recommended)
 2. **Continue in same session** -- Continue with `/content-refresh --resume` (single-session fallback)
 3. **Review artifacts** -- Read the delta analysis or individual phase files
@@ -281,6 +286,7 @@ Use **AskUserQuestion** to present options based on the resolved scope:
 ### Ahrefs MCP Unavailable
 
 If any Ahrefs MCP call fails during the pipeline:
+
 1. Log the failure in the current phase's YAML output
 2. Fall back to WebSearch-based research for that specific call
 3. Note reduced data quality in the phase output
@@ -289,6 +295,7 @@ If any Ahrefs MCP call fails during the pipeline:
 ### WebFetch Failure (Original Post)
 
 If the original post URL cannot be fetched (paywall, JS-rendered, 404):
+
 1. Check if `seed/article.md` exists (user may have pasted the content manually)
 2. If yes: use `seed/article.md` as the original post content
 3. If no: ask the user to paste the post content into `seed/article.md` and re-run
@@ -296,6 +303,7 @@ If the original post URL cannot be fetched (paywall, JS-rendered, 404):
 ### Phase Failure
 
 If a phase produces an error or incomplete output:
+
 1. Announce the failure to the user
 2. Ask whether to retry the phase, skip it, or stop the pipeline
 3. If skipped, write a stub YAML with `skipped: true` and `reason`

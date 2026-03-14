@@ -42,41 +42,44 @@ export function ProjectHistoryView({
   const { data: fileData } = useFileContent(projectSlug, filePath);
   const { data: fileTreeData } = useFileTree(projectSlug);
   const { data: projectsData } = useProjects();
-  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
+    null,
+  );
   const pendingEditorVersionIdRef = useRef<string | null>(null);
 
   const activeDraftPath = fileTreeData?.activeDraftPath || "draft.md";
   const historyEnabled = filePath === activeDraftPath;
-  const { data: versionHistory, isLoading: isVersionHistoryLoading } = useVersionHistory(
-    projectSlug,
-    filePath,
-    historyEnabled
-  );
+  const { data: versionHistory, isLoading: isVersionHistoryLoading } =
+    useVersionHistory(projectSlug, filePath, historyEnabled);
   const versions = versionHistory?.versions || [];
   const latestVersionId = versions[versions.length - 1]?.id || null;
   const latestVersionIdRef = useRef<string | null>(null);
   const selectedVersionIndex = useMemo(
     () => versions.findIndex((version) => version.id === selectedVersionId),
-    [versions, selectedVersionId]
+    [versions, selectedVersionId],
   );
   const selectedVersion = useMemo(
     () => versions.find((version) => version.id === selectedVersionId) || null,
-    [versions, selectedVersionId]
+    [versions, selectedVersionId],
   );
   const previousVersionId =
-    selectedVersionIndex > 0 ? versions[selectedVersionIndex - 1]?.id || null : null;
-  const { data: currentVersion, isLoading: isCurrentVersionLoading } = useVersionContent(
-    projectSlug,
-    filePath,
-    selectedVersionId,
-    historyEnabled && !!selectedVersionId
-  );
-  const { data: previousVersion, isLoading: isPreviousVersionLoading } = useVersionContent(
-    projectSlug,
-    filePath,
-    previousVersionId,
-    historyEnabled && !!previousVersionId
-  );
+    selectedVersionIndex > 0
+      ? versions[selectedVersionIndex - 1]?.id || null
+      : null;
+  const { data: currentVersion, isLoading: isCurrentVersionLoading } =
+    useVersionContent(
+      projectSlug,
+      filePath,
+      selectedVersionId,
+      historyEnabled && !!selectedVersionId,
+    );
+  const { data: previousVersion, isLoading: isPreviousVersionLoading } =
+    useVersionContent(
+      projectSlug,
+      filePath,
+      previousVersionId,
+      historyEnabled && !!previousVersionId,
+    );
 
   useEffect(() => {
     setSelectedVersionId(null);
@@ -93,11 +96,16 @@ export function ProjectHistoryView({
 
     const previousLatestVersionId = latestVersionIdRef.current;
     const isSelectedVersionMissing =
-      !selectedVersionId || !versions.some((version) => version.id === selectedVersionId);
+      !selectedVersionId ||
+      !versions.some((version) => version.id === selectedVersionId);
     const wasFollowingLatest =
-      !!previousLatestVersionId && selectedVersionId === previousLatestVersionId;
+      !!previousLatestVersionId &&
+      selectedVersionId === previousLatestVersionId;
 
-    if (isSelectedVersionMissing || (wasFollowingLatest && latestVersionId !== previousLatestVersionId)) {
+    if (
+      isSelectedVersionMissing ||
+      (wasFollowingLatest && latestVersionId !== previousLatestVersionId)
+    ) {
       setSelectedVersionId(latestVersionId);
     }
 
@@ -115,7 +123,7 @@ export function ProjectHistoryView({
         queryKey: ["versionContent", projectSlug, filePath, versionId],
         queryFn: async () => {
           const res = await authFetch(
-            `/api/projects/${projectSlug}/version-history/${versionId}?path=${encodeURIComponent(filePath)}`
+            `/api/projects/${projectSlug}/version-history/${versionId}?path=${encodeURIComponent(filePath)}`,
           );
           if (!res.ok) throw new Error("Failed to fetch version");
           return res.json() as Promise<{ content: string }>;
@@ -139,9 +147,13 @@ export function ProjectHistoryView({
       return;
     }
 
-    const project = projectsData?.projects.find((entry) => entry.slug === projectSlug);
+    const project = projectsData?.projects.find(
+      (entry) => entry.slug === projectSlug,
+    );
     const routeSlug = project ? getProjectRouteSlug(project) : projectSlug;
-    const workspace = routeSlug.includes("/") ? routeSlug.split("/")[0] : routeSlug;
+    const workspace = routeSlug.includes("/")
+      ? routeSlug.split("/")[0]
+      : routeSlug;
     const prefixed = !!projectsData?.groupMeta?.[workspace]?.prefixed;
     navigate(workspaceUrl(routeSlug, prefixed));
   };
@@ -184,16 +196,25 @@ export function ProjectHistoryView({
                     <div className="min-w-0 space-y-2">
                       <div className="flex flex-wrap items-center gap-2 text-foreground">
                         <History className="h-4 w-4" />
-                        <h3 className="text-sm font-semibold">Article history</h3>
-                        <Badge variant="secondary">{versions.length} changes</Badge>
+                        <h3 className="text-sm font-semibold">
+                          Article history
+                        </h3>
+                        <Badge variant="secondary">
+                          {versions.length} changes
+                        </Badge>
                       </div>
 
                       {selectedVersion ? (
                         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           <Badge variant="secondary" className="font-normal">
-                            {dateTimeFormatter.format(new Date(selectedVersion.timestamp))}
+                            {dateTimeFormatter.format(
+                              new Date(selectedVersion.timestamp),
+                            )}
                           </Badge>
-                          <Badge variant="outline" className="gap-1 font-normal">
+                          <Badge
+                            variant="outline"
+                            className="gap-1 font-normal"
+                          >
                             {selectedVersion.actorType === "user" ? (
                               <User className="h-3 w-3" />
                             ) : (
@@ -202,15 +223,21 @@ export function ProjectHistoryView({
                             {actorLabel}
                           </Badge>
                           {currentVersion?.source ? (
-                            <Badge variant="outline" className="font-normal capitalize">
+                            <Badge
+                              variant="outline"
+                              className="font-normal capitalize"
+                            >
                               {currentVersion.source}
                             </Badge>
                           ) : null}
                           <span>
-                            +{selectedVersion.wordsAdded} / -{selectedVersion.wordsRemoved}
+                            +{selectedVersion.wordsAdded} / -
+                            {selectedVersion.wordsRemoved}
                           </span>
                           {currentVersion?.linesChanged ? (
-                            <span>{currentVersion.linesChanged} changed lines</span>
+                            <span>
+                              {currentVersion.linesChanged} changed lines
+                            </span>
                           ) : null}
                         </div>
                       ) : (
@@ -219,7 +246,6 @@ export function ProjectHistoryView({
                         </p>
                       )}
                     </div>
-
                   </div>
 
                   <HistorySlider

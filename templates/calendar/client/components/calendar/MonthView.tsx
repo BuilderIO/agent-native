@@ -23,7 +23,12 @@ interface MonthViewProps {
 
 const WEEKDAY_HEADERS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export function MonthView({ events, selectedDate, onDateSelect, onEventClick }: MonthViewProps) {
+export function MonthView({
+  events,
+  selectedDate,
+  onDateSelect,
+  onEventClick,
+}: MonthViewProps) {
   const monthStart = startOfMonth(selectedDate);
   const monthEnd = endOfMonth(selectedDate);
   const calendarStart = startOfWeek(monthStart);
@@ -65,7 +70,7 @@ export function MonthView({ events, selectedDate, onDateSelect, onEventClick }: 
               onClick={() => onDateSelect(day)}
               className={cn(
                 "min-h-[80px] cursor-pointer border-b border-r border-border p-1 transition-colors hover:bg-accent/50",
-                !inMonth && "opacity-40"
+                !inMonth && "opacity-40",
               )}
             >
               <div className="flex items-center justify-center">
@@ -73,7 +78,9 @@ export function MonthView({ events, selectedDate, onDateSelect, onEventClick }: 
                   className={cn(
                     "flex h-7 w-7 items-center justify-center rounded-full text-sm",
                     today && "bg-primary text-primary-foreground font-semibold",
-                    selected && !today && "bg-accent text-accent-foreground font-medium"
+                    selected &&
+                      !today &&
+                      "bg-accent text-accent-foreground font-medium",
                   )}
                 >
                   {format(day, "d")}

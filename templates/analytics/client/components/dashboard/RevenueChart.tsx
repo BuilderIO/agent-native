@@ -1,4 +1,12 @@
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const data = [
@@ -23,41 +31,45 @@ export function RevenueChart() {
             <AreaChart data={data}>
               <defs>
                 <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <XAxis 
-                dataKey="name" 
-                stroke="#52525b" 
-                fontSize={12} 
-                tickLine={false} 
-                axisLine={false} 
+              <XAxis
+                dataKey="name"
+                stroke="#52525b"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
               />
-              <YAxis 
-                stroke="#52525b" 
-                fontSize={12} 
-                tickLine={false} 
-                axisLine={false} 
-                tickFormatter={(value) => `$${value}`} 
+              <YAxis
+                stroke="#52525b"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(value) => `$${value}`}
               />
-              <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="#27272a"
+                vertical={false}
+              />
               <Tooltip
-                contentStyle={{ 
-                  backgroundColor: '#09090b', 
-                  border: '1px solid #27272a', 
-                  borderRadius: '8px',
-                  color: '#fafafa'
+                contentStyle={{
+                  backgroundColor: "#09090b",
+                  border: "1px solid #27272a",
+                  borderRadius: "8px",
+                  color: "#fafafa",
                 }}
-                itemStyle={{ color: '#818cf8' }}
+                itemStyle={{ color: "#818cf8" }}
               />
-              <Area 
-                type="monotone" 
-                dataKey="total" 
-                stroke="#6366f1" 
+              <Area
+                type="monotone"
+                dataKey="total"
+                stroke="#6366f1"
                 strokeWidth={2}
-                fillOpacity={1} 
-                fill="url(#colorTotal)" 
+                fillOpacity={1}
+                fill="url(#colorTotal)"
               />
             </AreaChart>
           </ResponsiveContainer>

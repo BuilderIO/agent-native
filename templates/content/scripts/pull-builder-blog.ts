@@ -6,7 +6,13 @@ import {
   getBuilderBlogProjectSlug,
   normalizeBuilderBlogHandle,
 } from "../shared/builder-slugs.js";
-import { PROJECTS_DIR, camelCaseArgs, fail, loadEnv, parseArgs } from "./_utils.js";
+import {
+  PROJECTS_DIR,
+  camelCaseArgs,
+  fail,
+  loadEnv,
+  parseArgs,
+} from "./_utils.js";
 
 type BuilderArticleResponse = {
   id?: string;
@@ -24,7 +30,9 @@ function getBuilderApiKey(): string {
 
   const authPath = path.join(process.cwd(), "content", ".builder-auth.json");
   if (!fs.existsSync(authPath)) {
-    fail("BUILDER_API_KEY is required or content/.builder-auth.json must exist");
+    fail(
+      "BUILDER_API_KEY is required or content/.builder-auth.json must exist",
+    );
   }
 
   const auth = JSON.parse(fs.readFileSync(authPath, "utf-8"));
@@ -65,7 +73,9 @@ export default async function main(args: string[]) {
   const opts = camelCaseArgs(raw);
 
   if (raw["help"]) {
-    console.log(`Usage: pnpm script pull-builder-blog --handle <builder-handle-or-path> --workspace <workspace> [--name <project-name>]\n\nExamples:\n  pnpm script pull-builder-blog --handle /model-context-protocol --workspace alice\n  pnpm script pull-builder-blog --handle model-context-protocol --workspace alice --name "Model Context Protocol"`);
+    console.log(
+      `Usage: pnpm script pull-builder-blog --handle <builder-handle-or-path> --workspace <workspace> [--name <project-name>]\n\nExamples:\n  pnpm script pull-builder-blog --handle /model-context-protocol --workspace alice\n  pnpm script pull-builder-blog --handle model-context-protocol --workspace alice --name "Model Context Protocol"`,
+    );
     return;
   }
 
@@ -75,15 +85,18 @@ export default async function main(args: string[]) {
 
   if (!handle) fail("--handle is required");
   if (!workspace) fail("--workspace is required");
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(workspace)) fail("--workspace must be a valid slug");
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(workspace))
+    fail("--workspace must be a valid slug");
 
   const apiKey = getBuilderApiKey();
   const article = await fetchBuilderArticle(apiKey, handle);
   const fullData = article.data || {};
   const normalizedHandle = normalizeBuilderBlogHandle(handle);
-  const title = explicitName || fullData.title || article.name || normalizedHandle;
+  const title =
+    explicitName || fullData.title || article.name || normalizedHandle;
   const baseProjectSlug = getBuilderBlogProjectSlug(handle);
-  if (!baseProjectSlug) fail("Could not derive project slug from Builder handle");
+  if (!baseProjectSlug)
+    fail("Could not derive project slug from Builder handle");
 
   let projectSlug = baseProjectSlug;
   let counter = 2;
@@ -95,7 +108,8 @@ export default async function main(args: string[]) {
   const projectDir = path.join(PROJECTS_DIR, workspace, projectSlug);
 
   const blocks = Array.isArray(fullData.blocks) ? fullData.blocks : [];
-  const blocksString = blocks.length > 0 ? builderToMarkdown(blocks as any) : "";
+  const blocksString =
+    blocks.length > 0 ? builderToMarkdown(blocks as any) : "";
   const date = fullData.date
     ? new Date(fullData.date).toISOString().split("T")[0]
     : new Date().toISOString().split("T")[0];
@@ -125,14 +139,28 @@ export default async function main(args: string[]) {
   fs.mkdirSync(projectDir, { recursive: true });
   fs.mkdirSync(path.join(projectDir, "resources"), { recursive: true });
   fs.mkdirSync(path.join(projectDir, "media"), { recursive: true });
-  fs.writeFileSync(path.join(projectDir, ".project.json"), JSON.stringify({ name: title }, null, 2) + "\n", "utf-8");
-  fs.writeFileSync(path.join(projectDir, "draft.md"), `---\n${frontmatter}\n---\n\n${blocksString}`.trimEnd() + "\n", "utf-8");
+  fs.writeFileSync(
+    path.join(projectDir, ".project.json"),
+    JSON.stringify({ name: title }, null, 2) + "\n",
+    "utf-8",
+  );
+  fs.writeFileSync(
+    path.join(projectDir, "draft.md"),
+    `---\n${frontmatter}\n---\n\n${blocksString}`.trimEnd() + "\n",
+    "utf-8",
+  );
 
-  console.log(JSON.stringify({
-    success: true,
-    projectSlug: `${workspace}/${projectSlug}`,
-    title,
-    handle: normalizedHandle,
-    blockCount: blocks.length,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        success: true,
+        projectSlug: `${workspace}/${projectSlug}`,
+        title,
+        handle: normalizedHandle,
+        blockCount: blocks.length,
+      },
+      null,
+      2,
+    ),
+  );
 }

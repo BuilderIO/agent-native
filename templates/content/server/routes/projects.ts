@@ -51,12 +51,18 @@ function normalizeProjectParam(project: string | string[] | undefined): string {
 
 function isValidPath(p: string): boolean {
   const normalized = path.normalize(p);
-  return !normalized.startsWith("..") && !path.isAbsolute(normalized) && !p.includes("\0");
+  return (
+    !normalized.startsWith("..") &&
+    !path.isAbsolute(normalized) &&
+    !p.includes("\0")
+  );
 }
 
 function readProjectMeta(projectDir: string): Record<string, any> {
   try {
-    return JSON.parse(fs.readFileSync(path.join(projectDir, ".project.json"), "utf-8"));
+    return JSON.parse(
+      fs.readFileSync(path.join(projectDir, ".project.json"), "utf-8"),
+    );
   } catch {
     return {};
   }
@@ -86,9 +92,12 @@ function listMarkdownFiles(dir: string, basePath: string = ""): string[] {
   return files.sort();
 }
 
-function resolveProjectActiveDraftPath(projectDir: string, preferredPath?: string): string {
+function resolveProjectActiveDraftPath(
+  projectDir: string,
+  preferredPath?: string,
+): string {
   const candidatePaths = [preferredPath, "draft.md"].filter(
-    (candidate): candidate is string => !!candidate
+    (candidate): candidate is string => !!candidate,
   );
 
   for (const candidate of candidatePaths) {
@@ -105,7 +114,7 @@ function getProjectVersionHistoryPath(project: string, filePath: string) {
 }
 
 function mapVersionHistoryDoc(
-  data: Record<string, any>
+  data: Record<string, any>,
 ): VersionContentResponse {
   return {
     id: String(data.id ?? ""),
@@ -114,8 +123,11 @@ function mapVersionHistoryDoc(
     actorType: data.actorType === "user" ? "user" : "agent",
     actorId: String(data.actorId ?? ""),
     actorDisplayName:
-      typeof data.actorDisplayName === "string" ? data.actorDisplayName : undefined,
-    actorEmail: typeof data.actorEmail === "string" ? data.actorEmail : undefined,
+      typeof data.actorDisplayName === "string"
+        ? data.actorDisplayName
+        : undefined,
+    actorEmail:
+      typeof data.actorEmail === "string" ? data.actorEmail : undefined,
     source:
       data.source === "autosave" || data.source === "restore"
         ? data.source
@@ -130,15 +142,25 @@ function mapVersionHistoryDoc(
 }
 
 function getFirstBuilderAuthorId(fullData: any): string {
-  if (fullData?.author && !Array.isArray(fullData.author) && typeof fullData.author.id === "string") {
+  if (
+    fullData?.author &&
+    !Array.isArray(fullData.author) &&
+    typeof fullData.author.id === "string"
+  ) {
     return fullData.author.id;
   }
 
-  if (Array.isArray(fullData?.author) && typeof fullData.author[0]?.id === "string") {
+  if (
+    Array.isArray(fullData?.author) &&
+    typeof fullData.author[0]?.id === "string"
+  ) {
     return fullData.author[0].id;
   }
 
-  if (Array.isArray(fullData?.authors) && typeof fullData.authors[0]?.id === "string") {
+  if (
+    Array.isArray(fullData?.authors) &&
+    typeof fullData.authors[0]?.id === "string"
+  ) {
     return fullData.authors[0].id;
   }
 
@@ -148,7 +170,7 @@ function getFirstBuilderAuthorId(fullData: any): string {
 function getCanonicalProjectPath(
   projectDir: string,
   fallbackPath: string,
-  preferredPath?: string
+  preferredPath?: string,
 ): { activeDraft: string; canonicalPath: string } {
   const activeDraft = resolveProjectActiveDraftPath(projectDir, preferredPath);
   const draftPath = path.join(projectDir, activeDraft);
@@ -278,17 +300,20 @@ function discoverProjects(
   requestingUid: string | undefined,
   projects: ProjectListResponse["projects"],
   folderSet: Set<string>,
-  workspace: string
+  workspace: string,
 ) {
   if (!fs.existsSync(baseDir)) return;
   const entries = fs.readdirSync(baseDir, { withFileTypes: true });
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    if (entry.name.startsWith(".") || entry.name === "shared-resources") continue;
+    if (entry.name.startsWith(".") || entry.name === "shared-resources")
+      continue;
 
     const fullDir = path.join(baseDir, entry.name);
-    const currentPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+    const currentPath = relativePath
+      ? `${relativePath}/${entry.name}`
+      : entry.name;
     const metaPath = path.join(fullDir, ".project.json");
 
     if (fs.existsSync(metaPath)) {
@@ -303,7 +328,11 @@ function discoverProjects(
         name = meta.name || name;
         isPrivate = !!meta.isPrivate;
         ownerId = meta.ownerId;
-        const resolved = getCanonicalProjectPath(fullDir, currentPath, meta.activeDraft);
+        const resolved = getCanonicalProjectPath(
+          fullDir,
+          currentPath,
+          meta.activeDraft,
+        );
         activeDraft = resolved.activeDraft;
         canonicalPath = resolved.canonicalPath;
       } catch {
@@ -313,7 +342,8 @@ function discoverProjects(
       }
 
       // Skip private projects that don't belong to the requesting user
-      if (isPrivate && ownerId && requestingUid && ownerId !== requestingUid) continue;
+      if (isPrivate && ownerId && requestingUid && ownerId !== requestingUid)
+        continue;
 
       const slug = `${workspace}/${currentPath}`;
       const canonicalSlug = `${workspace}/${canonicalPath}`;
@@ -333,7 +363,14 @@ function discoverProjects(
     } else {
       // This is a folder - record it and recurse
       folderSet.add(currentPath);
-      discoverProjects(fullDir, currentPath, requestingUid, projects, folderSet, workspace);
+      discoverProjects(
+        fullDir,
+        currentPath,
+        requestingUid,
+        projects,
+        folderSet,
+        workspace,
+      );
     }
   }
 }
@@ -368,7 +405,11 @@ export const listProjects: RequestHandler = (req, res) => {
         name = meta.name || name;
         isPrivate = !!meta.isPrivate;
         ownerId = meta.ownerId;
-        const resolved = getCanonicalProjectPath(entryDir, entry.name, meta.activeDraft);
+        const resolved = getCanonicalProjectPath(
+          entryDir,
+          entry.name,
+          meta.activeDraft,
+        );
         activeDraft = resolved.activeDraft;
         canonicalPath = resolved.canonicalPath;
       } catch {
@@ -377,7 +418,8 @@ export const listProjects: RequestHandler = (req, res) => {
         canonicalPath = resolved.canonicalPath;
       }
 
-      if (isPrivate && ownerId && requestingUid && ownerId !== requestingUid) continue;
+      if (isPrivate && ownerId && requestingUid && ownerId !== requestingUid)
+        continue;
 
       projects.push({
         slug: entry.name,
@@ -391,15 +433,25 @@ export const listProjects: RequestHandler = (req, res) => {
     }
 
     // Check if this is a workspace
-    const hasWorkspaceMeta = fs.existsSync(path.join(entryDir, ".workspace.json"));
+    const hasWorkspaceMeta = fs.existsSync(
+      path.join(entryDir, ".workspace.json"),
+    );
     const isWellKnown = entry.name === "private";
 
     // Recursively discover projects and folders
     const folderSet = new Set<string>();
     const workspaceProjects: ProjectListResponse["projects"] = [];
-    discoverProjects(entryDir, "", requestingUid, workspaceProjects, folderSet, entry.name);
+    discoverProjects(
+      entryDir,
+      "",
+      requestingUid,
+      workspaceProjects,
+      folderSet,
+      entry.name,
+    );
 
-    if (!workspaceProjects.length && !hasWorkspaceMeta && !isWellKnown) continue;
+    if (!workspaceProjects.length && !hasWorkspaceMeta && !isWellKnown)
+      continue;
 
     groups.add(entry.name);
     projects.push(...workspaceProjects);
@@ -410,7 +462,7 @@ export const listProjects: RequestHandler = (req, res) => {
   }
 
   projects.sort(
-    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
   );
 
   // Build group metadata (prefixed flag)
@@ -437,7 +489,15 @@ export const listProjects: RequestHandler = (req, res) => {
 };
 
 export const createProject: RequestHandler = (req, res) => {
-  const { name, group, builderHandle, builderDocsId, builderModel, fullData, blocksString } = req.body;
+  const {
+    name,
+    group,
+    builderHandle,
+    builderDocsId,
+    builderModel,
+    fullData,
+    blocksString,
+  } = req.body;
   if (!name || typeof name !== "string") {
     res.status(400).json({ error: "Project name is required" });
     return;
@@ -461,7 +521,7 @@ export const createProject: RequestHandler = (req, res) => {
   let groupPath = "";
   if (group) {
     const segments = group.split("/").filter(Boolean);
-    const slugifiedSegments = segments.map(s => slugify(s)).filter(Boolean);
+    const slugifiedSegments = segments.map((s) => slugify(s)).filter(Boolean);
     if (segments.length > 0 && slugifiedSegments.length === 0) {
       res.status(400).json({ error: "Invalid group" });
       return;
@@ -489,17 +549,22 @@ export const createProject: RequestHandler = (req, res) => {
   fs.writeFileSync(
     path.join(projectDir, ".project.json"),
     JSON.stringify({ name }, null, 2),
-    "utf-8"
+    "utf-8",
   );
 
   let draftContent = `# ${name}\n\n`;
 
-  if (builderHandle && fullData && blocksString && builderModel === "docs-content") {
+  if (
+    builderHandle &&
+    fullData &&
+    blocksString &&
+    builderModel === "docs-content"
+  ) {
     // If creating from Builder docs-content, construct the initial draft with frontmatter and body
     // Strip /c/docs/ prefix from URL for local storage
     let localUrl = fullData.url || "";
-    if (localUrl && localUrl.startsWith('/c/docs/')) {
-      localUrl = localUrl.substring('/c/docs/'.length);
+    if (localUrl && localUrl.startsWith("/c/docs/")) {
+      localUrl = localUrl.substring("/c/docs/".length);
     }
 
     const metaStr = stringifyYaml({
@@ -519,10 +584,15 @@ export const createProject: RequestHandler = (req, res) => {
         hideFeedbackColumn: !!fullData.hideFeedbackColumn,
         showToc: !!fullData.showToc,
         addNoIndex: !!fullData.addNoIndex,
-      }
+      },
     }).trim();
     draftContent = `---\n${metaStr}\n---\n\n${blocksString}`;
-  } else if (builderHandle && fullData && blocksString && builderModel === "blog-article") {
+  } else if (
+    builderHandle &&
+    fullData &&
+    blocksString &&
+    builderModel === "blog-article"
+  ) {
     // If creating from Builder blog article, construct the initial draft with frontmatter and body
     const metaStr = stringifyYaml({
       builder: {
@@ -531,7 +601,9 @@ export const createProject: RequestHandler = (req, res) => {
         handle: normalizedBuilderHandle,
         blurb: fullData.blurb || "",
         metaTitle: fullData.metaTitle || "",
-        date: fullData.date ? new Date(fullData.date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+        date: fullData.date
+          ? new Date(fullData.date).toISOString().split("T")[0]
+          : new Date().toISOString().split("T")[0],
         readTime: fullData.readTime || 1,
         tags: fullData.tags || [],
         topic: fullData.topic || "",
@@ -549,11 +621,7 @@ export const createProject: RequestHandler = (req, res) => {
   }
 
   // Create default draft
-  fs.writeFileSync(
-    path.join(projectDir, "draft.md"),
-    draftContent,
-    "utf-8"
-  );
+  fs.writeFileSync(path.join(projectDir, "draft.md"), draftContent, "utf-8");
 
   res.json({
     slug: groupPath ? `${groupPath}/${finalSlug}` : finalSlug,
@@ -585,7 +653,11 @@ export const createProjectGroup: RequestHandler = (req, res) => {
   // Mark new workspaces as prefixed so they use /workspace/<name> URLs
   const workspaceMeta = path.join(groupDir, ".workspace.json");
   if (!fs.existsSync(workspaceMeta)) {
-    fs.writeFileSync(workspaceMeta, JSON.stringify({ prefixed: true }, null, 2), "utf-8");
+    fs.writeFileSync(
+      workspaceMeta,
+      JSON.stringify({ prefixed: true }, null, 2),
+      "utf-8",
+    );
   }
 
   res.json({ group: groupSlug, prefixed: true });
@@ -636,7 +708,10 @@ export const renameProject: RequestHandler = (req, res) => {
   existingMeta.name = name;
   fs.writeFileSync(metaPath, JSON.stringify(existingMeta, null, 2), "utf-8");
 
-  const activeDraft = resolveProjectActiveDraftPath(projectDir, existingMeta.activeDraft);
+  const activeDraft = resolveProjectActiveDraftPath(
+    projectDir,
+    existingMeta.activeDraft,
+  );
   const draftPath = path.join(projectDir, activeDraft);
   if (fs.existsSync(draftPath)) {
     let content = fs.readFileSync(draftPath, "utf-8");
@@ -648,7 +723,11 @@ export const renameProject: RequestHandler = (req, res) => {
         try {
           const frontmatter = content.substring(3, endIdx);
           let parsed = parseYaml(frontmatter);
-          if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+          if (
+            parsed === null ||
+            typeof parsed !== "object" ||
+            Array.isArray(parsed)
+          ) {
             parsed = {};
           }
 
@@ -707,9 +786,12 @@ export const moveProject: RequestHandler = (req, res) => {
   if (group) {
     // Accept pre-slugified paths (already valid segments)
     const segments = group.split("/").filter(Boolean);
-    if (segments.length > 0 && !segments.every(s => /^[a-z0-9][a-z0-9-]*$/.test(s))) {
+    if (
+      segments.length > 0 &&
+      !segments.every((s) => /^[a-z0-9][a-z0-9-]*$/.test(s))
+    ) {
       // Try slugifying
-      const slugified = segments.map(s => slugify(s)).filter(Boolean);
+      const slugified = segments.map((s) => slugify(s)).filter(Boolean);
       if (slugified.length === 0) {
         res.status(400).json({ error: "Invalid group" });
         return;
@@ -763,7 +845,10 @@ export const getFileTree: RequestHandler = (req, res) => {
   const meta = readProjectMeta(projectDir);
   const response: FileTreeResponse = {
     tree,
-    activeDraftPath: resolveProjectActiveDraftPath(projectDir, meta.activeDraft),
+    activeDraftPath: resolveProjectActiveDraftPath(
+      projectDir,
+      meta.activeDraft,
+    ),
   };
   res.json(response);
 };
@@ -816,16 +901,13 @@ export const saveFile: RequestHandler = async (req, res) => {
   ensureDir(path.dirname(fullPath));
 
   try {
-    registerPendingFileWrite(
-      historyPath,
-      {
-        actorType: "user",
-        actorId: "local",
-        actorDisplayName: "Local User",
-        actorEmail: "",
-        source: "autosave",
-      }
-    );
+    registerPendingFileWrite(historyPath, {
+      actorType: "user",
+      actorId: "local",
+      actorDisplayName: "Local User",
+      actorEmail: "",
+      source: "autosave",
+    });
     suppressWatcherVersionHistory(fullPath);
   } catch (error) {
     console.error("Failed to register pending version history write:", error);
@@ -837,12 +919,19 @@ export const saveFile: RequestHandler = async (req, res) => {
   if (fs.existsSync(projectMetaPath)) {
     try {
       const meta = JSON.parse(fs.readFileSync(projectMetaPath, "utf-8"));
-      const activeDraft = resolveProjectActiveDraftPath(projectDir, meta.activeDraft);
+      const activeDraft = resolveProjectActiveDraftPath(
+        projectDir,
+        meta.activeDraft,
+      );
       if (filePath === activeDraft) {
         const title = extractTitle(content, filePath);
         if (title && title.toLowerCase() !== "draft" && meta.name !== title) {
           meta.name = title;
-          fs.writeFileSync(projectMetaPath, JSON.stringify(meta, null, 2), "utf-8");
+          fs.writeFileSync(
+            projectMetaPath,
+            JSON.stringify(meta, null, 2),
+            "utf-8",
+          );
         }
       }
     } catch {
@@ -886,9 +975,10 @@ export const createFile: RequestHandler = (req, res) => {
     return;
   }
 
-  const parent = parentPath && isValidPath(parentPath)
-    ? path.join(projectDir, parentPath)
-    : projectDir;
+  const parent =
+    parentPath && isValidPath(parentPath)
+      ? path.join(projectDir, parentPath)
+      : projectDir;
 
   ensureDir(parent);
 
@@ -989,7 +1079,11 @@ export const updateProjectMeta: RequestHandler = (req, res) => {
   }
 
   fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), "utf-8");
-  res.json({ success: true, isPrivate: !!meta.isPrivate, activeDraft: meta.activeDraft || "draft.md" });
+  res.json({
+    success: true,
+    isPrivate: !!meta.isPrivate,
+    activeDraft: meta.activeDraft || "draft.md",
+  });
 };
 
 // --- Version history ---
@@ -1027,7 +1121,12 @@ export const getVersionContent: RequestHandler = async (req, res) => {
   const filePath = req.query.path as string;
   const versionId = req.params.versionId;
 
-  if (!isValidProjectPath(project) || !filePath || !isValidPath(filePath) || !versionId) {
+  if (
+    !isValidProjectPath(project) ||
+    !filePath ||
+    !isValidPath(filePath) ||
+    !versionId
+  ) {
     res.status(400).json({ error: "Invalid request" });
     return;
   }
@@ -1053,7 +1152,12 @@ export const restoreVersion: RequestHandler = async (req, res) => {
   const filePath = req.query.path as string;
   const { versionId } = req.body as { versionId?: string };
 
-  if (!isValidProjectPath(project) || !filePath || !isValidPath(filePath) || !versionId) {
+  if (
+    !isValidProjectPath(project) ||
+    !filePath ||
+    !isValidPath(filePath) ||
+    !versionId
+  ) {
     res.status(400).json({ error: "Invalid request" });
     return;
   }
@@ -1072,16 +1176,13 @@ export const restoreVersion: RequestHandler = async (req, res) => {
     const version = mapVersionHistoryDoc(entry);
     ensureDir(path.dirname(fullPath));
 
-    registerPendingFileWrite(
-      historyPath,
-      {
-        actorType: "user",
-        actorId: "local",
-        actorDisplayName: "Local User",
-        actorEmail: "",
-        source: "restore",
-      }
-    );
+    registerPendingFileWrite(historyPath, {
+      actorType: "user",
+      actorId: "local",
+      actorDisplayName: "Local User",
+      actorEmail: "",
+      source: "restore",
+    });
     suppressWatcherVersionHistory(fullPath);
     fs.writeFileSync(fullPath, version.content, "utf-8");
 
@@ -1092,12 +1193,19 @@ export const restoreVersion: RequestHandler = async (req, res) => {
     });
 
     const meta = readProjectMeta(projectDir);
-    const activeDraftPath = resolveProjectActiveDraftPath(projectDir, meta.activeDraft);
+    const activeDraftPath = resolveProjectActiveDraftPath(
+      projectDir,
+      meta.activeDraft,
+    );
     if (filePath === activeDraftPath) {
       const title = extractTitle(version.content, path.basename(filePath));
       if (title && title.toLowerCase() !== "draft" && meta.name !== title) {
         meta.name = title;
-        fs.writeFileSync(path.join(projectDir, ".project.json"), JSON.stringify(meta, null, 2), "utf-8");
+        fs.writeFileSync(
+          path.join(projectDir, ".project.json"),
+          JSON.stringify(meta, null, 2),
+          "utf-8",
+        );
       }
     }
 
@@ -1127,7 +1235,7 @@ export const createFolder: RequestHandler = (req, res) => {
   }
 
   const segments = folderPath.split("/").filter(Boolean);
-  const slugifiedSegments = segments.map(s => slugify(s)).filter(Boolean);
+  const slugifiedSegments = segments.map((s) => slugify(s)).filter(Boolean);
   if (!slugifiedSegments.length) {
     res.status(400).json({ error: "Invalid folder path" });
     return;
@@ -1166,7 +1274,10 @@ export const deleteFolder: RequestHandler = (req, res) => {
   };
 
   if (hasProjects(fullPath)) {
-    res.status(400).json({ error: "Cannot delete folder that contains projects. Move or delete projects first." });
+    res.status(400).json({
+      error:
+        "Cannot delete folder that contains projects. Move or delete projects first.",
+    });
     return;
   }
 
@@ -1179,7 +1290,9 @@ export const renameFolder: RequestHandler = (req, res) => {
   const { oldPath, newName } = req.body as { oldPath: string; newName: string };
 
   if (!workspace || !oldPath || !newName) {
-    res.status(400).json({ error: "Workspace, oldPath and newName are required" });
+    res
+      .status(400)
+      .json({ error: "Workspace, oldPath and newName are required" });
     return;
   }
 
@@ -1192,7 +1305,12 @@ export const renameFolder: RequestHandler = (req, res) => {
   }
 
   const oldFullPath = path.join(PROJECTS_DIR, workspace, ...segments);
-  const newFullPath = path.join(PROJECTS_DIR, workspace, ...parentSegments, newSlug);
+  const newFullPath = path.join(
+    PROJECTS_DIR,
+    workspace,
+    ...parentSegments,
+    newSlug,
+  );
 
   if (!fs.existsSync(oldFullPath)) {
     res.status(404).json({ error: "Folder not found" });

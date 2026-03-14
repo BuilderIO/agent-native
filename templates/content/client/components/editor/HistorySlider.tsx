@@ -21,17 +21,20 @@ export function HistorySlider({
 }: HistorySliderProps) {
   const selectedIndex = Math.max(
     versions.findIndex((version) => version.id === selectedVersionId),
-    0
+    0,
   );
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading saved history...</p>;
+    return (
+      <p className="text-sm text-muted-foreground">Loading saved history...</p>
+    );
   }
 
   if (versions.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No saved history yet. Make an edit and wait for autosave to create the first snapshot.
+        No saved history yet. Make an edit and wait for autosave to create the
+        first snapshot.
       </p>
     );
   }
@@ -54,7 +57,11 @@ export function HistorySlider({
 
       <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
         <span>{dateTimeFormatter.format(new Date(versions[0].timestamp))}</span>
-        <span>{dateTimeFormatter.format(new Date(versions[versions.length - 1].timestamp))}</span>
+        <span>
+          {dateTimeFormatter.format(
+            new Date(versions[versions.length - 1].timestamp),
+          )}
+        </span>
       </div>
     </div>
   );

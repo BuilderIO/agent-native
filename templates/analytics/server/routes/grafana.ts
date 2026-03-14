@@ -12,7 +12,9 @@ import {
 export const handleGrafanaDashboards: RequestHandler = async (req, res) => {
   if (requireEnvKey(res, "GRAFANA_URL", "Grafana")) return;
   try {
-    const dashboards = await listDashboards(req.query.query as string | undefined);
+    const dashboards = await listDashboards(
+      req.query.query as string | undefined,
+    );
     res.json({ dashboards, total: dashboards.length });
   } catch (err: any) {
     console.error("Grafana dashboards error:", err.message);

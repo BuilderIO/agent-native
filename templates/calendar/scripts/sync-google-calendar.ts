@@ -41,7 +41,9 @@ export default async function main(args: string[]) {
   try {
     tokens = JSON.parse(readFileSync(authPath, "utf-8"));
   } catch {
-    console.error("Error: Google Calendar not connected. No auth tokens found at data/google-auth.json");
+    console.error(
+      "Error: Google Calendar not connected. No auth tokens found at data/google-auth.json",
+    );
     console.error("Connect Google Calendar from the Settings page first.");
     process.exit(1);
   }
@@ -49,7 +51,9 @@ export default async function main(args: string[]) {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
-    console.error("Error: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in .env");
+    console.error(
+      "Error: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in .env",
+    );
     process.exit(1);
   }
 
@@ -67,7 +71,9 @@ export default async function main(args: string[]) {
 
   const calendar = google.calendar({ version: "v3", auth: oauth2 });
 
-  console.log(`Syncing events from ${from.toISOString()} to ${to.toISOString()}...`);
+  console.log(
+    `Syncing events from ${from.toISOString()} to ${to.toISOString()}...`,
+  );
 
   // Fetch events from Google Calendar
   const response = await calendar.events.list({
@@ -105,10 +111,15 @@ export default async function main(args: string[]) {
       syncedAt: new Date().toISOString(),
     };
 
-    writeFileSync(join(eventsDir, `${event.id}.json`), JSON.stringify(localEvent, null, 2));
+    writeFileSync(
+      join(eventsDir, `${event.id}.json`),
+      JSON.stringify(localEvent, null, 2),
+    );
     synced++;
   }
 
   console.log(`Synced ${synced} events to data/events/`);
-  agentChat.submit(`Google Calendar sync complete: ${synced} events synced from ${from.toLocaleDateString()} to ${to.toLocaleDateString()}.`);
+  agentChat.submit(
+    `Google Calendar sync complete: ${synced} events synced from ${from.toLocaleDateString()} to ${to.toLocaleDateString()}.`,
+  );
 }

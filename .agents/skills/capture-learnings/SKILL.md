@@ -22,6 +22,7 @@ Use judgment, not rules. Capture when:
 - **Performance insights** — What's slow and what fixed it
 
 Don't capture:
+
 - Things that are obvious from reading the code
 - Standard language/framework behavior
 - Temporary debugging notes

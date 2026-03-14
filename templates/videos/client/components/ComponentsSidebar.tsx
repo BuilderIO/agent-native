@@ -46,7 +46,7 @@ export function ComponentsSidebar({
                 "hover:bg-secondary",
                 selectedComponentId === component.id
                   ? "bg-primary/10 text-primary border border-primary/20"
-                  : "bg-secondary/50 text-foreground"
+                  : "bg-secondary/50 text-foreground",
               )}
             >
               <div className="font-medium text-sm">{component.title}</div>

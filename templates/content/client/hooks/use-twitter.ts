@@ -27,7 +27,8 @@ export function useTwitterSearch(params: SearchParams | null) {
       if (params.sinceTime) qs.set("sinceTime", String(params.sinceTime));
       if (params.untilTime) qs.set("untilTime", String(params.untilTime));
       if (params.cursor) qs.set("cursor", params.cursor);
-      if (params.filter && params.filter !== "all") qs.set("filter", params.filter);
+      if (params.filter && params.filter !== "all")
+        qs.set("filter", params.filter);
 
       const res = await authFetch(`/api/twitter/search?${qs}`, { signal });
       if (!res.ok) {
@@ -52,7 +53,9 @@ export function useTwitterArticle(tweetId: string | null) {
   return useQuery<TwitterArticle>({
     queryKey: ["twitter-article", tweetId],
     queryFn: async ({ signal }) => {
-      const res = await authFetch(`/api/twitter/article?tweetId=${tweetId}`, { signal });
+      const res = await authFetch(`/api/twitter/article?tweetId=${tweetId}`, {
+        signal,
+      });
       if (!res.ok) throw new Error("Article fetch failed");
       return res.json();
     },
@@ -65,7 +68,10 @@ export function useLinkPreview(url: string | null) {
   return useQuery<LinkPreviewData>({
     queryKey: ["link-preview", url],
     queryFn: async ({ signal }) => {
-      const res = await authFetch(`/api/twitter/preview?url=${encodeURIComponent(url!)}`, { signal });
+      const res = await authFetch(
+        `/api/twitter/preview?url=${encodeURIComponent(url!)}`,
+        { signal },
+      );
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         throw new Error(body?.error || "Preview fetch failed");
@@ -82,7 +88,10 @@ export function useFetchMarkdown(url: string | null) {
   return useQuery<{ markdown: string; url: string }>({
     queryKey: ["fetch-markdown", url],
     queryFn: async ({ signal }) => {
-      const res = await authFetch(`/api/twitter/fetch-markdown?url=${encodeURIComponent(url!)}`, { signal });
+      const res = await authFetch(
+        `/api/twitter/fetch-markdown?url=${encodeURIComponent(url!)}`,
+        { signal },
+      );
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         throw new Error(body?.error || "Fetch failed");

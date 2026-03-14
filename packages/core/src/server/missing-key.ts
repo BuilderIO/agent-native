@@ -16,7 +16,7 @@ export function requireEnvKey(
   res: Response,
   key: string,
   label: string,
-  options?: { message?: string; settingsPath?: string }
+  options?: { message?: string; settingsPath?: string },
 ): boolean {
   if (process.env[key]) return false;
 
@@ -24,7 +24,8 @@ export function requireEnvKey(
     error: "missing_api_key",
     key,
     label,
-    message: options?.message ?? `Connect your ${label} account to see this data`,
+    message:
+      options?.message ?? `Connect your ${label} account to see this data`,
     settingsPath: options?.settingsPath ?? "/settings",
   } satisfies MissingKeyResponse);
   return true;

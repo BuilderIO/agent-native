@@ -19,18 +19,18 @@ pnpm script generate-chart --type=bar --title="Title" --labels='["A","B","C"]' -
 
 ### Parameters
 
-| Param | Values | Default |
-|---|---|---|
-| `--type` | `bar`, `line`, `area` | `bar` |
-| `--title` | Chart title (keep SHORT) | required |
-| `--subtitle` | Optional subtitle — avoid unless needed | — |
-| `--labels` | JSON array of x-axis labels | required |
-| `--data` | JSON array of numbers, OR array of `{label, data, color}` for multi-series | required |
-| `--color` | Primary hex color | `#18B4F4` |
-| `--theme` | `dark`, `light` | auto from `/api/theme` |
-| `--stacked` | `true` for stacked bars | `false` |
-| `--filename` | Output filename (no ext) | auto from title |
-| `--width` / `--height` | Image dimensions | 800x400 |
+| Param                  | Values                                                                     | Default                |
+| ---------------------- | -------------------------------------------------------------------------- | ---------------------- |
+| `--type`               | `bar`, `line`, `area`                                                      | `bar`                  |
+| `--title`              | Chart title (keep SHORT)                                                   | required               |
+| `--subtitle`           | Optional subtitle — avoid unless needed                                    | —                      |
+| `--labels`             | JSON array of x-axis labels                                                | required               |
+| `--data`               | JSON array of numbers, OR array of `{label, data, color}` for multi-series | required               |
+| `--color`              | Primary hex color                                                          | `#18B4F4`              |
+| `--theme`              | `dark`, `light`                                                            | auto from `/api/theme` |
+| `--stacked`            | `true` for stacked bars                                                    | `false`                |
+| `--filename`           | Output filename (no ext)                                                   | auto from title        |
+| `--width` / `--height` | Image dimensions                                                           | 800x400                |
 
 ### Output
 
@@ -38,16 +38,16 @@ pnpm script generate-chart --type=bar --title="Title" --labels='["A","B","C"]' -
 
 ## Color Palette
 
-| Color | Hex | Use |
-|---|---|---|
+| Color        | Hex       | Use                                |
+| ------------ | --------- | ---------------------------------- |
 | Builder blue | `#18B4F4` | **Default/primary for all charts** |
-| Purple | `#8b5cf6` | Secondary |
-| Green | `#22c55e` | Tertiary |
-| Amber | `#f59e0b` | |
-| Indigo | `#6366f1` | |
-| Red | `#ef4444` | |
-| Teal | `#14b8a6` | |
-| Orange | `#f97316` | |
+| Purple       | `#8b5cf6` | Secondary                          |
+| Green        | `#22c55e` | Tertiary                           |
+| Amber        | `#f59e0b` |                                    |
+| Indigo       | `#6366f1` |                                    |
+| Red          | `#ef4444` |                                    |
+| Teal         | `#14b8a6` |                                    |
+| Orange       | `#f97316` |                                    |
 
 ## Style Preferences (from Steve)
 

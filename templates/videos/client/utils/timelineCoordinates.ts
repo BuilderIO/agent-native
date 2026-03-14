@@ -1,6 +1,6 @@
 /**
  * Timeline Coordinate Utilities
- * 
+ *
  * Centralized coordinate conversion logic for the Timeline component.
  * All conversions between pixels, frames, and percentages flow through these functions.
  */
@@ -11,7 +11,7 @@
 export function pxDeltaToFrameDelta(
   pxDelta: number,
   barWidth: number,
-  viewDuration: number
+  viewDuration: number,
 ): number {
   return Math.round((pxDelta / barWidth) * viewDuration);
 }
@@ -22,7 +22,7 @@ export function pxDeltaToFrameDelta(
 export function frameDeltaToPxDelta(
   frameDelta: number,
   barWidth: number,
-  viewDuration: number
+  viewDuration: number,
 ): number {
   return (frameDelta / viewDuration) * barWidth;
 }
@@ -34,7 +34,7 @@ export function frameDeltaToPxDelta(
 export function frameToViewPct(
   frame: number,
   viewStart: number,
-  viewDuration: number
+  viewDuration: number,
 ): number {
   return ((frame - viewStart) / viewDuration) * 100;
 }
@@ -46,7 +46,7 @@ export function clientXToFrame(
   clientX: number,
   barRect: DOMRect,
   viewStart: number,
-  viewDuration: number
+  viewDuration: number,
 ): number {
   const x = clientX - barRect.left;
   const fraction = Math.max(0, Math.min(1, x / barRect.width));
@@ -66,7 +66,7 @@ export function clampFrame(frame: number, max: number): number {
 export function viewPctToFrame(
   pct: number,
   viewStart: number,
-  viewDuration: number
+  viewDuration: number,
 ): number {
   return Math.round(viewStart + (pct / 100) * viewDuration);
 }
@@ -74,9 +74,6 @@ export function viewPctToFrame(
 /**
  * Calculate percentage change from pixel movement
  */
-export function pxDeltaToPctChange(
-  pxDelta: number,
-  barWidth: number
-): number {
+export function pxDeltaToPctChange(pxDelta: number, barWidth: number): number {
   return (pxDelta / barWidth) * 100;
 }

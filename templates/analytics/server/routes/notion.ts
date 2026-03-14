@@ -1,6 +1,11 @@
 import { type RequestHandler } from "express";
 import { requireEnvKey } from "@agent-native/core/server";
-import { getContentCalendar, getContentCalendarSchema, getNotionPage, getDataDictionary } from "../lib/notion";
+import {
+  getContentCalendar,
+  getContentCalendarSchema,
+  getNotionPage,
+  getDataDictionary,
+} from "../lib/notion";
 
 // GET /api/notion/content-calendar — returns all content calendar entries
 export const handleContentCalendar: RequestHandler = async (_req, res) => {
@@ -17,7 +22,7 @@ export const handleContentCalendar: RequestHandler = async (_req, res) => {
 // GET /api/notion/content-calendar/schema — returns the database schema
 export const handleContentCalendarSchema: RequestHandler = async (
   _req,
-  res
+  res,
 ) => {
   if (requireEnvKey(res, "NOTION_API_KEY", "Notion")) return;
   try {

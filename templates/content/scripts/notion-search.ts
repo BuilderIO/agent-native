@@ -8,7 +8,9 @@ export default async function main(args: string[]) {
   const opts = camelCaseArgs(rawArgs);
 
   if (opts.help) {
-    console.log("Usage: npm run script -- notion-search --query \"Content Calendar\"");
+    console.log(
+      'Usage: npm run script -- notion-search --query "Content Calendar"',
+    );
     return;
   }
 
@@ -26,9 +28,9 @@ export default async function main(args: string[]) {
     const response = await notion.search({
       query: query,
       sort: {
-        direction: 'descending',
-        timestamp: 'last_edited_time'
-      }
+        direction: "descending",
+        timestamp: "last_edited_time",
+      },
     });
 
     if (response.results.length === 0) {
@@ -36,8 +38,10 @@ export default async function main(args: string[]) {
       return;
     }
 
-    console.log(`Found ${response.results.length} database(s) matching "${query}":\n`);
-    
+    console.log(
+      `Found ${response.results.length} database(s) matching "${query}":\n`,
+    );
+
     response.results.forEach((db: any) => {
       const title = db.title?.[0]?.plain_text || "Untitled Database";
       console.log(`Title: ${title}`);
@@ -46,7 +50,6 @@ export default async function main(args: string[]) {
       console.log(`Last Edited: ${db.last_edited_time}`);
       console.log("--------------------------------------------------");
     });
-
   } catch (error: any) {
     console.error("Error searching Notion:", error.message);
   }

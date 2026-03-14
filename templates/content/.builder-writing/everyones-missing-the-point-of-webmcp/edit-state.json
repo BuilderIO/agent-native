@@ -17,11 +17,31 @@
     ]
   },
   "chunks": [
-    { "id": "chunk-1", "scope": "Intro + What is WebMCP?", "status": "kept_with_light_integration" },
-    { "id": "chunk-2", "scope": "Comparison + What WebMCP is actually for", "status": "completed" },
-    { "id": "chunk-3", "scope": "Why WebMCP matters for AI browsers and assistants + copilots section", "status": "completed" },
-    { "id": "chunk-4", "scope": "Testing contrast + accessibility", "status": "completed" },
-    { "id": "chunk-5", "scope": "Recommendation + ending", "status": "completed" }
+    {
+      "id": "chunk-1",
+      "scope": "Intro + What is WebMCP?",
+      "status": "kept_with_light_integration"
+    },
+    {
+      "id": "chunk-2",
+      "scope": "Comparison + What WebMCP is actually for",
+      "status": "completed"
+    },
+    {
+      "id": "chunk-3",
+      "scope": "Why WebMCP matters for AI browsers and assistants + copilots section",
+      "status": "completed"
+    },
+    {
+      "id": "chunk-4",
+      "scope": "Testing contrast + accessibility",
+      "status": "completed"
+    },
+    {
+      "id": "chunk-5",
+      "scope": "Recommendation + ending",
+      "status": "completed"
+    }
   ],
   "integration": { "status": "completed" },
   "qa": {

@@ -9,13 +9,13 @@
 
 **Don't Say / Do Say:**
 
-| Don't Say | Do Say |
-|-----------|--------|
-| "Builder is a CMS" | "Builder eliminates the need for a separate CMS" |
-| "Builder is a headless CMS" | "Builder's Agentic Development Platform replaces CMS workflows" |
-| "Builder is a CMS alternative" | "Teams evaluating [CMS name] find Builder gives content teams autonomy" |
-| "Builder is a visual editor" | "Builder is an Agentic Development Platform" |
-| "Builder vs [CMS name]" (in titles) | "[CMS name] vs Builder" or "Why teams switch from [CMS name]" |
+| Don't Say                           | Do Say                                                                  |
+| ----------------------------------- | ----------------------------------------------------------------------- |
+| "Builder is a CMS"                  | "Builder eliminates the need for a separate CMS"                        |
+| "Builder is a headless CMS"         | "Builder's Agentic Development Platform replaces CMS workflows"         |
+| "Builder is a CMS alternative"      | "Teams evaluating [CMS name] find Builder gives content teams autonomy" |
+| "Builder is a visual editor"        | "Builder is an Agentic Development Platform"                            |
+| "Builder vs [CMS name]" (in titles) | "[CMS name] vs Builder" or "Why teams switch from [CMS name]"           |
 
 ## Category Definition & Competitive Landscape
 
@@ -37,18 +37,21 @@ Platforms for managing and delivering content, including headless CMS, visual pa
 **How competitors cluster:**
 
 **Cluster 1: API-First Headless CMS (Contentful, Sanity, Strapi)**
+
 - Structured content models with API delivery
 - Developer-heavy setup and maintenance
 - Content editors work in admin interfaces, not visual environments
 - Limited visual editing capabilities
 
 **Cluster 2: Visual Page Builders (Webflow, Framer)**
+
 - Design freedom with drag-and-drop interfaces
 - Generic templates and components
 - Not integrated with custom design systems
 - Front-end only, limited application capabilities
 
 **Cluster 3: Legacy Integrated CMS (WordPress, Drupal, AEM)**
+
 - Traditional coupled architecture
 - Heavy plugin dependencies
 - Aging technology stacks
@@ -66,11 +69,13 @@ Platforms for managing and delivering content, including headless CMS, visual pa
 ### Tier 1 (Direct Competition)
 
 **Headless:**
+
 - **Contentful:** Enterprise headless platform focused on structured content management and API delivery
 - **Sanity:** Developer-friendly headless platform with customizable editing environment
 - **Strapi:** Open-source headless platform for API-first content management
 
 **Page Builders:**
+
 - **Webflow:** Visual website builder with design freedom and content capabilities
 - **Framer:** Design-to-web tool with animation capabilities and content features
 - **Wix:** All-in-one website builder targeting small businesses and agencies
@@ -129,6 +134,7 @@ Builder bridges traditional content workflows with AI-powered intelligence and v
 - **Why Builder won:** Only solution that works with Adobe's actual Spectrum components across React, Web Components, and multiple platforms
 
 **Adobe:**
+
 > "I want people to be able to feel like they're designing with actual spectrum and be able to work within those constraints...not just use a sticker that looks like spectrum."
 
 ### Cisco -- Enterprise Software
@@ -138,6 +144,7 @@ Builder bridges traditional content workflows with AI-powered intelligence and v
 - **Why Builder won:** Generates production-ready code using Cisco's actual component libraries, enables 80% designer completion before developer involvement
 
 **Cisco:**
+
 > "What we really want is the designer creates it, generates the code, and it already adheres to all of our developers' syntax...is using the existing components. 80 percent completion by designer, 20 percent by developer."
 
 ## Common Customer Paths

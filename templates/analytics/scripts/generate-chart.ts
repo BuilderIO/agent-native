@@ -24,7 +24,16 @@ const THEMES = {
   },
 } as const;
 
-const PALETTE = ["#18B4F4", "#8b5cf6", "#22c55e", "#f59e0b", "#6366f1", "#ef4444", "#14b8a6", "#f97316"];
+const PALETTE = [
+  "#18B4F4",
+  "#8b5cf6",
+  "#22c55e",
+  "#f59e0b",
+  "#6366f1",
+  "#ef4444",
+  "#14b8a6",
+  "#f97316",
+];
 
 function getTheme(): "dark" | "light" {
   try {
@@ -54,7 +63,10 @@ const args = parseArgs();
 
 if (!args.title) fatal("--title is required");
 if (!args.labels) fatal("--labels is required (JSON array)");
-if (!args.data) fatal("--data is required (JSON array of numbers or array of {label,data,color})");
+if (!args.data)
+  fatal(
+    "--data is required (JSON array of numbers or array of {label,data,color})",
+  );
 
 const chartType = (args.type || "bar") as "bar" | "line" | "area";
 const title = args.title;
@@ -75,10 +87,17 @@ try {
 let datasets: SeriesData[];
 try {
   const parsed = JSON.parse(args.data);
-  if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === "object" && "data" in parsed[0]) {
+  if (
+    Array.isArray(parsed) &&
+    parsed.length > 0 &&
+    typeof parsed[0] === "object" &&
+    "data" in parsed[0]
+  ) {
     datasets = parsed as SeriesData[];
   } else {
-    datasets = [{ label: title, data: parsed as number[], color: primaryColor }];
+    datasets = [
+      { label: title, data: parsed as number[], color: primaryColor },
+    ];
   }
 } catch {
   fatal("--data must be valid JSON array");
@@ -132,7 +151,12 @@ const chartConfig: ChartConfiguration = {
       },
       legend: {
         display: datasets.length > 1,
-        labels: { color: theme.labelColor, boxWidth: 14, padding: 18, font: { size: 13 } },
+        labels: {
+          color: theme.labelColor,
+          boxWidth: 14,
+          padding: 18,
+          font: { size: 13 },
+        },
       },
       tooltip: { enabled: false },
     },
@@ -185,12 +209,18 @@ if (!existsSync(MEDIA_DIR)) {
 const filename = (args.filename || `${slugify(title)}-${Date.now()}`) + ".png";
 const filepath = join(MEDIA_DIR, filename);
 
-const canvas = new ChartJSNodeCanvas({ width, height, backgroundColour: theme.background });
+const canvas = new ChartJSNodeCanvas({
+  width,
+  height,
+  backgroundColour: theme.background,
+});
 const buffer = await canvas.renderToBuffer(chartConfig);
 writeFileSync(filepath, buffer);
 
 const relativePath = `/api/media/${filename}`;
 const origin = process.env.APP_ORIGIN || "";
 const cacheBuster = `?v=${Date.now()}`;
-const url = origin ? `${origin}${relativePath}${cacheBuster}` : `${relativePath}${cacheBuster}`;
+const url = origin
+  ? `${origin}${relativePath}${cacheBuster}`
+  : `${relativePath}${cacheBuster}`;
 output({ filename, url, width, height });

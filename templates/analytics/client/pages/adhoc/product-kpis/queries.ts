@@ -7,10 +7,14 @@ const RETENTION = "`builder-3b0a2.dbt_mart.fact_account_active_retention`";
 
 function cadenceToTrunc(cadence: DateCadence): string {
   switch (cadence) {
-    case "Daily": return "DAY";
-    case "Weekly": return "WEEK";
-    case "Monthly": return "MONTH";
-    case "Quarterly": return "QUARTER";
+    case "Daily":
+      return "DAY";
+    case "Weekly":
+      return "WEEK";
+    case "Monthly":
+      return "MONTH";
+    case "Quarterly":
+      return "QUARTER";
   }
 }
 
@@ -19,7 +23,7 @@ function cadenceToTrunc(cadence: DateCadence): string {
 export function signupToPaidQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `SELECT
@@ -44,7 +48,7 @@ ORDER BY period`;
 export function signupToPaidByPlanQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `SELECT
@@ -65,7 +69,7 @@ ORDER BY period`;
 export function wauQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `SELECT
@@ -81,7 +85,7 @@ ORDER BY period`;
 export function wauByEventTypeQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `SELECT
@@ -101,14 +105,15 @@ export function arpaQuery(
   cadence: DateCadence,
   dateStart: string,
   dateEnd: string,
-  planFilter: string
+  planFilter: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
-  const planClause = planFilter === "all"
-    ? ""
-    : planFilter === "self-serve"
-      ? "AND LOWER(plan) = 'self service'"
-      : `AND LOWER(plan) = '${planFilter.toLowerCase()}'`;
+  const planClause =
+    planFilter === "all"
+      ? ""
+      : planFilter === "self-serve"
+        ? "AND LOWER(plan) = 'self service'"
+        : `AND LOWER(plan) = '${planFilter.toLowerCase()}'`;
 
   return `SELECT
   DATE_TRUNC(date, ${trunc}) AS period,
@@ -138,7 +143,10 @@ ORDER BY first_publish_week, weeks_since_first_publish`;
 
 // Simplified retention: week-0 vs week-4 retention rate by cohort
 // Note: fact_account_active_retention only has data from 2023-01-01 to 2023-12-17
-export function retentionSummaryQuery(_dateStart: string, _dateEnd: string): string {
+export function retentionSummaryQuery(
+  _dateStart: string,
+  _dateEnd: string,
+): string {
   return `WITH cohorts AS (
   SELECT
     first_publish_week,
@@ -166,7 +174,7 @@ ORDER BY period`;
 export function signupRetentionQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `WITH signup_cohort AS (

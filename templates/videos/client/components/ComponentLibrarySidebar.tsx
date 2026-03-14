@@ -1,7 +1,18 @@
 import { useState, useMemo } from "react";
-import { libraryComponents, type LibraryComponentEntry, type ComponentCategory } from "@/remotion/componentRegistry";
+import {
+  libraryComponents,
+  type LibraryComponentEntry,
+  type ComponentCategory,
+} from "@/remotion/componentRegistry";
 import { cn } from "@/lib/utils";
-import { Box, Layers, SlidersHorizontal, ChevronRight, FileText, Info } from "lucide-react";
+import {
+  Box,
+  Layers,
+  SlidersHorizontal,
+  ChevronRight,
+  FileText,
+  Info,
+} from "lucide-react";
 import { CurrentElementPanel } from "@/components/CurrentElementPanel";
 
 type ComponentLibrarySidebarProps = {
@@ -25,9 +36,9 @@ export function ComponentLibrarySidebar({
   const [openSections, setOpenSections] = useState({
     props: true,
   });
-  const [expandedCategories, setExpandedCategories] = useState<Set<ComponentCategory>>(
-    new Set(["Atoms", "Molecules", "Organisms", "Templates", "Pages"])
-  );
+  const [expandedCategories, setExpandedCategories] = useState<
+    Set<ComponentCategory>
+  >(new Set(["Atoms", "Molecules", "Organisms", "Templates", "Pages"]));
 
   const toggleSection = (section: keyof typeof openSections) => {
     setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
@@ -48,11 +59,17 @@ export function ComponentLibrarySidebar({
   // Group components by category
   const componentsByCategory = useMemo(() => {
     const grouped = new Map<ComponentCategory, LibraryComponentEntry[]>();
-    const categories: ComponentCategory[] = ["Atoms", "Molecules", "Organisms", "Templates", "Pages"];
+    const categories: ComponentCategory[] = [
+      "Atoms",
+      "Molecules",
+      "Organisms",
+      "Templates",
+      "Pages",
+    ];
 
-    categories.forEach(cat => grouped.set(cat, []));
+    categories.forEach((cat) => grouped.set(cat, []));
 
-    libraryComponents.forEach(component => {
+    libraryComponents.forEach((component) => {
       const category = component.category || "Atoms";
       if (!grouped.has(category)) {
         grouped.set(category, []);
@@ -75,7 +92,7 @@ export function ComponentLibrarySidebar({
             "flex-1 px-4 py-2.5 text-xs font-medium transition-colors relative flex items-center justify-center gap-1.5",
             tab === "components"
               ? "text-foreground bg-background"
-              : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+              : "text-muted-foreground hover:text-foreground hover:bg-secondary/50",
           )}
         >
           <Layers className="w-3.5 h-3.5" />
@@ -90,7 +107,7 @@ export function ComponentLibrarySidebar({
             "flex-1 px-4 py-2.5 text-xs font-medium transition-colors relative flex items-center justify-center gap-1.5",
             tab === "properties"
               ? "text-foreground bg-background"
-              : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+              : "text-muted-foreground hover:text-foreground hover:bg-secondary/50",
           )}
         >
           <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -123,58 +140,62 @@ export function ComponentLibrarySidebar({
                   <p className="text-xs mt-1">Components will appear here</p>
                 </div>
               ) : (
-                Array.from(componentsByCategory.entries()).map(([category, components]) => {
-                  if (components.length === 0) return null;
+                Array.from(componentsByCategory.entries()).map(
+                  ([category, components]) => {
+                    if (components.length === 0) return null;
 
-                  const isExpanded = expandedCategories.has(category);
+                    const isExpanded = expandedCategories.has(category);
 
-                  return (
-                    <div key={category} className="space-y-1.5">
-                      {/* Category Header */}
-                      <button
-                        onClick={() => toggleCategory(category)}
-                        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-secondary/50 transition-colors text-xs font-semibold text-muted-foreground"
-                      >
-                        <ChevronRight
-                          className={cn(
-                            "w-3 h-3 transition-transform",
-                            isExpanded && "rotate-90"
-                          )}
-                        />
-                        {category}
-                        <span className="ml-auto text-[10px] font-mono">
-                          {components.length}
-                        </span>
-                      </button>
+                    return (
+                      <div key={category} className="space-y-1.5">
+                        {/* Category Header */}
+                        <button
+                          onClick={() => toggleCategory(category)}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-secondary/50 transition-colors text-xs font-semibold text-muted-foreground"
+                        >
+                          <ChevronRight
+                            className={cn(
+                              "w-3 h-3 transition-transform",
+                              isExpanded && "rotate-90",
+                            )}
+                          />
+                          {category}
+                          <span className="ml-auto text-[10px] font-mono">
+                            {components.length}
+                          </span>
+                        </button>
 
-                      {/* Components in Category */}
-                      {isExpanded && (
-                        <div className="space-y-1 pl-3">
-                          {components.map((component) => (
-                            <button
-                              key={component.id}
-                              onClick={() => onSelectComponent(component.id)}
-                              className={cn(
-                                "w-full text-left px-3 py-2 rounded-md transition-colors",
-                                "hover:bg-secondary",
-                                selectedComponentId === component.id
-                                  ? "bg-primary/10 text-primary border border-primary/20"
-                                  : "bg-secondary/50 text-foreground"
-                              )}
-                            >
-                              <div className="font-medium text-sm">{component.title}</div>
-                              {component.description && (
-                                <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                                  {component.description}
+                        {/* Components in Category */}
+                        {isExpanded && (
+                          <div className="space-y-1 pl-3">
+                            {components.map((component) => (
+                              <button
+                                key={component.id}
+                                onClick={() => onSelectComponent(component.id)}
+                                className={cn(
+                                  "w-full text-left px-3 py-2 rounded-md transition-colors",
+                                  "hover:bg-secondary",
+                                  selectedComponentId === component.id
+                                    ? "bg-primary/10 text-primary border border-primary/20"
+                                    : "bg-secondary/50 text-foreground",
+                                )}
+                              >
+                                <div className="font-medium text-sm">
+                                  {component.title}
                                 </div>
-                              )}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
+                                {component.description && (
+                                  <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                                    {component.description}
+                                  </div>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  },
+                )
               )}
             </div>
           </div>
@@ -190,7 +211,9 @@ export function ComponentLibrarySidebar({
                   <summary className="cursor-pointer list-none">
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
                       <SlidersHorizontal className="w-3.5 h-3.5 text-green-400" />
-                      <span className="text-xs font-medium">Cursor Interactions</span>
+                      <span className="text-xs font-medium">
+                        Cursor Interactions
+                      </span>
                       <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                     </div>
                   </summary>
@@ -205,7 +228,9 @@ export function ComponentLibrarySidebar({
                     <summary className="cursor-pointer list-none">
                       <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
                         <FileText className="w-3.5 h-3.5 text-purple-400" />
-                        <span className="text-xs font-medium">Text Animations</span>
+                        <span className="text-xs font-medium">
+                          Text Animations
+                        </span>
                         <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                       </div>
                     </summary>
@@ -218,7 +243,8 @@ export function ComponentLibrarySidebar({
                               Interactive Text Input
                             </p>
                             <p className="text-xs text-purple-300/80">
-                              Type in the "Ask Builder" textarea below. The send button will light up blue when text is entered.
+                              Type in the "Ask Builder" textarea below. The send
+                              button will light up blue when text is entered.
                             </p>
                           </div>
                         </div>
@@ -229,9 +255,14 @@ export function ComponentLibrarySidebar({
                           This component is now fully interactive:
                         </p>
                         <ul className="text-xs text-muted-foreground space-y-1 ml-4 list-disc">
-                          <li>Type in the textarea to see the blue send button</li>
+                          <li>
+                            Type in the textarea to see the blue send button
+                          </li>
                           <li>Click the send button to clear the text</li>
-                          <li>Hover over the button to see the grow/brightness effect</li>
+                          <li>
+                            Hover over the button to see the grow/brightness
+                            effect
+                          </li>
                         </ul>
                       </div>
                     </div>
@@ -249,7 +280,9 @@ export function ComponentLibrarySidebar({
                   >
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
                       <FileText className="w-3.5 h-3.5 text-blue-400" />
-                      <span className="text-xs font-medium">Component Props</span>
+                      <span className="text-xs font-medium">
+                        Component Props
+                      </span>
                       <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                     </div>
                   </summary>
@@ -269,14 +302,22 @@ export function ComponentLibrarySidebar({
                         </p>
                       ) : (
                         selectedComponent.propTypes.map((prop) => {
-                          const isColorProp = prop.name.toLowerCase().includes("color");
-                          const isLongText = prop.name.toLowerCase().includes("description");
-                          const currentValue = propValues[prop.name] ?? prop.defaultValue;
+                          const isColorProp = prop.name
+                            .toLowerCase()
+                            .includes("color");
+                          const isLongText = prop.name
+                            .toLowerCase()
+                            .includes("description");
+                          const currentValue =
+                            propValues[prop.name] ?? prop.defaultValue;
 
                           return (
                             <div key={prop.name} className="space-y-1.5">
                               <div className="flex items-baseline justify-between gap-2">
-                                <label className="text-sm font-medium" htmlFor={`prop-${prop.name}`}>
+                                <label
+                                  className="text-sm font-medium"
+                                  htmlFor={`prop-${prop.name}`}
+                                >
                                   {prop.name}
                                 </label>
                                 <span className="text-xs text-muted-foreground font-mono">
@@ -298,20 +339,24 @@ export function ComponentLibrarySidebar({
                                       id={`prop-${prop.name}`}
                                       type="color"
                                       value={currentValue}
-                                      onChange={(e) => onPropChange(prop.name, e.target.value)}
+                                      onChange={(e) =>
+                                        onPropChange(prop.name, e.target.value)
+                                      }
                                       className="cursor-pointer border-none"
                                       style={{
-                                        width: '200%',
-                                        height: '200%',
-                                        marginLeft: '-50%',
-                                        marginTop: '-50%'
+                                        width: "200%",
+                                        height: "200%",
+                                        marginLeft: "-50%",
+                                        marginTop: "-50%",
                                       }}
                                     />
                                   </div>
                                   <input
                                     type="text"
                                     value={currentValue}
-                                    onChange={(e) => onPropChange(prop.name, e.target.value)}
+                                    onChange={(e) =>
+                                      onPropChange(prop.name, e.target.value)
+                                    }
                                     className="flex-1 h-9 px-3 text-xs bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
                                     placeholder={String(prop.defaultValue)}
                                   />
@@ -320,7 +365,9 @@ export function ComponentLibrarySidebar({
                                 <textarea
                                   id={`prop-${prop.name}`}
                                   value={currentValue}
-                                  onChange={(e) => onPropChange(prop.name, e.target.value)}
+                                  onChange={(e) =>
+                                    onPropChange(prop.name, e.target.value)
+                                  }
                                   rows={3}
                                   className="w-full px-3 py-2 text-xs bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring resize-none"
                                   placeholder={String(prop.defaultValue)}
@@ -330,7 +377,9 @@ export function ComponentLibrarySidebar({
                                   id={`prop-${prop.name}`}
                                   type="text"
                                   value={currentValue}
-                                  onChange={(e) => onPropChange(prop.name, e.target.value)}
+                                  onChange={(e) =>
+                                    onPropChange(prop.name, e.target.value)
+                                  }
                                   className="w-full h-9 px-3 text-xs bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
                                   placeholder={String(prop.defaultValue)}
                                 />
@@ -348,28 +397,41 @@ export function ComponentLibrarySidebar({
                   <summary className="cursor-pointer list-none">
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
                       <Info className="w-3.5 h-3.5 text-amber-400" />
-                      <span className="text-xs font-medium">Component Info</span>
+                      <span className="text-xs font-medium">
+                        Component Info
+                      </span>
                       <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                     </div>
                   </summary>
                   <div className="mt-1 px-4 py-3 space-y-3 text-xs text-muted-foreground">
                     <div>
-                      <div className="font-medium text-foreground mb-1">Dimensions</div>
+                      <div className="font-medium text-foreground mb-1">
+                        Dimensions
+                      </div>
                       <div>
                         {selectedComponent.width} × {selectedComponent.height}px
                       </div>
                     </div>
 
                     <div>
-                      <div className="font-medium text-foreground mb-1">Duration</div>
+                      <div className="font-medium text-foreground mb-1">
+                        Duration
+                      </div>
                       <div>
-                        {selectedComponent.durationInFrames} frames @ {selectedComponent.fps}fps (
-                        {(selectedComponent.durationInFrames / selectedComponent.fps).toFixed(1)}s)
+                        {selectedComponent.durationInFrames} frames @{" "}
+                        {selectedComponent.fps}fps (
+                        {(
+                          selectedComponent.durationInFrames /
+                          selectedComponent.fps
+                        ).toFixed(1)}
+                        s)
                       </div>
                     </div>
 
                     <div>
-                      <div className="font-medium text-foreground mb-1">Component ID</div>
+                      <div className="font-medium text-foreground mb-1">
+                        Component ID
+                      </div>
                       <code className="px-1.5 py-0.5 bg-secondary rounded font-mono">
                         {selectedComponent.id}
                       </code>

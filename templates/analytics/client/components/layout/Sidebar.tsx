@@ -2,7 +2,10 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { useQuery, useQueryClient as __useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueryClient as __useQueryClient,
+} from "@tanstack/react-query";
 import {
   FlaskConical,
   LogOut,
@@ -44,8 +47,17 @@ import {
   setToolsOrder,
   type DashboardMeta,
 } from "@/pages/adhoc/registry";
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { NewDashboardDialog } from "./NewDashboardDialog";
 import { FeedbackButton } from "./FeedbackButton";
 import {
@@ -79,13 +91,24 @@ interface ToolItem {
 
 const defaultTools: ToolItem[] = [
   { id: "explorer", name: "Explorer", href: "/adhoc/explorer" },
-  { id: "customer-health", name: "Customer Health", href: "/adhoc/customer-health" },
+  {
+    id: "customer-health",
+    name: "Customer Health",
+    href: "/adhoc/customer-health",
+  },
   { id: "stripe", name: "Stripe Billing", href: "/adhoc/stripe" },
-  { id: "slack-feedback", name: "Slack Feedback", href: "/adhoc/slack-feedback" },
+  {
+    id: "slack-feedback",
+    name: "Slack Feedback",
+    href: "/adhoc/slack-feedback",
+  },
   { id: "query-explorer", name: "Query Explorer", href: "/query" },
 ];
 
-function applyOrder<T extends { id: string }>(items: T[], savedOrder: string[]): T[] {
+function applyOrder<T extends { id: string }>(
+  items: T[],
+  savedOrder: string[],
+): T[] {
   if (savedOrder.length === 0) return items;
   const idToItem = new Map(items.map((item) => [item.id, item]));
   const ordered: T[] = [];
@@ -158,7 +181,7 @@ function SortableDashboardItem({
             "flex-1 min-w-0 flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-all hover:text-primary",
             isActive
               ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "text-muted-foreground hover:bg-sidebar-accent/50"
+              : "text-muted-foreground hover:bg-sidebar-accent/50",
           )}
         >
           <span className="truncate">{d.name}</span>
@@ -169,13 +192,18 @@ function SortableDashboardItem({
             "p-1 rounded transition-all shrink-0",
             favoriteIds.has(d.id)
               ? "text-yellow-500 opacity-100"
-              : "opacity-0 group-hover:opacity-100 text-muted-foreground/50 hover:text-yellow-500"
+              : "opacity-0 group-hover:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
           )}
           title={favoriteIds.has(d.id) ? "Unfavorite" : "Favorite"}
         >
-          <Star className={cn("h-3 w-3", favoriteIds.has(d.id) && "fill-current")} />
+          <Star
+            className={cn("h-3 w-3", favoriteIds.has(d.id) && "fill-current")}
+          />
         </button>
-        <Popover open={deletingId === d.id} onOpenChange={(open) => setDeletingId(open ? d.id : null)}>
+        <Popover
+          open={deletingId === d.id}
+          onOpenChange={(open) => setDeletingId(open ? d.id : null)}
+        >
           <PopoverTrigger asChild>
             <button
               className="opacity-0 group-hover:opacity-100 p-1 rounded text-muted-foreground/50 hover:text-destructive transition-all shrink-0 mr-1"
@@ -185,7 +213,9 @@ function SortableDashboardItem({
             </button>
           </PopoverTrigger>
           <PopoverContent className="w-52 p-3" side="right" align="start">
-            <p className="text-sm mb-3">Remove <strong>{d.name}</strong>?</p>
+            <p className="text-sm mb-3">
+              Remove <strong>{d.name}</strong>?
+            </p>
             <div className="flex gap-2">
               <button
                 onClick={() => {
@@ -214,7 +244,7 @@ function SortableDashboardItem({
             const svHref = `${href}?${svSearch}`;
             const currentSearch = new URLSearchParams(location.search);
             const isSubviewActive = Array.from(Object.entries(sv.params)).every(
-              ([k, v]) => currentSearch.get(k) === v
+              ([k, v]) => currentSearch.get(k) === v,
             );
             return (
               <Link
@@ -224,7 +254,7 @@ function SortableDashboardItem({
                   "flex items-center gap-2 rounded-md px-3 py-1 text-[11px] transition-all hover:text-primary truncate",
                   isSubviewActive
                     ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground/70 hover:bg-sidebar-accent/50"
+                    : "text-muted-foreground/70 hover:bg-sidebar-accent/50",
                 )}
               >
                 {sv.name}
@@ -251,7 +281,9 @@ async function fetchSavedCharts(): Promise<{ id: string; name: string }[]> {
     .map((c: any) => ({ id: c.id, name: c.name }));
 }
 
-async function fetchExplorerDashboards(): Promise<{ id: string; name: string }[]> {
+async function fetchExplorerDashboards(): Promise<
+  { id: string; name: string }[]
+> {
   const token = await getIdToken();
   const res = await fetch("/api/explorer-dashboards", {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -279,8 +311,12 @@ function NewExplorerDashboardButton() {
       },
       body: JSON.stringify({ name: "Untitled Dashboard", charts: [] }),
     });
-    queryClient.invalidateQueries({ queryKey: ["explorer-dashboards-sidebar"] });
-    queryClient.invalidateQueries({ queryKey: ["explorer-dashboards-palette"] });
+    queryClient.invalidateQueries({
+      queryKey: ["explorer-dashboards-sidebar"],
+    });
+    queryClient.invalidateQueries({
+      queryKey: ["explorer-dashboards-palette"],
+    });
     navigate(`/adhoc/explorer-dashboard?id=${id}`);
     setCreating(false);
   };
@@ -328,70 +364,81 @@ function SortableToolItem({
 
   return (
     <>
-    <div ref={setNodeRef} style={style} className="group flex items-center min-w-0">
-      <button
-        className="p-1 cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
-        {...attributes}
-        {...listeners}
+      <div
+        ref={setNodeRef}
+        style={style}
+        className="group flex items-center min-w-0"
       >
-        <GripVertical className="h-3 w-3" />
-      </button>
-      <Link
-        to={tool.href}
-        className={cn(
-          "flex-1 min-w-0 flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-all hover:text-primary",
-          isActive
-            ? "bg-sidebar-accent text-sidebar-accent-foreground"
-            : "text-muted-foreground hover:bg-sidebar-accent/50"
-        )}
-      >
-        <span className="truncate">{tool.name}</span>
-      </Link>
-    </div>
-    {/* Sub-items for Explorer: saved charts + explorer dashboards */}
-    {tool.id === "explorer" && (isActive || location.pathname === "/adhoc/explorer" || location.pathname === "/adhoc/explorer-dashboard") && (
-      <div className="ml-6 mt-0.5 space-y-0.5">
-        {(explorerDashboards ?? []).map((d) => {
-          const href = `/adhoc/explorer-dashboard?id=${d.id}`;
-          const isSubActive = location.pathname === "/adhoc/explorer-dashboard" && location.search.includes(d.id);
-          return (
-            <Link
-              key={`ed-${d.id}`}
-              to={href}
-              className={cn(
-                "flex items-center gap-2 rounded-md px-3 py-1 text-[11px] transition-all hover:text-primary truncate",
-                isSubActive
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground/70 hover:bg-sidebar-accent/50"
-              )}
-            >
-              <LayoutDashboard className="h-3 w-3 shrink-0" />
-              {d.name}
-            </Link>
-          );
-        })}
-        {(savedCharts ?? []).map((c) => {
-          const href = `/adhoc/explorer?config=${c.id}`;
-          const isSubActive = location.pathname === "/adhoc/explorer" && location.search.includes(c.id);
-          return (
-            <Link
-              key={`sc-${c.id}`}
-              to={href}
-              className={cn(
-                "flex items-center gap-2 rounded-md px-3 py-1 text-[11px] transition-all hover:text-primary truncate",
-                isSubActive
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground/70 hover:bg-sidebar-accent/50"
-              )}
-            >
-              <BarChart3 className="h-3 w-3 shrink-0" />
-              {c.name}
-            </Link>
-          );
-        })}
-        <NewExplorerDashboardButton />
+        <button
+          className="p-1 cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-3 w-3" />
+        </button>
+        <Link
+          to={tool.href}
+          className={cn(
+            "flex-1 min-w-0 flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-all hover:text-primary",
+            isActive
+              ? "bg-sidebar-accent text-sidebar-accent-foreground"
+              : "text-muted-foreground hover:bg-sidebar-accent/50",
+          )}
+        >
+          <span className="truncate">{tool.name}</span>
+        </Link>
       </div>
-    )}
+      {/* Sub-items for Explorer: saved charts + explorer dashboards */}
+      {tool.id === "explorer" &&
+        (isActive ||
+          location.pathname === "/adhoc/explorer" ||
+          location.pathname === "/adhoc/explorer-dashboard") && (
+          <div className="ml-6 mt-0.5 space-y-0.5">
+            {(explorerDashboards ?? []).map((d) => {
+              const href = `/adhoc/explorer-dashboard?id=${d.id}`;
+              const isSubActive =
+                location.pathname === "/adhoc/explorer-dashboard" &&
+                location.search.includes(d.id);
+              return (
+                <Link
+                  key={`ed-${d.id}`}
+                  to={href}
+                  className={cn(
+                    "flex items-center gap-2 rounded-md px-3 py-1 text-[11px] transition-all hover:text-primary truncate",
+                    isSubActive
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground/70 hover:bg-sidebar-accent/50",
+                  )}
+                >
+                  <LayoutDashboard className="h-3 w-3 shrink-0" />
+                  {d.name}
+                </Link>
+              );
+            })}
+            {(savedCharts ?? []).map((c) => {
+              const href = `/adhoc/explorer?config=${c.id}`;
+              const isSubActive =
+                location.pathname === "/adhoc/explorer" &&
+                location.search.includes(c.id);
+              return (
+                <Link
+                  key={`sc-${c.id}`}
+                  to={href}
+                  className={cn(
+                    "flex items-center gap-2 rounded-md px-3 py-1 text-[11px] transition-all hover:text-primary truncate",
+                    isSubActive
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground/70 hover:bg-sidebar-accent/50",
+                  )}
+                >
+                  <BarChart3 className="h-3 w-3 shrink-0" />
+                  {c.name}
+                </Link>
+              );
+            })}
+            <NewExplorerDashboardButton />
+          </div>
+        )}
     </>
   );
 }
@@ -408,14 +455,19 @@ export function Sidebar() {
   const [dashOpen, setDashOpen] = useState(true);
   const [toolsOpen, setToolsOpen] = useState(true);
   const [adhocOpen, setAdhocOpen] = useState(true);
-  const [light, setLight] = useState(() => document.documentElement.classList.contains("light"));
+  const [light, setLight] = useState(() =>
+    document.documentElement.classList.contains("light"),
+  );
 
   useEffect(() => {
-    fetch("/api/theme").then(r => r.json()).then(d => {
-      const isLight = d.theme === "light";
-      setLight(isLight);
-      document.documentElement.classList.toggle("light", isLight);
-    }).catch(() => {});
+    fetch("/api/theme")
+      .then((r) => r.json())
+      .then((d) => {
+        const isLight = d.theme === "light";
+        setLight(isLight);
+        document.documentElement.classList.toggle("light", isLight);
+      })
+      .catch(() => {});
   }, []);
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -426,7 +478,9 @@ export function Sidebar() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [hiddenIds, setHiddenIds] = useState(() => getHiddenDashboards());
   const [favoriteIds, setFavoriteIds] = useState(() => getFavoriteDashboards());
-  const [dashboardOrderState, setDashboardOrderState] = useState(() => getDashboardOrder());
+  const [dashboardOrderState, setDashboardOrderState] = useState(() =>
+    getDashboardOrder(),
+  );
   const [toolsOrderState, setToolsOrderState] = useState(() => getToolsOrder());
 
   const { data: savedCharts = [] } = useQuery({
@@ -456,45 +510,49 @@ export function Sidebar() {
 
   const orderedTools = useMemo(
     () => applyOrder(defaultTools, toolsOrderState),
-    [toolsOrderState]
+    [toolsOrderState],
   );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
   );
 
-  const handleDashboardDragEnd = useCallback((event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    setDashboardOrderState((prev) => {
-      const ids = prev.length > 0
-        ? prev
-        : visibleDashboards.map((d) => d.id);
-      const oldIndex = ids.indexOf(active.id as string);
-      const newIndex = ids.indexOf(over.id as string);
-      if (oldIndex === -1 || newIndex === -1) return prev;
-      const newOrder = arrayMove(ids, oldIndex, newIndex);
-      setDashboardOrder(newOrder);
-      return newOrder;
-    });
-  }, [visibleDashboards]);
+  const handleDashboardDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      setDashboardOrderState((prev) => {
+        const ids = prev.length > 0 ? prev : visibleDashboards.map((d) => d.id);
+        const oldIndex = ids.indexOf(active.id as string);
+        const newIndex = ids.indexOf(over.id as string);
+        if (oldIndex === -1 || newIndex === -1) return prev;
+        const newOrder = arrayMove(ids, oldIndex, newIndex);
+        setDashboardOrder(newOrder);
+        return newOrder;
+      });
+    },
+    [visibleDashboards],
+  );
 
-  const handleToolsDragEnd = useCallback((event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    setToolsOrderState((prev) => {
-      const ids = prev.length > 0
-        ? prev
-        : orderedTools.map((t) => t.id);
-      const oldIndex = ids.indexOf(active.id as string);
-      const newIndex = ids.indexOf(over.id as string);
-      if (oldIndex === -1 || newIndex === -1) return prev;
-      const newOrder = arrayMove(ids, oldIndex, newIndex);
-      setToolsOrder(newOrder);
-      return newOrder;
-    });
-  }, [orderedTools]);
+  const handleToolsDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      setToolsOrderState((prev) => {
+        const ids = prev.length > 0 ? prev : orderedTools.map((t) => t.id);
+        const oldIndex = ids.indexOf(active.id as string);
+        const newIndex = ids.indexOf(over.id as string);
+        if (oldIndex === -1 || newIndex === -1) return prev;
+        const newOrder = arrayMove(ids, oldIndex, newIndex);
+        setToolsOrder(newOrder);
+        return newOrder;
+      });
+    },
+    [orderedTools],
+  );
 
   useEffect(() => {
     return subscribe(() => {
@@ -505,49 +563,73 @@ export function Sidebar() {
     });
   }, []);
 
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    isResizing.current = true;
-    const startX = e.clientX;
-    const startWidth = sidebarWidth;
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      isResizing.current = true;
+      const startX = e.clientX;
+      const startWidth = sidebarWidth;
 
-    const onMouseMove = (ev: MouseEvent) => {
-      if (!isResizing.current) return;
-      const newWidth = Math.max(180, Math.min(480, startWidth + ev.clientX - startX));
-      setSidebarWidth(newWidth);
-    };
+      const onMouseMove = (ev: MouseEvent) => {
+        if (!isResizing.current) return;
+        const newWidth = Math.max(
+          180,
+          Math.min(480, startWidth + ev.clientX - startX),
+        );
+        setSidebarWidth(newWidth);
+      };
 
-    const onMouseUp = () => {
-      isResizing.current = false;
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      setSidebarWidth((w) => {
-        localStorage.setItem("sidebar-width", String(w));
-        return w;
-      });
-    };
+      const onMouseUp = () => {
+        isResizing.current = false;
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", onMouseUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        setSidebarWidth((w) => {
+          localStorage.setItem("sidebar-width", String(w));
+          return w;
+        });
+      };
 
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
-  }, [sidebarWidth]);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+    },
+    [sidebarWidth],
+  );
 
   const isAdhocActive = location.pathname.startsWith("/adhoc");
 
   return (
-    <div className="relative flex h-screen flex-col border-r border-border bg-sidebar text-sidebar-foreground" style={{ width: sidebarWidth }}>
+    <div
+      className="relative flex h-screen flex-col border-r border-border bg-sidebar text-sidebar-foreground"
+      style={{ width: sidebarWidth }}
+    >
       {/* Resize handle */}
       <div
         onMouseDown={handleResizeStart}
         className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-10"
       />
       <div className="flex h-14 items-center border-b border-border px-4 lg:h-[60px] lg:px-6">
-        <Link to="/adhoc/overview" className="flex items-center gap-2 font-semibold">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 shrink-0">
-            <path d="M11.6875 5.11344C11.6875 4.29267 11.3633 3.5055 10.7862 2.92507C10.2091 2.34464 9.42642 2.01847 8.61023 2.01831L3.41156 2.01831C3.19673 2.01831 2.99071 2.10413 2.8388 2.25688C2.6869 2.40964 2.60156 2.61682 2.60156 2.83285C2.60156 3.668 4.36017 4.30193 4.36017 7.17646C4.36017 10.051 2.60156 10.6849 2.60156 11.5195C2.60156 11.7355 2.68688 11.9428 2.83877 12.0956C2.99065 12.2485 3.19668 12.3345 3.41156 12.3346H8.61023C9.20428 12.3345 9.7856 12.1615 10.284 11.8365C10.7825 11.5115 11.1768 11.0483 11.4193 10.503C11.6618 9.95765 11.7422 9.35339 11.6507 8.76312C11.5593 8.17285 11.3 7.6218 10.904 7.17646C11.4094 6.60957 11.6884 5.87478 11.6875 5.11344ZM3.67191 2.90255H8.61023C9.03981 2.90267 9.45995 3.02936 9.81874 3.26694C10.1775 3.50453 10.4592 3.84262 10.6291 4.23942C10.7989 4.63623 10.8494 5.07438 10.7743 5.49973C10.6993 5.92508 10.5019 6.31901 10.2067 6.63283L3.67191 2.90255ZM10.1627 10.8025C9.95932 11.0082 9.7174 11.1714 9.45093 11.2826C9.18446 11.3938 8.89873 11.4508 8.61023 11.4504H3.67372L10.2067 7.72009C10.6001 8.13829 10.8158 8.69429 10.8079 9.26991C10.8001 9.84553 10.5692 10.3954 10.1645 10.8025H10.1627ZM4.63017 9.88675C5.03255 9.04061 5.24078 8.11438 5.23947 7.17646C5.24083 6.23835 5.0326 5.31191 4.63017 4.46557L9.37743 7.17646L4.63017 9.88675Z" fill="currentColor" stroke="currentColor" strokeWidth="0.33"/>
+        <Link
+          to="/adhoc/overview"
+          className="flex items-center gap-2 font-semibold"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-5 w-5 shrink-0"
+          >
+            <path
+              d="M11.6875 5.11344C11.6875 4.29267 11.3633 3.5055 10.7862 2.92507C10.2091 2.34464 9.42642 2.01847 8.61023 2.01831L3.41156 2.01831C3.19673 2.01831 2.99071 2.10413 2.8388 2.25688C2.6869 2.40964 2.60156 2.61682 2.60156 2.83285C2.60156 3.668 4.36017 4.30193 4.36017 7.17646C4.36017 10.051 2.60156 10.6849 2.60156 11.5195C2.60156 11.7355 2.68688 11.9428 2.83877 12.0956C2.99065 12.2485 3.19668 12.3345 3.41156 12.3346H8.61023C9.20428 12.3345 9.7856 12.1615 10.284 11.8365C10.7825 11.5115 11.1768 11.0483 11.4193 10.503C11.6618 9.95765 11.7422 9.35339 11.6507 8.76312C11.5593 8.17285 11.3 7.6218 10.904 7.17646C11.4094 6.60957 11.6884 5.87478 11.6875 5.11344ZM3.67191 2.90255H8.61023C9.03981 2.90267 9.45995 3.02936 9.81874 3.26694C10.1775 3.50453 10.4592 3.84262 10.6291 4.23942C10.7989 4.63623 10.8494 5.07438 10.7743 5.49973C10.6993 5.92508 10.5019 6.31901 10.2067 6.63283L3.67191 2.90255ZM10.1627 10.8025C9.95932 11.0082 9.7174 11.1714 9.45093 11.2826C9.18446 11.3938 8.89873 11.4508 8.61023 11.4504H3.67372L10.2067 7.72009C10.6001 8.13829 10.8158 8.69429 10.8079 9.26991C10.8001 9.84553 10.5692 10.3954 10.1645 10.8025H10.1627ZM4.63017 9.88675C5.03255 9.04061 5.24078 8.11438 5.23947 7.17646C5.24083 6.23835 5.0326 5.31191 4.63017 4.46557L9.37743 7.17646L4.63017 9.88675Z"
+              fill="currentColor"
+              stroke="currentColor"
+              strokeWidth="0.33"
+            />
           </svg>
           <span className="text-lg font-bold tracking-tight">Analytics</span>
         </Link>
@@ -561,7 +643,7 @@ export function Sidebar() {
               "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
               location.pathname === "/"
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50"
+                : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
             <Home className="h-4 w-4" />
@@ -575,7 +657,7 @@ export function Sidebar() {
               "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
               location.pathname === "/overview"
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50"
+                : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
             <BarChart3 className="h-4 w-4" />
@@ -589,7 +671,7 @@ export function Sidebar() {
               "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
               location.pathname === "/data-dictionary"
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50"
+                : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
             <Info className="h-4 w-4" />
@@ -603,7 +685,7 @@ export function Sidebar() {
               "flex w-full items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary text-left",
               isAdhocActive
                 ? "text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50"
+                : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
             <FlaskConical className="h-4 w-4" />
@@ -611,7 +693,7 @@ export function Sidebar() {
             <ChevronDown
               className={cn(
                 "h-3.5 w-3.5 transition-transform",
-                !dashOpen && "-rotate-90"
+                !dashOpen && "-rotate-90",
               )}
             />
           </button>
@@ -651,9 +733,9 @@ export function Sidebar() {
             onClick={() => setAdhocOpen(!adhocOpen)}
             className={cn(
               "flex w-full items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary text-left",
-              adHocAnalyses.some(a => location.pathname === `/adhoc/${a.id}`)
+              adHocAnalyses.some((a) => location.pathname === `/adhoc/${a.id}`)
                 ? "text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50"
+                : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
             <FileText className="h-4 w-4" />
@@ -661,7 +743,7 @@ export function Sidebar() {
             <ChevronDown
               className={cn(
                 "h-3.5 w-3.5 transition-transform",
-                !adhocOpen && "-rotate-90"
+                !adhocOpen && "-rotate-90",
               )}
             />
           </button>
@@ -675,7 +757,7 @@ export function Sidebar() {
                   "flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-all hover:text-primary",
                   location.pathname === "/adhoc/adhoc-index"
                     ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50"
+                    : "text-muted-foreground hover:bg-sidebar-accent/50",
                 )}
               >
                 <BarChart3 className="h-3 w-3" />
@@ -691,7 +773,7 @@ export function Sidebar() {
                     "flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-all hover:text-primary",
                     location.pathname === `/adhoc/${analysis.id}`
                       ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-muted-foreground hover:bg-sidebar-accent/50"
+                      : "text-muted-foreground hover:bg-sidebar-accent/50",
                   )}
                 >
                   <span className="truncate">{analysis.name}</span>
@@ -705,9 +787,11 @@ export function Sidebar() {
             onClick={() => setToolsOpen(!toolsOpen)}
             className={cn(
               "flex w-full items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary text-left",
-              location.pathname.startsWith("/adhoc/customer-health") || location.pathname.startsWith("/adhoc/explorer") || location.pathname === "/query"
+              location.pathname.startsWith("/adhoc/customer-health") ||
+                location.pathname.startsWith("/adhoc/explorer") ||
+                location.pathname === "/query"
                 ? "text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50"
+                : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
             <Wrench className="h-4 w-4" />
@@ -715,7 +799,7 @@ export function Sidebar() {
             <ChevronDown
               className={cn(
                 "h-3.5 w-3.5 transition-transform",
-                !toolsOpen && "-rotate-90"
+                !toolsOpen && "-rotate-90",
               )}
             />
           </button>
@@ -735,9 +819,18 @@ export function Sidebar() {
                     <SortableToolItem
                       key={tool.id}
                       tool={tool}
-                      isActive={location.pathname === tool.href || (tool.id === "explorer" && (location.pathname === "/adhoc/explorer" || location.pathname === "/adhoc/explorer-dashboard"))}
-                      savedCharts={tool.id === "explorer" ? savedCharts : undefined}
-                      explorerDashboards={tool.id === "explorer" ? explorerDashboards : undefined}
+                      isActive={
+                        location.pathname === tool.href ||
+                        (tool.id === "explorer" &&
+                          (location.pathname === "/adhoc/explorer" ||
+                            location.pathname === "/adhoc/explorer-dashboard"))
+                      }
+                      savedCharts={
+                        tool.id === "explorer" ? savedCharts : undefined
+                      }
+                      explorerDashboards={
+                        tool.id === "explorer" ? explorerDashboards : undefined
+                      }
                       location={location}
                     />
                   ))}
@@ -757,7 +850,7 @@ export function Sidebar() {
                   "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
                   isActive
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50"
+                    : "text-muted-foreground hover:bg-sidebar-accent/50",
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -773,14 +866,25 @@ export function Sidebar() {
             onClick={() => setCostOpen((o) => !o)}
             className="flex items-center gap-2 px-3 py-1.5 w-full text-left cursor-pointer hover:bg-sidebar-accent/50 rounded-lg transition-colors"
           >
-            <DollarSign className={cn("h-3.5 w-3.5 shrink-0", cost > 50 ? "text-destructive" : "text-muted-foreground")} />
+            <DollarSign
+              className={cn(
+                "h-3.5 w-3.5 shrink-0",
+                cost > 50 ? "text-destructive" : "text-muted-foreground",
+              )}
+            />
             <p className="text-xs font-medium flex-1">
               {formatCost(cost)}
               <span className="text-muted-foreground font-normal">
-                {" "}session cost
+                {" "}
+                session cost
               </span>
             </p>
-            <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", !costOpen && "-rotate-90")} />
+            <ChevronDown
+              className={cn(
+                "h-3 w-3 text-muted-foreground transition-transform",
+                !costOpen && "-rotate-90",
+              )}
+            />
           </button>
           {costOpen && (
             <div className="px-3 pb-1.5 flex items-center justify-between">
@@ -800,7 +904,11 @@ export function Sidebar() {
           )}
         </div>
         <button
-          onClick={() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "p", metaKey: true }))}
+          onClick={() =>
+            document.dispatchEvent(
+              new KeyboardEvent("keydown", { key: "p", metaKey: true }),
+            )
+          }
           className="flex items-center justify-between w-full rounded-lg px-3 py-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground hover:bg-sidebar-accent/50 transition-colors"
         >
           <span>Search</span>
@@ -815,20 +923,23 @@ export function Sidebar() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <PopoverTrigger asChild>
-                    <button
-                      className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
-                    >
+                    <button className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50">
                       <LogOut className="h-4 w-4" />
                     </button>
                   </PopoverTrigger>
                 </TooltipTrigger>
-                <TooltipContent side="top"><p>Sign Out</p></TooltipContent>
+                <TooltipContent side="top">
+                  <p>Sign Out</p>
+                </TooltipContent>
               </Tooltip>
               <PopoverContent className="w-48 p-3" side="top" align="start">
                 <p className="text-sm mb-3">Sign out?</p>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => { setLogoutOpen(false); logout(); }}
+                    onClick={() => {
+                      setLogoutOpen(false);
+                      logout();
+                    }}
                     className="flex-1 rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors"
                   >
                     Yes
@@ -857,10 +968,16 @@ export function Sidebar() {
                   }}
                   className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
                 >
-                  {light ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+                  {light ? (
+                    <Moon className="h-4 w-4" />
+                  ) : (
+                    <Sun className="h-4 w-4" />
+                  )}
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="top"><p>{light ? "Dark mode" : "Light mode"}</p></TooltipContent>
+              <TooltipContent side="top">
+                <p>{light ? "Dark mode" : "Light mode"}</p>
+              </TooltipContent>
             </Tooltip>
           </div>
         </TooltipProvider>

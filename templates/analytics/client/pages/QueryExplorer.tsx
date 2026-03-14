@@ -67,12 +67,12 @@ export default function QueryExplorer() {
       };
       const updated = [entry, ...history.filter((h) => h.sql !== sql)].slice(
         0,
-        20
+        20,
       );
       setHistory(updated);
       saveHistory(updated);
     },
-    [history, searchParams, setSearchParams]
+    [history, searchParams, setSearchParams],
   );
 
   const clearHistory = () => {

@@ -22,7 +22,12 @@ export function EventRow({ event, onChange, onRemove }: EventRowProps) {
             onChange={(value) => onChange({ ...event, event: value })}
           />
         </div>
-        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={onRemove}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0"
+          onClick={onRemove}
+        >
           <X className="h-4 w-4" />
         </Button>
       </div>

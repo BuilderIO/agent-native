@@ -28,7 +28,8 @@ export function ConnectScreen() {
             Content Workspace
           </h1>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Connect your Builder.io space to start writing and uploading articles.
+            Connect your Builder.io space to start writing and uploading
+            articles.
           </p>
         </div>
 

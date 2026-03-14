@@ -27,7 +27,9 @@ describe("shouldSyncFile", () => {
   });
 
   it("matches glob patterns with directory wildcards", () => {
-    expect(shouldSyncFile("data/nested/file.json", ["data/**/*.json"])).toBe(true);
+    expect(shouldSyncFile("data/nested/file.json", ["data/**/*.json"])).toBe(
+      true,
+    );
   });
 });
 

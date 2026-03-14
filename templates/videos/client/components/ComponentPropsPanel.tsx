@@ -49,7 +49,7 @@ export function ComponentPropsPanel({
             <ChevronRight
               className={cn(
                 "w-4 h-4 transition-transform",
-                openSections.props && "rotate-90"
+                openSections.props && "rotate-90",
               )}
             />
             <FileText className="w-4 h-4" />
@@ -66,9 +66,7 @@ export function ComponentPropsPanel({
                 component.propTypes.map((prop) => (
                   <div key={prop.name} className="space-y-1.5">
                     <div className="flex items-baseline justify-between gap-2">
-                      <label className="text-sm font-medium">
-                        {prop.name}
-                      </label>
+                      <label className="text-sm font-medium">{prop.name}</label>
                       <span className="text-xs text-muted-foreground font-mono">
                         {prop.type}
                       </span>
@@ -96,7 +94,10 @@ export function ComponentPropsPanel({
         </details>
 
         {/* Animations Section */}
-        <details open={openSections.animations} className="border-b border-border">
+        <details
+          open={openSections.animations}
+          className="border-b border-border"
+        >
           <summary
             className="px-4 py-3 cursor-pointer hover:bg-secondary/50 transition-colors flex items-center gap-2"
             onClick={(e) => {
@@ -107,7 +108,7 @@ export function ComponentPropsPanel({
             <ChevronRight
               className={cn(
                 "w-4 h-4 transition-transform",
-                openSections.animations && "rotate-90"
+                openSections.animations && "rotate-90",
               )}
             />
             <SlidersHorizontal className="w-4 h-4" />

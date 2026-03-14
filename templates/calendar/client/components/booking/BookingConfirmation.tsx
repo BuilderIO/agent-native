@@ -8,7 +8,10 @@ interface BookingConfirmationProps {
   onReset: () => void;
 }
 
-export function BookingConfirmation({ booking, onReset }: BookingConfirmationProps) {
+export function BookingConfirmation({
+  booking,
+  onReset,
+}: BookingConfirmationProps) {
   return (
     <div className="flex flex-col items-center text-center space-y-6 py-8">
       <CheckCircle2 className="h-16 w-16 text-green-500" />

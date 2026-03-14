@@ -1,6 +1,14 @@
 import fs from "fs";
 import path from "path";
-import { loadEnv, parseArgs, camelCaseArgs, isValidProjectPath, ensureDir, PROJECTS_DIR, fail } from "./_utils.js";
+import {
+  loadEnv,
+  parseArgs,
+  camelCaseArgs,
+  isValidProjectPath,
+  ensureDir,
+  PROJECTS_DIR,
+  fail,
+} from "./_utils.js";
 
 export default async function main(args: string[]) {
   loadEnv();
@@ -39,7 +47,9 @@ Options:
   const filePath = path.join(resourcesDir, "twitter-research.json");
   let existing: { searches: any[] } = { searches: [] };
   if (fs.existsSync(filePath)) {
-    try { existing = JSON.parse(fs.readFileSync(filePath, "utf-8")); } catch {}
+    try {
+      existing = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    } catch {}
   }
 
   existing.searches.push({
@@ -50,5 +60,7 @@ Options:
   });
 
   fs.writeFileSync(filePath, JSON.stringify(existing, null, 2), "utf-8");
-  console.log(`Saved ${parsedTweets.length} tweets to ${projectSlug}/resources/twitter-research.json`);
+  console.log(
+    `Saved ${parsedTweets.length} tweets to ${projectSlug}/resources/twitter-research.json`,
+  );
 }

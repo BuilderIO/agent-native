@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { getIdToken } from "@/lib/auth";
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { requestUserInfo } from "@/lib/user-info";
 
 const APP_NAME = "analytics";
@@ -10,7 +14,9 @@ export function FeedbackButton() {
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
-  const [userInfo, setUserInfo] = useState<{ name?: string; email?: string }>({});
+  const [userInfo, setUserInfo] = useState<{ name?: string; email?: string }>(
+    {},
+  );
 
   async function handleOpen(v: boolean) {
     setOpen(v);
@@ -69,7 +75,9 @@ export function FeedbackButton() {
         <div className="relative">
           {sent && (
             <div className="absolute inset-0 flex items-center justify-center bg-popover z-10 animate-in fade-in duration-200">
-              <p className="text-sm text-green-500">Thanks for your feedback!</p>
+              <p className="text-sm text-green-500">
+                Thanks for your feedback!
+              </p>
             </div>
           )}
           <div className={sent ? "invisible" : ""}>
@@ -82,11 +90,14 @@ export function FeedbackButton() {
               rows={3}
               autoFocus
               onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSubmit();
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey))
+                  handleSubmit();
               }}
             />
             <div className="flex items-center justify-between mt-2">
-              <span className="text-[10px] text-muted-foreground">Cmd+Enter to send</span>
+              <span className="text-[10px] text-muted-foreground">
+                Cmd+Enter to send
+              </span>
               <button
                 onClick={handleSubmit}
                 disabled={!message.trim() || sending}

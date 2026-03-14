@@ -19,7 +19,10 @@ const FILTER_DEFS = {
   referrer: { type: "string[]" as const, default: [] as string[] },
   icpFlag: { type: "string[]" as const, default: [] as string[] },
   paidSubFlag: { type: "string[]" as const, default: [] as string[] },
-  subscriptionAfterSignup: { type: "string[]" as const, default: [] as string[] },
+  subscriptionAfterSignup: {
+    type: "string[]" as const,
+    default: [] as string[],
+  },
   spaceKind: { type: "string[]" as const, default: [] as string[] },
   urlContainsFigma: { type: "string[]" as const, default: [] as string[] },
   cadence: { type: "string" as const, default: "Weekly" },
@@ -33,62 +36,158 @@ export function SignupsByChannel() {
   const cadence = f.cadence as DateCadence;
   const viewBy = f.viewBy as ViewByOption;
 
-  const channelOpts = useFilterOptions("channel", "signups", f.dateStart, f.dateEnd);
-  const pageTypeOpts = useFilterOptions("page_type", "pageviews", f.dateStart, f.dateEnd);
-  const referrerOpts = useFilterOptions("referrer", "signups", f.dateStart, f.dateEnd);
+  const channelOpts = useFilterOptions(
+    "channel",
+    "signups",
+    f.dateStart,
+    f.dateEnd,
+  );
+  const pageTypeOpts = useFilterOptions(
+    "page_type",
+    "pageviews",
+    f.dateStart,
+    f.dateEnd,
+  );
+  const referrerOpts = useFilterOptions(
+    "referrer",
+    "signups",
+    f.dateStart,
+    f.dateEnd,
+  );
 
-  const filters = useMemo(() => ({
-    dateStart: f.dateStart,
-    dateEnd: f.dateEnd,
-    coalesceChannel: f.coalesceChannel,
-    pageType: f.pageType,
-    referrer: f.referrer,
-    icpFlag: f.icpFlag,
-    paidSubFlag: f.paidSubFlag,
-    subscriptionAfterSignup: f.subscriptionAfterSignup,
-    spaceKind: f.spaceKind,
-    urlContainsFigma: f.urlContainsFigma,
-  }), [f.dateStart, f.dateEnd, f.coalesceChannel, f.pageType, f.referrer, f.icpFlag, f.paidSubFlag, f.subscriptionAfterSignup, f.spaceKind, f.urlContainsFigma]);
+  const filters = useMemo(
+    () => ({
+      dateStart: f.dateStart,
+      dateEnd: f.dateEnd,
+      coalesceChannel: f.coalesceChannel,
+      pageType: f.pageType,
+      referrer: f.referrer,
+      icpFlag: f.icpFlag,
+      paidSubFlag: f.paidSubFlag,
+      subscriptionAfterSignup: f.subscriptionAfterSignup,
+      spaceKind: f.spaceKind,
+      urlContainsFigma: f.urlContainsFigma,
+    }),
+    [
+      f.dateStart,
+      f.dateEnd,
+      f.coalesceChannel,
+      f.pageType,
+      f.referrer,
+      f.icpFlag,
+      f.paidSubFlag,
+      f.subscriptionAfterSignup,
+      f.spaceKind,
+      f.urlContainsFigma,
+    ],
+  );
 
   const chartSql = useMemo(
     () => signupCentricChartQuery(cadence, viewBy, filters),
-    [cadence, viewBy, filters]
+    [cadence, viewBy, filters],
   );
 
   const chartData = useMetricsQuery(["sc-chart", chartSql], chartSql);
 
-  const activeFilterCount = [f.coalesceChannel, f.pageType, f.referrer, f.icpFlag, f.paidSubFlag, f.subscriptionAfterSignup, f.urlContainsFigma].filter(a => a.length > 0).length;
+  const activeFilterCount = [
+    f.coalesceChannel,
+    f.pageType,
+    f.referrer,
+    f.icpFlag,
+    f.paidSubFlag,
+    f.subscriptionAfterSignup,
+    f.urlContainsFigma,
+  ].filter((a) => a.length > 0).length;
 
   return (
     <div className="space-y-3">
       {/* Unified Filters */}
       <div className="rounded-lg border border-border p-3 space-y-2">
         <div className="flex flex-wrap gap-3 items-end">
-          <DateRangeInput label="User Create Date" startDate={f.dateStart} endDate={f.dateEnd} onStartChange={(v) => setF("dateStart", v)} onEndChange={(v) => setF("dateEnd", v)} />
-          <ViewByControls cadence={cadence} onCadenceChange={(v) => setF("cadence", v)} viewBy={viewBy} onViewByChange={(v) => setF("viewBy", v)} />
+          <DateRangeInput
+            label="User Create Date"
+            startDate={f.dateStart}
+            endDate={f.dateEnd}
+            onStartChange={(v) => setF("dateStart", v)}
+            onEndChange={(v) => setF("dateEnd", v)}
+          />
+          <ViewByControls
+            cadence={cadence}
+            onCadenceChange={(v) => setF("cadence", v)}
+            viewBy={viewBy}
+            onViewByChange={(v) => setF("viewBy", v)}
+          />
           <button
             onClick={() => setFiltersExpanded(!filtersExpanded)}
             className="flex items-center gap-1 h-8 px-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
-            {filtersExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-            More filters{activeFilterCount > 0 && <span className="ml-1 text-[10px] bg-primary/20 text-primary rounded px-1">{activeFilterCount}</span>}
+            {filtersExpanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+            More filters
+            {activeFilterCount > 0 && (
+              <span className="ml-1 text-[10px] bg-primary/20 text-primary rounded px-1">
+                {activeFilterCount}
+              </span>
+            )}
           </button>
         </div>
 
         {filtersExpanded && (
           <div className="pt-2 border-t border-border/50 space-y-3">
             <div className="flex flex-wrap gap-3 items-end">
-              <MultiSelect label="Channel" options={channelOpts.options} value={f.coalesceChannel} onChange={(v) => setF("coalesceChannel", v)} isLoading={channelOpts.isLoading} />
-              <MultiSelect label="Page Type" options={pageTypeOpts.options} value={f.pageType} onChange={(v) => setF("pageType", v)} isLoading={pageTypeOpts.isLoading} />
-              <MultiSelect label="Referrer" options={referrerOpts.options} value={f.referrer} onChange={(v) => setF("referrer", v)} isLoading={referrerOpts.isLoading} />
-              <MultiSelect label="ICP Flag" options={["True", "False"]} value={f.icpFlag} onChange={(v) => setF("icpFlag", v)} />
-              <MultiSelect label="Paid Sub Flag" options={["True", "False"]} value={f.paidSubFlag} onChange={(v) => setF("paidSubFlag", v)} />
-              <MultiSelect label="Sub After Signup" options={["True", "False", "null"]} value={f.subscriptionAfterSignup} onChange={(v) => setF("subscriptionAfterSignup", v)} />
-              <MultiSelect label="URL Contains Figma" options={["True", "False"]} value={f.urlContainsFigma} onChange={(v) => setF("urlContainsFigma", v)} />
+              <MultiSelect
+                label="Channel"
+                options={channelOpts.options}
+                value={f.coalesceChannel}
+                onChange={(v) => setF("coalesceChannel", v)}
+                isLoading={channelOpts.isLoading}
+              />
+              <MultiSelect
+                label="Page Type"
+                options={pageTypeOpts.options}
+                value={f.pageType}
+                onChange={(v) => setF("pageType", v)}
+                isLoading={pageTypeOpts.isLoading}
+              />
+              <MultiSelect
+                label="Referrer"
+                options={referrerOpts.options}
+                value={f.referrer}
+                onChange={(v) => setF("referrer", v)}
+                isLoading={referrerOpts.isLoading}
+              />
+              <MultiSelect
+                label="ICP Flag"
+                options={["True", "False"]}
+                value={f.icpFlag}
+                onChange={(v) => setF("icpFlag", v)}
+              />
+              <MultiSelect
+                label="Paid Sub Flag"
+                options={["True", "False"]}
+                value={f.paidSubFlag}
+                onChange={(v) => setF("paidSubFlag", v)}
+              />
+              <MultiSelect
+                label="Sub After Signup"
+                options={["True", "False", "null"]}
+                value={f.subscriptionAfterSignup}
+                onChange={(v) => setF("subscriptionAfterSignup", v)}
+              />
+              <MultiSelect
+                label="URL Contains Figma"
+                options={["True", "False"]}
+                value={f.urlContainsFigma}
+                onChange={(v) => setF("urlContainsFigma", v)}
+              />
             </div>
             <p className="text-[11px] text-muted-foreground/70 flex items-center gap-1">
               <Info className="h-3 w-3 flex-shrink-0" />
-              Signup-centric — includes ALL product signups, even those without tracked pageviews.
+              Signup-centric — includes ALL product signups, even those without
+              tracked pageviews.
             </p>
           </div>
         )}

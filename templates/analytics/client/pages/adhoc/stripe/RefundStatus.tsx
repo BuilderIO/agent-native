@@ -95,9 +95,7 @@ export function RefundStatus({ refunds }: { refunds: StripeRefund[] }) {
               <TableCell className="text-xs text-right font-medium">
                 {formatCurrency(r.amount, r.currency)}
               </TableCell>
-              <TableCell className="text-xs">
-                {reasonLabel(r.reason)}
-              </TableCell>
+              <TableCell className="text-xs">{reasonLabel(r.reason)}</TableCell>
               <TableCell>
                 <Badge
                   variant="outline"

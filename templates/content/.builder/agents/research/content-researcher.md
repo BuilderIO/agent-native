@@ -86,6 +86,7 @@ If `seed_detected: true`, load the Seed Research skill and ingest seed content B
 #### Step 1: Spawn Parallel Research Sub-Agents
 
 **Launch all groups in a single message with multiple Task calls.** Each sub-agent is a `general-purpose` Task that:
+
 - Receives the shared context block + group-specific instructions
 - Follows the corresponding Content Research skill step(s)
 - Writes findings to its designated artifact file
@@ -93,20 +94,21 @@ If `seed_detected: true`, load the Seed Research skill and ingest seed content B
 
 **For comparison posts:** Each sub-agent prompt includes the 3 query sets (comparison + subject A + subject B). The sub-agent runs all 3 within its group. Parallelism is across groups, not within groups.
 
-| Group | Sources | Content Research Skill Step(s) | Output File |
-|:-----:|:--------|:-------------------------------|:------------|
-| A | Official docs (WebFetch) | Step 1 | `phases/04-research-group-a.yaml` |
-| B | Hacker News (Algolia API) | Step 2 | `phases/04-research-group-b.yaml` |
-| C | Reddit (WebSearch indirect) | Step 7 | `phases/04-research-group-c.yaml` |
-| D | X/Twitter (WebSearch) | Step 3 | `phases/04-research-group-d.yaml` |
-| E | YouTube (MCP/npm/WebSearch) | Step 4 | `phases/04-research-group-e.yaml` |
-| F | Stack Overflow + LLM patterns | Steps 5-6 | `phases/04-research-group-f.yaml` |
+| Group | Sources                       | Content Research Skill Step(s) | Output File                       |
+| :---: | :---------------------------- | :----------------------------- | :-------------------------------- |
+|   A   | Official docs (WebFetch)      | Step 1                         | `phases/04-research-group-a.yaml` |
+|   B   | Hacker News (Algolia API)     | Step 2                         | `phases/04-research-group-b.yaml` |
+|   C   | Reddit (WebSearch indirect)   | Step 7                         | `phases/04-research-group-c.yaml` |
+|   D   | X/Twitter (WebSearch)         | Step 3                         | `phases/04-research-group-d.yaml` |
+|   E   | YouTube (MCP/npm/WebSearch)   | Step 4                         | `phases/04-research-group-e.yaml` |
+|   F   | Stack Overflow + LLM patterns | Steps 5-6                      | `phases/04-research-group-f.yaml` |
 
 **Trending mode:** Spawn groups A, B, C, D, E only (skip F -- SO/LLM have no data for new topics). Reddit (group C) runs best-effort.
 
 **Resume support:** Before spawning, check which `phases/04-research-group-*.yaml` files already exist. Only spawn groups whose files are missing or contain `status: failed`.
 
 Each sub-agent prompt includes:
+
 - The shared context block (topic, keywords, timing, comparison info, tool availability)
 - Seed summary (if seed was ingested)
 - The specific research instructions for its group
@@ -121,6 +123,7 @@ Each sub-agent prompt includes:
 After all sub-agents return, read all `phases/04-research-group-*.yaml` files. This is the most important step -- raw research is not useful, the synthesis makes the post differentiated.
 
 **Handle missing or failed groups gracefully:**
+
 - Missing group file = source was skipped or failed. Note the gap in `research-notes.md`.
 - Group file with `status: failed` = attempted but unsuccessful. Note partial findings if any.
 - Group file with unexpected fields = preserve them in the synthesis.
@@ -146,6 +149,7 @@ Execute the Outline Creation skill end-to-end. The outline translates research i
 **Step 4: Select copywriting framework** -- PAS for acquisition/pain-point topics, AIDA for product-focused, Before-After-Bridge for how-to/transformation narratives.
 
 **Step 5: Build section structure with AEO headings** -- the core of the outline:
+
 - Transform declarative headings into question form for AEO optimization
 - Target 40-70 characters per heading (max 80)
 - Include primary keyword in at least 2 headings
@@ -155,6 +159,7 @@ Execute the Outline Creation skill end-to-end. The outline translates research i
 **Step 6: Plan FAQ section** -- select 3-5 questions from PAA (evergreen) or social discussion (trending). Write 40-60 word answers for each.
 
 **Step 7: Plan content goal section** -- apply content goal routing:
+
 - Awareness: no Builder.io section
 - Acquisition: Builder.io section placed per integration pattern
 - Hybrid: light CTA section
@@ -174,6 +179,7 @@ Present the research findings and proposed outline to the user. Include:
 5. **Open questions:** Anything that needs user input before drafting begins
 
 This is Gate 2 in the `/content-blog` pipeline. The user can:
+
 - **Approve** -- proceed to drafting
 - **Modify** -- request changes to the outline (re-run from Phase 4 Step 5)
 - **Regenerate** -- request a new outline with a different angle
@@ -186,6 +192,7 @@ When `content_timing: trending`, research adapts with a narrow skip strategy. Mo
 ### What Changes in Phase 3 (Research)
 
 **Sources that run:**
+
 - Official docs (PRIMARY -- announcement post, release notes, API docs, changelog)
 - Hacker News (SECONDARY -- threads appear within hours of major announcements)
 - X/Twitter (SECONDARY -- immediate developer reaction and sentiment)
@@ -194,6 +201,7 @@ When `content_timing: trending`, research adapts with a narrow skip strategy. Mo
 - Related prior art (IF APPLICABLE -- research predecessor topic for context)
 
 **Sources that are skipped:**
+
 - Stack Overflow -- no questions exist yet
 - LLM query patterns -- not indexed yet
 - Ahrefs competitive data -- no metrics exist yet

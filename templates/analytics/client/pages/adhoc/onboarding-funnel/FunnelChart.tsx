@@ -18,17 +18,21 @@ interface FunnelStep {
 export function FunnelChart({ dateStart, dateEnd }: FunnelChartProps) {
   const { data, isLoading, error } = useMetricsQuery(
     ["funnel-overview", dateStart, dateEnd],
-    getFunnelOverviewQuery(dateStart, dateEnd)
+    getFunnelOverviewQuery(dateStart, dateEnd),
   );
 
   if (error) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Onboarding Funnel Overview</CardTitle>
+          <CardTitle className="text-base">
+            Onboarding Funnel Overview
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-sm text-destructive">Error loading funnel data: {data?.error || String(error)}</div>
+          <div className="text-sm text-destructive">
+            Error loading funnel data: {data?.error || String(error)}
+          </div>
         </CardContent>
       </Card>
     );
@@ -38,7 +42,9 @@ export function FunnelChart({ dateStart, dateEnd }: FunnelChartProps) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Onboarding Funnel Overview</CardTitle>
+          <CardTitle className="text-base">
+            Onboarding Funnel Overview
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
@@ -51,7 +57,9 @@ export function FunnelChart({ dateStart, dateEnd }: FunnelChartProps) {
     );
   }
 
-  const steps = (data.rows as unknown as FunnelStep[]).sort((a, b) => a.step_order - b.step_order);
+  const steps = (data.rows as unknown as FunnelStep[]).sort(
+    (a, b) => a.step_order - b.step_order,
+  );
   const maxUsers = steps[0]?.users || 1;
 
   return (
@@ -66,10 +74,12 @@ export function FunnelChart({ dateStart, dateEnd }: FunnelChartProps) {
         <div className="space-y-3">
           {steps.map((step, idx) => {
             const prevUsers = idx > 0 ? steps[idx - 1].users : step.users;
-            const conversionRate = prevUsers > 0 ? (step.users / prevUsers) * 100 : 100;
+            const conversionRate =
+              prevUsers > 0 ? (step.users / prevUsers) * 100 : 100;
             const overallRate = (step.users / maxUsers) * 100;
             const dropoffCount = prevUsers - step.users;
-            const dropoffRate = prevUsers > 0 ? ((prevUsers - step.users) / prevUsers) * 100 : 0;
+            const dropoffRate =
+              prevUsers > 0 ? ((prevUsers - step.users) / prevUsers) * 100 : 0;
 
             return (
               <div key={step.step} className="space-y-1">
@@ -79,7 +89,8 @@ export function FunnelChart({ dateStart, dateEnd }: FunnelChartProps) {
                     {idx > 0 && dropoffCount > 0 && (
                       <span className="flex items-center gap-1 text-xs text-orange-600">
                         <TrendingDown className="h-3 w-3" />
-                        {dropoffCount.toLocaleString()} dropped (-{dropoffRate.toFixed(1)}%)
+                        {dropoffCount.toLocaleString()} dropped (-
+                        {dropoffRate.toFixed(1)}%)
                       </span>
                     )}
                   </div>
@@ -111,14 +122,20 @@ export function FunnelChart({ dateStart, dateEnd }: FunnelChartProps) {
         <div className="mt-6 pt-4 border-t border-border grid grid-cols-3 gap-4">
           <div>
             <div className="text-xs text-muted-foreground">Total Started</div>
-            <div className="text-2xl font-bold">{steps[0]?.users.toLocaleString()}</div>
+            <div className="text-2xl font-bold">
+              {steps[0]?.users.toLocaleString()}
+            </div>
           </div>
           <div>
             <div className="text-xs text-muted-foreground">Completed</div>
-            <div className="text-2xl font-bold">{steps[steps.length - 1]?.users.toLocaleString()}</div>
+            <div className="text-2xl font-bold">
+              {steps[steps.length - 1]?.users.toLocaleString()}
+            </div>
           </div>
           <div>
-            <div className="text-xs text-muted-foreground">Overall Completion Rate</div>
+            <div className="text-xs text-muted-foreground">
+              Overall Completion Rate
+            </div>
             <div className="text-2xl font-bold text-blue-600">
               {((steps[steps.length - 1]?.users / maxUsers) * 100).toFixed(1)}%
             </div>

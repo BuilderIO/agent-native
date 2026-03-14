@@ -40,18 +40,18 @@ Check that the selected folder contains the required artifacts:
 
 Load these files at the start of the polish session:
 
-| File | Purpose | Required |
-|------|---------|----------|
-| `post.md` | The post to polish | Yes |
-| `outline.md` | Structural reference (heading budgets, hook type) | Yes |
-| `phases/01-topic-validation.yaml` | content_goal, content_timing | Yes |
-| `phases/02-keyword-research.yaml` | Primary/secondary keywords | Yes |
-| `phases/05-outline-creation.yaml` | Post type, word count target | Yes |
-| `phases/08-seo-optimization.yaml` | SEO metadata, internal/external links | Yes |
-| `phases/09-aeo-optimization.yaml` | AEO headings, answer-first blocks, quote-ready blocks | Yes |
-| `seed/keywords.txt` | SurferSEO keyword density targets | No (if missing, skip density checks) |
-| `seed/ai-search.txt` | AI search queries and raw facts | No (if missing, skip AI search checks) |
-| `.content-style-guide.md` (project root) | Local style guide override | No (use project default if missing) |
+| File                                     | Purpose                                               | Required                               |
+| ---------------------------------------- | ----------------------------------------------------- | -------------------------------------- |
+| `post.md`                                | The post to polish                                    | Yes                                    |
+| `outline.md`                             | Structural reference (heading budgets, hook type)     | Yes                                    |
+| `phases/01-topic-validation.yaml`        | content_goal, content_timing                          | Yes                                    |
+| `phases/02-keyword-research.yaml`        | Primary/secondary keywords                            | Yes                                    |
+| `phases/05-outline-creation.yaml`        | Post type, word count target                          | Yes                                    |
+| `phases/08-seo-optimization.yaml`        | SEO metadata, internal/external links                 | Yes                                    |
+| `phases/09-aeo-optimization.yaml`        | AEO headings, answer-first blocks, quote-ready blocks | Yes                                    |
+| `seed/keywords.txt`                      | SurferSEO keyword density targets                     | No (if missing, skip density checks)   |
+| `seed/ai-search.txt`                     | AI search queries and raw facts                       | No (if missing, skip AI search checks) |
+| `.content-style-guide.md` (project root) | Local style guide override                            | No (use project default if missing)    |
 
 **Keyword file format:** `seed/keywords.txt` uses `keyword phrase: min-max` per line (e.g., `cursor and claude code: 4-8`). If the file contains only plain keywords (one per line, no ranges), skip density threshold checks and report raw counts only.
 
@@ -61,19 +61,19 @@ Read `content_goal` and `content_timing` from `phases/01-topic-validation.yaml`.
 
 **Content goal behavior:**
 
-| Content Goal | Polish Behavior |
-|-------------|-----------------|
-| `awareness` | Standard micro-rules. Flag any promotional Builder.io mentions that crept in (product pitches, dedicated sections, CTAs). Internal links to Builder.io blog posts are fine. |
-| `acquisition` | Standard micro-rules. Builder.io integration section receives standard style checks but preserve product messaging intent. |
-| `hybrid` | Standard micro-rules. Verify Builder.io CTA remains in conclusion only, not scattered in body sections. |
+| Content Goal  | Polish Behavior                                                                                                                                                             |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `awareness`   | Standard micro-rules. Flag any promotional Builder.io mentions that crept in (product pitches, dedicated sections, CTAs). Internal links to Builder.io blog posts are fine. |
+| `acquisition` | Standard micro-rules. Builder.io integration section receives standard style checks but preserve product messaging intent.                                                  |
+| `hybrid`      | Standard micro-rules. Verify Builder.io CTA remains in conclusion only, not scattered in body sections.                                                                     |
 
 **Trending mode:**
 
-| Aspect | Behavior |
-|--------|----------|
-| Style guide micro-rules | Full enforcement (AI patterns must be caught regardless of timing) |
-| Keyword density | Skip if no `seed/keywords.txt` (trending posts often have no SurferSEO data) |
-| SEO/AEO integrity | Full checks (AEO is especially important for trending topics) |
+| Aspect                  | Behavior                                                                     |
+| ----------------------- | ---------------------------------------------------------------------------- |
+| Style guide micro-rules | Full enforcement (AI patterns must be caught regardless of timing)           |
+| Keyword density         | Skip if no `seed/keywords.txt` (trending posts often have no SurferSEO data) |
+| SEO/AEO integrity       | Full checks (AEO is especially important for trending topics)                |
 
 **Comparison post detection:** Read `post_type` from `phases/05-outline-creation.yaml`. If the post is a comparison type, flag extra Rule 11 (contrastive pattern) vigilance -- comparison structure naturally invites "but", "not", negative framing.
 
@@ -86,6 +86,7 @@ The feedback ledger is a session-scoped list of editorial patterns that accumula
 ### Ledger Entry Format
 
 Each entry contains:
+
 - **label**: Short description (e.g., "Overclaim softening")
 - **search_terms**: List of strings/patterns to scan for (e.g., ["most valuable", "highest-leverage", "most important"])
 - **action**: What to do when found (e.g., "Replace with comparative framing")
@@ -99,6 +100,7 @@ Each entry contains:
 When the user provides observations, extract the underlying editorial principle and create a ledger entry. Ask the user to confirm the extracted pattern before adding it to the ledger:
 
 "I'll watch for this pattern in future sections:
+
 - Pattern: [label]
 - Looking for: [search_terms]
 - Action: [action]
@@ -110,6 +112,7 @@ Use **AskUserQuestion**:
 **Question:** "Add this pattern to the feedback ledger for future sections?"
 
 **Options:**
+
 1. **Yes** -- Add to ledger
 2. **Adjust** -- User refines the pattern (via free text)
 3. **Skip** -- Don't add to ledger (one-off fix only)
@@ -125,6 +128,7 @@ Use **AskUserQuestion**:
 **Question:** "You've skipped [Rule X] edits twice now. Want me to stop flagging these?"
 
 **Options:**
+
 1. **Yes, stop flagging** -- Add suppression entry to ledger
 2. **No, keep flagging** -- Continue proposing these edits
 3. **Case by case** -- No ledger entry (keep deciding per instance)
@@ -140,6 +144,7 @@ The ledger starts empty at session start. It persists for the duration of the po
 Strip YAML frontmatter (everything between opening `---` and closing `---`) before sectioning. Frontmatter is non-editable content -- only modified during the final audit (status, word_count). Exclude fenced code blocks (` ``` `) and inline code from style rule scanning.
 
 Split the remaining body on H2 headings. Label sections as:
+
 - **"Introduction"** -- text before the first H2 (may be empty if post starts with H2)
 - **"[H2 heading text]"** -- each H2 section including its content up to the next H2
 - **"Conclusion"** -- text after the last H2 if it exists separately; if the last H2 IS the conclusion (e.g., `## Conclusion`), treat it as a regular H2 section
@@ -149,6 +154,7 @@ For each section, run these steps:
 ### Step 0: Feedback Ledger Scan
 
 If the feedback ledger is non-empty:
+
 1. For each `user_feedback` entry: scan the section text for any search_terms matches (case-insensitive)
 2. For each match: create a proposed edit with a `[Prior feedback]` prefix and the entry's action as the recommendation
 3. For each `suppression` entry: if the corresponding rule would normally flag something in this section, suppress it (do not include in the Step A proposed edits list)
@@ -161,22 +167,23 @@ If the feedback ledger is empty (e.g., first section), skip this step.
 
 Run these checks against the section text (from content-editing Step 4b + style guide hard rules). Exclude code blocks and inline code.
 
-| Rule | Search Pattern | Action |
-|------|---------------|--------|
-| Rule 3 (short paragraphs) | Paragraphs with >3 sentences | Split at idea boundaries |
-| Rule 5 (em dashes) | `---`, `—` in prose (not code) | Replace with period, comma, or restructure |
-| Rule 9 (filler adverbs) | "very", "really", "actually", "basically", "essentially", "genuinely", "truly" | Cut or replace with specific detail |
-| Rule 10 (contractions) | "do not", "it is", "you will", "cannot" in running prose (not code) | Contract: "don't", "it's", "you'll", "can't" |
-| Rule 11 (contrastive) | "but ", "not ", "no ", "lack", "without ", "instead of", "rather than" in contrastive frame | Rewrite affirmatively |
-| Rule 12 (rhetorical questions) | Sentences ending with "?" that are not H2/H3 AEO headings | Rewrite as statements |
-| Rule 13 (colon-as-em-dash) | Colons in prose (not code, not lists) introducing a restatement | Restructure to flow naturally |
-| Rule 15 (product name caps) | Lowercase product names placed for keyword density | Capitalize proper nouns while preserving keyword |
-| AI-voice (Category A-D) | Patterns from ai-voice-detection.md reference | Replace or cut per category tables |
-| Redundancy | Duplicate or near-duplicate sentences within the section | Flag for removal |
+| Rule                           | Search Pattern                                                                              | Action                                           |
+| ------------------------------ | ------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| Rule 3 (short paragraphs)      | Paragraphs with >3 sentences                                                                | Split at idea boundaries                         |
+| Rule 5 (em dashes)             | `---`, `—` in prose (not code)                                                              | Replace with period, comma, or restructure       |
+| Rule 9 (filler adverbs)        | "very", "really", "actually", "basically", "essentially", "genuinely", "truly"              | Cut or replace with specific detail              |
+| Rule 10 (contractions)         | "do not", "it is", "you will", "cannot" in running prose (not code)                         | Contract: "don't", "it's", "you'll", "can't"     |
+| Rule 11 (contrastive)          | "but ", "not ", "no ", "lack", "without ", "instead of", "rather than" in contrastive frame | Rewrite affirmatively                            |
+| Rule 12 (rhetorical questions) | Sentences ending with "?" that are not H2/H3 AEO headings                                   | Rewrite as statements                            |
+| Rule 13 (colon-as-em-dash)     | Colons in prose (not code, not lists) introducing a restatement                             | Restructure to flow naturally                    |
+| Rule 15 (product name caps)    | Lowercase product names placed for keyword density                                          | Capitalize proper nouns while preserving keyword |
+| AI-voice (Category A-D)        | Patterns from ai-voice-detection.md reference                                               | Replace or cut per category tables               |
+| Redundancy                     | Duplicate or near-duplicate sentences within the section                                    | Flag for removal                                 |
 
 ### Step B: Keyword Density Check (if seed/keywords.txt exists)
 
 For each proposed edit in Step A, check if it removes or changes a keyword instance. If it does:
+
 - Count remaining occurrences of that keyword in the full post (re-read from the current state of `post.md`, which reflects all previously applied edits)
 - Compare against the target range from seed/keywords.txt
 - If the edit would drop the keyword below the target minimum, flag it: "This edit removes 1 instance of '[keyword]'. Current count: N, target: M-P. Consider preserving the keyword in the rewrite."
@@ -186,6 +193,7 @@ For each proposed edit in Step A, check if it removes or changes a keyword insta
 ### Step C: SEO/AEO Integrity Check
 
 Quick verification that the section still has:
+
 - Answer-first block intact (if this is an AEO heading section)
 - Quote-ready blocks intact (standalone, concise answers)
 - Internal/external links preserved
@@ -202,12 +210,14 @@ Use **AskUserQuestion**:
 **Question:** "Section: [H2 heading]. No issues found. Want to review?"
 
 **Options:**
+
 1. **Move on** -- Advance to next section
 2. **My feedback** -- Provide observations for this section (added to ledger for future sections)
 
 If "My feedback": follow the same flow as "My edits" in Step E below.
 
 **If the section has proposed edits**, show the user:
+
 1. A numbered list of proposed changes with before/after for each (ledger-sourced edits marked `[Prior feedback]` appear first)
 2. Any keyword density warnings
 3. Any SEO/AEO integrity notes
@@ -219,6 +229,7 @@ Use **AskUserQuestion**:
 **Question:** "Section: [H2 heading]. [N] edits proposed. How do you want to proceed?"
 
 **Options:**
+
 1. **Apply all** -- Apply all proposed edits
 2. **Apply selectively** -- User specifies which edits to apply (comma-separated numbers, e.g., "1, 3, 5")
 3. **Skip** -- Move to next section without changes
@@ -227,6 +238,7 @@ Use **AskUserQuestion**:
 **If "Apply selectively":** User provides edit numbers via the Other/free-text option. Invalid numbers are ignored with a warning. Apply only the specified edits. Track which rule categories were rejected (skipped edits). If the same rule category is rejected 2+ times across any sections, trigger the suppression prompt from the Feedback Ledger section above.
 
 **If "My edits" or "My feedback":** After applying user changes:
+
 1. Re-run Steps A-C on the modified section to catch any new violations introduced. Present any new findings. Loop until clean or user says "move on."
 2. After the section is finalized, extract the editorial principle behind the user's changes and propose a ledger entry using the confirmation flow from the Feedback Ledger section above. If the user's changes are purely mechanical (typo fixes, word swaps with no pattern), skip the ledger extraction.
 
@@ -356,6 +368,7 @@ Use **AskUserQuestion** to present options:
 **Question:** "Post is polished. What would you like to do next?"
 
 **Options:**
+
 1. **Resolve teammate feedback** -- Run `/content-revise` to address teammate comments
 2. **Capture learnings** -- Run `/content-compound` on this post to document what worked and what didn't
 3. **View the post** -- Read `post.md` for final review
@@ -366,23 +379,31 @@ Use **AskUserQuestion** to present options:
 ## Error Handling
 
 ### Style Guide Load Failure
+
 If neither the project default style guide nor the local `.content-style-guide.md` override can be loaded:
+
 1. Announce the failure to the user
 2. Stop the pipeline -- polish cannot run without style guide rules
 
 ### File Write Failure
+
 If `post.md` cannot be written after a section:
+
 1. Announce the failure
 2. Stop the pipeline
 3. Progress up to the last successful write is preserved in `post.md`
 
 ### Malformed Seed Keywords
+
 If `seed/keywords.txt` cannot be parsed:
+
 1. Warn the user: "Could not parse seed/keywords.txt. Skipping keyword density checks."
 2. Continue the polish loop without density checks
 
 ### Section Loop Interruption
+
 If the user stops mid-session or the context window is exhausted:
+
 - All edits applied up to the last completed section are preserved in `post.md`
 - Re-running `/content-polish` on the same folder will re-scan all sections (the feedback ledger is session-scoped and does not persist across sessions, so all sections are re-evaluated fresh)
 - Previously applied edits remain in `post.md`, so clean sections will present "no issues" and the user can move on quickly

@@ -2,8 +2,18 @@ import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import {
-  ArrowLeft, Play, Layout, Code, Eye, PanelLeft,
-  ImageIcon, Share2, History, Undo2, Redo2, FolderOpen,
+  ArrowLeft,
+  Play,
+  Layout,
+  Code,
+  Eye,
+  PanelLeft,
+  ImageIcon,
+  Share2,
+  History,
+  Undo2,
+  Redo2,
+  FolderOpen,
   Settings,
 } from "lucide-react";
 import type { Slide, SlideLayout } from "@/context/DeckContext";
@@ -79,8 +89,10 @@ function ToolbarPopover({
     if (!open) return;
     const handleClick = (e: MouseEvent) => {
       if (
-        menuRef.current && !menuRef.current.contains(e.target as Node) &&
-        anchorRef.current && !anchorRef.current.contains(e.target as Node)
+        menuRef.current &&
+        !menuRef.current.contains(e.target as Node) &&
+        anchorRef.current &&
+        !anchorRef.current.contains(e.target as Node)
       ) {
         onClose();
       }
@@ -133,7 +145,9 @@ export default function EditorToolbar({
   const [layoutOpen, setLayoutOpen] = useState(false);
   const layoutRef = useRef<HTMLButtonElement>(null);
 
-  const closeAll = () => { setLayoutOpen(false); };
+  const closeAll = () => {
+    setLayoutOpen(false);
+  };
 
   return (
     <div className="h-12 border-b border-white/[0.06] bg-[hsl(240,5%,6%)] flex items-center px-2 sm:px-3 gap-1.5 sm:gap-2 overflow-x-auto">
@@ -179,7 +193,10 @@ export default function EditorToolbar({
         <>
           <button
             ref={layoutRef}
-            onClick={() => { closeAll(); setLayoutOpen(!layoutOpen); }}
+            onClick={() => {
+              closeAll();
+              setLayoutOpen(!layoutOpen);
+            }}
             className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-xs transition-colors flex-shrink-0 ${
               layoutOpen
                 ? "text-white/80 bg-white/[0.06]"
@@ -189,10 +206,17 @@ export default function EditorToolbar({
           >
             <Settings className="w-3.5 h-3.5" />
           </button>
-          <ToolbarPopover open={layoutOpen} anchorRef={layoutRef} onClose={() => setLayoutOpen(false)} width={220}>
+          <ToolbarPopover
+            open={layoutOpen}
+            anchorRef={layoutRef}
+            onClose={() => setLayoutOpen(false)}
+            width={220}
+          >
             <div className="py-1.5">
               {/* Layout section */}
-              <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">Layout</div>
+              <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">
+                Layout
+              </div>
               {slideLayoutOptions.map((opt) => (
                 <button
                   key={opt.value}
@@ -212,7 +236,9 @@ export default function EditorToolbar({
 
               {/* Background section */}
               <div className="mx-2 my-1.5 border-t border-white/[0.06]" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">Background</div>
+              <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">
+                Background
+              </div>
               <div className="px-3 pb-2">
                 <div className="grid grid-cols-4 gap-2">
                   {backgroundOptions.map((bg, i) => (
@@ -233,10 +259,15 @@ export default function EditorToolbar({
 
               {/* Image & Assets section */}
               <div className="mx-2 my-1.5 border-t border-white/[0.06]" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">Media</div>
+              <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">
+                Media
+              </div>
               <button
                 ref={imageGenButtonRef}
-                onClick={() => { onGenerateImage(); setLayoutOpen(false); }}
+                onClick={() => {
+                  onGenerateImage();
+                  setLayoutOpen(false);
+                }}
                 className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-white/60 hover:text-white hover:bg-white/[0.04] transition-colors"
               >
                 <ImageIcon className="w-3 h-3" />
@@ -244,7 +275,10 @@ export default function EditorToolbar({
               </button>
               <button
                 ref={assetsButtonRef}
-                onClick={() => { onOpenAssetLibrary(); setLayoutOpen(false); }}
+                onClick={() => {
+                  onOpenAssetLibrary();
+                  setLayoutOpen(false);
+                }}
                 className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-white/60 hover:text-white hover:bg-white/[0.04] transition-colors"
               >
                 <FolderOpen className="w-3 h-3" />
@@ -283,7 +317,9 @@ export default function EditorToolbar({
         ref={historyButtonRef}
         onClick={onShowHistory}
         className={`p-1.5 rounded-md hover:bg-white/[0.06] transition-colors flex-shrink-0 ${
-          historyOpen ? "text-white/80 bg-white/[0.06]" : "text-white/40 hover:text-white/70"
+          historyOpen
+            ? "text-white/80 bg-white/[0.06]"
+            : "text-white/40 hover:text-white/70"
         }`}
         title="Edit history"
       >

@@ -24,7 +24,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
           size="sm"
           className={cn(
             "h-7 px-2 text-xs",
-            value === opt.value && "bg-accent text-accent-foreground"
+            value === opt.value && "bg-accent text-accent-foreground",
           )}
           onClick={() => onChange(opt.value)}
         >

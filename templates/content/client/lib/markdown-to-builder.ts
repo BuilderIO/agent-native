@@ -56,7 +56,11 @@ function escapeHtml(s: string): string {
 }
 
 function escapeAttr(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function makeTextBlock(html: string, marginTop = 20): BuilderBlock {
@@ -76,7 +80,7 @@ function makeTextBlock(html: string, marginTop = 20): BuilderBlock {
 function makeImageBlock(
   url: string,
   alt: string,
-  aspectRatio: number
+  aspectRatio: number,
 ): BuilderBlock {
   return {
     "@type": "@builder.io/sdk:Element",
@@ -148,7 +152,11 @@ function makeCodeBlock(code: string, language: string): BuilderBlock {
 }
 
 // Convert a list node to HTML
-function listToHtml(node: { type: "list"; ordered?: boolean | null; children: ListItem[] }): string {
+function listToHtml(node: {
+  type: "list";
+  ordered?: boolean | null;
+  children: ListItem[];
+}): string {
   const tag = node.ordered ? "ol" : "ul";
   const items = node.children
     .map((li) => {
@@ -180,9 +188,7 @@ function tableToHtml(node: { children: any[] }): string {
     const cells = row.children || [];
     cells.forEach((cell: any) => {
       const tag = rowIdx === 0 ? "th" : "td";
-      const content = cell.children
-        ? inlineToHtml(cell.children)
-        : "";
+      const content = cell.children ? inlineToHtml(cell.children) : "";
       html += `<${tag}>${content}</${tag}>`;
     });
     html += "</tr>";
@@ -191,7 +197,10 @@ function tableToHtml(node: { children: any[] }): string {
   return html;
 }
 
-function makeTableBlock(node: { children: any[], align?: Array<string | null> }): BuilderBlock {
+function makeTableBlock(node: {
+  children: any[];
+  align?: Array<string | null>;
+}): BuilderBlock {
   const rows = node.children;
   if (!rows.length) return makeTextBlock("");
 
@@ -200,7 +209,9 @@ function makeTableBlock(node: { children: any[], align?: Array<string | null> })
 
   const headColumns = (rows[0].children || []).map((cell: any, i: number) => {
     const col: any = {
-      label: cell.children ? inlineToHtml(cell.children).replace(/<[^>]+>/g, '') : "" // Strip HTML for labels
+      label: cell.children
+        ? inlineToHtml(cell.children).replace(/<[^>]+>/g, "")
+        : "", // Strip HTML for labels
     };
     if (alignments[i]) {
       col.align = alignments[i];
@@ -218,13 +229,15 @@ function makeTableBlock(node: { children: any[], align?: Array<string | null> })
           component: {
             name: "Text",
             options: {
-              text: cell.children ? `<p>${inlineToHtml(cell.children)}</p>` : "<p></p>"
+              text: cell.children
+                ? `<p>${inlineToHtml(cell.children)}</p>`
+                : "<p></p>",
             },
-            isRSC: null
-          }
-        }
-      ]
-    }))
+            isRSC: null,
+          },
+        },
+      ],
+    })),
   }));
 
   return {
@@ -235,7 +248,7 @@ function makeTableBlock(node: { children: any[], align?: Array<string | null> })
       options: {
         headColumns,
         bodyRows,
-        density: "comfortable"
+        density: "comfortable",
       },
     },
     responsiveStyles: {
@@ -301,10 +314,7 @@ async function nodeToBlocks(node: Content): Promise<BuilderBlock[]> {
 
     case "paragraph": {
       // Check if this paragraph is just an image or video
-      if (
-        node.children.length === 1 &&
-        node.children[0].type === "image"
-      ) {
+      if (node.children.length === 1 && node.children[0].type === "image") {
         const imgNode = node.children[0];
         if (isVideoUrl(imgNode.url)) {
           return [makeVideoBlock(imgNode.url, DEFAULT_ASPECT_RATIO)];
@@ -315,14 +325,16 @@ async function nodeToBlocks(node: Content): Promise<BuilderBlock[]> {
 
       // Check if paragraph consists entirely of HTML nodes that form a single video tag
       const textVal = inlineToHtml(node.children).trim();
-      const videoMatch = textVal.match(/^<video\s+[^>]*src="([^"]+)"[^>]*>[\s\S]*?<\/video>$/i);
+      const videoMatch = textVal.match(
+        /^<video\s+[^>]*src="([^"]+)"[^>]*>[\s\S]*?<\/video>$/i,
+      );
       if (videoMatch) {
         return [makeVideoBlock(videoMatch[1], DEFAULT_ASPECT_RATIO)];
       }
 
       // Handle paragraphs that contain a mix of images and text
       // We should split them into multiple blocks to avoid inline images in Text blocks
-      const hasImages = node.children.some(c => c.type === "image");
+      const hasImages = node.children.some((c) => c.type === "image");
       if (hasImages && node.children.length > 1) {
         const blocks: BuilderBlock[] = [];
         let currentTextNodes: PhrasingContent[] = [];
@@ -382,7 +394,7 @@ async function nodeToBlocks(node: Content): Promise<BuilderBlock[]> {
               return `<p>${inlineToHtml(child.children)}</p>`;
             }
             return "";
-          })
+          }),
         )
       ).join("");
       const block: BuilderBlock = {
@@ -434,7 +446,9 @@ async function nodeToBlocks(node: Content): Promise<BuilderBlock[]> {
 
     case "html": {
       if (node.value.trim()) {
-        const match = node.value.match(/^<video\s+[^>]*src="([^"]+)"[^>]*>[\s\S]*?<\/video>$/i);
+        const match = node.value.match(
+          /^<video\s+[^>]*src="([^"]+)"[^>]*>[\s\S]*?<\/video>$/i,
+        );
         if (match) {
           return [makeVideoBlock(match[1], DEFAULT_ASPECT_RATIO)];
         }
@@ -460,7 +474,7 @@ export interface MarkdownConversionResult {
 const conversionCache = new Map<string, Promise<MarkdownConversionResult>>();
 
 export async function markdownToBuilder(
-  markdown: string
+  markdown: string,
 ): Promise<MarkdownConversionResult> {
   if (conversionCache.has(markdown)) {
     return conversionCache.get(markdown)!;
@@ -512,7 +526,7 @@ export async function markdownToBuilder(
     // Pre-fetch all aspect ratios in parallel
     const uniqueUrls = new Set(imageUrls);
     await Promise.all(
-      Array.from(uniqueUrls).map(url => getCachedAspectRatio(url))
+      Array.from(uniqueUrls).map((url) => getCachedAspectRatio(url)),
     );
 
     // Second pass: convert to blocks
@@ -528,7 +542,9 @@ export async function markdownToBuilder(
 
     for (const block of rawBlocks) {
       const isText = block.component?.name === "Text";
-      const textHtml = isText ? (block.component?.options?.text as string || "") : "";
+      const textHtml = isText
+        ? (block.component?.options?.text as string) || ""
+        : "";
 
       // Skip blockquotes as they have custom styling
       const isStandardText = isText && !textHtml.startsWith("<blockquote");
@@ -595,33 +611,118 @@ export function estimateReadTime(wordCount: number): number {
 
 // Keyword-based topic/tag detection
 const TOPIC_KEYWORDS: Record<string, { keywords: string[]; tags: string[] }> = {
-  "AI": {
-    keywords: ["ai", "artificial intelligence", "machine learning", "llm", "gpt", "claude", "chatgpt", "copilot", "agent", "prompt", "neural", "deep learning", "generative"],
+  AI: {
+    keywords: [
+      "ai",
+      "artificial intelligence",
+      "machine learning",
+      "llm",
+      "gpt",
+      "claude",
+      "chatgpt",
+      "copilot",
+      "agent",
+      "prompt",
+      "neural",
+      "deep learning",
+      "generative",
+    ],
     tags: ["AI"],
   },
   "Developer Tools": {
-    keywords: ["developer", "coding", "programming", "ide", "terminal", "cli", "devtools", "sdk", "api", "framework", "library", "npm", "typescript", "javascript", "react", "nextjs", "vite", "webpack"],
+    keywords: [
+      "developer",
+      "coding",
+      "programming",
+      "ide",
+      "terminal",
+      "cli",
+      "devtools",
+      "sdk",
+      "api",
+      "framework",
+      "library",
+      "npm",
+      "typescript",
+      "javascript",
+      "react",
+      "nextjs",
+      "vite",
+      "webpack",
+    ],
     tags: ["Developer"],
   },
-  "Design": {
-    keywords: ["design", "figma", "ui", "ux", "visual", "layout", "typography", "color", "mockup", "prototype", "wireframe", "css", "tailwind", "styling"],
+  Design: {
+    keywords: [
+      "design",
+      "figma",
+      "ui",
+      "ux",
+      "visual",
+      "layout",
+      "typography",
+      "color",
+      "mockup",
+      "prototype",
+      "wireframe",
+      "css",
+      "tailwind",
+      "styling",
+    ],
     tags: ["Design"],
   },
-  "Performance": {
-    keywords: ["performance", "speed", "lighthouse", "core web vitals", "lcp", "cls", "fid", "optimization", "lazy load", "bundle size", "caching"],
+  Performance: {
+    keywords: [
+      "performance",
+      "speed",
+      "lighthouse",
+      "core web vitals",
+      "lcp",
+      "cls",
+      "fid",
+      "optimization",
+      "lazy load",
+      "bundle size",
+      "caching",
+    ],
     tags: ["Performance"],
   },
-  "CMS": {
-    keywords: ["cms", "headless", "content management", "builder.io", "contentful", "sanity", "strapi", "wordpress"],
+  CMS: {
+    keywords: [
+      "cms",
+      "headless",
+      "content management",
+      "builder.io",
+      "contentful",
+      "sanity",
+      "strapi",
+      "wordpress",
+    ],
     tags: ["CMS"],
   },
   "Product Management": {
-    keywords: ["product manager", "pm", "prd", "roadmap", "sprint", "agile", "stakeholder", "user research", "feature", "backlog", "jira", "linear"],
+    keywords: [
+      "product manager",
+      "pm",
+      "prd",
+      "roadmap",
+      "sprint",
+      "agile",
+      "stakeholder",
+      "user research",
+      "feature",
+      "backlog",
+      "jira",
+      "linear",
+    ],
     tags: ["Product"],
   },
 };
 
-export function detectTopicAndTags(title: string, content: string): { topic: string; tags: string[] } {
+export function detectTopicAndTags(
+  title: string,
+  content: string,
+): { topic: string; tags: string[] } {
   const text = `${title} ${content}`.toLowerCase();
   const scores: Record<string, number> = {};
   const allTags = new Set<string>();
@@ -630,7 +731,10 @@ export function detectTopicAndTags(title: string, content: string): { topic: str
     let score = 0;
     for (const kw of keywords) {
       // Count occurrences
-      const regex = new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
+      const regex = new RegExp(
+        `\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+        "gi",
+      );
       const matches = text.match(regex);
       if (matches) score += matches.length;
     }

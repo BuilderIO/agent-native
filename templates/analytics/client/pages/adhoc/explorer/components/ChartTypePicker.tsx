@@ -2,7 +2,11 @@ import { BarChart3, LineChart, Table2, Hash } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { ChartType } from "../types";
 
-const CHART_TYPES: { value: ChartType; label: string; icon: React.ReactNode }[] = [
+const CHART_TYPES: {
+  value: ChartType;
+  label: string;
+  icon: React.ReactNode;
+}[] = [
   { value: "line", label: "Line", icon: <LineChart className="h-4 w-4" /> },
   { value: "bar", label: "Bar", icon: <BarChart3 className="h-4 w-4" /> },
   { value: "table", label: "Table", icon: <Table2 className="h-4 w-4" /> },

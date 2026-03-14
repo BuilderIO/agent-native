@@ -17,12 +17,14 @@ Autonomous coding agents that attempt end-to-end task completion without human c
 **How competitors cluster:**
 
 **Cluster 1: Pure Autonomous Agents (Devin, Factory.ai)**
+
 - Fully autonomous, end-to-end task completion
 - No collaboration workspace or visual interface
 - Developer assigns work, waits for PR output
 - Designed for developer-only workflows
 
 **Cluster 2: Background Agent Features (Cursor Background Agents, Copilot Workspace)**
+
 - Autonomous features added to existing tools
 - Less ambitious scope than pure agents
 - Still code-only, no visual editing
@@ -108,12 +110,15 @@ Builder is not an autonomous agent but competes when organizations evaluate AI t
 **Note:** This category has no attributed customer wins yet. The following are based on industry feedback and expected patterns. Update when real competitive displacement deals close.
 
 **Industry feedback (unattributed):**
+
 > "We spent as much time reviewing and fixing Devin's PRs as we would have writing the code ourselves"
 
 **Industry feedback (unattributed):**
+
 > "It works for trivial tasks but anything complex requires so much rework"
 
 **Industry feedback (unattributed):**
+
 > "Our designers have no way to give feedback until the PR is done, then we throw it away and start over"
 
 **Expected pattern:** Organizations that tried autonomous agents and found output quality insufficient, requiring extensive rework on every PR.

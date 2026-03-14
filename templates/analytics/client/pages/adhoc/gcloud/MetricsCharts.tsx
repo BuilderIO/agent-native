@@ -53,7 +53,7 @@ function formatValue(val: number, metric: string): string {
 
 function seriesToChartData(
   timeSeries: MetricTimeSeries[],
-  period: TimePeriod
+  period: TimePeriod,
 ): { data: Record<string, unknown>[]; seriesNames: string[] } {
   if (!timeSeries.length) return { data: [], seriesNames: [] };
 
@@ -82,7 +82,7 @@ function seriesToChartData(
   }
 
   const data = Array.from(timeMap.values()).sort((a, b) =>
-    (a._ts as string).localeCompare(b._ts as string)
+    (a._ts as string).localeCompare(b._ts as string),
   );
 
   return { data, seriesNames };
@@ -114,7 +114,7 @@ function MetricChart({
     metric,
     period,
     type,
-    extraFilter
+    extraFilter,
   );
 
   const timeSeries = response?.timeSeries ?? [];
@@ -122,7 +122,7 @@ function MetricChart({
 
   const { data: chartData, seriesNames } = useMemo(
     () => seriesToChartData(timeSeries, period),
-    [timeSeries, period]
+    [timeSeries, period],
   );
 
   if (!service) {
@@ -161,9 +161,7 @@ function MetricChart({
 
   return (
     <div className="rounded-lg border border-border bg-card p-4">
-      <h3 className="text-sm font-medium text-card-foreground mb-3">
-        {title}
-      </h3>
+      <h3 className="text-sm font-medium text-card-foreground mb-3">{title}</h3>
       <ResponsiveContainer width="100%" height={280}>
         <ChartComponent data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -186,9 +184,7 @@ function MetricChart({
             }}
             formatter={(value: number) => [formatValue(value, metric), ""]}
           />
-          {seriesNames.length > 1 && (
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-          )}
+          {seriesNames.length > 1 && <Legend wrapperStyle={{ fontSize: 11 }} />}
           {seriesNames.map((name, i) => {
             const strokeColor = color || COLORS[i % COLORS.length];
             return chartType === "area" ? (
@@ -329,9 +325,7 @@ export function MetricsCharts({ service, period, type }: MetricsChartsProps) {
 function ChartSkeleton({ title }: { title: string }) {
   return (
     <div className="rounded-lg border border-border bg-card p-4">
-      <h3 className="text-sm font-medium text-card-foreground mb-3">
-        {title}
-      </h3>
+      <h3 className="text-sm font-medium text-card-foreground mb-3">{title}</h3>
       <div className="h-[280px] flex flex-col gap-3 pt-4">
         <div className="h-4 w-24 rounded bg-muted animate-pulse" />
         <div className="flex-1 rounded bg-muted/50 animate-pulse" />
@@ -349,9 +343,7 @@ function EmptyChart({
 }) {
   return (
     <div className="rounded-lg border border-border bg-card p-4">
-      <h3 className="text-sm font-medium text-card-foreground mb-3">
-        {title}
-      </h3>
+      <h3 className="text-sm font-medium text-card-foreground mb-3">{title}</h3>
       <div className="h-[280px] flex items-center justify-center">
         <div className="text-sm text-muted-foreground">{message}</div>
       </div>

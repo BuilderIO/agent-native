@@ -41,7 +41,8 @@ async function generateDescription(prompt: string) {
 
 export const generateMetaDescription: RequestHandler = async (req, res) => {
   try {
-    const { articleContent, projectSlug, title } = req.body as MetaDescriptionRequestBody;
+    const { articleContent, projectSlug, title } =
+      req.body as MetaDescriptionRequestBody;
 
     if (!projectSlug) {
       res.status(400).json({ error: "projectSlug is required" });
@@ -107,6 +108,8 @@ export const generateMetaDescription: RequestHandler = async (req, res) => {
     });
   } catch (err: any) {
     console.error("Meta description generation error:", err);
-    res.status(500).json({ error: err.message || "Meta description generation failed" });
+    res
+      .status(500)
+      .json({ error: err.message || "Meta description generation failed" });
   }
 };

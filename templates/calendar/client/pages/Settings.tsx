@@ -4,11 +4,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { ApiKeySettings } from "@agent-native/core/client";
 import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
-import { useGoogleAuthStatus, useGoogleAuthUrl, useDisconnectGoogle } from "@/hooks/use-google-auth";
+import {
+  useGoogleAuthStatus,
+  useGoogleAuthUrl,
+  useDisconnectGoogle,
+} from "@/hooks/use-google-auth";
 import { toast } from "sonner";
 
 export default function Settings() {
@@ -44,7 +54,7 @@ export default function Settings() {
       {
         onSuccess: () => toast.success("Settings saved"),
         onError: () => toast.error("Failed to save settings"),
-      }
+      },
     );
   }
 
@@ -145,9 +155,7 @@ export default function Settings() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">General</CardTitle>
-          <CardDescription>
-            Calendar and booking page settings.
-          </CardDescription>
+          <CardDescription>Calendar and booking page settings.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
@@ -182,7 +190,9 @@ export default function Settings() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="default-duration">Default Event Duration (minutes)</Label>
+            <Label htmlFor="default-duration">
+              Default Event Duration (minutes)
+            </Label>
             <Input
               id="default-duration"
               type="number"
@@ -193,10 +203,7 @@ export default function Settings() {
             />
           </div>
 
-          <Button
-            onClick={handleSave}
-            disabled={updateSettings.isPending}
-          >
+          <Button onClick={handleSave} disabled={updateSettings.isPending}>
             {updateSettings.isPending ? "Saving..." : "Save Settings"}
           </Button>
         </CardContent>

@@ -11,7 +11,9 @@ export function resetCompositionSettings(compositionId: string) {
   const tracksKey = `videos-tracks:${compositionId}`;
   const propsKey = `videos-props:${compositionId}`;
 
-  console.log(`[Reset] Clearing localStorage for composition: ${compositionId}`);
+  console.log(
+    `[Reset] Clearing localStorage for composition: ${compositionId}`,
+  );
 
   localStorage.removeItem(settingsKey);
   console.log(`[Reset] Removed ${settingsKey}`);
@@ -23,7 +25,9 @@ export function resetCompositionSettings(compositionId: string) {
   localStorage.removeItem(propsKey);
   console.log(`[Reset] Removed ${propsKey}`);
 
-  console.log('[Reset] ✅ Done! Please refresh the page to load fresh data from registry.');
+  console.log(
+    "[Reset] ✅ Done! Please refresh the page to load fresh data from registry.",
+  );
 }
 
 /**
@@ -38,7 +42,9 @@ export function resetTracks(compositionId: string) {
 
   console.log(`[Reset Tracks] Clearing tracks for: ${compositionId}`);
   localStorage.removeItem(tracksKey);
-  console.log('[Reset Tracks] ✅ Done! Refresh to load keyframes from registry.');
+  console.log(
+    "[Reset Tracks] ✅ Done! Refresh to load keyframes from registry.",
+  );
 }
 
 /**
@@ -50,7 +56,9 @@ export function resetTracks(compositionId: string) {
 export function resetCurrent() {
   const match = window.location.pathname.match(/\/c\/([^\/]+)/);
   if (!match) {
-    console.error('[Reset] No composition found in URL. Navigate to a composition first.');
+    console.error(
+      "[Reset] No composition found in URL. Navigate to a composition first.",
+    );
     return;
   }
 
@@ -59,17 +67,17 @@ export function resetCurrent() {
 }
 
 // Make utilities available in window for easy console access
-if (typeof window !== 'undefined') {
+if (typeof window !== "undefined") {
   (window as any).resetCompositionSettings = resetCompositionSettings;
   (window as any).resetTracks = resetTracks;
   (window as any).resetCurrent = resetCurrent;
 
   console.log(
-    '%c[Videos] Reset utilities loaded!',
-    'color: #6366f1; font-weight: bold',
-    '\n\nAvailable commands:',
-    '\n- resetCurrent()          → Reset the current composition',
+    "%c[Videos] Reset utilities loaded!",
+    "color: #6366f1; font-weight: bold",
+    "\n\nAvailable commands:",
+    "\n- resetCurrent()          → Reset the current composition",
     '\n- resetTracks("id")       → Reset only tracks/keyframes',
-    '\n- resetCompositionSettings("id") → Reset everything\n'
+    '\n- resetCompositionSettings("id") → Reset everything\n',
   );
 }

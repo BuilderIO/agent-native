@@ -54,7 +54,7 @@ export default function ContentCalendar() {
   // BigQuery analytics per blog handle
   const metricsSql = useMemo(
     () => blogHandleMetricsQuery(f.dateStart, f.dateEnd),
-    [f.dateStart, f.dateEnd]
+    [f.dateStart, f.dateEnd],
   );
   const metrics = useMetricsQuery(["cc-metrics", metricsSql], metricsSql);
 

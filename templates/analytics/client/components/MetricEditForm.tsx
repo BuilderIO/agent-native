@@ -40,7 +40,12 @@ interface MetricEditFormProps {
   onSuccess?: () => void;
 }
 
-export function MetricEditForm({ entry, isOpen, onClose, onSuccess }: MetricEditFormProps) {
+export function MetricEditForm({
+  entry,
+  isOpen,
+  onClose,
+  onSuccess,
+}: MetricEditFormProps) {
   const [formData, setFormData] = useState({
     Definition: entry.Definition || "",
     Table: entry.Table || "",
@@ -135,7 +140,9 @@ export function MetricEditForm({ entry, isOpen, onClose, onSuccess }: MetricEdit
               <Textarea
                 id="definition"
                 value={formData.Definition}
-                onChange={(e) => setFormData({ ...formData, Definition: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, Definition: e.target.value })
+                }
                 rows={3}
                 className="text-sm"
               />
@@ -147,7 +154,9 @@ export function MetricEditForm({ entry, isOpen, onClose, onSuccess }: MetricEdit
                 <Input
                   id="table"
                   value={formData.Table}
-                  onChange={(e) => setFormData({ ...formData, Table: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, Table: e.target.value })
+                  }
                   className="text-sm font-mono"
                 />
               </div>
@@ -157,7 +166,9 @@ export function MetricEditForm({ entry, isOpen, onClose, onSuccess }: MetricEdit
                 <Input
                   id="columns"
                   value={formData.ColumnsUsed}
-                  onChange={(e) => setFormData({ ...formData, ColumnsUsed: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, ColumnsUsed: e.target.value })
+                  }
                   className="text-sm font-mono"
                 />
               </div>
@@ -169,7 +180,9 @@ export function MetricEditForm({ entry, isOpen, onClose, onSuccess }: MetricEdit
                 <Input
                   id="department"
                   value={formData.Department}
-                  onChange={(e) => setFormData({ ...formData, Department: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, Department: e.target.value })
+                  }
                   className="text-sm"
                 />
               </div>
@@ -179,7 +192,9 @@ export function MetricEditForm({ entry, isOpen, onClose, onSuccess }: MetricEdit
                 <Input
                   id="owner"
                   value={formData.Owner}
-                  onChange={(e) => setFormData({ ...formData, Owner: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, Owner: e.target.value })
+                  }
                   className="text-sm"
                 />
               </div>
@@ -189,7 +204,12 @@ export function MetricEditForm({ entry, isOpen, onClose, onSuccess }: MetricEdit
                 <Input
                   id="update-freq"
                   value={formData.UpdateFrequency}
-                  onChange={(e) => setFormData({ ...formData, UpdateFrequency: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      UpdateFrequency: e.target.value,
+                    })
+                  }
                   className="text-sm"
                   placeholder="e.g., Daily, Hourly"
                 />
@@ -203,7 +223,9 @@ export function MetricEditForm({ entry, isOpen, onClose, onSuccess }: MetricEdit
               <Textarea
                 id="query-template"
                 value={formData.QueryTemplate}
-                onChange={(e) => setFormData({ ...formData, QueryTemplate: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, QueryTemplate: e.target.value })
+                }
                 rows={8}
                 className="text-sm font-mono"
                 placeholder="SELECT ..."
@@ -215,7 +237,9 @@ export function MetricEditForm({ entry, isOpen, onClose, onSuccess }: MetricEdit
               <Textarea
                 id="join-pattern"
                 value={formData.JoinPattern}
-                onChange={(e) => setFormData({ ...formData, JoinPattern: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, JoinPattern: e.target.value })
+                }
                 rows={4}
                 className="text-sm font-mono"
               />
@@ -227,7 +251,9 @@ export function MetricEditForm({ entry, isOpen, onClose, onSuccess }: MetricEdit
                 <Input
                   id="data-lag"
                   value={formData.DataLag}
-                  onChange={(e) => setFormData({ ...formData, DataLag: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, DataLag: e.target.value })
+                  }
                   className="text-sm"
                   placeholder="e.g., 1-2 hours"
                 />
@@ -238,7 +264,9 @@ export function MetricEditForm({ entry, isOpen, onClose, onSuccess }: MetricEdit
                 <Input
                   id="valid-range"
                   value={formData.ValidDateRange}
-                  onChange={(e) => setFormData({ ...formData, ValidDateRange: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, ValidDateRange: e.target.value })
+                  }
                   className="text-sm"
                   placeholder="e.g., 2020-01-01 onwards"
                 />
@@ -250,7 +278,9 @@ export function MetricEditForm({ entry, isOpen, onClose, onSuccess }: MetricEdit
               <Textarea
                 id="dependencies"
                 value={formData.Dependencies}
-                onChange={(e) => setFormData({ ...formData, Dependencies: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, Dependencies: e.target.value })
+                }
                 rows={2}
                 className="text-sm"
               />
@@ -261,7 +291,9 @@ export function MetricEditForm({ entry, isOpen, onClose, onSuccess }: MetricEdit
               <Textarea
                 id="example-output"
                 value={formData.ExampleOutput}
-                onChange={(e) => setFormData({ ...formData, ExampleOutput: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, ExampleOutput: e.target.value })
+                }
                 rows={4}
                 className="text-sm font-mono"
               />
@@ -274,7 +306,9 @@ export function MetricEditForm({ entry, isOpen, onClose, onSuccess }: MetricEdit
               <Textarea
                 id="use-case"
                 value={formData.ExampleUseCase}
-                onChange={(e) => setFormData({ ...formData, ExampleUseCase: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, ExampleUseCase: e.target.value })
+                }
                 rows={3}
                 className="text-sm"
               />
@@ -285,7 +319,9 @@ export function MetricEditForm({ entry, isOpen, onClose, onSuccess }: MetricEdit
               <Textarea
                 id="common-questions"
                 value={formData.CommonQuestions}
-                onChange={(e) => setFormData({ ...formData, CommonQuestions: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, CommonQuestions: e.target.value })
+                }
                 rows={4}
                 className="text-sm"
                 placeholder="One question per line"
@@ -297,7 +333,9 @@ export function MetricEditForm({ entry, isOpen, onClose, onSuccess }: MetricEdit
               <Textarea
                 id="gotchas"
                 value={formData.KnownGotchas}
-                onChange={(e) => setFormData({ ...formData, KnownGotchas: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, KnownGotchas: e.target.value })
+                }
                 rows={4}
                 className="text-sm"
                 placeholder="One gotcha per line (will show with ⚠️)"
@@ -310,7 +348,10 @@ export function MetricEditForm({ entry, isOpen, onClose, onSuccess }: MetricEdit
           <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting || !formData.Definition.trim()}>
+          <Button
+            onClick={handleSubmit}
+            disabled={isSubmitting || !formData.Definition.trim()}
+          >
             {isSubmitting ? "Saving..." : "Save Changes"}
           </Button>
         </DialogFooter>

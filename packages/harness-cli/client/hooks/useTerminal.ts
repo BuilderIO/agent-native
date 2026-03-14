@@ -33,8 +33,7 @@ export function useTerminal() {
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 11,
-      fontFamily:
-        "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
+      fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
       theme: {
         background: "#1e1e1e",
         foreground: "#e0e0e0",
@@ -82,7 +81,7 @@ export function useTerminal() {
     const term = termInstance.current;
     if (ws && ws.readyState === WebSocket.OPEN && term) {
       ws.send(
-        JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows })
+        JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }),
       );
     }
   }, []);
@@ -90,7 +89,7 @@ export function useTerminal() {
   const notifyApp = useCallback((isRunning: boolean) => {
     iframeRef.current?.contentWindow?.postMessage(
       { type: "builder.fusion.chatRunning", detail: { isRunning } },
-      "*"
+      "*",
     );
   }, []);
 
@@ -114,7 +113,7 @@ export function useTerminal() {
       qs.set("command", config.command);
       const protocol = location.protocol === "https:" ? "wss:" : "ws:";
       const ws = new WebSocket(
-        `${protocol}//${location.host}/ws/${appName}?${qs.toString()}`
+        `${protocol}//${location.host}/ws/${appName}?${qs.toString()}`,
       );
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
@@ -129,7 +128,7 @@ export function useTerminal() {
             type: "resize",
             cols: term.cols,
             rows: term.rows,
-          })
+          }),
         );
       };
 
@@ -150,9 +149,7 @@ export function useTerminal() {
         }
 
         setSetupStatus((prev) =>
-          prev.status !== "none"
-            ? { status: "none", message: "" }
-            : prev
+          prev.status !== "none" ? { status: "none", message: "" } : prev,
         );
 
         term.write(data);
@@ -175,11 +172,12 @@ export function useTerminal() {
         setConnected(false);
         // Don't reconnect if install failed — user must click Retry
         setSetupStatus((prev) => {
-          if (prev.status === "failed" || prev.status === "not-found") return prev;
+          if (prev.status === "failed" || prev.status === "not-found")
+            return prev;
           // Only reconnect if this is still the current connection
           if (connectionId.current === thisConnectionId) {
             term.write(
-              "\r\n\x1b[31m[harness] Connection closed. Reconnecting in 3s...\x1b[0m\r\n"
+              "\r\n\x1b[31m[harness] Connection closed. Reconnecting in 3s...\x1b[0m\r\n",
             );
             setTimeout(() => {
               if (connectionId.current === thisConnectionId) {
@@ -210,19 +208,16 @@ export function useTerminal() {
         if (idleTimer) clearTimeout(idleTimer);
       };
     },
-    [config, notifyApp]
+    [config, notifyApp],
   );
 
   const restart = useCallback(
     (settings: LaunchSettings, appName: string) => {
       wsRef.current?.close();
       termInstance.current?.clear();
-      termInstance.current?.write(
-        `\x1b[33m[harness] Restarting ${config.name}...\x1b[0m\r\n`
-      );
-      setTimeout(() => connect(settings, appName), 500);
+      connect(settings, appName);
     },
-    [config, connect]
+    [connect],
   );
 
   const fit = useCallback(() => {

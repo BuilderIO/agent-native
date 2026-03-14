@@ -28,7 +28,10 @@ export function ApiKeySetup({ onClose }: ApiKeySetupProps) {
       const res = await authFetch("/api/keywords/configure", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ login: login.trim(), password: password.trim() }),
+        body: JSON.stringify({
+          login: login.trim(),
+          password: password.trim(),
+        }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -52,7 +55,9 @@ export function ApiKeySetup({ onClose }: ApiKeySetupProps) {
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Key size={14} className="text-muted-foreground" />
-          <h3 className="text-sm font-medium text-foreground">DataForSEO API</h3>
+          <h3 className="text-sm font-medium text-foreground">
+            DataForSEO API
+          </h3>
         </div>
         <button
           onClick={onClose}
@@ -79,12 +84,15 @@ export function ApiKeySetup({ onClose }: ApiKeySetupProps) {
         >
           DataForSEO credentials <ExternalLink size={10} />
         </a>{" "}
-        to enrich keyword suggestions with search volume, competition, and CPC data.
+        to enrich keyword suggestions with search volume, competition, and CPC
+        data.
       </p>
 
       <div className="space-y-2">
         <div>
-          <label className="block text-xs text-muted-foreground mb-1">API Login</label>
+          <label className="block text-xs text-muted-foreground mb-1">
+            API Login
+          </label>
           <input
             type="text"
             value={login}
@@ -94,7 +102,9 @@ export function ApiKeySetup({ onClose }: ApiKeySetupProps) {
           />
         </div>
         <div>
-          <label className="block text-xs text-muted-foreground mb-1">API Password</label>
+          <label className="block text-xs text-muted-foreground mb-1">
+            API Password
+          </label>
           <input
             type="password"
             value={password}
@@ -105,9 +115,7 @@ export function ApiKeySetup({ onClose }: ApiKeySetupProps) {
         </div>
       </div>
 
-      {error && (
-        <p className="mt-2 text-xs text-destructive">{error}</p>
-      )}
+      {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
 
       <div className="flex justify-end mt-3">
         <button

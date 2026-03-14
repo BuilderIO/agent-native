@@ -10,11 +10,11 @@ Use `<Sequence>` to delay when an element appears in the timeline.
 ```tsx
 import { Sequence } from "remotion";
 
-const {fps} = useVideoConfig();
+const { fps } = useVideoConfig();
 
 <Sequence from={1 * fps} durationInFrames={2 * fps} premountFor={1 * fps}>
   <Title />
-</Sequence>
+</Sequence>;
 ```
 
 Always premount any `<Sequence>`!
@@ -24,7 +24,7 @@ Always premount any `<Sequence>`!
 Use `<Series>` when elements should play one after another without overlap.
 
 ```tsx
-import {Series} from 'remotion';
+import { Series } from "remotion";
 
 <Series>
   <Series.Sequence durationInFrames={45}>

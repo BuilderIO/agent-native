@@ -1,12 +1,12 @@
 /**
  * Example Script: Create a New Composition Programmatically
- * 
+ *
  * This script demonstrates how to create a new composition with all features:
  * - Camera track (6 properties)
  * - Cursor track (6 properties)
  * - Custom animation tracks
  * - Programmatic animations
- * 
+ *
  * Usage:
  * 1. Copy this template
  * 2. Customize the values
@@ -14,8 +14,8 @@
  */
 
 import { addComposition, type CompositionEntry } from "@/remotion/registry";
-import { 
-  createCameraTrack, 
+import {
+  createCameraTrack,
   createCursorTrack,
   createAnimationTrack,
   createFadeInTrack,
@@ -45,14 +45,14 @@ const tracks = [
 
   // Required: Cursor track (for interactions)
   createCursorTrack(COMPOSITION_CONFIG.durationInFrames, {
-    centerX: 960,  // Center X for 1920×1080
-    centerY: 540,  // Center Y for 1920×1080
+    centerX: 960, // Center X for 1920×1080
+    centerY: 540, // Center Y for 1920×1080
     easing: "expo.inOut",
   }),
 
   // Optional: Custom animation tracks
   createFadeInTrack("title-fade", "Title Fade In", 0, 30),
-  
+
   createSlideInTrack("subtitle-slide", "Subtitle Slide", 15, 30, "left"),
 
   createAnimationTrack(
@@ -65,7 +65,7 @@ const tracks = [
       { property: "opacity", from: "0", to: "1", unit: "" },
       { property: "rotateY", from: "-90", to: "0", unit: "deg" },
     ],
-    "spring"
+    "spring",
   ),
 ];
 
@@ -75,13 +75,13 @@ const validation = validateComposition(tracks);
 
 if (!validation.valid) {
   console.error("❌ Composition validation failed:");
-  validation.errors.forEach(err => console.error(`  - ${err}`));
+  validation.errors.forEach((err) => console.error(`  - ${err}`));
   throw new Error("Invalid composition structure");
 }
 
 if (validation.warnings.length > 0) {
   console.warn("⚠️ Composition warnings:");
-  validation.warnings.forEach(warn => console.warn(`  - ${warn}`));
+  validation.warnings.forEach((warn) => console.warn(`  - ${warn}`));
 }
 
 // ─── Create Composition Entry ─────────────────────────────────────────────────
@@ -111,7 +111,9 @@ addComposition(newComposition);
 console.log("✅ Composition created successfully!");
 console.log(`   ID: ${newComposition.id}`);
 console.log(`   Title: ${newComposition.title}`);
-console.log(`   Duration: ${newComposition.durationInFrames} frames (${newComposition.durationInFrames / newComposition.fps}s)`);
+console.log(
+  `   Duration: ${newComposition.durationInFrames} frames (${newComposition.durationInFrames / newComposition.fps}s)`,
+);
 console.log(`   Size: ${newComposition.width}×${newComposition.height}`);
 console.log(`   Tracks: ${newComposition.tracks.length}`);
 

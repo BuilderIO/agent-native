@@ -28,9 +28,7 @@ import type { AnimationTrack, AnimationShorthand } from "@/types";
 const brightnessHover = (amount: number): AnimationShorthand => ({
   duration: 6,
   easing: "expo.out",
-  properties: [
-    { property: "brightness", from: 1, to: 1 + amount, unit: "" },
-  ],
+  properties: [{ property: "brightness", from: 1, to: 1 + amount, unit: "" }],
 });
 
 // Internal helper components (not exported - used only within CodePanel)
@@ -67,16 +65,42 @@ const InternalFileItem: React.FC<InternalFileItemProps> = ({
           flexShrink: 0,
         }}
       />
-      <div style={{ fontSize: 13, color: "#a4a4a4", flexShrink: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+      <div
+        style={{
+          fontSize: 13,
+          color: "#a4a4a4",
+          flexShrink: 1,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          minWidth: 0,
+        }}
+      >
         {name}
       </div>
       {lineCount && (
-        <div style={{ fontSize: 11, color: "#4ade80", marginLeft: "auto", flexShrink: 0 }}>
+        <div
+          style={{
+            fontSize: 11,
+            color: "#4ade80",
+            marginLeft: "auto",
+            flexShrink: 0,
+          }}
+        >
           {lineCount}
         </div>
       )}
       {path && (
-        <div style={{ fontSize: 11, color: "#8a8a8a", flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <div
+          style={{
+            fontSize: 11,
+            color: "#8a8a8a",
+            flexShrink: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
           {path}
         </div>
       )}
@@ -92,14 +116,18 @@ const InternalFileItem: React.FC<InternalFileItemProps> = ({
     display: "flex",
     alignItems: "center" as const,
     gap: "7px",
-    cursor: interactive ? "pointer" : "default" as const,
+    cursor: interactive ? "pointer" : ("default" as const),
     overflow: "hidden" as const,
     whiteSpace: "nowrap" as const,
   };
 
   if (interactive) {
     return (
-      <AnimatedElement interactive={interactive} as="div" style={containerStyle}>
+      <AnimatedElement
+        interactive={interactive}
+        as="div"
+        style={containerStyle}
+      >
         {content}
       </AnimatedElement>
     );
@@ -126,7 +154,18 @@ const InternalFolderItem: React.FC<InternalFolderItemProps> = ({
   const content = (
     <>
       {isExpanded ? (
-        <div style={{ display: "flex", paddingLeft: 5, paddingRight: 5, paddingTop: 4, paddingBottom: 4, alignItems: "center", overflow: "hidden", width: 14 }}>
+        <div
+          style={{
+            display: "flex",
+            paddingLeft: 5,
+            paddingRight: 5,
+            paddingTop: 4,
+            paddingBottom: 4,
+            alignItems: "center",
+            overflow: "hidden",
+            width: 14,
+          }}
+        >
           <img
             src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/2f7e835c418bdf085373048598835166dfbceb0c?placeholderIfAbsent=true"
             alt=""
@@ -178,14 +217,18 @@ const InternalFolderItem: React.FC<InternalFolderItemProps> = ({
     width: 260,
     height: 24,
     display: "flex",
-    alignItems: isExpanded ? "end" : "center" as const,
+    alignItems: isExpanded ? "end" : ("center" as const),
     gap: isExpanded ? "5px" : "4px",
-    cursor: interactive ? "pointer" : "default" as const,
+    cursor: interactive ? "pointer" : ("default" as const),
   };
 
   if (interactive) {
     return (
-      <AnimatedElement interactive={interactive} as="div" style={containerStyle}>
+      <AnimatedElement
+        interactive={interactive}
+        as="div"
+        style={containerStyle}
+      >
         {content}
       </AnimatedElement>
     );
@@ -208,34 +251,34 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
   const cursor = tracks[1];
 
   // Cursor path: Start offscreen → hover files → hover Send PR → exit
-  cursor.animatedProps.find(p => p.property === "x")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "x")!.keyframes = [
     { frame: 0, value: "200" },
-    { frame: 15, value: "180" },  // Hover first file
+    { frame: 15, value: "180" }, // Hover first file
     { frame: 40, value: "180" },
-    { frame: 50, value: "200" },  // Move to Send PR
+    { frame: 50, value: "200" }, // Move to Send PR
     { frame: 60, value: "200" },
     { frame: 90, value: "200" },
     { frame: 120, value: "1720" },
     { frame: 150, value: "1720" },
   ];
-  cursor.animatedProps.find(p => p.property === "y")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "y")!.keyframes = [
     { frame: 0, value: "900" },
     { frame: 15, value: "200" },
     { frame: 40, value: "200" },
-    { frame: 50, value: "80" },   // Move to top bar
+    { frame: 50, value: "80" }, // Move to top bar
     { frame: 60, value: "80" },
     { frame: 90, value: "80" },
     { frame: 120, value: "80" },
     { frame: 150, value: "80" },
   ];
-  cursor.animatedProps.find(p => p.property === "isClicking")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "isClicking")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: 75, value: "0" },
-    { frame: 76, value: "1" },  // Click Send PR
+    { frame: 76, value: "1" }, // Click Send PR
     { frame: 85, value: "0" },
     { frame: 150, value: "0" },
   ];
-  cursor.animatedProps.find(p => p.property === "opacity")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "opacity")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: 10, value: "1" },
     { frame: 120, value: "1" },
@@ -248,7 +291,7 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
 
 export const CodePanel = createInteractiveComposition<CodePanelProps>({
   fallbackTracks: FALLBACK_TRACKS,
-  
+
   render: ({ cursorHistory, registerForCursor }, props) => {
     const { backgroundColor = "#1a1a1a" } = props;
     const { width, height } = useVideoConfig();
@@ -742,13 +785,15 @@ export const CodePanel = createInteractiveComposition<CodePanelProps>({
             {/* Folder Tree */}
             <div
               className="scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent"
-              style={{ position: "relative", flex: 1, overflowY: "auto", overflowX: "hidden", minHeight: 0 }}
+              style={{
+                position: "relative",
+                flex: 1,
+                overflowY: "auto",
+                overflowX: "hidden",
+                minHeight: 0,
+              }}
             >
-              <InternalFolderItem
-                name=".builder"
-                x={0}
-                y={0}
-              />
+              <InternalFolderItem name=".builder" x={0} y={0} />
               <InternalFolderItem
                 name="client"
                 isExpanded={false}
@@ -756,21 +801,9 @@ export const CodePanel = createInteractiveComposition<CodePanelProps>({
                 y={24}
                 interactive={folder1}
               />
-              <InternalFolderItem
-                name="netlify"
-                x={0}
-                y={48}
-              />
-              <InternalFolderItem
-                name="public"
-                x={0}
-                y={72}
-              />
-              <InternalFolderItem
-                name="server"
-                x={0}
-                y={96}
-              />
+              <InternalFolderItem name="netlify" x={0} y={48} />
+              <InternalFolderItem name="public" x={0} y={72} />
+              <InternalFolderItem name="server" x={0} y={96} />
               <InternalFolderItem
                 name="shared"
                 isExpanded={true}
@@ -930,12 +963,19 @@ export const CodePanel = createInteractiveComposition<CodePanelProps>({
                   width: "100%",
                 }}
               >
-                Pull this branch locally, edit in your IDE, then push changes back.
+                Pull this branch locally, edit in your IDE, then push changes
+                back.
               </div>
             </div>
 
             {/* Push to Remote Button */}
-            <div style={{ position: "relative", width: "100%", alignSelf: "center" }}>
+            <div
+              style={{
+                position: "relative",
+                width: "100%",
+                alignSelf: "center",
+              }}
+            >
               <AnimatedElement
                 interactive={pushButton}
                 as="div"

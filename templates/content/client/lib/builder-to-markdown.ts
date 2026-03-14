@@ -12,29 +12,37 @@ const turndownService = new TurndownService({
 function wrapEmphasis(content: string, delimiter: string): string {
   if (!content.trim()) return content;
 
-  const leadingSpace = content.match(/^\s*/)?.[0] || '';
-  const trailingSpace = content.match(/\s*$/)?.[0] || '';
+  const leadingSpace = content.match(/^\s*/)?.[0] || "";
+  const trailingSpace = content.match(/\s*$/)?.[0] || "";
   const trimmed = content.trim();
 
   return `${leadingSpace}${delimiter}${trimmed}${delimiter}${trailingSpace}`;
 }
 
-turndownService.addRule('emphasis', {
-  filter: ['em', 'i'],
+turndownService.addRule("emphasis", {
+  filter: ["em", "i"],
   replacement: function (content, node, options) {
     return wrapEmphasis(content, options.emDelimiter as string);
-  }
+  },
 });
 
-turndownService.addRule('strong', {
-  filter: ['strong', 'b'],
+turndownService.addRule("strong", {
+  filter: ["strong", "b"],
   replacement: function (content, node, options) {
     return wrapEmphasis(content, options.strongDelimiter as string);
-  }
+  },
 });
 
 // Keep video tags in markdown instead of stripping them
-turndownService.keep(['video', 'iframe', 'kbd', 'details', 'summary', 'figure', 'figcaption']);
+turndownService.keep([
+  "video",
+  "iframe",
+  "kbd",
+  "details",
+  "summary",
+  "figure",
+  "figcaption",
+]);
 
 // Custom rule for preserving line breaks
 turndownService.addRule("lineBreak", {
@@ -43,26 +51,26 @@ turndownService.addRule("lineBreak", {
 });
 
 // Fix list formatting
-turndownService.addRule('listItems', {
-  filter: 'li',
+turndownService.addRule("listItems", {
+  filter: "li",
   replacement: function (content, node, options) {
     content = content
-      .replace(/^\n+/, '') // remove leading newlines
-      .replace(/\n+$/, '\n') // replace trailing newlines with just a single one
-      .replace(/\n/gm, '\n    '); // indent
+      .replace(/^\n+/, "") // remove leading newlines
+      .replace(/\n+$/, "\n") // replace trailing newlines with just a single one
+      .replace(/\n/gm, "\n    "); // indent
 
-    let prefix = options.bulletListMarker + ' ';
+    let prefix = options.bulletListMarker + " ";
     const parent = node.parentNode as HTMLElement | null;
-    if (parent?.nodeName === 'OL') {
-      const start = parent.getAttribute('start');
+    if (parent?.nodeName === "OL") {
+      const start = parent.getAttribute("start");
       const index = Array.prototype.indexOf.call(parent.children, node);
-      prefix = (start ? Number(start) + index : index + 1) + '. ';
+      prefix = (start ? Number(start) + index : index + 1) + ". ";
     }
 
     return (
-      prefix + content + (node.nextSibling && !/\n$/.test(content) ? '\n' : '')
+      prefix + content + (node.nextSibling && !/\n$/.test(content) ? "\n" : "")
     );
-  }
+  },
 });
 
 /**
@@ -88,7 +96,7 @@ export function builderToMarkdown(blocks: BuilderBlock[]): string {
         // <img> tag inside this Text block. Let's strip out any <img> tags from the START
         // of the text block to prevent duplication on the round-trip.
         // We only strip images from the very beginning of the paragraph/block.
-        html = html.replace(/^(<p>)?\s*<img[^>]+>\s*/i, '$1');
+        html = html.replace(/^(<p>)?\s*<img[^>]+>\s*/i, "$1");
 
         // Convert HTML back to Markdown
         const markdown = turndownService.turndown(html);
@@ -133,7 +141,7 @@ export function builderToMarkdown(blocks: BuilderBlock[]): string {
         let tableMd = "";
 
         // Headers
-        const headers = headColumns.map(col => col.label || "");
+        const headers = headColumns.map((col) => col.label || "");
         tableMd += `| ${headers.join(" | ")} |\n`;
 
         // Separator
@@ -148,13 +156,16 @@ export function builderToMarkdown(blocks: BuilderBlock[]): string {
         // Rows
         for (const row of bodyRows) {
           const cells = (row.columns as any[]) || [];
-          const cellTexts = cells.map(cell => {
+          const cellTexts = cells.map((cell) => {
             // Content is an array of BuilderBlocks (usually Text blocks)
             const contentBlocks = (cell.content as BuilderBlock[]) || [];
             // We can reuse the builderToMarkdown function recursively to convert the cell content
             // However, we need to strip newlines and pipes to avoid breaking the markdown table
             let text = builderToMarkdown(contentBlocks);
-            text = text.replace(/\n\n/g, "<br>").replace(/\n/g, " ").replace(/\|/g, "\\|");
+            text = text
+              .replace(/\n\n/g, "<br>")
+              .replace(/\n/g, " ")
+              .replace(/\|/g, "\\|");
             return text;
           });
 
@@ -209,7 +220,7 @@ export function extractTitleFromBlocks(blocks: BuilderBlock[]): string {
  */
 export function removeTitleBlock(blocks: BuilderBlock[]): BuilderBlock[] {
   const result = [...blocks];
-  
+
   for (let i = 0; i < result.length; i++) {
     if (result[i].component?.name === "Text") {
       const html = result[i].component?.options?.text as string;
@@ -219,6 +230,6 @@ export function removeTitleBlock(blocks: BuilderBlock[]): BuilderBlock[] {
       }
     }
   }
-  
+
   return result;
 }

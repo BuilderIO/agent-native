@@ -43,7 +43,11 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
   return data as T;
 }
 
-async function apiPost<T>(path: string, body: unknown, cacheKey?: string): Promise<T> {
+async function apiPost<T>(
+  path: string,
+  body: unknown,
+  cacheKey?: string,
+): Promise<T> {
   const key = cacheKey ?? `POST:${path}:${JSON.stringify(body)}`;
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {

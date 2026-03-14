@@ -1,10 +1,5 @@
 import { useState, useCallback } from "react";
-import {
-  BookOpen,
-  Plus,
-  FileText,
-  Loader2,
-} from "lucide-react";
+import { BookOpen, Plus, FileText, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useResearch, useSaveResearch } from "@/hooks/use-research";
 import type { ResearchArticle, ResearchData } from "@shared/api";
@@ -17,7 +12,10 @@ interface ResearchPanelProps {
   projectName: string;
 }
 
-export function ResearchPanel({ projectSlug, projectName }: ResearchPanelProps) {
+export function ResearchPanel({
+  projectSlug,
+  projectName,
+}: ResearchPanelProps) {
   const { data: research, isLoading } = useResearch(projectSlug);
   const saveResearch = useSaveResearch(projectSlug);
   const [showAddArticle, setShowAddArticle] = useState(false);
@@ -41,7 +39,7 @@ export function ResearchPanel({ projectSlug, projectName }: ResearchPanelProps) 
         articles: [...current.articles, article],
       });
     },
-    [getOrCreateResearch, saveResearch]
+    [getOrCreateResearch, saveResearch],
   );
 
   const handleDeleteArticle = useCallback(
@@ -52,7 +50,7 @@ export function ResearchPanel({ projectSlug, projectName }: ResearchPanelProps) 
         articles: current.articles.filter((a) => a.id !== id),
       });
     },
-    [getOrCreateResearch, saveResearch]
+    [getOrCreateResearch, saveResearch],
   );
 
   const handleThemesChange = useCallback(
@@ -60,7 +58,7 @@ export function ResearchPanel({ projectSlug, projectName }: ResearchPanelProps) 
       const current = getOrCreateResearch();
       saveResearch.mutate({ ...current, themes });
     },
-    [getOrCreateResearch, saveResearch]
+    [getOrCreateResearch, saveResearch],
   );
 
   if (isLoading) {
@@ -82,9 +80,7 @@ export function ResearchPanel({ projectSlug, projectName }: ResearchPanelProps) 
         <div className="flex items-center gap-2.5">
           <BookOpen size={16} className="text-muted-foreground" />
           <h1 className="text-sm font-semibold text-foreground">Research</h1>
-          <span className="text-xs text-muted-foreground">
-            — {projectName}
-          </span>
+          <span className="text-xs text-muted-foreground">— {projectName}</span>
         </div>
         <div className="flex items-center gap-2">
           {saveResearch.isPending && (
@@ -140,10 +136,7 @@ export function ResearchPanel({ projectSlug, projectName }: ResearchPanelProps) 
             {/* Themes */}
             {(themes.length > 0 || articles.length > 0) && (
               <div className="pt-2">
-                <ThemesSection
-                  themes={themes}
-                  onChange={handleThemesChange}
-                />
+                <ThemesSection themes={themes} onChange={handleThemesChange} />
               </div>
             )}
           </div>
@@ -161,11 +154,7 @@ export function ResearchPanel({ projectSlug, projectName }: ResearchPanelProps) 
   );
 }
 
-function EmptyResearchState({
-  onAddArticle,
-}: {
-  onAddArticle: () => void;
-}) {
+function EmptyResearchState({ onAddArticle }: { onAddArticle: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
       <FileText size={32} className="mb-3 opacity-30" />

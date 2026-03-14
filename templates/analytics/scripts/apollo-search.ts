@@ -10,7 +10,12 @@
  *   pnpm script apollo-search --title=CTO --company=Deloitte
  */
 import { parseArgs, output } from "./helpers";
-import { searchPeople, enrichPerson, searchOrganizations, enrichOrganization } from "../server/lib/apollo";
+import {
+  searchPeople,
+  enrichPerson,
+  searchOrganizations,
+  enrichOrganization,
+} from "../server/lib/apollo";
 
 const args = parseArgs();
 

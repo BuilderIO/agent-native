@@ -12,7 +12,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
   const [table, setTable] = useState<HTMLElement | null>(null);
   const [cellRect, setCellRect] = useState<DOMRect | null>(null);
   const [tableRect, setTableRect] = useState<DOMRect | null>(null);
-  
+
   const hideTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -22,7 +22,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       const target = e.target as HTMLElement;
       let cell = target.closest("td, th") as HTMLElement;
       let tableEl = target.closest("table") as HTMLElement;
-      const isControl = target.closest('.table-hover-controls');
+      const isControl = target.closest(".table-hover-controls");
 
       // Add 24px hover forgiveness logic
       if (!cell || !tableEl) {
@@ -44,7 +44,11 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
             for (const r of rows) {
               const rRect = r.getBoundingClientRect();
-              const distY = Math.max(0, rRect.top - e.clientY, e.clientY - rRect.bottom);
+              const distY = Math.max(
+                0,
+                rRect.top - e.clientY,
+                e.clientY - rRect.bottom,
+              );
               if (distY < minDistanceY) {
                 minDistanceY = distY;
                 closestRow = r;
@@ -53,13 +57,19 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
             // Find the closest cell in that row based on X coordinate
             if (closestRow) {
-              const cells = Array.from(closestRow.querySelectorAll("td, th")) as HTMLElement[];
+              const cells = Array.from(
+                closestRow.querySelectorAll("td, th"),
+              ) as HTMLElement[];
               let closestCell = cells[0];
               let minDistanceX = Infinity;
 
               for (const c of cells) {
                 const cRect = c.getBoundingClientRect();
-                const distX = Math.max(0, cRect.left - e.clientX, e.clientX - cRect.right);
+                const distX = Math.max(
+                  0,
+                  cRect.left - e.clientX,
+                  e.clientX - cRect.right,
+                );
                 if (distX < minDistanceX) {
                   minDistanceX = distX;
                   closestCell = c;
@@ -81,7 +91,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
           clearTimeout(hideTimeout.current);
           hideTimeout.current = null;
         }
-        
+
         if (cell && tableEl) {
           setHoveredCell(cell);
           setTable(tableEl);
@@ -107,27 +117,31 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
   if (!hoveredCell || !table || !cellRect || !tableRect) return null;
 
-  const wrapper = editor.view.dom.closest('.visual-editor-wrapper') as HTMLElement;
+  const wrapper = editor.view.dom.closest(
+    ".visual-editor-wrapper",
+  ) as HTMLElement;
   const wrapperRect = wrapper?.getBoundingClientRect();
-  
+
   if (!wrapperRect) return null;
 
-  const handleAction = (action: 'addCol' | 'delCol' | 'addRow' | 'delRow') => {
+  const handleAction = (action: "addCol" | "delCol" | "addRow" | "delRow") => {
     if (!hoveredCell) return;
-    
+
     try {
       const pos = editor.view.posAtDOM(hoveredCell, 0);
       if (pos < 0) return;
-      
+
       editor.chain().focus().setTextSelection(pos).run();
-      
+
       switch (action) {
-        case 'addCol':
+        case "addCol":
           editor.chain().focus().addColumnAfter().run();
           break;
-        case 'delCol': {
+        case "delCol": {
           const currentTable = hoveredCell.closest("table");
-          const colsCount = currentTable?.querySelector("tr")?.querySelectorAll("td, th").length || 0;
+          const colsCount =
+            currentTable?.querySelector("tr")?.querySelectorAll("td, th")
+              .length || 0;
           if (colsCount <= 1) {
             editor.chain().focus().deleteTable().run();
           } else {
@@ -135,10 +149,10 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
           }
           break;
         }
-        case 'addRow':
+        case "addRow":
           editor.chain().focus().addRowAfter().run();
           break;
-        case 'delRow': {
+        case "delRow": {
           const currentTable = hoveredCell.closest("table");
           const rowsCount = currentTable?.querySelectorAll("tr").length || 0;
           if (rowsCount <= 1) {
@@ -152,56 +166,56 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     } catch (e) {
       console.error(e);
     }
-    
+
     setHoveredCell(null);
     setTable(null);
   };
 
-  const colLeft = cellRect.left - wrapperRect.left + (cellRect.width / 2);
+  const colLeft = cellRect.left - wrapperRect.left + cellRect.width / 2;
   const colTop = tableRect.top - wrapperRect.top - 8;
 
   const rowLeft = tableRect.left - wrapperRect.left - 8;
-  const rowTop = cellRect.top - wrapperRect.top + (cellRect.height / 2);
+  const rowTop = cellRect.top - wrapperRect.top + cellRect.height / 2;
 
   return (
     <>
-      <div 
+      <div
         className="table-hover-controls flex items-center gap-0.5 absolute z-50 transform -translate-x-1/2 -translate-y-full bg-background shadow-sm border border-border rounded-md p-0.5 transition-opacity"
         style={{ left: colLeft, top: colTop }}
       >
-        <button 
-          onClick={() => handleAction('addCol')} 
+        <button
+          onClick={() => handleAction("addCol")}
           title="Add column"
           className="p-1 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition-colors"
         >
-          <Plus size={14} strokeWidth={2.5}/>
+          <Plus size={14} strokeWidth={2.5} />
         </button>
-        <button 
-          onClick={() => handleAction('delCol')} 
+        <button
+          onClick={() => handleAction("delCol")}
           title="Delete column"
           className="p-1 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive transition-colors"
         >
-          <Minus size={14} strokeWidth={2.5}/>
+          <Minus size={14} strokeWidth={2.5} />
         </button>
       </div>
 
-      <div 
+      <div
         className="table-hover-controls flex flex-col items-center gap-0.5 absolute z-50 transform -translate-x-full -translate-y-1/2 bg-background shadow-sm border border-border rounded-md p-0.5 transition-opacity"
         style={{ left: rowLeft, top: rowTop }}
       >
-        <button 
-          onClick={() => handleAction('addRow')} 
+        <button
+          onClick={() => handleAction("addRow")}
           title="Add row"
           className="p-1 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition-colors"
         >
-          <Plus size={14} strokeWidth={2.5}/>
+          <Plus size={14} strokeWidth={2.5} />
         </button>
-        <button 
-          onClick={() => handleAction('delRow')} 
+        <button
+          onClick={() => handleAction("delRow")}
           title="Delete row"
           className="p-1 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive transition-colors"
         >
-          <Minus size={14} strokeWidth={2.5}/>
+          <Minus size={14} strokeWidth={2.5} />
         </button>
       </div>
     </>

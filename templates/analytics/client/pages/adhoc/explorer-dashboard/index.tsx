@@ -67,7 +67,9 @@ async function fetchWithAuth(url: string, options?: RequestInit) {
   });
 }
 
-async function fetchDashboard(id: string): Promise<ExplorerDashboardData | null> {
+async function fetchDashboard(
+  id: string,
+): Promise<ExplorerDashboardData | null> {
   const res = await fetchWithAuth(`/api/explorer-dashboards/${id}`);
   if (!res.ok) return null;
   const data = await res.json();
@@ -96,7 +98,9 @@ export default function ExplorerDashboardPage() {
   const queryClient = useQueryClient();
   const dashboardId = searchParams.get("id");
 
-  const [dashboard, setDashboard] = useState<ExplorerDashboardData | null>(null);
+  const [dashboard, setDashboard] = useState<ExplorerDashboardData | null>(
+    null,
+  );
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [addChartOpen, setAddChartOpen] = useState(false);
@@ -125,11 +129,15 @@ export default function ExplorerDashboardPage() {
       if (!dashboardId) return;
       setDashboard(updated);
       saveDashboard(dashboardId, updated).then(() => {
-        queryClient.invalidateQueries({ queryKey: ["explorer-dashboards-palette"] });
-        queryClient.invalidateQueries({ queryKey: ["explorer-dashboards-sidebar"] });
+        queryClient.invalidateQueries({
+          queryKey: ["explorer-dashboards-palette"],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["explorer-dashboards-sidebar"],
+        });
       });
     },
-    [dashboardId, queryClient]
+    [dashboardId, queryClient],
   );
 
   const addChart = useCallback(
@@ -143,7 +151,7 @@ export default function ExplorerDashboardPage() {
       persist({ ...dashboard, charts: [...dashboard.charts, newChart] });
       setAddChartOpen(false);
     },
-    [dashboard, persist]
+    [dashboard, persist],
   );
 
   const removeChart = useCallback(
@@ -154,7 +162,7 @@ export default function ExplorerDashboardPage() {
         charts: dashboard.charts.filter((c) => c.id !== chartId),
       });
     },
-    [dashboard, persist]
+    [dashboard, persist],
   );
 
   const toggleWidth = useCallback(
@@ -163,16 +171,18 @@ export default function ExplorerDashboardPage() {
       persist({
         ...dashboard,
         charts: dashboard.charts.map((c) =>
-          c.id === chartId ? { ...c, width: c.width === 1 ? 2 : 1 } : c
+          c.id === chartId ? { ...c, width: c.width === 1 ? 2 : 1 } : c,
         ),
       });
     },
-    [dashboard, persist]
+    [dashboard, persist],
   );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
   );
 
   const handleDragEnd = useCallback(
@@ -188,7 +198,7 @@ export default function ExplorerDashboardPage() {
         charts: arrayMove(dashboard.charts, oldIndex, newIndex),
       });
     },
-    [dashboard, persist]
+    [dashboard, persist],
   );
 
   const handleSaveName = useCallback(() => {
@@ -266,8 +276,12 @@ export default function ExplorerDashboardPage() {
                 method: "DELETE",
                 headers: token ? { Authorization: `Bearer ${token}` } : {},
               });
-              queryClient.invalidateQueries({ queryKey: ["explorer-dashboards-sidebar"] });
-              queryClient.invalidateQueries({ queryKey: ["explorer-dashboards-palette"] });
+              queryClient.invalidateQueries({
+                queryKey: ["explorer-dashboards-sidebar"],
+              });
+              queryClient.invalidateQueries({
+                queryKey: ["explorer-dashboards-palette"],
+              });
               navigate("/adhoc/explorer");
             }}
           >
@@ -280,8 +294,14 @@ export default function ExplorerDashboardPage() {
       {dashboard.charts.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center h-64 text-muted-foreground text-sm gap-3">
-            <p>No charts yet. Add saved explorer charts to build your dashboard.</p>
-            <Button size="sm" variant="outline" onClick={() => setAddChartOpen(true)}>
+            <p>
+              No charts yet. Add saved explorer charts to build your dashboard.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setAddChartOpen(true)}
+            >
               <Plus className="h-4 w-4 mr-1" />
               Add Chart
             </Button>
@@ -302,10 +322,14 @@ export default function ExplorerDashboardPage() {
                 <DashboardChartCard
                   key={chart.id}
                   chart={chart}
-                  configName={configNameMap.get(chart.configId) ?? chart.configId}
+                  configName={
+                    configNameMap.get(chart.configId) ?? chart.configId
+                  }
                   onRemove={() => removeChart(chart.id)}
                   onToggleWidth={() => toggleWidth(chart.id)}
-                  onEdit={() => navigate(`/adhoc/explorer?config=${chart.configId}`)}
+                  onEdit={() =>
+                    navigate(`/adhoc/explorer?config=${chart.configId}`)
+                  }
                 />
               ))}
             </div>
@@ -322,7 +346,8 @@ export default function ExplorerDashboardPage() {
           <div className="max-h-[400px] overflow-auto space-y-1">
             {savedConfigs.length === 0 ? (
               <p className="text-sm text-muted-foreground py-4 text-center">
-                No saved explorer charts yet. Create one in the Explorer tool first.
+                No saved explorer charts yet. Create one in the Explorer tool
+                first.
               </p>
             ) : (
               savedConfigs.map((config) => (

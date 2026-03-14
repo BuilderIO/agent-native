@@ -15,18 +15,34 @@ interface CurrentElementContextType {
 
   // Element animations storage
   elementAnimations: Record<string, ElementAnimation[]>; // compositionId -> animations
-  getAnimationsForElement: (compositionId: string, elementType: string) => ElementAnimation[];
+  getAnimationsForElement: (
+    compositionId: string,
+    elementType: string,
+  ) => ElementAnimation[];
   addAnimation: (compositionId: string, animation: ElementAnimation) => void;
-  updateAnimation: (compositionId: string, animationId: string, updates: Partial<ElementAnimation>) => void;
+  updateAnimation: (
+    compositionId: string,
+    animationId: string,
+    updates: Partial<ElementAnimation>,
+  ) => void;
   deleteAnimation: (compositionId: string, animationId: string) => void;
 
   // Cursor type storage per element
-  getCursorType: (compositionId: string, elementType: string) => "default" | "pointer" | "text" | undefined;
-  setCursorType: (compositionId: string, elementType: string, cursorType: "default" | "pointer" | "text") => void;
+  getCursorType: (
+    compositionId: string,
+    elementType: string,
+  ) => "default" | "pointer" | "text" | undefined;
+  setCursorType: (
+    compositionId: string,
+    elementType: string,
+    cursorType: "default" | "pointer" | "text",
+  ) => void;
   deleteCursorType: (compositionId: string, elementType: string) => void;
 }
 
-const CurrentElementContext = createContext<CurrentElementContextType | undefined>(undefined);
+const CurrentElementContext = createContext<
+  CurrentElementContextType | undefined
+>(undefined);
 
 const ELEMENT_ANIMATIONS_KEY = "videos-element-animations";
 const ELEMENT_CURSOR_TYPES_KEY = "videos-element-cursor-types";
@@ -67,110 +83,156 @@ function saveCursorTypes(cursorTypes: CursorTypeMap) {
   }
 }
 
-export const CurrentElementProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentElement, setCurrentElement] = useState<CurrentElement | null>(null);
-  const [elementAnimations, setElementAnimations] = useState<Record<string, ElementAnimation[]>>(loadElementAnimations);
-  const [cursorTypes, setCursorTypes] = useState<CursorTypeMap>(loadCursorTypes);
+export const CurrentElementProvider: React.FC<{
+  children: React.ReactNode;
+}> = ({ children }) => {
+  const [currentElement, setCurrentElement] = useState<CurrentElement | null>(
+    null,
+  );
+  const [elementAnimations, setElementAnimations] = useState<
+    Record<string, ElementAnimation[]>
+  >(loadElementAnimations);
+  const [cursorTypes, setCursorTypes] =
+    useState<CursorTypeMap>(loadCursorTypes);
 
   // Reload animations after mount to catch module-level initializations
   React.useEffect(() => {
     const reloadAnimations = () => {
       const loaded = loadElementAnimations();
       setElementAnimations(loaded);
-      console.log("🔄 Reloaded animations:", Object.keys(loaded).reduce((acc, key) => ({ ...acc, [key]: loaded[key].length }), {}));
+      console.log(
+        "🔄 Reloaded animations:",
+        Object.keys(loaded).reduce(
+          (acc, key) => ({ ...acc, [key]: loaded[key].length }),
+          {},
+        ),
+      );
     };
 
     // Reload once after a short delay to catch initialization
     const timer = setTimeout(reloadAnimations, 100);
 
     // Listen for storage events from other windows/tabs
-    window.addEventListener('storage', reloadAnimations);
+    window.addEventListener("storage", reloadAnimations);
 
     return () => {
       clearTimeout(timer);
-      window.removeEventListener('storage', reloadAnimations);
+      window.removeEventListener("storage", reloadAnimations);
     };
   }, []);
 
-  const getAnimationsForElement = useCallback((compositionId: string, elementType: string) => {
-    const compAnimations = elementAnimations[compositionId] || [];
-    return compAnimations.filter(anim => anim.elementType === elementType);
-  }, [elementAnimations]);
+  const getAnimationsForElement = useCallback(
+    (compositionId: string, elementType: string) => {
+      const compAnimations = elementAnimations[compositionId] || [];
+      return compAnimations.filter((anim) => anim.elementType === elementType);
+    },
+    [elementAnimations],
+  );
 
-  const addAnimation = useCallback((compositionId: string, animation: ElementAnimation) => {
-    setElementAnimations(prev => {
-      const next = {
-        ...prev,
-        [compositionId]: [...(prev[compositionId] || []), animation],
-      };
-      saveElementAnimations(next);
-      return next;
-    });
-  }, []);
+  const addAnimation = useCallback(
+    (compositionId: string, animation: ElementAnimation) => {
+      setElementAnimations((prev) => {
+        const next = {
+          ...prev,
+          [compositionId]: [...(prev[compositionId] || []), animation],
+        };
+        saveElementAnimations(next);
+        return next;
+      });
+    },
+    [],
+  );
 
-  const updateAnimation = useCallback((compositionId: string, animationId: string, updates: Partial<ElementAnimation>) => {
-    setElementAnimations(prev => {
-      const compAnimations = prev[compositionId] || [];
-      const next = {
-        ...prev,
-        [compositionId]: compAnimations.map(anim =>
-          anim.id === animationId ? { ...anim, ...updates } : anim
-        ),
-      };
-      saveElementAnimations(next);
-      return next;
-    });
-  }, []);
+  const updateAnimation = useCallback(
+    (
+      compositionId: string,
+      animationId: string,
+      updates: Partial<ElementAnimation>,
+    ) => {
+      setElementAnimations((prev) => {
+        const compAnimations = prev[compositionId] || [];
+        const next = {
+          ...prev,
+          [compositionId]: compAnimations.map((anim) =>
+            anim.id === animationId ? { ...anim, ...updates } : anim,
+          ),
+        };
+        saveElementAnimations(next);
+        return next;
+      });
+    },
+    [],
+  );
 
-  const deleteAnimation = useCallback((compositionId: string, animationId: string) => {
-    setElementAnimations(prev => {
-      const compAnimations = prev[compositionId] || [];
-      const next = {
-        ...prev,
-        [compositionId]: compAnimations.filter(anim => anim.id !== animationId),
-      };
-      saveElementAnimations(next);
-      return next;
-    });
-  }, []);
+  const deleteAnimation = useCallback(
+    (compositionId: string, animationId: string) => {
+      setElementAnimations((prev) => {
+        const compAnimations = prev[compositionId] || [];
+        const next = {
+          ...prev,
+          [compositionId]: compAnimations.filter(
+            (anim) => anim.id !== animationId,
+          ),
+        };
+        saveElementAnimations(next);
+        return next;
+      });
+    },
+    [],
+  );
 
-  const getCursorType = useCallback((compositionId: string, elementType: string) => {
-    const key = `${compositionId}:${elementType}`;
-    return cursorTypes[key];
-  }, [cursorTypes]);
+  const getCursorType = useCallback(
+    (compositionId: string, elementType: string) => {
+      const key = `${compositionId}:${elementType}`;
+      return cursorTypes[key];
+    },
+    [cursorTypes],
+  );
 
-  const setCursorTypeCallback = useCallback((compositionId: string, elementType: string, cursorType: "default" | "pointer" | "text") => {
-    const key = `${compositionId}:${elementType}`;
-    setCursorTypes(prev => {
-      const next = { ...prev, [key]: cursorType };
-      saveCursorTypes(next);
-      return next;
-    });
-  }, []);
+  const setCursorTypeCallback = useCallback(
+    (
+      compositionId: string,
+      elementType: string,
+      cursorType: "default" | "pointer" | "text",
+    ) => {
+      const key = `${compositionId}:${elementType}`;
+      setCursorTypes((prev) => {
+        const next = { ...prev, [key]: cursorType };
+        saveCursorTypes(next);
+        return next;
+      });
+    },
+    [],
+  );
 
-  const deleteCursorType = useCallback((compositionId: string, elementType: string) => {
-    const key = `${compositionId}:${elementType}`;
-    setCursorTypes(prev => {
-      const next = { ...prev };
-      delete next[key];
-      saveCursorTypes(next);
-      return next;
-    });
-  }, []);
+  const deleteCursorType = useCallback(
+    (compositionId: string, elementType: string) => {
+      const key = `${compositionId}:${elementType}`;
+      setCursorTypes((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        saveCursorTypes(next);
+        return next;
+      });
+    },
+    [],
+  );
 
   return (
-    <CurrentElementContext.Provider value={{
-      currentElement,
-      setCurrentElement,
-      elementAnimations,
-      getAnimationsForElement,
-      addAnimation,
-      updateAnimation,
-      deleteAnimation,
-      getCursorType,
-      setCursorType: setCursorTypeCallback,
-      deleteCursorType,
-    }}>
+    <CurrentElementContext.Provider
+      value={{
+        currentElement,
+        setCurrentElement,
+        elementAnimations,
+        getAnimationsForElement,
+        addAnimation,
+        updateAnimation,
+        deleteAnimation,
+        getCursorType,
+        setCursorType: setCursorTypeCallback,
+        deleteCursorType,
+      }}
+    >
       {children}
     </CurrentElementContext.Provider>
   );
@@ -179,7 +241,9 @@ export const CurrentElementProvider: React.FC<{ children: React.ReactNode }> = (
 export const useCurrentElement = () => {
   const context = useContext(CurrentElementContext);
   if (!context) {
-    throw new Error("useCurrentElement must be used within CurrentElementProvider");
+    throw new Error(
+      "useCurrentElement must be used within CurrentElementProvider",
+    );
   }
   return context;
 };

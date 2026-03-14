@@ -20,15 +20,15 @@ description: >
 
 ### Exported Functions
 
-| Function | Description |
-|---|---|
-| `getTeamInfo(workspace)` | Get workspace info |
-| `listChannels(workspace)` | List channels (paginated, first page cached) |
-| `getChannelHistory(workspace, channelId, limit?, cursor?)` | Channel message history |
-| `searchMessages(workspace, query, count?)` | Search messages |
-| `getUserInfo(workspace, userId)` | Get user info (cached per user) |
-| `getBotInfo(workspace, botId)` | Get bot info (cached) |
-| `resolveUsers(workspace, userIds, messages?)` | Batch resolve user names |
+| Function                                                   | Description                                  |
+| ---------------------------------------------------------- | -------------------------------------------- |
+| `getTeamInfo(workspace)`                                   | Get workspace info                           |
+| `listChannels(workspace)`                                  | List channels (paginated, first page cached) |
+| `getChannelHistory(workspace, channelId, limit?, cursor?)` | Channel message history                      |
+| `searchMessages(workspace, query, count?)`                 | Search messages                              |
+| `getUserInfo(workspace, userId)`                           | Get user info (cached per user)              |
+| `getBotInfo(workspace, botId)`                             | Get bot info (cached)                        |
+| `resolveUsers(workspace, userIds, messages?)`              | Batch resolve user names                     |
 
 ## Key Patterns & Gotchas
 

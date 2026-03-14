@@ -17,7 +17,9 @@ class RateLimiter {
     const now = Date.now();
     const timeSinceLastCall = now - this.lastCallTime;
     if (timeSinceLastCall < this.minDelayMs) {
-      await new Promise((resolve) => setTimeout(resolve, this.minDelayMs - timeSinceLastCall));
+      await new Promise((resolve) =>
+        setTimeout(resolve, this.minDelayMs - timeSinceLastCall),
+      );
     }
     this.lastCallTime = Date.now();
   }
@@ -34,8 +36,13 @@ async function notionCall<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
       return await fn();
     } catch (err: any) {
       if (err?.status === 429 && attempt < retries - 1) {
-        const retryAfter = parseInt(err?.headers?.get?.("retry-after") || "1", 10);
-        console.warn(`[Notion] Rate limited, retrying in ${retryAfter}s (attempt ${attempt + 1}/${retries})`);
+        const retryAfter = parseInt(
+          err?.headers?.get?.("retry-after") || "1",
+          10,
+        );
+        console.warn(
+          `[Notion] Rate limited, retrying in ${retryAfter}s (attempt ${attempt + 1}/${retries})`,
+        );
         await new Promise((r) => setTimeout(r, retryAfter * 1000));
         continue;
       }
@@ -65,10 +72,12 @@ export async function getPages(req: Request, res: Response) {
     let cursor: string | undefined = undefined;
 
     do {
-      const response = await notionCall(() => notion.dataSources.query({
-        data_source_id: CONTENT_CALENDAR_DB_ID,
-        start_cursor: cursor,
-      }));
+      const response = await notionCall(() =>
+        notion.dataSources.query({
+          data_source_id: CONTENT_CALENDAR_DB_ID,
+          start_cursor: cursor,
+        }),
+      );
       allResults.push(...response.results);
       cursor = response.next_cursor || undefined;
     } while (cursor);
@@ -84,36 +93,47 @@ export async function fetchPage(req: Request, res: Response) {
   try {
     const notion = getClient();
     const { pageId } = req.body;
-    
+
     if (!pageId) {
       return res.status(400).json({ error: "pageId is required" });
     }
 
-    const page = await notionCall(() => notion.pages.retrieve({ page_id: pageId }));
+    const page = await notionCall(() =>
+      notion.pages.retrieve({ page_id: pageId }),
+    );
 
     // Fetch all blocks (handling pagination)
     let blocks: any[] = [];
     let cursor: string | undefined = undefined;
 
     do {
-      const { results, next_cursor } = await notionCall(() => notion.blocks.children.list({
-        block_id: pageId,
-        start_cursor: cursor,
-      }));
+      const { results, next_cursor } = await notionCall(() =>
+        notion.blocks.children.list({
+          block_id: pageId,
+          start_cursor: cursor,
+        }),
+      );
       blocks.push(...results);
       cursor = next_cursor || undefined;
     } while (cursor);
 
     // Recursively fetch children for blocks that have them (tables, toggles, etc.)
     for (const block of blocks) {
-      if (block.has_children && (block.type === "table" || block.type === "toggle" || block.type === "column_list")) {
+      if (
+        block.has_children &&
+        (block.type === "table" ||
+          block.type === "toggle" ||
+          block.type === "column_list")
+      ) {
         let childCursor: string | undefined = undefined;
         const children: any[] = [];
         do {
-          const { results, next_cursor } = await notionCall(() => notion.blocks.children.list({
-            block_id: block.id,
-            start_cursor: childCursor,
-          }));
+          const { results, next_cursor } = await notionCall(() =>
+            notion.blocks.children.list({
+              block_id: block.id,
+              start_cursor: childCursor,
+            }),
+          );
           children.push(...results);
           childCursor = next_cursor || undefined;
         } while (childCursor);
@@ -142,20 +162,24 @@ export async function pushPage(req: Request, res: Response) {
       // 1. Update page properties directly
       // Frontend properties are already clean and formatted properly
       if (properties && Object.keys(properties).length > 0) {
-        await notionCall(() => notion.pages.update({
-          page_id: pageId,
-          properties: properties,
-        }));
+        await notionCall(() =>
+          notion.pages.update({
+            page_id: pageId,
+            properties: properties,
+          }),
+        );
       }
 
       // 2. Fetch existing child blocks
       let existingBlocks: any[] = [];
       let cursor: string | undefined = undefined;
       do {
-        const { results, next_cursor } = await notionCall(() => notion.blocks.children.list({
-          block_id: pageId,
-          start_cursor: cursor,
-        }));
+        const { results, next_cursor } = await notionCall(() =>
+          notion.blocks.children.list({
+            block_id: pageId,
+            start_cursor: cursor,
+          }),
+        );
         existingBlocks.push(...results);
         cursor = next_cursor || undefined;
       } while (cursor);
@@ -164,7 +188,7 @@ export async function pushPage(req: Request, res: Response) {
       const ops = computeBlockDiff(existingBlocks, blocks || []);
 
       const stats = { keep: 0, update: 0, insert: 0, delete: 0 };
-      ops.forEach(o => stats[o.type]++);
+      ops.forEach((o) => stats[o.type]++);
       console.log(`[Notion Push] Diff ops:`, stats);
 
       // Pre-compute mappings
@@ -180,7 +204,9 @@ export async function pushPage(req: Request, res: Response) {
         if (op.type === "delete") {
           const oldBlock = existingBlocks[op.oldIndex];
           try {
-            await notionCall(() => notion.blocks.delete({ block_id: oldBlock.id }));
+            await notionCall(() =>
+              notion.blocks.delete({ block_id: oldBlock.id }),
+            );
           } catch (e) {
             console.error("Failed to delete block", oldBlock.id, e);
           }
@@ -193,10 +219,12 @@ export async function pushPage(req: Request, res: Response) {
           const newBlock = blocks[op.newIndex];
           const oldBlock = existingBlocks[op.oldIndex];
           try {
-            await notionCall(() => notion.blocks.update({
-              block_id: oldBlock.id,
-              [newBlock.type]: newBlock[newBlock.type],
-            } as any));
+            await notionCall(() =>
+              notion.blocks.update({
+                block_id: oldBlock.id,
+                [newBlock.type]: newBlock[newBlock.type],
+              } as any),
+            );
           } catch (e) {
             console.error("Failed to update block", oldBlock.id, e);
           }
@@ -252,10 +280,13 @@ export async function pushPage(req: Request, res: Response) {
             }
 
             try {
-              const response = await notionCall(() => notion.blocks.children.append(appendArgs));
+              const response = await notionCall(() =>
+                notion.blocks.children.append(appendArgs),
+              );
               // Update anchor for next chunk
               if (response.results && response.results.length > 0) {
-                currentAnchorId = response.results[response.results.length - 1].id;
+                currentAnchorId =
+                  response.results[response.results.length - 1].id;
               }
             } catch (e) {
               console.error("Failed to append blocks", e);
@@ -265,17 +296,18 @@ export async function pushPage(req: Request, res: Response) {
           i++;
         }
       }
-
     } else {
       // Create new page (up to 100 blocks initially)
       const initialBlocks = blocks ? blocks.slice(0, 100) : [];
       const remainingBlocks = blocks ? blocks.slice(100) : [];
 
-      const response = await notionCall(() => notion.pages.create({
-        parent: { database_id: CONTENT_CALENDAR_CREATE_DB_ID } as any,
-        properties: properties,
-        children: initialBlocks as BlockObjectRequest[],
-      }));
+      const response = await notionCall(() =>
+        notion.pages.create({
+          parent: { database_id: CONTENT_CALENDAR_CREATE_DB_ID } as any,
+          properties: properties,
+          children: initialBlocks as BlockObjectRequest[],
+        }),
+      );
       targetPageId = response.id;
 
       // Append remaining blocks in chunks of 100 sequentially to avoid hitting rate limits
@@ -287,18 +319,26 @@ export async function pushPage(req: Request, res: Response) {
         for (let i = 0; i < remainingBlocks.length; i += chunkSize) {
           const chunk = remainingBlocks.slice(i, i + chunkSize);
 
-          await notionCall(() => notion.blocks.children.append({
-            block_id: targetPageId,
-            children: chunk as BlockObjectRequest[],
-          }));
+          await notionCall(() =>
+            notion.blocks.children.append({
+              block_id: targetPageId,
+              children: chunk as BlockObjectRequest[],
+            }),
+          );
         }
       }
     }
 
     // Retrieve the final page to get the updated last_edited_time
-    const finalPage = await notionCall(() => notion.pages.retrieve({ page_id: targetPageId }));
+    const finalPage = await notionCall(() =>
+      notion.pages.retrieve({ page_id: targetPageId }),
+    );
 
-    res.json({ success: true, pageId: targetPageId, last_edited_time: (finalPage as any).last_edited_time });
+    res.json({
+      success: true,
+      pageId: targetPageId,
+      last_edited_time: (finalPage as any).last_edited_time,
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -314,7 +354,9 @@ export async function getPageMeta(req: Request, res: Response) {
       return res.status(400).json({ error: "pageId is required" });
     }
 
-    const page = await notionCall(() => notion.pages.retrieve({ page_id: pageId }));
+    const page = await notionCall(() =>
+      notion.pages.retrieve({ page_id: pageId }),
+    );
 
     res.json({ page });
   } catch (err: any) {
@@ -326,9 +368,11 @@ export async function getDatabaseSchema(req: Request, res: Response) {
   if (requireEnvKey(res, "NOTION_API_KEY", "Notion")) return;
   try {
     const notion = getClient();
-    const response = await notionCall(() => notion.dataSources.retrieve({
-      data_source_id: CONTENT_CALENDAR_DB_ID,
-    }));
+    const response = await notionCall(() =>
+      notion.dataSources.retrieve({
+        data_source_id: CONTENT_CALENDAR_DB_ID,
+      }),
+    );
     res.json(response);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

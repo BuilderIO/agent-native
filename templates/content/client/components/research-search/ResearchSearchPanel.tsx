@@ -2,7 +2,11 @@ import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { Search, Loader2 } from "lucide-react";
 import { useTwitterSearch } from "@/hooks/use-twitter";
 import { useGoogleSearch } from "@/hooks/use-google-search";
-import type { TwitterTweet, CollectedLink, GoogleSearchResult } from "@shared/api";
+import type {
+  TwitterTweet,
+  CollectedLink,
+  GoogleSearchResult,
+} from "@shared/api";
 import {
   ResearchSearchBar,
   type SourceFilter,
@@ -46,12 +50,12 @@ function saveFilters(
   sourceFilter: SourceFilter,
   dateRange: DateRange,
   tweetFilter: TweetFilter,
-  sortType: SortType
+  sortType: SortType,
 ) {
   try {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ sourceFilter, dateRange, tweetFilter, sortType })
+      JSON.stringify({ sourceFilter, dateRange, tweetFilter, sortType }),
     );
   } catch {}
 }
@@ -72,7 +76,11 @@ function isTwitterVideoUrl(url: string): boolean {
   try {
     const u = new URL(url);
     const host = u.hostname.replace(/^www\./, "");
-    if ((host === "twitter.com" || host === "x.com") && /\/video\//.test(u.pathname)) return true;
+    if (
+      (host === "twitter.com" || host === "x.com") &&
+      /\/video\//.test(u.pathname)
+    )
+      return true;
     if (/\.(mp4|webm|mov|avi|m3u8)(\?|$)/i.test(u.pathname)) return true;
   } catch {}
   return false;
@@ -84,7 +92,9 @@ function extractLinks(text: string): string[] {
 }
 
 function getPreviewUrlForTweet(tweet: TwitterTweet): string | null {
-  const hasVideo = tweet.media?.some((m) => m.type === "video" || m.type === "animated_gif");
+  const hasVideo = tweet.media?.some(
+    (m) => m.type === "video" || m.type === "animated_gif",
+  );
   const rawLinks = extractLinks(tweet.text);
   const links = hasVideo
     ? rawLinks.filter((url) => {
@@ -106,11 +116,20 @@ interface ResearchSearchPanelProps {
   sidebarCollapsed?: boolean;
 }
 
-export function ResearchSearchPanel({ onPreviewChange, activeProjectSlug, currentWorkspace, sidebarCollapsed }: ResearchSearchPanelProps) {
+export function ResearchSearchPanel({
+  onPreviewChange,
+  activeProjectSlug,
+  currentWorkspace,
+  sidebarCollapsed,
+}: ResearchSearchPanelProps) {
   const initial = loadFilters();
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>(initial.sourceFilter);
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>(
+    initial.sourceFilter,
+  );
   const [dateRange, setDateRange] = useState<DateRange>(initial.dateRange);
-  const [tweetFilter, setTweetFilter] = useState<TweetFilter>(initial.tweetFilter);
+  const [tweetFilter, setTweetFilter] = useState<TweetFilter>(
+    initial.tweetFilter,
+  );
   const [sortType, setSortType] = useState<SortType>(initial.sortType);
   const [allTweets, setAllTweets] = useState<TwitterTweet[]>([]);
   const lastQueryRef = useRef<string>("");
@@ -128,7 +147,9 @@ export function ResearchSearchPanel({ onPreviewChange, activeProjectSlug, curren
 
   // Google state
   const [googlePage, setGooglePage] = useState(0);
-  const [googleAllResults, setGoogleAllResults] = useState<GoogleSearchResult[]>([]);
+  const [googleAllResults, setGoogleAllResults] = useState<
+    GoogleSearchResult[]
+  >([]);
   const [googleQuery, setGoogleQuery] = useState<string | null>(null);
 
   // Twitter state
@@ -142,7 +163,9 @@ export function ResearchSearchPanel({ onPreviewChange, activeProjectSlug, curren
 
   // Always search both providers so results are ready when switching tabs
   // Google search
-  const googleSearchParams = googleQuery ? { query: googleQuery, page: googlePage } : null;
+  const googleSearchParams = googleQuery
+    ? { query: googleQuery, page: googlePage }
+    : null;
   const {
     data: googleData,
     isLoading: googleLoading,
@@ -167,7 +190,9 @@ export function ResearchSearchPanel({ onPreviewChange, activeProjectSlug, curren
     } else if (googleData?.results && googlePage > 0) {
       setGoogleAllResults((prev) => {
         const existingUrls = new Set(prev.map((r) => r.url));
-        const newResults = googleData.results.filter((r) => !existingUrls.has(r.url));
+        const newResults = googleData.results.filter(
+          (r) => !existingUrls.has(r.url),
+        );
         return [...prev, ...newResults];
       });
     }
@@ -196,7 +221,7 @@ export function ResearchSearchPanel({ onPreviewChange, activeProjectSlug, curren
       });
       setAllTweets([]);
     },
-    [sortType, dateRange, tweetFilter]
+    [sortType, dateRange, tweetFilter],
   );
 
   // Re-search Twitter when its filters change
@@ -236,11 +261,13 @@ export function ResearchSearchPanel({ onPreviewChange, activeProjectSlug, curren
       setPreviewUrl(url);
       setPreviewTweet(tweet || null);
       if (tweet) {
-        setPreviewIndex(previewItems.findIndex((item) => item.tweet.id === tweet.id));
+        setPreviewIndex(
+          previewItems.findIndex((item) => item.tweet.id === tweet.id),
+        );
       }
       onPreviewChange?.(true);
     },
-    [onPreviewChange, previewItems]
+    [onPreviewChange, previewItems],
   );
 
   const handleGoogleLinkClick = useCallback(
@@ -250,7 +277,7 @@ export function ResearchSearchPanel({ onPreviewChange, activeProjectSlug, curren
       setPreviewIndex(null);
       onPreviewChange?.(true);
     },
-    [onPreviewChange]
+    [onPreviewChange],
   );
 
   const handleCollectLink = useCallback((link: CollectedLink) => {
@@ -269,9 +296,14 @@ export function ResearchSearchPanel({ onPreviewChange, activeProjectSlug, curren
   const navigatePreview = useCallback(
     (direction: -1 | 1) => {
       if (!previewItems.length) return;
-      const currentIndex = previewIndex ?? previewItems.findIndex((item) => item.tweet.id === previewTweet?.id);
+      const currentIndex =
+        previewIndex ??
+        previewItems.findIndex((item) => item.tweet.id === previewTweet?.id);
       if (currentIndex < 0) return;
-      const nextIndex = Math.min(Math.max(currentIndex + direction, 0), previewItems.length - 1);
+      const nextIndex = Math.min(
+        Math.max(currentIndex + direction, 0),
+        previewItems.length - 1,
+      );
       if (nextIndex === currentIndex) return;
       const nextItem = previewItems[nextIndex];
       setPreviewIndex(nextIndex);
@@ -279,7 +311,7 @@ export function ResearchSearchPanel({ onPreviewChange, activeProjectSlug, curren
       setPreviewUrl(nextItem.url || nextItem.tweet.url);
       onPreviewChange?.(true);
     },
-    [previewItems, previewIndex, previewTweet, onPreviewChange]
+    [previewItems, previewIndex, previewTweet, onPreviewChange],
   );
 
   useEffect(() => {
@@ -289,7 +321,9 @@ export function ResearchSearchPanel({ onPreviewChange, activeProjectSlug, curren
       explicitOpenRef.current = false;
       return;
     }
-    const idx = previewItems.findIndex((item) => item.tweet.id === previewTweet.id);
+    const idx = previewItems.findIndex(
+      (item) => item.tweet.id === previewTweet.id,
+    );
     if (idx === -1) {
       setPreviewTweet(null);
       setPreviewUrl(null);
@@ -305,7 +339,8 @@ export function ResearchSearchPanel({ onPreviewChange, activeProjectSlug, curren
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
-      if (tag === "input" || tag === "textarea" || target?.isContentEditable) return;
+      if (tag === "input" || tag === "textarea" || target?.isContentEditable)
+        return;
       if (event.key === "j" || event.key === "ArrowDown") {
         event.preventDefault();
         navigatePreview(1);
@@ -318,7 +353,6 @@ export function ResearchSearchPanel({ onPreviewChange, activeProjectSlug, curren
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [navigatePreview, previewTweet]);
-
 
   return (
     <div className="flex-1 flex h-screen bg-background overflow-hidden">
@@ -414,7 +448,11 @@ export function ResearchSearchPanel({ onPreviewChange, activeProjectSlug, curren
           onPrev={previewTweet ? () => navigatePreview(-1) : undefined}
           onNext={previewTweet ? () => navigatePreview(1) : undefined}
           hasPrev={previewTweet ? (previewIndex ?? 0) > 0 : false}
-          hasNext={previewTweet ? (previewIndex != null && previewIndex < previewItems.length - 1) : false}
+          hasNext={
+            previewTweet
+              ? previewIndex != null && previewIndex < previewItems.length - 1
+              : false
+          }
         />
       )}
     </div>
@@ -476,7 +514,11 @@ function TwitterOnlyResults({
         {compact ? (
           <div className="flex flex-col gap-3">
             {tweets.map((tweet) => (
-              <TweetCard key={tweet.id} tweet={tweet} onLinkClick={onLinkClick} />
+              <TweetCard
+                key={tweet.id}
+                tweet={tweet}
+                onLinkClick={onLinkClick}
+              />
             ))}
           </div>
         ) : (

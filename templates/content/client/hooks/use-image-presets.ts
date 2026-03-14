@@ -39,8 +39,8 @@ export function useImagePresets() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name: p.name, paths: p.paths }),
-          })
-        )
+          }),
+        ),
       ).then(() => {
         localStorage.removeItem("image-gen:presets");
         queryClient.invalidateQueries({ queryKey: ["image-presets"] });
@@ -60,19 +60,29 @@ export function useImagePresets() {
       if (!res.ok) throw new Error("Failed to save preset");
       return res.json() as Promise<ImagePreset>;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["image-presets"] }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["image-presets"] }),
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await authFetch(`/api/image-presets/${id}`, { method: "DELETE" });
+      const res = await authFetch(`/api/image-presets/${id}`, {
+        method: "DELETE",
+      });
       if (!res.ok) throw new Error("Failed to delete preset");
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["image-presets"] }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["image-presets"] }),
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, updates }: { id: string; updates: Partial<Pick<ImagePreset, "name" | "paths" | "instructions">> }) => {
+    mutationFn: async ({
+      id,
+      updates,
+    }: {
+      id: string;
+      updates: Partial<Pick<ImagePreset, "name" | "paths" | "instructions">>;
+    }) => {
       const res = await authFetch(`/api/image-presets/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -81,15 +91,19 @@ export function useImagePresets() {
       if (!res.ok) throw new Error("Failed to update preset");
       return res.json() as Promise<ImagePreset>;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["image-presets"] }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["image-presets"] }),
   });
 
   return {
     presets,
     isLoading,
-    savePreset: (name: string, paths: string[]) => saveMutation.mutate({ name, paths }),
+    savePreset: (name: string, paths: string[]) =>
+      saveMutation.mutate({ name, paths }),
     deletePreset: (id: string) => deleteMutation.mutate(id),
-    updatePreset: (id: string, updates: Partial<Pick<ImagePreset, "name" | "paths" | "instructions">>) =>
-      updateMutation.mutate({ id, updates }),
+    updatePreset: (
+      id: string,
+      updates: Partial<Pick<ImagePreset, "name" | "paths" | "instructions">>,
+    ) => updateMutation.mutate({ id, updates }),
   };
 }

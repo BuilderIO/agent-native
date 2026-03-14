@@ -14,7 +14,9 @@ import { CreateProjectPrompt } from "@/remotion/library-components/CreateProject
 
 export default function GitProviderDemo() {
   const [value, setValue] = React.useState("");
-  const [selectedProvider, setSelectedProvider] = React.useState<string | null>(null);
+  const [selectedProvider, setSelectedProvider] = React.useState<string | null>(
+    null,
+  );
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-8">
@@ -61,7 +63,10 @@ export default function GitProviderDemo() {
             </li>
             <li className="flex items-start gap-2">
               <span className="text-primary">2.</span>
-              <span>Click the "Connect Repo" button to open the Git Providers dropdown</span>
+              <span>
+                Click the "Connect Repo" button to open the Git Providers
+                dropdown
+              </span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-primary">3.</span>
@@ -69,7 +74,10 @@ export default function GitProviderDemo() {
             </li>
             <li className="flex items-start gap-2">
               <span className="text-primary">4.</span>
-              <span>The dropdown will animate in below the button with smooth transitions</span>
+              <span>
+                The dropdown will animate in below the button with smooth
+                transitions
+              </span>
             </li>
           </ul>
         </div>

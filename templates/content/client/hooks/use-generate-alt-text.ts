@@ -20,7 +20,9 @@ export function useGenerateAltText() {
         body: JSON.stringify(req),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Alt generation failed" }));
+        const err = await res
+          .json()
+          .catch(() => ({ error: "Alt generation failed" }));
         throw new Error(err.error || "Alt generation failed");
       }
       return res.json();

@@ -10,11 +10,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { requestUserInfo } from "@agent-native/core/client";
 
-export function FeedbackButton({ variant = "icon" }: { variant?: "icon" | "prominent" }) {
+export function FeedbackButton({
+  variant = "icon",
+}: {
+  variant?: "icon" | "prominent";
+}) {
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">(
-    "idle"
+    "idle",
   );
 
   const handleSubmit = useCallback(async () => {
@@ -38,24 +42,19 @@ export function FeedbackButton({ variant = "icon" }: { variant?: "icon" | "promi
     }, 1800);
   }, [message, status]);
 
-  const handleOpenChange = useCallback(
-    (next: boolean) => {
-      setOpen(next);
-      if (!next) {
-        setStatus("idle");
-        setMessage("");
-      }
-    },
-    []
-  );
+  const handleOpenChange = useCallback((next: boolean) => {
+    setOpen(next);
+    if (!next) {
+      setStatus("idle");
+      setMessage("");
+    }
+  }, []);
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         {variant === "prominent" ? (
-          <button
-            className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-md text-sm font-medium bg-foreground text-background hover:opacity-90 transition-opacity"
-          >
+          <button className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-md text-sm font-medium bg-foreground text-background hover:opacity-90 transition-opacity">
             <MessageSquare size={15} />
             <span>Feedback</span>
           </button>

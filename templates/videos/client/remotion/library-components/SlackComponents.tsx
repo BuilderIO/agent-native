@@ -4,7 +4,10 @@
  */
 import React from "react";
 import { useCurrentFrame, useVideoConfig, AbsoluteFill } from "remotion";
-import { useInteractiveComponent, AnimationPresets } from "../hooks/useInteractiveComponent";
+import {
+  useInteractiveComponent,
+  AnimationPresets,
+} from "../hooks/useInteractiveComponent";
 import { useCursorHistory } from "../hooks/useCursorHistory";
 import { findTrack } from "../trackAnimation";
 import type { AnimationTrack } from "@/types";
@@ -28,7 +31,10 @@ interface InteractiveSlackComponentProps {
 }
 
 // Debug zone visualization component
-const DebugZone: React.FC<{ zone: { x: number; y: number; width: number; height: number }, label: string }> = ({ zone, label }) => (
+const DebugZone: React.FC<{
+  zone: { x: number; y: number; width: number; height: number };
+  label: string;
+}> = ({ zone, label }) => (
   <div
     style={{
       position: "absolute",
@@ -52,12 +58,20 @@ const DebugZone: React.FC<{ zone: { x: number; y: number; width: number; height:
   </div>
 );
 
-export const SlackSearchInput: React.FC<InteractiveSlackComponentProps> = ({ tracks = [], debugMode = false }) => {
+export const SlackSearchInput: React.FC<InteractiveSlackComponentProps> = ({
+  tracks = [],
+  debugMode = false,
+}) => {
   const { width, height } = useVideoConfig();
   const cursorTrack = findTrack(tracks, "cursor", tracks[1]);
   const cursorHistory = useCursorHistory(cursorTrack, 6);
 
-  const zone = { x: (width - 660) / 2, y: (height - 40) / 2, width: 660, height: 40 };
+  const zone = {
+    x: (width - 660) / 2,
+    y: (height - 40) / 2,
+    width: 660,
+    height: 40,
+  };
 
   const searchBar = useInteractiveComponent({
     id: "search-input",
@@ -75,19 +89,30 @@ export const SlackSearchInput: React.FC<InteractiveSlackComponentProps> = ({ tra
   return (
     <AbsoluteFill style={{ backgroundColor: "#0a0a0a" }}>
       <div style={{ position: "absolute", left: zone.x, top: zone.y }}>
-        <BaseSlackSearchInput width={660} hoverProgress={searchBar.hover.progress} />
+        <BaseSlackSearchInput
+          width={660}
+          hoverProgress={searchBar.hover.progress}
+        />
       </div>
       {debugMode && <DebugZone zone={zone} label="Search Input" />}
     </AbsoluteFill>
   );
 };
 
-export const SlackNavItem: React.FC<InteractiveSlackComponentProps> = ({ tracks = [], debugMode = false }) => {
+export const SlackNavItem: React.FC<InteractiveSlackComponentProps> = ({
+  tracks = [],
+  debugMode = false,
+}) => {
   const { width, height } = useVideoConfig();
   const cursorTrack = findTrack(tracks, "cursor", tracks[1]);
   const cursorHistory = useCursorHistory(cursorTrack, 6);
 
-  const zone = { x: (width - 80) / 2, y: (height - 100) / 2, width: 80, height: 100 };
+  const zone = {
+    x: (width - 80) / 2,
+    y: (height - 100) / 2,
+    width: 80,
+    height: 100,
+  };
 
   const navItem = useInteractiveComponent({
     id: "nav-item",
@@ -117,12 +142,20 @@ export const SlackNavItem: React.FC<InteractiveSlackComponentProps> = ({ tracks 
   );
 };
 
-export const SlackChannelItem: React.FC<InteractiveSlackComponentProps> = ({ tracks = [], debugMode = false }) => {
+export const SlackChannelItem: React.FC<InteractiveSlackComponentProps> = ({
+  tracks = [],
+  debugMode = false,
+}) => {
   const { width, height } = useVideoConfig();
   const cursorTrack = findTrack(tracks, "cursor", tracks[1]);
   const cursorHistory = useCursorHistory(cursorTrack, 6);
 
-  const zone = { x: (width - 280) / 2, y: (height - 38) / 2, width: 280, height: 38 };
+  const zone = {
+    x: (width - 280) / 2,
+    y: (height - 38) / 2,
+    width: 280,
+    height: 38,
+  };
 
   const channelItem = useInteractiveComponent({
     id: "channel-item",
@@ -139,7 +172,14 @@ export const SlackChannelItem: React.FC<InteractiveSlackComponentProps> = ({ tra
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#0a0a0a" }}>
-      <div style={{ position: "absolute", left: zone.x, top: zone.y, width: zone.width }}>
+      <div
+        style={{
+          position: "absolute",
+          left: zone.x,
+          top: zone.y,
+          width: zone.width,
+        }}
+      >
         <BaseSlackChannelItem
           icon="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/9347f54e1f68efe048dd55867511b18da39a18a4"
           name="product-dev"
@@ -151,12 +191,20 @@ export const SlackChannelItem: React.FC<InteractiveSlackComponentProps> = ({ tra
   );
 };
 
-export const SlackDMItem: React.FC<InteractiveSlackComponentProps> = ({ tracks = [], debugMode = false }) => {
+export const SlackDMItem: React.FC<InteractiveSlackComponentProps> = ({
+  tracks = [],
+  debugMode = false,
+}) => {
   const { width, height } = useVideoConfig();
   const cursorTrack = findTrack(tracks, "cursor", tracks[1]);
   const cursorHistory = useCursorHistory(cursorTrack, 6);
 
-  const zone = { x: (width - 280) / 2, y: (height - 38) / 2, width: 280, height: 38 };
+  const zone = {
+    x: (width - 280) / 2,
+    y: (height - 38) / 2,
+    width: 280,
+    height: 38,
+  };
 
   const dmItem = useInteractiveComponent({
     id: "dm-item",
@@ -173,7 +221,14 @@ export const SlackDMItem: React.FC<InteractiveSlackComponentProps> = ({ tracks =
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#0a0a0a" }}>
-      <div style={{ position: "absolute", left: zone.x, top: zone.y, width: zone.width }}>
+      <div
+        style={{
+          position: "absolute",
+          left: zone.x,
+          top: zone.y,
+          width: zone.width,
+        }}
+      >
         <BaseSlackDMItem
           avatar="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/151a7d6433e4c148d7b8654cde84721864e79b7f"
           name="Amelia Gordon 🍎"
@@ -185,12 +240,20 @@ export const SlackDMItem: React.FC<InteractiveSlackComponentProps> = ({ tracks =
   );
 };
 
-export const SlackMessageCard: React.FC<InteractiveSlackComponentProps> = ({ tracks = [], debugMode = false }) => {
+export const SlackMessageCard: React.FC<InteractiveSlackComponentProps> = ({
+  tracks = [],
+  debugMode = false,
+}) => {
   const { width, height } = useVideoConfig();
   const cursorTrack = findTrack(tracks, "cursor", tracks[1]);
   const cursorHistory = useCursorHistory(cursorTrack, 6);
 
-  const zone = { x: (width - 800) / 2, y: (height - 200) / 2, width: 800, height: 200 };
+  const zone = {
+    x: (width - 800) / 2,
+    y: (height - 200) / 2,
+    width: 800,
+    height: 200,
+  };
 
   const messageCard = useInteractiveComponent({
     id: "message-card",
@@ -207,7 +270,14 @@ export const SlackMessageCard: React.FC<InteractiveSlackComponentProps> = ({ tra
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#0a0a0a" }}>
-      <div style={{ position: "absolute", left: zone.x, top: zone.y, width: zone.width }}>
+      <div
+        style={{
+          position: "absolute",
+          left: zone.x,
+          top: zone.y,
+          width: zone.width,
+        }}
+      >
         <BaseSlackMessageCard
           avatar="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/151a7d6433e4c148d7b8654cde84721864e79b7f"
           author="Amelia Gordon 🍎"
@@ -227,7 +297,10 @@ export const SlackMessageCard: React.FC<InteractiveSlackComponentProps> = ({ tra
   );
 };
 
-export const SlackTopHeader: React.FC<InteractiveSlackComponentProps> = ({ tracks = [], debugMode = false }) => {
+export const SlackTopHeader: React.FC<InteractiveSlackComponentProps> = ({
+  tracks = [],
+  debugMode = false,
+}) => {
   const { width } = useVideoConfig();
   const cursorTrack = findTrack(tracks, "cursor", tracks[1]);
   const cursorHistory = useCursorHistory(cursorTrack, 6);
@@ -249,13 +322,19 @@ export const SlackTopHeader: React.FC<InteractiveSlackComponentProps> = ({ track
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#0a0a0a" }}>
-      <BaseSlackTopHeader width={width} searchHoverProgress={searchBar.hover.progress} />
+      <BaseSlackTopHeader
+        width={width}
+        searchHoverProgress={searchBar.hover.progress}
+      />
       {debugMode && <DebugZone zone={zone} label="Search Bar" />}
     </AbsoluteFill>
   );
 };
 
-export const SlackLeftSidebar: React.FC<InteractiveSlackComponentProps> = ({ tracks = [], debugMode = false }) => {
+export const SlackLeftSidebar: React.FC<InteractiveSlackComponentProps> = ({
+  tracks = [],
+  debugMode = false,
+}) => {
   const { height } = useVideoConfig();
   const cursorTrack = findTrack(tracks, "cursor", tracks[1]);
   const cursorHistory = useCursorHistory(cursorTrack, 6);
@@ -299,7 +378,11 @@ export const SlackLeftSidebar: React.FC<InteractiveSlackComponentProps> = ({ tra
     hoverAnimation: AnimationPresets.scaleHover(0.05),
   });
 
-  React.useEffect(() => {}, [homeNav.hover.isHovering, dmsNav.hover.isHovering, activityNav.hover.isHovering]);
+  React.useEffect(() => {}, [
+    homeNav.hover.isHovering,
+    dmsNav.hover.isHovering,
+    activityNav.hover.isHovering,
+  ]);
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#0a0a0a" }}>
@@ -323,7 +406,10 @@ export const SlackLeftSidebar: React.FC<InteractiveSlackComponentProps> = ({ tra
   );
 };
 
-export const SlackMiddleSidebar: React.FC<InteractiveSlackComponentProps> = ({ tracks = [], debugMode = false }) => {
+export const SlackMiddleSidebar: React.FC<InteractiveSlackComponentProps> = ({
+  tracks = [],
+  debugMode = false,
+}) => {
   const { height } = useVideoConfig();
   const cursorTrack = findTrack(tracks, "cursor", tracks[1]);
   const cursorHistory = useCursorHistory(cursorTrack, 6);
@@ -353,7 +439,10 @@ export const SlackMiddleSidebar: React.FC<InteractiveSlackComponentProps> = ({ t
     hoverAnimation: AnimationPresets.scaleHover(0.02),
   });
 
-  React.useEffect(() => {}, [productDevChannel.hover.isHovering, ameliaDM.hover.isHovering]);
+  React.useEffect(() => {}, [
+    productDevChannel.hover.isHovering,
+    ameliaDM.hover.isHovering,
+  ]);
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#0a0a0a" }}>
@@ -378,7 +467,10 @@ export const SlackMiddleSidebar: React.FC<InteractiveSlackComponentProps> = ({ t
   );
 };
 
-export const SlackMainContent: React.FC<InteractiveSlackComponentProps> = ({ tracks = [], debugMode = false }) => {
+export const SlackMainContent: React.FC<InteractiveSlackComponentProps> = ({
+  tracks = [],
+  debugMode = false,
+}) => {
   const cursorTrack = findTrack(tracks, "cursor", tracks[1]);
   const cursorHistory = useCursorHistory(cursorTrack, 6);
 
@@ -413,7 +505,10 @@ export const SlackMainContent: React.FC<InteractiveSlackComponentProps> = ({ tra
   );
 };
 
-export const SlackThreadPanel: React.FC<InteractiveSlackComponentProps> = ({ tracks = [], debugMode = false }) => {
+export const SlackThreadPanel: React.FC<InteractiveSlackComponentProps> = ({
+  tracks = [],
+  debugMode = false,
+}) => {
   return (
     <AbsoluteFill style={{ backgroundColor: "#0a0a0a" }}>
       <div style={{ position: "absolute", left: 1385, top: 0 }}>
@@ -424,7 +519,10 @@ export const SlackThreadPanel: React.FC<InteractiveSlackComponentProps> = ({ tra
   );
 };
 
-export const SlackUI: React.FC<InteractiveSlackComponentProps> = ({ tracks = [], debugMode = false }) => {
+export const SlackUI: React.FC<InteractiveSlackComponentProps> = ({
+  tracks = [],
+  debugMode = false,
+}) => {
   const { width, height } = useVideoConfig();
   const cursorTrack = findTrack(tracks, "cursor", tracks[1]);
   const cursorHistory = useCursorHistory(cursorTrack, 6);
@@ -456,7 +554,10 @@ export const SlackUI: React.FC<InteractiveSlackComponentProps> = ({ tracks = [],
     hoverAnimation: AnimationPresets.scaleHover(0.05),
   });
 
-  React.useEffect(() => {}, [searchBar.hover.isHovering, homeNav.hover.isHovering]);
+  React.useEffect(() => {}, [
+    searchBar.hover.isHovering,
+    homeNav.hover.isHovering,
+  ]);
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#0a0a0a" }}>

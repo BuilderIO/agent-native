@@ -39,7 +39,7 @@ export function QuickSearch({
         setInternalOpen(next);
       }
     },
-    [isControlled, onOpenChange]
+    [isControlled, onOpenChange],
   );
 
   const { data: projectsData } = useProjects();
@@ -75,7 +75,7 @@ export function QuickSearch({
         onSelectFile(projectSlug, filePath);
       }
     },
-    [onSelectFile, onSelectProject, setOpen]
+    [onSelectFile, onSelectProject, setOpen],
   );
 
   // Workspace priority: 0 = current, 1 = other
@@ -85,7 +85,7 @@ export function QuickSearch({
       if (currentWorkspace && ws === currentWorkspace) return 0;
       return 1;
     },
-    [currentWorkspace]
+    [currentWorkspace],
   );
 
   // Group file entries by project, sorted by workspace priority
@@ -100,7 +100,7 @@ export function QuickSearch({
     // Sort by workspace priority
     const sorted: Record<string, typeof entries> = {};
     const keys = Object.keys(groups).sort(
-      (a, b) => getWorkspacePriority(a) - getWorkspacePriority(b)
+      (a, b) => getWorkspacePriority(a) - getWorkspacePriority(b),
     );
     for (const k of keys) sorted[k] = groups[k];
     return sorted;
@@ -117,9 +117,9 @@ export function QuickSearch({
   const sortedProjects = useMemo(
     () =>
       [...projects].sort(
-        (a, b) => getWorkspacePriority(a.slug) - getWorkspacePriority(b.slug)
+        (a, b) => getWorkspacePriority(a.slug) - getWorkspacePriority(b.slug),
       ),
-    [projects, getWorkspacePriority]
+    [projects, getWorkspacePriority],
   );
 
   return (
@@ -142,16 +142,25 @@ export function QuickSearch({
                   onSelect={() => handleSelect(`project:${p.slug}`)}
                   className="gap-2.5"
                 >
-                  <FolderOpen size={14} className="text-muted-foreground shrink-0" />
+                  <FolderOpen
+                    size={14}
+                    className="text-muted-foreground shrink-0"
+                  />
                   <span className="truncate flex-1">{p.name}</span>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {ws === "private" && (
-                      <span title="Private workspace"><Lock size={11} className="text-muted-foreground" /></span>
+                      <span title="Private workspace">
+                        <Lock size={11} className="text-muted-foreground" />
+                      </span>
                     )}
                     {p.isPrivate && ws !== "private" && (
-                      <span title="Private project"><Lock size={11} className="text-muted-foreground" /></span>
+                      <span title="Private project">
+                        <Lock size={11} className="text-muted-foreground" />
+                      </span>
                     )}
-                    <span className="text-[11px] text-muted-foreground">{ws === "private" ? "Private" : ws}</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {ws === "private" ? "Private" : ws}
+                    </span>
                   </div>
                 </CommandItem>
               );
@@ -164,7 +173,7 @@ export function QuickSearch({
           const label =
             slug === SHARED_SLUG
               ? "Shared Resources"
-              : projects.find((p) => p.slug === slug)?.name ?? slug;
+              : (projects.find((p) => p.slug === slug)?.name ?? slug);
           const ws = getWorkspace(slug);
           const groupLabel = label;
           return (
@@ -181,9 +190,15 @@ export function QuickSearch({
                     className="gap-2.5"
                   >
                     {f.projectSlug === SHARED_SLUG ? (
-                      <BookOpen size={14} className="text-muted-foreground shrink-0" />
+                      <BookOpen
+                        size={14}
+                        className="text-muted-foreground shrink-0"
+                      />
                     ) : (
-                      <FileText size={14} className="text-muted-foreground shrink-0" />
+                      <FileText
+                        size={14}
+                        className="text-muted-foreground shrink-0"
+                      />
                     )}
                     <div className="flex flex-col min-w-0 flex-1">
                       <span className="truncate text-sm">
@@ -197,9 +212,13 @@ export function QuickSearch({
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       {ws === "private" && (
-                        <span title="Private workspace"><Lock size={11} className="text-muted-foreground" /></span>
+                        <span title="Private workspace">
+                          <Lock size={11} className="text-muted-foreground" />
+                        </span>
                       )}
-                      <span className="text-[11px] text-muted-foreground">{ws === "private" ? "Private" : ws}</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {ws === "private" ? "Private" : ws}
+                      </span>
                     </div>
                   </CommandItem>
                 );

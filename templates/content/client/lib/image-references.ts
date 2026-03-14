@@ -3,7 +3,9 @@ export interface ResolvedImageReference {
   reason?: string;
 }
 
-export function resolveImageReferenceForChat(imageUrl?: string | null): ResolvedImageReference {
+export function resolveImageReferenceForChat(
+  imageUrl?: string | null,
+): ResolvedImageReference {
   const trimmed = imageUrl?.trim();
 
   if (!trimmed) {
@@ -13,14 +15,16 @@ export function resolveImageReferenceForChat(imageUrl?: string | null): Resolved
   if (trimmed.startsWith("blob:")) {
     return {
       value: null,
-      reason: "Regenerate is only available after the image finishes uploading and has a stable saved URL.",
+      reason:
+        "Regenerate is only available after the image finishes uploading and has a stable saved URL.",
     };
   }
 
   if (trimmed.startsWith("data:")) {
     return {
       value: null,
-      reason: "Regenerate is only available after the image is saved as project media.",
+      reason:
+        "Regenerate is only available after the image is saved as project media.",
     };
   }
 

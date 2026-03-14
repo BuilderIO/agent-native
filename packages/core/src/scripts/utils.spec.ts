@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { parseArgs, camelCaseArgs, isValidPath, isValidProjectPath } from "./utils.js";
+import {
+  parseArgs,
+  camelCaseArgs,
+  isValidPath,
+  isValidProjectPath,
+} from "./utils.js";
 
 describe("parseArgs", () => {
   it("parses --key value format", () => {
@@ -31,7 +36,9 @@ describe("parseArgs", () => {
   });
 
   it("skips non-flag arguments", () => {
-    expect(parseArgs(["positional", "--name", "hello"])).toEqual({ name: "hello" });
+    expect(parseArgs(["positional", "--name", "hello"])).toEqual({
+      name: "hello",
+    });
   });
 });
 

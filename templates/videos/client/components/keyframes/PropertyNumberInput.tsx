@@ -26,12 +26,12 @@ export function PropertyNumberInput({
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = parseFloat(e.target.value);
     if (!Number.isFinite(newValue)) return;
-    
+
     // Apply min/max constraints if provided
     let constrainedValue = newValue;
     if (min !== undefined) constrainedValue = Math.max(min, constrainedValue);
     if (max !== undefined) constrainedValue = Math.min(max, constrainedValue);
-    
+
     onChange(constrainedValue);
   };
 

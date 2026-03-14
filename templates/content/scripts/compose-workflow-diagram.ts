@@ -26,9 +26,24 @@ function createDiagramSvg(): string {
   const stageY = H / 2;
   const stageSpacing = W / 5;
   const stages = [
-    { x: stageSpacing * 1, label: "Terminal", sublabel: "Setup", icon: "terminal" },
-    { x: stageSpacing * 2, label: "Claude Code", sublabel: "Build", icon: "claude" },
-    { x: stageSpacing * 3, label: "Preview", sublabel: "Review", icon: "browser" },
+    {
+      x: stageSpacing * 1,
+      label: "Terminal",
+      sublabel: "Setup",
+      icon: "terminal",
+    },
+    {
+      x: stageSpacing * 2,
+      label: "Claude Code",
+      sublabel: "Build",
+      icon: "claude",
+    },
+    {
+      x: stageSpacing * 3,
+      label: "Preview",
+      sublabel: "Review",
+      icon: "browser",
+    },
     { x: stageSpacing * 4, label: "Git Merge", sublabel: "Ship", icon: "git" },
   ];
 
@@ -124,17 +139,21 @@ function createDiagramSvg(): string {
     <!-- Dot grid top-left -->
     <g transform="translate(30, 160)" opacity="0.06">
       ${Array.from({ length: 4 }, (_, r) =>
-        Array.from({ length: 4 }, (_, c) =>
-          `<circle cx="${c * 16}" cy="${r * 16}" r="2" fill="white"/>`
-        ).join("")
+        Array.from(
+          { length: 4 },
+          (_, c) =>
+            `<circle cx="${c * 16}" cy="${r * 16}" r="2" fill="white"/>`,
+        ).join(""),
       ).join("")}
     </g>
     <!-- Dot grid bottom-right -->
     <g transform="translate(${W - 100}, ${H - 100})" opacity="0.06">
       ${Array.from({ length: 4 }, (_, r) =>
-        Array.from({ length: 4 }, (_, c) =>
-          `<circle cx="${c * 16}" cy="${r * 16}" r="2" fill="white"/>`
-        ).join("")
+        Array.from(
+          { length: 4 },
+          (_, c) =>
+            `<circle cx="${c * 16}" cy="${r * 16}" r="2" fill="white"/>`,
+        ).join(""),
       ).join("")}
     </g>`;
 
@@ -148,8 +167,16 @@ export default async function main() {
   const projectSlug = "steve/claude-code-for-designers";
   const outDir = path.join(PROJECTS_DIR, projectSlug, "media");
   // Prefer Brandfetch logo (transparent bg), fall back to local reference
-  const brandfetchLogo = path.join(PROJECTS_DIR, projectSlug, "media/claude-logo-brandfetch-claude.png");
-  const localLogo = path.join(PROJECTS_DIR, projectSlug, "media/claude-logo-reference.png");
+  const brandfetchLogo = path.join(
+    PROJECTS_DIR,
+    projectSlug,
+    "media/claude-logo-brandfetch-claude.png",
+  );
+  const localLogo = path.join(
+    PROJECTS_DIR,
+    projectSlug,
+    "media/claude-logo-reference.png",
+  );
   const logoPath = fs.existsSync(brandfetchLogo) ? brandfetchLogo : localLogo;
 
   if (!fs.existsSync(logoPath)) {
@@ -158,28 +185,41 @@ export default async function main() {
   }
 
   const usingBrandfetch = logoPath === brandfetchLogo;
-  console.log(`Compositing workflow diagram with ${usingBrandfetch ? "Brandfetch" : "local"} Claude logo...`);
+  console.log(
+    `Compositing workflow diagram with ${usingBrandfetch ? "Brandfetch" : "local"} Claude logo...`,
+  );
 
   const logoSize = 55;
 
   // Always remove light backgrounds (white, beige, cream)
   const rawLogo = await sharp(logoPath)
-    .resize(logoSize, logoSize, { fit: "contain", background: { r: 255, g: 255, b: 255, alpha: 0 } })
+    .resize(logoSize, logoSize, {
+      fit: "contain",
+      background: { r: 255, g: 255, b: 255, alpha: 0 },
+    })
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
 
   const { data, info } = rawLogo;
   for (let i = 0; i < data.length; i += 4) {
-    const r = data[i], g = data[i + 1], b = data[i + 2];
+    const r = data[i],
+      g = data[i + 1],
+      b = data[i + 2];
     const lightness = (r + g + b) / 3;
     if (lightness > 220 && Math.abs(r - g) < 30 && Math.abs(g - b) < 30) {
       data[i + 3] = 0;
-    } else if (lightness > 180 && Math.abs(r - g) < 30 && Math.abs(g - b) < 30) {
+    } else if (
+      lightness > 180 &&
+      Math.abs(r - g) < 30 &&
+      Math.abs(g - b) < 30
+    ) {
       data[i + 3] = Math.round(255 * (1 - (lightness - 180) / 60));
     }
   }
-  const logoBuffer = await sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } })
+  const logoBuffer = await sharp(data, {
+    raw: { width: info.width, height: info.height, channels: 4 },
+  })
     .png()
     .toBuffer();
 
@@ -196,7 +236,12 @@ export default async function main() {
 
   // Composite: diagram + real Claude logo on stage 2
   const result = await sharp({
-    create: { width: W, height: H, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } },
+    create: {
+      width: W,
+      height: H,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 1 },
+    },
   })
     .composite([
       { input: diagramBuffer, top: 0, left: 0 },

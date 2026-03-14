@@ -1,5 +1,12 @@
 import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
-import { Layers, SlidersHorizontal, Camera, Mouse, ChevronRight, Plus } from "lucide-react";
+import {
+  Layers,
+  SlidersHorizontal,
+  Camera,
+  Mouse,
+  ChevronRight,
+  Plus,
+} from "lucide-react";
 import type { InteractiveComponentState } from "../hooks/useInteractiveComponent";
 import { AnimatedElement } from "../components/AnimatedElement";
 
@@ -59,7 +66,19 @@ export function UISidebar({
         <div className="flex border-b border-border">
           <div style={{ position: "relative", flex: 1 }}>
             <AnimatedElement
-              interactive={compositionsTab || { id: '', hover: { isHovering: false, progress: 0 }, click: { isClicking: false, progress: 0 }, combinedProgress: 0, cursorType: 'default', cursorX: 0, cursorY: 0, zone: { x: 0, y: 0, width: 0, height: 0 }, animatedProperties: {} }}
+              interactive={
+                compositionsTab || {
+                  id: "",
+                  hover: { isHovering: false, progress: 0 },
+                  click: { isClicking: false, progress: 0 },
+                  combinedProgress: 0,
+                  cursorType: "default",
+                  cursorX: 0,
+                  cursorY: 0,
+                  zone: { x: 0, y: 0, width: 0, height: 0 },
+                  animatedProperties: {},
+                }
+              }
               as="button"
               style={{
                 width: "100%",
@@ -70,7 +89,10 @@ export function UISidebar({
                 padding: "10px 12px",
                 fontSize: "13px",
                 fontWeight: 500,
-                color: activeTab === "compositions" ? "rgba(255, 255, 255, 0.9)" : "rgba(255, 255, 255, 0.5)",
+                color:
+                  activeTab === "compositions"
+                    ? "rgba(255, 255, 255, 0.9)"
+                    : "rgba(255, 255, 255, 0.5)",
                 backgroundColor: "transparent",
                 cursor: "pointer",
               }}
@@ -79,20 +101,34 @@ export function UISidebar({
               Compositions
             </AnimatedElement>
             {activeTab === "compositions" && (
-              <div style={{
-                position: "absolute",
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: "2px",
-                backgroundColor: "#6366f1",
-              }} />
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: "2px",
+                  backgroundColor: "#6366f1",
+                }}
+              />
             )}
           </div>
 
           <div style={{ position: "relative", flex: 1 }}>
             <AnimatedElement
-              interactive={propertiesTab || { id: '', hover: { isHovering: false, progress: 0 }, click: { isClicking: false, progress: 0 }, combinedProgress: 0, cursorType: 'default', cursorX: 0, cursorY: 0, zone: { x: 0, y: 0, width: 0, height: 0 }, animatedProperties: {} }}
+              interactive={
+                propertiesTab || {
+                  id: "",
+                  hover: { isHovering: false, progress: 0 },
+                  click: { isClicking: false, progress: 0 },
+                  combinedProgress: 0,
+                  cursorType: "default",
+                  cursorX: 0,
+                  cursorY: 0,
+                  zone: { x: 0, y: 0, width: 0, height: 0 },
+                  animatedProperties: {},
+                }
+              }
               as="button"
               style={{
                 width: "100%",
@@ -103,7 +139,10 @@ export function UISidebar({
                 padding: "10px 12px",
                 fontSize: "13px",
                 fontWeight: 500,
-                color: activeTab === "properties" ? "rgba(255, 255, 255, 0.9)" : "rgba(255, 255, 255, 0.5)",
+                color:
+                  activeTab === "properties"
+                    ? "rgba(255, 255, 255, 0.9)"
+                    : "rgba(255, 255, 255, 0.5)",
                 backgroundColor: "transparent",
                 cursor: "pointer",
               }}
@@ -112,14 +151,16 @@ export function UISidebar({
               Properties
             </AnimatedElement>
             {activeTab === "properties" && (
-              <div style={{
-                position: "absolute",
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: "2px",
-                backgroundColor: "#6366f1",
-              }} />
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: "2px",
+                  backgroundColor: "#6366f1",
+                }}
+              />
             )}
           </div>
         </div>
@@ -157,7 +198,19 @@ export function UISidebar({
               {/* Camera Panel */}
               <div className="rounded-lg">
                 <AnimatedElement
-                  interactive={cameraAccordion || { id: '', hover: { isHovering: false, progress: 0 }, click: { isClicking: false, progress: 0 }, combinedProgress: 0, cursorType: 'default', cursorX: 0, cursorY: 0, zone: { x: 0, y: 0, width: 0, height: 0 }, animatedProperties: {} }}
+                  interactive={
+                    cameraAccordion || {
+                      id: "",
+                      hover: { isHovering: false, progress: 0 },
+                      click: { isClicking: false, progress: 0 },
+                      combinedProgress: 0,
+                      cursorType: "default",
+                      cursorX: 0,
+                      cursorY: 0,
+                      zone: { x: 0, y: 0, width: 0, height: 0 },
+                      animatedProperties: {},
+                    }
+                  }
                   as="div"
                   style={{
                     display: "flex",
@@ -175,7 +228,7 @@ export function UISidebar({
                     className="w-3.5 h-3.5 ml-auto text-muted-foreground"
                     style={{
                       transform: `rotate(${chevronRotation}deg)`,
-                      transition: 'transform 0.3s ease-out',
+                      transition: "transform 0.3s ease-out",
                     }}
                   />
                 </AnimatedElement>
@@ -308,7 +361,19 @@ export function UISidebar({
 
               {/* Cursor Panel */}
               <AnimatedElement
-                interactive={cursorAccordion || { id: '', hover: { isHovering: false, progress: 0 }, click: { isClicking: false, progress: 0 }, combinedProgress: 0, cursorType: 'default', cursorX: 0, cursorY: 0, zone: { x: 0, y: 0, width: 0, height: 0 }, animatedProperties: {} }}
+                interactive={
+                  cursorAccordion || {
+                    id: "",
+                    hover: { isHovering: false, progress: 0 },
+                    click: { isClicking: false, progress: 0 },
+                    combinedProgress: 0,
+                    cursorType: "default",
+                    cursorX: 0,
+                    cursorY: 0,
+                    zone: { x: 0, y: 0, width: 0, height: 0 },
+                    animatedProperties: {},
+                  }
+                }
                 as="div"
                 style={{
                   display: "flex",
@@ -327,7 +392,19 @@ export function UISidebar({
 
               {/* Track Properties Panel */}
               <AnimatedElement
-                interactive={animationTrackAccordion || { id: '', hover: { isHovering: false, progress: 0 }, click: { isClicking: false, progress: 0 }, combinedProgress: 0, cursorType: 'default', cursorX: 0, cursorY: 0, zone: { x: 0, y: 0, width: 0, height: 0 }, animatedProperties: {} }}
+                interactive={
+                  animationTrackAccordion || {
+                    id: "",
+                    hover: { isHovering: false, progress: 0 },
+                    click: { isClicking: false, progress: 0 },
+                    combinedProgress: 0,
+                    cursorType: "default",
+                    cursorX: 0,
+                    cursorY: 0,
+                    zone: { x: 0, y: 0, width: 0, height: 0 },
+                    animatedProperties: {},
+                  }
+                }
                 as="div"
                 style={{
                   display: "flex",

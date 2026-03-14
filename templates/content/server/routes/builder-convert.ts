@@ -8,7 +8,7 @@ import { normalizeBuilderBlogHandle } from "../../shared/builder-slugs.js";
 /**
  * POST /api/builder/test-roundtrip
  * Test round-trip conversion: Markdown → Builder JSON → Markdown
- * 
+ *
  * Body: { projectSlug: string }
  * Returns: { original, builderJson, converted, summary }
  */
@@ -27,7 +27,10 @@ export const testRoundtrip: RequestHandler = async (req, res) => {
     if (existsSync(metaPath)) {
       try {
         const meta = JSON.parse(readFileSync(metaPath, "utf-8"));
-        if (meta.activeDraft && existsSync(join(projectDir, meta.activeDraft))) {
+        if (
+          meta.activeDraft &&
+          existsSync(join(projectDir, meta.activeDraft))
+        ) {
           activeDraft = meta.activeDraft;
         }
       } catch {}
@@ -35,7 +38,12 @@ export const testRoundtrip: RequestHandler = async (req, res) => {
     if (!existsSync(join(projectDir, activeDraft))) {
       const markdownFiles = fs
         .readdirSync(projectDir, { withFileTypes: true })
-        .filter((entry) => entry.isFile() && entry.name.endsWith(".md") && !entry.name.startsWith("."))
+        .filter(
+          (entry) =>
+            entry.isFile() &&
+            entry.name.endsWith(".md") &&
+            !entry.name.startsWith("."),
+        )
         .map((entry) => entry.name)
         .sort();
       activeDraft = markdownFiles[0] || activeDraft;
@@ -49,9 +57,11 @@ export const testRoundtrip: RequestHandler = async (req, res) => {
 
     res.json({
       original: originalMarkdown,
-      message: "Client-side conversion required - use the test endpoint from browser context",
+      message:
+        "Client-side conversion required - use the test endpoint from browser context",
       instructions: {
-        step1: "The client should call markdownToBuilder() with the original markdown",
+        step1:
+          "The client should call markdownToBuilder() with the original markdown",
         step2: "Then call builderToMarkdown() with the resulting blocks",
         step3: "Compare the original and converted markdown",
       },
@@ -70,7 +80,9 @@ function getStoredApiKey(): string | null {
     if (!fs.existsSync(AUTH_FILE)) return null;
     const raw = fs.readFileSync(AUTH_FILE, "utf-8");
     const parsed = JSON.parse(raw);
-    return typeof parsed?.apiKey === "string" && parsed.apiKey ? parsed.apiKey : null;
+    return typeof parsed?.apiKey === "string" && parsed.apiKey
+      ? parsed.apiKey
+      : null;
   } catch {
     return null;
   }
@@ -99,11 +111,16 @@ export const fetchArticle: RequestHandler = async (req, res) => {
     const { articleId, handle, model = "blog-article" } = req.body;
     const apiKey = req.body?.apiKey || getStoredApiKey();
     if (!apiKey || (!articleId && !handle)) {
-      res.status(400).json({ error: "Builder API key and either articleId or handle are required" });
+      res.status(400).json({
+        error: "Builder API key and either articleId or handle are required",
+      });
       return;
     }
 
-    const normalizedHandle = typeof handle === "string" ? normalizeBuilderHandle(handle, model) : handle;
+    const normalizedHandle =
+      typeof handle === "string"
+        ? normalizeBuilderHandle(handle, model)
+        : handle;
     const BUILDER_CDN = "https://cdn.builder.io/api/v3";
     const cacheBuster = `&cachebust=${Date.now()}`;
 
@@ -115,23 +132,31 @@ export const fetchArticle: RequestHandler = async (req, res) => {
       url = `${BUILDER_CDN}/content/${model}/${articleId}?apiKey=${apiKey}&includeUnpublished=true${cacheBuster}`;
       const response = await fetch(url);
       if (!response.ok) {
-        res.status(response.status).json({ error: `Failed to fetch ${model} from Builder` });
+        res
+          .status(response.status)
+          .json({ error: `Failed to fetch ${model} from Builder` });
         return;
       }
       data = await response.json();
     } else {
-      console.log(`[fetch-article] Searching for ${model} with handle: ${handle} (normalized: ${normalizedHandle})`);
+      console.log(
+        `[fetch-article] Searching for ${model} with handle: ${handle} (normalized: ${normalizedHandle})`,
+      );
 
       // If handle looks like a Builder ID (32 hex chars), try direct lookup first
       const looksLikeId = /^[0-9a-f]{32}$/i.test(normalizedHandle);
       if (looksLikeId) {
-        console.log(`[fetch-article] Handle looks like an ID — trying direct lookup first`);
+        console.log(
+          `[fetch-article] Handle looks like an ID — trying direct lookup first`,
+        );
         url = `${BUILDER_CDN}/content/${model}/${normalizedHandle}?apiKey=${apiKey}&includeUnpublished=true${cacheBuster}`;
         const idResponse = await fetch(url);
         if (idResponse.ok) {
           const idData = await idResponse.json();
           if (idData && idData.id) {
-            console.log(`[fetch-article] ✓ Found by direct ID — blocksCount: ${idData.data?.blocks?.length || 0}`);
+            console.log(
+              `[fetch-article] ✓ Found by direct ID — blocksCount: ${idData.data?.blocks?.length || 0}`,
+            );
             data = idData;
           }
         }
@@ -201,8 +226,12 @@ export const fetchArticle: RequestHandler = async (req, res) => {
     const article = data.results?.[0] || data;
 
     if (!article || !article.id) {
-      console.error(`[fetch-article] Invalid article data for handle: ${handle}`);
-      res.status(404).json({ error: `Invalid content data returned for: ${handle}` });
+      console.error(
+        `[fetch-article] Invalid article data for handle: ${handle}`,
+      );
+      res
+        .status(404)
+        .json({ error: `Invalid content data returned for: ${handle}` });
       return;
     }
     const blocks = article.data?.blocks || [];

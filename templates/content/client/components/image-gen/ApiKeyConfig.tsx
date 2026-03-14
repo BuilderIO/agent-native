@@ -26,7 +26,11 @@ export function ApiKeyConfig({
   const queryClient = useQueryClient();
   const [saved, setSaved] = useState<string | null>(null);
 
-  const handleSave = async (provider: string, apiKey: string, clearFn: () => void) => {
+  const handleSave = async (
+    provider: string,
+    apiKey: string,
+    clearFn: () => void,
+  ) => {
     if (!apiKey.trim()) return;
     await configure.mutateAsync({ provider, apiKey: apiKey.trim() });
     queryClient.invalidateQueries({ queryKey: ["image-gen-status"] });
@@ -111,9 +115,7 @@ function ApiKeyField({
     <div className="space-y-2">
       <Label className="text-xs">
         {label}{" "}
-        {configured && (
-          <span className="text-green-500 ml-1">connected</span>
-        )}
+        {configured && <span className="text-green-500 ml-1">connected</span>}
       </Label>
       <div className="flex gap-2">
         <Input

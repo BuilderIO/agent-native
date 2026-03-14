@@ -45,8 +45,8 @@ export function LocalStorageIndicator() {
 
     const confirmed = window.confirm(
       `Reset "${selected?.title}" to registry defaults?\n\n` +
-      `This will clear your local changes to: ${overrideTypes.join(", ")}\n\n` +
-      `The page will reload automatically.`
+        `This will clear your local changes to: ${overrideTypes.join(", ")}\n\n` +
+        `The page will reload automatically.`,
     );
 
     if (!confirmed) return;

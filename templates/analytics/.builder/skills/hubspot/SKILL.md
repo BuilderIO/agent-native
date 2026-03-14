@@ -20,13 +20,13 @@ description: >
 
 ### Exported Functions
 
-| Function | Description |
-|---|---|
-| `getDealPipelines()` | All deal pipelines with stages |
-| `getVisiblePipelines(pipelines)` | Filter to visible pipelines |
-| `getMetricsPipelines(pipelines)` | Filter to metrics-relevant pipelines |
-| `getAllDeals()` | All deals (paginated, up to ~10k) |
-| `computeSalesMetrics(deals, pipelines, filter?)` | Compute won/lost/pipeline metrics |
+| Function                                         | Description                          |
+| ------------------------------------------------ | ------------------------------------ |
+| `getDealPipelines()`                             | All deal pipelines with stages       |
+| `getVisiblePipelines(pipelines)`                 | Filter to visible pipelines          |
+| `getMetricsPipelines(pipelines)`                 | Filter to metrics-relevant pipelines |
+| `getAllDeals()`                                  | All deals (paginated, up to ~10k)    |
+| `computeSalesMetrics(deals, pipelines, filter?)` | Compute won/lost/pipeline metrics    |
 
 ## Script Usage
 
@@ -48,6 +48,7 @@ pnpm script hubspot-deals --grep="Macy's" --fields=dealname,amount,stageLabel
 ## HubSpot Company Properties (BigQuery staging table)
 
 Table: `builder-3b0a2.dbt_staging.hubspot_companies`
+
 - `company_name`, `company_id`, `company_domain_name`
 - `upcoming_renewal_date`, `customer_stage`, `hs_csm_sentiment`
 - `company_owner_name`, `root_org_id`

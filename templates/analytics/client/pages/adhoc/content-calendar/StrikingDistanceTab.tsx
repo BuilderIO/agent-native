@@ -9,7 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   TrendingUp,
-  X
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "../top-funnel/types";
@@ -58,11 +58,12 @@ export function StrikingDistanceTab({
   };
 
   const opportunities: OpportunityItem[] = useMemo(() => {
-    const excludedList = excludeWords.map(w => w.toLowerCase());
+    const excludedList = excludeWords.map((w) => w.toLowerCase());
 
     return keywords
       .filter((kw) => {
-        if (kw.rank_absolute < rankRange[0] || kw.rank_absolute > rankRange[1]) return false;
+        if (kw.rank_absolute < rankRange[0] || kw.rank_absolute > rankRange[1])
+          return false;
         if (kw.search_volume < minVol) return false;
         const kwLower = kw.keyword.toLowerCase();
         if (excludedList.some((ex) => kwLower.includes(ex))) return false;
@@ -148,7 +149,10 @@ export function StrikingDistanceTab({
             <TrendingUp className="h-3.5 w-3.5" /> Total Potential Traffic Gain
           </p>
           <p className="text-2xl font-bold text-emerald-400 tabular-nums">
-            +{formatNumber(Math.round(totalGain))} <span className="text-sm font-normal text-muted-foreground">/ mo</span>
+            +{formatNumber(Math.round(totalGain))}{" "}
+            <span className="text-sm font-normal text-muted-foreground">
+              / mo
+            </span>
           </p>
         </div>
         <div className="rounded-lg border border-border/50 bg-card p-4 flex flex-col justify-center">
@@ -156,7 +160,10 @@ export function StrikingDistanceTab({
             Quick Win Opportunities
           </p>
           <p className="text-2xl font-bold tabular-nums">
-            {formatNumber(opportunities.length)} <span className="text-sm font-normal text-muted-foreground">keywords</span>
+            {formatNumber(opportunities.length)}{" "}
+            <span className="text-sm font-normal text-muted-foreground">
+              keywords
+            </span>
           </p>
         </div>
         <div className="rounded-lg border border-border/50 bg-card p-4 flex flex-col justify-center">
@@ -177,40 +184,58 @@ export function StrikingDistanceTab({
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <label className="text-xs text-muted-foreground uppercase tracking-wider">Position Range (Rank)</label>
+              <label className="text-xs text-muted-foreground uppercase tracking-wider">
+                Position Range (Rank)
+              </label>
               <div className="flex gap-2">
                 <input
                   type="number"
                   value={rankRange[0]}
-                  onChange={(e) => setRankRange([Number(e.target.value), rankRange[1]])}
+                  onChange={(e) =>
+                    setRankRange([Number(e.target.value), rankRange[1]])
+                  }
                   className="w-full bg-muted/50 border border-border rounded-md px-2 py-1 text-sm text-foreground"
                 />
                 <span className="text-muted-foreground self-center">to</span>
                 <input
                   type="number"
                   value={rankRange[1]}
-                  onChange={(e) => setRankRange([rankRange[0], Number(e.target.value)])}
+                  onChange={(e) =>
+                    setRankRange([rankRange[0], Number(e.target.value)])
+                  }
                   className="w-full bg-muted/50 border border-border rounded-md px-2 py-1 text-sm text-foreground"
                 />
               </div>
-              <p className="text-[10px] text-muted-foreground">Typically 11-20 (Page 2)</p>
+              <p className="text-[10px] text-muted-foreground">
+                Typically 11-20 (Page 2)
+              </p>
             </div>
             <div className="space-y-2">
-              <label className="text-xs text-muted-foreground uppercase tracking-wider">Min Search Volume</label>
+              <label className="text-xs text-muted-foreground uppercase tracking-wider">
+                Min Search Volume
+              </label>
               <input
                 type="number"
                 value={minVol}
                 onChange={(e) => setMinVol(Number(e.target.value))}
                 className="w-full bg-muted/50 border border-border rounded-md px-2 py-1 text-sm text-foreground"
               />
-              <p className="text-[10px] text-muted-foreground">Filter out long-tail noise</p>
+              <p className="text-[10px] text-muted-foreground">
+                Filter out long-tail noise
+              </p>
             </div>
             <div className="space-y-2">
-              <label className="text-xs text-muted-foreground uppercase tracking-wider">Exclude Keywords</label>
+              <label className="text-xs text-muted-foreground uppercase tracking-wider">
+                Exclude Keywords
+              </label>
               <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap gap-1.5 min-h-[32px] p-1.5 bg-muted/30 border border-border rounded-md">
                   {excludeWords.map((word) => (
-                    <Badge key={word} variant="secondary" className="text-[10px] font-normal py-0 pl-2 pr-1 h-5 gap-1 hover:bg-muted">
+                    <Badge
+                      key={word}
+                      variant="secondary"
+                      className="text-[10px] font-normal py-0 pl-2 pr-1 h-5 gap-1 hover:bg-muted"
+                    >
                       {word}
                       <button
                         onClick={() => removeExcludeWord(word)}
@@ -230,7 +255,9 @@ export function StrikingDistanceTab({
                   />
                 </div>
               </div>
-              <p className="text-[10px] text-muted-foreground">Type a phrase and press Enter to ignore it.</p>
+              <p className="text-[10px] text-muted-foreground">
+                Type a phrase and press Enter to ignore it.
+              </p>
             </div>
           </div>
         </CardContent>
@@ -239,7 +266,9 @@ export function StrikingDistanceTab({
       {/* Data Table */}
       <Card className="bg-card border-border/50">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Low-Hanging Fruit</CardTitle>
+          <CardTitle className="text-sm font-medium">
+            Low-Hanging Fruit
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-auto max-h-[500px]">
@@ -252,13 +281,17 @@ export function StrikingDistanceTab({
                       key={col.key}
                       className={cn(
                         "py-2 px-2 font-medium text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap select-none",
-                        col.type === "text" ? "text-left" : "text-right"
+                        col.type === "text" ? "text-left" : "text-right",
                       )}
                       onClick={() => handleSort(col.key)}
                     >
                       <span className="flex items-center gap-1">
                         {col.label}
-                        <SortIcon col={col.key} sortCol={sortCol} sortDir={sortDir} />
+                        <SortIcon
+                          col={col.key}
+                          sortCol={sortCol}
+                          sortDir={sortDir}
+                        />
                       </span>
                     </th>
                   ))}
@@ -267,7 +300,10 @@ export function StrikingDistanceTab({
               <tbody>
                 {sortedOpps.length === 0 ? (
                   <tr>
-                    <td colSpan={cols.length + 2} className="py-8 text-center text-muted-foreground">
+                    <td
+                      colSpan={cols.length + 2}
+                      className="py-8 text-center text-muted-foreground"
+                    >
                       No keywords found matching these filters.
                     </td>
                   </tr>
@@ -279,9 +315,11 @@ export function StrikingDistanceTab({
                         <tr
                           className={cn(
                             "border-b border-border/30 hover:bg-muted/30 cursor-pointer",
-                            isExpanded && "bg-muted/20"
+                            isExpanded && "bg-muted/20",
                           )}
-                          onClick={() => setExpandedKw(isExpanded ? null : opp.keyword)}
+                          onClick={() =>
+                            setExpandedKw(isExpanded ? null : opp.keyword)
+                          }
                         >
                           <td className="py-1.5 px-1 text-muted-foreground">
                             {isExpanded ? (
@@ -290,11 +328,16 @@ export function StrikingDistanceTab({
                               <ChevronRight className="h-3 w-3" />
                             )}
                           </td>
-                          <td className="py-1.5 px-2 font-medium max-w-[200px] truncate" title={opp.keyword}>
+                          <td
+                            className="py-1.5 px-2 font-medium max-w-[200px] truncate"
+                            title={opp.keyword}
+                          >
                             {opp.keyword}
                           </td>
                           <td className="py-1.5 px-2 text-right tabular-nums">
-                            <span className="text-orange-400 font-semibold">#{opp.rank_absolute}</span>
+                            <span className="text-orange-400 font-semibold">
+                              #{opp.rank_absolute}
+                            </span>
                           </td>
                           <td className="py-1.5 px-2 text-right tabular-nums">
                             {formatNumber(Math.round(opp.etv))}
@@ -305,14 +348,21 @@ export function StrikingDistanceTab({
                           <td className="py-1.5 px-2 text-right tabular-nums text-emerald-400 font-medium">
                             +{formatNumber(Math.round(opp.potentialGain))}
                           </td>
-                          <td className="py-1.5 px-2 text-muted-foreground max-w-[200px] truncate" title={opp.title}>
+                          <td
+                            className="py-1.5 px-2 text-muted-foreground max-w-[200px] truncate"
+                            title={opp.title}
+                          >
                             {opp.title}
                           </td>
                         </tr>
                         {isExpanded && (
                           <tr key={`${opp.keyword}-details`}>
                             <td colSpan={cols.length + 1} className="p-0">
-                              <AuditPanel opp={opp} allKeywords={keywords} excludeWords={excludeWords} />
+                              <AuditPanel
+                                opp={opp}
+                                allKeywords={keywords}
+                                excludeWords={excludeWords}
+                              />
                             </td>
                           </tr>
                         )}
@@ -329,7 +379,15 @@ export function StrikingDistanceTab({
   );
 }
 
-function AuditPanel({ opp, allKeywords, excludeWords }: { opp: OpportunityItem; allKeywords: BlogKeywordRanking[]; excludeWords: string[] }) {
+function AuditPanel({
+  opp,
+  allKeywords,
+  excludeWords,
+}: {
+  opp: OpportunityItem;
+  allKeywords: BlogKeywordRanking[];
+  excludeWords: string[];
+}) {
   const otherKeywords = useMemo(() => {
     const excludedList = excludeWords.map((w) => w.toLowerCase());
     return allKeywords
@@ -347,37 +405,71 @@ function AuditPanel({ opp, allKeywords, excludeWords }: { opp: OpportunityItem; 
     <div className="px-8 py-4 bg-muted/10 border-b border-border/30">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 bg-background border border-border/50 rounded-lg p-4">
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase mb-1">Target Keyword</p>
+          <p className="text-[10px] text-muted-foreground uppercase mb-1">
+            Target Keyword
+          </p>
           <p className="text-sm font-medium text-foreground">{opp.keyword}</p>
         </div>
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase mb-1">Current Rank</p>
-          <p className="text-sm font-medium text-orange-400">#{opp.rank_absolute}</p>
+          <p className="text-[10px] text-muted-foreground uppercase mb-1">
+            Current Rank
+          </p>
+          <p className="text-sm font-medium text-orange-400">
+            #{opp.rank_absolute}
+          </p>
         </div>
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase mb-1">Current Est. Traffic</p>
-          <p className="text-sm font-medium">{formatNumber(Math.round(opp.etv))} <span className="text-[10px] text-muted-foreground font-normal">/mo</span></p>
+          <p className="text-[10px] text-muted-foreground uppercase mb-1">
+            Current Est. Traffic
+          </p>
+          <p className="text-sm font-medium">
+            {formatNumber(Math.round(opp.etv))}{" "}
+            <span className="text-[10px] text-muted-foreground font-normal">
+              /mo
+            </span>
+          </p>
         </div>
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase mb-1">Top 3 Est. Traffic</p>
-          <p className="text-sm font-medium text-emerald-400">~{formatNumber(Math.round(opp.potentialGain))} <span className="text-[10px] text-emerald-400/70 font-normal">/mo</span></p>
+          <p className="text-[10px] text-muted-foreground uppercase mb-1">
+            Top 3 Est. Traffic
+          </p>
+          <p className="text-sm font-medium text-emerald-400">
+            ~{formatNumber(Math.round(opp.potentialGain))}{" "}
+            <span className="text-[10px] text-emerald-400/70 font-normal">
+              /mo
+            </span>
+          </p>
         </div>
       </div>
 
       {otherKeywords.length > 0 && (
         <div className="mt-4 border border-border/50 rounded-md bg-background overflow-hidden">
           <div className="px-3 py-2 bg-muted/30 border-b border-border/50 flex items-center justify-between">
-            <h4 className="text-xs font-medium text-foreground">Other Keywords for this Article</h4>
-            <span className="text-[10px] text-muted-foreground">Showing top {otherKeywords.length}</span>
+            <h4 className="text-xs font-medium text-foreground">
+              Other Keywords for this Article
+            </h4>
+            <span className="text-[10px] text-muted-foreground">
+              Showing top {otherKeywords.length}
+            </span>
           </div>
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-border/30 text-muted-foreground bg-muted/10">
-                <th className="py-1.5 px-3 text-left font-medium">Target Keyword</th>
-                <th className="py-1.5 px-3 text-right font-medium">Current Rank</th>
-                <th className="py-1.5 px-3 text-right font-medium">Current Traffic</th>
-                <th className="py-1.5 px-3 text-right font-medium">Search Volume</th>
-                <th className="py-1.5 px-3 text-right font-medium">Potential Gain</th>
+                <th className="py-1.5 px-3 text-left font-medium">
+                  Target Keyword
+                </th>
+                <th className="py-1.5 px-3 text-right font-medium">
+                  Current Rank
+                </th>
+                <th className="py-1.5 px-3 text-right font-medium">
+                  Current Traffic
+                </th>
+                <th className="py-1.5 px-3 text-right font-medium">
+                  Search Volume
+                </th>
+                <th className="py-1.5 px-3 text-right font-medium">
+                  Potential Gain
+                </th>
                 <th className="py-1.5 px-3 text-left font-medium">Article</th>
               </tr>
             </thead>
@@ -386,22 +478,47 @@ function AuditPanel({ opp, allKeywords, excludeWords }: { opp: OpportunityItem; 
                 const currentTraffic = Math.round(kw.etv);
                 const potentialGain = Math.round(kw.search_volume * 0.25);
                 return (
-                  <tr key={i} className="border-b border-border/20 last:border-0 hover:bg-muted/10">
-                    <td className="py-1.5 px-3 font-medium text-muted-foreground max-w-[200px] truncate" title={kw.keyword}>{kw.keyword}</td>
+                  <tr
+                    key={i}
+                    className="border-b border-border/20 last:border-0 hover:bg-muted/10"
+                  >
+                    <td
+                      className="py-1.5 px-3 font-medium text-muted-foreground max-w-[200px] truncate"
+                      title={kw.keyword}
+                    >
+                      {kw.keyword}
+                    </td>
                     <td className="py-1.5 px-3 text-right">
-                      <span className={cn(
-                        "font-medium",
-                        kw.rank_absolute <= 3 ? "text-emerald-400" :
-                        kw.rank_absolute <= 10 ? "text-yellow-400" :
-                        kw.rank_absolute <= 20 ? "text-orange-400" : "text-muted-foreground"
-                      )}>
+                      <span
+                        className={cn(
+                          "font-medium",
+                          kw.rank_absolute <= 3
+                            ? "text-emerald-400"
+                            : kw.rank_absolute <= 10
+                              ? "text-yellow-400"
+                              : kw.rank_absolute <= 20
+                                ? "text-orange-400"
+                                : "text-muted-foreground",
+                        )}
+                      >
                         #{kw.rank_absolute}
                       </span>
                     </td>
-                    <td className="py-1.5 px-3 text-right tabular-nums text-muted-foreground">{formatNumber(currentTraffic)}</td>
-                    <td className="py-1.5 px-3 text-right tabular-nums text-muted-foreground">{formatNumber(kw.search_volume)}</td>
-                    <td className="py-1.5 px-3 text-right tabular-nums text-emerald-400 font-medium">+{formatNumber(potentialGain)}</td>
-                    <td className="py-1.5 px-3 text-muted-foreground max-w-[200px] truncate" title={opp.title}>{opp.title}</td>
+                    <td className="py-1.5 px-3 text-right tabular-nums text-muted-foreground">
+                      {formatNumber(currentTraffic)}
+                    </td>
+                    <td className="py-1.5 px-3 text-right tabular-nums text-muted-foreground">
+                      {formatNumber(kw.search_volume)}
+                    </td>
+                    <td className="py-1.5 px-3 text-right tabular-nums text-emerald-400 font-medium">
+                      +{formatNumber(potentialGain)}
+                    </td>
+                    <td
+                      className="py-1.5 px-3 text-muted-foreground max-w-[200px] truncate"
+                      title={opp.title}
+                    >
+                      {opp.title}
+                    </td>
                   </tr>
                 );
               })}

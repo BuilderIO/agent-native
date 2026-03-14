@@ -13,7 +13,12 @@ import type {
 
 const PROJECTS_DIR = path.join(process.cwd(), "content", "projects");
 const SHARED_DIR = path.join(process.cwd(), "content", "shared-resources");
-const IMAGE_REFS_DIR = path.join(process.cwd(), "content", "shared-resources", "image-references");
+const IMAGE_REFS_DIR = path.join(
+  process.cwd(),
+  "content",
+  "shared-resources",
+  "image-references",
+);
 const PRESETS_FILE = path.join(SHARED_DIR, "image-presets.json");
 const MAX_REFS_PER_REQUEST = 5;
 
@@ -35,7 +40,7 @@ function writePresetsFile(data: ImagePresetsFile): void {
 
 export function getPresetByName(name: string): ImagePreset | undefined {
   const { presets } = readPresetsFile();
-  return presets.find(p => p.name.toLowerCase() === name.toLowerCase());
+  return presets.find((p) => p.name.toLowerCase() === name.toLowerCase());
 }
 
 export function getAllPresets(): ImagePreset[] {
@@ -58,9 +63,10 @@ export function getPresetImagePaths(presetName: string): string[] {
   if (!fs.existsSync(presetDir) || !fs.statSync(presetDir).isDirectory()) {
     return [];
   }
-  return fs.readdirSync(presetDir)
-    .filter(f => /\.(png|jpg|jpeg|webp|gif)$/i.test(f))
-    .map(f => `image-references/${presetName}/${f}`);
+  return fs
+    .readdirSync(presetDir)
+    .filter((f) => /\.(png|jpg|jpeg|webp|gif)$/i.test(f))
+    .map((f) => `image-references/${presetName}/${f}`);
 }
 
 interface ReferenceImage {
@@ -84,7 +90,10 @@ export function buildReferencePathSets(
 
   return Array.from({ length: count }, () => {
     const remainingSlots = Math.max(0, maxPerRequest - cappedFixedPaths.length);
-    return [...cappedFixedPaths, ...sampleReferencePaths(sampledPaths, remainingSlots)];
+    return [
+      ...cappedFixedPaths,
+      ...sampleReferencePaths(sampledPaths, remainingSlots),
+    ];
   });
 }
 
@@ -123,39 +132,56 @@ function resolveAppMediaFilePath(referencePath: string): string | null {
   if (!candidate) return null;
 
   try {
-    const parsed = candidate.startsWith("http://") || candidate.startsWith("https://")
-      ? new URL(candidate)
-      : candidate.startsWith("/")
-        ? new URL(candidate, "http://placeholder.local")
-        : null;
+    const parsed =
+      candidate.startsWith("http://") || candidate.startsWith("https://")
+        ? new URL(candidate)
+        : candidate.startsWith("/")
+          ? new URL(candidate, "http://placeholder.local")
+          : null;
 
     if (!parsed) return null;
 
     const segments = parsed.pathname.split("/").filter(Boolean);
     const mediaIndex = segments.indexOf("media");
-    if (segments[0] !== "api" || segments[1] !== "projects" || mediaIndex < 3 || mediaIndex === segments.length - 1) {
+    if (
+      segments[0] !== "api" ||
+      segments[1] !== "projects" ||
+      mediaIndex < 3 ||
+      mediaIndex === segments.length - 1
+    ) {
       return null;
     }
 
     const projectSlug = segments.slice(2, mediaIndex).join("/");
-    const filename = decodeURIComponent(segments.slice(mediaIndex + 1).join("/"));
+    const filename = decodeURIComponent(
+      segments.slice(mediaIndex + 1).join("/"),
+    );
     if (!isValidProjectPath(projectSlug) || !filename) return null;
 
-    const fullPath = path.join(PROJECTS_DIR, projectSlug, "media", path.basename(filename));
+    const fullPath = path.join(
+      PROJECTS_DIR,
+      projectSlug,
+      "media",
+      path.basename(filename),
+    );
     return fs.existsSync(fullPath) ? fullPath : null;
   } catch {
     return null;
   }
 }
 
-function parseUploadedReferenceImages(uploadedReferenceImages: string[] = []): ReferenceImage[] {
+function parseUploadedReferenceImages(
+  uploadedReferenceImages: string[] = [],
+): ReferenceImage[] {
   return uploadedReferenceImages.flatMap((dataUrl) => {
     const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
     return match ? [{ data: match[2], mimeType: match[1] }] : [];
   });
 }
 
-export async function loadReferenceImages(paths: string[]): Promise<ReferenceImage[]> {
+export async function loadReferenceImages(
+  paths: string[],
+): Promise<ReferenceImage[]> {
   const images: ReferenceImage[] = [];
 
   for (const p of paths) {
@@ -237,7 +263,7 @@ function isValidProjectPath(project: string): boolean {
 export async function generateWithOpenAI(
   prompt: string,
   size: string,
-  referenceImages: ReferenceImage[] = []
+  referenceImages: ReferenceImage[] = [],
 ): Promise<{ imageData: Buffer; mimeType: string }> {
   const OpenAI = (await import("openai")).default;
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -246,9 +272,13 @@ export async function generateWithOpenAI(
     // Use images.edit endpoint for style transfer with reference images
     const refBuffers = referenceImages.slice(0, 4).map((ref) => {
       const buf = Buffer.from(ref.data, "base64");
-      const file = new File([buf], `ref.${ref.mimeType.split("/")[1] || "png"}`, {
-        type: ref.mimeType,
-      });
+      const file = new File(
+        [buf],
+        `ref.${ref.mimeType.split("/")[1] || "png"}`,
+        {
+          type: ref.mimeType,
+        },
+      );
       return file;
     });
 
@@ -267,7 +297,10 @@ export async function generateWithOpenAI(
     if (!imageUrl) throw new Error("No image returned from OpenAI");
     const imgRes = await fetch(imageUrl);
     if (!imgRes.ok) throw new Error("Failed to download generated image");
-    return { imageData: Buffer.from(await imgRes.arrayBuffer()), mimeType: "image/png" };
+    return {
+      imageData: Buffer.from(await imgRes.arrayBuffer()),
+      mimeType: "image/png",
+    };
   }
 
   // No reference images — use standard generate
@@ -297,7 +330,7 @@ export async function generateWithOpenAI(
 export async function generateWithGemini(
   prompt: string,
   referenceImages: ReferenceImage[] = [],
-  presetInstructions?: string
+  presetInstructions?: string,
 ): Promise<{ imageData: Buffer; mimeType: string }> {
   const { GoogleGenAI } = await import("@google/genai");
   const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -350,14 +383,22 @@ Subject to depict: ${prompt}`,
     contents.push({ text: prompt });
   }
 
-  const geminiModels = ["gemini-3.1-flash-image-preview", "gemini-3-pro-image-preview", "gemini-2.5-flash-image"];
+  const geminiModels = [
+    "gemini-3.1-flash-image-preview",
+    "gemini-3-pro-image-preview",
+    "gemini-2.5-flash-image",
+  ];
   let lastError: Error | null = null;
 
   const isOverloadError = (e: any) =>
-    e.status === 429 || e.status === 503 ||
-    e.message?.includes("overloaded") || e.message?.includes("503") ||
-    e.message?.includes("429") || e.message?.includes("high demand") ||
-    e.message?.includes("RESOURCE_EXHAUSTED") || e.message?.includes("UNAVAILABLE");
+    e.status === 429 ||
+    e.status === 503 ||
+    e.message?.includes("overloaded") ||
+    e.message?.includes("503") ||
+    e.message?.includes("429") ||
+    e.message?.includes("high demand") ||
+    e.message?.includes("RESOURCE_EXHAUSTED") ||
+    e.message?.includes("UNAVAILABLE");
 
   for (const modelName of geminiModels) {
     // Retry each model up to 3 times with increasing delays
@@ -365,10 +406,14 @@ Subject to depict: ${prompt}`,
       try {
         if (attempt > 0) {
           const delay = attempt * 3000; // 3s, 6s
-          console.log(`[Gemini] Retry ${attempt} for ${modelName} after ${delay}ms`);
+          console.log(
+            `[Gemini] Retry ${attempt} for ${modelName} after ${delay}ms`,
+          );
           await new Promise((r) => setTimeout(r, delay));
         }
-        console.log(`[Gemini] Trying model: ${modelName} (attempt ${attempt + 1})`);
+        console.log(
+          `[Gemini] Trying model: ${modelName} (attempt ${attempt + 1})`,
+        );
         const response = await client.models.generateContent({
           model: modelName,
           contents,
@@ -381,7 +426,9 @@ Subject to depict: ${prompt}`,
         for (const part of parts) {
           if (part.inlineData) {
             const buffer = Buffer.from(part.inlineData.data!, "base64");
-            console.log(`[Gemini] Success with ${modelName} on attempt ${attempt + 1}`);
+            console.log(
+              `[Gemini] Success with ${modelName} on attempt ${attempt + 1}`,
+            );
             return {
               imageData: buffer,
               mimeType: part.inlineData.mimeType || "image/png",
@@ -391,7 +438,9 @@ Subject to depict: ${prompt}`,
         lastError = new Error(`No image returned from ${modelName}`);
         break; // Got a response but no image — move to next model
       } catch (e: any) {
-        console.warn(`[Gemini] ${modelName} attempt ${attempt + 1} failed: ${e.message}`);
+        console.warn(
+          `[Gemini] ${modelName} attempt ${attempt + 1} failed: ${e.message}`,
+        );
         lastError = e;
         if (isOverloadError(e)) {
           continue; // retry same model
@@ -401,7 +450,9 @@ Subject to depict: ${prompt}`,
       }
     }
     // All retries exhausted for this model, try next
-    console.log(`[Gemini] All retries exhausted for ${modelName}, trying fallback...`);
+    console.log(
+      `[Gemini] All retries exhausted for ${modelName}, trying fallback...`,
+    );
   }
 
   throw lastError || new Error("No image returned from Gemini");
@@ -409,7 +460,7 @@ Subject to depict: ${prompt}`,
 
 export async function generateWithFlux(
   prompt: string,
-  referenceImages: ReferenceImage[] = []
+  referenceImages: ReferenceImage[] = [],
 ): Promise<{ imageData: Buffer; mimeType: string }> {
   const falKey = process.env.FAL_KEY;
   if (!falKey) throw new Error("fal.ai API key not configured");
@@ -425,14 +476,17 @@ export async function generateWithFlux(
 
   // Step 1: Submit to queue
   console.log("[Flux] Submitting to queue...");
-  const submitRes = await fetch("https://queue.fal.run/fal-ai/flux-pro/kontext", {
-    method: "POST",
-    headers: {
-      "Authorization": authHeader,
-      "Content-Type": "application/json",
+  const submitRes = await fetch(
+    "https://queue.fal.run/fal-ai/flux-pro/kontext",
+    {
+      method: "POST",
+      headers: {
+        Authorization: authHeader,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-  });
+  );
 
   if (!submitRes.ok) {
     const errText = await submitRes.text();
@@ -441,26 +495,37 @@ export async function generateWithFlux(
   }
 
   const submitData = await submitRes.json();
-  console.log("[Flux] Submit response:", JSON.stringify(submitData).slice(0, 200));
+  console.log(
+    "[Flux] Submit response:",
+    JSON.stringify(submitData).slice(0, 200),
+  );
 
   const requestId = submitData.request_id;
   if (!requestId) {
     // Synchronous response
     const imageUrl = submitData.images?.[0]?.url;
     if (!imageUrl) {
-      console.error("[Flux] No request_id and no image URL. Full response:", JSON.stringify(submitData));
+      console.error(
+        "[Flux] No request_id and no image URL. Full response:",
+        JSON.stringify(submitData),
+      );
       throw new Error("Unexpected Flux response: no request_id or image");
     }
     const imgRes = await fetch(imageUrl);
     if (!imgRes.ok) throw new Error("Failed to download Flux image");
-    return { imageData: Buffer.from(await imgRes.arrayBuffer()), mimeType: "image/png" };
+    return {
+      imageData: Buffer.from(await imgRes.arrayBuffer()),
+      mimeType: "image/png",
+    };
   }
 
   // Step 2: Poll for completion
-  const statusUrl = submitData.status_url
-    || `https://queue.fal.run/fal-ai/flux-pro/kontext/requests/${requestId}/status`;
-  const responseUrl = submitData.response_url
-    || `https://queue.fal.run/fal-ai/flux-pro/kontext/requests/${requestId}`;
+  const statusUrl =
+    submitData.status_url ||
+    `https://queue.fal.run/fal-ai/flux-pro/kontext/requests/${requestId}/status`;
+  const responseUrl =
+    submitData.response_url ||
+    `https://queue.fal.run/fal-ai/flux-pro/kontext/requests/${requestId}`;
 
   console.log("[Flux] Polling status at:", statusUrl);
 
@@ -468,7 +533,7 @@ export async function generateWithFlux(
     await new Promise((r) => setTimeout(r, 2000));
     try {
       const statusRes = await fetch(statusUrl, {
-        headers: { "Authorization": authHeader },
+        headers: { Authorization: authHeader },
       });
       if (!statusRes.ok) {
         console.warn(`[Flux] Status poll ${i} failed:`, statusRes.status);
@@ -491,13 +556,15 @@ export async function generateWithFlux(
   // Step 3: Fetch result
   console.log("[Flux] Fetching result from:", responseUrl);
   const resultRes = await fetch(responseUrl, {
-    headers: { "Authorization": authHeader },
+    headers: { Authorization: authHeader },
   });
 
   if (!resultRes.ok) {
     const errText = await resultRes.text();
     console.error("[Flux] Result fetch failed:", resultRes.status, errText);
-    throw new Error(`Failed to fetch Flux result (${resultRes.status}): ${errText}`);
+    throw new Error(
+      `Failed to fetch Flux result (${resultRes.status}): ${errText}`,
+    );
   }
 
   const resultData = await resultRes.json();
@@ -505,19 +572,33 @@ export async function generateWithFlux(
 
   const imageUrl = resultData.images?.[0]?.url;
   if (!imageUrl) {
-    console.error("[Flux] No image in result:", JSON.stringify(resultData).slice(0, 500));
+    console.error(
+      "[Flux] No image in result:",
+      JSON.stringify(resultData).slice(0, 500),
+    );
     throw new Error("No image URL in Flux result");
   }
 
   console.log("[Flux] Downloading image from:", imageUrl.slice(0, 80));
   const imgRes = await fetch(imageUrl);
   if (!imgRes.ok) throw new Error("Failed to download Flux image");
-  return { imageData: Buffer.from(await imgRes.arrayBuffer()), mimeType: "image/png" };
+  return {
+    imageData: Buffer.from(await imgRes.arrayBuffer()),
+    mimeType: "image/png",
+  };
 }
 
 export const generateImage: RequestHandler = async (req, res) => {
   const body = req.body as ImageGenRequest;
-  const { prompt, model, size = "1024x1024", projectSlug, preset, referenceImagePaths, uploadedReferenceImages } = body;
+  const {
+    prompt,
+    model,
+    size = "1024x1024",
+    projectSlug,
+    preset,
+    referenceImagePaths,
+    uploadedReferenceImages,
+  } = body;
 
   if (!prompt?.trim()) {
     res.status(400).json({ error: "Prompt is required" });
@@ -544,17 +625,34 @@ export const generateImage: RequestHandler = async (req, res) => {
     const fixedReferencePaths = referenceImagePaths || [];
     const presetPaths = preset ? getPresetImagePaths(preset) : [];
     if (preset && !presetPaths.length) {
-      res.status(400).json({ error: `Preset '${preset}' not found or contains no images.` });
+      res
+        .status(400)
+        .json({ error: `Preset '${preset}' not found or contains no images.` });
       return;
     }
 
-    const inlineReferenceImages = parseUploadedReferenceImages(uploadedReferenceImages);
-    const availablePathSlots = Math.max(0, MAX_REFS_PER_REQUEST - inlineReferenceImages.length);
-    const [selectedPaths] = buildReferencePathSets(fixedReferencePaths, presetPaths, availablePathSlots, 1);
-    const refImages = selectedPaths.length ? await loadReferenceImages(selectedPaths) : [];
+    const inlineReferenceImages = parseUploadedReferenceImages(
+      uploadedReferenceImages,
+    );
+    const availablePathSlots = Math.max(
+      0,
+      MAX_REFS_PER_REQUEST - inlineReferenceImages.length,
+    );
+    const [selectedPaths] = buildReferencePathSets(
+      fixedReferencePaths,
+      presetPaths,
+      availablePathSlots,
+      1,
+    );
+    const refImages = selectedPaths.length
+      ? await loadReferenceImages(selectedPaths)
+      : [];
 
     if (inlineReferenceImages.length > 0) {
-      const remainingInlineSlots = Math.max(0, MAX_REFS_PER_REQUEST - refImages.length);
+      const remainingInlineSlots = Math.max(
+        0,
+        MAX_REFS_PER_REQUEST - refImages.length,
+      );
       refImages.push(...inlineReferenceImages.slice(0, remainingInlineSlots));
     }
 
@@ -565,7 +663,8 @@ export const generateImage: RequestHandler = async (req, res) => {
       let presetInstructions: string | undefined;
       if (preset) {
         const presetObj = getPresetByName(preset);
-        if (presetObj?.instructions) presetInstructions = presetObj.instructions;
+        if (presetObj?.instructions)
+          presetInstructions = presetObj.instructions;
       }
       result = await generateWithGemini(prompt, refImages, presetInstructions);
     } else if (model === "flux") {
@@ -588,7 +687,11 @@ export const generateImage: RequestHandler = async (req, res) => {
             : ".png";
       const filename = `gen-${crypto.randomBytes(6).toString("hex")}${ext}`;
 
-      const cdnUrl = await uploadBufferToBuilderCDN(filename, result.imageData, result.mimeType);
+      const cdnUrl = await uploadBufferToBuilderCDN(
+        filename,
+        result.imageData,
+        result.mimeType,
+      );
 
       const metadataPath = path.join(mediaDir, `${filename}.json`);
       const metadata = {
@@ -617,9 +720,7 @@ export const generateImage: RequestHandler = async (req, res) => {
     res.json(response);
   } catch (err: any) {
     console.error("Image generation error:", err);
-    res
-      .status(500)
-      .json({ error: err.message || "Image generation failed" });
+    res.status(500).json({ error: err.message || "Image generation failed" });
   }
 };
 
@@ -658,16 +759,19 @@ export const createPreset: RequestHandler = (req, res) => {
 
 export const updatePresetHandler: RequestHandler = (req, res) => {
   const { id } = req.params;
-  const updates = req.body as Partial<Pick<ImagePreset, "name" | "paths" | "instructions">>;
+  const updates = req.body as Partial<
+    Pick<ImagePreset, "name" | "paths" | "instructions">
+  >;
   const data = readPresetsFile();
-  const idx = data.presets.findIndex(p => p.id === id);
+  const idx = data.presets.findIndex((p) => p.id === id);
   if (idx === -1) {
     res.status(404).json({ error: "Preset not found" });
     return;
   }
   if (updates.name) data.presets[idx].name = updates.name.trim();
   if (updates.paths) data.presets[idx].paths = updates.paths;
-  if (updates.instructions !== undefined) data.presets[idx].instructions = updates.instructions || undefined;
+  if (updates.instructions !== undefined)
+    data.presets[idx].instructions = updates.instructions || undefined;
   writePresetsFile(data);
   res.json(data.presets[idx]);
 };
@@ -675,7 +779,7 @@ export const updatePresetHandler: RequestHandler = (req, res) => {
 export const deletePresetHandler: RequestHandler = (req, res) => {
   const { id } = req.params;
   const data = readPresetsFile();
-  const idx = data.presets.findIndex(p => p.id === id);
+  const idx = data.presets.findIndex((p) => p.id === id);
   if (idx === -1) {
     res.status(404).json({ error: "Preset not found" });
     return;

@@ -35,21 +35,27 @@ export function ImageGenPanel({ projectSlug }: ImageGenPanelProps) {
               className="flex w-full rounded-md border border-input bg-muted px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[100px] resize-y"
               autoFocus
               onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && prompt.trim()) {
+                if (
+                  e.key === "Enter" &&
+                  (e.metaKey || e.ctrlKey) &&
+                  prompt.trim()
+                ) {
                   handleGenerate();
                 }
               }}
             />
 
             <div className="flex items-center justify-between">
-              <span className="text-[11px] text-muted-foreground">Cmd+Enter to generate</span>
+              <span className="text-[11px] text-muted-foreground">
+                Cmd+Enter to generate
+              </span>
               <button
                 onClick={handleGenerate}
                 disabled={!prompt.trim() || isGenerating}
                 className={cn(
                   "inline-flex items-center gap-1.5 justify-center rounded-md text-sm font-medium h-9 px-4 transition-colors",
                   "bg-primary text-primary-foreground hover:bg-primary/90",
-                  "disabled:opacity-50 disabled:pointer-events-none"
+                  "disabled:opacity-50 disabled:pointer-events-none",
                 )}
               >
                 {isGenerating ? (

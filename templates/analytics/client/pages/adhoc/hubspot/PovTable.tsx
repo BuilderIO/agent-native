@@ -30,12 +30,21 @@ interface PovTableProps {
   onDealClick?: (deal: HubSpotDeal) => void;
 }
 
-export function PovTable({ deals, stageLabels, isLoading, onDealClick }: PovTableProps) {
+export function PovTable({
+  deals,
+  stageLabels,
+  isLoading,
+  onDealClick,
+}: PovTableProps) {
   const povDeals = useMemo(() => {
     return deals
       .filter((d) => {
         const label = (stageLabels[d.properties.dealstage] ?? "").toLowerCase();
-        return label.includes("pov") || label.includes("poc") || label.includes("proof");
+        return (
+          label.includes("pov") ||
+          label.includes("poc") ||
+          label.includes("proof")
+        );
       })
       .sort((a, b) => {
         const aAmt = parseFloat(a.properties.amount ?? "0") || 0;
@@ -45,8 +54,12 @@ export function PovTable({ deals, stageLabels, isLoading, onDealClick }: PovTabl
   }, [deals, stageLabels]);
 
   const totalValue = useMemo(
-    () => povDeals.reduce((sum, d) => sum + (parseFloat(d.properties.amount ?? "0") || 0), 0),
-    [povDeals]
+    () =>
+      povDeals.reduce(
+        (sum, d) => sum + (parseFloat(d.properties.amount ?? "0") || 0),
+        0,
+      ),
+    [povDeals],
   );
 
   if (isLoading) {
@@ -85,18 +98,30 @@ export function PovTable({ deals, stageLabels, isLoading, onDealClick }: PovTabl
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-card z-10">
                 <tr className="border-b border-border">
-                  <th className="py-2 px-2 text-left font-medium text-muted-foreground">Deal Name</th>
-                  <th className="py-2 px-2 text-left font-medium text-muted-foreground">Stage</th>
-                  <th className="py-2 px-2 text-right font-medium text-muted-foreground">Amount</th>
-                  <th className="py-2 px-2 text-right font-medium text-muted-foreground">Close Date</th>
-                  <th className="py-2 px-2 text-right font-medium text-muted-foreground">Created</th>
+                  <th className="py-2 px-2 text-left font-medium text-muted-foreground">
+                    Deal Name
+                  </th>
+                  <th className="py-2 px-2 text-left font-medium text-muted-foreground">
+                    Stage
+                  </th>
+                  <th className="py-2 px-2 text-right font-medium text-muted-foreground">
+                    Amount
+                  </th>
+                  <th className="py-2 px-2 text-right font-medium text-muted-foreground">
+                    Close Date
+                  </th>
+                  <th className="py-2 px-2 text-right font-medium text-muted-foreground">
+                    Created
+                  </th>
                   <th className="w-8" />
                 </tr>
               </thead>
               <tbody>
                 {povDeals.map((deal) => {
                   const amount = parseFloat(deal.properties.amount ?? "0") || 0;
-                  const stageLabel = stageLabels[deal.properties.dealstage] ?? deal.properties.dealstage;
+                  const stageLabel =
+                    stageLabels[deal.properties.dealstage] ??
+                    deal.properties.dealstage;
 
                   return (
                     <tr

@@ -15,13 +15,15 @@ export const SlackThreadPanel: React.FC<SlackThreadPanelProps> = ({
   builderButtonHoverProgress = 0,
 }) => {
   // Calculate button hover effects
-  const buttonScale = 1 + (builderButtonHoverProgress * 0.08);
-  const buttonBorderColor = builderButtonHoverProgress > 0
-    ? `rgba(121, 124, 129, ${0.5 + builderButtonHoverProgress * 0.5})`
-    : "rgba(121, 124, 129, 0.5)";
-  const buttonBg = builderButtonHoverProgress > 0
-    ? `rgba(26, 29, 33, ${1 - builderButtonHoverProgress * 0.2})`
-    : "rgba(26, 29, 33, 1)";
+  const buttonScale = 1 + builderButtonHoverProgress * 0.08;
+  const buttonBorderColor =
+    builderButtonHoverProgress > 0
+      ? `rgba(121, 124, 129, ${0.5 + builderButtonHoverProgress * 0.5})`
+      : "rgba(121, 124, 129, 0.5)";
+  const buttonBg =
+    builderButtonHoverProgress > 0
+      ? `rgba(26, 29, 33, ${1 - builderButtonHoverProgress * 0.2})`
+      : "rgba(26, 29, 33, 1)";
   return (
     <div
       style={{
@@ -81,12 +83,20 @@ export const SlackThreadPanel: React.FC<SlackThreadPanelProps> = ({
             style={{ width: 62, height: 62, borderRadius: 8 }}
           />
           <div style={{ flex: 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 7 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 9,
+                marginBottom: 7,
+              }}
+            >
               <div
                 style={{
                   color: "rgba(248, 248, 248, 1)",
                   fontSize: 19,
-                  fontFamily: "Inter, -apple-system, Roboto, Helvetica, sans-serif",
+                  fontFamily:
+                    "Inter, -apple-system, Roboto, Helvetica, sans-serif",
                   fontWeight: 600,
                 }}
               >
@@ -96,7 +106,8 @@ export const SlackThreadPanel: React.FC<SlackThreadPanelProps> = ({
                 style={{
                   color: "rgba(171, 171, 173, 1)",
                   fontSize: 16,
-                  fontFamily: "Inter, -apple-system, Roboto, Helvetica, sans-serif",
+                  fontFamily:
+                    "Inter, -apple-system, Roboto, Helvetica, sans-serif",
                 }}
               >
                 Feb 23rd at 2:15 PM
@@ -106,7 +117,8 @@ export const SlackThreadPanel: React.FC<SlackThreadPanelProps> = ({
               style={{
                 color: "rgba(255, 255, 255, 1)",
                 fontSize: 17,
-                fontFamily: "Inter, -apple-system, Roboto, Helvetica, sans-serif",
+                fontFamily:
+                  "Inter, -apple-system, Roboto, Helvetica, sans-serif",
                 lineHeight: "26px",
               }}
             >
@@ -122,7 +134,8 @@ export const SlackThreadPanel: React.FC<SlackThreadPanelProps> = ({
               >
                 @Builder.io
               </div>
-              Can you help me build a dashboard for our sales attribution for the Q4 2025 range with stats broken down per sales rep?
+              Can you help me build a dashboard for our sales attribution for
+              the Q4 2025 range with stats broken down per sales rep?
             </div>
           </div>
         </div>
@@ -135,12 +148,20 @@ export const SlackThreadPanel: React.FC<SlackThreadPanelProps> = ({
             style={{ width: 54, height: 54, borderRadius: 7 }}
           />
           <div style={{ flex: 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 13 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                marginBottom: 13,
+              }}
+            >
               <div
                 style={{
                   color: "rgba(248, 248, 248, 1)",
                   fontSize: 17,
-                  fontFamily: "Inter, -apple-system, Roboto, Helvetica, sans-serif",
+                  fontFamily:
+                    "Inter, -apple-system, Roboto, Helvetica, sans-serif",
                   fontWeight: 600,
                 }}
               >
@@ -153,7 +174,8 @@ export const SlackThreadPanel: React.FC<SlackThreadPanelProps> = ({
                   padding: "1px 5px 1px 3px",
                   fontSize: 12,
                   color: "rgba(185, 186, 189, 1)",
-                  fontFamily: "Inter, -apple-system, Roboto, Helvetica, sans-serif",
+                  fontFamily:
+                    "Inter, -apple-system, Roboto, Helvetica, sans-serif",
                 }}
               >
                 APP
@@ -162,13 +184,21 @@ export const SlackThreadPanel: React.FC<SlackThreadPanelProps> = ({
                 style={{
                   color: "rgba(171, 171, 173, 1)",
                   fontSize: 14,
-                  fontFamily: "Inter, -apple-system, Roboto, Helvetica, sans-serif",
+                  fontFamily:
+                    "Inter, -apple-system, Roboto, Helvetica, sans-serif",
                 }}
               >
                 Feb 23rd at 2:15 PM
               </div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 17 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                marginBottom: 17,
+              }}
+            >
               <img
                 src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/395fadc92fca383efa86e0d5aa901b482b5e41b5"
                 alt=""
@@ -182,7 +212,8 @@ export const SlackThreadPanel: React.FC<SlackThreadPanelProps> = ({
                   padding: "3px 10px",
                   fontSize: 14,
                   color: "rgba(232, 145, 45, 1)",
-                  fontFamily: "Consolas, -apple-system, Roboto, Helvetica, sans-serif",
+                  fontFamily:
+                    "Consolas, -apple-system, Roboto, Helvetica, sans-serif",
                 }}
               >
                 Sales dashboard view Q4 2025
@@ -192,7 +223,8 @@ export const SlackThreadPanel: React.FC<SlackThreadPanelProps> = ({
               style={{
                 color: "rgba(255, 255, 255, 1)",
                 fontSize: 17,
-                fontFamily: "Inter, -apple-system, Roboto, Helvetica, sans-serif",
+                fontFamily:
+                  "Inter, -apple-system, Roboto, Helvetica, sans-serif",
                 lineHeight: "26px",
                 marginBottom: 17,
               }}
@@ -200,14 +232,20 @@ export const SlackThreadPanel: React.FC<SlackThreadPanelProps> = ({
               I created a comprehensive dashboard for the 2025 Q4 sales data.
               <br />
               <br />
-              🔍 <span style={{ fontWeight: 600 }}>Breakdown of values per-agent:</span>
+              🔍{" "}
+              <span style={{ fontWeight: 600 }}>
+                Breakdown of values per-agent:
+              </span>
               <br />
-              Inspect each agent's attribution for sales numbers. Search by title or value
+              Inspect each agent's attribution for sales numbers. Search by
+              title or value
               <br />
               <br />
-              📊 <span style={{ fontWeight: 600 }}>Month-by-month breakdown</span>:
+              📊{" "}
+              <span style={{ fontWeight: 600 }}>Month-by-month breakdown</span>:
               <br />
-              See how the sales team performed each month and click on each bar to inspect in detail.
+              See how the sales team performed each month and click on each bar
+              to inspect in detail.
             </div>
             <div style={{ display: "flex", gap: 16, marginBottom: 17 }}>
               <img
@@ -232,7 +270,8 @@ export const SlackThreadPanel: React.FC<SlackThreadPanelProps> = ({
                 justifyContent: "center",
                 color: "rgba(248, 248, 248, 1)",
                 fontSize: 15,
-                fontFamily: "Inter, -apple-system, Roboto, Helvetica, sans-serif",
+                fontFamily:
+                  "Inter, -apple-system, Roboto, Helvetica, sans-serif",
                 transform: `scale(${buttonScale})`,
                 transition: "all 0.2s ease",
                 cursor: "pointer",
@@ -282,7 +321,8 @@ export const SlackThreadPanel: React.FC<SlackThreadPanelProps> = ({
                 gap: 3,
                 fontSize: 14,
                 color: "#e8e8e8",
-                fontFamily: "Inter, -apple-system, Roboto, Helvetica, sans-serif",
+                fontFamily:
+                  "Inter, -apple-system, Roboto, Helvetica, sans-serif",
               }}
             >
               <div>Also send to</div>

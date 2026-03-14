@@ -24,7 +24,10 @@ export const handleFeedback: RequestHandler = async (req, res) => {
           type: "section",
           fields: [
             { type: "mrkdwn", text: `*App:*\n\`${app || "unknown"}\`` },
-            { type: "mrkdwn", text: `*From:*\n${name ? `${name} <${email || "N/A"}>` : email || "N/A"}` },
+            {
+              type: "mrkdwn",
+              text: `*From:*\n${name ? `${name} <${email || "N/A"}>` : email || "N/A"}`,
+            },
             { type: "mrkdwn", text: `*URL:*\n${url || "N/A"}` },
           ],
         },

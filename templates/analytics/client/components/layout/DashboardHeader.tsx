@@ -9,7 +9,11 @@ interface DashboardHeaderProps {
   actions?: React.ReactNode;
 }
 
-export function DashboardHeader({ title, description, actions }: DashboardHeaderProps) {
+export function DashboardHeader({
+  title,
+  description,
+  actions,
+}: DashboardHeaderProps) {
   const { id } = useParams<{ id: string }>();
 
   const metadata = useMemo(() => {
@@ -33,9 +37,7 @@ export function DashboardHeader({ title, description, actions }: DashboardHeader
           )}
         </div>
         {actions && (
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {actions}
-          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">{actions}</div>
         )}
       </div>
 

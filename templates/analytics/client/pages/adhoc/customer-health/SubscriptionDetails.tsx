@@ -24,7 +24,9 @@ export function SubscriptionDetails({ companyName }: SubscriptionDetailsProps) {
   return (
     <Card className="bg-card border-border/50">
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">Subscriptions & Spaces</CardTitle>
+        <CardTitle className="text-sm font-medium">
+          Subscriptions & Spaces
+        </CardTitle>
         <p className="text-xs text-muted-foreground mt-0.5">
           All spaces and subscription details
         </p>
@@ -35,24 +37,41 @@ export function SubscriptionDetails({ companyName }: SubscriptionDetailsProps) {
         ) : data?.error ? (
           <p className="text-sm text-red-400 py-4 text-center">{data.error}</p>
         ) : rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4 text-center">No subscriptions found</p>
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            No subscriptions found
+          </p>
         ) : (
           <>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border/50">
-                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">Plan</th>
-                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">Status</th>
-                    <th className="py-2 px-2 font-medium text-muted-foreground text-right">ARR</th>
-                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">Start Date</th>
-                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">Space ID</th>
-                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">Root ID</th>
+                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">
+                      Plan
+                    </th>
+                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">
+                      Status
+                    </th>
+                    <th className="py-2 px-2 font-medium text-muted-foreground text-right">
+                      ARR
+                    </th>
+                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">
+                      Start Date
+                    </th>
+                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">
+                      Space ID
+                    </th>
+                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">
+                      Root ID
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {pageItems.map((row, i) => (
-                    <tr key={i} className="border-b border-border/30 hover:bg-muted/30">
+                    <tr
+                      key={i}
+                      className="border-b border-border/30 hover:bg-muted/30"
+                    >
                       <td className="py-1.5 px-2">{String(row.plan ?? "—")}</td>
                       <td className="py-1.5 px-2">
                         <span
@@ -65,16 +84,28 @@ export function SubscriptionDetails({ companyName }: SubscriptionDetailsProps) {
                           {String(row.status ?? "—")}
                         </span>
                       </td>
-                      <td className="py-1.5 px-2 text-right tabular-nums">{formatArr(row.subscription_arr)}</td>
-                      <td className="py-1.5 px-2">{String(row.start_date ?? "—")}</td>
-                      <td className="py-1.5 px-2 font-mono text-[10px] truncate max-w-[140px]">{String(row.space_id ?? "—")}</td>
-                      <td className="py-1.5 px-2 font-mono text-[10px] truncate max-w-[140px]">{String(row.root_id ?? "—")}</td>
+                      <td className="py-1.5 px-2 text-right tabular-nums">
+                        {formatArr(row.subscription_arr)}
+                      </td>
+                      <td className="py-1.5 px-2">
+                        {String(row.start_date ?? "—")}
+                      </td>
+                      <td className="py-1.5 px-2 font-mono text-[10px] truncate max-w-[140px]">
+                        {String(row.space_id ?? "—")}
+                      </td>
+                      <td className="py-1.5 px-2 font-mono text-[10px] truncate max-w-[140px]">
+                        {String(row.root_id ?? "—")}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <TablePagination page={page} totalPages={totalPages} onPageChange={setPage} />
+            <TablePagination
+              page={page}
+              totalPages={totalPages}
+              onPageChange={setPage}
+            />
           </>
         )}
       </CardContent>

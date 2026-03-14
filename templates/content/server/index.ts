@@ -110,8 +110,18 @@ import {
 import { proxyUrl } from "./routes/proxy";
 import { getClearbitLogo } from "./routes/clearbit";
 import { getYouTubeTranscript } from "./routes/youtube";
-import { searchGoogle, googleSearchStatus, configureGoogleSearch } from "./routes/google-search";
-import { getPages, fetchPage, pushPage, getDatabaseSchema, getPageMeta } from "./routes/notion";
+import {
+  searchGoogle,
+  googleSearchStatus,
+  configureGoogleSearch,
+} from "./routes/google-search";
+import {
+  getPages,
+  fetchPage,
+  pushPage,
+  getDatabaseSchema,
+  getPageMeta,
+} from "./routes/notion";
 import { sendFeedback } from "./routes/feedback";
 import { getPages as getPageTree } from "./routes/pages";
 import {
@@ -144,7 +154,10 @@ const persistHistoryForContentChange = async (changedPath: string) => {
       fallbackTimestamp: Date.now(),
     });
   } catch (error) {
-    console.error("Failed to persist version history from file watcher:", error);
+    console.error(
+      "Failed to persist version history from file watcher:",
+      error,
+    );
   }
 };
 
@@ -179,7 +192,8 @@ function getContentWatcher() {
   return contentWatcher;
 }
 
-const CHUNK_UPLOAD_ROUTE = /^\/api\/projects\/.+\/media\/chunked\/[^/]+\/chunk$/;
+const CHUNK_UPLOAD_ROUTE =
+  /^\/api\/projects\/.+\/media\/chunked\/[^/]+\/chunk$/;
 
 function getRequestPath(req: express.Request): string {
   return req.originalUrl.split("?")[0] || req.originalUrl;
@@ -209,20 +223,23 @@ export function createAppServer() {
     envKeys,
   });
 
-  app.options(/.*/, cors({
-    origin: true,
-    credentials: true,
-    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: [
-      "Accept",
-      "Authorization",
-      "Content-Type",
-      "x-builder-api-key",
-      "x-builder-private-key",
-      "x-upload-token",
-    ],
-    maxAge: 86400,
-  }));
+  app.options(
+    /.*/,
+    cors({
+      origin: true,
+      credentials: true,
+      methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      allowedHeaders: [
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "x-builder-api-key",
+        "x-builder-private-key",
+        "x-upload-token",
+      ],
+      maxAge: 86400,
+    }),
+  );
   app.use(/^\/api\/projects\/.+\/media(?:\/.*)?$/, (req, _res, next) => {
     if (req.method === "OPTIONS") {
       console.info("[media] Upload preflight", {
@@ -251,7 +268,8 @@ export function createAppServer() {
       requestId,
       method: req.method,
       path,
-      chunkIndex: typeof req.query.index === "string" ? req.query.index : undefined,
+      chunkIndex:
+        typeof req.query.index === "string" ? req.query.index : undefined,
       contentLength: req.headers["content-length"],
       contentType: req.headers["content-type"],
       origin: req.headers.origin,
@@ -262,7 +280,8 @@ export function createAppServer() {
         requestId,
         method: req.method,
         path,
-        chunkIndex: typeof req.query.index === "string" ? req.query.index : undefined,
+        chunkIndex:
+          typeof req.query.index === "string" ? req.query.index : undefined,
         durationMs: Date.now() - startedAt,
       });
     });
@@ -272,7 +291,8 @@ export function createAppServer() {
         requestId,
         method: req.method,
         path,
-        chunkIndex: typeof req.query.index === "string" ? req.query.index : undefined,
+        chunkIndex:
+          typeof req.query.index === "string" ? req.query.index : undefined,
         requestComplete: req.complete,
         durationMs: Date.now() - startedAt,
       });
@@ -284,7 +304,8 @@ export function createAppServer() {
         requestId,
         method: req.method,
         path,
-        chunkIndex: typeof req.query.index === "string" ? req.query.index : undefined,
+        chunkIndex:
+          typeof req.query.index === "string" ? req.query.index : undefined,
         statusCode: res.statusCode,
         durationMs: Date.now() - startedAt,
       });
@@ -296,7 +317,8 @@ export function createAppServer() {
         requestId,
         method: req.method,
         path,
-        chunkIndex: typeof req.query.index === "string" ? req.query.index : undefined,
+        chunkIndex:
+          typeof req.query.index === "string" ? req.query.index : undefined,
         statusCode: res.statusCode,
         durationMs: Date.now() - startedAt,
       });
@@ -328,7 +350,10 @@ export function createAppServer() {
   app.post("/api/projects/*project/file", createFile);
   app.delete("/api/projects/*project/file", deleteFile);
   app.get("/api/projects/*project/version-history", getVersionHistory);
-  app.get("/api/projects/*project/version-history/:versionId", getVersionContent);
+  app.get(
+    "/api/projects/*project/version-history/:versionId",
+    getVersionContent,
+  );
   app.post("/api/projects/*project/restore-version", restoreVersion);
 
   // Shared resources
@@ -339,7 +364,11 @@ export function createAppServer() {
   app.post("/api/shared/file", createSharedFile);
   app.delete("/api/shared/file", deleteSharedFile);
   app.get("/api/shared/image-folders", getImageFolders);
-  app.post("/api/shared/image-upload", sharedImageUploadMiddleware, uploadSharedImages);
+  app.post(
+    "/api/shared/image-upload",
+    sharedImageUploadMiddleware,
+    uploadSharedImages,
+  );
   app.delete("/api/shared/image", deleteSharedImage);
 
   // Workspace-scoped shared resources
@@ -347,21 +376,36 @@ export function createAppServer() {
   app.get("/api/workspace/:workspace/shared/file", getWorkspaceSharedFile);
   app.put("/api/workspace/:workspace/shared/file", saveWorkspaceSharedFile);
   app.post("/api/workspace/:workspace/shared/file", createWorkspaceSharedFile);
-  app.delete("/api/workspace/:workspace/shared/file", deleteWorkspaceSharedFile);
+  app.delete(
+    "/api/workspace/:workspace/shared/file",
+    deleteWorkspaceSharedFile,
+  );
 
   // Media upload & serving
   app.get("/api/projects/*project/media", listMedia);
   app.post("/api/projects/*project/media", uploadMiddleware, uploadMedia);
-  app.post("/api/projects/*project/media/chunked/init", initializeChunkedMediaUpload);
+  app.post(
+    "/api/projects/*project/media/chunked/init",
+    initializeChunkedMediaUpload,
+  );
   app.post(
     "/api/projects/*project/media/chunked/:uploadId/chunk",
     requireChunkedUploadAccess,
     chunkUploadMiddleware,
-    appendChunkedMediaUpload
+    appendChunkedMediaUpload,
   );
-  app.get("/api/projects/*project/media/chunked/:uploadId/status", getChunkedMediaUploadStatus);
-  app.post("/api/projects/*project/media/chunked/:uploadId/complete", completeChunkedMediaUpload);
-  app.get("/api/projects/*project/media/chunked/:uploadId/source", serveChunkedMediaUploadSource);
+  app.get(
+    "/api/projects/*project/media/chunked/:uploadId/status",
+    getChunkedMediaUploadStatus,
+  );
+  app.post(
+    "/api/projects/*project/media/chunked/:uploadId/complete",
+    completeChunkedMediaUpload,
+  );
+  app.get(
+    "/api/projects/*project/media/chunked/:uploadId/source",
+    serveChunkedMediaUploadSource,
+  );
   app.post("/api/projects/*project/media/bulk-delete", bulkDeleteMedia);
   app.get("/api/projects/*project/media/:filename", serveMedia);
   app.delete("/api/projects/*project/media/:filename", deleteMedia);
@@ -456,7 +500,9 @@ export function createAppServer() {
     res.flushHeaders();
 
     const onChange = (eventName: string, filePath: string) => {
-      res.write(`data: ${JSON.stringify({ type: eventName, path: filePath })}\n\n`);
+      res.write(
+        `data: ${JSON.stringify({ type: eventName, path: filePath })}\n\n`,
+      );
     };
 
     watcher.on("all", onChange);
@@ -466,31 +512,42 @@ export function createAppServer() {
     });
   });
 
-  app.use((err: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const path = getRequestPath(req);
-    if (!path.startsWith("/api/projects/") || !path.includes("/media")) {
-      next(err);
-      return;
-    }
+  app.use(
+    (
+      err: unknown,
+      req: express.Request,
+      res: express.Response,
+      next: express.NextFunction,
+    ) => {
+      const path = getRequestPath(req);
+      if (!path.startsWith("/api/projects/") || !path.includes("/media")) {
+        next(err);
+        return;
+      }
 
-    console.error("[media] Upload route error", {
-      requestId: typeof res.locals.uploadRequestId === "string" ? res.locals.uploadRequestId : undefined,
-      method: req.method,
-      path,
-      chunkIndex: typeof req.query.index === "string" ? req.query.index : undefined,
-      error: err instanceof Error ? err.message : String(err),
-    });
+      console.error("[media] Upload route error", {
+        requestId:
+          typeof res.locals.uploadRequestId === "string"
+            ? res.locals.uploadRequestId
+            : undefined,
+        method: req.method,
+        path,
+        chunkIndex:
+          typeof req.query.index === "string" ? req.query.index : undefined,
+        error: err instanceof Error ? err.message : String(err),
+      });
 
-    if (res.headersSent) {
-      next(err);
-      return;
-    }
+      if (res.headersSent) {
+        next(err);
+        return;
+      }
 
-    res.status(500).json({
-      error: "Upload request failed",
-      code: "upload_request_failed",
-    });
-  });
+      res.status(500).json({
+        error: "Upload request failed",
+        code: "upload_request_failed",
+      });
+    },
+  );
 
   // Feedback
   app.post("/api/feedback", sendFeedback);

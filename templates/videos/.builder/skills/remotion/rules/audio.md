@@ -10,6 +10,7 @@ metadata:
 ## Prerequisites
 
 The @remotion/media package needs to be installed:
+
 ```bash
 pnpm exec remotion add @remotion/media
 ```
@@ -29,7 +30,11 @@ export const MyComposition = () => {
 
 ```tsx
 const { fps } = useVideoConfig();
-<Audio src={staticFile("audio.mp3")} trimBefore={2 * fps} trimAfter={10 * fps} />
+<Audio
+  src={staticFile("audio.mp3")}
+  trimBefore={2 * fps}
+  trimAfter={10 * fps}
+/>;
 ```
 
 ## Volume
@@ -37,8 +42,13 @@ const { fps } = useVideoConfig();
 Static: `<Audio volume={0.5} />`
 
 Dynamic:
+
 ```tsx
-<Audio volume={(f) => interpolate(f, [0, 1 * fps], [0, 1], { extrapolateRight: "clamp" })} />
+<Audio
+  volume={(f) =>
+    interpolate(f, [0, 1 * fps], [0, 1], { extrapolateRight: "clamp" })
+  }
+/>
 ```
 
 ## Speed, Looping, Pitch

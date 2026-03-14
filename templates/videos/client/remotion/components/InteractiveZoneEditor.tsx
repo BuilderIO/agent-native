@@ -4,7 +4,7 @@
  * ═══════════════════════════════════════════════════════════════════════════
  *
  * Visual editor for adjusting hover detection zones via drag-and-drop.
- * 
+ *
  * Features:
  * - Click and drag zones to reposition
  * - Drag corners/edges to resize
@@ -35,7 +35,13 @@ interface InteractiveZoneEditorProps {
   enabled?: boolean;
 }
 
-type DragMode = "move" | "resize-se" | "resize-sw" | "resize-ne" | "resize-nw" | null;
+type DragMode =
+  | "move"
+  | "resize-se"
+  | "resize-sw"
+  | "resize-ne"
+  | "resize-nw"
+  | null;
 
 export const InteractiveZoneEditor: React.FC<InteractiveZoneEditorProps> = ({
   zones,
@@ -44,7 +50,10 @@ export const InteractiveZoneEditor: React.FC<InteractiveZoneEditorProps> = ({
 }) => {
   const [selectedZone, setSelectedZone] = React.useState<string | null>(null);
   const [dragMode, setDragMode] = React.useState<DragMode>(null);
-  const [dragStart, setDragStart] = React.useState<{ x: number; y: number } | null>(null);
+  const [dragStart, setDragStart] = React.useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const [originalZone, setOriginalZone] = React.useState<Zone | null>(null);
   const [hoveredZone, setHoveredZone] = React.useState<string | null>(null);
 
@@ -79,10 +88,14 @@ export const InteractiveZoneEditor: React.FC<InteractiveZoneEditorProps> = ({
     );
   }
 
-  const handleMouseDown = (e: React.MouseEvent, label: string, mode: DragMode) => {
+  const handleMouseDown = (
+    e: React.MouseEvent,
+    label: string,
+    mode: DragMode,
+  ) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     const zoneConfig = zones.find((z) => z.label === label);
     if (!zoneConfig) return;
 
@@ -141,7 +154,7 @@ export const InteractiveZoneEditor: React.FC<InteractiveZoneEditorProps> = ({
         });
       }
     }
-    
+
     setDragMode(null);
     setDragStart(null);
     setOriginalZone(null);
@@ -198,10 +211,26 @@ export const InteractiveZoneEditor: React.FC<InteractiveZoneEditorProps> = ({
               }}
             >
               {label}
-              <div style={{ position: "absolute", top: 2, right: 2, fontSize: 8, opacity: 0.8 }}>
+              <div
+                style={{
+                  position: "absolute",
+                  top: 2,
+                  right: 2,
+                  fontSize: 8,
+                  opacity: 0.8,
+                }}
+              >
                 {Math.round(zone.x)}, {Math.round(zone.y)}
               </div>
-              <div style={{ position: "absolute", bottom: 2, right: 2, fontSize: 8, opacity: 0.8 }}>
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: 2,
+                  right: 2,
+                  fontSize: 8,
+                  opacity: 0.8,
+                }}
+              >
                 {Math.round(zone.width)}×{Math.round(zone.height)}
               </div>
             </div>
@@ -224,7 +253,7 @@ export const InteractiveZoneEditor: React.FC<InteractiveZoneEditorProps> = ({
                     zIndex: 10,
                   }}
                 />
-                
+
                 {/* Southwest corner */}
                 <div
                   onMouseDown={(e) => handleMouseDown(e, label, "resize-sw")}
@@ -240,7 +269,7 @@ export const InteractiveZoneEditor: React.FC<InteractiveZoneEditorProps> = ({
                     zIndex: 10,
                   }}
                 />
-                
+
                 {/* Northeast corner */}
                 <div
                   onMouseDown={(e) => handleMouseDown(e, label, "resize-ne")}
@@ -256,7 +285,7 @@ export const InteractiveZoneEditor: React.FC<InteractiveZoneEditorProps> = ({
                     zIndex: 10,
                   }}
                 />
-                
+
                 {/* Northwest corner */}
                 <div
                   onMouseDown={(e) => handleMouseDown(e, label, "resize-nw")}

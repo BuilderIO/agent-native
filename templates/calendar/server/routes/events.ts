@@ -33,7 +33,7 @@ export function listEvents(req: Request, res: Response): void {
     }
 
     events.sort(
-      (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
+      (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
     );
     res.json(events);
   } catch (error: any) {

@@ -26,7 +26,9 @@ function StateBadge({ state }: { state: string }) {
   };
   const color = colors[state.toLowerCase()] ?? "bg-muted text-muted-foreground";
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${color}`}>
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${color}`}
+    >
       {state}
     </span>
   );
@@ -34,7 +36,11 @@ function StateBadge({ state }: { state: string }) {
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 export function RecentTickets({ companyName }: RecentTicketsProps) {
@@ -53,9 +59,10 @@ export function RecentTickets({ companyName }: RecentTicketsProps) {
         // First find the Pylon account matching this company
         const accountsRes = await fetch(
           `/api/pylon/accounts?query=${encodeURIComponent(companyName)}`,
-          { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+          { headers: token ? { Authorization: `Bearer ${token}` } : {} },
         );
-        if (!accountsRes.ok) throw new Error(`Failed to fetch accounts (${accountsRes.status})`);
+        if (!accountsRes.ok)
+          throw new Error(`Failed to fetch accounts (${accountsRes.status})`);
         const accountsData = await accountsRes.json();
         const accounts = accountsData.accounts ?? [];
 
@@ -71,9 +78,10 @@ export function RecentTickets({ companyName }: RecentTicketsProps) {
         const accountId = accounts[0].id;
         const issuesRes = await fetch(
           `/api/pylon/issues?account_id=${encodeURIComponent(accountId)}`,
-          { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+          { headers: token ? { Authorization: `Bearer ${token}` } : {} },
         );
-        if (!issuesRes.ok) throw new Error(`Failed to fetch issues (${issuesRes.status})`);
+        if (!issuesRes.ok)
+          throw new Error(`Failed to fetch issues (${issuesRes.status})`);
         const issuesData = await issuesRes.json();
 
         if (!cancelled) {
@@ -89,17 +97,23 @@ export function RecentTickets({ companyName }: RecentTicketsProps) {
     }
 
     fetchIssues();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [companyName]);
 
-  const openCount = issues.filter((i) => i.state.toLowerCase() !== "closed").length;
+  const openCount = issues.filter(
+    (i) => i.state.toLowerCase() !== "closed",
+  ).length;
   const { page, totalPages, pageItems, setPage } = usePagination(issues);
 
   return (
     <Card className="bg-card border-border/50">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium">Support Tickets (Pylon)</CardTitle>
+          <CardTitle className="text-sm font-medium">
+            Support Tickets (Pylon)
+          </CardTitle>
           {!isLoading && !error && (
             <span className="text-xs text-muted-foreground">
               {openCount} open / {issues.length} total
@@ -113,34 +127,63 @@ export function RecentTickets({ companyName }: RecentTicketsProps) {
         ) : error ? (
           <p className="text-sm text-red-400 py-4 text-center">{error}</p>
         ) : issues.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4 text-center">No tickets found</p>
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            No tickets found
+          </p>
         ) : (
           <>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border/50">
-                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">Title</th>
-                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">Status</th>
-                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">Priority</th>
-                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">Created</th>
-                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">Updated</th>
+                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">
+                      Title
+                    </th>
+                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">
+                      Status
+                    </th>
+                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">
+                      Priority
+                    </th>
+                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">
+                      Created
+                    </th>
+                    <th className="py-2 px-2 font-medium text-muted-foreground text-left">
+                      Updated
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {pageItems.map((issue) => (
-                    <tr key={issue.id} className="border-b border-border/30 hover:bg-muted/30">
-                      <td className="py-1.5 px-2 truncate max-w-[280px]">{issue.title}</td>
-                      <td className="py-1.5 px-2"><StateBadge state={issue.state} /></td>
-                      <td className="py-1.5 px-2 capitalize">{issue.priority ?? "—"}</td>
-                      <td className="py-1.5 px-2">{formatDate(issue.created_at)}</td>
-                      <td className="py-1.5 px-2">{formatDate(issue.updated_at)}</td>
+                    <tr
+                      key={issue.id}
+                      className="border-b border-border/30 hover:bg-muted/30"
+                    >
+                      <td className="py-1.5 px-2 truncate max-w-[280px]">
+                        {issue.title}
+                      </td>
+                      <td className="py-1.5 px-2">
+                        <StateBadge state={issue.state} />
+                      </td>
+                      <td className="py-1.5 px-2 capitalize">
+                        {issue.priority ?? "—"}
+                      </td>
+                      <td className="py-1.5 px-2">
+                        {formatDate(issue.created_at)}
+                      </td>
+                      <td className="py-1.5 px-2">
+                        {formatDate(issue.updated_at)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <TablePagination page={page} totalPages={totalPages} onPageChange={setPage} />
+            <TablePagination
+              page={page}
+              totalPages={totalPages}
+              onPageChange={setPage}
+            />
           </>
         )}
       </CardContent>

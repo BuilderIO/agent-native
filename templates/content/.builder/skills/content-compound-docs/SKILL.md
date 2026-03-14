@@ -26,6 +26,7 @@ Capture learnings from the content generation pipeline as structured, searchable
 ### Step 1: Detect Trigger
 
 **Auto-invoke after phrases:**
+
 - "the outline needed work" / "outline took multiple revisions"
 - "the hook type was wrong" / "that hook worked"
 - "AI-voice detection caught a lot" / "voice was clean"
@@ -39,6 +40,7 @@ Capture learnings from the content generation pipeline as structured, searchable
 **Or manual:** `/content-compound` orchestrator skill
 
 **Worth documenting when:**
+
 - A pipeline phase required unexpected revisions or rework
 - A pattern is emerging across 2+ content generation sessions
 - A pipeline phase produced notably strong results (pipeline win)
@@ -47,6 +49,7 @@ Capture learnings from the content generation pipeline as structured, searchable
 - A content goal or timing classification proved wrong during generation
 
 **Skip documentation for:**
+
 - Minor formatting fixes caught by the post-publish checklist
 - One-off issues unlikely to recur
 - Problems already documented in `docs/solutions/`
@@ -56,6 +59,7 @@ Capture learnings from the content generation pipeline as structured, searchable
 Extract from the conversation and any available phase artifacts:
 
 **Required information:**
+
 - **Post slug:** Which post is this about (or "general" for cross-session or pipeline-level learnings)
 - **Symptom:** What was observed during content generation -- gate rejections, revision cycles, AI-voice violation counts, Ahrefs unit usage, word count issues
 - **Component:** Which pipeline phase is most relevant
@@ -65,6 +69,7 @@ Extract from the conversation and any available phase artifacts:
 - **Prevention/replication:** How to avoid (for problems) or replicate (for wins)
 
 **Phase artifacts to check (if available):**
+
 - `phases/01-topic-validation.yaml` -- content goal, content timing
 - `phases/02-keyword-research.yaml` -- keyword data, Ahrefs unit count
 - `phases/05-outline-creation.yaml` -- revision count, hook type, post type
@@ -83,6 +88,7 @@ Search `docs/solutions/` for similar learnings:
 3. Search by post slug (for multiple learnings from the same session)
 
 **If similar learning found:** Present options:
+
 1. Create new doc with cross-reference (recommended if different root cause)
 2. Update existing doc (only if same root cause, same component)
 3. Skip (already documented)
@@ -94,12 +100,14 @@ Search `docs/solutions/` for similar learnings:
 Format: `[sanitized-lesson]-[component]-[YYYYMMDD].md`
 
 **Sanitization rules:**
+
 - Lowercase
 - Replace spaces with hyphens
 - Remove special characters except hyphens
 - Truncate to under 80 characters
 
 **Examples:**
+
 - `bold-claim-hook-wrong-for-tutorials-outline-creation-20260215.md`
 - `ahrefs-unit-overspend-broad-topic-keyword-research-20260220.md`
 - `ai-voice-clean-first-draft-blog-drafting-20260301.md`
@@ -143,6 +151,7 @@ Provide corrected values.
 ### Step 7: Cross-Reference and Pattern Detection
 
 **If similar learnings found in Step 3:**
+
 - Add a "Related Learnings" link to the similar doc
 - Add a reciprocal link in the new doc
 
@@ -195,6 +204,7 @@ What's next?
 **Trigger:** "The outline needed 3 revisions -- the Bold Claim hook was wrong for a tutorial post."
 
 **Step 2 context:**
+
 - Post slug: `react-server-components-guide`
 - Symptom: Outline required 3 revision cycles at Gate 2, hook type mismatch
 - Component: `outline_creation`
@@ -202,6 +212,7 @@ What's next?
 - Resolution: `skill_update` -- add hook-to-post-type guidance to outline-creation skill
 
 **Step 5 YAML:**
+
 ```yaml
 post_slug: react-server-components-guide
 date: 2026-02-15
@@ -226,6 +237,7 @@ tags: [hook-selection, tutorial, outline-revision]
 **Trigger:** "The AI-voice pass found 0 violations. The draft was clean on the first pass."
 
 **Step 2 context:**
+
 - Post slug: `react-server-components-guide`
 - Symptom: AI-voice Pass 3 found 0 violations, draft passed Gate 3 first attempt
 - Component: `blog_drafting`
@@ -233,6 +245,7 @@ tags: [hook-selection, tutorial, outline-revision]
 - Resolution: `no_action` -- record the pattern for future use
 
 **Step 5 YAML:**
+
 ```yaml
 post_slug: react-server-components-guide
 date: 2026-02-15
@@ -257,6 +270,7 @@ tags: [clean-draft, ai-voice, word-count-discipline]
 **Trigger:** "The last three posts all used 'under the hood' more than once."
 
 **Step 2 context:**
+
 - Post slug: general (cross-session learning)
 - Symptom: Phrase "under the hood" appears 3+ times in recent drafts
 - Component: `style_guide`
@@ -265,8 +279,10 @@ tags: [clean-draft, ai-voice, word-count-discipline]
 **Decision menu selection:** Option 2 (Update style guide)
 
 **Action:** Append to `.content-style-guide.md`:
+
 ```markdown
 ## Phrases to Avoid
+
 - "under the hood" -- limit to once per post maximum
 ```
 
@@ -277,6 +293,7 @@ tags: [clean-draft, ai-voice, word-count-discipline]
 **Trigger:** "Keyword research used 800 Ahrefs units -- that's too many for a narrow topic."
 
 **Step 2 context:**
+
 - Post slug: general (pipeline-level learning)
 - Symptom: 800 Ahrefs units consumed during keyword research for a narrow topic
 - Component: `keyword_research`
@@ -284,6 +301,7 @@ tags: [clean-draft, ai-voice, word-count-discipline]
 - Resolution: `skill_update` -- add guidance to narrow keyword explorers for focused topics
 
 **Step 5 YAML:**
+
 ```yaml
 post_slug: general
 date: 2026-02-20

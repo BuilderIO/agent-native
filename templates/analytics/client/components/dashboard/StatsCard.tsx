@@ -13,7 +13,13 @@ interface StatsCardProps {
   };
 }
 
-export function StatsCard({ title, value, icon: Icon, description, trend }: StatsCardProps) {
+export function StatsCard({
+  title,
+  value,
+  icon: Icon,
+  description,
+  trend,
+}: StatsCardProps) {
   return (
     <Card className="bg-card border-border/50 shadow-sm hover:shadow-md transition-all">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -26,11 +32,14 @@ export function StatsCard({ title, value, icon: Icon, description, trend }: Stat
         <div className="text-2xl font-bold">{value}</div>
         <p className="text-xs text-muted-foreground mt-1">
           {trend && (
-            <span className={cn(
-              "font-medium mr-1",
-              trend.value > 0 ? "text-emerald-500" : "text-rose-500"
-            )}>
-              {trend.value > 0 ? "+" : ""}{trend.value}%
+            <span
+              className={cn(
+                "font-medium mr-1",
+                trend.value > 0 ? "text-emerald-500" : "text-rose-500",
+              )}
+            >
+              {trend.value > 0 ? "+" : ""}
+              {trend.value}%
             </span>
           )}
           {description}

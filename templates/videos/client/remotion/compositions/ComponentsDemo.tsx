@@ -37,7 +37,7 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
   const cursorTrack = tracks[1];
 
   // X position - horizontal movement between components
-  const xProp = cursorTrack.animatedProps.find(p => p.property === "x")!;
+  const xProp = cursorTrack.animatedProps.find((p) => p.property === "x")!;
   xProp.keyframes = [
     { frame: 0, value: "100" },
     { frame: 30, value: String(1920 / 2 - 200) }, // Move to left button
@@ -50,7 +50,7 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
   ];
 
   // Y position - vertical movement between components
-  const yProp = cursorTrack.animatedProps.find(p => p.property === "y")!;
+  const yProp = cursorTrack.animatedProps.find((p) => p.property === "y")!;
   yProp.keyframes = [
     { frame: 0, value: "100" },
     { frame: 30, value: "400" }, // Left button
@@ -63,7 +63,9 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
   ];
 
   // Click events
-  const clickProp = cursorTrack.animatedProps.find(p => p.property === "isClicking")!;
+  const clickProp = cursorTrack.animatedProps.find(
+    (p) => p.property === "isClicking",
+  )!;
   clickProp.keyframes = [
     { frame: 0, value: "0" },
     { frame: 59, value: "0" },
@@ -79,7 +81,9 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
   ];
 
   // Opacity - fade in/out
-  const opacityProp = cursorTrack.animatedProps.find(p => p.property === "opacity")!;
+  const opacityProp = cursorTrack.animatedProps.find(
+    (p) => p.property === "opacity",
+  )!;
   opacityProp.keyframes = [
     { frame: 0, value: "0" },
     { frame: 20, value: "0" },
@@ -95,178 +99,197 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
   return tracks;
 })();
 
-export const ComponentsDemo = createInteractiveComposition<ComponentsDemoProps>({
-  fallbackTracks: FALLBACK_TRACKS,
+export const ComponentsDemo = createInteractiveComposition<ComponentsDemoProps>(
+  {
+    fallbackTracks: FALLBACK_TRACKS,
 
-  render: ({ cursorHistory, registerForCursor }, props) => {
-    const frame = useCurrentFrame();
-    const { width, height } = useVideoConfig();
+    render: ({ cursorHistory, registerForCursor }, props) => {
+      const frame = useCurrentFrame();
+      const { width, height } = useVideoConfig();
 
-    // Button 1 - Primary (left)
-    const button1 = useInteractiveComponent({
-      id: "primary-button",
-      elementType: "Button",
-      label: "Primary Button",
-      compositionId: "components-demo",
-      zone: { x: width / 2 - 300, y: 370, width: 200, height: 60 },
-      cursorHistory,
-      interactiveElementType: "button",
-    });
+      // Button 1 - Primary (left)
+      const button1 = useInteractiveComponent({
+        id: "primary-button",
+        elementType: "Button",
+        label: "Primary Button",
+        compositionId: "components-demo",
+        zone: { x: width / 2 - 300, y: 370, width: 200, height: 60 },
+        cursorHistory,
+        interactiveElementType: "button",
+      });
 
-    // Button 2 - Secondary (right)
-    const button2 = useInteractiveComponent({
-      id: "secondary-button",
-      elementType: "Button",
-      label: "Secondary Button",
-      compositionId: "components-demo",
-      zone: { x: width / 2 + 100, y: 370, width: 200, height: 60 },
-      cursorHistory,
-      interactiveElementType: "button",
-    });
+      // Button 2 - Secondary (right)
+      const button2 = useInteractiveComponent({
+        id: "secondary-button",
+        elementType: "Button",
+        label: "Secondary Button",
+        compositionId: "components-demo",
+        zone: { x: width / 2 + 100, y: 370, width: 200, height: 60 },
+        cursorHistory,
+        interactiveElementType: "button",
+      });
 
-    // Card (bottom)
-    const card = useInteractiveComponent({
-      id: "demo-card",
-      elementType: "Card",
-      label: "Demo Card",
-      compositionId: "components-demo",
-      zone: { x: width / 2 - 200, y: 580, width: 400, height: 240 },
-      cursorHistory,
-      interactiveElementType: "card",
-    });
+      // Card (bottom)
+      const card = useInteractiveComponent({
+        id: "demo-card",
+        elementType: "Card",
+        label: "Demo Card",
+        compositionId: "components-demo",
+        zone: { x: width / 2 - 200, y: 580, width: 400, height: 240 },
+        cursorHistory,
+        interactiveElementType: "card",
+      });
 
-    // Register all components
-    React.useEffect(() => {
-      registerForCursor(button1);
-      registerForCursor(button2);
-      registerForCursor(card);
-    }, [
-      button1.hover.isHovering,
-      button1.click.isClicking,
-      button2.hover.isHovering,
-      button2.click.isClicking,
-      card.hover.isHovering,
-      card.click.isClicking,
-      registerForCursor,
-    ]);
+      // Register all components
+      React.useEffect(() => {
+        registerForCursor(button1);
+        registerForCursor(button2);
+        registerForCursor(card);
+      }, [
+        button1.hover.isHovering,
+        button1.click.isClicking,
+        button2.hover.isHovering,
+        button2.click.isClicking,
+        card.hover.isHovering,
+        card.click.isClicking,
+        registerForCursor,
+      ]);
 
-    return (
-      <AbsoluteFill
-        style={{
-          backgroundColor: "#0f172a",
-          fontFamily: "Inter, sans-serif",
-        }}
-      >
-        {/* Title */}
-        <div
+      return (
+        <AbsoluteFill
           style={{
-            position: "absolute",
-            top: 80,
-            left: 0,
-            right: 0,
-            textAlign: "center",
-            color: "#f1f5f9",
+            backgroundColor: "#0f172a",
+            fontFamily: "Inter, sans-serif",
           }}
         >
-          <h1 style={{ fontSize: 48, fontWeight: 700, margin: 0 }}>
-            Interactive Components
-          </h1>
-          <p style={{ fontSize: 18, color: "#94a3b8", marginTop: 16 }}>
-            Hover and click to see smooth animations
-          </p>
-        </div>
+          {/* Title */}
+          <div
+            style={{
+              position: "absolute",
+              top: 80,
+              left: 0,
+              right: 0,
+              textAlign: "center",
+              color: "#f1f5f9",
+            }}
+          >
+            <h1 style={{ fontSize: 48, fontWeight: 700, margin: 0 }}>
+              Interactive Components
+            </h1>
+            <p style={{ fontSize: 18, color: "#94a3b8", marginTop: 16 }}>
+              Hover and click to see smooth animations
+            </p>
+          </div>
 
-        {/* Button 1 - Primary */}
-        <AnimatedElement
-          interactive={button1}
-          as="button"
-          style={{
-            position: "absolute",
-            left: width / 2 - 300,
-            top: 370,
-            width: 200,
-            height: 60,
-            backgroundColor: "#3b82f6",
-            color: "#ffffff",
-            border: "none",
-            borderRadius: 12,
-            fontSize: 16,
-            fontWeight: 600,
-            cursor: "pointer",
-            boxShadow: "0 10px 30px rgba(59, 130, 246, 0.3)",
-          }}
-        >
-          Primary Action
-        </AnimatedElement>
+          {/* Button 1 - Primary */}
+          <AnimatedElement
+            interactive={button1}
+            as="button"
+            style={{
+              position: "absolute",
+              left: width / 2 - 300,
+              top: 370,
+              width: 200,
+              height: 60,
+              backgroundColor: "#3b82f6",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: 12,
+              fontSize: 16,
+              fontWeight: 600,
+              cursor: "pointer",
+              boxShadow: "0 10px 30px rgba(59, 130, 246, 0.3)",
+            }}
+          >
+            Primary Action
+          </AnimatedElement>
 
-        {/* Button 2 - Secondary */}
-        <AnimatedElement
-          interactive={button2}
-          as="button"
-          style={{
-            position: "absolute",
-            left: width / 2 + 100,
-            top: 370,
-            width: 200,
-            height: 60,
-            backgroundColor: "#64748b",
-            color: "#ffffff",
-            border: "none",
-            borderRadius: 12,
-            fontSize: 16,
-            fontWeight: 600,
-            cursor: "pointer",
-            boxShadow: "0 10px 30px rgba(100, 116, 139, 0.3)",
-          }}
-        >
-          Secondary
-        </AnimatedElement>
+          {/* Button 2 - Secondary */}
+          <AnimatedElement
+            interactive={button2}
+            as="button"
+            style={{
+              position: "absolute",
+              left: width / 2 + 100,
+              top: 370,
+              width: 200,
+              height: 60,
+              backgroundColor: "#64748b",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: 12,
+              fontSize: 16,
+              fontWeight: 600,
+              cursor: "pointer",
+              boxShadow: "0 10px 30px rgba(100, 116, 139, 0.3)",
+            }}
+          >
+            Secondary
+          </AnimatedElement>
 
-        {/* Card */}
-        <AnimatedElement
-          interactive={card}
-          style={{
-            position: "absolute",
-            left: width / 2 - 200,
-            top: 580,
-            width: 400,
-            height: 240,
-            backgroundColor: "#1e293b",
-            borderRadius: 16,
-            padding: 32,
-            boxShadow: "0 20px 60px rgba(0, 0, 0, 0.4)",
-            color: "#f1f5f9",
-          }}
-        >
-          <h3 style={{ fontSize: 24, fontWeight: 600, margin: 0 }}>
-            Interactive Card
-          </h3>
-          <p style={{ fontSize: 16, color: "#94a3b8", marginTop: 12, lineHeight: 1.6 }}>
-            This card uses the same animation engine as the buttons. Hover to see the scale effect, click for the press animation.
-          </p>
-        </AnimatedElement>
+          {/* Card */}
+          <AnimatedElement
+            interactive={card}
+            style={{
+              position: "absolute",
+              left: width / 2 - 200,
+              top: 580,
+              width: 400,
+              height: 240,
+              backgroundColor: "#1e293b",
+              borderRadius: 16,
+              padding: 32,
+              boxShadow: "0 20px 60px rgba(0, 0, 0, 0.4)",
+              color: "#f1f5f9",
+            }}
+          >
+            <h3 style={{ fontSize: 24, fontWeight: 600, margin: 0 }}>
+              Interactive Card
+            </h3>
+            <p
+              style={{
+                fontSize: 16,
+                color: "#94a3b8",
+                marginTop: 12,
+                lineHeight: 1.6,
+              }}
+            >
+              This card uses the same animation engine as the buttons. Hover to
+              see the scale effect, click for the press animation.
+            </p>
+          </AnimatedElement>
 
-        {/* Debug Info */}
-        <div
-          style={{
-            position: "absolute",
-            bottom: 20,
-            left: 20,
-            fontFamily: "monospace",
-            fontSize: 11,
-            color: "#64748b",
-            backgroundColor: "rgba(15, 23, 42, 0.8)",
-            padding: 12,
-            borderRadius: 8,
-            border: "1px solid #334155",
-          }}
-        >
-          <div>Frame: {frame}</div>
-          <div>Button1: H={button1.hover.progress.toFixed(2)} C={button1.click.progress.toFixed(2)}</div>
-          <div>Button2: H={button2.hover.progress.toFixed(2)} C={button2.click.progress.toFixed(2)}</div>
-          <div>Card: H={card.hover.progress.toFixed(2)} C={card.click.progress.toFixed(2)}</div>
-        </div>
-      </AbsoluteFill>
-    );
+          {/* Debug Info */}
+          <div
+            style={{
+              position: "absolute",
+              bottom: 20,
+              left: 20,
+              fontFamily: "monospace",
+              fontSize: 11,
+              color: "#64748b",
+              backgroundColor: "rgba(15, 23, 42, 0.8)",
+              padding: 12,
+              borderRadius: 8,
+              border: "1px solid #334155",
+            }}
+          >
+            <div>Frame: {frame}</div>
+            <div>
+              Button1: H={button1.hover.progress.toFixed(2)} C=
+              {button1.click.progress.toFixed(2)}
+            </div>
+            <div>
+              Button2: H={button2.hover.progress.toFixed(2)} C=
+              {button2.click.progress.toFixed(2)}
+            </div>
+            <div>
+              Card: H={card.hover.progress.toFixed(2)} C=
+              {card.click.progress.toFixed(2)}
+            </div>
+          </div>
+        </AbsoluteFill>
+      );
+    },
   },
-});
+);

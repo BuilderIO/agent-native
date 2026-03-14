@@ -15,7 +15,10 @@ const DELOITTE_ORG_IDS_SQL = `
     AND s.root_organization_id != ''
 `;
 
-export function agentChatUsersByMessageCount(dateStart: string, dateEnd: string): string {
+export function agentChatUsersByMessageCount(
+  dateStart: string,
+  dateEnd: string,
+): string {
   return `WITH deloitte_orgs AS (${DELOITTE_ORG_IDS_SQL})
 SELECT
   COALESCE(JSON_VALUE(user_properties, '$.email'), user_id) AS email,
@@ -32,7 +35,10 @@ GROUP BY email
 ORDER BY messages DESC`;
 }
 
-export function agentChatMessagesByDay(dateStart: string, dateEnd: string): string {
+export function agentChatMessagesByDay(
+  dateStart: string,
+  dateEnd: string,
+): string {
   return `WITH deloitte_orgs AS (${DELOITTE_ORG_IDS_SQL})
 SELECT
   DATE(event_time) AS period,

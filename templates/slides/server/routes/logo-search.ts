@@ -9,7 +9,7 @@ const LOGO_DEV_PK = "pk_VwOyCAOgT0aBNpecT2qO-A";
 export function logoConfig(_req: Request, res: Response) {
   res.json({
     brandfetchId: process.env.BRANDFETCH_CLIENT_ID || null,
-    hasLogoDevSecret: !!(process.env.LOGO_DEV_SECRET_KEY?.startsWith("sk_")),
+    hasLogoDevSecret: !!process.env.LOGO_DEV_SECRET_KEY?.startsWith("sk_"),
   });
 }
 
@@ -18,7 +18,7 @@ export function logoConfig(_req: Request, res: Response) {
  * GET /api/logo/search?q=acme
  */
 export async function searchLogos(req: Request, res: Response) {
-  const q = (req.query.q as string || "").trim().toLowerCase();
+  const q = ((req.query.q as string) || "").trim().toLowerCase();
   if (!q) {
     return res.status(400).json({ error: "Missing ?q= parameter" });
   }
@@ -34,8 +34,11 @@ export async function searchLogos(req: Request, res: Response) {
       );
 
       if (response.ok) {
-        const results: Array<{ name: string; domain: string }> = await response.json();
-        return res.json(results.map((r) => ({ name: r.name, domain: r.domain })));
+        const results: Array<{ name: string; domain: string }> =
+          await response.json();
+        return res.json(
+          results.map((r) => ({ name: r.name, domain: r.domain })),
+        );
       }
     } catch {
       // Fall through to domain guessing
@@ -46,7 +49,10 @@ export async function searchLogos(req: Request, res: Response) {
   const candidates: Array<{ name: string; domain: string }> = [];
 
   if (q.includes(".")) {
-    const clean = q.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
+    const clean = q
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .split("/")[0];
     candidates.push({ name: clean.split(".")[0], domain: clean });
   } else {
     const slug = q.replace(/[^a-z0-9]/g, "");

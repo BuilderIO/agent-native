@@ -58,10 +58,7 @@ export const proxyUrl: RequestHandler = async (req, res) => {
 
       // Inject <base> tag right after <head> if not already present
       if (!/<base\s/i.test(html)) {
-        html = html.replace(
-          /(<head[^>]*>)/i,
-          `$1<base href="${baseUrl}" />`
-        );
+        html = html.replace(/(<head[^>]*>)/i, `$1<base href="${baseUrl}" />`);
       }
 
       res.setHeader("Content-Type", "text/html; charset=utf-8");

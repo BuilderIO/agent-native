@@ -22,7 +22,9 @@ npx remotion render --image-format=png --pixel-format=yuva420p --codec=vp9 MyCom
 ## Setting defaults via calculateMetadata
 
 ```tsx
-const calculateMetadata: CalculateMetadataFunction<Props> = async ({ props }) => {
+const calculateMetadata: CalculateMetadataFunction<Props> = async ({
+  props,
+}) => {
   return {
     defaultCodec: "prores",
     defaultVideoImageFormat: "png",

@@ -1,6 +1,10 @@
 import { type RequestHandler } from "express";
 import { requireEnvKey } from "@agent-native/core/server";
-import { getAllBlogPagesSeo, getRankedKeywordsForPage, getAllTopBlogKeywords } from "../lib/dataforseo";
+import {
+  getAllBlogPagesSeo,
+  getRankedKeywordsForPage,
+  getAllTopBlogKeywords,
+} from "../lib/dataforseo";
 
 // GET /api/seo/blog-pages — returns SEO data for all builder.io/blog pages
 export const handleBlogPagesSeo: RequestHandler = async (_req, res) => {

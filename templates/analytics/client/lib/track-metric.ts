@@ -3,7 +3,7 @@ import { getIdToken } from "./auth";
 /**
  * Track when a metric is viewed in a dashboard.
  * Emits a "metric viewed" event to BigQuery for discovery purposes.
- * 
+ *
  * @param metricName - The name of the metric being viewed
  * @param dashboardId - The ID of the dashboard displaying the metric
  * @param queryUsed - Optional SQL query used to calculate the metric
@@ -11,7 +11,7 @@ import { getIdToken } from "./auth";
 export async function trackMetricViewed(
   metricName: string,
   dashboardId: string,
-  queryUsed?: string
+  queryUsed?: string,
 ): Promise<void> {
   try {
     const token = await getIdToken();
@@ -81,7 +81,7 @@ function truncateQuery(query: string): string {
 /**
  * React hook to track metric views automatically.
  * Call this in dashboard components to emit tracking events.
- * 
+ *
  * @param metrics - Array of metric names displayed in the dashboard
  * @param dashboardId - The ID of the current dashboard
  */

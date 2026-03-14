@@ -5,7 +5,10 @@ interface GoogleResultCardProps {
   onLinkClick: (url: string) => void;
 }
 
-export function GoogleResultCard({ result, onLinkClick }: GoogleResultCardProps) {
+export function GoogleResultCard({
+  result,
+  onLinkClick,
+}: GoogleResultCardProps) {
   const breadcrumb = result.breadcrumb || formatBreadcrumb(result.url);
 
   return (

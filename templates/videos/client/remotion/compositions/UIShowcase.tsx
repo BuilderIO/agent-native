@@ -1,8 +1,16 @@
-import { AbsoluteFill, useCurrentFrame, useVideoConfig, interpolate } from "remotion";
+import {
+  AbsoluteFill,
+  useCurrentFrame,
+  useVideoConfig,
+  interpolate,
+} from "remotion";
 import type { AnimationTrack } from "@/types";
 import { findTrack, trackProgress } from "../trackAnimation";
 import { createInteractiveComposition } from "../hooks/createInteractiveComposition";
-import { useInteractiveComponent, AnimationPresets } from "../hooks/useInteractiveComponent";
+import {
+  useInteractiveComponent,
+  AnimationPresets,
+} from "../hooks/useInteractiveComponent";
 import { UIHeader } from "../ui-components/UIHeader";
 import { UISidebar } from "../ui-components/UISidebar";
 import { UIVideoPlayer } from "../ui-components/UIVideoPlayer";
@@ -20,9 +28,7 @@ const FALLBACK_TRACKS: AnimationTrack[] = [
     startFrame: 0,
     endFrame: 44,
     easing: "power2.out",
-    animatedProps: [
-      { property: "opacity", from: "0", to: "1", unit: "" },
-    ],
+    animatedProps: [{ property: "opacity", from: "0", to: "1", unit: "" }],
   },
   {
     id: "cursor",
@@ -43,7 +49,7 @@ const FALLBACK_TRACKS: AnimationTrack[] = [
     endFrame: 60,
     easing: "linear",
     animatedProps: [
-      { property: "tab state", from: "", to: "", unit: "", programmatic: true }
+      { property: "tab state", from: "", to: "", unit: "", programmatic: true },
     ],
   },
   {
@@ -52,9 +58,7 @@ const FALLBACK_TRACKS: AnimationTrack[] = [
     startFrame: 180,
     endFrame: 240,
     easing: "spring",
-    animatedProps: [
-      { property: "panelOpen", from: "0", to: "1", unit: "" }
-    ],
+    animatedProps: [{ property: "panelOpen", from: "0", to: "1", unit: "" }],
   },
   {
     id: "pan-tool-active",
@@ -62,9 +66,7 @@ const FALLBACK_TRACKS: AnimationTrack[] = [
     startFrame: 240,
     endFrame: 300,
     easing: "linear",
-    animatedProps: [
-      { property: "toolActive", from: "0", to: "1", unit: "" }
-    ],
+    animatedProps: [{ property: "toolActive", from: "0", to: "1", unit: "" }],
   },
   {
     id: "timeline-playback",
@@ -72,9 +74,7 @@ const FALLBACK_TRACKS: AnimationTrack[] = [
     startFrame: 0,
     endFrame: 450,
     easing: "linear",
-    animatedProps: [
-      { property: "progress", from: "0", to: "0.67", unit: "" }
-    ],
+    animatedProps: [{ property: "progress", from: "0", to: "0.67", unit: "" }],
   },
 ];
 
@@ -87,17 +87,34 @@ export const UIShowcase = createInteractiveComposition<UIShowcaseProps>({
 
     // Find tracks
     const entranceTrack = findTrack(tracks, "ui-entrance", FALLBACK_TRACKS[0]);
-    const tabSwitchTrack = findTrack(tracks, "switch-to-properties", FALLBACK_TRACKS[2]);
-    const cameraPanelTrack = findTrack(tracks, "camera-panel-open", FALLBACK_TRACKS[3]);
-    const panToolTrack = findTrack(tracks, "pan-tool-active", FALLBACK_TRACKS[4]);
-    const timelinePlaybackTrack = findTrack(tracks, "timeline-playback", FALLBACK_TRACKS[5]);
+    const tabSwitchTrack = findTrack(
+      tracks,
+      "switch-to-properties",
+      FALLBACK_TRACKS[2],
+    );
+    const cameraPanelTrack = findTrack(
+      tracks,
+      "camera-panel-open",
+      FALLBACK_TRACKS[3],
+    );
+    const panToolTrack = findTrack(
+      tracks,
+      "pan-tool-active",
+      FALLBACK_TRACKS[4],
+    );
+    const timelinePlaybackTrack = findTrack(
+      tracks,
+      "timeline-playback",
+      FALLBACK_TRACKS[5],
+    );
 
     // Entrance animation
     const entranceP = trackProgress(frame, fps, entranceTrack);
     const entranceOpacity = interpolate(entranceP, [0, 1], [0, 1]);
 
     // Tab switch - keyframe style (frame >= startFrame means tab is switched)
-    const activeTab = frame >= tabSwitchTrack.startFrame ? "properties" : "compositions";
+    const activeTab =
+      frame >= tabSwitchTrack.startFrame ? "properties" : "compositions";
 
     // Camera panel open - read progress from track
     const cameraPanelP = trackProgress(frame, fps, cameraPanelTrack);
@@ -274,7 +291,8 @@ export const UIShowcase = createInteractiveComposition<UIShowcaseProps>({
             transformOrigin: "center center",
             borderRadius: "16px",
             overflow: "hidden",
-            boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1)",
+            boxShadow:
+              "0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1)",
           }}
         >
           {/* Header */}

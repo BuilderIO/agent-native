@@ -85,7 +85,10 @@ export function NewPageDialog({
                 <label className="text-xs font-medium text-muted-foreground">
                   Workspace
                 </label>
-                <Select value={group?.split("/")[0] || ""} onValueChange={(ws) => setGroup(ws)}>
+                <Select
+                  value={group?.split("/")[0] || ""}
+                  onValueChange={(ws) => setGroup(ws)}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select workspace" />
                   </SelectTrigger>
@@ -120,9 +123,17 @@ export function NewPageDialog({
                     <SelectItem value="__root__">Root</SelectItem>
                     {data.folders[group.split("/")[0]].map((folderPath) => (
                       <SelectItem key={folderPath} value={folderPath}>
-                        {folderPath.split("/").map(s =>
-                          s.split("-").map(w => w ? w[0].toUpperCase() + w.slice(1) : w).join(" ")
-                        ).join(" / ")}
+                        {folderPath
+                          .split("/")
+                          .map((s) =>
+                            s
+                              .split("-")
+                              .map((w) =>
+                                w ? w[0].toUpperCase() + w.slice(1) : w,
+                              )
+                              .join(" "),
+                          )
+                          .join(" / ")}
                       </SelectItem>
                     ))}
                   </SelectContent>

@@ -124,23 +124,63 @@ function SeoSummary({ keywords }: { keywords: BlogKeywordRanking[] }) {
     const rising = keywords.filter((k) => k.is_up).length;
     const falling = keywords.filter((k) => k.is_down).length;
     const newKw = keywords.filter((k) => k.is_new).length;
-    return { pages: handles.size, totalEtv, top3, top10, rising, falling, newKw, total: keywords.length };
+    return {
+      pages: handles.size,
+      totalEtv,
+      top3,
+      top10,
+      rising,
+      falling,
+      newKw,
+      total: keywords.length,
+    };
   }, [keywords]);
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
       {[
-        { label: "Total Keywords", value: formatNumber(stats.total), color: "" },
+        {
+          label: "Total Keywords",
+          value: formatNumber(stats.total),
+          color: "",
+        },
         { label: "Blog Pages", value: formatNumber(stats.pages), color: "" },
-        { label: "Est. Traffic Value", value: `$${formatNumber(Math.round(stats.totalEtv))}`, color: "text-blue-400" },
-        { label: "Top 3 Positions", value: formatNumber(stats.top3), color: "text-emerald-400" },
-        { label: "Top 10", value: formatNumber(stats.top10), color: "text-yellow-400" },
-        { label: "Rising", value: formatNumber(stats.rising), color: "text-emerald-400" },
-        { label: "Falling", value: formatNumber(stats.falling), color: "text-red-400" },
+        {
+          label: "Est. Traffic Value",
+          value: `$${formatNumber(Math.round(stats.totalEtv))}`,
+          color: "text-blue-400",
+        },
+        {
+          label: "Top 3 Positions",
+          value: formatNumber(stats.top3),
+          color: "text-emerald-400",
+        },
+        {
+          label: "Top 10",
+          value: formatNumber(stats.top10),
+          color: "text-yellow-400",
+        },
+        {
+          label: "Rising",
+          value: formatNumber(stats.rising),
+          color: "text-emerald-400",
+        },
+        {
+          label: "Falling",
+          value: formatNumber(stats.falling),
+          color: "text-red-400",
+        },
       ].map((s) => (
-        <div key={s.label} className="rounded-lg border border-border/50 bg-card p-2.5 text-center">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{s.label}</p>
-          <p className={cn("text-lg font-semibold tabular-nums", s.color)}>{s.value}</p>
+        <div
+          key={s.label}
+          className="rounded-lg border border-border/50 bg-card p-2.5 text-center"
+        >
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+            {s.label}
+          </p>
+          <p className={cn("text-lg font-semibold tabular-nums", s.color)}>
+            {s.value}
+          </p>
         </div>
       ))}
     </div>
@@ -157,7 +197,10 @@ function ArticleRankingsTable({
   metricsLoading,
 }: {
   keywords: BlogKeywordRanking[];
-  metricsMap: Record<string, { new_visitors: number; signups: number; signup_rate: number }>;
+  metricsMap: Record<
+    string,
+    { new_visitors: number; signups: number; signup_rate: number }
+  >;
   notionTitles: Record<string, string>;
   notionAuthors: Record<string, string>;
   metricsLoading: boolean;
@@ -250,13 +293,19 @@ function ArticleRankingsTable({
                     key={col.key}
                     className={cn(
                       "py-2 px-2 font-medium text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap select-none",
-                      col.type === "text" ? "text-left min-w-[200px]" : "text-right"
+                      col.type === "text"
+                        ? "text-left min-w-[200px]"
+                        : "text-right",
                     )}
                     onClick={() => handleSort(col.key)}
                   >
                     <span className="flex items-center gap-1">
                       {col.label}
-                      <SortIcon col={col.key} sortCol={sortCol} sortDir={sortDir} />
+                      <SortIcon
+                        col={col.key}
+                        sortCol={sortCol}
+                        sortDir={sortDir}
+                      />
                     </span>
                   </th>
                 ))}
@@ -271,7 +320,7 @@ function ArticleRankingsTable({
                       key={article.handle}
                       className={cn(
                         "border-b border-border/30 hover:bg-muted/30 cursor-pointer",
-                        isExpanded && "bg-muted/20"
+                        isExpanded && "bg-muted/20",
                       )}
                       onClick={() =>
                         setExpandedHandle(isExpanded ? null : article.handle)
@@ -284,10 +333,16 @@ function ArticleRankingsTable({
                           <ChevronRight className="h-3 w-3" />
                         )}
                       </td>
-                      <td className="py-1.5 px-2 font-medium max-w-[300px] truncate" title={article.title}>
+                      <td
+                        className="py-1.5 px-2 font-medium max-w-[300px] truncate"
+                        title={article.title}
+                      >
                         {article.title}
                       </td>
-                      <td className="py-1.5 px-2 text-muted-foreground max-w-[120px] truncate" title={article.author}>
+                      <td
+                        className="py-1.5 px-2 text-muted-foreground max-w-[120px] truncate"
+                        title={article.author}
+                      >
                         {article.author || "-"}
                       </td>
                       <td className="py-1.5 px-2 text-right tabular-nums text-emerald-400">
@@ -302,7 +357,10 @@ function ArticleRankingsTable({
                       <td className="py-1.5 px-2 text-right tabular-nums">
                         {article.keywordCount}
                       </td>
-                      <td className="py-1.5 px-2 max-w-[200px] truncate text-muted-foreground" title={article.topKeyword}>
+                      <td
+                        className="py-1.5 px-2 max-w-[200px] truncate text-muted-foreground"
+                        title={article.topKeyword}
+                      >
                         {article.topKeyword}
                       </td>
                       <td className="py-1.5 px-2 text-right tabular-nums">
@@ -372,7 +430,9 @@ function KeywordFlatTable({
   return (
     <Card className="bg-card border-border/50">
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">All Ranked Keywords</CardTitle>
+        <CardTitle className="text-sm font-medium">
+          All Ranked Keywords
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="overflow-auto max-h-[700px]">
@@ -384,14 +444,18 @@ function KeywordFlatTable({
                     key={col.key}
                     className={cn(
                       "py-2 px-2 font-medium text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap select-none",
-                      col.type === "text" ? "text-left" : "text-right"
+                      col.type === "text" ? "text-left" : "text-right",
                     )}
                     onClick={() => col.key !== "trend" && handleSort(col.key)}
                   >
                     <span className="flex items-center gap-1">
                       {col.label}
                       {col.key !== "trend" && (
-                        <SortIcon col={col.key} sortCol={sortCol} sortDir={sortDir} />
+                        <SortIcon
+                          col={col.key}
+                          sortCol={sortCol}
+                          sortDir={sortDir}
+                        />
                       )}
                     </span>
                   </th>
@@ -400,8 +464,14 @@ function KeywordFlatTable({
             </thead>
             <tbody>
               {sorted.slice(0, 500).map((kw, i) => (
-                <tr key={`${kw.keyword}-${kw.handle}-${i}`} className="border-b border-border/30 hover:bg-muted/30">
-                  <td className="py-1.5 px-2 font-medium max-w-[250px] truncate" title={kw.keyword}>
+                <tr
+                  key={`${kw.keyword}-${kw.handle}-${i}`}
+                  className="border-b border-border/30 hover:bg-muted/30"
+                >
+                  <td
+                    className="py-1.5 px-2 font-medium max-w-[250px] truncate"
+                    title={kw.keyword}
+                  >
                     {kw.keyword}
                   </td>
                   <td className="py-1.5 px-2 text-right tabular-nums">
@@ -416,7 +486,10 @@ function KeywordFlatTable({
                   <td className="py-1.5 px-2 text-right tabular-nums text-blue-400">
                     {formatNumber(Math.round(kw.etv))}
                   </td>
-                  <td className="py-1.5 px-2 max-w-[200px] truncate text-muted-foreground" title={notionTitles[kw.handle] || kw.handle}>
+                  <td
+                    className="py-1.5 px-2 max-w-[200px] truncate text-muted-foreground"
+                    title={notionTitles[kw.handle] || kw.handle}
+                  >
                     {notionTitles[kw.handle] || kw.handle.replace(/-/g, " ")}
                   </td>
                 </tr>
@@ -467,7 +540,10 @@ function ExpandedKeywords({ keywords }: { keywords: BlogKeywordRanking[] }) {
           ))}
           {keywords.length > 20 && (
             <tr>
-              <td colSpan={5} className="py-1 px-2 text-muted-foreground text-center">
+              <td
+                colSpan={5}
+                className="py-1 px-2 text-muted-foreground text-center"
+              >
                 +{keywords.length - 20} more keywords
               </td>
             </tr>

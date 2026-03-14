@@ -106,12 +106,16 @@ export function createApp(name?: string): void {
   console.log(`Next steps:`);
   console.log(`  cd ${name}`);
   console.log(`  pnpm install`);
-  console.log(`  pnpm dev          # Start dev server at http://localhost:8080`);
+  console.log(
+    `  pnpm dev          # Start dev server at http://localhost:8080`,
+  );
   console.log(`  pnpm build        # Build for production`);
   console.log(`  pnpm start        # Start production server`);
   console.log(``);
   console.log(`Your app includes agent skills in .agents/skills/.`);
-  console.log(`These teach the AI agent how to work within the framework's architecture.`);
+  console.log(
+    `These teach the AI agent how to work within the framework's architecture.`,
+  );
 }
 
 function copyDir(src: string, dest: string, root?: string): void {

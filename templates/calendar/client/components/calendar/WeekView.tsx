@@ -25,7 +25,12 @@ const START_HOUR = 6;
 const END_HOUR = 22;
 const HOUR_HEIGHT = 60; // px per hour
 
-export function WeekView({ events, selectedDate, onDateSelect, onEventClick }: WeekViewProps) {
+export function WeekView({
+  events,
+  selectedDate,
+  onDateSelect,
+  onEventClick,
+}: WeekViewProps) {
   const weekStart = startOfWeek(selectedDate);
   const weekEnd = endOfWeek(selectedDate);
   const days = eachDayOfInterval({ start: weekStart, end: weekEnd });
@@ -61,14 +66,16 @@ export function WeekView({ events, selectedDate, onDateSelect, onEventClick }: W
             onClick={() => onDateSelect(day)}
             className={cn(
               "cursor-pointer border-r border-border py-2 text-center transition-colors hover:bg-accent/50",
-              isToday(day) && "bg-primary/5"
+              isToday(day) && "bg-primary/5",
             )}
           >
-            <div className="text-xs text-muted-foreground">{format(day, "EEE")}</div>
+            <div className="text-xs text-muted-foreground">
+              {format(day, "EEE")}
+            </div>
             <div
               className={cn(
                 "mx-auto mt-1 flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium",
-                isToday(day) && "bg-primary text-primary-foreground"
+                isToday(day) && "bg-primary text-primary-foreground",
               )}
             >
               {format(day, "d")}
@@ -123,7 +130,7 @@ export function WeekView({ events, selectedDate, onDateSelect, onEventClick }: W
                       "absolute left-0.5 right-1 overflow-hidden rounded-md px-1.5 py-1 text-left text-xs transition-opacity hover:opacity-80",
                       event.source === "google"
                         ? "bg-green-500/20 border-l-2 border-l-green-500 text-green-300"
-                        : "bg-primary/20 border-l-2 border-l-primary text-primary"
+                        : "bg-primary/20 border-l-2 border-l-primary text-primary",
                     )}
                     style={style}
                   >

@@ -56,19 +56,19 @@ export default function GCloudDashboard() {
     serviceName,
     requestMetric,
     period,
-    serviceType
+    serviceType,
   );
   const { data: latencyResp } = useGCloudMetrics(
     serviceName,
     latencyMetric,
     period,
-    serviceType
+    serviceType,
   );
   const { data: instanceResp } = useGCloudMetrics(
     serviceName,
     instanceMetric,
     period,
-    serviceType
+    serviceType,
   );
 
   const metricsBlocked = !!(
@@ -148,7 +148,7 @@ export default function GCloudDashboard() {
                   <pre className="text-[11px] bg-black/40 rounded-md p-3 overflow-x-auto text-green-400 font-mono">
                     {REQUIRED_ROLES.map(
                       (r) =>
-                        `gcloud projects add-iam-policy-binding builder-3b0a2 \\\n  --member="serviceAccount:${SA_EMAIL}" \\\n  --role="${r.role}"\n`
+                        `gcloud projects add-iam-policy-binding builder-3b0a2 \\\n  --member="serviceAccount:${SA_EMAIL}" \\\n  --role="${r.role}"\n`,
                     ).join("\n")}
                   </pre>
                   <div className="text-[10px] text-muted-foreground mt-2 space-y-0.5">
@@ -262,11 +262,7 @@ export default function GCloudDashboard() {
       </div>
 
       {/* Charts */}
-      <MetricsCharts
-        service={serviceName}
-        period={period}
-        type={serviceType}
-      />
+      <MetricsCharts service={serviceName} period={period} type={serviceType} />
 
       {/* Logs */}
       <LogsPanel service={serviceName} period={period} type={serviceType} />

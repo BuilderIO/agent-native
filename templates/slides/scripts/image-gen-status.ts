@@ -9,10 +9,14 @@ export default async function main(_args: string[]) {
 
   console.log("Image Generation Status:");
   console.log("========================");
-  console.log(`Gemini: ${process.env.GEMINI_API_KEY ? "Configured" : "Not configured"}`);
+  console.log(
+    `Gemini: ${process.env.GEMINI_API_KEY ? "Configured" : "Not configured"}`,
+  );
   console.log("");
 
   if (!process.env.GEMINI_API_KEY) {
-    console.log("To configure Gemini, set the GEMINI_API_KEY environment variable.");
+    console.log(
+      "To configure Gemini, set the GEMINI_API_KEY environment variable.",
+    );
   }
 }

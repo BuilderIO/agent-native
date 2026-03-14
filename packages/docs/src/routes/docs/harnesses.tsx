@@ -1,40 +1,55 @@
-import { createFileRoute } from '@tanstack/react-router'
-import DocsLayout from '../../components/DocsLayout'
-import CodeBlock from '../../components/CodeBlock'
+import { createFileRoute } from "@tanstack/react-router";
+import DocsLayout from "../../components/DocsLayout";
+import CodeBlock from "../../components/CodeBlock";
 
-export const Route = createFileRoute('/docs/harnesses')({ component: HarnessesDocs })
+export const Route = createFileRoute("/docs/harnesses")({
+  component: HarnessesDocs,
+});
 
 const TOC = [
-  { id: 'cli-harness', label: 'CLI Harness' },
-  { id: 'supported-clis', label: 'Supported CLIs' },
-  { id: 'builder-harness', label: 'Builder Harness' },
-  { id: 'feature-comparison', label: 'Feature Comparison' },
-  { id: 'how-it-works', label: 'How It Works' },
-]
+  { id: "cli-harness", label: "CLI Harness" },
+  { id: "supported-clis", label: "Supported CLIs" },
+  { id: "builder-harness", label: "Builder Harness" },
+  { id: "feature-comparison", label: "Feature Comparison" },
+  { id: "how-it-works", label: "How It Works" },
+];
 
 function HarnessesDocs() {
   return (
     <DocsLayout toc={TOC}>
       <h1 className="mb-2 text-4xl font-semibold tracking-tight">Harnesses</h1>
       <p className="mb-4 text-base text-[var(--fg-secondary)]">
-        Agent-native apps run inside a <strong>harness</strong> — a host environment that provides
-        the AI agent and displays the app UI side by side.
+        Agent-native apps run inside a <strong>harness</strong> — a host
+        environment that provides the AI agent and displays the app UI side by
+        side.
       </p>
 
       <h2 id="cli-harness">CLI Harness (Local)</h2>
       <ul className="list-disc space-y-1 pl-5">
-        <li>Open source, ships with <code>@agent-native/harness-cli</code></li>
-        <li>Runs locally — xterm.js terminal on the left, your app iframe on the right</li>
-        <li>Supports multiple AI coding CLIs — switch between them from the settings panel</li>
+        <li>
+          Open source, ships with <code>@agent-native/harness-cli</code>
+        </li>
+        <li>
+          Runs locally — xterm.js terminal on the left, your app iframe on the
+          right
+        </li>
+        <li>
+          Supports multiple AI coding CLIs — switch between them from the
+          settings panel
+        </li>
         <li>Auto-installs missing CLIs on first use</li>
         <li>Per-CLI launch flags and settings, persisted to localStorage</li>
-        <li>Auto-detects when the agent finishes generating and notifies the app</li>
+        <li>
+          Auto-detects when the agent finishes generating and notifies the app
+        </li>
         <li>Best for: solo development, local testing, open-source projects</li>
       </ul>
 
       <p>Quick start:</p>
-      <CodeBlock code={`# In your agent-native monorepo
-pnpm dev:harness`} />
+      <CodeBlock
+        code={`# In your agent-native monorepo
+pnpm dev:harness`}
+      />
 
       <h2 id="supported-clis">Supported CLIs</h2>
       <table>
@@ -47,32 +62,45 @@ pnpm dev:harness`} />
         </thead>
         <tbody>
           {[
-            ['Claude Code', 'claude', '--dangerously-skip-permissions, --resume, --verbose'],
-            ['Codex', 'codex', '--full-auto, --quiet'],
-            ['Gemini CLI', 'gemini', '--sandbox'],
-            ['OpenCode', 'opencode', '—'],
+            [
+              "Claude Code",
+              "claude",
+              "--dangerously-skip-permissions, --resume, --verbose",
+            ],
+            ["Codex", "codex", "--full-auto, --quiet"],
+            ["Gemini CLI", "gemini", "--sandbox"],
+            ["OpenCode", "opencode", "—"],
           ].map(([name, cmd, flags]) => (
             <tr key={cmd}>
               <td>{name}</td>
-              <td><code>{cmd}</code></td>
+              <td>
+                <code>{cmd}</code>
+              </td>
               <td>{flags}</td>
             </tr>
           ))}
         </tbody>
       </table>
       <p>
-        Switch between CLIs at any time from the settings panel. The harness restarts the terminal
-        with the selected CLI and loads its saved launch options.
+        Switch between CLIs at any time from the settings panel. The harness
+        restarts the terminal with the selected CLI and loads its saved launch
+        options.
       </p>
 
       <h2 id="builder-harness">Builder Harness (Cloud)</h2>
       <ul className="list-disc space-y-1 pl-5">
         <li>Provided by Builder.io — available at builder.io</li>
         <li>Runs locally or in the cloud</li>
-        <li>Real-time collaboration — multiple users can watch/interact simultaneously</li>
+        <li>
+          Real-time collaboration — multiple users can watch/interact
+          simultaneously
+        </li>
         <li>Visual editing capabilities alongside the AI agent</li>
         <li>Parallel agent execution for faster iteration</li>
-        <li>Best for: teams, production deployments, visual editing, real-time collaboration</li>
+        <li>
+          Best for: teams, production deployments, visual editing, real-time
+          collaboration
+        </li>
       </ul>
 
       <h2 id="feature-comparison">Feature Comparison</h2>
@@ -86,16 +114,16 @@ pnpm dev:harness`} />
         </thead>
         <tbody>
           {[
-            ['Local development', 'Yes', 'Yes'],
-            ['Cloud/remote', 'No', 'Yes'],
-            ['Multi-CLI support', 'Yes (4 CLIs)', 'Yes'],
-            ['Real-time collaboration', 'No', 'Yes'],
-            ['Visual editing', 'No', 'Yes'],
-            ['Parallel agents', 'No', 'Yes'],
-            ['Agent chat bridge', 'Yes', 'Yes'],
-            ['File watcher (SSE)', 'Yes', 'Yes'],
-            ['Script system', 'Yes', 'Yes'],
-            ['Open source', 'Yes', 'No'],
+            ["Local development", "Yes", "Yes"],
+            ["Cloud/remote", "No", "Yes"],
+            ["Multi-CLI support", "Yes (4 CLIs)", "Yes"],
+            ["Real-time collaboration", "No", "Yes"],
+            ["Visual editing", "No", "Yes"],
+            ["Parallel agents", "No", "Yes"],
+            ["Agent chat bridge", "Yes", "Yes"],
+            ["File watcher (SSE)", "Yes", "Yes"],
+            ["Script system", "Yes", "Yes"],
+            ["Open source", "Yes", "No"],
           ].map(([feature, cli, builder]) => (
             <tr key={feature}>
               <td>{feature}</td>
@@ -110,23 +138,25 @@ pnpm dev:harness`} />
       <p>Both harnesses support the same core agent-native protocol:</p>
       <ol className="list-decimal space-y-3 pl-5">
         <li>
-          <strong>postMessage bridge</strong> — app sends <code>builder.submitChat</code> messages up
-          to the harness
+          <strong>postMessage bridge</strong> — app sends{" "}
+          <code>builder.submitChat</code> messages up to the harness
         </li>
         <li>
-          <strong>Chat running events</strong> — harness sends{' '}
+          <strong>Chat running events</strong> — harness sends{" "}
           <code>builder.fusion.chatRunning</code> events down to the app
         </li>
         <li>
-          <strong>File watching</strong> — SSE endpoint keeps UI in sync when the agent modifies
-          files
+          <strong>File watching</strong> — SSE endpoint keeps UI in sync when
+          the agent modifies files
         </li>
         <li>
-          <strong>Script system</strong> — <code>pnpm script {'<name>'}</code> dispatches to
-          callable scripts
+          <strong>Script system</strong> — <code>pnpm script {"<name>"}</code>{" "}
+          dispatches to callable scripts
         </li>
       </ol>
-      <p>Your app code is identical regardless of which harness or CLI you use.</p>
+      <p>
+        Your app code is identical regardless of which harness or CLI you use.
+      </p>
     </DocsLayout>
-  )
+  );
 }

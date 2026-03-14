@@ -8,7 +8,10 @@ import { SubscriptionDetails } from "./SubscriptionDetails";
 import { RecentTickets } from "./RecentTickets";
 import { GongCalls } from "./GongCalls";
 
-function useUrlParam(key: string, defaultValue: string): [string, (v: string) => void] {
+function useUrlParam(
+  key: string,
+  defaultValue: string,
+): [string, (v: string) => void] {
   const [value, setValue] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get(key) || defaultValue;
@@ -19,7 +22,11 @@ function useUrlParam(key: string, defaultValue: string): [string, (v: string) =>
     if (value === defaultValue) params.delete(key);
     else params.set(key, value);
     const s = params.toString();
-    window.history.replaceState(null, "", `${window.location.pathname}${s ? `?${s}` : ""}`);
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${s ? `?${s}` : ""}`,
+    );
   }, [value, key, defaultValue]);
 
   return [value, setValue];
@@ -43,27 +50,36 @@ export default function CustomerHealthDashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Customer Health Dashboard</h1>
+        <h1 className="text-2xl font-bold tracking-tight">
+          Customer Health Dashboard
+        </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Search a customer by company name to view their health metrics, Fusion usage, and subscription details.
+          Search a customer by company name to view their health metrics, Fusion
+          usage, and subscription details.
         </p>
       </div>
 
       <div className="rounded-lg border border-border p-4">
         <div className="flex flex-wrap gap-4 items-end">
           <div className="flex flex-col gap-1 flex-1 min-w-[240px]">
-            <label className="text-xs text-muted-foreground font-medium">Company</label>
+            <label className="text-xs text-muted-foreground font-medium">
+              Company
+            </label>
             <CustomerSearch
               onSelect={(name) => setCompany(name || null)}
               selectedCompany={company}
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground font-medium">From</label>
+            <label className="text-xs text-muted-foreground font-medium">
+              From
+            </label>
             <DatePicker value={dateStart} onChange={setDateStart} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground font-medium">To</label>
+            <label className="text-xs text-muted-foreground font-medium">
+              To
+            </label>
             <DatePicker value={dateEnd} onChange={setDateEnd} />
           </div>
         </div>
@@ -88,7 +104,8 @@ export default function CustomerHealthDashboard() {
           </div>
           <h3 className="text-lg font-medium">Search for a customer</h3>
           <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-            Enter a company name above to load their health dashboard with Fusion usage, subscriptions, and user activity.
+            Enter a company name above to load their health dashboard with
+            Fusion usage, subscriptions, and user activity.
           </p>
         </div>
       )}
@@ -99,11 +116,19 @@ export default function CustomerHealthDashboard() {
 
           <div>
             <h2 className="text-lg font-semibold mb-3">Agent Chat Activity</h2>
-            <AgentChatActivityChart companyName={company} dateStart={dateStart} dateEnd={dateEnd} />
+            <AgentChatActivityChart
+              companyName={company}
+              dateStart={dateStart}
+              dateEnd={dateEnd}
+            />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <TopAgentChatUsers companyName={company} dateStart={dateStart} dateEnd={dateEnd} />
+            <TopAgentChatUsers
+              companyName={company}
+              dateStart={dateStart}
+              dateEnd={dateEnd}
+            />
             <SubscriptionDetails companyName={company} />
           </div>
 

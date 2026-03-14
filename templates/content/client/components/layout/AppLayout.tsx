@@ -15,7 +15,12 @@ import { ImagePreview, isImagePath } from "@/components/shared/ImagePreview";
 import { ImageFolderGrid } from "@/components/shared/ImageFolderGrid";
 import type { Page } from "@shared/api";
 
-type View = "editor" | "global-images" | "research-search" | "project-media" | "project-history";
+type View =
+  | "editor"
+  | "global-images"
+  | "research-search"
+  | "project-media"
+  | "project-history";
 
 interface ActiveFile {
   projectSlug: string;
@@ -61,13 +66,20 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   if (!isTopLevel && urlWorkspace) {
     const remainder = segments.slice(offset + 1);
-    if (remainder.length > 0 && KNOWN_SUBVIEWS.includes(remainder[remainder.length - 1])) {
+    if (
+      remainder.length > 0 &&
+      KNOWN_SUBVIEWS.includes(remainder[remainder.length - 1])
+    ) {
       urlSubView = remainder.pop()!;
     }
-    routeProjectSlug = remainder.length > 0 ? `${urlWorkspace}/${remainder.join("/")}` : null;
+    routeProjectSlug =
+      remainder.length > 0 ? `${urlWorkspace}/${remainder.join("/")}` : null;
   }
 
-  const activeProjectData = findProjectByRouteSlug(projectsData?.projects, routeProjectSlug);
+  const activeProjectData = findProjectByRouteSlug(
+    projectsData?.projects,
+    routeProjectSlug,
+  );
   const activeProjectSlug = activeProjectData?.slug || null;
 
   const isProjectMediaRoute = urlSubView === "media";
@@ -96,7 +108,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   // Helper to check if a workspace is prefixed
   const isWorkspacePrefixed = useCallback(
     (ws: string) => !!projectsData?.groupMeta?.[ws]?.prefixed,
-    [projectsData?.groupMeta]
+    [projectsData?.groupMeta],
   );
 
   // --- Navigation handlers ---
@@ -105,7 +117,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       setSharedFile(null);
       navigate(workspaceUrl(owner, isWorkspacePrefixed(owner)));
     },
-    [navigate, isWorkspacePrefixed]
+    [navigate, isWorkspacePrefixed],
   );
 
   const handleSelectPage = useCallback(
@@ -114,7 +126,9 @@ export function AppLayout({ children }: AppLayoutProps) {
       const projectSlug = page._projectSlug;
       if (!projectSlug) return;
 
-      const project = projectsData?.projects.find((p) => p.slug === projectSlug);
+      const project = projectsData?.projects.find(
+        (p) => p.slug === projectSlug,
+      );
       const routeSlug = project ? getProjectRouteSlug(project) : projectSlug;
       const ws = routeSlug.includes("/") ? routeSlug.split("/")[0] : routeSlug;
       const base = workspaceUrl(routeSlug, isWorkspacePrefixed(ws));
@@ -133,7 +147,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         }
       }
     },
-    [isWorkspacePrefixed, navigate, projectsData?.projects]
+    [isWorkspacePrefixed, navigate, projectsData?.projects],
   );
 
   // Legacy handlers for QuickSearch compatibility
@@ -150,13 +164,20 @@ export function AppLayout({ children }: AppLayoutProps) {
         _filePath: filePath,
       });
     },
-    [handleSelectPage]
+    [handleSelectPage],
   );
 
   const handleSelectProject = useCallback(
     (slug: string) => {
       if (!slug) {
-        navigate(urlWorkspace ? workspaceUrl(urlWorkspace, hasWorkspacePrefix || isWorkspacePrefixed(urlWorkspace)) : "/");
+        navigate(
+          urlWorkspace
+            ? workspaceUrl(
+                urlWorkspace,
+                hasWorkspacePrefix || isWorkspacePrefixed(urlWorkspace),
+              )
+            : "/",
+        );
         return;
       }
       handleSelectPage({
@@ -170,7 +191,13 @@ export function AppLayout({ children }: AppLayoutProps) {
         _filePath: null,
       });
     },
-    [handleSelectPage, hasWorkspacePrefix, isWorkspacePrefixed, navigate, urlWorkspace]
+    [
+      handleSelectPage,
+      hasWorkspacePrefix,
+      isWorkspacePrefixed,
+      navigate,
+      urlWorkspace,
+    ],
   );
 
   const handleOpenGlobalImages = useCallback(() => {
@@ -190,7 +217,10 @@ export function AppLayout({ children }: AppLayoutProps) {
     }
   }, [urlWorkspace, projectsData?.groups]);
 
-  if (location.pathname.startsWith('/test') || location.pathname.startsWith('/builder-')) {
+  if (
+    location.pathname.startsWith("/test") ||
+    location.pathname.startsWith("/builder-")
+  ) {
     return <>{children}</>;
   }
 
@@ -201,7 +231,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <ProjectSidebar
-        activePageId={view === "editor" || view === "project-history" ? activePageId : null}
+        activePageId={
+          view === "editor" || view === "project-history" ? activePageId : null
+        }
         onSelectPage={handleSelectPage}
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
@@ -225,7 +257,8 @@ export function AppLayout({ children }: AppLayoutProps) {
       />
       <main className="flex-1 flex flex-col min-w-0">
         {sharedFile ? (
-          sharedFile.startsWith("image-references/") && !isImagePath(sharedFile) ? (
+          sharedFile.startsWith("image-references/") &&
+          !isImagePath(sharedFile) ? (
             <ImageFolderGrid
               key={sharedFile}
               folderPath={sharedFile}

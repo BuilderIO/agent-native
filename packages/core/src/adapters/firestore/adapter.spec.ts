@@ -8,11 +8,17 @@ import type {
   FirestoreQuerySnapshot,
 } from "./adapter.js";
 
-function mockDocSnapshot(id: string, data: any, exists = true): FirestoreDocSnapshot {
+function mockDocSnapshot(
+  id: string,
+  data: any,
+  exists = true,
+): FirestoreDocSnapshot {
   return { id, exists, data: () => data };
 }
 
-function mockCollection(state: Map<string, any> = new Map()): FirestoreCollection {
+function mockCollection(
+  state: Map<string, any> = new Map(),
+): FirestoreCollection {
   const docRefs = new Map<string, FirestoreDocRef>();
 
   const getDocRef = (id: string): FirestoreDocRef => {
@@ -34,7 +40,9 @@ function mockCollection(state: Map<string, any> = new Map()): FirestoreCollectio
     return docRefs.get(id)!;
   };
 
-  const buildQuery = (filters: Array<{ field: string; op: string; value: any }>): FirestoreQuery => ({
+  const buildQuery = (
+    filters: Array<{ field: string; op: string; value: any }>,
+  ): FirestoreQuery => ({
     where(field: string, op: string, value: any) {
       return buildQuery([...filters, { field, op, value }]);
     },
@@ -88,9 +96,24 @@ describe("FirestoreFileSyncAdapter", () => {
 
   describe("query", () => {
     it("returns matching documents", async () => {
-      state.set("doc1", { path: "a.json", content: "hello", app: "myapp", ownerId: "user1" });
-      state.set("doc2", { path: "b.json", content: "world", app: "myapp", ownerId: "user1" });
-      state.set("doc3", { path: "c.json", content: "other", app: "myapp", ownerId: "user2" });
+      state.set("doc1", {
+        path: "a.json",
+        content: "hello",
+        app: "myapp",
+        ownerId: "user1",
+      });
+      state.set("doc2", {
+        path: "b.json",
+        content: "world",
+        app: "myapp",
+        ownerId: "user1",
+      });
+      state.set("doc3", {
+        path: "c.json",
+        content: "other",
+        app: "myapp",
+        ownerId: "user2",
+      });
 
       const results = await adapter.query("myapp", "user1");
       expect(results).toHaveLength(2);
@@ -106,7 +129,12 @@ describe("FirestoreFileSyncAdapter", () => {
 
   describe("get", () => {
     it("returns document when it exists", async () => {
-      state.set("doc1", { path: "a.json", content: "hello", app: "myapp", ownerId: "user1" });
+      state.set("doc1", {
+        path: "a.json",
+        content: "hello",
+        app: "myapp",
+        ownerId: "user1",
+      });
 
       const result = await adapter.get("doc1");
       expect(result).not.toBeNull();
@@ -122,17 +150,34 @@ describe("FirestoreFileSyncAdapter", () => {
 
   describe("set", () => {
     it("creates a new document", async () => {
-      await adapter.set("doc1", { path: "a.json", content: "hello", app: "myapp", ownerId: "user1", lastUpdated: 100 });
+      await adapter.set("doc1", {
+        path: "a.json",
+        content: "hello",
+        app: "myapp",
+        ownerId: "user1",
+        lastUpdated: 100,
+      });
 
       const docRef = collection.doc("doc1");
       expect(docRef.set).toHaveBeenCalledWith(
-        { path: "a.json", content: "hello", app: "myapp", ownerId: "user1", lastUpdated: 100 },
+        {
+          path: "a.json",
+          content: "hello",
+          app: "myapp",
+          ownerId: "user1",
+          lastUpdated: 100,
+        },
         { merge: true },
       );
     });
 
     it("merges into existing document", async () => {
-      state.set("doc1", { path: "a.json", content: "old", app: "myapp", ownerId: "user1" });
+      state.set("doc1", {
+        path: "a.json",
+        content: "old",
+        app: "myapp",
+        ownerId: "user1",
+      });
 
       await adapter.set("doc1", { content: "new" });
 
@@ -151,7 +196,12 @@ describe("FirestoreFileSyncAdapter", () => {
 
   describe("subscribe", () => {
     it("calls onChange with initial snapshot", () => {
-      state.set("doc1", { path: "a.json", content: "hello", app: "myapp", ownerId: "user1" });
+      state.set("doc1", {
+        path: "a.json",
+        content: "hello",
+        app: "myapp",
+        ownerId: "user1",
+      });
 
       const onChange = vi.fn();
       const onError = vi.fn();

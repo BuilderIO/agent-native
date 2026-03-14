@@ -34,25 +34,25 @@ Builder connects the full cycle: real codebase context, team-wide collaboration,
 
 ### From: Sequential, engineer-bottlenecked product development
 
-| What it looks like | The cost |
-| :---- | :---- |
-| PMs write specs and file tickets. Then wait. | Ideas stall in the backlog for weeks or months. |
-| Designers create mockups in Figma, hand off redlines. Then wait. | Production output doesn't match the design. Rework cycles begin. |
-| Engineers build, interpret feedback, QA their own work, respond to redlines. Repeat. | Engineering becomes the bottleneck for everything, including work that doesn't require deep engineering skill. |
-| QA tests after the fact, files bugs, restarts the cycle. | Bugs ship. Feedback loops are slow. |
-| AI tools, if used at all, are single-player. One developer, one prompt, one output to clean up. | AI generates code nobody trusts. Engineers spend time fixing AI slop instead of building. |
-| Every step happens in sequence. Every handoff is a queue. | Shipping velocity is constrained by the slowest handoff, not the team's actual capacity. |
+| What it looks like                                                                              | The cost                                                                                                       |
+| :---------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------- |
+| PMs write specs and file tickets. Then wait.                                                    | Ideas stall in the backlog for weeks or months.                                                                |
+| Designers create mockups in Figma, hand off redlines. Then wait.                                | Production output doesn't match the design. Rework cycles begin.                                               |
+| Engineers build, interpret feedback, QA their own work, respond to redlines. Repeat.            | Engineering becomes the bottleneck for everything, including work that doesn't require deep engineering skill. |
+| QA tests after the fact, files bugs, restarts the cycle.                                        | Bugs ship. Feedback loops are slow.                                                                            |
+| AI tools, if used at all, are single-player. One developer, one prompt, one output to clean up. | AI generates code nobody trusts. Engineers spend time fixing AI slop instead of building.                      |
+| Every step happens in sequence. Every handoff is a queue.                                       | Shipping velocity is constrained by the slowest handoff, not the team's actual capacity.                       |
 
 ### To: Parallel, collaborative agentic development
 
-| What it looks like | The result |
-| :---- | :---- |
-| PMs turn tickets into working prototypes and validate directly with customers. | Faster feedback, higher-signal validation. Production-grade prototypes replace specs that become poor-performing features. |
-| Designers refine directly in code with full control over every responsive detail and interaction. | What they approve is what ships. No interpretation gap, no redlines. |
-| Engineers focus on architecture, performance, and code review. | Engineering capacity goes to engineering-grade problems. |
-| QA validates in real environments with full preview before merge. | Quality is verified before code ships. |
-| AI agents handle tasks in parallel, each with its own isolated environment, branch, and browser preview. | Throughput scales beyond the team's headcount. Multiple workstreams advance simultaneously. |
-| The whole team works in one place. Anyone can review, refine, assign, and approve. | No more handoffs, no more queues. The team moves at the speed of its ambition. |
+| What it looks like                                                                                       | The result                                                                                                                 |
+| :------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------- |
+| PMs turn tickets into working prototypes and validate directly with customers.                           | Faster feedback, higher-signal validation. Production-grade prototypes replace specs that become poor-performing features. |
+| Designers refine directly in code with full control over every responsive detail and interaction.        | What they approve is what ships. No interpretation gap, no redlines.                                                       |
+| Engineers focus on architecture, performance, and code review.                                           | Engineering capacity goes to engineering-grade problems.                                                                   |
+| QA validates in real environments with full preview before merge.                                        | Quality is verified before code ships.                                                                                     |
+| AI agents handle tasks in parallel, each with its own isolated environment, branch, and browser preview. | Throughput scales beyond the team's headcount. Multiple workstreams advance simultaneously.                                |
+| The whole team works in one place. Anyone can review, refine, assign, and approve.                       | No more handoffs, no more queues. The team moves at the speed of its ambition.                                             |
 
 ### The Bottom Line
 
@@ -98,4 +98,4 @@ This is what turns AI-generated code from "interesting demo" into work your team
 
 **Context** means AI works within your real system, so the output is quality from the start. **Collaboration** means your whole team works alongside those AI agents. **Trust** means you have the guardrails to actually ship what gets built to production.
 
-*"Builder connects to your real codebase and design system (Context), lets your whole team work alongside AI agents in one place (Collaboration), and gives you the review, approval, and guardrails to actually ship what gets built (Trust). That's agentic development you can count on."*
+_"Builder connects to your real codebase and design system (Context), lets your whole team work alongside AI agents in one place (Collaboration), and gives you the review, approval, and guardrails to actually ship what gets built (Trust). That's agentic development you can count on."_

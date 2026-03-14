@@ -47,7 +47,7 @@ export function NewDashboardDialog() {
             "flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs transition-all",
             isGenerating
               ? "text-primary cursor-wait"
-              : "text-muted-foreground/60 hover:text-primary hover:bg-sidebar-accent/50"
+              : "text-muted-foreground/60 hover:text-primary hover:bg-sidebar-accent/50",
           )}
         >
           {isGenerating ? (
@@ -62,7 +62,10 @@ export function NewDashboardDialog() {
         <p className="text-sm font-medium mb-3">New Dashboard</p>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label htmlFor="author-name" className="text-xs text-muted-foreground">
+            <label
+              htmlFor="author-name"
+              className="text-xs text-muted-foreground"
+            >
               Your Name or Email <span className="text-destructive">*</span>
             </label>
             <input
@@ -73,15 +76,19 @@ export function NewDashboardDialog() {
               placeholder='e.g. "jane@builder.io" or "Jane Doe"'
               className={cn(
                 "mt-1.5 flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm",
-                "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+                "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
               )}
               autoFocus
               required
             />
           </div>
           <div>
-            <label htmlFor="dashboard-prompt" className="text-xs text-muted-foreground">
-              Describe the dashboard you want to create <span className="text-destructive">*</span>
+            <label
+              htmlFor="dashboard-prompt"
+              className="text-xs text-muted-foreground"
+            >
+              Describe the dashboard you want to create{" "}
+              <span className="text-destructive">*</span>
             </label>
             <textarea
               id="dashboard-prompt"
@@ -91,7 +98,7 @@ export function NewDashboardDialog() {
               className={cn(
                 "mt-1.5 flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm",
                 "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
-                "min-h-[120px] resize-y"
+                "min-h-[120px] resize-y",
               )}
               required
               onKeyDown={(e) => {

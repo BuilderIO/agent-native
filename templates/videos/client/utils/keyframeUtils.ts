@@ -17,12 +17,17 @@ export function getAllKeyframeFrames(track?: AnimationTrack): number[] {
 /**
  * Check if a specific frame has a keyframe on any property
  */
-export function isFrameOnKeyframe(track: AnimationTrack | undefined, frame: number): boolean {
+export function isFrameOnKeyframe(
+  track: AnimationTrack | undefined,
+  frame: number,
+): boolean {
   if (!track) return false;
 
-  return track.animatedProps?.some((prop) =>
-    prop.keyframes?.some((kf) => kf.frame === frame)
-  ) ?? false;
+  return (
+    track.animatedProps?.some((prop) =>
+      prop.keyframes?.some((kf) => kf.frame === frame),
+    ) ?? false
+  );
 }
 
 /**
@@ -32,7 +37,7 @@ export function isFrameOnKeyframe(track: AnimationTrack | undefined, frame: numb
 export function navigateKeyframe(
   track: AnimationTrack,
   currentFrame: number,
-  direction: "prev" | "next"
+  direction: "prev" | "next",
 ): number | null {
   const allFrames = getAllKeyframeFrames(track);
   if (allFrames.length === 0) return null;
@@ -59,7 +64,7 @@ export function navigateKeyframe(
 export function duplicateKeyframeForTrack(
   track: AnimationTrack,
   currentFrame: number,
-  offset: number = 30
+  offset: number = 30,
 ): AnimationTrack["animatedProps"] {
   if (!track.animatedProps) return undefined;
 
@@ -73,7 +78,9 @@ export function duplicateKeyframeForTrack(
     if (!currentKf) return prop;
 
     // Check if keyframe already exists at target frame
-    const existingIndex = prop.keyframes.findIndex((kf) => kf.frame === targetFrame);
+    const existingIndex = prop.keyframes.findIndex(
+      (kf) => kf.frame === targetFrame,
+    );
 
     let newKeyframes = [...prop.keyframes];
 
@@ -106,18 +113,21 @@ export function duplicateKeyframeForTrack(
 export function removeKeyframeForTrack(
   track: AnimationTrack,
   currentFrame: number,
-  keepEmptyArrays: boolean = false
+  keepEmptyArrays: boolean = false,
 ): AnimationTrack["animatedProps"] {
   if (!track.animatedProps) return undefined;
 
   return track.animatedProps.map((prop) => {
     if (!prop.keyframes) return prop;
 
-    const newKeyframes = prop.keyframes.filter((kf) => kf.frame !== currentFrame);
+    const newKeyframes = prop.keyframes.filter(
+      (kf) => kf.frame !== currentFrame,
+    );
 
     return {
       ...prop,
-      keyframes: (keepEmptyArrays || newKeyframes.length > 0) ? newKeyframes : undefined,
+      keyframes:
+        keepEmptyArrays || newKeyframes.length > 0 ? newKeyframes : undefined,
     };
   });
 }
@@ -129,14 +139,16 @@ export function removeKeyframeForTrack(
 export function updateKeyframeEasing(
   track: AnimationTrack,
   currentFrame: number,
-  easing: EasingKey
+  easing: EasingKey,
 ): AnimationTrack["animatedProps"] {
   if (!track.animatedProps) return undefined;
 
   return track.animatedProps.map((prop) => {
     if (!prop.keyframes) return prop;
 
-    const keyframeIndex = prop.keyframes.findIndex((kf) => kf.frame === currentFrame);
+    const keyframeIndex = prop.keyframes.findIndex(
+      (kf) => kf.frame === currentFrame,
+    );
     if (keyframeIndex < 0) return prop;
 
     const newKeyframes = [...prop.keyframes];
@@ -156,12 +168,14 @@ export function updateKeyframeEasing(
 export function getCurrentKeyframeEasing(
   track: AnimationTrack,
   currentFrame: number,
-  fallback: EasingKey = "linear"
+  fallback: EasingKey = "linear",
 ): EasingKey {
   if (!track.animatedProps) return fallback;
 
   // Get easing from first property's current keyframe (all should be in sync)
-  const firstProp = track.animatedProps.find((p) => p.keyframes && p.keyframes.length > 0);
+  const firstProp = track.animatedProps.find(
+    (p) => p.keyframes && p.keyframes.length > 0,
+  );
   if (!firstProp?.keyframes) return fallback;
 
   const keyframe = firstProp.keyframes.find((kf) => kf.frame === currentFrame);
@@ -177,7 +191,7 @@ export function setOrUpdateKeyframe(
   property: string,
   currentFrame: number,
   value: number,
-  easing: EasingKey = "expo.inOut"
+  easing: EasingKey = "expo.inOut",
 ): AnimationTrack["animatedProps"] {
   if (!track.animatedProps) return undefined;
 
@@ -192,11 +206,14 @@ export function setOrUpdateKeyframe(
     if (existingIdx >= 0) {
       // Update existing keyframe (preserve easing)
       newKeyframes = keyframes.map((kf, i) =>
-        i === existingIdx ? { ...kf, value: valueStr } : kf
+        i === existingIdx ? { ...kf, value: valueStr } : kf,
       );
     } else {
       // Add new keyframe
-      newKeyframes = [...keyframes, { frame: currentFrame, value: valueStr, easing }];
+      newKeyframes = [
+        ...keyframes,
+        { frame: currentFrame, value: valueStr, easing },
+      ];
       newKeyframes.sort((a, b) => a.frame - b.frame);
     }
 
@@ -212,7 +229,7 @@ export function updateCameraKeyframe(
   track: AnimationTrack,
   currentFrame: number,
   allValues: Record<string, number>,
-  defaultEasing: EasingKey = "expo.inOut"
+  defaultEasing: EasingKey = "expo.inOut",
 ): AnimationTrack["animatedProps"] {
   if (!track.animatedProps) return undefined;
 
@@ -232,11 +249,15 @@ export function updateCameraKeyframe(
       // Initialize keyframes array with current value
       return {
         ...prop,
-        keyframes: [{ frame: currentFrame, value: valueStr, easing: defaultEasing }],
+        keyframes: [
+          { frame: currentFrame, value: valueStr, easing: defaultEasing },
+        ],
       };
     }
 
-    const existingIndex = prop.keyframes.findIndex((kf) => kf.frame === currentFrame);
+    const existingIndex = prop.keyframes.findIndex(
+      (kf) => kf.frame === currentFrame,
+    );
 
     if (existingIndex >= 0) {
       // Update existing keyframe (preserve easing)
@@ -244,12 +265,15 @@ export function updateCameraKeyframe(
       newKeyframes[existingIndex] = {
         ...newKeyframes[existingIndex],
         frame: currentFrame,
-        value: valueStr
+        value: valueStr,
       };
       return { ...prop, keyframes: newKeyframes };
     } else {
       // Add new keyframe
-      const newKeyframes = [...prop.keyframes, { frame: currentFrame, value: valueStr, easing: defaultEasing }];
+      const newKeyframes = [
+        ...prop.keyframes,
+        { frame: currentFrame, value: valueStr, easing: defaultEasing },
+      ];
       newKeyframes.sort((a, b) => a.frame - b.frame);
       return { ...prop, keyframes: newKeyframes };
     }
@@ -264,7 +288,7 @@ export function resetToDefaults(
   track: AnimationTrack,
   currentFrame: number,
   defaults: Record<string, number>,
-  defaultEasing: EasingKey = "expo.inOut"
+  defaultEasing: EasingKey = "expo.inOut",
 ): AnimationTrack["animatedProps"] {
   if (!track.animatedProps) return undefined;
 
@@ -275,20 +299,31 @@ export function resetToDefaults(
     if (!prop.keyframes) {
       return {
         ...prop,
-        keyframes: [{ frame: currentFrame, value: valueStr, easing: defaultEasing }],
+        keyframes: [
+          { frame: currentFrame, value: valueStr, easing: defaultEasing },
+        ],
       };
     }
 
-    const existingIndex = prop.keyframes.findIndex((kf) => kf.frame === currentFrame);
+    const existingIndex = prop.keyframes.findIndex(
+      (kf) => kf.frame === currentFrame,
+    );
 
     if (existingIndex >= 0) {
       // Update existing keyframe to default value (preserve easing)
       const newKeyframes = [...prop.keyframes];
-      newKeyframes[existingIndex] = { ...newKeyframes[existingIndex], frame: currentFrame, value: valueStr };
+      newKeyframes[existingIndex] = {
+        ...newKeyframes[existingIndex],
+        frame: currentFrame,
+        value: valueStr,
+      };
       return { ...prop, keyframes: newKeyframes };
     } else {
       // Add new keyframe with default value
-      const newKeyframes = [...prop.keyframes, { frame: currentFrame, value: valueStr, easing: defaultEasing }];
+      const newKeyframes = [
+        ...prop.keyframes,
+        { frame: currentFrame, value: valueStr, easing: defaultEasing },
+      ];
       newKeyframes.sort((a, b) => a.frame - b.frame);
       return { ...prop, keyframes: newKeyframes };
     }

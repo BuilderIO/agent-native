@@ -28,7 +28,7 @@ type StateFromDefs<T extends ParamDefs> = {
 function readParam(
   params: URLSearchParams,
   key: string,
-  def: ParamDef
+  def: ParamDef,
 ): string | string[] | number {
   const raw = params.get(key);
   if (raw === null) return def.default;
@@ -47,7 +47,7 @@ function readParam(
 
 function writeParams(
   defs: ParamDefs,
-  state: Record<string, unknown>
+  state: Record<string, unknown>,
 ): URLSearchParams {
   const params = new URLSearchParams();
 
@@ -64,8 +64,7 @@ function writeParams(
         const defArr = defaultVal as string[];
         if (
           arr.length > 0 &&
-          (arr.length !== defArr.length ||
-            arr.some((v, i) => v !== defArr[i]))
+          (arr.length !== defArr.length || arr.some((v, i) => v !== defArr[i]))
         ) {
           params.set(key, arr.map(encodeURIComponent).join(","));
         }
@@ -86,7 +85,7 @@ function writeParams(
  */
 export function useUrlFilterState<T extends ParamDefs>(
   defs: T,
-  prefix?: string
+  prefix?: string,
 ): [
   StateFromDefs<T>,
   <K extends keyof T>(key: K, value: StateFromDefs<T>[K]) => void,
@@ -107,7 +106,9 @@ export function useUrlFilterState<T extends ParamDefs>(
     return state as StateFromDefs<T>;
   }, []);
 
-  const [state, setState] = useState<StateFromDefs<T>>(() => readFromUrl(window.location.search));
+  const [state, setState] = useState<StateFromDefs<T>>(() =>
+    readFromUrl(window.location.search),
+  );
 
   // Re-sync from URL when React Router navigates (e.g. sidebar link click)
   useEffect(() => {
@@ -154,15 +155,12 @@ export function useUrlFilterState<T extends ParamDefs>(
     <K extends keyof T>(key: K, value: StateFromDefs<T>[K]) => {
       setState((prev) => ({ ...prev, [key]: value }));
     },
-    []
+    [],
   );
 
-  const setMany = useCallback(
-    (partial: Partial<StateFromDefs<T>>) => {
-      setState((prev) => ({ ...prev, ...partial }));
-    },
-    []
-  );
+  const setMany = useCallback((partial: Partial<StateFromDefs<T>>) => {
+    setState((prev) => ({ ...prev, ...partial }));
+  }, []);
 
   return [state, setField, setMany];
 }

@@ -105,7 +105,8 @@ export const SlackMainContent: React.FC<SlackMainContentProps> = ({
               style={{
                 color: "rgba(255, 255, 255, 1)",
                 fontSize: 24,
-                fontFamily: "Inter, -apple-system, Roboto, Helvetica, sans-serif",
+                fontFamily:
+                  "Inter, -apple-system, Roboto, Helvetica, sans-serif",
                 fontWeight: 600,
               }}
             >
@@ -135,13 +136,20 @@ export const SlackMainContent: React.FC<SlackMainContentProps> = ({
               style={{
                 color: "#e8e8e8",
                 fontSize: 15,
-                fontFamily: "Inter, -apple-system, Roboto, Helvetica, sans-serif",
+                fontFamily:
+                  "Inter, -apple-system, Roboto, Helvetica, sans-serif",
               }}
             >
               106
             </div>
           </div>
-          <div style={{ borderRadius: 9, border: "1px solid rgba(121, 124, 129, 0.3)", padding: 4 }}>
+          <div
+            style={{
+              borderRadius: 9,
+              border: "1px solid rgba(121, 124, 129, 0.3)",
+              padding: 4,
+            }}
+          >
             <img
               src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/3f48874fe317a99eba5a776a8775cf8a5bbd61a2"
               alt=""
@@ -218,7 +226,14 @@ export const SlackMainContent: React.FC<SlackMainContentProps> = ({
           />
           <div>Messages</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 5, color: "rgba(185, 186, 189, 1)" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            color: "rgba(185, 186, 189, 1)",
+          }}
+        >
           <img
             src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/5f60d22d1bc5fdb57dec00c4d342f406e0d39c26"
             alt=""
@@ -226,7 +241,14 @@ export const SlackMainContent: React.FC<SlackMainContentProps> = ({
           />
           <div>Pins</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 5, color: "rgba(185, 186, 189, 1)" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            color: "rgba(185, 186, 189, 1)",
+          }}
+        >
           <img
             src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/9f820a75da7919a9394cf160070f3c631cf2dd1c"
             alt=""
@@ -234,7 +256,14 @@ export const SlackMainContent: React.FC<SlackMainContentProps> = ({
           />
           <div>Files</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "rgba(185, 186, 189, 1)" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            color: "rgba(185, 186, 189, 1)",
+          }}
+        >
           <img
             src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/2872fa9196503b5abeb122839baf9e05b4b62cce"
             alt=""
@@ -242,7 +271,15 @@ export const SlackMainContent: React.FC<SlackMainContentProps> = ({
           />
           <div>How to use Builder.io</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto", color: "rgba(185, 186, 189, 1)" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            marginLeft: "auto",
+            color: "rgba(185, 186, 189, 1)",
+          }}
+        >
           <div>More</div>
           <img
             src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/60e50d59712ec33d5f7c588a331a4d2da0dca9c4"
@@ -355,7 +392,10 @@ export const SlackMainContent: React.FC<SlackMainContentProps> = ({
                 >
                   @Diego
                 </div>
-                <div>Try asking the Builder bot to add that new feature in this channel</div>
+                <div>
+                  Try asking the Builder bot to add that new feature in this
+                  channel
+                </div>
               </div>
             }
             threadReplies={2}
@@ -391,12 +431,17 @@ export const SlackMainContent: React.FC<SlackMainContentProps> = ({
                   >
                     @Builder.io
                   </div>
-                  Can you help me build a dashboard for our sales attribution for the Q4 2025 range with stats broken down per sales rep?
+                  Can you help me build a dashboard for our sales attribution
+                  for the Q4 2025 range with stats broken down per sales rep?
                 </div>
               }
               threadReplies={showThreadIndicator ? 1 : undefined}
               threadPreview={showThreadIndicator ? "Just now" : undefined}
-              threadAvatar={showThreadIndicator ? "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/fb1e1e3359a5886deb33a4b219cc295590c17bbb" : undefined}
+              threadAvatar={
+                showThreadIndicator
+                  ? "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/fb1e1e3359a5886deb33a4b219cc295590c17bbb"
+                  : undefined
+              }
               threadIndicatorOpacity={threadIndicatorOpacity}
               threadIndicatorHoverProgress={threadIndicatorHoverProgress}
               hoverProgress={messageHoverStates["msg5"] || 0}
@@ -428,7 +473,10 @@ export const SlackMainContent: React.FC<SlackMainContentProps> = ({
 
         <div
           style={{
-            color: typedText || showMentionPill ? "rgba(248, 248, 248, 1)" : "rgba(154, 155, 158, 1)",
+            color:
+              typedText || showMentionPill
+                ? "rgba(248, 248, 248, 1)"
+                : "rgba(154, 155, 158, 1)",
             fontSize: 18,
             fontFamily: "Inter, -apple-system, Roboto, Helvetica, sans-serif",
             marginBottom: 23,
@@ -442,14 +490,18 @@ export const SlackMainContent: React.FC<SlackMainContentProps> = ({
             <>
               {(() => {
                 // Calculate shine progress from frames 163 to 170 (completes and exits by 170)
-                const shineProgress = currentFrame >= 163 && currentFrame <= 170
-                  ? (currentFrame - 163) / (170 - 163)
-                  : currentFrame > 170 ? 1 : 0;
+                const shineProgress =
+                  currentFrame >= 163 && currentFrame <= 170
+                    ? (currentFrame - 163) / (170 - 163)
+                    : currentFrame > 170
+                      ? 1
+                      : 0;
 
                 // Fade out in the last 50% of the animation
-                const shineOpacity = shineProgress > 0.5
-                  ? 0.5 * (1 - ((shineProgress - 0.5) / 0.5))
-                  : 0.5;
+                const shineOpacity =
+                  shineProgress > 0.5
+                    ? 0.5 * (1 - (shineProgress - 0.5) / 0.5)
+                    : 0.5;
 
                 return (
                   <span
@@ -542,7 +594,8 @@ export const SlackMainContent: React.FC<SlackMainContentProps> = ({
                 gap: 8,
                 padding: "6px 10px",
                 borderRadius: 6,
-                background: (typedText || showMentionPill) ? "#007B5B" : "transparent",
+                background:
+                  typedText || showMentionPill ? "#007B5B" : "transparent",
                 transition: "background-color 0.2s ease",
               }}
             >

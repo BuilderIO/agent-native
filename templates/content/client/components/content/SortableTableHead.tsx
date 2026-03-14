@@ -27,7 +27,11 @@ export function SortableTableHead<TColumn extends string>({
     <TableHead
       className={className}
       aria-sort={
-        isActive ? (sortDirection === "asc" ? "ascending" : "descending") : "none"
+        isActive
+          ? sortDirection === "asc"
+            ? "ascending"
+            : "descending"
+          : "none"
       }
     >
       <button
@@ -35,9 +39,7 @@ export function SortableTableHead<TColumn extends string>({
         className="group -mx-2 flex w-full items-start gap-2 rounded-md px-2 py-1 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={() => onSort(column)}
       >
-        <span className="whitespace-nowrap leading-snug">
-          {label}
-        </span>
+        <span className="whitespace-nowrap leading-snug">{label}</span>
         {isActive ? (
           sortDirection === "asc" ? (
             <ArrowUp className="mt-0.5 h-4 w-4 shrink-0 text-foreground" />

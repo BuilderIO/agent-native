@@ -25,8 +25,16 @@ interface ExplorerDashboard {
 
 const defaultTools = [
   { id: "explorer", name: "Explorer", href: "/adhoc/explorer" },
-  { id: "customer-health", name: "Customer Health", href: "/adhoc/customer-health" },
-  { id: "slack-feedback", name: "Slack Feedback", href: "/adhoc/slack-feedback" },
+  {
+    id: "customer-health",
+    name: "Customer Health",
+    href: "/adhoc/customer-health",
+  },
+  {
+    id: "slack-feedback",
+    name: "Slack Feedback",
+    href: "/adhoc/slack-feedback",
+  },
   { id: "query-explorer", name: "Query Explorer", href: "/query" },
 ];
 
@@ -86,7 +94,7 @@ export function CommandPalette() {
       navigate(href);
       setOpen(false);
     },
-    [navigate]
+    [navigate],
   );
 
   return (
@@ -123,10 +131,7 @@ export function CommandPalette() {
 
         <CommandGroup heading="Tools">
           {defaultTools.map((t) => (
-            <CommandItem
-              key={`tool-${t.id}`}
-              onSelect={() => go(t.href)}
-            >
+            <CommandItem key={`tool-${t.id}`} onSelect={() => go(t.href)}>
               <Wrench className="mr-2 h-4 w-4 text-muted-foreground" />
               {t.name}
             </CommandItem>

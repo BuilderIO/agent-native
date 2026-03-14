@@ -32,20 +32,21 @@ output/posts/YYYY-MM-DD-<slug>/seed/
 
 List all files in the `seed/` folder. Classify each file:
 
-| File | Type | Special Handling |
-|------|------|-----------------|
-| `urls.txt` | URL list | Fetch during Phase 4 content research |
-| `keywords.txt` | Keyword list | Merge during Phase 2 keyword research |
-| `notes.md` | Author notes | Use as "author perspective" in synthesis |
-| `serp-intents.txt` | SERP intent clusters | Merge during Phase 3 SERP analysis |
-| Any other `.md` file | Research source | Parse as article/content during Phase 4 |
-| Any other `.txt` file | Research source | Parse as plain text during Phase 4 |
+| File                  | Type                 | Special Handling                         |
+| --------------------- | -------------------- | ---------------------------------------- |
+| `urls.txt`            | URL list             | Fetch during Phase 4 content research    |
+| `keywords.txt`        | Keyword list         | Merge during Phase 2 keyword research    |
+| `notes.md`            | Author notes         | Use as "author perspective" in synthesis |
+| `serp-intents.txt`    | SERP intent clusters | Merge during Phase 3 SERP analysis       |
+| Any other `.md` file  | Research source      | Parse as article/content during Phase 4  |
+| Any other `.txt` file | Research source      | Parse as plain text during Phase 4       |
 
 ### Step 3: Validate Seed Files
 
 Apply validation rules per file type. Skip files that fail validation with a warning -- do not fail the pipeline.
 
 **urls.txt validation:**
+
 - One URL per line
 - Must match `https?://` pattern (skip lines that do not)
 - Skip blank lines and lines starting with `#` (comments)
@@ -53,12 +54,14 @@ Apply validation rules per file type. Skip files that fail validation with a war
 - Maximum 50 URLs. If exceeded, warn: "Seed urls.txt has N URLs (max 50). Using first 50."
 
 **keywords.txt validation:**
+
 - One keyword per line
 - Plain text only. If commas detected in lines, warn: "keywords.txt appears to contain CSV. Expected one keyword per line."
 - Skip blank lines and lines starting with `#` (comments)
 - Maximum 200 keywords. If exceeded, warn: "Seed keywords.txt has N keywords (max 200). Using first 200."
 
 **Markdown files (.md) validation:**
+
 - UTF-8 encoding
 - Maximum 5MB per file
 - Maximum 20 `.md` files total (excluding notes.md). If exceeded, warn: "Seed folder has N markdown files (max 20). Using first 20."
@@ -105,6 +108,7 @@ Report to the user: "Detected seed folder: N URLs, N keywords, N articles, notes
 Run BEFORE automated research (Step 0.5 in the Content Research skill):
 
 **6a: Fetch seed URLs**
+
 1. Read `seed/urls.txt`
 2. For each valid URL:
    - Skip known-blocked domains (reddit.com) with note: "Blocked source, check for .md paste in seed folder"
@@ -114,6 +118,7 @@ Run BEFORE automated research (Step 0.5 in the Content Research skill):
 3. Tag each fetched source as `source_type: seed` in Phase 4 output
 
 **6b: Parse seed articles**
+
 1. Read all `.md` files in `seed/` (except `notes.md`)
 2. For each file:
    - Extract title (first `#` heading or filename)
@@ -123,12 +128,14 @@ Run BEFORE automated research (Step 0.5 in the Content Research skill):
 3. Tag each as `source_type: seed` in Phase 4 output
 
 **6c: Parse seed notes**
+
 1. Read `seed/notes.md` if it exists and is not empty
 2. Use as "author perspective" context during synthesis
 3. Feed into unique value proposition formulation
 4. Tag as `source_type: seed_notes` in Phase 4 output
 
 **6d: Merge into synthesis**
+
 1. Seed sources appear in the synthesis matrix as "Seed: [filename]" columns
 2. Content gaps analysis considers what seed content already covers
 3. Unique value proposition informed by seed notes
@@ -161,6 +168,7 @@ When automated research discovers a URL that was already fetched from seed:
 Seed content adds these fields to existing phase YAML files:
 
 **In `phases/01-topic-validation.yaml`:**
+
 ```yaml
 seed_detected: true
 seed_summary:
@@ -174,13 +182,15 @@ seed_summary:
 ```
 
 **In `phases/02-keyword-research.yaml`:**
+
 ```yaml
 seed_keywords_merged: 15
 seed_keywords_with_metrics: 12
-seed_keywords_unscored: 3  # no Ahrefs data found
+seed_keywords_unscored: 3 # no Ahrefs data found
 ```
 
 **In `phases/04-content-research.yaml`:**
+
 ```yaml
 seed_sources:
   urls_fetched: 4
@@ -195,6 +205,7 @@ seed_sources:
 ### Example 1: Full Seed Folder
 
 **Seed folder contents:**
+
 ```
 seed/
 ├── urls.txt          # 5 URLs (1 Reddit, 4 blog posts)
@@ -205,6 +216,7 @@ seed/
 ```
 
 **Validation output:**
+
 - urls.txt: 5 URLs (1 warning: reddit.com blocked, using 4)
 - keywords.txt: 15 keywords (valid)
 - notes.md: has content
@@ -219,6 +231,7 @@ seed/
 ### Example 2: Keywords-Only Seed
 
 **Seed folder contents:**
+
 ```
 seed/
 └── keywords.txt      # 30 keywords from SurferSEO
@@ -233,6 +246,7 @@ seed/
 ### Example 3: Empty Seed Folder
 
 **Seed folder contents:**
+
 ```
 seed/
 ├── urls.txt          # Only comment lines (# Add URLs here...)

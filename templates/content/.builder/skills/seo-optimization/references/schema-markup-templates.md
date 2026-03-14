@@ -46,16 +46,16 @@ Generate for every post. Populate fields from `post.md` frontmatter and `metadat
 
 ### Field Notes
 
-| Field | Source | Notes |
-|-------|--------|-------|
-| `headline` | `post.md` frontmatter `title` | Must match the title tag (without ` \| Builder.io` suffix) |
-| `description` | Phase 8 meta description | 120-155 characters |
-| `datePublished` | Publication date | ISO 8601 format: `YYYY-MM-DD` |
-| `dateModified` | Same as `datePublished` for new posts | Update when post is revised |
-| `wordCount` | `post.md` frontmatter `word_count` | Excluding code blocks and frontmatter |
-| `author.sameAs` | Author's external profiles | Include all verifiable profiles. Omit any that don't exist |
-| `image` | Featured image URL | Leave empty if no featured image yet (images are manually added) |
-| `keywords` | Phase 2 keyword data | Comma-separated: primary keyword first, then secondaries |
+| Field           | Source                                | Notes                                                            |
+| --------------- | ------------------------------------- | ---------------------------------------------------------------- |
+| `headline`      | `post.md` frontmatter `title`         | Must match the title tag (without ` \| Builder.io` suffix)       |
+| `description`   | Phase 8 meta description              | 120-155 characters                                               |
+| `datePublished` | Publication date                      | ISO 8601 format: `YYYY-MM-DD`                                    |
+| `dateModified`  | Same as `datePublished` for new posts | Update when post is revised                                      |
+| `wordCount`     | `post.md` frontmatter `word_count`    | Excluding code blocks and frontmatter                            |
+| `author.sameAs` | Author's external profiles            | Include all verifiable profiles. Omit any that don't exist       |
+| `image`         | Featured image URL                    | Leave empty if no featured image yet (images are manually added) |
+| `keywords`      | Phase 2 keyword data                  | Comma-separated: primary keyword first, then secondaries         |
 
 ## FAQPage Schema (For Posts with FAQ Sections)
 
@@ -99,9 +99,9 @@ Add when the post contains a dedicated FAQ section or when the outline flags PAA
 
 ### Field Notes
 
-| Field | Source | Notes |
-|-------|--------|-------|
-| `name` | The question heading text | Use the exact heading text, with the `?` |
+| Field  | Source                               | Notes                                                                            |
+| ------ | ------------------------------------ | -------------------------------------------------------------------------------- |
+| `name` | The question heading text            | Use the exact heading text, with the `?`                                         |
 | `text` | The answer-first block (40-60 words) | Use the direct answer paragraph, not the full section. Strip markdown formatting |
 
 ## HowTo Schema (For Tutorial and How-To Posts)
@@ -146,12 +146,12 @@ Add when the post type is `tutorial` or `how-to` and the content follows a seque
 
 ### Field Notes
 
-| Field | Source | Notes |
-|-------|--------|-------|
-| `name` (step) | The step heading text | Strip the step number prefix if present ("Step 1: Install" becomes "Install") |
-| `text` (step) | First 1-2 sentences of the step section | Summarize the action, not the full explanation |
-| `url` (step) | Post URL + heading anchor | Lowercase, hyphens, no special characters |
-| `totalTime` | Estimated completion time | ISO 8601 duration format: `PT15M` for 15 minutes, `PT1H` for 1 hour |
+| Field         | Source                                  | Notes                                                                         |
+| ------------- | --------------------------------------- | ----------------------------------------------------------------------------- |
+| `name` (step) | The step heading text                   | Strip the step number prefix if present ("Step 1: Install" becomes "Install") |
+| `text` (step) | First 1-2 sentences of the step section | Summarize the action, not the full explanation                                |
+| `url` (step)  | Post URL + heading anchor               | Lowercase, hyphens, no special characters                                     |
+| `totalTime`   | Estimated completion time               | ISO 8601 duration format: `PT15M` for 15 minutes, `PT1H` for 1 hour           |
 
 ## Article Schema (For Hub Pillar Pages)
 
@@ -204,8 +204,8 @@ Use `Article` instead of `BlogPosting` when `page_type: pillar`. The `hasPart` p
 
 ### Field Notes
 
-| Field | Source | Notes |
-|-------|--------|-------|
+| Field     | Source                   | Notes                                                                                          |
+| --------- | ------------------------ | ---------------------------------------------------------------------------------------------- |
 | `hasPart` | `hub.yaml` clusters list | One entry per cluster page. Use the cluster's `topic` as `name` and derive URL from its `slug` |
 
 ### When to Use
@@ -240,13 +240,14 @@ A single post can have multiple schemas. When combining, wrap them in a `@graph`
 {
   "@context": "https://schema.org",
   "@graph": [
-    { "@type": "BlogPosting", "..." : "..." },
-    { "@type": "FAQPage", "..." : "..." }
+    { "@type": "BlogPosting", "...": "..." },
+    { "@type": "FAQPage", "...": "..." }
   ]
 }
 ```
 
 Common combinations:
+
 - **Tutorial post with FAQ:** BlogPosting + HowTo + FAQPage
 - **Explainer with FAQ:** BlogPosting + FAQPage
 - **Standard tutorial:** BlogPosting + HowTo
@@ -257,6 +258,7 @@ Common combinations:
 ## Validation
 
 After generating schema markup, validate using:
+
 1. [Google Rich Results Test](https://search.google.com/test/rich-results) -- paste the JSON-LD and check for errors
 2. [Schema.org Validator](https://validator.schema.org/) -- for structural correctness
 

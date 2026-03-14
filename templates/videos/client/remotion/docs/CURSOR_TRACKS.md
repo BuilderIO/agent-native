@@ -9,7 +9,11 @@ This document codifies the correct patterns for creating cursor tracks in Video 
 Always use the helper functions from `registry.ts` to create tracks with the correct configuration:
 
 ```typescript
-import { createCameraTrack, createCursorTrack, createStandardTracks } from "@/remotion/registry";
+import {
+  createCameraTrack,
+  createCursorTrack,
+  createStandardTracks,
+} from "@/remotion/registry";
 
 // Create both camera and cursor tracks
 const tracks = createStandardTracks(300);
@@ -23,7 +27,7 @@ const cursorTrack = createCursorTrack(300, {
   startX: 100,
   startY: 100,
   startOpacity: 0,
-  easing: "expo.inOut"
+  easing: "expo.inOut",
 });
 ```
 
@@ -46,10 +50,10 @@ const cursorTrack = createCursorTrack(300, {
 { property: "type", from: "1", to: "1", unit: "" }
 
 // ❌ DO NOT add keyframes to switch cursor types
-{ 
-  property: "type", 
-  from: "default", 
-  to: "default", 
+{
+  property: "type",
+  from: "default",
+  to: "default",
   unit: "",
   keyframes: [
     { frame: 0, value: "default" },
@@ -81,14 +85,14 @@ A properly configured cursor track has these properties:
     // Position
     { property: "x", from: "960", to: "960", unit: "px", keyframes: [] },
     { property: "y", from: "540", to: "540", unit: "px", keyframes: [] },
-    
+
     // Appearance
     { property: "opacity", from: "1", to: "1", unit: "", keyframes: [] },
     { property: "scale", from: "1", to: "1", unit: "", keyframes: [] },
-    
+
     // Type (constant "default" - autoCursorType handles hover state)
     { property: "type", from: "default", to: "default", unit: "" },
-    
+
     // Interaction
     { property: "isClicking", from: "0", to: "0", unit: "", keyframes: [] },
   ],
@@ -103,15 +107,15 @@ Add keyframes to the `x` and `y` properties to animate cursor movement:
 const cursorTrack = createCursorTrack(300);
 
 // Add movement keyframes
-const xProp = cursorTrack.animatedProps.find(p => p.property === "x")!;
+const xProp = cursorTrack.animatedProps.find((p) => p.property === "x")!;
 xProp.keyframes = [
-  { frame: 0, value: "100" },         // Start offscreen
-  { frame: 30, value: "760" },        // Move to button
-  { frame: 90, value: "760" },        // Hover on button
-  { frame: 120, value: "960" },       // Move to center
+  { frame: 0, value: "100" }, // Start offscreen
+  { frame: 30, value: "760" }, // Move to button
+  { frame: 90, value: "760" }, // Hover on button
+  { frame: 120, value: "960" }, // Move to center
 ];
 
-const yProp = cursorTrack.animatedProps.find(p => p.property === "y")!;
+const yProp = cursorTrack.animatedProps.find((p) => p.property === "y")!;
 yProp.keyframes = [
   { frame: 0, value: "100" },
   { frame: 30, value: "400" },
@@ -125,12 +129,14 @@ yProp.keyframes = [
 Add keyframes to trigger click animations:
 
 ```typescript
-const clickProp = cursorTrack.animatedProps.find(p => p.property === "isClicking")!;
+const clickProp = cursorTrack.animatedProps.find(
+  (p) => p.property === "isClicking",
+)!;
 clickProp.keyframes = [
   { frame: 0, value: "0" },
   { frame: 59, value: "0" },
-  { frame: 60, value: "1" },  // Click starts
-  { frame: 70, value: "0" },  // Click ends (10 frames later)
+  { frame: 60, value: "1" }, // Click starts
+  { frame: 70, value: "0" }, // Click ends (10 frames later)
 ];
 ```
 
@@ -139,14 +145,16 @@ clickProp.keyframes = [
 Common pattern for cursor appearance:
 
 ```typescript
-const opacityProp = cursorTrack.animatedProps.find(p => p.property === "opacity")!;
+const opacityProp = cursorTrack.animatedProps.find(
+  (p) => p.property === "opacity",
+)!;
 opacityProp.keyframes = [
-  { frame: 0, value: "0" },     // Hidden at start
+  { frame: 0, value: "0" }, // Hidden at start
   { frame: 20, value: "0" },
-  { frame: 30, value: "1" },    // Fade in
-  { frame: 280, value: "1" },   // Stay visible
-  { frame: 290, value: "0" },   // Fade out
-  { frame: 300, value: "0" },   // Hidden at end
+  { frame: 30, value: "1" }, // Fade in
+  { frame: 280, value: "1" }, // Stay visible
+  { frame: 290, value: "0" }, // Fade out
+  { frame: 300, value: "0" }, // Hidden at end
 ];
 ```
 
@@ -174,8 +182,9 @@ const cameraTrack = createCameraTrack(300);
 Creates a cursor track with correct configuration.
 
 **Options:**
+
 - `startX` (default: 960) - Initial X position
-- `startY` (default: 540) - Initial Y position  
+- `startY` (default: 540) - Initial Y position
 - `startOpacity` (default: 1) - Initial opacity
 - `easing` (default: "expo.inOut") - Easing function
 
@@ -184,7 +193,7 @@ const cursorTrack = createCursorTrack(300, {
   startX: 100,
   startY: 100,
   startOpacity: 0,
-  easing: "expo.inOut"
+  easing: "expo.inOut",
 });
 ```
 
@@ -206,14 +215,14 @@ import { createStandardTracks } from "@/remotion/registry";
 const FALLBACK_TRACKS = (() => {
   const tracks = createStandardTracks(300);
   const cursorTrack = tracks[1];
-  
+
   // Add movement
-  const xProp = cursorTrack.animatedProps.find(p => p.property === "x")!;
+  const xProp = cursorTrack.animatedProps.find((p) => p.property === "x")!;
   xProp.keyframes = [
     { frame: 0, value: "100" },
     { frame: 30, value: "960" },
   ];
-  
+
   return tracks;
 })();
 ```
@@ -221,6 +230,7 @@ const FALLBACK_TRACKS = (() => {
 ### Interactive Components Demo Pattern
 
 See `client/remotion/compositions/ComponentsDemo.tsx` for a complete example with:
+
 - Multiple interactive components
 - Cursor movement between components
 - Click animations
@@ -234,18 +244,21 @@ See `client/remotion/compositions/ComponentsDemo.tsx` for a complete example wit
 **Cause**: Cursor type is using numeric values (`"0"` or `"1"`) instead of `"default"`
 
 **Solution**: Use helper functions or ensure type property is:
+
 ```typescript
 { property: "type", from: "default", to: "default", unit: "" }
 ```
 
 ### Problem: Cursor doesn't change to pointer on hover
 
-**Cause**: 
+**Cause**:
+
 1. Interactive component not registered with `registerForCursor()`
 2. Zone not configured correctly
 3. `autoCursorType` not passed to `CameraHost`
 
-**Solution**: 
+**Solution**:
+
 ```typescript
 // Register component
 React.useEffect(() => {

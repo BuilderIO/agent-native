@@ -3,6 +3,7 @@
 ## 1. Signups
 
 ### Query Template
+
 ```sql
 -- Basic signup count by day
 SELECT
@@ -29,21 +30,25 @@ ORDER BY 1 DESC, 3 DESC;
 ```
 
 ### Common Questions
+
 - **How many signups came from organic vs paid channels?** Use the channel breakdown query above
 - **What's the week-over-week growth rate?** Use WoW Signups Growth metric
 - **How many invited users vs original signups?** Filter by `is_original = true` in dim_users_core
 - **Which landing pages drive the most signups?** Join with first_pageviews on landing_page_url
 
 ### Known Gotchas
+
 - ⚠️ **Excludes builder.io domain emails** - Internal team members are filtered out
 - ⚠️ **Invited vs original distinction** - Use `is_original` column to exclude invited users
 - ⚠️ **Signup date can be null** - Some old users don't have signup_date, they're excluded
 - ⚠️ **Deduplication** - Always use `count(DISTINCT user_id)`, not just `count(*)`
 
 ### Example Use Case
+
 "Track weekly signup trends to measure the impact of a new marketing campaign. Compare signup volume before and after campaign launch, broken down by acquisition channel."
 
 ### Owner Suggestion
+
 **Head of Marketing** or **Growth Lead**
 
 ---
@@ -51,6 +56,7 @@ ORDER BY 1 DESC, 3 DESC;
 ## 2. Traffic
 
 ### Query Template
+
 ```sql
 -- Daily unique visitors
 SELECT
@@ -76,21 +82,25 @@ LIMIT 50;
 ```
 
 ### Common Questions
+
 - **What's our total traffic this month?** Use the daily query aggregated
 - **Which pages get the most traffic?** Group by page_url
 - **What percentage of traffic comes from organic search?** Filter by channel = 'organic'
 - **How does traffic correlate with signups?** Join with signups on visitor_id → user_id
 
 ### Known Gotchas
+
 - ⚠️ **Uses visitor_id, not user_id** - Anonymous visitors are counted
 - ⚠️ **Bots and crawlers included** - May need additional filtering
 - ⚠️ **Deduplication is critical** - Always count DISTINCT visitor_id
 - ⚠️ **First pageview vs all pageviews** - Use first_pageviews table for acquisition analysis
 
 ### Example Use Case
+
 "Monitor the impact of SEO improvements by tracking organic search traffic trends week-over-week. Identify which blog posts drive the most qualified traffic."
 
 ### Owner Suggestion
+
 **Head of Marketing**
 
 ---
@@ -98,6 +108,7 @@ LIMIT 50;
 ## 3. QLs (Qualified Leads)
 
 ### Query Template
+
 ```sql
 -- QLs by cohort week
 SELECT
@@ -122,21 +133,25 @@ ORDER BY 1 DESC, 3 DESC;
 ```
 
 ### Common Questions
+
 - **How many QLs did we generate this month?** Sum count from monthly query
 - **What's our QL conversion rate from signups?** Divide QLs by signups (QL Rate metric)
 - **Which channel produces the highest quality leads?** Compare QL rate by channel
 - **How long does it take from signup to QL?** Join with signups and calculate datediff
 
 ### Known Gotchas
+
 - ⚠️ **Date is when they MOVED from S0** - Not when they entered the system
 - ⚠️ **Null values mean never qualified** - Filter these out
 - ⚠️ **Can move backwards** - A QL can be disqualified later
 - ⚠️ **HubSpot sync delays** - Data may be 24 hours behind real-time
 
 ### Example Use Case
+
 "Measure sales team's lead qualification efficiency by tracking the percentage of signups that reach QL status within 30 days, segmented by lead source."
 
 ### Owner Suggestion
+
 **Head of Sales** or **Sales Operations**
 
 ---
@@ -144,6 +159,7 @@ ORDER BY 1 DESC, 3 DESC;
 ## 4. Pipeline
 
 ### Query Template
+
 ```sql
 -- Total qualified pipeline (S1, S2, S3 stages)
 SELECT
@@ -173,21 +189,25 @@ ORDER BY 3 DESC;
 ```
 
 ### Common Questions
+
 - **What's our total pipeline value?** Sum amount across all qualified stages
 - **How is pipeline distributed across stages?** Group by dealstage
 - **Which rep has the most pipeline?** Group by owner
 - **What's the average time in each stage?** Calculate datediff between stage entry dates
 
 ### Known Gotchas
+
 - ⚠️ **Excludes S0 (unqualified)** - Pre-qualification deals not counted
 - ⚠️ **Excludes closed deals** - Only open pipeline shown
 - ⚠️ **Self-Serve pipeline separate** - Different sales motion, tracked separately
 - ⚠️ **Amount can be null** - Handle nulls as 0 or exclude
 
 ### Example Use Case
+
 "Forecast quarterly revenue by analyzing pipeline coverage. Calculate total pipeline divided by average win rate to predict likely closed-won revenue."
 
 ### Owner Suggestion
+
 **Head of Sales**
 
 ---
@@ -195,6 +215,7 @@ ORDER BY 3 DESC;
 ## 5. Current ARR
 
 ### Query Template
+
 ```sql
 -- Total ARR across all enterprise accounts
 SELECT
@@ -221,21 +242,25 @@ ORDER BY 2 DESC;
 ```
 
 ### Common Questions
+
 - **What's our total ARR?** Sum current_enterprise_arr across all accounts
 - **Which accounts have the highest ARR?** Order by amount DESC
 - **How has ARR trended month-over-month?** Track historical snapshots
 - **What percentage of ARR is at risk of churn?** Join with health scores
 
 ### Known Gotchas
+
 - ⚠️ **Enterprise-only** - Excludes self-serve subscriptions
 - ⚠️ **Normalized to annual** - Monthly contracts multiplied by 12
 - ⚠️ **Snapshot data** - Point-in-time value, not historical trend
 - ⚠️ **Contract vs actual usage** - ARR is contractual, not usage-based
 
 ### Example Use Case
+
 "Calculate net revenue retention by comparing current ARR to ARR from 12 months ago for the same cohort of customers, accounting for expansion, contraction, and churn."
 
 ### Owner Suggestion
+
 **Head of Customer Success** or **CFO**
 
 ---
@@ -243,6 +268,7 @@ ORDER BY 2 DESC;
 ## 6. Self Serve Paid Subs
 
 ### Query Template
+
 ```sql
 -- Monthly self-serve subscription count
 SELECT
@@ -269,21 +295,25 @@ ORDER BY 2 DESC;
 ```
 
 ### Common Questions
+
 - **How many active paid self-serve subs do we have?** Count where status = 'active'
 - **What's the conversion rate from free to paid?** Divide paid subs by total signups
 - **Which plan tier is most popular?** Group by plan_tier
 - **What's the average MRR per subscription?** Sum MRR / count subs
 
 ### Known Gotchas
+
 - ⚠️ **Stripe data source** - Synced from Stripe, may have delay
 - ⚠️ **Active vs all subscriptions** - Filter by status = 'active'
 - ⚠️ **Plan = 'self-serve'** - Excludes enterprise contracts
 - ⚠️ **Cancellations included if active** - Check `cancelled_at` for churn
 
 ### Example Use Case
+
 "Track product-led growth by monitoring the self-serve paid subscription acquisition rate and comparing it to free trial starts, identifying conversion bottlenecks."
 
 ### Owner Suggestion
+
 **Head of Product** or **Growth Lead**
 
 ---
@@ -291,6 +321,7 @@ ORDER BY 2 DESC;
 ## 7. Monthly User Count
 
 ### Query Template
+
 ```sql
 -- User count trend for a specific account
 SELECT
@@ -320,21 +351,25 @@ ORDER BY 1;
 ```
 
 ### Common Questions
+
 - **How many users does account X have?** Filter by account name
 - **Is user count growing or declining?** Compare month-over-month
 - **Which accounts have the fastest user growth?** Calculate % change MoM
 - **What's the average user count per account?** Group by account, average
 
 ### Known Gotchas
+
 - ⚠️ **Snapshot on last day of month** - Only counts users as of month-end
 - ⚠️ **Includes inactive users** - Filter by last_login if needed
 - ⚠️ **Invited users counted** - No distinction between invited and original
 - ⚠️ **Root org level** - Users are rolled up to parent organization
 
 ### Example Use Case
+
 "Monitor customer expansion by tracking monthly user count growth for enterprise accounts, identifying which customers are scaling up usage and may need capacity upgrades."
 
 ### Owner Suggestion
+
 **Head of Customer Success**
 
 ---
@@ -342,6 +377,7 @@ ORDER BY 1;
 ## 8. Signup Rate
 
 ### Query Template
+
 ```sql
 -- Overall signup rate by week
 SELECT
@@ -374,21 +410,25 @@ ORDER BY 4 DESC;
 ```
 
 ### Common Questions
+
 - **What's our current signup conversion rate?** Calculate signups / new visitors
 - **Which channel has the best signup rate?** Group by channel and compare
 - **Has signup rate improved after UX changes?** Compare before/after periods
 - **What's the typical time-to-signup?** Calculate datediff(signup_date, first_pageview_date)
 
 ### Known Gotchas
+
 - ⚠️ **Attribution window matters** - Use 30-day window for most cases
 - ⚠️ **Visitor ID matching** - Some visitors may not match due to cookies/tracking
 - ⚠️ **Exclude internal traffic** - Filter out builder.io domain
 - ⚠️ **New visitors only** - Uses first_pageviews, not all pageviews
 
 ### Example Use Case
+
 "Optimize landing page conversion by A/B testing different headlines and CTAs, measuring impact on signup rate for organic search traffic specifically."
 
 ### Owner Suggestion
+
 **Head of Marketing** or **Growth Lead**
 
 ---
@@ -396,6 +436,7 @@ ORDER BY 4 DESC;
 ## 9. New Visitors
 
 ### Query Template
+
 ```sql
 -- New visitors by day
 SELECT
@@ -422,21 +463,25 @@ LIMIT 50;
 ```
 
 ### Common Questions
+
 - **How many new visitors do we get per day?** Sum from daily query
 - **What percentage come from organic search?** Organic / total
 - **Which landing pages attract the most new visitors?** Group by landing_page_url
 - **How does new visitor count correlate with signups?** Join with signups
 
 ### Known Gotchas
+
 - ⚠️ **First pageview only** - Each visitor counted once, at first visit
 - ⚠️ **Cookie-based tracking** - Clearing cookies creates "new" visitor
 - ⚠️ **Channel attribution** - Uses last-click attribution model
 - ⚠️ **Bot traffic may be included** - Consider additional filtering
 
 ### Example Use Case
+
 "Measure the effectiveness of content marketing by tracking new visitor acquisition from blog posts, comparing SEO performance across different content topics."
 
 ### Owner Suggestion
+
 **Head of Marketing**
 
 ---
@@ -444,14 +489,15 @@ LIMIT 50;
 ## 10. % Users with ≥1 Session (Last 30 Days)
 
 ### Query Template
+
 ```sql
 -- Session engagement rate for all paid accounts
 SELECT
   ro.account_name,
   count(DISTINCT u.user_id) AS total_users,
-  count(DISTINCT CASE 
-    WHEN us.session_raw_date >= current_date - interval '30 days' 
-    THEN us.user_id 
+  count(DISTINCT CASE
+    WHEN us.session_raw_date >= current_date - interval '30 days'
+    THEN us.user_id
   END) AS active_users,
   round(
     count(DISTINCT CASE WHEN us.session_raw_date >= current_date - interval '30 days' THEN us.user_id END)::numeric
@@ -484,38 +530,42 @@ ORDER BY 1 DESC;
 ```
 
 ### Common Questions
+
 - **Which accounts have low engagement?** Filter for pct_active < 20%
 - **Is engagement improving over time?** Compare month-over-month
 - **What's the average engagement across all accounts?** Average pct_active
 - **How does engagement correlate with churn?** Join with churn events
 
 ### Known Gotchas
+
 - ⚠️ **30-day rolling window** - Dynamic window, updates daily
 - ⚠️ **Session definition varies** - Confirm what constitutes a "session"
 - ⚠️ **Includes all users** - Active and inactive accounts counted
 - ⚠️ **Denominator is total users** - Not just users who could have sessions
 
 ### Example Use Case
+
 "Identify at-risk enterprise accounts by monitoring the percentage of users with recent sessions. Accounts with <20% active users may need intervention to prevent churn."
 
 ### Owner Suggestion
+
 **Head of Customer Success** or **Head of Product**
 
 ---
 
 ## Summary: Quick Owner Assignment Guide
 
-| Metric | Suggested Owner |
-|--------|----------------|
-| Signups | Head of Marketing |
-| Traffic | Head of Marketing |
-| QLs | Head of Sales |
-| Pipeline | Head of Sales |
-| Current ARR | Head of Customer Success |
-| Self Serve Paid Subs | Head of Product |
-| Monthly User Count | Head of Customer Success |
-| Signup Rate | Head of Marketing |
-| New Visitors | Head of Marketing |
+| Metric                  | Suggested Owner          |
+| ----------------------- | ------------------------ |
+| Signups                 | Head of Marketing        |
+| Traffic                 | Head of Marketing        |
+| QLs                     | Head of Sales            |
+| Pipeline                | Head of Sales            |
+| Current ARR             | Head of Customer Success |
+| Self Serve Paid Subs    | Head of Product          |
+| Monthly User Count      | Head of Customer Success |
+| Signup Rate             | Head of Marketing        |
+| New Visitors            | Head of Marketing        |
 | % Users with ≥1 Session | Head of Customer Success |
 
 ---

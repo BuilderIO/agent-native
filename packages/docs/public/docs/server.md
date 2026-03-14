@@ -15,12 +15,12 @@ const app = createServer();
 
 ### Options
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `cors` | `CorsOptions \| false` | CORS config. Pass false to disable. |
-| `jsonLimit` | `string` | JSON body parser limit. Default: "50mb" |
-| `pingMessage` | `string` | Health check response. Default: env PING_MESSAGE or "pong" |
-| `disablePing` | `boolean` | Disable /api/ping endpoint |
+| Option        | Type                   | Description                                                |
+| ------------- | ---------------------- | ---------------------------------------------------------- |
+| `cors`        | `CorsOptions \| false` | CORS config. Pass false to disable.                        |
+| `jsonLimit`   | `string`               | JSON body parser limit. Default: "50mb"                    |
+| `pingMessage` | `string`               | Health check response. Default: env PING_MESSAGE or "pong" |
+| `disablePing` | `boolean`              | Disable /api/ping endpoint                                 |
 
 ## createFileWatcher(dir, options?)
 
@@ -35,9 +35,9 @@ const watcher = createFileWatcher("./data");
 
 ### Options
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `ignored` | `any` | Glob patterns or regex to ignore |
+| Option        | Type      | Description                                       |
+| ------------- | --------- | ------------------------------------------------- |
+| `ignored`     | `any`     | Glob patterns or regex to ignore                  |
 | `emitInitial` | `boolean` | Emit events for initial file scan. Default: false |
 
 ## createSSEHandler(watcher, options?)
@@ -45,7 +45,11 @@ const watcher = createFileWatcher("./data");
 Creates an Express route handler that streams file changes as Server-Sent Events:
 
 ```ts
-import { createServer, createFileWatcher, createSSEHandler } from "@agent-native/core";
+import {
+  createServer,
+  createFileWatcher,
+  createSSEHandler,
+} from "@agent-native/core";
 
 export function createAppServer() {
   const app = createServer();
@@ -65,8 +69,8 @@ Each SSE message is JSON: `{ "type": "change", "path": "data/file.json" }`
 
 ### Options
 
-| Option | Type | Description |
-|--------|------|-------------|
+| Option          | Type                        | Description                        |
+| --------------- | --------------------------- | ---------------------------------- |
 | `extraEmitters` | `Array<{ emitter, event }>` | Additional EventEmitters to stream |
 
 ## createProductionServer(app, options?)
@@ -83,8 +87,8 @@ createProductionServer(createAppServer());
 
 ### Options
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `port` | `number \| string` | Listen port. Default: env PORT or 3000 |
-| `spaDir` | `string` | Built SPA directory. Default: "dist/spa" |
-| `appName` | `string` | Name for log messages. Default: "Agent-Native" |
+| Option    | Type               | Description                                    |
+| --------- | ------------------ | ---------------------------------------------- |
+| `port`    | `number \| string` | Listen port. Default: env PORT or 3000         |
+| `spaDir`  | `string`           | Built SPA directory. Default: "dist/spa"       |
+| `appName` | `string`           | Name for log messages. Default: "Agent-Native" |

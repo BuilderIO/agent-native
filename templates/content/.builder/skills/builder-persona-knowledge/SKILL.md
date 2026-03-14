@@ -24,13 +24,13 @@ Use this skill when producing **targeted content** for a specific buyer:
 
 ## Persona Quick Reference
 
-| Persona | Shorthand | Reference File | Common Titles | Top 2 Recognition Signals |
-|---------|-----------|---------------|---------------|--------------------------|
-| Engineering Leaders | `exec-buyer` | `engineering-leaders.md` | CTO, VP of Engineering, Director of Engineering | Asks about enterprise security/compliance; Mentions Board reporting or proving ROI |
-| Champions | `champion` | `champions.md` | Senior/Staff/Principal Engineer, Frontend Lead, EM | Asks about code quality, linting, CI/CD; Skeptical, wants to see actual code output |
-| Design Platform/Systems Lead | `design-lead` | `design-platform-leads.md` | Design Platform Lead, Design Systems Lead, UX Engineering Lead | Talks about scaling design or design-to-engineering gap; Mentions failed AI tool rollouts (Cursor, Figma Make) |
-| Influencers | `influencer` | `influencers.md` | CPO, VP of Product/Design, Head of Product/Design | CEO/Board pressure to ship faster; Frames problems as cross-functional friction |
-| Core Contributors | `core-contributor` | `core-contributors.md` | Senior PM, Senior UX Designer, Marketing Manager | Complains about waiting on engineering; Blocked by other teams, wants to self-serve |
+| Persona                      | Shorthand          | Reference File             | Common Titles                                                  | Top 2 Recognition Signals                                                                                      |
+| ---------------------------- | ------------------ | -------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Engineering Leaders          | `exec-buyer`       | `engineering-leaders.md`   | CTO, VP of Engineering, Director of Engineering                | Asks about enterprise security/compliance; Mentions Board reporting or proving ROI                             |
+| Champions                    | `champion`         | `champions.md`             | Senior/Staff/Principal Engineer, Frontend Lead, EM             | Asks about code quality, linting, CI/CD; Skeptical, wants to see actual code output                            |
+| Design Platform/Systems Lead | `design-lead`      | `design-platform-leads.md` | Design Platform Lead, Design Systems Lead, UX Engineering Lead | Talks about scaling design or design-to-engineering gap; Mentions failed AI tool rollouts (Cursor, Figma Make) |
+| Influencers                  | `influencer`       | `influencers.md`           | CPO, VP of Product/Design, Head of Product/Design              | CEO/Board pressure to ship faster; Frames problems as cross-functional friction                                |
+| Core Contributors            | `core-contributor` | `core-contributors.md`     | Senior PM, Senior UX Designer, Marketing Manager               | Complains about waiting on engineering; Blocked by other teams, wants to self-serve                            |
 
 ## Persona Selection Process
 
@@ -43,6 +43,7 @@ How to identify which persona a deliverable targets:
 **Path 3 -- Ambiguous:** Multiple personas match or no clear match → ask the user:
 
 > "Who is the primary audience for this deliverable?"
+>
 > 1. Engineering Leaders (CTOs, VPs of Engineering)
 > 2. Champions (Senior/Staff Engineers, Frontend Leads)
 > 3. Design Platform/Systems Lead (Design Systems, UX Engineering)
@@ -60,11 +61,11 @@ How many reference files to read based on persona count:
 - **3+ personas or "all"** → Read ONLY this Quick Reference table, not individual files. Summarize from the table.
 - **Default maximum: 2 reference files per deliverable.** If more are needed, the deliverable should be split.
 
-| Scenario | Files Loaded | Estimated Words |
-|----------|-------------|-----------------|
-| Single-persona email sequence | SKILL.md + 1 reference | ~850 |
-| Two-persona ABM campaign brief | SKILL.md + 2 references | ~1,650 |
-| Generic review (persona check only) | SKILL.md only | ~250 |
+| Scenario                            | Files Loaded            | Estimated Words |
+| ----------------------------------- | ----------------------- | --------------- |
+| Single-persona email sequence       | SKILL.md + 1 reference  | ~850            |
+| Two-persona ABM campaign brief      | SKILL.md + 2 references | ~1,650          |
+| Generic review (persona check only) | SKILL.md only           | ~250            |
 
 ## Guidelines
 

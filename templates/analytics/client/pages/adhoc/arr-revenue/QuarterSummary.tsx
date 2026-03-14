@@ -33,7 +33,7 @@ export function QuarterSummary({ fiscalYear }: QuarterSummaryProps) {
   const sql = quarterSummaryQuery(fiscalYear);
   const { data, isLoading } = useMetricsQuery(
     ["arr-quarter-summary", String(fiscalYear)],
-    sql
+    sql,
   );
 
   const rows = useMemo(() => {
@@ -54,7 +54,7 @@ export function QuarterSummary({ fiscalYear }: QuarterSummaryProps) {
         revenue_in: r.revenue_in,
         churn_out: -r.churn_out,
       })),
-    [rows]
+    [rows],
   );
 
   return (
@@ -151,10 +151,7 @@ export function QuarterSummary({ fiscalYear }: QuarterSummaryProps) {
                   {rows.map((r) => {
                     const isPos = r.net >= 0;
                     return (
-                      <tr
-                        key={r.quarter}
-                        className="border-b border-border/50"
-                      >
+                      <tr key={r.quarter} className="border-b border-border/50">
                         <td className="py-2 px-3 font-medium">{r.quarter}</td>
                         <td className="py-2 px-3 text-right text-emerald-500">
                           +{fmtFull(r.revenue_in)}
@@ -165,7 +162,7 @@ export function QuarterSummary({ fiscalYear }: QuarterSummaryProps) {
                         <td
                           className={cn(
                             "py-2 px-3 text-right font-medium",
-                            isPos ? "text-emerald-500" : "text-red-500"
+                            isPos ? "text-emerald-500" : "text-red-500",
                           )}
                         >
                           {isPos ? "+" : ""}

@@ -18,21 +18,36 @@
 import type React from "react";
 import type { AnimationTrack } from "@/types";
 import {
-  Card, type CardProps,
-  Button, type ButtonProps,
-  CodePanel, type CodePanelProps,
-  StandardSidebar, type StandardSidebarProps,
-  ProjectsSidebar, type ProjectsSidebarProps,
-  ProjectsScreen, type ProjectsScreenProps,
-  ProjectsLayout, type ProjectsLayoutProps,
-  CreateProjectPrompt, type CreateProjectPromptProps,
-  ProjectsView, type ProjectsViewProps,
-  ProjectCard, type ProjectCardProps,
-  SecondaryButton, type SecondaryButtonProps,
-  PrimaryButton, type PrimaryButtonProps,
-  SectionHeader, type SectionHeaderProps,
-  FileItem, type FileItemProps,
-  FolderItem, type FolderItemProps,
+  Card,
+  type CardProps,
+  Button,
+  type ButtonProps,
+  CodePanel,
+  type CodePanelProps,
+  StandardSidebar,
+  type StandardSidebarProps,
+  ProjectsSidebar,
+  type ProjectsSidebarProps,
+  ProjectsScreen,
+  type ProjectsScreenProps,
+  ProjectsLayout,
+  type ProjectsLayoutProps,
+  CreateProjectPrompt,
+  type CreateProjectPromptProps,
+  ProjectsView,
+  type ProjectsViewProps,
+  ProjectCard,
+  type ProjectCardProps,
+  SecondaryButton,
+  type SecondaryButtonProps,
+  PrimaryButton,
+  type PrimaryButtonProps,
+  SectionHeader,
+  type SectionHeaderProps,
+  FileItem,
+  type FileItemProps,
+  FolderItem,
+  type FolderItemProps,
   // Slack Components (Interactive Wrappers)
   SlackSearchInput,
   SlackNavItem,
@@ -55,26 +70,26 @@ import { createCameraTrack, createCursorTrack } from "./trackHelpers";
 function makePreviewCursorTrack(
   cx: number,
   cy: number,
-  opts: { clickFrame?: number; fadeOpacity?: boolean } = {}
+  opts: { clickFrame?: number; fadeOpacity?: boolean } = {},
 ): AnimationTrack {
   const { clickFrame = 60, fadeOpacity = false } = opts;
   const track = createCursorTrack(150, { startX: 200, startY: 200 });
 
-  track.animatedProps.find(p => p.property === "x")!.keyframes = [
+  track.animatedProps.find((p) => p.property === "x")!.keyframes = [
     { frame: 0, value: "200" },
-    { frame: 15, value: String(cx) },  // Arrive at 0.5s
-    { frame: 90, value: String(cx) },  // Stay
+    { frame: 15, value: String(cx) }, // Arrive at 0.5s
+    { frame: 90, value: String(cx) }, // Stay
     { frame: 120, value: "1720" },
     { frame: 150, value: "1720" },
   ];
-  track.animatedProps.find(p => p.property === "y")!.keyframes = [
+  track.animatedProps.find((p) => p.property === "y")!.keyframes = [
     { frame: 0, value: "200" },
     { frame: 15, value: String(cy) },
     { frame: 90, value: String(cy) },
     { frame: 120, value: "200" },
     { frame: 150, value: "200" },
   ];
-  track.animatedProps.find(p => p.property === "isClicking")!.keyframes = [
+  track.animatedProps.find((p) => p.property === "isClicking")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: clickFrame - 1, value: "0" },
     { frame: clickFrame, value: "1" },
@@ -82,7 +97,7 @@ function makePreviewCursorTrack(
     { frame: 150, value: "0" },
   ];
   if (fadeOpacity) {
-    track.animatedProps.find(p => p.property === "opacity")!.keyframes = [
+    track.animatedProps.find((p) => p.property === "opacity")!.keyframes = [
       { frame: 0, value: "0" },
       { frame: 5, value: "0" },
       { frame: 15, value: "1" },
@@ -167,12 +182,14 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "card",
     title: "Card",
-    description: "A simple interactive card component with text content. Demonstrates hover and click animations.",
+    description:
+      "A simple interactive card component with text content. Demonstrates hover and click animations.",
     category: "Organisms",
     component: Card,
     defaultProps: {
       title: "Interactive Card",
-      description: "Hover over me to see the scale animation. Click to see the press effect!",
+      description:
+        "Hover over me to see the scale animation. Click to see the press effect!",
       backgroundColor: "#1e293b",
       textColor: "#f1f5f9",
     },
@@ -186,7 +203,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
       {
         name: "description",
         type: "string",
-        defaultValue: "This is a card component with hover and click animations.",
+        defaultValue:
+          "This is a card component with hover and click animations.",
         description: "The description text displayed below the title",
       },
       {
@@ -214,7 +232,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "button",
     title: "Button",
-    description: "An interactive button component. Demonstrates hover and click animations with scale and brightness effects.",
+    description:
+      "An interactive button component. Demonstrates hover and click animations with scale and brightness effects.",
     category: "Atoms",
     component: Button,
     defaultProps: {
@@ -244,7 +263,9 @@ export const libraryComponents: LibraryComponentEntry[] = [
     ],
     tracks: [
       createCameraTrack(150),
-      makePreviewCursorTrack(1920 / 2 - 16, 1080 / 2 - 16, { fadeOpacity: true }),
+      makePreviewCursorTrack(1920 / 2 - 16, 1080 / 2 - 16, {
+        fadeOpacity: true,
+      }),
     ],
     durationInFrames: 150,
     fps: 30,
@@ -254,7 +275,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "secondary-button",
     title: "Secondary Button",
-    description: "An outline-style button with optional icon. Used for secondary actions like Share or Cancel buttons.",
+    description:
+      "An outline-style button with optional icon. Used for secondary actions like Share or Cancel buttons.",
     category: "Atoms",
     component: SecondaryButton,
     defaultProps: {
@@ -310,7 +332,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "primary-button",
     title: "Primary Button",
-    description: "A solid background button with optional icon. Used for primary CTAs like Send PR or Push to Remote.",
+    description:
+      "A solid background button with optional icon. Used for primary CTAs like Send PR or Push to Remote.",
     category: "Atoms",
     component: PrimaryButton,
     defaultProps: {
@@ -333,7 +356,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
       {
         name: "icon",
         type: "string",
-        defaultValue: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/81e7eb620e52aae529258200f6dff2cc38027cd8?placeholderIfAbsent=true",
+        defaultValue:
+          "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/81e7eb620e52aae529258200f6dff2cc38027cd8?placeholderIfAbsent=true",
         description: "Optional icon image URL",
       },
       {
@@ -373,7 +397,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "section-header",
     title: "Section Header",
-    description: "A section header with icon and uppercase text. Used for consistent labeling like ALL CHANGES, ALL FILES, etc.",
+    description:
+      "A section header with icon and uppercase text. Used for consistent labeling like ALL CHANGES, ALL FILES, etc.",
     category: "Atoms",
     component: SectionHeader,
     defaultProps: {
@@ -387,7 +412,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
       {
         name: "icon",
         type: "string",
-        defaultValue: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/f872b16106ef6bbaea80fcefece2392325659d2c?placeholderIfAbsent=true",
+        defaultValue:
+          "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/f872b16106ef6bbaea80fcefece2392325659d2c?placeholderIfAbsent=true",
         description: "Icon image URL",
       },
       {
@@ -427,7 +453,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "file-item",
     title: "File Item",
-    description: "A file list item with icon, name, line count badge, and file path. Demonstrates hover brightness effect.",
+    description:
+      "A file list item with icon, name, line count badge, and file path. Demonstrates hover brightness effect.",
     category: "Atoms",
     component: FileItem,
     defaultProps: {
@@ -442,7 +469,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
       {
         name: "icon",
         type: "string",
-        defaultValue: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/10ff8b681a169f3c2b0c90b4fd672a0e7173771b?placeholderIfAbsent=true",
+        defaultValue:
+          "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/10ff8b681a169f3c2b0c90b4fd672a0e7173771b?placeholderIfAbsent=true",
         description: "File type icon image URL",
       },
       {
@@ -476,7 +504,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "folder-item",
     title: "Folder Item",
-    description: "A collapsible folder item with chevron and folder icon. Used in file explorer trees.",
+    description:
+      "A collapsible folder item with chevron and folder icon. Used in file explorer trees.",
     category: "Atoms",
     component: FolderItem,
     defaultProps: {
@@ -511,7 +540,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "code-panel",
     title: "Code Panel",
-    description: "A complete code explorer panel showing file changes and project structure. Demonstrates atomic design composition with interactive file items, folders, and action buttons.",
+    description:
+      "A complete code explorer panel showing file changes and project structure. Demonstrates atomic design composition with interactive file items, folders, and action buttons.",
     category: "Organisms",
     component: CodePanel,
     defaultProps: {
@@ -537,7 +567,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "standard-sidebar",
     title: "Standard Sidebar",
-    description: "A vertical navigation sidebar showing top-level application routes like /projects, /content, and /assets. Demonstrates Builder.io navigation patterns.",
+    description:
+      "A vertical navigation sidebar showing top-level application routes like /projects, /content, and /assets. Demonstrates Builder.io navigation patterns.",
     category: "Organisms",
     component: StandardSidebar,
     defaultProps: {
@@ -577,7 +608,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "projects-sidebar",
     title: "Projects Sidebar",
-    description: "A vertical navigation sidebar for the Projects tool. Demonstrates selected state with larger, rounded icon and right border.",
+    description:
+      "A vertical navigation sidebar for the Projects tool. Demonstrates selected state with larger, rounded icon and right border.",
     category: "Organisms",
     component: ProjectsSidebar,
     defaultProps: {
@@ -617,7 +649,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "project-card",
     title: "Project Card",
-    description: "A card displaying project information including preview, branches, and actions. Shows project name, last edited time, branch list with avatars and status icons.",
+    description:
+      "A card displaying project information including preview, branches, and actions. Shows project name, last edited time, branch list with avatars and status icons.",
     category: "Molecules",
     component: ProjectCard,
     defaultProps: {
@@ -642,7 +675,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
       {
         name: "previewImage",
         type: "string",
-        defaultValue: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/47e7939cce14e436f6a642c4d9bc854b51921c30?placeholderIfAbsent=true",
+        defaultValue:
+          "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/47e7939cce14e436f6a642c4d9bc854b51921c30?placeholderIfAbsent=true",
         description: "Project preview/thumbnail image URL",
       },
       {
@@ -664,7 +698,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "create-project-prompt",
     title: "Create Project Prompt",
-    description: "The 'What should we build?' prompt section with template selection and creation controls. Includes Ask Builder input, framework selector, and action buttons.",
+    description:
+      "The 'What should we build?' prompt section with template selection and creation controls. Includes Ask Builder input, framework selector, and action buttons.",
     category: "Organisms",
     component: CreateProjectPrompt,
     defaultProps: {
@@ -704,7 +739,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "projects-view",
     title: "Projects View",
-    description: "The main projects list view controls with tabs, search, and grid/list toggle. Includes Projects/Branches/Pull Requests tabs and search functionality.",
+    description:
+      "The main projects list view controls with tabs, search, and grid/list toggle. Includes Projects/Branches/Pull Requests tabs and search functionality.",
     category: "Organisms",
     component: ProjectsView,
     defaultProps: {
@@ -744,7 +780,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "projects-screen",
     title: "Projects Screen",
-    description: "Complete projects screen layout combining the 'What should we build?' prompt and the projects grid with multiple project cards. Full-featured projects dashboard view.",
+    description:
+      "Complete projects screen layout combining the 'What should we build?' prompt and the projects grid with multiple project cards. Full-featured projects dashboard view.",
     category: "Organisms",
     component: ProjectsScreen,
     defaultProps: {},
@@ -774,7 +811,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "projects-layout",
     title: "Projects Layout",
-    description: "Complete Builder.io projects interface with StandardSidebar navigation and ProjectsScreen content. Demonstrates full application layout with sidebar and main content area.",
+    description:
+      "Complete Builder.io projects interface with StandardSidebar navigation and ProjectsScreen content. Demonstrates full application layout with sidebar and main content area.",
     category: "Organisms",
     component: ProjectsLayout,
     defaultProps: {
@@ -812,7 +850,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "slack-search-input",
     title: "Slack Search Input",
-    description: "Slack-style search bar with hover border glow effect. Interactive input field used in Slack's top header.",
+    description:
+      "Slack-style search bar with hover border glow effect. Interactive input field used in Slack's top header.",
     category: "Atoms",
     component: SlackSearchInput,
     defaultProps: {
@@ -845,7 +884,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "slack-nav-item",
     title: "Slack Nav Item",
-    description: "Navigation button for Slack's left sidebar. Shows icon, label, and active state with scale-on-hover animation.",
+    description:
+      "Navigation button for Slack's left sidebar. Shows icon, label, and active state with scale-on-hover animation.",
     category: "Atoms",
     component: SlackNavItem,
     defaultProps: {
@@ -858,7 +898,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
       {
         name: "icon",
         type: "string",
-        defaultValue: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/9373ffc5818d27d9209df837578bf8fcb54420c1",
+        defaultValue:
+          "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/9373ffc5818d27d9209df837578bf8fcb54420c1",
         description: "Icon image URL",
       },
       {
@@ -886,7 +927,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "slack-channel-item",
     title: "Slack Channel Item",
-    description: "Channel list item for Slack's middle sidebar. Shows channel icon and name with subtle hover effect.",
+    description:
+      "Channel list item for Slack's middle sidebar. Shows channel icon and name with subtle hover effect.",
     category: "Atoms",
     component: SlackChannelItem,
     defaultProps: {
@@ -899,7 +941,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
       {
         name: "icon",
         type: "string",
-        defaultValue: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/9347f54e1f68efe048dd55867511b18da39a18a4",
+        defaultValue:
+          "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/9347f54e1f68efe048dd55867511b18da39a18a4",
         description: "Channel icon URL",
       },
       {
@@ -927,11 +970,13 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "slack-dm-item",
     title: "Slack DM Item",
-    description: "Direct message list item with user avatar and name. Used in Slack's middle sidebar DM section.",
+    description:
+      "Direct message list item with user avatar and name. Used in Slack's middle sidebar DM section.",
     category: "Atoms",
     component: SlackDMItem,
     defaultProps: {
-      avatar: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/151a7d6433e4c148d7b8654cde84721864e79b7f",
+      avatar:
+        "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/151a7d6433e4c148d7b8654cde84721864e79b7f",
       name: "Amelia Gordon 🍎",
       isActive: false,
       hoverProgress: 0,
@@ -940,7 +985,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
       {
         name: "avatar",
         type: "string",
-        defaultValue: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/151a7d6433e4c148d7b8654cde84721864e79b7f",
+        defaultValue:
+          "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/151a7d6433e4c148d7b8654cde84721864e79b7f",
         description: "User avatar image URL",
       },
       {
@@ -962,14 +1008,17 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "slack-message-card",
     title: "Slack Message Card",
-    description: "Complete message card with avatar, author, timestamp, content, reactions, and thread info. Main chat message component.",
+    description:
+      "Complete message card with avatar, author, timestamp, content, reactions, and thread info. Main chat message component.",
     category: "Molecules",
     component: SlackMessageCard,
     defaultProps: {
-      avatar: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/151a7d6433e4c148d7b8654cde84721864e79b7f",
+      avatar:
+        "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/151a7d6433e4c148d7b8654cde84721864e79b7f",
       author: "Amelia Gordon 🍎",
       timestamp: "Feb. 11th at 10:24 AM",
-      content: "Yesterday our dev team launched a new feature for users who needed to migrate their accounts from the old infrastructure. We are seeing massive performance improvements, up 23%. Thanks team! 🎉",
+      content:
+        "Yesterday our dev team launched a new feature for users who needed to migrate their accounts from the old infrastructure. We are seeing massive performance improvements, up 23%. Thanks team! 🎉",
       reactions: [
         { emoji: "🎉", count: 2 },
         { emoji: "🔥", count: 3 },
@@ -982,7 +1031,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
       {
         name: "avatar",
         type: "string",
-        defaultValue: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/151a7d6433e4c148d7b8654cde84721864e79b7f",
+        defaultValue:
+          "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/151a7d6433e4c148d7b8654cde84721864e79b7f",
         description: "Author avatar URL",
       },
       {
@@ -1016,7 +1066,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "slack-top-header",
     title: "Slack Top Header",
-    description: "Slack's top navigation bar with navigation icons, centered search bar, and action buttons.",
+    description:
+      "Slack's top navigation bar with navigation icons, centered search bar, and action buttons.",
     category: "Molecules",
     component: SlackTopHeader,
     defaultProps: {
@@ -1049,7 +1100,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "slack-left-sidebar",
     title: "Slack Left Sidebar",
-    description: "Slack's left navigation sidebar with app logo, nav items (Home, DMs, Activity), and user avatar.",
+    description:
+      "Slack's left navigation sidebar with app logo, nav items (Home, DMs, Activity), and user avatar.",
     category: "Organisms",
     component: SlackLeftSidebar,
     defaultProps: {
@@ -1083,7 +1135,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "slack-middle-sidebar",
     title: "Slack Middle Sidebar",
-    description: "Slack's middle sidebar with workspace header, navigation links, channels, DMs, and apps sections.",
+    description:
+      "Slack's middle sidebar with workspace header, navigation links, channels, DMs, and apps sections.",
     category: "Organisms",
     component: SlackMiddleSidebar,
     defaultProps: {
@@ -1118,7 +1171,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "slack-main-content",
     title: "Slack Main Content",
-    description: "Slack's main message feed area with channel header, tabs (Messages/Pins/Files), message list, and input.",
+    description:
+      "Slack's main message feed area with channel header, tabs (Messages/Pins/Files), message list, and input.",
     category: "Organisms",
     component: SlackMainContent,
     defaultProps: {
@@ -1152,7 +1206,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "slack-thread-panel",
     title: "Slack Thread Panel",
-    description: "Slack's right thread panel showing conversation thread with messages, Builder.io bot response, and reply input.",
+    description:
+      "Slack's right thread panel showing conversation thread with messages, Builder.io bot response, and reply input.",
     category: "Organisms",
     component: SlackThreadPanel,
     defaultProps: {
@@ -1185,7 +1240,8 @@ export const libraryComponents: LibraryComponentEntry[] = [
   {
     id: "slack-ui",
     title: "Slack UI (Complete)",
-    description: "Complete Slack interface layout combining all components: top header, left sidebar, middle sidebar, main content, and thread panel. Full Slack app recreation.",
+    description:
+      "Complete Slack interface layout combining all components: top header, left sidebar, middle sidebar, main content, and thread panel. Full Slack app recreation.",
     category: "Organisms",
     component: SlackUI,
     defaultProps: {

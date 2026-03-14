@@ -7,24 +7,24 @@ BigQuery table for **content SDK analytics** (impressions, clicks, conversions).
 
 ## Columns
 
-| Column               | Type      | Description                                      |
-|----------------------|-----------|--------------------------------------------------|
-| `TYPE`               | STRING    | Event type: `impression`, `click`, `conversion`  |
-| `CONTENT_ID`         | STRING    | Builder content entry ID                         |
-| `OWNER_ID`           | STRING    | Organization public API key                      |
-| `SESSION_ID`         | STRING    | Visitor session identifier                       |
-| `VISITOR_ID`         | STRING    | Persistent visitor identifier                    |
-| `DATE`               | TIMESTAMP | Event timestamp                                  |
-| `URL_PATH`           | STRING    | Page URL path where event occurred               |
-| `BROWSER_NAME`       | STRING    | Browser name (Chrome, Firefox, etc.)             |
-| `DEVICE_TYPE`        | STRING    | Device type (desktop, mobile, tablet)            |
-| `OPERATING_SYSTEM`   | STRING    | OS name                                          |
-| `TEST_VARIATION_ID`  | STRING    | A/B test variation ID (nullable)                 |
-| `AMOUNT`             | FLOAT     | Conversion amount (for conversion events)        |
-| `METADATA`           | STRING    | JSON metadata blob                               |
-| `UNIQUE`             | BOOLEAN   | Whether this is a unique event per session        |
-| `ID`                 | STRING    | Unique event ID                                  |
-| `_PARTITIONTIME`     | TIMESTAMP | BigQuery partition time (use for date filtering)  |
+| Column              | Type      | Description                                      |
+| ------------------- | --------- | ------------------------------------------------ |
+| `TYPE`              | STRING    | Event type: `impression`, `click`, `conversion`  |
+| `CONTENT_ID`        | STRING    | Builder content entry ID                         |
+| `OWNER_ID`          | STRING    | Organization public API key                      |
+| `SESSION_ID`        | STRING    | Visitor session identifier                       |
+| `VISITOR_ID`        | STRING    | Persistent visitor identifier                    |
+| `DATE`              | TIMESTAMP | Event timestamp                                  |
+| `URL_PATH`          | STRING    | Page URL path where event occurred               |
+| `BROWSER_NAME`      | STRING    | Browser name (Chrome, Firefox, etc.)             |
+| `DEVICE_TYPE`       | STRING    | Device type (desktop, mobile, tablet)            |
+| `OPERATING_SYSTEM`  | STRING    | OS name                                          |
+| `TEST_VARIATION_ID` | STRING    | A/B test variation ID (nullable)                 |
+| `AMOUNT`            | FLOAT     | Conversion amount (for conversion events)        |
+| `METADATA`          | STRING    | JSON metadata blob                               |
+| `UNIQUE`            | BOOLEAN   | Whether this is a unique event per session       |
+| `ID`                | STRING    | Unique event ID                                  |
+| `_PARTITIONTIME`    | TIMESTAMP | BigQuery partition time (use for date filtering) |
 
 ## Partitioning
 
@@ -33,6 +33,7 @@ Partitioned by `_PARTITIONTIME`. Always include `_PARTITIONTIME` filters to avoi
 ## Example Queries
 
 ### Daily impressions (last 30 days)
+
 ```sql
 SELECT
   TIMESTAMP_SECONDS(UNIX_SECONDS(DATE) - MOD(UNIX_SECONDS(DATE), 86400)) AS day,
@@ -46,6 +47,7 @@ ORDER BY day DESC
 ```
 
 ### Unique visitors by day
+
 ```sql
 SELECT
   TIMESTAMP_SECONDS(UNIX_SECONDS(DATE) - MOD(UNIX_SECONDS(DATE), 86400)) AS day,
@@ -58,6 +60,7 @@ ORDER BY day DESC
 ```
 
 ### Top content by impressions
+
 ```sql
 SELECT
   CONTENT_ID,
@@ -73,6 +76,7 @@ LIMIT 20
 ```
 
 ### Click-through rate by content
+
 ```sql
 WITH impressions AS (
   SELECT CONTENT_ID, COUNT(*) AS count_impressions
@@ -102,6 +106,7 @@ LIMIT 20
 ```
 
 ### Device breakdown
+
 ```sql
 SELECT
   DEVICE_TYPE,
@@ -115,6 +120,7 @@ ORDER BY events DESC
 ```
 
 ### Browser breakdown
+
 ```sql
 SELECT
   BROWSER_NAME,

@@ -135,7 +135,12 @@ export const ProjectsView: React.FC<ProjectsViewProps> = (props) => {
             <img
               src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/17a4002ff730ead5b53d195a0a039a6923058dd4?placeholderIfAbsent=true"
               alt=""
-              style={{ width: 16, aspectRatio: 1, objectFit: "contain", cursor: "pointer" }}
+              style={{
+                width: 16,
+                aspectRatio: 1,
+                objectFit: "contain",
+                cursor: "pointer",
+              }}
             />
           </div>
 

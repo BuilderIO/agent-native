@@ -1,5 +1,14 @@
 import { useState, useRef, useEffect } from "react";
-import { Save, ChevronDown, Edit2, Trash2, Check, X, RefreshCw, FileText } from "lucide-react";
+import {
+  Save,
+  ChevronDown,
+  Edit2,
+  Trash2,
+  Check,
+  X,
+  RefreshCw,
+  FileText,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useImagePresets } from "@/hooks/use-image-presets";
 
@@ -8,17 +17,24 @@ interface PresetManagerProps {
   onLoadPreset: (paths: string[]) => void;
 }
 
-export function PresetManager({ selectedPaths, onLoadPreset }: PresetManagerProps) {
+export function PresetManager({
+  selectedPaths,
+  onLoadPreset,
+}: PresetManagerProps) {
   const { presets, savePreset, deletePreset, updatePreset } = useImagePresets();
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [presetName, setPresetName] = useState("");
   const [editName, setEditName] = useState("");
-  const [editingInstructionsId, setEditingInstructionsId] = useState<string | null>(null);
+  const [editingInstructionsId, setEditingInstructionsId] = useState<
+    string | null
+  >(null);
   const [editInstructions, setEditInstructions] = useState("");
   const instructionsRef = useRef<HTMLTextAreaElement>(null);
-  const [lastLoadedPresetId, setLastLoadedPresetId] = useState<string | null>(null);
+  const [lastLoadedPresetId, setLastLoadedPresetId] = useState<string | null>(
+    null,
+  );
   const inputRef = useRef<HTMLInputElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -27,12 +43,15 @@ export function PresetManager({ selectedPaths, onLoadPreset }: PresetManagerProp
   const activePreset = presets.find(
     (p) =>
       selectedPaths.length === p.paths.length &&
-      p.paths.every((path) => selectedPaths.includes(path))
+      p.paths.every((path) => selectedPaths.includes(path)),
   );
 
   // Detect if selection has been modified from the last loaded preset
-  const lastLoadedPreset = lastLoadedPresetId ? presets.find(p => p.id === lastLoadedPresetId) : null;
-  const selectionModified = lastLoadedPreset && !activePreset && selectedPaths.length > 0;
+  const lastLoadedPreset = lastLoadedPresetId
+    ? presets.find((p) => p.id === lastLoadedPresetId)
+    : null;
+  const selectionModified =
+    lastLoadedPreset && !activePreset && selectedPaths.length > 0;
 
   useEffect(() => {
     if (showSaveDialog && inputRef.current) {
@@ -67,7 +86,7 @@ export function PresetManager({ selectedPaths, onLoadPreset }: PresetManagerProp
     setShowSaveDialog(false);
   };
 
-  const handleLoadOrClear = (preset: typeof presets[0]) => {
+  const handleLoadOrClear = (preset: (typeof presets)[0]) => {
     // If this preset is already active, clear selection
     if (activePreset?.id === preset.id) {
       onLoadPreset([]);
@@ -85,12 +104,12 @@ export function PresetManager({ selectedPaths, onLoadPreset }: PresetManagerProp
     // After update, the activePreset check will match again
   };
 
-  const handleEdit = (preset: typeof presets[0]) => {
+  const handleEdit = (preset: (typeof presets)[0]) => {
     setEditingId(preset.id);
     setEditName(preset.name);
   };
 
-  const handleEditInstructions = (preset: typeof presets[0]) => {
+  const handleEditInstructions = (preset: (typeof presets)[0]) => {
     setEditingInstructionsId(preset.id);
     setEditInstructions(preset.instructions || "");
     setTimeout(() => instructionsRef.current?.focus(), 50);
@@ -127,14 +146,16 @@ export function PresetManager({ selectedPaths, onLoadPreset }: PresetManagerProp
               "flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded-md border border-border transition-colors",
               activePreset
                 ? "bg-foreground text-background"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted",
             )}
           >
             {activePreset ? (
               <>
                 <Check size={10} />
                 {activePreset.name}
-                <span className="text-[10px] opacity-60">({activePreset.paths.length})</span>
+                <span className="text-[10px] opacity-60">
+                  ({activePreset.paths.length})
+                </span>
               </>
             ) : (
               "Presets"
@@ -155,7 +176,7 @@ export function PresetManager({ selectedPaths, onLoadPreset }: PresetManagerProp
                       key={preset.id}
                       className={cn(
                         "group rounded-md transition-colors",
-                        isActive && !isEditing && "bg-muted"
+                        isActive && !isEditing && "bg-muted",
                       )}
                     >
                       {isEditing ? (
@@ -198,8 +219,15 @@ export function PresetManager({ selectedPaths, onLoadPreset }: PresetManagerProp
                             onClick={() => handleLoadOrClear(preset)}
                             className="flex-1 flex items-center gap-2 px-2 py-1.5 text-left text-[11px] hover:bg-muted rounded-md transition-colors"
                           >
-                            {isActive && <Check size={10} className="text-foreground" />}
-                            <span className={cn("font-medium", isActive && "text-foreground")}>
+                            {isActive && (
+                              <Check size={10} className="text-foreground" />
+                            )}
+                            <span
+                              className={cn(
+                                "font-medium",
+                                isActive && "text-foreground",
+                              )}
+                            >
                               {preset.name}
                             </span>
                             <span className="text-[10px] text-muted-foreground ml-auto">
@@ -211,9 +239,15 @@ export function PresetManager({ selectedPaths, onLoadPreset }: PresetManagerProp
                               onClick={() => handleEditInstructions(preset)}
                               className={cn(
                                 "p-1 rounded hover:bg-muted",
-                                preset.instructions ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                                preset.instructions
+                                  ? "text-foreground"
+                                  : "text-muted-foreground hover:text-foreground",
                               )}
-                              title={preset.instructions ? "Edit instructions" : "Add instructions"}
+                              title={
+                                preset.instructions
+                                  ? "Edit instructions"
+                                  : "Add instructions"
+                              }
                             >
                               <FileText size={10} />
                             </button>
@@ -240,7 +274,9 @@ export function PresetManager({ selectedPaths, onLoadPreset }: PresetManagerProp
                           <textarea
                             ref={instructionsRef}
                             value={editInstructions}
-                            onChange={(e) => setEditInstructions(e.target.value)}
+                            onChange={(e) =>
+                              setEditInstructions(e.target.value)
+                            }
                             onKeyDown={(e) => {
                               if (e.key === "Escape") {
                                 setEditingInstructionsId(null);
@@ -271,13 +307,14 @@ export function PresetManager({ selectedPaths, onLoadPreset }: PresetManagerProp
                         </div>
                       )}
                       {/* Show existing instructions inline */}
-                      {preset.instructions && editingInstructionsId !== preset.id && (
-                        <div className="px-2 pb-1.5">
-                          <p className="text-[10px] text-muted-foreground/70 leading-relaxed line-clamp-2">
-                            {preset.instructions}
-                          </p>
-                        </div>
-                      )}
+                      {preset.instructions &&
+                        editingInstructionsId !== preset.id && (
+                          <div className="px-2 pb-1.5">
+                            <p className="text-[10px] text-muted-foreground/70 leading-relaxed line-clamp-2">
+                              {preset.instructions}
+                            </p>
+                          </div>
+                        )}
                     </div>
                   );
                 })}

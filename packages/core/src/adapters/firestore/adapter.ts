@@ -1,4 +1,9 @@
-import type { FileSyncAdapter, FileRecord, FileChange, Unsubscribe } from "../sync/types.js";
+import type {
+  FileSyncAdapter,
+  FileRecord,
+  FileChange,
+  Unsubscribe,
+} from "../sync/types.js";
 
 // ---------------------------------------------------------------------------
 // Minimal Firestore interfaces (avoids hard firebase-admin dependency)
@@ -47,7 +52,10 @@ export interface FirestoreQuerySnapshot {
 export class FirestoreFileSyncAdapter implements FileSyncAdapter {
   constructor(private getCollection: () => FirestoreCollection) {}
 
-  async query(appId: string, ownerId: string): Promise<{ id: string; data: FileRecord }[]> {
+  async query(
+    appId: string,
+    ownerId: string,
+  ): Promise<{ id: string; data: FileRecord }[]> {
     const snapshot = await this.getCollection()
       .where("app", "==", appId)
       .where("ownerId", "==", ownerId)
@@ -82,16 +90,13 @@ export class FirestoreFileSyncAdapter implements FileSyncAdapter {
     return this.getCollection()
       .where("app", "==", appId)
       .where("ownerId", "==", ownerId)
-      .onSnapshot(
-        (snapshot) => {
-          const changes: FileChange[] = snapshot.docChanges().map((change) => ({
-            type: change.type,
-            id: change.doc.id,
-            data: change.doc.data() as FileRecord,
-          }));
-          onChange(changes);
-        },
-        onError,
-      );
+      .onSnapshot((snapshot) => {
+        const changes: FileChange[] = snapshot.docChanges().map((change) => ({
+          type: change.type,
+          id: change.doc.id,
+          data: change.doc.data() as FileRecord,
+        }));
+        onChange(changes);
+      }, onError);
   }
 }

@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AlertCircle, TrendingUp, Users, Eye, Calendar } from "lucide-react";
@@ -23,9 +29,12 @@ interface MissingMetricsResponse {
 
 async function fetchMissingMetrics(): Promise<MissingMetricsResponse> {
   const token = await getIdToken();
-  const response = await fetch("/api/data-dictionary/missing-metrics?limit=10", {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const response = await fetch(
+    "/api/data-dictionary/missing-metrics?limit=10",
+    {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    },
+  );
 
   if (!response.ok) {
     throw new Error("Failed to fetch missing metrics");
@@ -38,7 +47,9 @@ interface MissingMetricsWidgetProps {
   onDefineMetric?: (metricName: string) => void;
 }
 
-export function MissingMetricsWidget({ onDefineMetric }: MissingMetricsWidgetProps) {
+export function MissingMetricsWidget({
+  onDefineMetric,
+}: MissingMetricsWidgetProps) {
   const { data, isLoading, error } = useQuery({
     queryKey: ["missing-metrics"],
     queryFn: fetchMissingMetrics,
@@ -95,11 +106,14 @@ export function MissingMetricsWidget({ onDefineMetric }: MissingMetricsWidgetPro
               Metrics Needing Definitions
             </CardTitle>
             <CardDescription className="mt-2">
-              These metrics are frequently viewed in dashboards but don't have Data Dictionary entries yet.
-              Help the team by defining them!
+              These metrics are frequently viewed in dashboards but don't have
+              Data Dictionary entries yet. Help the team by defining them!
             </CardDescription>
           </div>
-          <Badge variant="outline" className="shrink-0 border-orange-500/50 text-orange-600 dark:text-orange-400">
+          <Badge
+            variant="outline"
+            className="shrink-0 border-orange-500/50 text-orange-600 dark:text-orange-400"
+          >
             Last {data.lookbackDays} days
           </Badge>
         </div>
@@ -141,7 +155,8 @@ export function MissingMetricsWidget({ onDefineMetric }: MissingMetricsWidgetPro
                         <Eye className="h-3 w-3 shrink-0" />
                         <span className="truncate">
                           Used in: {metric.dashboards.slice(0, 2).join(", ")}
-                          {metric.dashboards.length > 2 && ` +${metric.dashboards.length - 2} more`}
+                          {metric.dashboards.length > 2 &&
+                            ` +${metric.dashboards.length - 2} more`}
                         </span>
                       </div>
                     )}

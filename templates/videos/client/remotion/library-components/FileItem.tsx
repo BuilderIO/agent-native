@@ -27,9 +27,7 @@ import type { AnimationTrack, AnimationShorthand } from "@/types";
 const brightnessHover = (amount: number): AnimationShorthand => ({
   duration: 6,
   easing: "expo.out",
-  properties: [
-    { property: "brightness", from: 1, to: 1 + amount, unit: "" },
-  ],
+  properties: [{ property: "brightness", from: 1, to: 1 + amount, unit: "" }],
 });
 
 export type FileItemProps = {
@@ -49,28 +47,28 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
   ];
   const cursor = tracks[1];
 
-  cursor.animatedProps.find(p => p.property === "x")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "x")!.keyframes = [
     { frame: 0, value: "200" },
     { frame: 15, value: "890" },
     { frame: 90, value: "890" },
     { frame: 120, value: "1720" },
     { frame: 150, value: "1720" },
   ];
-  cursor.animatedProps.find(p => p.property === "y")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "y")!.keyframes = [
     { frame: 0, value: "200" },
     { frame: 15, value: "540" },
     { frame: 90, value: "540" },
     { frame: 120, value: "200" },
     { frame: 150, value: "200" },
   ];
-  cursor.animatedProps.find(p => p.property === "isClicking")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "isClicking")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: 59, value: "0" },
     { frame: 60, value: "1" },
     { frame: 70, value: "0" },
     { frame: 150, value: "0" },
   ];
-  cursor.animatedProps.find(p => p.property === "opacity")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "opacity")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: 5, value: "0" },
     { frame: 15, value: "1" },

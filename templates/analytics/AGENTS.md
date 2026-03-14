@@ -138,7 +138,8 @@ sendToAgentChat({
 // Include hidden context the agent can use but the user doesn't see
 sendToAgentChat({
   message: "Fix the chart rendering",
-  context: "The TierBreakdownCharts component at client/pages/adhoc/tier-breakdown/TierBreakdownCharts.tsx is throwing a BigQuery byte limit error. Switch from @app_events to the Amplitude table.",
+  context:
+    "The TierBreakdownCharts component at client/pages/adhoc/tier-breakdown/TierBreakdownCharts.tsx is throwing a BigQuery byte limit error. Switch from @app_events to the Amplitude table.",
   submit: true,
 });
 
@@ -149,12 +150,14 @@ const isGenerating = useAgentChatGenerating();
 ### When to Use This
 
 Use `sendToAgentChat()` when:
+
 - A UI action is best handled by the AI (e.g., "New Dashboard" → agent creates it from a prompt)
 - You want to trigger a multi-step workflow (e.g., "lint this article with Vale rules")
 - The task requires reading/writing multiple files intelligently
 - You'd otherwise need to build a complex custom backend endpoint
 
 Do NOT use it for:
+
 - Simple CRUD that the UI can handle directly via file read/write
 - Deterministic operations with no AI judgment needed
 
@@ -194,6 +197,7 @@ output(result);
 ```
 
 Conventions:
+
 - Import `parseArgs`, `output`, `fatal` from `./helpers`
 - Import server libs directly (e.g., `../server/lib/bigquery`)
 - Output JSON via `output()` for automatic `--grep`/`--fields` support
@@ -203,6 +207,7 @@ Conventions:
 ### AI Agent Script Usage
 
 The AI agent should:
+
 1. Use `--grep` and `--fields` to narrow output — never pipe raw JSON through grep
 2. Reuse existing scripts when possible
 3. Generate new scripts in `scripts/` when needed for new backend functionality
@@ -235,7 +240,7 @@ Routes are defined in `client/App.tsx`:
 The sidebar has two sections: **Dashboards** and **Tools**. Use the right one:
 
 - **Dashboards** — data visualizations, charts, metrics, time-series. Things people look at to understand trends. Add to `dashboards` array in `registry.ts` and `dashboardComponents` map.
-- **Tools** — functional utilities with inputs/actions (e.g. look up a customer, search Stripe, run a query). Things people *use* to get specific answers. Add to the `defaultTools` array in `client/components/layout/Sidebar.tsx`.
+- **Tools** — functional utilities with inputs/actions (e.g. look up a customer, search Stripe, run a query). Things people _use_ to get specific answers. Add to the `defaultTools` array in `client/components/layout/Sidebar.tsx`.
 
 When a user asks for a **new feature, lookup tool, or interactive utility** → add it to **Tools**.
 When a user asks for a **chart, metrics view, or data breakdown** → add it to **Dashboards**.
@@ -254,6 +259,7 @@ When a user asks for a **chart, metrics view, or data breakdown** → add it to 
 4. Add lazy import to `dashboardComponents` in the same file
 
 **Example:**
+
 ```typescript
 {
   id: "my-dashboard",
@@ -294,6 +300,7 @@ Ad-hoc analyses are one-time deep dives or investigations. They require addition
 4. Add lazy import to `dashboardComponents`
 
 **Example:**
+
 ```typescript
 {
   id: "conversion-deep-dive",
@@ -327,21 +334,21 @@ Knowledge is stored in three places:
 1. **ALWAYS read learnings.md first.** Non-negotiable. Before any work.
 2. **ALWAYS read data-dictionary.md before writing any data/SQL query.** It defines how every metric is calculated.
 3. **Read the relevant skill** before querying a provider. It tells you table names, column names, join paths, auth, and patterns.
-3. **Update skills directly.** When you discover something new about a provider, update that provider's SKILL.md. Skills should be continuously improved.
-4. **Learn from corrections.** If the user corrects you, capture it in the relevant skill or learnings.md.
-5. **Keep it concise.** Each learning should be actionable — what to do, what not to do, and why.
+4. **Update skills directly.** When you discover something new about a provider, update that provider's SKILL.md. Skills should be continuously improved.
+5. **Learn from corrections.** If the user corrects you, capture it in the relevant skill or learnings.md.
+6. **Keep it concise.** Each learning should be actionable — what to do, what not to do, and why.
 
 ### What belongs where
 
-| Content | Location |
-|---|---|
+| Content                                                       | Location                  |
+| ------------------------------------------------------------- | ------------------------- |
 | Metric definitions, query templates, column mappings, gotchas | `docs/data-dictionary.md` |
-| BigQuery table names, column mappings, SQL patterns | `bigquery/SKILL.md` |
-| API quirks for a specific provider | `<provider>/SKILL.md` |
-| Customer data (IDs, deal info, stakeholders) | `docs/learnings.md` |
-| User preferences, UI patterns | `docs/learnings.md` |
-| Agent behavior rules | `docs/learnings.md` |
-| Chart styling preferences | `charts/SKILL.md` |
+| BigQuery table names, column mappings, SQL patterns           | `bigquery/SKILL.md`       |
+| API quirks for a specific provider                            | `<provider>/SKILL.md`     |
+| Customer data (IDs, deal info, stakeholders)                  | `docs/learnings.md`       |
+| User preferences, UI patterns                                 | `docs/learnings.md`       |
+| Agent behavior rules                                          | `docs/learnings.md`       |
+| Chart styling preferences                                     | `charts/SKILL.md`         |
 
 ## Answering Data Questions in Chat
 
@@ -359,23 +366,23 @@ When the user asks a data question, **query real data first**, then present the 
 
 ### Available Data Sources
 
-| Source | Server Lib | Scripts | Use For |
-|---|---|---|---|
-| **BigQuery** | `server/lib/bigquery.ts` | ad-hoc via `runQuery()` | Analytics events, signups, pageviews, subscriptions, user data |
-| **GitHub** | `server/lib/github.ts` | `github-prs` | PR search, issue tracking, code reviews across BuilderIO org |
-| **HubSpot CRM** | `server/lib/hubspot.ts` | `hubspot-deals` | Deals, pipelines, contacts, sales metrics |
-| **Jira** | `server/lib/jira.ts` | `jira-search`, `jira-analytics` | Ticket search (JQL), duplicate detection, sprint tracking |
-| **Sentry** | `server/lib/sentry.ts` | — | Error tracking, unresolved issues, error trends |
-| **Grafana/Prometheus** | `server/lib/grafana.ts` | — | Service health, LLM latency, request rates, alerts |
-| **Google Cloud** | `server/lib/gcloud.ts` | — | Cloud Run/Functions health, request counts, latencies, logs |
-| **Pylon** | `server/lib/pylon.ts` | `pylon-issues` | Support tickets, account lookup, issue history |
-| **Gong** | `server/lib/gong.ts` | `gong-calls` | Sales call recordings, transcripts, participants |
-| **Apollo** | `server/lib/apollo.ts` | `apollo-search` | Contact/company enrichment, prospecting |
-| **DataForSEO** | `server/lib/dataforseo.ts` | `seo-top-keywords` | Keyword rankings, search volume, SEO metrics |
-| **Notion** | `server/lib/notion.ts` | — | Content calendar, editorial planning |
-| **Slack** | `server/lib/slack.ts` | — | Channel messages, search across workspaces |
-| **Twitter/X** | (via API routes) | — | Tweet engagement, social metrics |
-| **Common Room** | `server/lib/commonroom.ts` | `commonroom-members` | Community engagement, member lookup |
+| Source                 | Server Lib                 | Scripts                         | Use For                                                        |
+| ---------------------- | -------------------------- | ------------------------------- | -------------------------------------------------------------- |
+| **BigQuery**           | `server/lib/bigquery.ts`   | ad-hoc via `runQuery()`         | Analytics events, signups, pageviews, subscriptions, user data |
+| **GitHub**             | `server/lib/github.ts`     | `github-prs`                    | PR search, issue tracking, code reviews across BuilderIO org   |
+| **HubSpot CRM**        | `server/lib/hubspot.ts`    | `hubspot-deals`                 | Deals, pipelines, contacts, sales metrics                      |
+| **Jira**               | `server/lib/jira.ts`       | `jira-search`, `jira-analytics` | Ticket search (JQL), duplicate detection, sprint tracking      |
+| **Sentry**             | `server/lib/sentry.ts`     | —                               | Error tracking, unresolved issues, error trends                |
+| **Grafana/Prometheus** | `server/lib/grafana.ts`    | —                               | Service health, LLM latency, request rates, alerts             |
+| **Google Cloud**       | `server/lib/gcloud.ts`     | —                               | Cloud Run/Functions health, request counts, latencies, logs    |
+| **Pylon**              | `server/lib/pylon.ts`      | `pylon-issues`                  | Support tickets, account lookup, issue history                 |
+| **Gong**               | `server/lib/gong.ts`       | `gong-calls`                    | Sales call recordings, transcripts, participants               |
+| **Apollo**             | `server/lib/apollo.ts`     | `apollo-search`                 | Contact/company enrichment, prospecting                        |
+| **DataForSEO**         | `server/lib/dataforseo.ts` | `seo-top-keywords`              | Keyword rankings, search volume, SEO metrics                   |
+| **Notion**             | `server/lib/notion.ts`     | —                               | Content calendar, editorial planning                           |
+| **Slack**              | `server/lib/slack.ts`      | —                               | Channel messages, search across workspaces                     |
+| **Twitter/X**          | (via API routes)           | —                               | Tweet engagement, social metrics                               |
+| **Common Room**        | `server/lib/commonroom.ts` | `commonroom-members`            | Community engagement, member lookup                            |
 
 ### Example script usage
 

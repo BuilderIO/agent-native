@@ -35,9 +35,12 @@ export interface ParsedTweet {
 async function fetchMultiUserTweets(): Promise<Record<string, ParsedTweet[]>> {
   const token = await getIdToken();
   const handles = DEVREL_TWITTER_USERS.map((u) => u.handle).join(",");
-  const resp = await fetch(`/api/twitter/multi?userNames=${encodeURIComponent(handles)}&pages=5`, {
-    headers: { ...(token && { Authorization: `Bearer ${token}` }) },
-  });
+  const resp = await fetch(
+    `/api/twitter/multi?userNames=${encodeURIComponent(handles)}&pages=5`,
+    {
+      headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+    },
+  );
   if (!resp.ok) throw new Error(`Failed: ${resp.status}`);
   const data = await resp.json();
   const result: Record<string, ParsedTweet[]> = {};
@@ -45,8 +48,12 @@ async function fetchMultiUserTweets(): Promise<Record<string, ParsedTweet[]>> {
     const raw = (data.users?.[user.handle] ?? []) as any[];
     result[user.handle] = raw.map((t) => {
       // Extract card/link metadata if available
-      const cardTitle = t.card?.title || t.entities?.urls?.[0]?.title || t.title;
-      const cardUrl = t.card?.url || t.entities?.urls?.[0]?.expanded_url || t.entities?.urls?.[0]?.url;
+      const cardTitle =
+        t.card?.title || t.entities?.urls?.[0]?.title || t.title;
+      const cardUrl =
+        t.card?.url ||
+        t.entities?.urls?.[0]?.expanded_url ||
+        t.entities?.urls?.[0]?.url;
 
       return {
         id: t.id,
@@ -107,7 +114,7 @@ export function TwitterSection({ days }: TwitterSectionProps) {
   const allTweets = useMemo(() => {
     const all = Object.values(filteredByUser).flat();
     if (!selectedAuthor) return all;
-    return all.filter(t => t.authorHandle === selectedAuthor);
+    return all.filter((t) => t.authorHandle === selectedAuthor);
   }, [filteredByUser, selectedAuthor]);
 
   if (error) {
@@ -123,7 +130,9 @@ export function TwitterSection({ days }: TwitterSectionProps) {
   return (
     <div className="space-y-4">
       <div className="border-t border-border pt-3 mt-2">
-        <h2 className="text-sm font-semibold">Twitter Engagement (Last {days} Days)</h2>
+        <h2 className="text-sm font-semibold">
+          Twitter Engagement (Last {days} Days)
+        </h2>
       </div>
       <TwitterLeaderboard
         tweetsByUser={filteredByUser}

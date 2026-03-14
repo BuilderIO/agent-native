@@ -36,6 +36,7 @@ Validate the output folder has a `seed/` subfolder with at least one URL:
 **If `seed/` does not exist or `seed/urls.txt` is empty:**
 
 Stop with:
+
 ```
 No seed folder found. Run /content-seed first to stage the original post URL.
 
@@ -77,6 +78,7 @@ Proceed only after the user confirms (or if budget is sufficient).
 Check for a `--resume` flag in the arguments.
 
 **If `--resume` is present:**
+
 1. Scan `phases/` for refresh-specific files (`00-original-post-analysis.yaml`, `01-refresh-keyword-research.yaml`, etc.)
 2. Find the last completed refresh phase
 3. Skip to the next incomplete phase
@@ -186,21 +188,22 @@ Present the delta analysis using **AskUserQuestion**:
 
 **Show the user:**
 
-| Field | Value |
-|-------|-------|
-| Original post | Title + URL |
-| Primary keyword | Old ranking → Current ranking |
-| SERP changes | New competitors, new features |
-| Sections to KEEP | Count + list |
-| Sections to REWRITE | Count + list with reasons |
-| Sections to ADD | Count + list with reasons |
-| Recommended scope | metadata-only / selective / full |
-| Content goal change | None / recommended change |
-| Estimated effort | Phases that will run |
+| Field               | Value                            |
+| ------------------- | -------------------------------- |
+| Original post       | Title + URL                      |
+| Primary keyword     | Old ranking → Current ranking    |
+| SERP changes        | New competitors, new features    |
+| Sections to KEEP    | Count + list                     |
+| Sections to REWRITE | Count + list with reasons        |
+| Sections to ADD     | Count + list with reasons        |
+| Recommended scope   | metadata-only / selective / full |
+| Content goal change | None / recommended change        |
+| Estimated effort    | Phases that will run             |
 
 **Question:** "Delta analysis complete. How do you want to proceed?"
 
 **Options:**
+
 1. **Accept recommendation** -- Proceed with the recommended scope
 2. **Override to selective** -- Force selective rewrite
 3. **Override to full** -- Force full rewrite regardless of delta
@@ -260,6 +263,7 @@ Present the outline using **AskUserQuestion**:
 **File to review:** Tell the user: "Read `outline.md` in the output folder for the full refresh outline with KEEP/REWRITE/ADD markers."
 
 **Show the user:**
+
 - Original title (preserved or changed)
 - Sections marked KEEP (count and list)
 - Sections marked REWRITE (count and list with changes)
@@ -269,6 +273,7 @@ Present the outline using **AskUserQuestion**:
 **Question:** "Refresh outline ready. How do you want to proceed?"
 
 **Options:**
+
 1. **Approve** -- Proceed to drafting
 2. **Modify** -- Describe specific changes (re-runs Phase 5, re-presents Gate 2)
 3. **Stop** -- Abandon refresh
@@ -305,6 +310,7 @@ Present a draft summary using **AskUserQuestion**:
 **File to review:** Tell the user: "Read `draft.md` in the output folder for the refreshed draft."
 
 **Show the user:**
+
 - Title
 - Word count (old → new)
 - Sections preserved vs rewritten vs added
@@ -313,6 +319,7 @@ Present a draft summary using **AskUserQuestion**:
 **Question:** "Refreshed draft complete. How do you want to proceed?"
 
 **Options:**
+
 1. **Proceed** -- Move to editing
 2. **Request changes** -- Describe changes (re-runs Phase 6, re-presents Gate 3)
 3. **Stop** -- Abandon refresh
@@ -405,6 +412,7 @@ Use **AskUserQuestion** to present options:
 **Question:** "What would you like to do next?"
 
 **Options:**
+
 1. **Capture learnings** -- Run `/content-compound`
 2. **View the post** -- Open `post.md`
 3. **Compare with original** -- Open both `post.md` and `archive/post-pre-refresh-*.md`
@@ -447,6 +455,7 @@ output/posts/YYYY-MM-DD-topic-slug/
 ### Ahrefs MCP Unavailable
 
 If any Ahrefs MCP call fails during the pipeline:
+
 1. Log the failure in the current phase's YAML output
 2. Fall back to WebSearch-based research
 3. Note reduced data quality in the phase output
@@ -455,6 +464,7 @@ If any Ahrefs MCP call fails during the pipeline:
 ### WebFetch Failure (Original Post)
 
 If the original post URL cannot be fetched (paywall, JS-rendered, 404):
+
 1. Check if `seed/article.md` exists (user may have pasted the content manually)
 2. If yes: use `seed/article.md` as the original post content
 3. If no: ask the user to paste the post content into `seed/article.md` and re-run

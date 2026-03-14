@@ -7,19 +7,19 @@ import { join } from "path";
 async function convertMarkdownSample() {
   const markdownPath = join(
     process.cwd(),
-    "content/projects/alice/claude-code-for-designers/draft.md"
+    "content/projects/alice/claude-code-for-designers/draft.md",
   );
-  
+
   const markdown = await readFile(markdownPath, "utf-8");
-  
+
   // Take just the first few paragraphs for the demo
   const lines = markdown.split("\n");
   const excerpt = lines.slice(0, 10).join("\n");
-  
+
   console.log("=== MARKDOWN EXCERPT ===\n");
   console.log(excerpt);
   console.log("\n\n=== BUILDER JSON (simplified structure) ===\n");
-  
+
   // Manually show what the structure would be
   const sampleBlock = {
     "@type": "@builder.io/sdk:Element",
@@ -27,50 +27,52 @@ async function convertMarkdownSample() {
     component: {
       name: "Text",
       options: {
-        text: "<h1>Claude Code for Designers</h1>"
-      }
+        text: "<h1>Claude Code for Designers</h1>",
+      },
     },
     responsiveStyles: {
       large: {
-        marginTop: "20px"
-      }
-    }
+        marginTop: "20px",
+      },
+    },
   };
-  
+
   const paragraphBlock = {
-    "@type": "@builder.io/sdk:Element", 
+    "@type": "@builder.io/sdk:Element",
     id: "builder-abc123-2",
     component: {
       name: "Text",
       options: {
-        text: "<p>You spot a tiny UI issue on production. Fixing it in Figma takes 30 seconds, but shipping the code takes days of handoff, review cycles, and back-and-forth about design tokens.</p>"
-      }
+        text: "<p>You spot a tiny UI issue on production. Fixing it in Figma takes 30 seconds, but shipping the code takes days of handoff, review cycles, and back-and-forth about design tokens.</p>",
+      },
     },
     responsiveStyles: {
       large: {
-        marginTop: "20px"
-      }
-    }
+        marginTop: "20px",
+      },
+    },
   };
-  
+
   const boldParagraphBlock = {
     "@type": "@builder.io/sdk:Element",
-    id: "builder-abc123-3", 
+    id: "builder-abc123-3",
     component: {
       name: "Text",
       options: {
-        text: "<p><b>Claude Code</b> can help you move faster. It's an agent that can <b>open your repo, read files, make edits, and preview your app</b>—all from a workflow that's increasingly approachable for non-engineers.</p>"
-      }
+        text: "<p><b>Claude Code</b> can help you move faster. It's an agent that can <b>open your repo, read files, make edits, and preview your app</b>—all from a workflow that's increasingly approachable for non-engineers.</p>",
+      },
     },
     responsiveStyles: {
       large: {
-        marginTop: "20px"
-      }
-    }
+        marginTop: "20px",
+      },
+    },
   };
-  
-  console.log(JSON.stringify([sampleBlock, paragraphBlock, boldParagraphBlock], null, 2));
-  
+
+  console.log(
+    JSON.stringify([sampleBlock, paragraphBlock, boldParagraphBlock], null, 2),
+  );
+
   console.log("\n\n=== FULL ARTICLE STRUCTURE ===");
   console.log(`
 The full article would be an array of these blocks, one for each:

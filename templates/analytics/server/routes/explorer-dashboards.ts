@@ -2,7 +2,10 @@ import { RequestHandler } from "express";
 import fs from "fs";
 import path from "path";
 
-const DASHBOARD_DIR = path.join(import.meta.dirname, "../../data/explorer-dashboards");
+const DASHBOARD_DIR = path.join(
+  import.meta.dirname,
+  "../../data/explorer-dashboards",
+);
 
 function ensureDir() {
   if (!fs.existsSync(DASHBOARD_DIR)) {
@@ -13,7 +16,9 @@ function ensureDir() {
 export const listExplorerDashboards: RequestHandler = (_req, res) => {
   ensureDir();
   try {
-    const files = fs.readdirSync(DASHBOARD_DIR).filter((f) => f.endsWith(".json"));
+    const files = fs
+      .readdirSync(DASHBOARD_DIR)
+      .filter((f) => f.endsWith(".json"));
     const dashboards = files.map((f) => {
       const raw = fs.readFileSync(path.join(DASHBOARD_DIR, f), "utf8");
       const data = JSON.parse(raw);

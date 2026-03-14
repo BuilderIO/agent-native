@@ -31,7 +31,11 @@ function formatDate(dateStr: string): string {
   if (diffH < 1) return `${Math.max(1, Math.floor(diffMs / 60000))}m`;
   if (diffH < 24) return `${Math.floor(diffH)}h`;
   if (diffH < 24 * 7) return `${Math.floor(diffH / 24)}d`;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
+  });
 }
 
 function isTwitterVideoUrl(url: string): boolean {
@@ -39,7 +43,11 @@ function isTwitterVideoUrl(url: string): boolean {
     const u = new URL(url);
     const host = u.hostname.replace(/^www\./, "");
     // Twitter/X video URLs
-    if ((host === "twitter.com" || host === "x.com") && /\/video\//.test(u.pathname)) return true;
+    if (
+      (host === "twitter.com" || host === "x.com") &&
+      /\/video\//.test(u.pathname)
+    )
+      return true;
     // Direct video file extensions
     if (/\.(mp4|webm|mov|avi|m3u8)(\?|$)/i.test(u.pathname)) return true;
   } catch {}
@@ -62,7 +70,9 @@ function getDomain(url: string): string {
 
 export function TweetCard({ tweet, onLinkClick }: TweetCardProps) {
   // Filter out links when the tweet has video media (t.co links to the video itself)
-  const hasVideo = tweet.media?.some((m) => m.type === "video" || m.type === "animated_gif");
+  const hasVideo = tweet.media?.some(
+    (m) => m.type === "video" || m.type === "animated_gif",
+  );
   const rawLinks = extractLinks(tweet.text);
   const links = hasVideo
     ? rawLinks.filter((url) => {
@@ -70,7 +80,9 @@ export function TweetCard({ tweet, onLinkClick }: TweetCardProps) {
           const host = new URL(url).hostname;
           // t.co links on video tweets are usually the video itself
           return host !== "t.co";
-        } catch { return true; }
+        } catch {
+          return true;
+        }
       })
     : rawLinks;
 
@@ -121,16 +133,22 @@ export function TweetCard({ tweet, onLinkClick }: TweetCardProps) {
       {/* Header */}
       <div className="flex items-start gap-2.5 p-3 pb-0">
         <img
-          src={tweet.author.profilePicture || `https://ui-avatars.com/api/?name=${encodeURIComponent(tweet.author.name)}&size=40&background=1d9bf0&color=fff`}
+          src={
+            tweet.author.profilePicture ||
+            `https://ui-avatars.com/api/?name=${encodeURIComponent(tweet.author.name)}&size=40&background=1d9bf0&color=fff`
+          }
           alt={tweet.author.name}
           className="w-9 h-9 rounded-full shrink-0 object-cover"
           onError={(e) => {
-            (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(tweet.author.name)}&size=40&background=1d9bf0&color=fff`;
+            (e.target as HTMLImageElement).src =
+              `https://ui-avatars.com/api/?name=${encodeURIComponent(tweet.author.name)}&size=40&background=1d9bf0&color=fff`;
           }}
         />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1 flex-wrap">
-            <span className="text-sm font-semibold truncate">{tweet.author.name}</span>
+            <span className="text-sm font-semibold truncate">
+              {tweet.author.name}
+            </span>
             {tweet.author.isBlueVerified && (
               <BadgeCheck size={14} className="text-blue-500 shrink-0" />
             )}
@@ -167,10 +185,12 @@ export function TweetCard({ tweet, onLinkClick }: TweetCardProps) {
 
       {/* Media */}
       {tweet.media && tweet.media.length > 0 && (
-        <div className={cn(
-          "mx-3 mt-2 rounded-lg overflow-hidden",
-          tweet.media.length > 1 && "grid grid-cols-2 gap-0.5"
-        )}>
+        <div
+          className={cn(
+            "mx-3 mt-2 rounded-lg overflow-hidden",
+            tweet.media.length > 1 && "grid grid-cols-2 gap-0.5",
+          )}
+        >
           {tweet.media.slice(0, 4).map((m, i) => (
             <img
               key={i}
@@ -178,7 +198,7 @@ export function TweetCard({ tweet, onLinkClick }: TweetCardProps) {
               alt=""
               className={cn(
                 "w-full object-cover bg-muted",
-                tweet.media!.length === 1 ? "max-h-72 rounded-lg" : "h-32"
+                tweet.media!.length === 1 ? "max-h-72 rounded-lg" : "h-32",
               )}
               loading="lazy"
             />
@@ -206,7 +226,10 @@ export function TweetCard({ tweet, onLinkClick }: TweetCardProps) {
               <span className="text-xs text-muted-foreground group-hover:text-foreground truncate">
                 {getDomain(url)}
               </span>
-              <ExternalLink size={10} className="text-muted-foreground/50 shrink-0 ml-auto" />
+              <ExternalLink
+                size={10}
+                className="text-muted-foreground/50 shrink-0 ml-auto"
+              />
             </button>
           ))}
         </div>

@@ -7,7 +7,9 @@ global.Image = class Image {
   naturalWidth: number = 800;
   naturalHeight: number = 600;
   constructor() {
-    setTimeout(() => { if (this.onload) this.onload(); }, 10);
+    setTimeout(() => {
+      if (this.onload) this.onload();
+    }, 10);
   }
 } as any;
 

@@ -94,31 +94,37 @@ export function useExplorerConfig() {
     }
   }, []);
 
-  const saveConfig = useCallback(async (name?: string) => {
-    const id = currentId || slugify(name || config.name || "untitled");
-    const toSave = { ...config, name: name || config.name };
-    setIsSaving(true);
-    try {
-      await fetchWithAuth(`/api/explorer-configs/${id}`, {
-        method: "POST",
-        body: JSON.stringify(toSave),
-      });
-      setCurrentId(id);
-      setConfig(toSave);
-      refetchList();
-    } finally {
-      setIsSaving(false);
-    }
-  }, [config, currentId, refetchList]);
+  const saveConfig = useCallback(
+    async (name?: string) => {
+      const id = currentId || slugify(name || config.name || "untitled");
+      const toSave = { ...config, name: name || config.name };
+      setIsSaving(true);
+      try {
+        await fetchWithAuth(`/api/explorer-configs/${id}`, {
+          method: "POST",
+          body: JSON.stringify(toSave),
+        });
+        setCurrentId(id);
+        setConfig(toSave);
+        refetchList();
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [config, currentId, refetchList],
+  );
 
-  const deleteConfig = useCallback(async (id: string) => {
-    await fetchWithAuth(`/api/explorer-configs/${id}`, { method: "DELETE" });
-    if (currentId === id) {
-      setConfig(createDefaultConfig());
-      setCurrentId(null);
-    }
-    refetchList();
-  }, [currentId, refetchList]);
+  const deleteConfig = useCallback(
+    async (id: string) => {
+      await fetchWithAuth(`/api/explorer-configs/${id}`, { method: "DELETE" });
+      if (currentId === id) {
+        setConfig(createDefaultConfig());
+        setCurrentId(null);
+      }
+      refetchList();
+    },
+    [currentId, refetchList],
+  );
 
   const newConfig = useCallback(() => {
     setConfig(createDefaultConfig());
@@ -139,9 +145,11 @@ export function useExplorerConfig() {
 }
 
 function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 60) || "untitled";
+  return (
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 60) || "untitled"
+  );
 }

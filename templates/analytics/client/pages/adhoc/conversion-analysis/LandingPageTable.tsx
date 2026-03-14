@@ -31,11 +31,14 @@ interface LandingRow {
   recent_traffic_share_pct: number;
 }
 
-export function LandingPageTable({ weeksRecent, weeksBaseline }: LandingPageTableProps) {
+export function LandingPageTable({
+  weeksRecent,
+  weeksBaseline,
+}: LandingPageTableProps) {
   const sqlQuery = getLandingPageQuery(weeksRecent, weeksBaseline);
   const { data, isLoading, error } = useMetricsQuery(
     ["landing-page", String(weeksRecent), String(weeksBaseline)],
-    sqlQuery
+    sqlQuery,
   );
 
   if (error) {
@@ -45,7 +48,9 @@ export function LandingPageTable({ weeksRecent, weeksBaseline }: LandingPageTabl
           <CardTitle className="text-base">Landing Page Performance</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-sm text-destructive">Error loading landing page data: {data?.error || String(error)}</div>
+          <div className="text-sm text-destructive">
+            Error loading landing page data: {data?.error || String(error)}
+          </div>
         </CardContent>
       </Card>
     );
@@ -89,34 +94,56 @@ export function LandingPageTable({ weeksRecent, weeksBaseline }: LandingPageTabl
           <TableBody>
             {rows.map((row) => (
               <TableRow key={row.landing_page_type}>
-                <TableCell className="font-medium">{row.landing_page_type}</TableCell>
+                <TableCell className="font-medium">
+                  {row.landing_page_type}
+                </TableCell>
                 <TableCell className="text-right">
-                  <span className="font-semibold">{(row.recent_traffic_share_pct ?? 0).toFixed(1)}%</span>
+                  <span className="font-semibold">
+                    {(row.recent_traffic_share_pct ?? 0).toFixed(1)}%
+                  </span>
                   <span className="text-xs text-muted-foreground ml-1">
                     ({(row.recent_visitors ?? 0).toLocaleString()})
                   </span>
                 </TableCell>
                 <TableCell className="text-right">
-                  <span className="font-semibold">{(row.recent_conv_rate_pct ?? 0).toFixed(2)}%</span>
+                  <span className="font-semibold">
+                    {(row.recent_conv_rate_pct ?? 0).toFixed(2)}%
+                  </span>
                   <span className="text-xs text-muted-foreground ml-1">
                     ({row.recent_signups ?? 0})
                   </span>
                 </TableCell>
                 <TableCell className="text-right">
-                  <span className="font-semibold">{(row.baseline_conv_rate_pct ?? 0).toFixed(2)}%</span>
+                  <span className="font-semibold">
+                    {(row.baseline_conv_rate_pct ?? 0).toFixed(2)}%
+                  </span>
                   <span className="text-xs text-muted-foreground ml-1">
                     ({row.baseline_signups ?? 0})
                   </span>
                 </TableCell>
                 <TableCell className="text-right">
-                  <span className={(row.conv_rate_change_pct ?? 0) < 0 ? 'text-destructive' : 'text-green-600'}>
-                    {(row.conv_rate_change_pct ?? 0) > 0 ? '+' : ''}{(row.conv_rate_change_pct ?? 0).toFixed(2)}%
+                  <span
+                    className={
+                      (row.conv_rate_change_pct ?? 0) < 0
+                        ? "text-destructive"
+                        : "text-green-600"
+                    }
+                  >
+                    {(row.conv_rate_change_pct ?? 0) > 0 ? "+" : ""}
+                    {(row.conv_rate_change_pct ?? 0).toFixed(2)}%
                   </span>
                 </TableCell>
                 <TableCell className="text-right">
-                  <div className={`flex items-center justify-end gap-1 ${(row.pct_change ?? 0) < 0 ? 'text-destructive' : 'text-green-600'}`}>
-                    {(row.pct_change ?? 0) < 0 ? <ArrowDown className="h-3 w-3" /> : <ArrowUp className="h-3 w-3" />}
-                    {(row.pct_change ?? 0) > 0 ? '+' : ''}{(row.pct_change ?? 0).toFixed(1)}%
+                  <div
+                    className={`flex items-center justify-end gap-1 ${(row.pct_change ?? 0) < 0 ? "text-destructive" : "text-green-600"}`}
+                  >
+                    {(row.pct_change ?? 0) < 0 ? (
+                      <ArrowDown className="h-3 w-3" />
+                    ) : (
+                      <ArrowUp className="h-3 w-3" />
+                    )}
+                    {(row.pct_change ?? 0) > 0 ? "+" : ""}
+                    {(row.pct_change ?? 0).toFixed(1)}%
                   </div>
                 </TableCell>
               </TableRow>
@@ -125,7 +152,12 @@ export function LandingPageTable({ weeksRecent, weeksBaseline }: LandingPageTabl
         </Table>
 
         <div className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground">
-          <p><strong>Interpretation:</strong> Check if high-converting pages (pricing, homepage) have declined in traffic share or conversion rate. Increasing blog traffic with low conversion suggests audience mismatch.</p>
+          <p>
+            <strong>Interpretation:</strong> Check if high-converting pages
+            (pricing, homepage) have declined in traffic share or conversion
+            rate. Increasing blog traffic with low conversion suggests audience
+            mismatch.
+          </p>
         </div>
 
         <SqlCodeToggle sql={sqlQuery} title="View SQL Query" />

@@ -67,13 +67,13 @@ export function useDynamicEvents(enabled: boolean) {
   const { data: eventData, isLoading: eventsLoading } = useMetricsQuery(
     ["explorer-dynamic-events"],
     DYNAMIC_EVENTS_SQL,
-    { enabled }
+    { enabled },
   );
 
   const { data: nameData, isLoading: namesLoading } = useMetricsQuery(
     ["explorer-dynamic-event-names"],
     DYNAMIC_EVENT_NAMES_SQL,
-    { enabled }
+    { enabled },
   );
 
   const events: DynamicEvent[] = (eventData?.rows ?? []).map((r) => ({
@@ -98,7 +98,7 @@ export function useDynamicEvents(enabled: boolean) {
 export function useDynamicProperties() {
   const { data, isLoading } = useMetricsQuery(
     ["explorer-dynamic-properties"],
-    DYNAMIC_PROPERTIES_SQL
+    DYNAMIC_PROPERTIES_SQL,
   );
 
   const properties: DynamicProperty[] = (data?.rows ?? []).map((r) => ({
@@ -110,8 +110,18 @@ export function useDynamicProperties() {
 }
 
 const TOP_LEVEL_COLS = new Set([
-  "event", "name", "url", "type", "kind", "userId",
-  "organizationId", "sessionId", "browser", "modelName", "modelId", "message",
+  "event",
+  "name",
+  "url",
+  "type",
+  "kind",
+  "userId",
+  "organizationId",
+  "sessionId",
+  "browser",
+  "modelName",
+  "modelId",
+  "message",
 ]);
 
 function escapeSql(s: string): string {
@@ -124,7 +134,9 @@ function buildPropertyValuesSql(property: string): string {
   if (enriched) return enriched.valuesSql;
 
   const isTopLevel = TOP_LEVEL_COLS.has(property);
-  const col = isTopLevel ? property : `JSON_VALUE(data, '$.${escapeSql(property)}')`;
+  const col = isTopLevel
+    ? property
+    : `JSON_VALUE(data, '$.${escapeSql(property)}')`;
 
   // JSON column scans are expensive (~550GB for 14d) — use 14-day window
   // to stay under 750GB limit. Prefetching makes the wait transparent.
@@ -151,7 +163,7 @@ export function usePropertyValues(property: string) {
   const { data, isLoading } = useMetricsQuery(
     ["explorer-property-values", property],
     sql,
-    { enabled: !!property }
+    { enabled: !!property },
   );
 
   const values: PropertyValue[] = (data?.rows ?? []).map((r) => ({

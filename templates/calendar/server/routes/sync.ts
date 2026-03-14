@@ -1,17 +1,14 @@
 import type { Request, Response } from "express";
 import path from "path";
 import type { CalendarEvent } from "../../shared/api.js";
-import {
-  listJsonFiles,
-  writeJsonFile,
-} from "../lib/data-helpers.js";
+import { listJsonFiles, writeJsonFile } from "../lib/data-helpers.js";
 import * as googleCalendar from "../lib/google-calendar.js";
 
 const EVENTS_DIR = path.join(process.cwd(), "data", "events");
 
 export async function syncGoogleCalendar(
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> {
   try {
     if (!googleCalendar.isConnected()) {
@@ -33,9 +30,7 @@ export async function syncGoogleCalendar(
     // Get existing events to check for duplicates
     const existingEvents = listJsonFiles<CalendarEvent>(EVENTS_DIR);
     const existingGoogleIds = new Set(
-      existingEvents
-        .filter((e) => e.googleEventId)
-        .map((e) => e.googleEventId)
+      existingEvents.filter((e) => e.googleEventId).map((e) => e.googleEventId),
     );
 
     let synced = 0;

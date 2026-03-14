@@ -52,7 +52,7 @@ const POINT_VALUES: Record<string, number> = {
 export function calculatePoints(
   event: ContributionEvent,
   persona?: PersonaType,
-  isStale = false
+  isStale = false,
 ): number {
   // Get base points for the field type
   const basePoints = POINT_VALUES[event.fieldChanged] || 5;
@@ -61,7 +61,8 @@ export function calculatePoints(
   const stalenessBonus = isStale ? 5 : 0;
 
   // Bonus for first-time field population (old value was empty)
-  const firstTimeBonus = !event.oldValue || event.oldValue.trim() === "" ? 5 : 0;
+  const firstTimeBonus =
+    !event.oldValue || event.oldValue.trim() === "" ? 5 : 0;
 
   // Department heads get slightly reduced points for technical fields
   // (encourages them to route to analytics team instead)
@@ -83,7 +84,7 @@ export function calculatePoints(
   }
 
   const totalPoints = Math.floor(
-    (basePoints + stalenessBonus + firstTimeBonus) * personaMultiplier
+    (basePoints + stalenessBonus + firstTimeBonus) * personaMultiplier,
   );
 
   return Math.max(totalPoints, 1); // Minimum 1 point
@@ -94,7 +95,7 @@ export function calculatePoints(
  */
 export function calculateValidationPoints(
   rating: "accurate" | "mostly_accurate" | "needs_review",
-  hasComment: boolean
+  hasComment: boolean,
 ): number {
   let basePoints = 2; // Default for accurate validation
 
@@ -116,7 +117,8 @@ export function calculateValidationPoints(
 export function isMetricStale(lastEditedAt: Date | string | null): boolean {
   if (!lastEditedAt) return true;
 
-  const lastEdited = typeof lastEditedAt === "string" ? new Date(lastEditedAt) : lastEditedAt;
+  const lastEdited =
+    typeof lastEditedAt === "string" ? new Date(lastEditedAt) : lastEditedAt;
   const ninetyDaysAgo = new Date();
   ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 

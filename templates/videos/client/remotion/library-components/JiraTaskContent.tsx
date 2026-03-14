@@ -63,9 +63,7 @@ export const JiraTaskContent: React.FC<JiraTaskContentProps> = ({
       />
 
       {/* Children (Activity section, etc.) */}
-      <div style={{ marginTop: 43, width: "100%" }}>
-        {children}
-      </div>
+      <div style={{ marginTop: 43, width: "100%" }}>{children}</div>
     </div>
   );
 };

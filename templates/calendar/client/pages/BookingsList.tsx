@@ -50,10 +50,12 @@ export default function BookingsList() {
         <TabsList>
           <TabsTrigger value="all">All ({bookings.length})</TabsTrigger>
           <TabsTrigger value="confirmed">
-            Confirmed ({bookings.filter((b) => b.status === "confirmed").length})
+            Confirmed ({bookings.filter((b) => b.status === "confirmed").length}
+            )
           </TabsTrigger>
           <TabsTrigger value="cancelled">
-            Cancelled ({bookings.filter((b) => b.status === "cancelled").length})
+            Cancelled ({bookings.filter((b) => b.status === "cancelled").length}
+            )
           </TabsTrigger>
         </TabsList>
       </Tabs>

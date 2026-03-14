@@ -71,7 +71,8 @@ export function ResearchSearchBar({
     if (query.trim()) onSearch(query.trim());
   };
 
-  const showTwitterFilters = sourceFilter === "twitter" && !compact && !rightContent;
+  const showTwitterFilters =
+    sourceFilter === "twitter" && !compact && !rightContent;
 
   return (
     <div className="space-y-2.5">
@@ -88,7 +89,13 @@ export function ResearchSearchBar({
             className="pl-9 h-9 bg-muted/50"
           />
         </div>
-        <Button type="submit" variant={hasSearched ? "outline" : "default"} size="sm" className="h-9" disabled={!query.trim() || isLoading}>
+        <Button
+          type="submit"
+          variant={hasSearched ? "outline" : "default"}
+          size="sm"
+          className="h-9"
+          disabled={!query.trim() || isLoading}
+        >
           {isLoading ? "Searching..." : "Search"}
         </Button>
       </form>
@@ -124,9 +131,7 @@ export function ResearchSearchBar({
         )}
 
         {/* Collected links (right side) */}
-        {rightContent && (
-          <div className="ml-auto shrink-0">{rightContent}</div>
-        )}
+        {rightContent && <div className="ml-auto shrink-0">{rightContent}</div>}
       </div>
     </div>
   );
@@ -151,7 +156,7 @@ function PillGroup<T extends string>({
             "px-2.5 py-1 rounded-full text-xs font-medium transition-colors",
             value === opt.value
               ? "bg-foreground text-background"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted",
           )}
         >
           {opt.label}

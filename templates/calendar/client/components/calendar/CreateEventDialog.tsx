@@ -21,7 +21,11 @@ interface CreateEventDialogProps {
   defaultDate?: Date;
 }
 
-export function CreateEventDialog({ open, onClose, defaultDate }: CreateEventDialogProps) {
+export function CreateEventDialog({
+  open,
+  onClose,
+  defaultDate,
+}: CreateEventDialogProps) {
   const today = defaultDate || new Date();
   const defaultDateStr = format(today, "yyyy-MM-dd");
 
@@ -76,7 +80,7 @@ export function CreateEventDialog({ open, onClose, defaultDate }: CreateEventDia
           onClose();
         },
         onError: () => toast.error("Failed to create event"),
-      }
+      },
     );
   }
 
@@ -121,11 +125,7 @@ export function CreateEventDialog({ open, onClose, defaultDate }: CreateEventDia
           </div>
 
           <div className="flex items-center gap-2">
-            <Switch
-              id="all-day"
-              checked={allDay}
-              onCheckedChange={setAllDay}
-            />
+            <Switch id="all-day" checked={allDay} onCheckedChange={setAllDay} />
             <Label htmlFor="all-day">All day</Label>
           </div>
 

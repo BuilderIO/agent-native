@@ -21,21 +21,21 @@ description: >
 
 ### Exported Functions
 
-| Function | Description |
-|---|---|
-| `listCloudRunServices()` | List all Cloud Run services |
-| `listCloudFunctions()` | List all Cloud Functions |
-| `queryMetrics(filter, period, aligner?, reducer?, groupBy?)` | Query Cloud Monitoring time series |
-| `getServiceMetrics(serviceType, serviceName, metric, period, extraFilter?)` | Convenience metric query |
-| `listLogEntries(filter, pageSize?)` | Read Cloud Logging entries |
+| Function                                                                    | Description                        |
+| --------------------------------------------------------------------------- | ---------------------------------- |
+| `listCloudRunServices()`                                                    | List all Cloud Run services        |
+| `listCloudFunctions()`                                                      | List all Cloud Functions           |
+| `queryMetrics(filter, period, aligner?, reducer?, groupBy?)`                | Query Cloud Monitoring time series |
+| `getServiceMetrics(serviceType, serviceName, metric, period, extraFilter?)` | Convenience metric query           |
+| `listLogEntries(filter, pageSize?)`                                         | Read Cloud Logging entries         |
 
 ### API Routes
 
-| Route | Description |
-|---|---|
+| Route                      | Description             |
+| -------------------------- | ----------------------- |
 | `GET /api/gcloud/services` | List Cloud Run services |
-| `GET /api/gcloud/metrics` | Query metrics |
-| `GET /api/gcloud/logs` | Read log entries |
+| `GET /api/gcloud/metrics`  | Query metrics           |
+| `GET /api/gcloud/logs`     | Read log entries        |
 
 ### Dashboard
 

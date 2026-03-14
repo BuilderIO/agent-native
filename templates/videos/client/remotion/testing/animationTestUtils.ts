@@ -1,13 +1,19 @@
 /**
  * Animation Testing Utilities
- * 
+ *
  * Helpers for testing animated components and animations
  */
 
-import type { ElementAnimation, AnimatedPropertyConfig } from "@/types/elementAnimations";
+import type {
+  ElementAnimation,
+  AnimatedPropertyConfig,
+} from "@/types/elementAnimations";
 import type { CursorFrame } from "@/remotion/hooks/useCursorHistory";
 import type { AnimationTrack } from "@/types";
-import { validateAnimation, getAnimationValue } from "@/remotion/utils/animationHelpers";
+import {
+  validateAnimation,
+  getAnimationValue,
+} from "@/remotion/utils/animationHelpers";
 
 /**
  * Create mock cursor history for testing hover states
@@ -15,7 +21,7 @@ import { validateAnimation, getAnimationValue } from "@/remotion/utils/animation
 export function createMockCursorHistory(
   frames: number,
   position: { x: number; y: number },
-  clicking: number = 0
+  clicking: number = 0,
 ): CursorFrame[] {
   return Array.from({ length: frames }, () => ({
     x: position.x,
@@ -28,7 +34,7 @@ export function createMockCursorHistory(
  * Create mock cursor track for testing
  */
 export function createMockCursorTrack(
-  clickFrames: number[] = []
+  clickFrames: number[] = [],
 ): AnimationTrack {
   return {
     id: "cursor",
@@ -56,7 +62,7 @@ export function createMockCursorTrack(
         from: "0",
         to: "0",
         unit: "",
-        keyframes: clickFrames.flatMap(frame => [
+        keyframes: clickFrames.flatMap((frame) => [
           { frame, value: "1", easing: "linear" },
           { frame: frame + 2, value: "0", easing: "linear" },
         ]),
@@ -72,7 +78,7 @@ export function testHoverDetection(
   cursorHistory: CursorFrame[],
   zone: { x: number; y: number; width: number; height: number },
   expectedProgress: number,
-  tolerance: number = 0.01
+  tolerance: number = 0.01,
 ): { passed: boolean; actual: number; expected: number } {
   let hoverFrames = 0;
   const cursorSize = 32;
@@ -103,13 +109,16 @@ export function testHoverDetection(
  */
 export function testPropertyInterpolation(
   property: AnimatedPropertyConfig,
-  testCases: Array<{ progress: number; expected: number | string }>
-): { passed: boolean; failures: Array<{ progress: number; actual: any; expected: any }> } {
+  testCases: Array<{ progress: number; expected: number | string }>,
+): {
+  passed: boolean;
+  failures: Array<{ progress: number; actual: any; expected: any }>;
+} {
   const failures: Array<{ progress: number; actual: any; expected: any }> = [];
 
   testCases.forEach(({ progress, expected }) => {
     const actual = getAnimationValue(property, progress);
-    
+
     // Handle numeric comparison with tolerance
     if (typeof expected === "number" && typeof actual === "number") {
       if (Math.abs(actual - expected) > 0.01) {
@@ -129,9 +138,10 @@ export function testPropertyInterpolation(
 /**
  * Test animation configuration validity
  */
-export function testAnimationValidity(
-  animation: ElementAnimation
-): { passed: boolean; errors: string[] } {
+export function testAnimationValidity(animation: ElementAnimation): {
+  passed: boolean;
+  errors: string[];
+} {
   return validateAnimation(animation);
 }
 
@@ -141,7 +151,7 @@ export function testAnimationValidity(
 export function createAnimationTestSuite(
   elementType: string,
   hoverAnimation?: ElementAnimation,
-  clickAnimation?: ElementAnimation
+  clickAnimation?: ElementAnimation,
 ) {
   return {
     /**
@@ -155,7 +165,11 @@ export function createAnimationTestSuite(
 
       const validity = validateAnimation(hoverAnimation);
       if (!validity.valid) {
-        return { passed: false, reason: "Invalid animation", errors: validity.errors };
+        return {
+          passed: false,
+          reason: "Invalid animation",
+          errors: validity.errors,
+        };
       }
 
       // Test that hover animation has reasonable duration (3-15 frames)
@@ -180,7 +194,11 @@ export function createAnimationTestSuite(
 
       const validity = validateAnimation(clickAnimation);
       if (!validity.valid) {
-        return { passed: false, reason: "Invalid animation", errors: validity.errors };
+        return {
+          passed: false,
+          reason: "Invalid animation",
+          errors: validity.errors,
+        };
       }
 
       // Test that click animation has reasonable duration (5-20 frames)
@@ -201,21 +219,21 @@ export function createAnimationTestSuite(
       const results: Record<string, any> = {};
 
       if (hoverAnimation) {
-        hoverAnimation.properties.forEach(prop => {
+        hoverAnimation.properties.forEach((prop) => {
           results[`hover-${prop.property}`] = {
             keyframeCount: prop.keyframes.length,
-            hasStart: prop.keyframes.some(kf => kf.progress === 0),
-            hasEnd: prop.keyframes.some(kf => kf.progress === 1),
+            hasStart: prop.keyframes.some((kf) => kf.progress === 0),
+            hasEnd: prop.keyframes.some((kf) => kf.progress === 1),
           };
         });
       }
 
       if (clickAnimation) {
-        clickAnimation.properties.forEach(prop => {
+        clickAnimation.properties.forEach((prop) => {
           results[`click-${prop.property}`] = {
             keyframeCount: prop.keyframes.length,
-            hasStart: prop.keyframes.some(kf => kf.progress === 0),
-            hasEnd: prop.keyframes.some(kf => kf.progress === 1),
+            hasStart: prop.keyframes.some((kf) => kf.progress === 0),
+            hasEnd: prop.keyframes.some((kf) => kf.progress === 1),
           };
         });
       }
@@ -248,7 +266,7 @@ export function createAnimationTestSuite(
  * Mock getAnimationsForElement function for testing
  */
 export function createMockGetAnimations(
-  animations: Record<string, ElementAnimation[]>
+  animations: Record<string, ElementAnimation[]>,
 ) {
   return (compositionId: string, elementType: string): ElementAnimation[] => {
     const key = `${compositionId}-${elementType}`;
@@ -261,14 +279,14 @@ export function createMockGetAnimations(
  */
 export function snapshotAnimatedStyles(
   animation: ElementAnimation,
-  progressSteps: number[] = [0, 0.25, 0.5, 0.75, 1]
+  progressSteps: number[] = [0, 0.25, 0.5, 0.75, 1],
 ): Record<number, Record<string, any>> {
   const snapshots: Record<number, Record<string, any>> = {};
 
-  progressSteps.forEach(progress => {
+  progressSteps.forEach((progress) => {
     const styles: Record<string, any> = {};
-    
-    animation.properties.forEach(prop => {
+
+    animation.properties.forEach((prop) => {
       styles[prop.property] = getAnimationValue(prop, progress);
     });
 
@@ -283,18 +301,18 @@ export function snapshotAnimatedStyles(
  */
 export function benchmarkAnimation(
   animation: ElementAnimation,
-  iterations: number = 1000
+  iterations: number = 1000,
 ): { averageMs: number; minMs: number; maxMs: number } {
   const times: number[] = [];
 
   for (let i = 0; i < iterations; i++) {
     const progress = Math.random();
     const start = performance.now();
-    
-    animation.properties.forEach(prop => {
+
+    animation.properties.forEach((prop) => {
       getAnimationValue(prop, progress);
     });
-    
+
     const end = performance.now();
     times.push(end - start);
   }
@@ -313,7 +331,7 @@ export function generateTestFrames(
   totalFrames: number,
   hoverStart: number,
   hoverEnd: number,
-  clickFrame: number
+  clickFrame: number,
 ): {
   frame: number;
   hoverProgress: number;
@@ -326,7 +344,7 @@ export function generateTestFrames(
     if (frame >= hoverStart && frame <= hoverEnd) {
       hoverProgress = (frame - hoverStart) / (hoverEnd - hoverStart);
     } else if (frame > hoverEnd) {
-      hoverProgress = 1 - ((frame - hoverEnd) / 10);
+      hoverProgress = 1 - (frame - hoverEnd) / 10;
       hoverProgress = Math.max(0, hoverProgress);
     }
 

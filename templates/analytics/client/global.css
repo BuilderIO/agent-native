@@ -105,12 +105,14 @@
   * {
     @apply border-border;
   }
-  
+
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 1;
   }
-  
+
   /* Glass effect utility */
   .glass {
     @apply bg-background/80 backdrop-blur-sm border-b border-border;

@@ -24,7 +24,7 @@ export default function SlackFeedbackDashboard() {
   const workspace: Workspace = "primary";
   const isAnalyzing = useAgentChatGenerating();
   const [selectedChannels, setSelectedChannels] = useState<Map<string, string>>(
-    new Map()
+    new Map(),
   );
   const [defaultsApplied, setDefaultsApplied] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -50,11 +50,11 @@ export default function SlackFeedbackDashboard() {
 
   const channelIds = useMemo(
     () => [...selectedChannels.keys()],
-    [selectedChannels]
+    [selectedChannels],
   );
   const channelNames = useMemo(
     () => [...selectedChannels.values()],
-    [selectedChannels]
+    [selectedChannels],
   );
 
   const isSearchMode = searchQuery.length >= 2;
@@ -84,7 +84,7 @@ export default function SlackFeedbackDashboard() {
       setActiveChips(new Set());
       resetPagination();
     },
-    [resetPagination]
+    [resetPagination],
   );
 
   const handleSearchChange = useCallback((q: string) => {
@@ -102,9 +102,7 @@ export default function SlackFeedbackDashboard() {
 
   // Filter messages by active chips (client-side filter on top of server page)
   const displayMessages = useMemo(() => {
-    const source = isSearchMode
-      ? searchData?.messages
-      : historyData?.messages;
+    const source = isSearchMode ? searchData?.messages : historyData?.messages;
     if (!source) return undefined;
     if (activeChips.size === 0) return source;
     const chips = [...activeChips];

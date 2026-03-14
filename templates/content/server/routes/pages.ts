@@ -8,7 +8,9 @@ const PROJECTS_DIR = path.join(process.cwd(), "content", "projects");
 
 function readProjectMeta(projectDir: string): Record<string, any> {
   try {
-    return JSON.parse(fs.readFileSync(path.join(projectDir, ".project.json"), "utf-8"));
+    return JSON.parse(
+      fs.readFileSync(path.join(projectDir, ".project.json"), "utf-8"),
+    );
   } catch {
     return {};
   }
@@ -49,9 +51,12 @@ function getLatestMtime(dir: string): Date {
   return latest;
 }
 
-function resolveProjectActiveDraftPath(projectDir: string, preferredPath?: string): string {
+function resolveProjectActiveDraftPath(
+  projectDir: string,
+  preferredPath?: string,
+): string {
   const candidatePaths = [preferredPath, "draft.md"].filter(
-    (c): c is string => !!c
+    (c): c is string => !!c,
   );
   for (const candidate of candidatePaths) {
     if (fs.existsSync(path.join(projectDir, candidate))) return candidate;
@@ -133,23 +138,33 @@ export const getPages: RequestHandler = (req, res) => {
   const pages: Page[] = [];
 
   // Recursively discover projects and organizational folders
-  function discover(baseDir: string, relativePath: string, parentPageId: string | null) {
+  function discover(
+    baseDir: string,
+    relativePath: string,
+    parentPageId: string | null,
+  ) {
     if (!fs.existsSync(baseDir)) return;
     const entries = fs.readdirSync(baseDir, { withFileTypes: true });
 
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      if (entry.name.startsWith(".") || entry.name === "shared-resources") continue;
+      if (entry.name.startsWith(".") || entry.name === "shared-resources")
+        continue;
 
       const fullDir = path.join(baseDir, entry.name);
-      const currentPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+      const currentPath = relativePath
+        ? `${relativePath}/${entry.name}`
+        : entry.name;
       const metaPath = path.join(fullDir, ".project.json");
 
       if (fs.existsSync(metaPath)) {
         // This is a project -> becomes a page
         const meta = readProjectMeta(fullDir);
         const projectSlug = `${workspace}/${currentPath}`;
-        const activeDraft = resolveProjectActiveDraftPath(fullDir, meta.activeDraft);
+        const activeDraft = resolveProjectActiveDraftPath(
+          fullDir,
+          meta.activeDraft,
+        );
 
         // Get the project's file tree to find subpages
         const fileTree = buildFileTree(fullDir);
@@ -175,7 +190,8 @@ export const getPages: RequestHandler = (req, res) => {
           const filePageId = `${projectSlug}::${file.path}`;
           pages.push({
             id: filePageId,
-            title: file.title || file.name.replace(/\.md$/, "").replace(/-/g, " "),
+            title:
+              file.title || file.name.replace(/\.md$/, "").replace(/-/g, " "),
             parentId: projectSlug,
             type: file.type === "directory" ? "folder" : "page",
             updatedAt: file.updatedAt || new Date().toISOString(),
@@ -195,7 +211,7 @@ export const getPages: RequestHandler = (req, res) => {
         // Check if folder has any content (projects or subfolders)
         const subEntries = fs.readdirSync(fullDir, { withFileTypes: true });
         const hasContent = subEntries.some(
-          (e) => e.isDirectory() && !e.name.startsWith(".")
+          (e) => e.isDirectory() && !e.name.startsWith("."),
         );
 
         pages.push({
@@ -226,12 +242,17 @@ export const getPages: RequestHandler = (req, res) => {
     });
   }
 
-  function addNestedFiles(children: FileNode[], parentId: string, projectSlug: string) {
+  function addNestedFiles(
+    children: FileNode[],
+    parentId: string,
+    projectSlug: string,
+  ) {
     for (const child of children) {
       const childId = `${projectSlug}::${child.path}`;
       pages.push({
         id: childId,
-        title: child.title || child.name.replace(/\.md$/, "").replace(/-/g, " "),
+        title:
+          child.title || child.name.replace(/\.md$/, "").replace(/-/g, " "),
         parentId,
         type: child.type === "directory" ? "folder" : "page",
         updatedAt: child.updatedAt || new Date().toISOString(),

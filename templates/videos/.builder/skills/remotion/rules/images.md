@@ -26,7 +26,10 @@ export const MyComposition = () => {
 ## Sizing
 
 ```tsx
-<Img src={staticFile("photo.png")} style={{ width: 500, height: 300, objectFit: "cover" }} />
+<Img
+  src={staticFile("photo.png")}
+  style={{ width: 500, height: 300, objectFit: "cover" }}
+/>
 ```
 
 ## Getting image dimensions

@@ -72,12 +72,12 @@ interface Props {
 export function FeedbackChart({ dateRange }: Props) {
   const totals = useMetricsQuery(
     ["pr-review-feedback-totals", dateRange],
-    feedbackSql(dateRange)
+    feedbackSql(dateRange),
   );
 
   const series = useMetricsQuery(
     ["pr-review-feedback-time", dateRange],
-    feedbackOverTimeSql(dateRange)
+    feedbackOverTimeSql(dateRange),
   );
 
   const kpis = useMemo(() => {
@@ -98,7 +98,7 @@ export function FeedbackChart({ dateRange }: Props) {
         thumbs_up: Number(r.thumbs_up || 0),
         thumbs_down: Number(r.thumbs_down || 0),
       })),
-    [series.data]
+    [series.data],
   );
 
   const loading = totals.isLoading || series.isLoading;
@@ -157,7 +157,9 @@ export function FeedbackChart({ dateRange }: Props) {
                   contentStyle={TOOLTIP_STYLE}
                   labelFormatter={formatDate}
                 />
-                <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }} />
+                <Legend
+                  wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }}
+                />
                 <Bar
                   dataKey="thumbs_up"
                   name="👍 Positive"

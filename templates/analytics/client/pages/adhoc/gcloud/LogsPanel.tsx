@@ -54,8 +54,7 @@ interface LogRowProps {
 function LogRow({ entry }: LogRowProps) {
   const [expanded, setExpanded] = useState(false);
   const message = getLogMessage(entry);
-  const colorClass =
-    SEVERITY_COLORS[entry.severity] || SEVERITY_COLORS.DEFAULT;
+  const colorClass = SEVERITY_COLORS[entry.severity] || SEVERITY_COLORS.DEFAULT;
 
   return (
     <div className="border-b border-border last:border-b-0">
@@ -88,9 +87,7 @@ function LogRow({ entry }: LogRowProps) {
             {message}
           </pre>
           <div className="mt-2 text-[10px] text-muted-foreground space-x-4">
-            <span>
-              Resource: {entry.resource.type}
-            </span>
+            <span>Resource: {entry.resource.type}</span>
             {entry.resource.labels.service_name && (
               <span>Service: {entry.resource.labels.service_name}</span>
             )}
@@ -118,7 +115,7 @@ export function LogsPanel({ service, period, type }: LogsPanelProps) {
     service,
     severity || undefined,
     limit,
-    type
+    type,
   );
 
   return (

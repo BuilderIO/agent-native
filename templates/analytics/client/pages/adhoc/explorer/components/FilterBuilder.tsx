@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PropertyCombobox } from "./PropertyCombobox";
 import { PropertyValueCombobox } from "./PropertyValueCombobox";
 import type { ExplorerFilter } from "../types";
@@ -87,7 +93,9 @@ function FilterRow({
       />
       <Select
         value={filter.operator}
-        onValueChange={(op) => onChange({ ...filter, operator: op as ExplorerFilter["operator"] })}
+        onValueChange={(op) =>
+          onChange({ ...filter, operator: op as ExplorerFilter["operator"] })
+        }
       >
         <SelectTrigger className="h-7 w-auto min-w-[60px] text-xs px-2">
           <SelectValue />
@@ -107,7 +115,12 @@ function FilterRow({
           onChange={(v) => onChange({ ...filter, value: v })}
         />
       )}
-      <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={onRemove}>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6 shrink-0"
+        onClick={onRemove}
+      >
         <X className="h-3 w-3" />
       </Button>
     </div>

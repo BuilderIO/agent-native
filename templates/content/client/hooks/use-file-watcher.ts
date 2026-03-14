@@ -11,7 +11,7 @@ export function useFileWatcher() {
       try {
         const data = JSON.parse(event.data);
         console.log("[FileWatcher] event received:", data);
-        
+
         // Invalidate relevant react-query caches
         queryClient.invalidateQueries({ queryKey: ["file"] });
         queryClient.invalidateQueries({ queryKey: ["fileTree"] });

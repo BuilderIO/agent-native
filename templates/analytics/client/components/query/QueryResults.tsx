@@ -21,12 +21,10 @@ export function QueryResults({ data, isLoading, error }: QueryResultsProps) {
       (k) =>
         k.toLowerCase().includes("day") ||
         k.toLowerCase().includes("time") ||
-        k.toLowerCase().includes("date")
+        k.toLowerCase().includes("date"),
     );
     const valueKey = keys.find(
-      (k) =>
-        k !== timeKey &&
-        typeof data[0][k] === "number"
+      (k) => k !== timeKey && typeof data[0][k] === "number",
     );
     if (timeKey && valueKey) return { xKey: timeKey, yKey: valueKey };
     return null;

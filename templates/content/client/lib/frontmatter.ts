@@ -77,7 +77,7 @@ export function parseFrontmatter(markdown: string): ParsedMarkdown {
  */
 export function updateFrontmatter(
   markdown: string,
-  updates: Partial<FrontmatterData>
+  updates: Partial<FrontmatterData>,
 ): string {
   const parsed = parseFrontmatter(markdown);
 
@@ -113,11 +113,11 @@ export function updateFrontmatter(
  */
 export function updateBuilderMetadata(
   markdown: string,
-  builderUpdates: Partial<BuilderMetadata>
+  builderUpdates: Partial<BuilderMetadata>,
 ): string {
   const parsed = parseFrontmatter(markdown);
   const currentBuilder = (parsed.data.builder || {}) as BuilderMetadata;
-  
+
   const newBuilder = { ...currentBuilder };
 
   // Apply updates (if undefined, delete the key)
@@ -128,7 +128,7 @@ export function updateBuilderMetadata(
       (newBuilder as any)[k] = v;
     }
   }
-  
+
   // Remove if completely empty
   if (Object.keys(newBuilder).length === 0) {
     const newData = { ...parsed.data };
@@ -144,10 +144,10 @@ export function updateBuilderMetadata(
  */
 export function updateNotionMetadata(
   markdown: string,
-  notionUpdates: Partial<any>
+  notionUpdates: Partial<any>,
 ): string {
   const parsed = parseFrontmatter(markdown);
-  const currentNotion = (parsed.data.notion || {});
+  const currentNotion = parsed.data.notion || {};
 
   const newNotion = { ...currentNotion };
 
@@ -191,7 +191,11 @@ export function getBuilderMetadata(markdown: string): BuilderMetadata {
  */
 export function getHeroImage(markdown: string): string | null {
   const parsed = parseFrontmatter(markdown);
-  return (parsed.data.builder?.image !== undefined ? parsed.data.builder.image : parsed.data.hero_image) ?? null;
+  return (
+    (parsed.data.builder?.image !== undefined
+      ? parsed.data.builder.image
+      : parsed.data.hero_image) ?? null
+  );
 }
 
 /**
@@ -199,7 +203,7 @@ export function getHeroImage(markdown: string): string | null {
  */
 export function updateHeroImage(
   markdown: string,
-  heroImage: string | null
+  heroImage: string | null,
 ): string {
   const parsed = parseFrontmatter(markdown);
   // Deep clone to ensure nested objects like .builder aren't just referenced

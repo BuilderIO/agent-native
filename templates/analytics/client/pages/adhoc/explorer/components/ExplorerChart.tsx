@@ -17,8 +17,16 @@ import type { ExplorerConfig } from "../types";
 import type { QueryMetricsResult } from "@/lib/query-metrics";
 
 const COLORS = [
-  "#6366f1", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6",
-  "#ec4899", "#14b8a6", "#f97316", "#06b6d4", "#84cc16",
+  "#6366f1",
+  "#f59e0b",
+  "#10b981",
+  "#ef4444",
+  "#8b5cf6",
+  "#ec4899",
+  "#14b8a6",
+  "#f97316",
+  "#06b6d4",
+  "#84cc16",
 ];
 
 interface ExplorerChartProps {
@@ -28,7 +36,12 @@ interface ExplorerChartProps {
   sql: string;
 }
 
-export function ExplorerChart({ config, result, isLoading, sql }: ExplorerChartProps) {
+export function ExplorerChart({
+  config,
+  result,
+  isLoading,
+  sql,
+}: ExplorerChartProps) {
   const rows = result?.rows ?? [];
   const error = result?.error;
 
@@ -84,16 +97,26 @@ export function ExplorerChart({ config, result, isLoading, sql }: ExplorerChartP
   }
 }
 
-function MetricView({ rows, config }: { rows: Record<string, unknown>[]; config: ExplorerConfig }) {
+function MetricView({
+  rows,
+  config,
+}: {
+  rows: Record<string, unknown>[];
+  config: ExplorerConfig;
+}) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
       {rows.map((row, i) => {
-        const label = String(row.event_label ?? config.events[0]?.event ?? "Count");
+        const label = String(
+          row.event_label ?? config.events[0]?.event ?? "Count",
+        );
         const value = Number(row.count ?? 0);
         return (
           <Card key={i}>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                {label}
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{value.toLocaleString()}</div>
@@ -117,7 +140,10 @@ function TableView({ rows }: { rows: Record<string, unknown>[] }) {
             <thead className="sticky top-0 bg-muted">
               <tr>
                 {columns.map((col) => (
-                  <th key={col} className="text-left px-3 py-2 font-medium text-muted-foreground">
+                  <th
+                    key={col}
+                    className="text-left px-3 py-2 font-medium text-muted-foreground"
+                  >
                     {col}
                   </th>
                 ))}
@@ -141,7 +167,13 @@ function TableView({ rows }: { rows: Record<string, unknown>[] }) {
   );
 }
 
-function TimeSeriesView({ rows, config }: { rows: Record<string, unknown>[]; config: ExplorerConfig }) {
+function TimeSeriesView({
+  rows,
+  config,
+}: {
+  rows: Record<string, unknown>[];
+  config: ExplorerConfig;
+}) {
   const hasGroupBy = config.events.some((e) => e.groupBy.length > 0);
   const hasMultiEvents = config.events.length > 1;
   const seriesKey = hasMultiEvents
@@ -216,7 +248,11 @@ function TimeSeriesView({ rows, config }: { rows: Record<string, unknown>[]; con
         <ResponsiveContainer width="100%" height={350}>
           <ChartComponent data={chartData}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-            <XAxis dataKey="date" tick={{ fontSize: 11 }} className="text-muted-foreground" />
+            <XAxis
+              dataKey="date"
+              tick={{ fontSize: 11 }}
+              className="text-muted-foreground"
+            />
             <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground" />
             <Tooltip
               contentStyle={{
@@ -226,7 +262,9 @@ function TimeSeriesView({ rows, config }: { rows: Record<string, unknown>[]; con
                 fontSize: 12,
               }}
             />
-            {seriesNames.length > 1 && <Legend wrapperStyle={{ fontSize: 11 }} />}
+            {seriesNames.length > 1 && (
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+            )}
             {seriesNames.map((name, i) =>
               config.chartType === "bar" ? (
                 <Bar
@@ -244,7 +282,7 @@ function TimeSeriesView({ rows, config }: { rows: Record<string, unknown>[]; con
                   strokeWidth={2}
                   dot={false}
                 />
-              )
+              ),
             )}
           </ChartComponent>
         </ResponsiveContainer>
@@ -266,6 +304,7 @@ function formatDate(val: unknown): string {
 function formatCell(val: unknown): string {
   if (val == null) return "";
   if (typeof val === "number") return val.toLocaleString();
-  if (typeof val === "object" && val !== null && "value" in val) return String((val as any).value);
+  if (typeof val === "object" && val !== null && "value" in val)
+    return String((val as any).value);
   return String(val);
 }

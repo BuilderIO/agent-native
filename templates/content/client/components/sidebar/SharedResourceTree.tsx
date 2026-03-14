@@ -43,18 +43,23 @@ export function SharedResourceTree({
   const handleDelete = (filePath: string) => {
     deleteMutation.mutate(
       { projectSlug: SHARED_SLUG, filePath },
-      { onSuccess: () => onDeleteFile(filePath) }
+      { onSuccess: () => onDeleteFile(filePath) },
     );
   };
 
-  const openNewFileDialog = (parentPath?: string, type: "file" | "directory" = "file") => {
+  const openNewFileDialog = (
+    parentPath?: string,
+    type: "file" | "directory" = "file",
+  ) => {
     setNewFileParent(parentPath);
     setNewFileType(type);
     setShowNewFile(true);
   };
 
   if (isLoading) {
-    return <div className="px-4 py-2 text-xs text-sidebar-muted">Loading...</div>;
+    return (
+      <div className="px-4 py-2 text-xs text-sidebar-muted">Loading...</div>
+    );
   }
 
   const tree = data?.tree || [];
@@ -127,7 +132,9 @@ function SharedTreeNode({
 
   // Subfolders inside image-references open a grid view instead of expanding
   const isImageRefSubfolder =
-    isDir && node.path.startsWith("image-references/") && node.path.split("/").length === 2;
+    isDir &&
+    node.path.startsWith("image-references/") &&
+    node.path.split("/").length === 2;
 
   if (isDir) {
     return (
@@ -135,7 +142,7 @@ function SharedTreeNode({
         <div
           className={cn(
             "flex items-center gap-1 pr-1 group overflow-hidden rounded-sm",
-            isActive && isImageRefSubfolder && "bg-sidebar-accent"
+            isActive && isImageRefSubfolder && "bg-sidebar-accent",
           )}
           style={{ paddingLeft }}
         >
@@ -153,7 +160,7 @@ function SharedTreeNode({
               size={11}
               className={cn(
                 "shrink-0 transition-transform duration-150",
-                !isExpanded && "-rotate-90"
+                !isExpanded && "-rotate-90",
               )}
             />
             {isExpanded ? (
@@ -173,7 +180,9 @@ function SharedTreeNode({
                   <FilePlus size={11} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">New file</TooltipContent>
+              <TooltipContent side="top" className="text-xs">
+                New file
+              </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -184,7 +193,9 @@ function SharedTreeNode({
                   <Trash2 size={11} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">Delete</TooltipContent>
+              <TooltipContent side="top" className="text-xs">
+                Delete
+              </TooltipContent>
             </Tooltip>
           </div>
         </div>
@@ -226,7 +237,7 @@ function SharedTreeNode({
         "w-full flex items-center gap-1 pr-1 py-1 rounded-sm text-left group transition-colors overflow-hidden cursor-pointer",
         isActive
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+          : "text-sidebar-foreground hover:bg-sidebar-accent/60",
       )}
       style={{ paddingLeft: paddingLeft + 14 }}
     >
@@ -258,7 +269,9 @@ function SharedTreeNode({
             <Trash2 size={11} />
           </button>
         </TooltipTrigger>
-        <TooltipContent side="top" className="text-xs">Delete</TooltipContent>
+        <TooltipContent side="top" className="text-xs">
+          Delete
+        </TooltipContent>
       </Tooltip>
     </div>
   );

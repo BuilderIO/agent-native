@@ -51,15 +51,15 @@ Always-replace list. These words aren't wrong, but their density in AI text is a
 
 These verbs and qualifiers aren't overtly AI but signal academic register when used as defaults in conversational blog posts. They pass Category A-D scans because they're individually innocuous.
 
-| Academic Default | Conversational Alternative |
-| --------------- | ------------------------- |
-| "examines" | "asks", "looks at", "checks" |
-| "explores" | "digs into", "looks at", "covers" |
-| "demonstrates" | "shows" |
-| "illustrates" | "shows" |
-| "elucidates" | "explains", "breaks down" |
+| Academic Default       | Conversational Alternative                  |
+| ---------------------- | ------------------------------------------- |
+| "examines"             | "asks", "looks at", "checks"                |
+| "explores"             | "digs into", "looks at", "covers"           |
+| "demonstrates"         | "shows"                                     |
+| "illustrates"          | "shows"                                     |
+| "elucidates"           | "explains", "breaks down"                   |
 | "concrete" (qualifier) | Drop it -- "concrete examples" → "examples" |
-| "actual" (qualifier) | Drop it -- "actual codebase" → "codebase" |
+| "actual" (qualifier)   | Drop it -- "actual codebase" → "codebase"   |
 
 Flag during Sub-Pass 5 (Read-Aloud Test): these sound fine in writing but feel stiff when spoken aloud.
 

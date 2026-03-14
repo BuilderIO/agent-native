@@ -24,7 +24,8 @@ const personas = [
     title: "Analytics Team",
     badge: "Full Access",
     badgeColor: "bg-purple-500",
-    description: "Create SQL templates, business definitions, and technical documentation",
+    description:
+      "Create SQL templates, business definitions, and technical documentation",
     capabilities: [
       "Add SQL query templates",
       "Create join patterns",
@@ -40,7 +41,8 @@ const personas = [
     title: "Department Head",
     badge: "Business Focus",
     badgeColor: "bg-blue-500",
-    description: "Define business meaning and route technical work to analytics",
+    description:
+      "Define business meaning and route technical work to analytics",
     capabilities: [
       "Write business definitions",
       "Add common questions",
@@ -68,7 +70,10 @@ const personas = [
   },
 ];
 
-export function PersonaSelectionModal({ open, onSelect }: PersonaSelectionModalProps) {
+export function PersonaSelectionModal({
+  open,
+  onSelect,
+}: PersonaSelectionModalProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -108,7 +113,9 @@ export function PersonaSelectionModal({ open, onSelect }: PersonaSelectionModalP
       onSelect(selected);
     } catch (error) {
       console.error("Error setting persona:", error);
-      alert(`Failed to set persona: ${error instanceof Error ? error.message : "Unknown error"}`);
+      alert(
+        `Failed to set persona: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -118,9 +125,12 @@ export function PersonaSelectionModal({ open, onSelect }: PersonaSelectionModalP
     <Dialog open={open}>
       <DialogContent className="max-w-4xl">
         <DialogHeader>
-          <DialogTitle className="text-2xl">How would you like to contribute?</DialogTitle>
+          <DialogTitle className="text-2xl">
+            How would you like to contribute?
+          </DialogTitle>
           <DialogDescription className="text-base">
-            Choose your role to unlock the right contribution types for you. You can change this later in settings.
+            Choose your role to unlock the right contribution types for you. You
+            can change this later in settings.
           </DialogDescription>
         </DialogHeader>
 
@@ -133,19 +143,25 @@ export function PersonaSelectionModal({ open, onSelect }: PersonaSelectionModalP
               <Card
                 key={persona.id}
                 className={`cursor-pointer transition-all hover:shadow-lg ${
-                  isSelected ? `ring-2 ring-primary ${persona.borderColor}` : "border-border"
+                  isSelected
+                    ? `ring-2 ring-primary ${persona.borderColor}`
+                    : "border-border"
                 } bg-gradient-to-br ${persona.gradient}`}
                 onClick={() => setSelected(persona.id)}
               >
                 <CardContent className="pt-6 space-y-4">
                   <div className="flex items-center justify-between">
                     <Icon className="h-8 w-8 text-primary" />
-                    {isSelected && <CheckCircle className="h-5 w-5 text-primary" />}
+                    {isSelected && (
+                      <CheckCircle className="h-5 w-5 text-primary" />
+                    )}
                   </div>
 
                   <div className="space-y-2">
                     <h3 className="font-semibold text-lg">{persona.title}</h3>
-                    <Badge className={`${persona.badgeColor} text-white`}>{persona.badge}</Badge>
+                    <Badge className={`${persona.badgeColor} text-white`}>
+                      {persona.badge}
+                    </Badge>
                   </div>
 
                   <p className="text-sm text-muted-foreground leading-relaxed">
@@ -173,9 +189,14 @@ export function PersonaSelectionModal({ open, onSelect }: PersonaSelectionModalP
 
         <div className="flex items-center justify-between pt-4 border-t">
           <p className="text-xs text-muted-foreground">
-            💡 Tip: Start with what feels comfortable. You can always change your role later.
+            💡 Tip: Start with what feels comfortable. You can always change
+            your role later.
           </p>
-          <Button onClick={handleSelect} disabled={!selected || isSubmitting} size="lg">
+          <Button
+            onClick={handleSelect}
+            disabled={!selected || isSubmitting}
+            size="lg"
+          >
             {isSubmitting ? "Setting up..." : "Continue"}
           </Button>
         </div>

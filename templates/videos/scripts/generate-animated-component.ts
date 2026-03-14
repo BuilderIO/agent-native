@@ -2,9 +2,9 @@
 
 /**
  * Component Generator CLI
- * 
+ *
  * Generates a new Remotion composition with animated elements and boilerplate
- * 
+ *
  * Usage:
  *   npm run generate:component MyDashboard
  *   npm run generate:component MyDashboard --elements Button,Card,Panel
@@ -19,7 +19,10 @@ interface GeneratorOptions {
   outputDir: string;
 }
 
-const TEMPLATE_COMPOSITION = (name: string, elements: string[]) => `import { AbsoluteFill } from "remotion";
+const TEMPLATE_COMPOSITION = (
+  name: string,
+  elements: string[],
+) => `import { AbsoluteFill } from "remotion";
 import { CameraHost } from "@/remotion/CameraHost";
 import type { AnimationTrack } from "@/types";
 import { findTrack } from "@/remotion/trackAnimation";
@@ -31,13 +34,17 @@ import { useCursorHistory } from "@/remotion/hooks/useCursorHistory";
 import { createInteractiveElements, findClickInElement } from "@/remotion/utils/interactiveElements";
 import { useHoverAnimationSmooth } from "@/remotion/hooks/useHoverAnimationSmooth";
 import { useCursorTypeFromHover } from "@/remotion/hooks/useCursorTypeFromHover";
-${elements.map(el => `import { ${name}${el} } from "./${name}${el}";`).join("\n")}
+${elements.map((el) => `import { ${name}${el} } from "./${name}${el}";`).join("\n")}
 import { FALLBACK_TRACKS } from "./${name}Config";
 
 // ⭐ CRITICAL: Initialize animations at module level (before component renders)
 initializeDefaultAnimations("${name.toLowerCase()}", [
-${elements.map(el => `  AnimationPresets.hoverLift("${el}"),
-  AnimationPresets.clickPress("${el}"),`).join("\n")}
+${elements
+  .map(
+    (el) => `  AnimationPresets.hoverLift("${el}"),
+  AnimationPresets.clickPress("${el}"),`,
+  )
+  .join("\n")}
 ]);
 
 export interface ${name}Props {
@@ -114,7 +121,7 @@ export const ${name}: React.FC<${name}Props> = ({ tracks = FALLBACK_TRACKS }) =>
   useEffect(() => {
     if (hoveredElement) {
       const elementMap: Record<string, { type: string; label: string }> = {
-${elements.map(el => `        "${el.toLowerCase()}": { type: "${el}", label: "${el}" },`).join("\n")}
+${elements.map((el) => `        "${el.toLowerCase()}": { type: "${el}", label: "${el}" },`).join("\n")}
       };
       const element = elementMap[hoveredElement];
       if (element) {
@@ -137,7 +144,9 @@ ${elements.map(el => `        "${el.toLowerCase()}": { type: "${el}", label: "${
       <AbsoluteFill style={{ background: "#0D1519" }}>
 
         {/* Add your animated elements here */}
-${elements.map((el, i) => `
+${elements
+  .map(
+    (el, i) => `
         <AnimatedElement
           id="${el.toLowerCase()}"
           elementType="${el}"
@@ -155,7 +164,9 @@ ${elements.map((el, i) => `
           {(animatedStyles) => (
             <${name}${el} animatedStyles={animatedStyles} />
           )}
-        </AnimatedElement>`).join("\n")}
+        </AnimatedElement>`,
+  )
+  .join("\n")}
 
       </AbsoluteFill>
     </CameraHost>
@@ -279,13 +290,16 @@ export const FALLBACK_TRACKS: AnimationTrack[] = [
 ];
 `;
 
-const TEMPLATE_README = (name: string, elements: string[]) => `# ${name} Composition
+const TEMPLATE_README = (
+  name: string,
+  elements: string[],
+) => `# ${name} Composition
 
 Auto-generated Remotion composition with animated elements.
 
 ## Elements
 
-${elements.map(el => `- **${el}**: Animated component with hover and click interactions`).join("\n")}
+${elements.map((el) => `- **${el}**: Animated component with hover and click interactions`).join("\n")}
 
 ## Customization
 
@@ -329,7 +343,7 @@ const cursorX = interpolate(frame, [0, 100], [0, 1920]);
 ${name}/
 ├── ${name}.tsx              # Main composition
 ├── ${name}Config.ts         # Tracks and configuration
-${elements.map(el => `├── ${name}${el}.tsx       # ${el} component`).join("\n")}
+${elements.map((el) => `├── ${name}${el}.tsx       # ${el} component`).join("\n")}
 └── README.md                # This file
 \`\`\`
 
@@ -357,7 +371,7 @@ import { ${name} } from "@/remotion/compositions/${name}";
 
 function generateComponent(options: GeneratorOptions): void {
   const { name, elements, outputDir } = options;
-  
+
   console.log(`\n🎬 Generating animated composition: ${name}`);
   console.log(`📦 Elements: ${elements.join(", ")}\n`);
 
@@ -381,7 +395,7 @@ function generateComponent(options: GeneratorOptions): void {
   console.log(`✅ Created ${configPath}`);
 
   // Generate element components
-  elements.forEach(element => {
+  elements.forEach((element) => {
     const elementPath = path.join(compDir, `${name}${element}.tsx`);
     fs.writeFileSync(elementPath, TEMPLATE_ELEMENT(name, element));
     console.log(`✅ Created ${elementPath}`);
@@ -402,7 +416,7 @@ function generateComponent(options: GeneratorOptions): void {
 // Parse CLI arguments
 function parseArgs(): GeneratorOptions {
   const args = process.argv.slice(2);
-  
+
   if (args.length === 0 || args[0] === "--help") {
     console.log(`
 📦 Animated Component Generator

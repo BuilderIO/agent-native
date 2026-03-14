@@ -9,11 +9,20 @@ interface ActivityChartsProps {
 }
 
 export function ActivityCharts({ dateStart, dateEnd }: ActivityChartsProps) {
-  const msgSql = useMemo(() => agentChatMessagesByDayQuery(dateStart, dateEnd), [dateStart, dateEnd]);
-  const eventsSql = useMemo(() => allEventsByDayQuery(dateStart, dateEnd), [dateStart, dateEnd]);
+  const msgSql = useMemo(
+    () => agentChatMessagesByDayQuery(dateStart, dateEnd),
+    [dateStart, dateEnd],
+  );
+  const eventsSql = useMemo(
+    () => allEventsByDayQuery(dateStart, dateEnd),
+    [dateStart, dateEnd],
+  );
 
   const msgData = useMetricsQuery(["macys-agent-chat-msgs", msgSql], msgSql);
-  const eventsData = useMetricsQuery(["macys-all-events", eventsSql], eventsSql);
+  const eventsData = useMetricsQuery(
+    ["macys-all-events", eventsSql],
+    eventsSql,
+  );
 
   return (
     <>

@@ -1,11 +1,26 @@
 {
   "timezone": "America/New_York",
   "weeklySchedule": {
-    "monday": { "enabled": true, "slots": [{ "start": "09:00", "end": "17:00" }] },
-    "tuesday": { "enabled": true, "slots": [{ "start": "09:00", "end": "17:00" }] },
-    "wednesday": { "enabled": true, "slots": [{ "start": "09:00", "end": "17:00" }] },
-    "thursday": { "enabled": true, "slots": [{ "start": "09:00", "end": "17:00" }] },
-    "friday": { "enabled": true, "slots": [{ "start": "09:00", "end": "17:00" }] },
+    "monday": {
+      "enabled": true,
+      "slots": [{ "start": "09:00", "end": "17:00" }]
+    },
+    "tuesday": {
+      "enabled": true,
+      "slots": [{ "start": "09:00", "end": "17:00" }]
+    },
+    "wednesday": {
+      "enabled": true,
+      "slots": [{ "start": "09:00", "end": "17:00" }]
+    },
+    "thursday": {
+      "enabled": true,
+      "slots": [{ "start": "09:00", "end": "17:00" }]
+    },
+    "friday": {
+      "enabled": true,
+      "slots": [{ "start": "09:00", "end": "17:00" }]
+    },
     "saturday": { "enabled": false, "slots": [] },
     "sunday": { "enabled": false, "slots": [] }
   },

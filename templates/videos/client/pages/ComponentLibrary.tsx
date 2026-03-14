@@ -13,7 +13,8 @@ export default function ComponentLibrary() {
   // Get component from URL param (?id=card) or default to first
   const componentIdFromUrl = searchParams.get("id");
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(
-    componentIdFromUrl || (libraryComponents.length > 0 ? libraryComponents[0].id : null)
+    componentIdFromUrl ||
+      (libraryComponents.length > 0 ? libraryComponents[0].id : null),
   );
 
   // Get initial frame from URL param (?frame=60)
@@ -21,7 +22,7 @@ export default function ComponentLibrary() {
   const initialFrame = frameFromUrl ? parseInt(frameFromUrl, 10) : undefined;
 
   const selectedComponent = libraryComponents.find(
-    (c) => c.id === selectedComponentId
+    (c) => c.id === selectedComponentId,
   );
 
   // Live prop values for preview (not saved)

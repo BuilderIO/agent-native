@@ -74,7 +74,9 @@ function startWatching() {
       // Notify all SSE clients (external/agent file edits only)
       for (const client of sseClients) {
         try {
-          client.write(`data: ${JSON.stringify({ type: "deck-changed", deckId })}\n\n`);
+          client.write(
+            `data: ${JSON.stringify({ type: "deck-changed", deckId })}\n\n`,
+          );
         } catch {
           sseClients.delete(client);
         }
@@ -98,7 +100,7 @@ decksRouter.get("/events", (req: Request, res: Response) => {
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
   });
-  res.write("data: {\"type\":\"connected\"}\n\n");
+  res.write('data: {"type":"connected"}\n\n');
 
   sseClients.add(res);
   req.on("close", () => {

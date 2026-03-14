@@ -39,7 +39,11 @@ const DAY_MAP: Record<number, keyof AvailabilityConfig["weeklySchedule"]> = {
   6: "saturday",
 };
 
-export function DatePicker({ selectedDate, onSelect, availability }: DatePickerProps) {
+export function DatePicker({
+  selectedDate,
+  onSelect,
+  availability,
+}: DatePickerProps) {
   const [viewMonth, setViewMonth] = useState(new Date());
 
   const monthStart = startOfMonth(viewMonth);
@@ -70,7 +74,9 @@ export function DatePicker({ selectedDate, onSelect, availability }: DatePickerP
         >
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <span className="text-sm font-medium">{format(viewMonth, "MMMM yyyy")}</span>
+        <span className="text-sm font-medium">
+          {format(viewMonth, "MMMM yyyy")}
+        </span>
         <Button
           variant="ghost"
           size="icon"
@@ -83,7 +89,10 @@ export function DatePicker({ selectedDate, onSelect, availability }: DatePickerP
       {/* Weekday headers */}
       <div className="grid grid-cols-7 mb-1">
         {WEEKDAY_HEADERS.map((d) => (
-          <div key={d} className="py-1 text-center text-xs font-medium text-muted-foreground">
+          <div
+            key={d}
+            className="py-1 text-center text-xs font-medium text-muted-foreground"
+          >
             {d}
           </div>
         ))}
@@ -107,8 +116,9 @@ export function DatePicker({ selectedDate, onSelect, availability }: DatePickerP
                 !inMonth && "opacity-0 pointer-events-none",
                 inMonth && !disabled && "hover:bg-accent cursor-pointer",
                 disabled && "opacity-30 cursor-not-allowed",
-                selected && "bg-primary text-primary-foreground hover:bg-primary/90",
-                todayMark && !selected && "border border-primary/50"
+                selected &&
+                  "bg-primary text-primary-foreground hover:bg-primary/90",
+                todayMark && !selected && "border border-primary/50",
               )}
             >
               {format(day, "d")}

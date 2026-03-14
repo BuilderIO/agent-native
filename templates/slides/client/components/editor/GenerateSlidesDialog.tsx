@@ -12,7 +12,11 @@ import type { SlideGenerateResponse } from "@shared/api";
 interface GenerateSlidesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onGenerated: (response: SlideGenerateResponse, includeImages: boolean, refImages: string[]) => void;
+  onGenerated: (
+    response: SlideGenerateResponse,
+    includeImages: boolean,
+    refImages: string[],
+  ) => void;
 }
 
 export default function GenerateSlidesDialog({
@@ -55,7 +59,8 @@ export default function GenerateSlidesDialog({
           slideCount,
           style: style || undefined,
           includeImages,
-          uploadedReferenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+          uploadedReferenceImages:
+            referenceImages.length > 0 ? referenceImages : undefined,
         }),
       });
 
@@ -85,14 +90,17 @@ export default function GenerateSlidesDialog({
             Generate Slides with AI
           </DialogTitle>
           <DialogDescription className="text-white/50">
-            Describe your presentation topic and AI will generate slides for you.
+            Describe your presentation topic and AI will generate slides for
+            you.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 mt-2">
           {/* Topic */}
           <div>
-            <label className="text-xs font-medium text-white/60 block mb-1.5">Topic</label>
+            <label className="text-xs font-medium text-white/60 block mb-1.5">
+              Topic
+            </label>
             <textarea
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
@@ -104,19 +112,25 @@ export default function GenerateSlidesDialog({
           {/* Options row */}
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="text-xs font-medium text-white/60 block mb-1.5">Slides</label>
+              <label className="text-xs font-medium text-white/60 block mb-1.5">
+                Slides
+              </label>
               <select
                 value={slideCount}
                 onChange={(e) => setSlideCount(Number(e.target.value))}
                 className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white/90 outline-none focus:border-[#609FF8]/50"
               >
                 {[4, 6, 8, 10, 12, 15].map((n) => (
-                  <option key={n} value={n}>{n} slides</option>
+                  <option key={n} value={n}>
+                    {n} slides
+                  </option>
                 ))}
               </select>
             </div>
             <div className="flex-1">
-              <label className="text-xs font-medium text-white/60 block mb-1.5">Style (optional)</label>
+              <label className="text-xs font-medium text-white/60 block mb-1.5">
+                Style (optional)
+              </label>
               <input
                 value={style}
                 onChange={(e) => setStyle(e.target.value)}
@@ -135,13 +149,17 @@ export default function GenerateSlidesDialog({
                 includeImages ? "bg-[#609FF8]" : "bg-white/[0.12]"
               }`}
             >
-              <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-                includeImages ? "left-[calc(100%-18px)]" : "left-0.5"
-              }`} />
+              <div
+                className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                  includeImages ? "left-[calc(100%-18px)]" : "left-0.5"
+                }`}
+              />
             </button>
             <div>
               <span className="text-sm text-white/80">Generate images</span>
-              <p className="text-xs text-white/40">AI will generate images for visual slides using Gemini</p>
+              <p className="text-xs text-white/40">
+                AI will generate images for visual slides using Gemini
+              </p>
             </div>
           </div>
 
@@ -154,10 +172,21 @@ export default function GenerateSlidesDialog({
               </label>
               <div className="flex flex-wrap gap-2 mb-2">
                 {referenceImages.map((img, i) => (
-                  <div key={i} className="relative w-14 h-14 rounded-md overflow-hidden border border-white/[0.08]">
-                    <img src={img} alt="" className="w-full h-full object-cover" />
+                  <div
+                    key={i}
+                    className="relative w-14 h-14 rounded-md overflow-hidden border border-white/[0.08]"
+                  >
+                    <img
+                      src={img}
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
                     <button
-                      onClick={() => setReferenceImages((prev) => prev.filter((_, j) => j !== i))}
+                      onClick={() =>
+                        setReferenceImages((prev) =>
+                          prev.filter((_, j) => j !== i),
+                        )
+                      }
                       className="absolute top-0 right-0 w-4 h-4 bg-black/70 text-white/80 text-[10px] flex items-center justify-center rounded-bl"
                     >
                       x
@@ -166,15 +195,25 @@ export default function GenerateSlidesDialog({
                 ))}
                 <label className="w-14 h-14 rounded-md border border-dashed border-white/[0.12] flex items-center justify-center cursor-pointer hover:border-[#609FF8]/40 transition-colors">
                   <span className="text-white/30 text-lg">+</span>
-                  <input type="file" accept="image/*" multiple onChange={handleFileUpload} className="hidden" />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
                 </label>
               </div>
-              <p className="text-[11px] text-white/30">Upload images to match their visual style in generated images</p>
+              <p className="text-[11px] text-white/30">
+                Upload images to match their visual style in generated images
+              </p>
             </div>
           )}
 
           {error && (
-            <p className="text-xs text-red-400 bg-red-400/10 px-3 py-2 rounded-lg">{error}</p>
+            <p className="text-xs text-red-400 bg-red-400/10 px-3 py-2 rounded-lg">
+              {error}
+            </p>
           )}
 
           {/* Generate button */}

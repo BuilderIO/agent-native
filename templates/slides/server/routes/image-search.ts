@@ -11,7 +11,8 @@ export async function searchImages(req: Request, res: Response) {
 
   if (!apiKey || !cx) {
     return res.status(500).json({
-      error: "Google Search not configured. Set GOOGLE_API_KEY and GOOGLE_SEARCH_CX environment variables.",
+      error:
+        "Google Search not configured. Set GOOGLE_API_KEY and GOOGLE_SEARCH_CX environment variables.",
     });
   }
 
@@ -25,7 +26,9 @@ export async function searchImages(req: Request, res: Response) {
       safe: "active",
     });
 
-    const response = await fetch(`https://www.googleapis.com/customsearch/v1?${params}`);
+    const response = await fetch(
+      `https://www.googleapis.com/customsearch/v1?${params}`,
+    );
     if (!response.ok) {
       const text = await response.text();
       console.error("Google API error:", response.status, text);
