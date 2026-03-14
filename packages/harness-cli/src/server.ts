@@ -160,33 +160,12 @@ const server = createServer(
 
       const command = config.command;
 
-      // Check CLI is installed
+      // Check CLI is installed; if not, use npx
+      let effectiveCommand = command;
       if (!commandExists(command)) {
         const registry = CLI_REGISTRY[command];
         if (registry?.installPackage) {
-          try {
-            execSync(`npm install -g ${registry.installPackage}`, {
-              stdio: "pipe",
-              timeout: 120000,
-            });
-          } catch {
-            res.writeHead(500, { "Content-Type": "application/json" });
-            res.end(
-              JSON.stringify({
-                error: `CLI "${command}" not found and auto-install failed. Install manually: npm install -g ${registry.installPackage}`,
-              }),
-            );
-            return;
-          }
-          if (!commandExists(command)) {
-            res.writeHead(500, { "Content-Type": "application/json" });
-            res.end(
-              JSON.stringify({
-                error: `CLI "${command}" not found after install attempt`,
-              }),
-            );
-            return;
-          }
+          effectiveCommand = `npx --yes ${registry.installPackage}`;
         } else {
           res.writeHead(500, { "Content-Type": "application/json" });
           res.end(
@@ -208,8 +187,12 @@ const server = createServer(
             for (const v of registry.stripEnv) delete env[v];
           }
 
-          const args = buildCliArgs(command, body.message, body.context);
-          const response = await execCli(command, args, appDir, env);
+          const cliArgs = buildCliArgs(command, body.message, body.context);
+          // If using npx, split the effective command and prepend to args
+          const effectiveParts = effectiveCommand.split(" ");
+          const execCommand = effectiveParts[0];
+          const args = [...effectiveParts.slice(1), ...cliArgs];
+          const response = await execCli(execCommand, args, appDir, env);
 
           const afterSnap = snapshotDataDir(dataDir);
           const filesChanged = diffSnapshots(beforeSnap, afterSnap, dataDir);
@@ -273,60 +256,21 @@ function commandExists(cmd: string): boolean {
   }
 }
 
-async function installCLI(
-  ws: WebSocket,
-  command: string,
-  installPackage: string,
-): Promise<boolean> {
-  const sendStatus = (status: string, message: string) => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "setup-status", status, message }));
-    }
-  };
-
-  sendStatus("installing", `Installing ${command} CLI...`);
-
-  try {
-    execSync(`npm install -g ${installPackage}`, {
-      stdio: "pipe",
-      timeout: 120000,
-    });
-
-    if (commandExists(command)) {
-      sendStatus("installed", `${command} CLI installed successfully!`);
-      return true;
-    }
-  } catch (err) {
-    console.error("[harness] npm install failed:", err);
-  }
-
-  sendStatus(
-    "failed",
-    `Failed to install ${command} CLI. Please install it manually: npm install -g ${installPackage}`,
-  );
-  return false;
-}
-
 // WebSocket handling — each connection gets a PTY
 wss.on("connection", async (ws: WebSocket, req) => {
   const url = new URL(req.url || "", `http://${req.headers.host}`);
   const command = url.searchParams.get("command") || config.command;
   const extraFlags = url.searchParams.get("flags") || "";
-  const fullCommand = extraFlags ? `${command} ${extraFlags}` : command;
-  console.log("[harness] WebSocket connected, spawning PTY:", fullCommand);
+  console.log("[harness] WebSocket connected for command:", command);
 
-  // Check if CLI is installed; if not, try to install it
+  // Check if CLI is installed; if not, use npx to run it
+  let useNpx = false;
   if (!commandExists(command)) {
     const registry = CLI_REGISTRY[command];
     if (registry?.installPackage) {
-      console.log(`[harness] ${command} CLI not found, attempting install...`);
-      const installed = await installCLI(ws, command, registry.installPackage);
-      if (!installed) {
-        if (ws.readyState === WebSocket.OPEN) ws.close();
-        return;
-      }
+      console.log(`[harness] ${command} CLI not found, will use npx`);
+      useNpx = true;
     } else {
-      // No auto-install available — tell client
       const sendStatus = (status: string, message: string) => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "setup-status", status, message }));
@@ -340,6 +284,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
   }
+
+  // Build the command — use npx if CLI not found locally
+  const baseCommand = useNpx
+    ? `npx --yes ${CLI_REGISTRY[command].installPackage}`
+    : command;
+  const fullCommand = extraFlags ? `${baseCommand} ${extraFlags}` : baseCommand;
+  console.log("[harness] Spawning PTY:", fullCommand);
 
   // Build env, stripping CLI-specific nesting vars
   const registry = CLI_REGISTRY[command];
