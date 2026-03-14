@@ -12,7 +12,7 @@ Start from a production-ready template. Each one replaces tools you're paying fo
 
 <table>
 <tr>
-<td width="20%" align="center" valign="top">
+<td width="33%" align="center" valign="top">
 
 **Analytics**
 
@@ -23,7 +23,7 @@ Start from a production-ready template. Each one replaces tools you're paying fo
 Connect any data source, prompt for any chart. Build reusable dashboards, not throwaway Q&A.
 
 </td>
-<td width="20%" align="center" valign="top">
+<td width="33%" align="center" valign="top">
 
 **Content**
 
@@ -34,7 +34,7 @@ Connect any data source, prompt for any chart. Build reusable dashboards, not th
 Write and organize content with an agent that knows your brand and publishing workflow.
 
 </td>
-<td width="20%" align="center" valign="top">
+<td width="33%" align="center" valign="top">
 
 **Slides**
 
@@ -45,7 +45,14 @@ Write and organize content with an agent that knows your brand and publishing wo
 Generate and edit React-based presentations via prompt or point-and-click.
 
 </td>
-<td width="20%" align="center" valign="top">
+</tr>
+<tr>
+<td align="center"><a href="https://agent-native.com/templates/analytics"><img src=".github/assets/launch-button.svg" alt="Launch Analytics" height="36" /></a></td>
+<td align="center"><a href="https://agent-native.com/templates/content"><img src=".github/assets/launch-button.svg" alt="Launch Content" height="36" /></a></td>
+<td align="center"><a href="https://agent-native.com/templates/slides"><img src=".github/assets/launch-button.svg" alt="Launch Slides" height="36" /></a></td>
+</tr>
+<tr>
+<td width="33%" align="center" valign="top">
 
 **Video**
 
@@ -56,7 +63,7 @@ Generate and edit React-based presentations via prompt or point-and-click.
 Create and edit Remotion video compositions with agent assistance.
 
 </td>
-<td width="20%" align="center" valign="top">
+<td width="33%" align="center" valign="top">
 
 **Calendar**
 
@@ -67,13 +74,22 @@ Create and edit Remotion video compositions with agent assistance.
 Manage events, sync with Google Calendar, and share a public booking page with AI scheduling.
 
 </td>
+<td width="33%" align="center" valign="top">
+
+**Brand**
+
+<a href="https://agent-native.com/templates/brand"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fbrand-placeholder" alt="Brand template" width="100%" /></a>
+
+**AI-Native Brand Asset Manager**
+
+Upload your brand assets and generate on-brand images with AI style matching.
+
+</td>
 </tr>
 <tr>
-<td align="center"><a href="https://agent-native.com/templates/analytics"><img src=".github/assets/launch-button.svg" alt="Launch Analytics" height="36" /></a></td>
-<td align="center"><a href="https://agent-native.com/templates/content"><img src=".github/assets/launch-button.svg" alt="Launch Content" height="36" /></a></td>
-<td align="center"><a href="https://agent-native.com/templates/slides"><img src=".github/assets/launch-button.svg" alt="Launch Slides" height="36" /></a></td>
 <td align="center"><a href="https://agent-native.com/templates/video"><img src=".github/assets/launch-button.svg" alt="Launch Video" height="36" /></a></td>
 <td align="center"><a href="https://agent-native.com/templates/calendar"><img src=".github/assets/launch-button.svg" alt="Launch Calendar" height="36" /></a></td>
+<td align="center"><a href="https://agent-native.com/templates/brand"><img src=".github/assets/launch-button.svg" alt="Launch Brand" height="36" /></a></td>
 </tr>
 </table>
 
