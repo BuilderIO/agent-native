@@ -66,7 +66,7 @@ templates.forEach((name, i) => {
   // Harness WS server for this app
   names.push(`ws:${name}`);
   commands.push(
-    `pnpm --filter @agent-native/harness-claude-code dev:server -- --app-dir ${templateDir} --port ${wsPort}`
+    `pnpm --filter @agent-native/harness-cli dev:server -- --app-dir ${templateDir} --port ${wsPort}`
   );
 });
 
@@ -80,7 +80,7 @@ const appConfig = templates.map((name, i) => ({
 // Harness UI
 names.push("ui");
 commands.push(
-  `VITE_APP_CONFIG='${JSON.stringify(appConfig)}' PORT=${UI_PORT} pnpm --filter @agent-native/harness-claude-code dev:client`
+  `VITE_APP_CONFIG='${JSON.stringify(appConfig)}' PORT=${UI_PORT} pnpm --filter @agent-native/harness-cli dev:client`
 );
 
 // Use concurrently directly (no shell: true) — pass each command as a separate arg

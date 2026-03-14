@@ -2,14 +2,14 @@
 
 Agent-native apps run inside a **harness** — a host environment that provides the AI agent and displays the app UI side by side.
 
-## Claude Code Harness (Local)
+## CLI Harness (Local)
 
-- Open source, ships with `@agent-native/harness-claude-code`
+- Open source, ships with `@agent-native/harness-cli`
 - Runs locally — xterm.js terminal on the left, your app iframe on the right
-- Powered by Claude Code CLI via a real PTY (node-pty)
-- Settings panel for launch flags (`--dangerously-skip-permissions`, `--resume`, `--verbose`, custom flags)
-- Restart button to relaunch with new settings
-- Auto-detects when Claude finishes generating and notifies the app
+- Supports multiple AI coding CLIs — switch between them from the settings panel
+- Auto-installs missing CLIs on first use
+- Per-CLI launch flags and settings, persisted to localStorage
+- Auto-detects when the agent finishes generating and notifies the app
 - Best for: solo development, local testing, open-source projects
 
 Quick start:
@@ -18,6 +18,17 @@ Quick start:
 # In your agent-native monorepo
 pnpm dev:harness
 ```
+
+### Supported CLIs
+
+| CLI | Command | Key Flags |
+|-----|---------|-----------|
+| Claude Code | `claude` | `--dangerously-skip-permissions`, `--resume`, `--verbose` |
+| Codex | `codex` | `--full-auto`, `--quiet` |
+| Gemini CLI | `gemini` | `--sandbox` |
+| OpenCode | `opencode` | — |
+
+Switch between CLIs at any time from the settings panel. The harness restarts the terminal with the selected CLI and loads its saved launch options.
 
 ## Builder Harness (Cloud)
 
@@ -30,10 +41,11 @@ pnpm dev:harness
 
 ## Feature Comparison
 
-| Feature | Claude Code Harness | Builder Harness |
-|---------|-------------------|-----------------|
+| Feature | CLI Harness | Builder Harness |
+|---------|-------------|-----------------|
 | Local development | Yes | Yes |
 | Cloud/remote | No | Yes |
+| Multi-CLI support | Yes (4 CLIs) | Yes |
 | Real-time collaboration | No | Yes |
 | Visual editing | No | Yes |
 | Parallel agents | No | Yes |
@@ -51,4 +63,4 @@ Both harnesses support the same core agent-native protocol:
 3. **File watching** — SSE endpoint keeps UI in sync when the agent modifies files
 4. **Script system** — `pnpm script <name>` dispatches to callable scripts
 
-Your app code is identical regardless of which harness you use.
+Your app code is identical regardless of which harness or CLI you use.

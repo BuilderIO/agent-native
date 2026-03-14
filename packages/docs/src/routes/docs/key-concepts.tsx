@@ -204,9 +204,9 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`} />
       </p>
       <div className="my-4 grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl border border-[var(--border)] p-5">
-          <div className="mb-2 text-sm font-semibold">Claude Code Harness (Open Source)</div>
+          <div className="mb-2 text-sm font-semibold">CLI Harness (Open Source)</div>
           <p className="m-0 text-sm text-[var(--fg-secondary)]">
-            Terminal on the left running Claude Code, your app iframe on the right.
+            Terminal on the left running your choice of AI CLI (Claude Code, Codex, Gemini, OpenCode), your app iframe on the right.
             Runs locally. Free. Best for solo development.
           </p>
         </div>

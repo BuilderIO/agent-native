@@ -5,7 +5,8 @@ import CodeBlock from '../../components/CodeBlock'
 export const Route = createFileRoute('/docs/harnesses')({ component: HarnessesDocs })
 
 const TOC = [
-  { id: 'claude-code-harness', label: 'Claude Code Harness' },
+  { id: 'cli-harness', label: 'CLI Harness' },
+  { id: 'supported-clis', label: 'Supported CLIs' },
   { id: 'builder-harness', label: 'Builder Harness' },
   { id: 'feature-comparison', label: 'Feature Comparison' },
   { id: 'how-it-works', label: 'How It Works' },
@@ -20,20 +21,49 @@ function HarnessesDocs() {
         the AI agent and displays the app UI side by side.
       </p>
 
-      <h2 id="claude-code-harness">Claude Code Harness (Local)</h2>
+      <h2 id="cli-harness">CLI Harness (Local)</h2>
       <ul className="list-disc space-y-1 pl-5">
-        <li>Open source, ships with <code>@agent-native/harness-claude-code</code></li>
+        <li>Open source, ships with <code>@agent-native/harness-cli</code></li>
         <li>Runs locally — xterm.js terminal on the left, your app iframe on the right</li>
-        <li>Powered by Claude Code CLI via a real PTY (node-pty)</li>
-        <li>Settings panel for launch flags (<code>--dangerously-skip-permissions</code>, <code>--resume</code>, <code>--verbose</code>, custom flags)</li>
-        <li>Restart button to relaunch with new settings</li>
-        <li>Auto-detects when Claude finishes generating and notifies the app</li>
+        <li>Supports multiple AI coding CLIs — switch between them from the settings panel</li>
+        <li>Auto-installs missing CLIs on first use</li>
+        <li>Per-CLI launch flags and settings, persisted to localStorage</li>
+        <li>Auto-detects when the agent finishes generating and notifies the app</li>
         <li>Best for: solo development, local testing, open-source projects</li>
       </ul>
 
       <p>Quick start:</p>
       <CodeBlock code={`# In your agent-native monorepo
 pnpm dev:harness`} />
+
+      <h2 id="supported-clis">Supported CLIs</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>CLI</th>
+            <th>Command</th>
+            <th>Key Flags</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[
+            ['Claude Code', 'claude', '--dangerously-skip-permissions, --resume, --verbose'],
+            ['Codex', 'codex', '--full-auto, --quiet'],
+            ['Gemini CLI', 'gemini', '--sandbox'],
+            ['OpenCode', 'opencode', '—'],
+          ].map(([name, cmd, flags]) => (
+            <tr key={cmd}>
+              <td>{name}</td>
+              <td><code>{cmd}</code></td>
+              <td>{flags}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p>
+        Switch between CLIs at any time from the settings panel. The harness restarts the terminal
+        with the selected CLI and loads its saved launch options.
+      </p>
 
       <h2 id="builder-harness">Builder Harness (Cloud)</h2>
       <ul className="list-disc space-y-1 pl-5">
@@ -50,7 +80,7 @@ pnpm dev:harness`} />
         <thead>
           <tr>
             <th>Feature</th>
-            <th>Claude Code Harness</th>
+            <th>CLI Harness</th>
             <th>Builder Harness</th>
           </tr>
         </thead>
@@ -58,6 +88,7 @@ pnpm dev:harness`} />
           {[
             ['Local development', 'Yes', 'Yes'],
             ['Cloud/remote', 'No', 'Yes'],
+            ['Multi-CLI support', 'Yes (4 CLIs)', 'Yes'],
             ['Real-time collaboration', 'No', 'Yes'],
             ['Visual editing', 'No', 'Yes'],
             ['Parallel agents', 'No', 'Yes'],
@@ -65,10 +96,10 @@ pnpm dev:harness`} />
             ['File watcher (SSE)', 'Yes', 'Yes'],
             ['Script system', 'Yes', 'Yes'],
             ['Open source', 'Yes', 'No'],
-          ].map(([feature, claude, builder]) => (
+          ].map(([feature, cli, builder]) => (
             <tr key={feature}>
               <td>{feature}</td>
-              <td>{claude}</td>
+              <td>{cli}</td>
               <td>{builder}</td>
             </tr>
           ))}
@@ -95,7 +126,7 @@ pnpm dev:harness`} />
           callable scripts
         </li>
       </ol>
-      <p>Your app code is identical regardless of which harness you use.</p>
+      <p>Your app code is identical regardless of which harness or CLI you use.</p>
     </DocsLayout>
   )
 }
