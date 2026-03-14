@@ -133,9 +133,9 @@ export default function Header() {
               href="https://builder.io"
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden sm:inline-flex items-center gap-2 rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-black no-underline transition hover:bg-gray-200 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+              className="hidden sm:inline-flex items-center gap-2 rounded-lg bg-black px-3 py-1.5 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
             >
-              <span style={{ color: "black" }}>{BUILDER_LOGO}</span>
+              {BUILDER_LOGO}
               Cloud
             </a>
 
