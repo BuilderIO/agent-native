@@ -14,7 +14,7 @@ import {
   saveSettings,
   type LaunchSettings,
 } from "./lib/settings";
-import { useHarnessConfig } from "./lib/config";
+import { useHarnessConfig, useHarnessConfigs } from "./lib/config";
 
 function Tooltip({ children, label }: { children: ReactNode; label: string }) {
   return (
@@ -34,6 +34,7 @@ const APP_CONFIG: Array<{ name: string; appPort: number; wsPort: number }> =
 
 export function App() {
   const config = useHarnessConfig();
+  const { configs, switchHarness } = useHarnessConfigs();
 
   const [settings, setSettings] = useState<LaunchSettings>(() =>
     loadSettings(config)
@@ -57,9 +58,25 @@ export function App() {
   const { termRef, iframeRef, connected, setupStatus, connect, restart, fit } =
     useTerminal();
 
+  // On first mount, connect
+  const didMount = useRef(false);
   useEffect(() => {
-    connect(settings, activeApp);
+    if (!didMount.current) {
+      didMount.current = true;
+      connect(settings, activeApp);
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When harness config changes (user switched CLI), reload settings and restart
+  const prevCommand = useRef(config.command);
+  useEffect(() => {
+    if (prevCommand.current !== config.command) {
+      prevCommand.current = config.command;
+      const newSettings = loadSettings(config);
+      setSettings(newSettings);
+      restart(newSettings, activeApp);
+    }
+  }, [config, activeApp, restart]);
 
   const updateSettings = useCallback((s: LaunchSettings) => {
     setSettings(s);
@@ -167,6 +184,8 @@ export function App() {
             apps={APP_CONFIG}
             activeApp={activeApp}
             onSwitchApp={switchApp}
+            harnesses={configs}
+            onSwitchHarness={switchHarness}
           />
         )}
       </div>

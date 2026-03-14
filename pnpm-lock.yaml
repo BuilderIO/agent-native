@@ -170,14 +170,8 @@ importers:
         specifier: ^3.0.5
         version: 3.2.4(@types/debug@4.1.12)(@types/node@22.19.15)(jiti@2.6.1)(jsdom@28.1.0(canvas@3.2.1))(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.2)
 
-  packages/harness-claude-code:
+  packages/harness-cli:
     dependencies:
-      '@agent-native/harness-shared':
-        specifier: workspace:*
-        version: link:../harness-shared
-      express:
-        specifier: ^5.1.0
-        version: 5.2.1
       node-pty:
         specifier: ^1.1.0
         version: 1.1.0
@@ -188,9 +182,6 @@ importers:
       '@tabler/icons-react':
         specifier: ^3.40.0
         version: 3.40.0(react@18.3.1)
-      '@types/express':
-        specifier: ^5.0.3
-        version: 5.0.6
       '@types/node':
         specifier: ^24.2.1
         version: 24.12.0
@@ -239,94 +230,6 @@ importers:
       vite:
         specifier: ^8.0.0
         version: 8.0.0(@types/node@24.12.0)(esbuild@0.27.4)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
-
-  packages/harness-codex:
-    dependencies:
-      '@agent-native/harness-shared':
-        specifier: workspace:*
-        version: link:../harness-shared
-      express:
-        specifier: ^5.1.0
-        version: 5.2.1
-      node-pty:
-        specifier: ^1.1.0
-        version: 1.1.0
-      ws:
-        specifier: ^8.18.0
-        version: 8.19.0
-    devDependencies:
-      '@tabler/icons-react':
-        specifier: ^3.40.0
-        version: 3.40.0(react@18.3.1)
-      '@types/express':
-        specifier: ^5.0.3
-        version: 5.0.6
-      '@types/node':
-        specifier: ^24.2.1
-        version: 24.12.0
-      '@types/react':
-        specifier: ^18.3.23
-        version: 18.3.28
-      '@types/react-dom':
-        specifier: ^18.3.7
-        version: 18.3.7(@types/react@18.3.28)
-      '@types/ws':
-        specifier: ^8.18.1
-        version: 8.18.1
-      '@vitejs/plugin-react-swc':
-        specifier: ^4.0.0
-        version: 4.3.0(vite@8.0.0(@types/node@24.12.0)(esbuild@0.27.4)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2))
-      '@xterm/addon-fit':
-        specifier: ^0.10.0
-        version: 0.10.0(@xterm/xterm@5.5.0)
-      '@xterm/xterm':
-        specifier: ^5.5.0
-        version: 5.5.0
-      autoprefixer:
-        specifier: ^10.4.21
-        version: 10.4.27(postcss@8.5.8)
-      concurrently:
-        specifier: ^9.1.0
-        version: 9.2.1
-      postcss:
-        specifier: ^8.5.6
-        version: 8.5.8
-      react:
-        specifier: ^18.3.1
-        version: 18.3.1
-      react-dom:
-        specifier: ^18.3.1
-        version: 18.3.1(react@18.3.1)
-      tailwindcss:
-        specifier: ^3.4.17
-        version: 3.4.19(tsx@4.21.0)(yaml@2.8.2)
-      tsx:
-        specifier: ^4.19.0
-        version: 4.21.0
-      typescript:
-        specifier: ^5.9.2
-        version: 5.9.3
-      vite:
-        specifier: ^8.0.0
-        version: 8.0.0(@types/node@24.12.0)(esbuild@0.27.4)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
-
-  packages/harness-shared:
-    dependencies:
-      '@tabler/icons-react':
-        specifier: ^3.40.0
-        version: 3.40.0(react@18.3.1)
-      '@xterm/addon-fit':
-        specifier: ^0.10.0
-        version: 0.10.0(@xterm/xterm@5.5.0)
-      '@xterm/xterm':
-        specifier: ^5.5.0
-        version: 5.5.0
-      react:
-        specifier: ^18.3.0
-        version: 18.3.1
-      react-dom:
-        specifier: ^18.3.0
-        version: 18.3.1(react@18.3.1)
 
   templates/analytics:
     dependencies:

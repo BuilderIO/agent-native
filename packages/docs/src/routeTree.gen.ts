@@ -16,6 +16,7 @@ import { Route as DocsIndexRouteImport } from './routes/docs/index'
 import { Route as TemplatesVideoRouteImport } from './routes/templates/video'
 import { Route as TemplatesSlidesRouteImport } from './routes/templates/slides'
 import { Route as TemplatesContentRouteImport } from './routes/templates/content'
+import { Route as TemplatesCalendarRouteImport } from './routes/templates/calendar'
 import { Route as TemplatesAnalyticsRouteImport } from './routes/templates/analytics'
 import { Route as DocsServerRouteImport } from './routes/docs/server'
 import { Route as DocsScriptsRouteImport } from './routes/docs/scripts'
@@ -57,6 +58,11 @@ const TemplatesSlidesRoute = TemplatesSlidesRouteImport.update({
 const TemplatesContentRoute = TemplatesContentRouteImport.update({
   id: '/content',
   path: '/content',
+  getParentRoute: () => TemplatesRoute,
+} as any)
+const TemplatesCalendarRoute = TemplatesCalendarRouteImport.update({
+  id: '/calendar',
+  path: '/calendar',
   getParentRoute: () => TemplatesRoute,
 } as any)
 const TemplatesAnalyticsRoute = TemplatesAnalyticsRouteImport.update({
@@ -105,6 +111,7 @@ export interface FileRoutesByFullPath {
   '/docs/scripts': typeof DocsScriptsRoute
   '/docs/server': typeof DocsServerRoute
   '/templates/analytics': typeof TemplatesAnalyticsRoute
+  '/templates/calendar': typeof TemplatesCalendarRoute
   '/templates/content': typeof TemplatesContentRoute
   '/templates/slides': typeof TemplatesSlidesRoute
   '/templates/video': typeof TemplatesVideoRoute
@@ -120,6 +127,7 @@ export interface FileRoutesByTo {
   '/docs/scripts': typeof DocsScriptsRoute
   '/docs/server': typeof DocsServerRoute
   '/templates/analytics': typeof TemplatesAnalyticsRoute
+  '/templates/calendar': typeof TemplatesCalendarRoute
   '/templates/content': typeof TemplatesContentRoute
   '/templates/slides': typeof TemplatesSlidesRoute
   '/templates/video': typeof TemplatesVideoRoute
@@ -137,6 +145,7 @@ export interface FileRoutesById {
   '/docs/scripts': typeof DocsScriptsRoute
   '/docs/server': typeof DocsServerRoute
   '/templates/analytics': typeof TemplatesAnalyticsRoute
+  '/templates/calendar': typeof TemplatesCalendarRoute
   '/templates/content': typeof TemplatesContentRoute
   '/templates/slides': typeof TemplatesSlidesRoute
   '/templates/video': typeof TemplatesVideoRoute
@@ -155,6 +164,7 @@ export interface FileRouteTypes {
     | '/docs/scripts'
     | '/docs/server'
     | '/templates/analytics'
+    | '/templates/calendar'
     | '/templates/content'
     | '/templates/slides'
     | '/templates/video'
@@ -170,6 +180,7 @@ export interface FileRouteTypes {
     | '/docs/scripts'
     | '/docs/server'
     | '/templates/analytics'
+    | '/templates/calendar'
     | '/templates/content'
     | '/templates/slides'
     | '/templates/video'
@@ -186,6 +197,7 @@ export interface FileRouteTypes {
     | '/docs/scripts'
     | '/docs/server'
     | '/templates/analytics'
+    | '/templates/calendar'
     | '/templates/content'
     | '/templates/slides'
     | '/templates/video'
@@ -256,6 +268,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TemplatesContentRouteImport
       parentRoute: typeof TemplatesRoute
     }
+    '/templates/calendar': {
+      id: '/templates/calendar'
+      path: '/calendar'
+      fullPath: '/templates/calendar'
+      preLoaderRoute: typeof TemplatesCalendarRouteImport
+      parentRoute: typeof TemplatesRoute
+    }
     '/templates/analytics': {
       id: '/templates/analytics'
       path: '/analytics'
@@ -310,6 +329,7 @@ declare module '@tanstack/react-router' {
 
 interface TemplatesRouteChildren {
   TemplatesAnalyticsRoute: typeof TemplatesAnalyticsRoute
+  TemplatesCalendarRoute: typeof TemplatesCalendarRoute
   TemplatesContentRoute: typeof TemplatesContentRoute
   TemplatesSlidesRoute: typeof TemplatesSlidesRoute
   TemplatesVideoRoute: typeof TemplatesVideoRoute
@@ -318,6 +338,7 @@ interface TemplatesRouteChildren {
 
 const TemplatesRouteChildren: TemplatesRouteChildren = {
   TemplatesAnalyticsRoute: TemplatesAnalyticsRoute,
+  TemplatesCalendarRoute: TemplatesCalendarRoute,
   TemplatesContentRoute: TemplatesContentRoute,
   TemplatesSlidesRoute: TemplatesSlidesRoute,
   TemplatesVideoRoute: TemplatesVideoRoute,

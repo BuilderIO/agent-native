@@ -53,6 +53,16 @@ export const templates = [
     color: '#ec4899',
     screenshot: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b8bfcc18a1d4c47a491da3b2d4148a4?format=webp&width=800',
   },
+  {
+    name: 'Calendar',
+    slug: 'calendar',
+    replaces: 'Replaces or augments Google Calendar, Calendly',
+    cliCommand: 'npx @agent-native/core create my-app --template calendar',
+    description:
+      'Manage events, sync with Google Calendar, and share a public booking page — all with an AI agent that handles scheduling.',
+    color: '#10b981',
+    screenshot: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcalendar-template-screenshot?format=webp&width=800',
+  },
 ]
 
 export type Template = (typeof templates)[number]
