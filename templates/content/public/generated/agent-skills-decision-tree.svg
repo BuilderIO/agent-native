@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="950" height="520" viewBox="0 0 950 520" role="img" aria-labelledby="title desc">
+  <title id="title">Decision tree for rules and skills</title>
+  <desc id="desc">A hand-drawn black and white flowchart showing when to use a rule, an explicit skill, an implicit skill, or a one-off prompt.</desc>
+  <rect width="950" height="520" fill="#000" />
+
+  <defs>
+    <style>
+      .stroke {
+        fill: none;
+        stroke: #fff;
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .box {
+        fill: none;
+        stroke: #fff;
+        stroke-width: 3;
+      }
+      .label {
+        fill: #fff;
+        font-family: "Comic Sans MS", "Chalkboard SE", "Marker Felt", cursive;
+        font-size: 27px;
+        text-anchor: middle;
+      }
+      .small {
+        font-size: 21px;
+      }
+    </style>
+  </defs>
+
+  <!-- Instruction -->
+  <rect class="box" x="22" y="56" width="142" height="50" rx="13" ry="13" />
+  <text class="label" x="93" y="89">Instruction</text>
+
+  <path class="stroke" d="M165 81 C190 81 204 81 220 81" />
+  <path class="stroke" d="M212 74 L220 81 L212 88" />
+
+  <!-- First diamond -->
+  <path class="stroke" d="M280 24 L382 81 L280 138 L178 81 Z" />
+  <text class="label" x="280" y="75">Must apply</text>
+  <text class="label" x="280" y="103">every run?</text>
+
+  <path class="stroke" d="M383 81 C404 81 418 81 434 81" />
+  <path class="stroke" d="M426 74 L434 81 L426 88" />
+
+  <!-- Rule box -->
+  <rect class="box" x="436" y="56" width="124" height="50" rx="13" ry="13" />
+  <text class="label" x="498" y="89">Rule</text>
+
+  <!-- Connector down to second diamond -->
+  <path class="stroke" d="M280 138 C280 180 286 193 332 224" />
+
+  <!-- Second diamond -->
+  <path class="stroke" d="M430 165 L554 224 L430 283 L306 224 Z" />
+  <text class="label" x="430" y="217">Do you want</text>
+  <text class="label" x="430" y="245">to trigger it</text>
+  <text class="label" x="430" y="273">explicitly?</text>
+
+  <path class="stroke" d="M555 224 C585 224 605 224 621 224" />
+  <path class="stroke" d="M613 217 L621 224 L613 231" />
+
+  <!-- Explicit skills box -->
+  <rect class="box" x="623" y="198" width="194" height="52" rx="13" ry="13" />
+  <text class="label small" x="720" y="230">Skills (explicit)</text>
+
+  <!-- Connector down to third diamond -->
+  <path class="stroke" d="M430 283 C430 324 458 336 507 362" />
+
+  <!-- Third diamond -->
+  <path class="stroke" d="M650 303 L778 362 L650 421 L522 362 Z" />
+  <text class="label" x="650" y="348">Reusable</text>
+  <text class="label" x="650" y="374">expertise for</text>
+  <text class="label" x="650" y="400">specific tasks?</text>
+
+  <!-- Implicit skills branch -->
+  <path class="stroke" d="M779 362 C808 362 828 362 844 362" />
+  <path class="stroke" d="M836 355 L844 362 L836 369" />
+  <rect class="box" x="846" y="336" width="86" height="52" rx="13" ry="13" />
+  <text class="label small" x="889" y="357">Skills</text>
+  <text class="label small" x="889" y="380">(implicit)</text>
+
+  <!-- One-off prompt branch -->
+  <path class="stroke" d="M650 421 C650 446 685 455 724 459" />
+  <rect class="box" x="702" y="437" width="184" height="48" rx="13" ry="13" />
+  <text class="label small" x="794" y="468">One-off prompt</text>
+</svg>

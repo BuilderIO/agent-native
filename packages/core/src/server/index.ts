@@ -1,4 +1,4 @@
-export { createServer, type CreateServerOptions } from "./create-server.js";
+export { createServer, type CreateServerOptions, type EnvKeyConfig } from "./create-server.js";
 export {
   createFileWatcher,
   createSSEHandler,
@@ -9,3 +9,4 @@ export {
   createProductionServer,
   type ProductionServerOptions,
 } from "./production.js";
+export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";

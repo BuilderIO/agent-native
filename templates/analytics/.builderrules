@@ -1,0 +1,40 @@
+This project is for adhoc analysis of Builder.io app event data stored in BigQuery.
+
+## Dashboard system
+
+The app supports multiple adhoc dashboards. Each dashboard is a separate file in
+`client/pages/adhoc/` and is registered in `client/pages/adhoc/registry.ts`.
+
+When users ask for charts, data breakdowns, or metrics:
+1. If they're viewing an existing dashboard, update that dashboard's file.
+2. If they want a new dashboard, create a new file in `client/pages/adhoc/` and
+   add it to the registry (both the `dashboards` array and `dashboardComponents` map).
+
+Do NOT modify the Overview page or core application functionality unless explicitly
+told to do so.
+
+### Creating a new dashboard
+
+1. Create `client/pages/adhoc/<id>.tsx` exporting a default component (no Layout wrapper).
+2. Add to `client/pages/adhoc/registry.ts`:
+   - Add `{ id: "<id>", name: "<Display Name>" }` to the `dashboards` array.
+   - Add `"<id>": lazy(() => import("./<id>"))` to `dashboardComponents`.
+3. The new dashboard appears automatically in the sidebar and at `/adhoc/<id>`.
+
+### Query guidelines
+
+- All queries use the `@app_events` table (alias for `builder-3b0a2.analytics.events_partitioned`).
+- Always cap queries with `AND createdDate <= CURRENT_TIMESTAMP()` to avoid future dates.
+- Dashboard components receive no props. They manage their own state and queries.
+- Use `useMetricsQuery` for data fetching, `MetricCard` / `TimeSeriesChart` / `DataTable`
+  for display, and `DateRangePicker` for time range selection.
+
+### Key columns in @app_events
+
+- event: the event name (e.g. "signup", "fusion chat message submitted")
+- createdDate: timestamp of when the event occurred
+- userId: the user who triggered the event
+- sessionId: browser session identifier
+- organizationId: the user's org/space ID
+- data: JSON string with all event properties (use JSON_VALUE to extract fields)
+- name, url, type, kind, message, modelName, modelId: additional picked fields

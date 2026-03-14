@@ -8,7 +8,7 @@ export interface LaunchSettings {
 }
 
 const defaults: LaunchSettings = {
-  skipPermissions: false,
+  skipPermissions: true,
   resume: false,
   verbose: false,
   custom: "",

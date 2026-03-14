@@ -1,0 +1,10 @@
+{
+  "name": "Cool test",
+  "charts": [
+    {
+      "id": "steve-chart-1773260840790",
+      "configId": "steve-chart",
+      "width": 1
+    }
+  ]
+}

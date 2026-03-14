@@ -176,9 +176,49 @@ wss.on('connection', async (ws: WebSocket, req) => {
   ws.on('message', (data: Buffer | string) => {
     const str = typeof data === 'string' ? data : data.toString();
 
-    // Handle resize messages from the client
+    // Handle JSON control messages from the client
     try {
       const msg = JSON.parse(str);
+
+      if (msg.type === 'builder.setEnvVars' && Array.isArray(msg.data?.vars)) {
+        const envPath = path.join(appDir, '.env');
+        const vars: Array<{ key: string; value: string }> = msg.data.vars;
+
+        // Read existing .env lines (or start empty)
+        let lines: string[] = [];
+        try {
+          lines = fs.readFileSync(envPath, 'utf-8').split('\n');
+        } catch {
+          // No existing .env file — start fresh
+        }
+
+        // Upsert each key=value pair
+        for (const { key, value } of vars) {
+          const idx = lines.findIndex((l) => l.startsWith(`${key}=`));
+          const entry = `${key}=${value}`;
+          if (idx !== -1) {
+            lines[idx] = entry;
+          } else {
+            lines.push(entry);
+          }
+        }
+
+        // Remove any trailing empty lines, then ensure single trailing newline
+        while (lines.length > 0 && lines[lines.length - 1] === '') {
+          lines.pop();
+        }
+        fs.writeFileSync(envPath, lines.join('\n') + '\n', 'utf-8');
+
+        // Confirm back to client
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'env-vars-saved',
+            keys: vars.map((v) => v.key),
+          }));
+        }
+        return;
+      }
+
       if (msg.type === 'resize' && msg.cols && msg.rows) {
         ptyProcess.resize(msg.cols, msg.rows);
         return;

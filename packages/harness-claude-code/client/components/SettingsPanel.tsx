@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type RefObject } from "react";
-import { IconStar, IconStarFilled, IconX } from "@tabler/icons-react";
+import { IconStar, IconStarFilled, IconX, IconRefresh } from "@tabler/icons-react";
 import { type LaunchSettings } from "../lib/settings";
 
 const URL_HISTORY_KEY = "harness:urlHistory";
@@ -24,12 +24,13 @@ function saveStarred(s: Set<string>) {
 interface SettingsPanelProps {
   settings: LaunchSettings;
   onChange: (s: LaunchSettings) => void;
+  onRestart: () => void;
   appPort: number;
   iframeRef: RefObject<HTMLIFrameElement | null>;
   connected: boolean;
 }
 
-export function SettingsPanel({ settings, onChange, appPort, iframeRef, connected }: SettingsPanelProps) {
+export function SettingsPanel({ settings, onChange, onRestart, appPort, iframeRef, connected }: SettingsPanelProps) {
   const update = (patch: Partial<LaunchSettings>) =>
     onChange({ ...settings, ...patch });
 
@@ -111,7 +112,7 @@ export function SettingsPanel({ settings, onChange, appPort, iframeRef, connecte
   });
 
   return (
-    <div className="absolute top-9 right-0 bg-[#2a2a2a] border border-white/10 rounded-lg p-3 z-50 min-w-[300px] shadow-2xl">
+    <div className="absolute top-9 left-0 bg-[#2a2a2a] border border-white/10 rounded-lg p-3 z-50 min-w-[300px] max-h-[calc(100vh-60px)] overflow-y-auto shadow-2xl">
       {/* Preview URL */}
       <h3 className="text-[12px] font-medium text-white/70 mb-1.5">
         Preview URL
@@ -250,6 +251,19 @@ export function SettingsPanel({ settings, onChange, appPort, iframeRef, connecte
       />
       <p className="text-[11px] text-white/30 mt-1">
         Space-separated flags appended to the command
+      </p>
+
+      <div className="border-t border-white/10 my-2" />
+
+      <button
+        onClick={onRestart}
+        className="flex items-center gap-2 w-full px-2 py-1.5 rounded text-xs text-red-400 hover:bg-red-500/10 transition-colors"
+      >
+        <IconRefresh size={13} stroke={1.5} />
+        Restart Claude Code
+      </button>
+      <p className="text-[11px] text-white/30 ml-7">
+        Ends the current session and relaunches with these settings
       </p>
     </div>
   );

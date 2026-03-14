@@ -1,0 +1,39 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+.config/
+!.env
+
+# Ephemeral editor state
+.editor-selection.json
+
+# MCP server debug logs
+mcp-logs.txt
+
+# Firestore-synced content (synced at runtime, not checked in)
+content/projects/
+
+# Builder.io auth keys (use BUILDER_API_KEY and BUILDER_PRIVATE_KEY env vars instead)
+content/.builder-auth.json

@@ -6,6 +6,7 @@ export {
   useAgentChatGenerating,
   useFileWatcher,
   cn,
+  ApiKeySettings,
   type AgentChatMessage,
 } from "./client/index.js";
 

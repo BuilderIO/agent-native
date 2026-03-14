@@ -1,0 +1,2319 @@
+[
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61n-1",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<hr />"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61n-2",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h2>builder: title: Claude Code for Designers handle: claude-code-for-designers blurb: Discover how designers can use Claude Code and Figma to iterate faster, build higher-fidelity UI, and safely ship changes without breaking production. metaTitle: \"\" date: 2026-02-25 readTime: 17 tags: - AI - Design - claude code topic: AI hideImage: false authorId: 724dd11feeb549f0b6fc12b6e4741c19 image: <a href=\"https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fee75e1acef2644baa6cce0023fc72c1a\">https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fee75e1acef2644baa6cce0023fc72c1a</a> published: false hero_image: <a href=\"https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fee75e1acef2644baa6cce0023fc72c1a\">https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fee75e1acef2644baa6cce0023fc72c1a</a></h2>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61n-3",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>You spot a tiny UI issue on production. Fixing it in Figma takes 30 seconds, but shipping the code takes days of handoff, review cycles, and back-and-forth about design tokens.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61n-4",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><b>Claude Code</b> can help you move faster. It's an agent that can <b>open your repo, read files, make edits, and preview your app</b>—all from a workflow that's increasingly approachable for non-engineers.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61n-5",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Pair it with <b>Figma MCP</b>, and Claude pulls <em>structured design context</em> directly from your files to generate code that actually matches your frames.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61n-6",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Here's how to get started, some useful workflows, and where to turn if the workflow gets too complex or tough to maintain.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61n-7",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h2>What designers want from Claude Code</h2>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61n-8",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>What designers want from an AI coding agent is a workflow that respects their role.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61n-9",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ol><li><b>Faster time-to-iteration</b>: design intent to real UI (not another mock)</li><li><b>Higher fidelity</b>: correct tokens, spacing, components, and states</li><li><b>Less translation overhead</b>: fewer \"what did you mean by this?\" loops with PMs and engineers</li><li><b>Less context-hopping</b>: a workflow that doesn't sprawl across windows</li><li><b>Visual-first tooling</b>: an interface that feels natural for design work</li><li><b>A safe lane to contribute</b>: clear review, guardrails, and undo paths</li><li><b>A shareable artifact</b>: previews and a PR devs can review, without designers needing to make write-ups</li></ol>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61n-a",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Claude Code can help with much of this, but not all of it. It excels at delivering <b>faster time-to-iteration</b>, <b>higher fidelity</b>, and <b>less translation overhead</b>. And once you <a href=\"https://www.builder.io/blog/git-branching-for-designers\">learn about Git workflows</a>, you can easily use Claude Code to make a <b>shareable artifact</b> of your changes that developers can directly see, edit, and implement into the codebase.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61n-b",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>However, Claude Code doesn't really help with <b>less context-hopping</b>, <b>visual-first tooling</b>, or giving you <b>a safe lane to contribute</b>. Using an AI coding agent means stepping directly into the engineering environment, which can be intimidating. I know your goal isn't to become a part-time developer, and you definitely don't want the anxiety of breaking production code.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61n-c",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>That's why I'm going to show you a safe, straightforward way to use Claude Code. For the areas where it still falls short, I'll share an alternate workflow at the end of the article.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61n-d",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h2>What Claude Code is (in designer language)</h2>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61n-e",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Claude Code is an <b>AI assistant that actually does the work</b>: instead of you trying to write code and asking an AI to fix it, you describe what you want in plain English. The agent then <b>explores your files, plans an approach, and makes the updates for you</b>—all with safety guardrails in place.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61n-f",
+    "component": {
+      "name": "Video",
+      "options": {
+        "video": "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7ddda66a58a44d29951708f98b534fc6?alt=media&token=0de6b3c5-11b7-46db-865e-c9b9211d63fc&apiKey=YJIGb4i01jvw0SRdL5Bt",
+        "aspectRatio": 0.5625,
+        "autoPlay": true,
+        "muted": true,
+        "loop": true,
+        "playsInline": true,
+        "fit": "cover",
+        "position": "center"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61n-g",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>For designers, the easiest way to start is the <b>Claude Desktop app</b>. It keeps you out of the command line (that intimidating black window with scrolling text) and gives you a friendly visual interface. The app's Code tab provides:</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-h",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ul><li><b>App preview</b>: Claude Code Desktop can spin up your local development server and show you a preview of your app right in its own interface. You can see all your design changes live.</li><li><b>Permission modes</b>: Control how much the AI is allowed to do on its own.</li><li><b>Safe multitasking</b>: Explore multiple design ideas at once without them tangling together.</li><li><b>Tool connections</b>: Hook it up to tools your team already uses, like GitHub, Slack, or Linear. (And Figma, of course! More on that below.)</li><li><b>Integrated code review</b>: While you don't need to read the code, Claude Code can automatically check the code it writes for bugs and logical issues before you hand it off.</li><li><b>Built-in safety:</b> Start in \"Plan mode\" so the AI can only propose changes, not make them. That single habit gets you 80% of the safety you want.</li></ul>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-i",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Note: You must have a paid Claude plan to even <em>see</em> the Code tab in the Claude Desktop app.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-j",
+    "component": {
+      "name": "Image",
+      "options": {
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F258e1c75f29346caa5bc9f597e8a14d6?width=776",
+        "aspectRatio": 0.75,
+        "altText": "The Claude Code tab open in the Claude Desktop app.",
+        "backgroundSize": "cover",
+        "backgroundPosition": "center"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px",
+        "position": "relative",
+        "overflow": "hidden"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-k",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h2>You aren't going to break production</h2>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-l",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>In practice, the scariest part of contributing to code isn't writing the actual JSX or CSS. It's the initial setup.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-m",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Before you can even change a hex code, you're faced with an annoying one-time IT setup: installing dependencies, finding missing environment variables, and wrestling with internal tooling. It feels like you're one wrong click away from taking down the company website.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-n",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Traditionally, this meant staring at a terminal window screaming at you in red text over a missing comma. But because you're using the Claude Desktop app, you don't even need to look at the command line. Claude handles the underlying terminal commands, acting like a patient IT support buddy navigating the setup for you.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-o",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>The \"duplicate file\" mental model</h3>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-p",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>The fastest way to get over the fear of breaking things is to understand what a local repository actually is. Think of cloning a repo as duplicating a Figma file. You are downloading a sandbox copy to play with on your own machine.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-q",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>If you mess it up, the worst case is usually:</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-r",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ul><li>Delete the folder</li><li>Re-clone the repo</li><li>Try again</li></ul>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-s",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><b>You are not breaking production.</b> If you completely destroy a layout locally, you haven't touched the original source truth. And even when you are ready to share your work, your team's normal code review process is what actually protects the live site.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-t",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>All that said, let's jump into your first design changes with Claude Code.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-u",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h2>Tutorial: Make a design change with Claude Code</h2>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-v",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>This walkthrough is designed to produce a small, shippable result without requiring you to ever open a terminal or look at scary error logs.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-w",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>We're letting Claude Code do all the heavy lifting.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-x",
+    "component": {
+      "name": "Image",
+      "options": {
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3247fa6376974f5c953a11bb39686292?width=776",
+        "aspectRatio": 0.75,
+        "altText": "The steps of this tutorial: clone the repo, start local dev, preview the app, pick a tiny scope, describe your change, and see it live.",
+        "backgroundSize": "cover",
+        "backgroundPosition": "center"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px",
+        "position": "relative",
+        "overflow": "hidden"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-y",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>Step 1: Tell Claude to clone the repo</h3>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-z",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Instead of trying to figure out <code>git clone</code> commands, you can just ask Claude to grab the code for you:</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-10",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><em>Please clone the repository from [insert GitHub URL here] into my [insert parent folder here] folder.</em></p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-11",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Claude will handle downloading the code to your machine. The code will always be placed in a new folder matching the repository name.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-12",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>Step 2: Ask Claude to get the local dev running</h3>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-13",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Now that you have the code, you need to see it. Designers often get stuck on installing dependencies and starting the local server. Let's make Claude do it:</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-14",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Prompt: <em>Get local dev working.</em></p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-15",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>That's it. Claude will analyze the repo, figure out the framework, and install the right dependencies.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-16",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><b>Here's the catch:</b> Claude Code will ask you for permission to run commands—a lot of them. You'll see prompts like \"Can I run <code>npm install</code>?\" This is normal.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-17",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>For standard repo setup commands, you can click <b>Always Allow</b> to speed things up. (Obviously, if it asks to install a virus, hit no. But for normal dependencies, you're fine.)</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-18",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>This permission babysitting is just part of using Claude Code at first. Once you've approved the common commands, it gets much smoother.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-19",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>Step 2.5: The \"missing passwords\" blocker (Environment Variables)</h3>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1a",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Sometimes, Claude will try to start the server and get an error. If Claude says something about a missing <code>.env</code> file, missing environment variables, or authentication failing—don't panic. <b>You did not break anything.</b></p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1b",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>For security reasons, companies do not store secret passwords or API keys in the code repository. This means your local copy is missing the keys needed to talk to the database or external services.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1c",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Claude can't fix this for you because it doesn't know the passwords. You have to ask an engineer.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1d",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>What to Slack your engineering team:</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1e",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><em>Hey! I'm trying to spin up</em> <code>[repo name]</code> <em>locally to test some design tweaks. Can someone securely send me the</em> <code>.env</code> <em>file I need to get the dev server running?</em></p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1f",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Once they send you the file (save it to your Downloads folder), <b>do not paste the passwords directly into Claude</b>. You don't want to leak company secrets into an AI chat log.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1g",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Instead, just tell Claude where you saved the file:</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1h",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><em>I downloaded the</em> <code>.env</code> <em>file to my Downloads folder. Please move it to the correct location in this repository and try starting the server again.</em></p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1i",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>Step 3: Get the preview working</h3>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1j",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Even though the local server is running, you still can't see the app yet.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1k",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>To actually see the site, look for the big <b>Preview</b> button in the top right of the Claude app. Click it. Claude will run a one-time setup (which usually includes adding a launch configuration file to your repo).</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1l",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><b>Here is where it gets tricky:</b> Sometimes, the preview feature works perfectly on the first try. Often, it doesn't. Claude might ask you questions like: \"Do you want to run the dev server or the preview server?\" or \"Which port should I use?\"</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1m",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Remember that you are talking to a smart AI, not a strict form. You don't have to know the answers. Just keep telling it what you do and don't know:</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1n",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ul><li>\"I don't know the difference between those options. Please just pick the one that lets me see the site.\"</li><li>\"I still can't see the preview. Here is a screenshot of what I see.\"</li><li>\"The preview is showing an error about a missing port. Can you fix it?\"</li></ul>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1o",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Keep pushing back. Eventually, Claude will figure out the right configuration and you will be looking at a preview of your app right in the interface.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1p",
+    "component": {
+      "name": "Image",
+      "options": {
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffc4e0c1c6f4a4374b2c748f7fe92b86f?width=776",
+        "aspectRatio": 0.75,
+        "altText": "A web app running in Claude Desktop.",
+        "backgroundSize": "cover",
+        "backgroundPosition": "center"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px",
+        "position": "relative",
+        "overflow": "hidden"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1q",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><b>The fallback plan:</b> The in-app preview feature is new and, in my experience, can still be a little buggy. If you've gone back and forth with Claude and the preview <em>still</em> isn't loading, don't sweat it.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1r",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Just tell Claude:</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1s",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><em>Let's skip the in-app preview. Please just start the local dev server and give me the localhost link so I can open it in my regular browser.</em></p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1t",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Click the link it gives you (usually something like <code>http://localhost:3000</code>), and you'll see your site running perfectly fine in Chrome or Safari. This is being served from your local files—not the internet.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1u",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>With any luck, you should now see your site running. The good news is you won't have to do all that setup again for this codebase, as long as the devs don't change anything with the code.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1v",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>Step 4: Pick a tiny scope</h3>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1w",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Before you redesign the entire navigation bar, get a quick win.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1x",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Good first tasks:</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1y",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ul><li>Fix padding/margins on a single component</li><li>Align a button style to a token</li><li>Fix a hover/focus state</li><li>Update a small layout issue in an existing page</li></ul>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-1z",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Avoid for your first try:</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-20",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ul><li>New architecture</li><li>Big refactors</li><li>Changes that span across the whole app</li></ul>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-21",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>Step 5: Ask for the change</h3>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-22",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Now, describe what you want changed using plain English, just like you would in a comment on a Figma frame to another designer:</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-23",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><em>Let's make a small visual update to [describe the component, e.g., the primary button on the homepage].</em></p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-24",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><em>Please change the background color to [hex code or token name] and increase the horizontal padding slightly.</em></p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-25",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><em>Make this change with the smallest code diff possible. Prefer using our existing design tokens/variables if they exist.</em></p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-26",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>Step 6: See the change live</h3>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-27",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Because you have the live preview open, the moment Claude finishes writing the code, the UI will update instantly.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-28",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>If it looks wrong, simply reply: \"That padding looks a bit too wide, can you reduce it?\" and Claude will adjust the code immediately. You are iterating on real code exactly like you would on a Figma canvas.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-29",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h2>Connect Claude Code and Figma</h2>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2a",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Right now, you're describing design changes to Claude using plain English. That works, but Claude is still guessing what your button <em>should</em> look like based on the words you give it. It doesn't know your exact spacing, your design tokens, or your component library.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2b",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>The Figma integration fixes that.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2c",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>Why screenshots aren't enough</h3>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2d",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>When you paste a screenshot into Claude, it sees a flat image. It can't see the spacing between elements, the design tokens you painstakingly set up, or which components are reusable.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2e",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>So Claude ends up generating code with hardcoded colors (<code>#3B82F6</code> instead of <code>var(--color-primary)</code>) and one-off layout rules instead of using your design system.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2f",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>The Figma integration gives Claude \"x-ray vision\"</h3>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2g",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Instead of looking at a screenshot, Claude can now see:</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2h",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ul><li>The actual layers and auto-layout rules in your Figma frame</li><li>Your design tokens and variables</li><li>Component mappings (if your team uses Code Connect)</li></ul>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2i",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>This means Claude generates code that actually uses your button component instead of building a new one from scratch every time.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2j",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>How to connect them</h3>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2k",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Claude has a visual interface for adding integrations:</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2l",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ol><li>In the Claude Desktop chat box, click the <b>plus icon (+)</b></li><li>Select <b>Connectors</b>, then click <b>Manage Connectors</b></li><li>In the menu that pops up, click <b>Browse Connectors</b></li><li>Search for \"Figma\" and click to add it</li><li>Claude will bounce you to your browser to authorize your Figma account</li></ol>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2m",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>That's it. Claude and Figma are now connected.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2n",
+    "component": {
+      "name": "Video",
+      "options": {
+        "video": "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc7976744bcae4209b97dd0e7f4d0f4ec?alt=media&token=437cddfd-7d9e-415f-957d-eb19a196dd9b&apiKey=YJIGb4i01jvw0SRdL5Bt",
+        "aspectRatio": 0.5625,
+        "autoPlay": true,
+        "muted": true,
+        "loop": true,
+        "playsInline": true,
+        "fit": "cover",
+        "position": "center"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2o",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>How to use the Claude Code Figma connector</h3>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2p",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>The easiest way to use the Figma integration is with links.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2q",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Here's the workflow:</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2r",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ol><li><b>In Figma:</b> Right-click on the frame you want to build and select \"Copy link\"</li><li><b>In Claude Code:</b> Paste this prompt:</li></ol>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2s",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><em>Build the component in this Figma frame: [paste link here]</em></p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2t",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ul><li><em>Reuse existing components if possible</em></li><li><em>Use design tokens/variables instead of hardcoded values</em></li><li><em>Keep the diff minimal</em></li></ul>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2u",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Claude will pull the structured design data from Figma, see your spacing/tokens/components, and generate code that actually fits your system.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2v",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Your mileage may vary. Heavily. Agentic workflows are, if you haven't already noticed, <em>very</em> finnicky. The key is to keep iterating.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2w",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>The reverse workflow: Code to Canvas</h3>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2x",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Here's the cool part. If a dev built a page that isn't in Figma yet, you can capture a functioning UI built with Claude Code and convert it into a fully editable Figma frame. Not a screenshot. A real, editable design artifact.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2y",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><b>However, there's a catch.</b> While the standard Figma connector we set up above is point-and-click, the \"Code to Canvas\" reverse workflow requires a local Figma MCP server running on your machine.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-2z",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>This means using the terminal, running the Figma Desktop app in developer mode, and doing some more engineering setup. It's not quite as designer-friendly yet.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-30",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>If you're comfortable opening the terminal and want to try it out, check out our step-by-step guide on <a href=\"https://www.builder.io/blog/claude-code-to-figma\">how to set up Claude Code to Figma</a>.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-31",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h2>Getting your changes to your engineers</h2>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-32",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>You've connected Figma, prompted Claude, and now you have a beautifully updated UI running on your local server. It's magic.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-33",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>But you aren't working in a silo. How do you actually get this change to your developers? And conversely, how do you update your local app when the devs ship new code?</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-34",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>This is where the agentic illusion breaks down and the reality of software engineering sets in.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-35",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Because Claude Code operates directly in your local repository, you have to manage version control (Git). To share your work, you have to ask Claude to run <code>git commit</code> and <code>git push</code>, and then figure out how to open a Pull Request (PR) in GitHub so your engineers can review it.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-36",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Worse, what happens when an engineer merges new code into the codebase while you were working?</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-37",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>You have to pull those changes down to your local machine (<code>git pull origin main</code>). If they edited the same file you did, you'll hit a <b>merge conflict</b>, where your code and their code collide, and you need to resolve it manually.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-38",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>Setup and maintenance tax is real</h3>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-39",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Claude Code Desktop makes the whole experience more approachable (just keep asking for help), but it doesn't magically remove company repo complexity, authentication, or the tribal knowledge required to manage a local Git environment.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3a",
+    "component": {
+      "name": "Image",
+      "options": {
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F33bc7c13ccf945f1b2dac055e7e8d78a?width=776",
+        "aspectRatio": 0.75,
+        "altText": "Pirates of the Carribean \"first time\" meme with James Franco on the noose.",
+        "backgroundSize": "cover",
+        "backgroundPosition": "center"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px",
+        "position": "relative",
+        "overflow": "hidden"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3b",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Claude can <em>help</em> you debug merge conflicts and commit issues, but you're still fundamentally playing the role of a junior developer managing a local repository.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3c",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>So yes—Claude Code is cool. But the environment drift and manual syncing are still the boss fight for designers just trying to ship a visual tweak.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3d",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Not to mention that every time you want to work in a new repo, you have to do it all over again.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3e",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h2>How to reduce the setup burden while keeping the workflow</h2>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3f",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>If Claude Code is an agent living in your computer with Git, <a href=\"https://builder.io/fusion\">Builder</a> is a <b>shared workspace</b> connected directly to your team's repository.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3g",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>It makes a fundamentally different tradeoff: instead of forcing every designer to become a part-time developer managing local environments, it moves the iteration and syncing into the cloud.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3h",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Here is what that workflow looks like:</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3i",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ol><li><b>Devs set it up once.</b> An engineer connects the repo to Builder, setting up the dev server commands, environment variables, and branch logic one time.</li><li><b>Designers just click \"New Branch.\"</b> You enter the workspace without opening a terminal, configuring an <code>.env</code> file, or worrying about <code>git pull origin main</code>.</li><li><b>You edit visually or with AI.</b> Builder gives you a workspace with <b>Design, Interact, and Code</b> modes. In Design mode, you can literally just click on a component, move it around or edit its padding, color, or text visually, and hit <b>Apply Visual Changes</b>. The workspace automatically syncs those edits into the underlying code.</li><li><b>The Magic Button.</b> When you're ready to share your changes, you click <b>Send PR</b>. Builder handles all the Git complexity and creates a pull request in GitHub containing just the changed code, exactly in the format your devs need to see.</li><li><b>The Guardrails.</b> If your team prefers a stricter workflow, they can actually restrict the \"Send PR\" button for designers entirely. Instead, you click <b>Review</b>, select the team that needs to see it, and Builder automatically assigns it to the right person in the background to review and move it along.</li></ol>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3j",
+    "component": {
+      "name": "Video",
+      "options": {
+        "video": "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1a442b49e72d4a839df803279a9c23e1?alt=media&token=475dc290-12b0-4de2-b794-b784f31399ae&apiKey=YJIGb4i01jvw0SRdL5Bt",
+        "aspectRatio": 0.5625,
+        "autoPlay": true,
+        "muted": true,
+        "loop": true,
+        "playsInline": true,
+        "fit": "cover",
+        "position": "center"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3k",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>No terminal. No merge conflicts. No asking an engineer for missing passwords.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3l",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>And because you are handing off a reviewable PR (or an auto-assigned Review request) instead of a Figma link, you're speaking the exact language your engineers already use. <a href=\"https://www.builder.io/blog/governance-beyond-figma\">It moves governance beyond just Figma.</a></p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3m",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Then the real collaboration loop kicks in: you can share preview URLs directly with stakeholders so they can click around the real UI before anything is merged.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3n",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>Builder is not \"instead of Figma\"</h3>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3o",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>For many teams, Builder and Figma are <b>side-by-side tools</b>: Figma for net-new design (0-to-1) and exploration, Builder for faster web iteration and shipping—without sacrificing import fidelity or round-tripping.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3p",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>If you prefer to start in Figma, Builder's plugin supports <a href=\"https://www.builder.io/c/docs/import-from-figma\">exporting frames and pasting them directly into a Builder Project prompt</a>. You can even <a href=\"https://www.builder.io/c/docs/design-with-figma-and-fusion\">export from Builder <em>back</em> to Figma</a> if you want to update your design files after iterating in code.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3q",
+    "component": {
+      "name": "Video",
+      "options": {
+        "video": "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd1d3b9f1b7634040b61039eff1f50cc9?alt=media&token=f6966016-67b5-4c1d-baef-e26b997af3c1&apiKey=YJIGb4i01jvw0SRdL5Bt",
+        "aspectRatio": 0.5625,
+        "autoPlay": true,
+        "muted": true,
+        "loop": true,
+        "playsInline": true,
+        "fit": "cover",
+        "position": "center"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3r",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>If your design work starts with \"this part of production looks wrong,\" Builder's Chrome extension includes a <b>Copy Layout</b> workflow that pulls real UI from any webpage directly into Figma. You can pull the UI into Figma quickly, redesign it, and then implement it in Builder.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3s",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h2>How to decide between Claude Code and Builder</h2>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3t",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>So, which tool should you use? It comes down to what you are trying to accomplish and how much friction your team is willing to tolerate.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3u",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><b>Start in Figma when:</b></p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3v",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ul><li>You are exploring net-new flows and completely new architecture.</li><li>You need wide collaboration on a blank canvas.</li><li>You are doing discovery and iteration before implementation.</li></ul>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61o-3w",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><b>Use Claude Code (with Figma MCP) when:</b></p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61p-3x",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ul><li>You want an AI agent <b>specifically inside your local repo</b>.</li><li>You are comfortable running terminal commands, managing Git, and learning local dev step-by-step.</li><li>You need deep custom configuration, unique to you.</li></ul>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61p-3y",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><b>Use Builder when:</b></p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61p-3z",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ul><li>You want to eliminate repo setup friction and environment drift for non-engineers.</li><li>Your team wants a shared cloud environment with live previews and automated PR workflows.</li><li>You are iterating on an existing web experience and want to visually edit UI without bouncing between tools.</li><li>You want built-in Figma import and round-tripping.</li></ul>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61p-40",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h2>Builder is Claude Code with even more superpowers</h2>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61p-41",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Claude Code is a genuinely powerful tool that redefines what a designer can accomplish in code. Paired with Figma MCP, it transforms the messy \"screenshot, prompt, and pray\" translation cycle into high-fidelity code generation directly from your source of truth.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61p-42",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>But the real challenge of cross-functional collaboration hasn't changed.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61p-43",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>If you are a designer, managing repository drift, tracking environment variables, and resolving Git merge conflicts is a massive startup tax that distracts you from your actual work: designing and shipping great product experiences.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61p-44",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>That's where Builder's shared cloud workspace changes the equation.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61p-45",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Instead of forcing every member of your team to become a part-time junior developer fighting a local terminal, you can just click a button, visually edit the real UI, and generate a clean PR.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61p-46",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Claude Code helps you go from design intent to implementation. Builder gives your whole team the shared infrastructure to make that workflow repeatable, safe, and wildly fast—without ever leaving Figma behind.</p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "id": "builder-mm9gf61p-47",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><a href=\"https://builder.io/fusion\">Try Builder today.</a></p>"
+      }
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  }
+]

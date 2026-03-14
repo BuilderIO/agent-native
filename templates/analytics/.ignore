@@ -1,0 +1,2 @@
+# Make gitignored generated files visible to ripgrep/agent search
+!docs/data-dictionary.md

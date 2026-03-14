@@ -1,0 +1,141 @@
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  GripVertical,
+  Trash2,
+  Maximize2,
+  Minimize2,
+  ExternalLink,
+} from "lucide-react";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { getIdToken } from "@/lib/auth";
+import { useMetricsQuery } from "@/lib/query-metrics";
+import { ExplorerChart } from "../explorer/components/ExplorerChart";
+import { buildSql } from "../explorer/sql-builder";
+import type { ExplorerConfig } from "../explorer/types";
+import type { DashboardChart } from "./index";
+
+interface ChartCardProps {
+  chart: DashboardChart;
+  configName: string;
+  onRemove: () => void;
+  onToggleWidth: () => void;
+  onEdit: () => void;
+}
+
+async function fetchConfig(id: string): Promise<ExplorerConfig | null> {
+  const token = await getIdToken();
+  const res = await fetch(`/api/explorer-configs/${id}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const { id: _id, ...rest } = data;
+  return rest as ExplorerConfig;
+}
+
+export function DashboardChartCard({
+  chart,
+  configName,
+  onRemove,
+  onToggleWidth,
+  onEdit,
+}: ChartCardProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: chart.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+    opacity: isDragging ? 0.7 : 1,
+    gridColumn: chart.width === 2 ? "span 2" : "span 1",
+  };
+
+  const { data: config } = useQuery({
+    queryKey: ["explorer-config", chart.configId],
+    queryFn: () => fetchConfig(chart.configId),
+    staleTime: 60_000,
+  });
+
+  const sql = useMemo(() => (config ? buildSql(config) : ""), [config]);
+
+  const { data: result, isLoading: queryLoading } = useMetricsQuery(
+    ["dashboard-chart", chart.configId, sql],
+    sql,
+    { enabled: !!sql }
+  );
+
+  const isLoading = !config || queryLoading;
+
+  return (
+    <div ref={setNodeRef} style={style} className="group relative">
+      <Card className="h-full">
+        <CardHeader className="pb-2 flex flex-row items-center gap-2">
+          <button
+            className="cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+          <CardTitle className="text-sm font-medium flex-1 truncate">
+            {config?.name ?? configName}
+          </CardTitle>
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              onClick={onToggleWidth}
+              className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+              title={chart.width === 2 ? "Half width" : "Full width"}
+            >
+              {chart.width === 2 ? (
+                <Minimize2 className="h-3.5 w-3.5" />
+              ) : (
+                <Maximize2 className="h-3.5 w-3.5" />
+              )}
+            </button>
+            <button
+              onClick={onEdit}
+              className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+              title="Edit in Explorer"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={onRemove}
+              className="p-1 rounded text-muted-foreground hover:text-destructive transition-colors"
+              title="Remove chart"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {isLoading ? (
+            <Skeleton className="h-48 w-full" />
+          ) : config ? (
+            <ExplorerChart
+              config={config}
+              result={result}
+              isLoading={false}
+              sql={sql}
+            />
+          ) : (
+            <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+              Config not found
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

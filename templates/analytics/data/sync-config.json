@@ -1,0 +1,8 @@
+{
+  "syncFilePatterns": [
+    "data/explorer-configs/**/*.json",
+    "data/explorer-dashboards/**/*.json",
+    "!data/sync-config.json"
+  ],
+  "privateSyncFilePatterns": []
+}
