@@ -16,7 +16,6 @@ const scripts: Record<string, () => Promise<{ default: (args: string[]) => Promi
   "image-search": () => import("./image-search.js"),
   "logo-lookup": () => import("./logo-lookup.js"),
   "edit-image": () => import("./edit-image.js"),
-  "fix-gtm-edits": () => import("./fix-gtm-edits.js"),
 };
 
 const loader = scripts[scriptName];

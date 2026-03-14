@@ -170,7 +170,7 @@
   border-color: rgba(255, 255, 255, 0.06);
 }
 
-/* ─── Builder FMD Slide Styles ─── */
+/* ─── Slide Styles ─── */
 
 /* Full-bleed wrapper for blank-layout slides */
 .fmd-slide {
@@ -329,7 +329,7 @@
   border-bottom: none;
 }
 
-/* Bullet list for FMD slides */
+/* Bullet list for slides */
 .fmd-bullets {
   list-style: disc;
   padding-left: 18px;
