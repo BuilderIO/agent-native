@@ -52,4 +52,3 @@ https://cdn.brandfetch.io/:domain/w/400/h/400/theme/dark/fallback/lettermark/typ
 - Slide content is stored as raw HTML strings in `data/decks/*.json`
 - Rendered via `dangerouslySetInnerHTML` for `blank` layout slides — no sanitization
 - Inline SVGs work in slide content
-- For modifying JSON slide content programmatically, use a `.cjs` Node script (project uses ES modules, so `.js` files are treated as ESM)
