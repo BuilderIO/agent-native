@@ -163,10 +163,9 @@ function Home() {
           </span>
         </h1>
 
-        <p className="mx-auto mb-10 max-w-2xl text-lg leading-relaxed text-[var(--fg-secondary)]">
-          Other products charge you for rigid software you can't customize.
-          Agent-native gives you full-featured apps you own, powered by an AI agent that can use and evolve them.
-          Fork a template, launch in minutes, customize everything.
+        <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
+          SaaS products lock you into rigid software you can't customize.
+          Agent-native gives you full-featured apps you own, powered by an AI agent that can evolve them.
         </p>
 
         <div className="flex items-center justify-center gap-4">
@@ -194,6 +193,71 @@ function Home() {
         </div>
 
         <TerminalCommand />
+      </section>
+
+      {/* SaaS vs Agents comparison */}
+      <section className="border-t border-[var(--border)] py-20">
+        <div className="mb-12 text-center">
+          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+            SaaS Tools vs Raw AI Agents
+          </h2>
+          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+            Both existing approaches fall short. SaaS tools give you a polished UI but lock you into rigid workflows. Raw AI agents are powerful but leave your team staring at a blank chat prompt.
+          </p>
+        </div>
+
+        <div className="approaches-table-wrapper">
+          <div className="approaches-table-scroll">
+            <table className="approaches-table">
+              <thead>
+                <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
+                  <th className="approaches-th approaches-col-dim">Dimension</th>
+                  <th className="approaches-th approaches-col-saas">
+                    <span className="approaches-col-label--bad">SaaS Tools</span>
+                  </th>
+                  <th className="approaches-th approaches-col-agent">
+                    <span className="approaches-col-label--bad">Raw AI Agents</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-[var(--border)]">
+                  <td className="approaches-td approaches-td--dim">UI</td>
+                  <td className="approaches-td">Polished but rigid</td>
+                  <td className="approaches-td">None</td>
+                </tr>
+                <tr className="border-b border-[var(--border)]">
+                  <td className="approaches-td approaches-td--dim">AI</td>
+                  <td className="approaches-td">Bolted on</td>
+                  <td className="approaches-td">Powerful, no guardrails</td>
+                </tr>
+                <tr className="border-b border-[var(--border)]">
+                  <td className="approaches-td approaches-td--dim">Customization</td>
+                  <td className="approaches-td">Can't</td>
+                  <td className="approaches-td">Prompt-only</td>
+                </tr>
+                <tr className="border-b border-[var(--border)]">
+                  <td className="approaches-td approaches-td--dim">Ownership</td>
+                  <td className="approaches-td">Rented</td>
+                  <td className="approaches-td">N/A</td>
+                </tr>
+                <tr>
+                  <td className="approaches-td approaches-td--dim">Non-dev friendly</td>
+                  <td className="approaches-td">Yes</td>
+                  <td className="approaches-td">No</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="approaches-solution">
+          <div className="approaches-solution-badge">The solution</div>
+          <p className="approaches-solution-tagline">Agent + UI + Computer</p>
+          <p className="approaches-solution-desc">
+            Agent-native apps combine a polished, guided UI with a powerful AI agent that can customize and evolve the app itself — giving your whole team the best of both worlds.
+          </p>
+        </div>
       </section>
 
       </main>
