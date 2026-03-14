@@ -1379,7 +1379,7 @@ export const uploadMedia: RequestHandler = async (req, res) => {
 
 export const serveMedia: RequestHandler = (req, res) => {
   const project = normalizeProjectParam(req.params.project);
-  const { filename } = req.params;
+  const filename = req.params.filename as string;
 
   if (!isValidProjectPath(project) || !filename) {
     res.status(400).json({ error: "Invalid request" });
@@ -1544,7 +1544,7 @@ export const bulkDeleteMedia: RequestHandler = (req, res) => {
 
 export const deleteMedia: RequestHandler = (req, res) => {
   const project = normalizeProjectParam(req.params.project);
-  const { filename } = req.params;
+  const filename = req.params.filename as string;
 
   if (!isValidProjectPath(project) || !filename) {
     res.status(400).json({ error: "Invalid request" });

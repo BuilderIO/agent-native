@@ -1119,7 +1119,7 @@ export const getVersionHistory: RequestHandler = async (req, res) => {
 export const getVersionContent: RequestHandler = async (req, res) => {
   const project = normalizeProjectParam(req.params.project);
   const filePath = req.query.path as string;
-  const versionId = req.params.versionId;
+  const versionId = req.params.versionId as string;
 
   if (
     !isValidProjectPath(project) ||
@@ -1226,7 +1226,7 @@ export const restoreVersion: RequestHandler = async (req, res) => {
 // --- Folder CRUD (workspace-level organizational folders) ---
 
 export const createFolder: RequestHandler = (req, res) => {
-  const workspace = req.params.workspace;
+  const workspace = req.params.workspace as string;
   const { path: folderPath } = req.body as { path: string };
 
   if (!workspace || !folderPath) {
@@ -1248,7 +1248,7 @@ export const createFolder: RequestHandler = (req, res) => {
 };
 
 export const deleteFolder: RequestHandler = (req, res) => {
-  const workspace = req.params.workspace;
+  const workspace = req.params.workspace as string;
   const folderPath = req.query.path as string;
 
   if (!workspace || !folderPath) {
@@ -1286,7 +1286,7 @@ export const deleteFolder: RequestHandler = (req, res) => {
 };
 
 export const renameFolder: RequestHandler = (req, res) => {
-  const workspace = req.params.workspace;
+  const workspace = req.params.workspace as string;
   const { oldPath, newName } = req.body as { oldPath: string; newName: string };
 
   if (!workspace || !oldPath || !newName) {
