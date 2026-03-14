@@ -106,7 +106,7 @@ function buildFileTree(dir: string, basePath = ""): FileNode[] {
 }
 
 export const getWorkspaceSharedTree: RequestHandler = (req, res) => {
-  const workspace = req.params.workspace;
+  const workspace = req.params.workspace as string;
   if (!isValidWorkspace(workspace)) {
     res.status(400).json({ error: "Invalid workspace" });
     return;
@@ -119,7 +119,7 @@ export const getWorkspaceSharedTree: RequestHandler = (req, res) => {
 };
 
 export const getWorkspaceSharedFile: RequestHandler = (req, res) => {
-  const workspace = req.params.workspace;
+  const workspace = req.params.workspace as string;
   const filePath = req.query.path as string;
   if (!isValidWorkspace(workspace) || !filePath || !isValidPath(filePath)) {
     res.status(400).json({ error: "Invalid request" });
@@ -142,7 +142,7 @@ export const getWorkspaceSharedFile: RequestHandler = (req, res) => {
 };
 
 export const saveWorkspaceSharedFile: RequestHandler = (req, res) => {
-  const workspace = req.params.workspace;
+  const workspace = req.params.workspace as string;
   const filePath = req.query.path as string;
   if (!isValidWorkspace(workspace) || !filePath || !isValidPath(filePath)) {
     res.status(400).json({ error: "Invalid request" });
@@ -162,7 +162,7 @@ export const saveWorkspaceSharedFile: RequestHandler = (req, res) => {
 };
 
 export const createWorkspaceSharedFile: RequestHandler = (req, res) => {
-  const workspace = req.params.workspace;
+  const workspace = req.params.workspace as string;
   if (!isValidWorkspace(workspace)) {
     res.status(400).json({ error: "Invalid workspace" });
     return;
@@ -210,7 +210,7 @@ export const createWorkspaceSharedFile: RequestHandler = (req, res) => {
 };
 
 export const deleteWorkspaceSharedFile: RequestHandler = (req, res) => {
-  const workspace = req.params.workspace;
+  const workspace = req.params.workspace as string;
   const filePath = req.query.path as string;
   if (!isValidWorkspace(workspace) || !filePath || !isValidPath(filePath)) {
     res.status(400).json({ error: "Invalid request" });
