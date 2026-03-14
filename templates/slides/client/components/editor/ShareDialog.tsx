@@ -15,7 +15,11 @@ interface ShareDialogProps {
   deck: Deck;
 }
 
-export default function ShareDialog({ open, onOpenChange, deck }: ShareDialogProps) {
+export default function ShareDialog({
+  open,
+  onOpenChange,
+  deck,
+}: ShareDialogProps) {
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -55,10 +59,16 @@ export default function ShareDialog({ open, onOpenChange, deck }: ShareDialogPro
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => {
-      onOpenChange(v);
-      if (!v) { setShareUrl(null); setError(""); }
-    }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        onOpenChange(v);
+        if (!v) {
+          setShareUrl(null);
+          setError("");
+        }
+      }}
+    >
       <DialogContent className="bg-[hsl(240,5%,8%)] border-white/[0.08] max-w-md">
         <DialogHeader>
           <DialogTitle className="text-white/90 flex items-center gap-2">
@@ -66,7 +76,8 @@ export default function ShareDialog({ open, onOpenChange, deck }: ShareDialogPro
             Share Presentation
           </DialogTitle>
           <DialogDescription className="text-white/50">
-            Create a shareable link for "{deck.title}". Only this presentation will be accessible — no other decks.
+            Create a shareable link for "{deck.title}". Only this presentation
+            will be accessible — no other decks.
           </DialogDescription>
         </DialogHeader>
 
@@ -74,12 +85,18 @@ export default function ShareDialog({ open, onOpenChange, deck }: ShareDialogPro
           {!shareUrl ? (
             <>
               <div className="bg-white/[0.03] rounded-lg p-4 border border-white/[0.06]">
-                <h4 className="text-sm font-medium text-white/80 mb-2">What gets shared:</h4>
+                <h4 className="text-sm font-medium text-white/80 mb-2">
+                  What gets shared:
+                </h4>
                 <ul className="text-xs text-white/50 space-y-1">
-                  <li>- Slide content and layouts ({deck.slides.length} slides)</li>
+                  <li>
+                    - Slide content and layouts ({deck.slides.length} slides)
+                  </li>
                   <li>- Presentation view (fullscreen)</li>
                 </ul>
-                <h4 className="text-sm font-medium text-white/80 mt-3 mb-2">What stays private:</h4>
+                <h4 className="text-sm font-medium text-white/80 mt-3 mb-2">
+                  What stays private:
+                </h4>
                 <ul className="text-xs text-white/50 space-y-1">
                   <li>- Speaker notes</li>
                   <li>- Other presentations</li>
@@ -88,7 +105,9 @@ export default function ShareDialog({ open, onOpenChange, deck }: ShareDialogPro
               </div>
 
               {error && (
-                <p className="text-xs text-red-400 bg-red-400/10 px-3 py-2 rounded-lg">{error}</p>
+                <p className="text-xs text-red-400 bg-red-400/10 px-3 py-2 rounded-lg">
+                  {error}
+                </p>
               )}
 
               <button

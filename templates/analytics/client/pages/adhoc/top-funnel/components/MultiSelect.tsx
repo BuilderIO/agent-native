@@ -81,7 +81,10 @@ export function MultiSelect({
         </PopoverTrigger>
         <PopoverContent className="w-[220px] p-0" align="start">
           <Command>
-            <CommandInput placeholder={`Search ${label.toLowerCase()}...`} className="h-9" />
+            <CommandInput
+              placeholder={`Search ${label.toLowerCase()}...`}
+              className="h-9"
+            />
             <CommandList>
               <CommandEmpty>
                 {isLoading ? "Loading..." : "No results."}
@@ -98,12 +101,10 @@ export function MultiSelect({
                         "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
                         value.includes(option)
                           ? "bg-primary text-primary-foreground"
-                          : "opacity-50"
+                          : "opacity-50",
                       )}
                     >
-                      {value.includes(option) && (
-                        <Check className="h-3 w-3" />
-                      )}
+                      {value.includes(option) && <Check className="h-3 w-3" />}
                     </div>
                     <span className="truncate text-xs">{option}</span>
                   </CommandItem>

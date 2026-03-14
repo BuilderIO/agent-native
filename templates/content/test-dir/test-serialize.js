@@ -27,7 +27,7 @@ const CustomTable = BaseTable.extend({
             });
             state.write(" |");
             state.ensureNewLine();
-            
+
             if (i === 0) {
               const delimiterRow = Array.from({ length: row.childCount })
                 .map(() => "---")
@@ -51,9 +51,10 @@ const editor = new Editor({
     TableRow,
     TableHeader,
     TableCell,
-    Markdown
+    Markdown,
   ],
-  content: "<table><tr><th>Hello</th><th>World</th></tr><tr><td><p>This is a test</p></td><td><p>Some more text</p></td></tr></table>"
+  content:
+    "<table><tr><th>Hello</th><th>World</th></tr><tr><td><p>This is a test</p></td><td><p>Some more text</p></td></tr></table>",
 });
 
 console.log("MARKDOWN OUTPUT:");

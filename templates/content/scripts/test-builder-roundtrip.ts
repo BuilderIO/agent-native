@@ -29,22 +29,27 @@ This script does NOT touch Builder.io - it's purely a local test.
   const { projectSlug, save } = opts;
   if (!projectSlug) fail("--project-slug is required");
 
-  const draftPath = join(process.cwd(), "content/projects", projectSlug, "draft.md");
-  
+  const draftPath = join(
+    process.cwd(),
+    "content/projects",
+    projectSlug,
+    "draft.md",
+  );
+
   console.log(`Reading: ${draftPath}\n`);
   const markdown = await readFile(draftPath, "utf-8");
-  
+
   console.log("=== ORIGINAL MARKDOWN (first 1000 chars) ===\n");
   console.log(markdown.slice(0, 1000));
   console.log("\n...\n");
-  
+
   console.log("\n=== CONVERSION PROCESS ===\n");
   console.log("Step 1: Converting Markdown → Builder JSON...");
-  
+
   // Import the conversion function dynamically
   // Note: This is a hack since we're in Node and the function uses browser APIs
   // We'll need to mock some things
-  
+
   console.log(`
 NOTE: The actual conversion uses browser APIs (Image loading for aspect ratios).
 To do a full test, we'd need to either:
@@ -61,7 +66,7 @@ The key insight:
 - Videos → Video blocks
 - Code → Code Block components
   `);
-  
+
   console.log("\nStep 2: Converting Builder JSON → Markdown...");
   console.log(`
 This is the reverse process using the new builderToMarkdown() function:
@@ -70,7 +75,7 @@ This is the reverse process using the new builderToMarkdown() function:
 - Video blocks → <video src="url" controls></video>
 - Code blocks → \`\`\`language\\ncode\\n\`\`\`
   `);
-  
+
   console.log("\n=== WHAT WE'D NEED TO MAKE THIS WORK ===\n");
   console.log(`
 To enable "Pull from Builder" feature:

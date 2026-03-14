@@ -1,6 +1,11 @@
 import { type RequestHandler } from "express";
 import { requireEnvKey } from "@agent-native/core/server";
-import { searchPeople, enrichPerson, searchOrganizations, enrichOrganization } from "../lib/apollo";
+import {
+  searchPeople,
+  enrichPerson,
+  searchOrganizations,
+  enrichOrganization,
+} from "../lib/apollo";
 
 export const handleApolloSearch: RequestHandler = async (req, res) => {
   if (requireEnvKey(res, "APOLLO_API_KEY", "Apollo")) return;

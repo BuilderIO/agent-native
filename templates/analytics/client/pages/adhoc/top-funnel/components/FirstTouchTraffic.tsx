@@ -41,19 +41,60 @@ export function FirstTouchTraffic() {
   const explainerOnly = f.explainerOnly === "true";
   const tableSort = { col: f.sortCol, dir: f.sortDir as "asc" | "desc" };
 
-  const pageTypeOpts = useFilterOptions("page_type", "pageviews", f.dateStart, f.dateEnd);
-  const channelOpts = useFilterOptions("first_touch_channel", "pageviews", f.dateStart, f.dateEnd);
-  const referrerOpts = useFilterOptions("c_referrer", "pageviews", f.dateStart, f.dateEnd);
-  const subPageTypeOpts = useFilterOptions("sub_page_type", "pageviews", f.dateStart, f.dateEnd);
+  const pageTypeOpts = useFilterOptions(
+    "page_type",
+    "pageviews",
+    f.dateStart,
+    f.dateEnd,
+  );
+  const channelOpts = useFilterOptions(
+    "first_touch_channel",
+    "pageviews",
+    f.dateStart,
+    f.dateEnd,
+  );
+  const referrerOpts = useFilterOptions(
+    "c_referrer",
+    "pageviews",
+    f.dateStart,
+    f.dateEnd,
+  );
+  const subPageTypeOpts = useFilterOptions(
+    "sub_page_type",
+    "pageviews",
+    f.dateStart,
+    f.dateEnd,
+  );
   const authorOpts = useFilterOptions("author", "bpc_author");
 
-  const filters = useMemo(() => ({
-    dateStart: f.dateStart, dateEnd: f.dateEnd, pageType: f.pageType,
-    channel: f.channel, referrer: f.referrer, baseUrl: [] as string[], subPageType: f.subPageType,
-    urlFilter: f.urlFilter, author: f.author,
-  }), [f.dateStart, f.dateEnd, f.pageType, f.channel, f.referrer, f.subPageType, f.urlFilter, f.author]);
+  const filters = useMemo(
+    () => ({
+      dateStart: f.dateStart,
+      dateEnd: f.dateEnd,
+      pageType: f.pageType,
+      channel: f.channel,
+      referrer: f.referrer,
+      baseUrl: [] as string[],
+      subPageType: f.subPageType,
+      urlFilter: f.urlFilter,
+      author: f.author,
+    }),
+    [
+      f.dateStart,
+      f.dateEnd,
+      f.pageType,
+      f.channel,
+      f.referrer,
+      f.subPageType,
+      f.urlFilter,
+      f.author,
+    ],
+  );
 
-  const chartSql = useMemo(() => chartQuery(cadence, viewBy, filters), [cadence, viewBy, filters]);
+  const chartSql = useMemo(
+    () => chartQuery(cadence, viewBy, filters),
+    [cadence, viewBy, filters],
+  );
 
   const tableFilters = useMemo(() => {
     if (blogOnly) return { ...filters, pageType: ["blog"] };
@@ -61,7 +102,10 @@ export function FirstTouchTraffic() {
     return filters;
   }, [filters, blogOnly, explainerOnly]);
 
-  const tableSql = useMemo(() => pagePerformanceQuery(tableFilters, false, tableSort), [tableFilters, tableSort]);
+  const tableSql = useMemo(
+    () => pagePerformanceQuery(tableFilters, false, tableSort),
+    [tableFilters, tableSort],
+  );
 
   const chartData = useMetricsQuery(["ft-chart", chartSql], chartSql);
   const tableData = useMetricsQuery(["ft-table", tableSql], tableSql);
@@ -71,8 +115,10 @@ export function FirstTouchTraffic() {
     setF("sortDir", dir);
   };
 
-  const activeFilterCount = [f.pageType, f.channel, f.referrer, f.subPageType].filter(a => a.length > 0).length
-    + (f.urlFilter ? 1 : 0);
+  const activeFilterCount =
+    [f.pageType, f.channel, f.referrer, f.subPageType].filter(
+      (a) => a.length > 0,
+    ).length + (f.urlFilter ? 1 : 0);
   // author is shown in top row, not counted as hidden filter
 
   const kpiTotals = useMemo(() => {
@@ -108,28 +154,73 @@ export function FirstTouchTraffic() {
             viewBy={viewBy}
             onViewByChange={(v) => setF("viewBy", v)}
           />
-          <MultiSelect label="Author" options={authorOpts.options} value={f.author} onChange={(v) => setF("author", v)} isLoading={authorOpts.isLoading} />
+          <MultiSelect
+            label="Author"
+            options={authorOpts.options}
+            value={f.author}
+            onChange={(v) => setF("author", v)}
+            isLoading={authorOpts.isLoading}
+          />
           <button
             onClick={() => setFiltersExpanded(!filtersExpanded)}
             className="flex items-center gap-1 h-8 px-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
-            {filtersExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-            More filters{activeFilterCount > 0 && <span className="ml-1 text-[10px] bg-primary/20 text-primary rounded px-1">{activeFilterCount}</span>}
+            {filtersExpanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+            More filters
+            {activeFilterCount > 0 && (
+              <span className="ml-1 text-[10px] bg-primary/20 text-primary rounded px-1">
+                {activeFilterCount}
+              </span>
+            )}
           </button>
         </div>
 
         {filtersExpanded && (
           <div className="pt-2 border-t border-border/50 space-y-3">
             <div className="flex flex-wrap gap-3 items-end">
-              <MultiSelect label="Page Type" options={pageTypeOpts.options} value={f.pageType} onChange={(v) => setF("pageType", v)} isLoading={pageTypeOpts.isLoading} />
-              <MultiSelect label="Channel" options={channelOpts.options} value={f.channel} onChange={(v) => setF("channel", v)} isLoading={channelOpts.isLoading} />
-              <MultiSelect label="Referrer" options={referrerOpts.options} value={f.referrer} onChange={(v) => setF("referrer", v)} isLoading={referrerOpts.isLoading} />
-              <MultiSelect label="Sub Page Type" options={subPageTypeOpts.options} value={f.subPageType} onChange={(v) => setF("subPageType", v)} isLoading={subPageTypeOpts.isLoading} />
-              <TextFilter label="Base URL Contains" value={f.urlFilter} onChange={(v) => setF("urlFilter", v)} placeholder="e.g. /blog/headless-cms" />
+              <MultiSelect
+                label="Page Type"
+                options={pageTypeOpts.options}
+                value={f.pageType}
+                onChange={(v) => setF("pageType", v)}
+                isLoading={pageTypeOpts.isLoading}
+              />
+              <MultiSelect
+                label="Channel"
+                options={channelOpts.options}
+                value={f.channel}
+                onChange={(v) => setF("channel", v)}
+                isLoading={channelOpts.isLoading}
+              />
+              <MultiSelect
+                label="Referrer"
+                options={referrerOpts.options}
+                value={f.referrer}
+                onChange={(v) => setF("referrer", v)}
+                isLoading={referrerOpts.isLoading}
+              />
+              <MultiSelect
+                label="Sub Page Type"
+                options={subPageTypeOpts.options}
+                value={f.subPageType}
+                onChange={(v) => setF("subPageType", v)}
+                isLoading={subPageTypeOpts.isLoading}
+              />
+              <TextFilter
+                label="Base URL Contains"
+                value={f.urlFilter}
+                onChange={(v) => setF("urlFilter", v)}
+                placeholder="e.g. /blog/headless-cms"
+              />
             </div>
             <p className="text-[11px] text-muted-foreground/70 flex items-center gap-1">
               <Info className="h-3 w-3 flex-shrink-0" />
-              Pageview centric — cohorted to first pageview date. Signups without a tracked pageview (adblock/figma) are excluded.
+              Pageview centric — cohorted to first pageview date. Signups
+              without a tracked pageview (adblock/figma) are excluded.
             </p>
           </div>
         )}
@@ -145,9 +236,15 @@ export function FirstTouchTraffic() {
         sortDir={tableSort.dir}
         onSortChange={handleTableSort}
         blogOnly={blogOnly}
-        onBlogOnlyChange={(v) => { setF("blogOnly", v ? "true" : ""); if (v) setF("explainerOnly", ""); }}
+        onBlogOnlyChange={(v) => {
+          setF("blogOnly", v ? "true" : "");
+          if (v) setF("explainerOnly", "");
+        }}
         explainerOnly={explainerOnly}
-        onExplainerOnlyChange={(v) => { setF("explainerOnly", v ? "true" : ""); if (v) setF("blogOnly", ""); }}
+        onExplainerOnlyChange={(v) => {
+          setF("explainerOnly", v ? "true" : "");
+          if (v) setF("blogOnly", "");
+        }}
       />
     </div>
   );

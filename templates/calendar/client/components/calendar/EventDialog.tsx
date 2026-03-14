@@ -64,7 +64,7 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
           onClose();
         },
         onError: () => toast.error("Failed to update event"),
-      }
+      },
     );
   }
 
@@ -85,9 +85,7 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="dark sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>
-            {editing ? "Edit Event" : event.title}
-          </DialogTitle>
+          <DialogTitle>{editing ? "Edit Event" : event.title}</DialogTitle>
         </DialogHeader>
 
         {editing ? (
@@ -133,12 +131,16 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
         ) : (
           <div className="space-y-3">
             {event.description && (
-              <p className="text-sm text-muted-foreground">{event.description}</p>
+              <p className="text-sm text-muted-foreground">
+                {event.description}
+              </p>
             )}
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Clock className="h-4 w-4" />
               {event.allDay ? (
-                <span>All day - {format(parseISO(event.start), "MMMM d, yyyy")}</span>
+                <span>
+                  All day - {format(parseISO(event.start), "MMMM d, yyyy")}
+                </span>
               ) : (
                 <span>
                   {format(parseISO(event.start), "MMM d, yyyy h:mm a")} -{" "}

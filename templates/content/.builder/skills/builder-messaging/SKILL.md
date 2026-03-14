@@ -28,11 +28,11 @@ Use this skill when producing **any content that positions Builder.io externally
 
 ## Messaging Quick Reference
 
-| Element | Content |
-|---------|---------|
+| Element           | Content                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | Top-Level Message | "The agentic development platform where your team and AI agents build, review, and ship apps and sites with confidence." |
-| Elevator Analogy | What Figma did for product design, Builder is doing for product development, with AI. |
-| Category | Agentic Development Platform |
+| Elevator Analogy  | What Figma did for product design, Builder is doing for product development, with AI.                                    |
+| Category          | Agentic Development Platform                                                                                             |
 
 ### Category Definition
 
@@ -46,21 +46,21 @@ The result: teams ship faster, at higher quality, without scaling engineering he
 
 ### Messaging Pillars
 
-| Pillar | Slug | Key Message | Top 2 Proof Points | Reference |
-|--------|------|-------------|---------------------|-----------|
-| Context | `context` | AI that builds on your real codebase, tech stack, and design system | Design system intelligence built in; Context Graph learns your team's reasoning | messaging-house.md |
+| Pillar        | Slug            | Key Message                                                         | Top 2 Proof Points                                                               | Reference          |
+| ------------- | --------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------ |
+| Context       | `context`       | AI that builds on your real codebase, tech stack, and design system | Design system intelligence built in; Context Graph learns your team's reasoning  | messaging-house.md |
 | Collaboration | `collaboration` | Every role on the product team builds and ships alongside AI agents | Devs, PMs, designers, QA contribute directly; Agents and humans work in parallel | messaging-house.md |
-| Trust | `trust` | Review, approval, and guardrails built into every change | Structured review and approval workflows; Engineers always have final say | messaging-house.md |
+| Trust         | `trust`         | Review, approval, and guardrails built into every change            | Structured review and approval workflows; Engineers always have final say        | messaging-house.md |
 
 ### Pillar-Persona Quick Match
 
-| Persona | Lead Pillar | Why |
-|---------|------------|-----|
-| Eng Leader | Context or Trust | Standards compliance, scaling without headcount |
-| Developer | Context | Code follows their patterns already |
-| Designer | Collaboration | Full control over what ships |
-| PM | Collaboration or Trust | Prototype-to-ship, validated output |
-| DS Lead | Trust or Context | Automatic adherence, no policing |
+| Persona    | Lead Pillar            | Why                                             |
+| ---------- | ---------------------- | ----------------------------------------------- |
+| Eng Leader | Context or Trust       | Standards compliance, scaling without headcount |
+| Developer  | Context                | Code follows their patterns already             |
+| Designer   | Collaboration          | Full control over what ships                    |
+| PM         | Collaboration or Trust | Prototype-to-ship, validated output             |
+| DS Lead    | Trust or Context       | Automatic adherence, no policing                |
 
 > **Note:** These 5 personas are the messaging house's internal role categories. For full buyer persona profiles (recognition signals, discovery questions, objection handling), see the `builder-persona-knowledge` skill (`.builder/skills/builder-persona-knowledge/SKILL.md`).
 
@@ -75,21 +75,22 @@ How to pick which pillar(s) to lead with for a given deliverable.
 - **Persona-driven:** If `target_personas` is set, cross-reference the Pillar-Persona Quick Match table. Use the persona's lead pillar.
 - **Content-type-driven:** If no persona, apply defaults:
 
-  | Content Type | Pillar Guidance |
-  |-------------|----------------|
-  | Landing page | All 3 pillars (Context -> Collaboration -> Trust) |
-  | Campaign brief | All 3 pillars |
-  | Case study | Lead with the pillar that best explains the customer outcome |
-  | Email sequence | 1 pillar per email; rotate across the sequence |
-  | Single email | 1 pillar (match to the email's purpose) |
-  | LinkedIn outreach | 1 proof point from 1 pillar |
-  | Call script | Lead with 1 pillar; weave others if conversation allows |
-  | Social post | 1 proof point from 1 pillar |
-  | Ad copy | 1 pillar, 1 proof point |
+  | Content Type      | Pillar Guidance                                              |
+  | ----------------- | ------------------------------------------------------------ |
+  | Landing page      | All 3 pillars (Context -> Collaboration -> Trust)            |
+  | Campaign brief    | All 3 pillars                                                |
+  | Case study        | Lead with the pillar that best explains the customer outcome |
+  | Email sequence    | 1 pillar per email; rotate across the sequence               |
+  | Single email      | 1 pillar (match to the email's purpose)                      |
+  | LinkedIn outreach | 1 proof point from 1 pillar                                  |
+  | Call script       | Lead with 1 pillar; weave others if conversation allows      |
+  | Social post       | 1 proof point from 1 pillar                                  |
+  | Ad copy           | 1 pillar, 1 proof point                                      |
 
 **Path 3 -- Ambiguous:** No clear signal -- ask the user:
 
 > "Which messaging pillar should this content lead with?"
+>
 > 1. Context (AI that builds on your real codebase)
 > 2. Collaboration (whole team builds alongside AI)
 > 3. Trust (review, approval, guardrails)
@@ -106,12 +107,12 @@ How many reference files to read based on the content's needs:
 - **Full messaging context** (campaign briefs, landing pages, comprehensive reviews) -- Read SKILL.md + both reference files
 - **Quick positioning check** (review pass, light mention) -- Read SKILL.md only
 
-| Scenario | Files Loaded | Estimated Words |
-|----------|-------------|-----------------|
-| Social post pillar alignment | SKILL.md only | ~900 |
-| Email with single-pillar emphasis | SKILL.md + messaging-house.md | ~2,000 |
-| Narrative blog post | SKILL.md + strategic-narrative.md | ~1,900 |
-| Campaign brief (full framework) | SKILL.md + both references | ~3,000 |
+| Scenario                          | Files Loaded                      | Estimated Words |
+| --------------------------------- | --------------------------------- | --------------- |
+| Social post pillar alignment      | SKILL.md only                     | ~900            |
+| Email with single-pillar emphasis | SKILL.md + messaging-house.md     | ~2,000          |
+| Narrative blog post               | SKILL.md + strategic-narrative.md | ~1,900          |
+| Campaign brief (full framework)   | SKILL.md + both references        | ~3,000          |
 
 Default maximum: 2 reference files per deliverable.
 
@@ -147,6 +148,7 @@ This is a market tailwind. The pillars do the work. In content and thought leade
 **Files loaded:** SKILL.md + both references
 
 **Structure:**
+
 - **Hero:** Top-level message ("The agentic development platform where your team and AI agents build, review, and ship apps and sites with confidence.")
 - **Section 1 -- Context:** "AI that builds on your real codebase." Proof points: design system intelligence, Context Graph. Customer evidence: Frete's 70% reduction in build time.
 - **Section 2 -- Collaboration:** "Every role ships alongside AI agents." Proof points: direct contribution, parallel workflows. Customer evidence: Conservice UX Designer quote.
@@ -161,6 +163,7 @@ This is a market tailwind. The pillars do the work. In content and thought leade
 **Key Messaging section of the brief:**
 
 Use the From -> To transformation framing as the campaign arc:
+
 - **From:** "Teams where engineering is the bottleneck, AI is a toy, and everyone waits in line."
 - **To:** "Teams where every role ships directly, AI agents do the heavy lifting, and the workflow has the guardrails to trust what gets built."
 
@@ -190,12 +193,12 @@ For single-pillar content (emails, social posts), lead with one pillar only. Do 
 
 ### Messaging Don'ts
 
-| Don't | Why | Do Instead |
-|-------|-----|-----------|
-| Don't claim Builder.io "replaces developers" | Contradicts Collaboration pillar | "Engineers focus on architecture and code review" |
-| Don't conflate the 3 pillars into a single undifferentiated message | Loses structural clarity | Lead with 1 pillar, connect to others |
-| Don't use competitor category labels to describe Builder | "AI code generator" or "AI IDE" diminishes the category | "Agentic development platform" |
-| Don't invent customer evidence | Only attributed evidence from the messaging house | Omit rather than fabricate |
+| Don't                                                               | Why                                                     | Do Instead                                        |
+| ------------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------- |
+| Don't claim Builder.io "replaces developers"                        | Contradicts Collaboration pillar                        | "Engineers focus on architecture and code review" |
+| Don't conflate the 3 pillars into a single undifferentiated message | Loses structural clarity                                | Lead with 1 pillar, connect to others             |
+| Don't use competitor category labels to describe Builder            | "AI code generator" or "AI IDE" diminishes the category | "Agentic development platform"                    |
+| Don't invent customer evidence                                      | Only attributed evidence from the messaging house       | Omit rather than fabricate                        |
 
 ### Compounding
 

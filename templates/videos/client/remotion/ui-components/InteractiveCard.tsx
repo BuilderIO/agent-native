@@ -14,7 +14,7 @@ import type { AnimationTrack } from "@/types";
  * ✓ Uses AnimatedElement - automatically applies ALL animated properties
  * ✓ Safe fallbacks built-in - works without animations configured
  * ✓ Provides visual feedback for interaction states
- * 
+ *
  * @example Basic Usage
  * ```tsx
  * <InteractiveCard
@@ -31,7 +31,7 @@ import type { AnimationTrack } from "@/types";
  *   registerForCursor={context.registerForCursor}
  * />
  * ```
- * 
+ *
  * @example With Custom Styling
  * ```tsx
  * <InteractiveCard

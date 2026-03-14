@@ -39,7 +39,10 @@ function parseEnvFile(content: string): Map<string, string> {
     const key = trimmed.slice(0, eqIndex).trim();
     let value = trimmed.slice(eqIndex + 1).trim();
     // Strip surrounding quotes
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
       value = value.slice(1, -1);
     }
     vars.set(key, value);
@@ -50,7 +53,10 @@ function parseEnvFile(content: string): Map<string, string> {
 /**
  * Upsert vars into a .env file, preserving existing structure.
  */
-function upsertEnvFile(envPath: string, vars: Array<{ key: string; value: string }>): void {
+function upsertEnvFile(
+  envPath: string,
+  vars: Array<{ key: string; value: string }>,
+): void {
   let content = "";
   try {
     content = fs.readFileSync(envPath, "utf-8");
@@ -97,7 +103,9 @@ function upsertEnvFile(envPath: string, vars: Array<{ key: string; value: string
  * - /api/ping health check
  * - /api/env-status and /api/env-vars (when envKeys is provided)
  */
-export function createServer(options: CreateServerOptions = {}): express.Express {
+export function createServer(
+  options: CreateServerOptions = {},
+): express.Express {
   const app = express();
 
   // Middleware
@@ -131,7 +139,9 @@ export function createServer(options: CreateServerOptions = {}): express.Express
     });
 
     app.post("/api/env-vars", (req, res) => {
-      const { vars } = req.body as { vars?: Array<{ key: string; value: string }> };
+      const { vars } = req.body as {
+        vars?: Array<{ key: string; value: string }>;
+      };
       if (!Array.isArray(vars) || vars.length === 0) {
         res.status(400).json({ error: "vars array required" });
         return;

@@ -28,28 +28,59 @@ export function useProjects() {
   });
 }
 
-export function getProjectRouteSlug(project: Pick<Project, "slug" | "canonicalSlug">): string {
+export function getProjectRouteSlug(
+  project: Pick<Project, "slug" | "canonicalSlug">,
+): string {
   return project.canonicalSlug || project.slug;
 }
 
 export function findProjectByRouteSlug(
   projects: Project[] | undefined,
-  routeSlug: string | null | undefined
+  routeSlug: string | null | undefined,
 ): Project | undefined {
   if (!projects || !routeSlug) return undefined;
   return projects.find(
-    (project) => project.canonicalSlug === routeSlug || project.slug === routeSlug
+    (project) =>
+      project.canonicalSlug === routeSlug || project.slug === routeSlug,
   );
 }
 
 export function useCreateProject() {
   const qc = useQueryClient();
-  return useMutation<ProjectCreateResponse, Error, { name: string; group?: string; builderHandle?: string; builderDocsId?: string; builderModel?: "blog-article" | "docs-content"; fullData?: any; blocksString?: string }>({
-    mutationFn: async ({ name, group, builderHandle, builderDocsId, builderModel, fullData, blocksString }) => {
+  return useMutation<
+    ProjectCreateResponse,
+    Error,
+    {
+      name: string;
+      group?: string;
+      builderHandle?: string;
+      builderDocsId?: string;
+      builderModel?: "blog-article" | "docs-content";
+      fullData?: any;
+      blocksString?: string;
+    }
+  >({
+    mutationFn: async ({
+      name,
+      group,
+      builderHandle,
+      builderDocsId,
+      builderModel,
+      fullData,
+      blocksString,
+    }) => {
       const res = await authFetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, group, builderHandle, builderDocsId, builderModel, fullData, blocksString }),
+        body: JSON.stringify({
+          name,
+          group,
+          builderHandle,
+          builderDocsId,
+          builderModel,
+          fullData,
+          blocksString,
+        }),
       });
       if (!res.ok) throw new Error("Failed to create project");
       return res.json();
@@ -78,7 +109,9 @@ export function useDeleteProject() {
   const qc = useQueryClient();
   return useMutation<void, Error, { slug: string }>({
     mutationFn: async ({ slug }) => {
-      const res = await authFetch(`/api/projects/${slug}`, { method: "DELETE" });
+      const res = await authFetch(`/api/projects/${slug}`, {
+        method: "DELETE",
+      });
       if (!res.ok) {
         let message = "Failed to delete project";
 
@@ -123,31 +156,42 @@ export function useRenameProject() {
 
 export function useMoveProject() {
   const qc = useQueryClient();
-  return useMutation<ProjectMoveResponse, Error, { slug: string; group?: string }>(
-    {
-      mutationFn: async ({ slug, group }) => {
-        const res = await authFetch(`/api/projects/${slug}/move`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ group }),
-        });
-        if (!res.ok) throw new Error("Failed to move project");
-        return res.json();
-      },
-      onSuccess: (data, vars) => {
-        qc.invalidateQueries({ queryKey: ["projects"] });
-        qc.invalidateQueries({ queryKey: ["fileTree", vars.slug] });
-        if (data?.slug) {
-          qc.invalidateQueries({ queryKey: ["fileTree", data.slug] });
-        }
-      },
-    }
-  );
+  return useMutation<
+    ProjectMoveResponse,
+    Error,
+    { slug: string; group?: string }
+  >({
+    mutationFn: async ({ slug, group }) => {
+      const res = await authFetch(`/api/projects/${slug}/move`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group }),
+      });
+      if (!res.ok) throw new Error("Failed to move project");
+      return res.json();
+    },
+    onSuccess: (data, vars) => {
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["fileTree", vars.slug] });
+      if (data?.slug) {
+        qc.invalidateQueries({ queryKey: ["fileTree", data.slug] });
+      }
+    },
+  });
 }
 
 export function useUpdateProjectMeta() {
   const qc = useQueryClient();
-  return useMutation<void, Error, { slug: string; isPrivate?: boolean; ownerId?: string; activeDraft?: string }>({
+  return useMutation<
+    void,
+    Error,
+    {
+      slug: string;
+      isPrivate?: boolean;
+      ownerId?: string;
+      activeDraft?: string;
+    }
+  >({
     mutationFn: async ({ slug, isPrivate, ownerId, activeDraft }) => {
       const res = await authFetch(`/api/projects/${slug}/meta`, {
         method: "PATCH",
@@ -198,7 +242,9 @@ export function usePageTree(workspace: string | null) {
   return useQuery<PageTreeResponse>({
     queryKey: ["pageTree", workspace],
     queryFn: async () => {
-      const res = await authFetch(`/api/pages?workspace=${encodeURIComponent(workspace!)}`);
+      const res = await authFetch(
+        `/api/pages?workspace=${encodeURIComponent(workspace!)}`,
+      );
       if (!res.ok) throw new Error("Failed to fetch page tree");
       return res.json();
     },
@@ -219,13 +265,16 @@ export function useFileTree(projectSlug: string | null) {
   });
 }
 
-export function useFileContent(projectSlug: string | null, filePath: string | null) {
+export function useFileContent(
+  projectSlug: string | null,
+  filePath: string | null,
+) {
   return useQuery<FileContentResponse>({
     queryKey: ["file", projectSlug, filePath],
     queryFn: async () => {
       const base = getApiBase(projectSlug!, "file");
       const res = await authFetch(
-        `${base}?path=${encodeURIComponent(filePath!)}`
+        `${base}?path=${encodeURIComponent(filePath!)}`,
       );
       if (!res.ok) throw new Error("Failed to fetch file");
       return res.json();
@@ -238,11 +287,15 @@ export function useFileContent(projectSlug: string | null, filePath: string | nu
 
 export function useSaveFile() {
   const qc = useQueryClient();
-  return useMutation<FileSaveResponse, Error, {
-    projectSlug: string;
-    filePath: string;
-    content: string;
-  }>({
+  return useMutation<
+    FileSaveResponse,
+    Error,
+    {
+      projectSlug: string;
+      filePath: string;
+      content: string;
+    }
+  >({
     mutationFn: async ({
       projectSlug,
       filePath,
@@ -259,7 +312,7 @@ export function useSaveFile() {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ content }),
-        }
+        },
       );
       if (!res.ok) throw new Error("Failed to save file");
       return res.json();
@@ -276,13 +329,17 @@ export function useSaveFile() {
             content: vars.content,
             updatedAt: data.updatedAt || new Date().toISOString(),
           };
-        }
+        },
       );
       // Still update file tree, project metadata, and history queries
       qc.invalidateQueries({ queryKey: ["fileTree", vars.projectSlug] });
       qc.invalidateQueries({ queryKey: ["projects"] });
-      qc.invalidateQueries({ queryKey: ["versionHistory", vars.projectSlug, vars.filePath] });
-      qc.invalidateQueries({ queryKey: ["versionContent", vars.projectSlug, vars.filePath] });
+      qc.invalidateQueries({
+        queryKey: ["versionHistory", vars.projectSlug, vars.filePath],
+      });
+      qc.invalidateQueries({
+        queryKey: ["versionContent", vars.projectSlug, vars.filePath],
+      });
     },
   });
 }
@@ -290,13 +347,13 @@ export function useSaveFile() {
 export function useVersionHistory(
   projectSlug: string | null,
   filePath: string | null,
-  enabled: boolean = true
+  enabled: boolean = true,
 ) {
   return useQuery<VersionHistoryListResponse>({
     queryKey: ["versionHistory", projectSlug, filePath],
     queryFn: async () => {
       const res = await authFetch(
-        `/api/projects/${projectSlug}/version-history?path=${encodeURIComponent(filePath!)}`
+        `/api/projects/${projectSlug}/version-history?path=${encodeURIComponent(filePath!)}`,
       );
       if (!res.ok) throw new Error("Failed to fetch version history");
       return res.json();
@@ -309,13 +366,13 @@ export function useVersionContent(
   projectSlug: string | null,
   filePath: string | null,
   versionId: string | null,
-  enabled: boolean = true
+  enabled: boolean = true,
 ) {
   return useQuery<VersionContentResponse>({
     queryKey: ["versionContent", projectSlug, filePath, versionId],
     queryFn: async () => {
       const res = await authFetch(
-        `/api/projects/${projectSlug}/version-history/${versionId}?path=${encodeURIComponent(filePath!)}`
+        `/api/projects/${projectSlug}/version-history/${versionId}?path=${encodeURIComponent(filePath!)}`,
       );
       if (!res.ok) throw new Error("Failed to fetch version content");
       return res.json();
@@ -326,13 +383,17 @@ export function useVersionContent(
 
 export function useCreateFile() {
   const qc = useQueryClient();
-  return useMutation<FileCreateResponse, Error, {
-    projectSlug: string;
-    name: string;
-    type: "file" | "directory";
-    parentPath?: string;
-    content?: string;
-  }>({
+  return useMutation<
+    FileCreateResponse,
+    Error,
+    {
+      projectSlug: string;
+      name: string;
+      type: "file" | "directory";
+      parentPath?: string;
+      content?: string;
+    }
+  >({
     mutationFn: async ({ projectSlug, name, type, parentPath, content }) => {
       const url = getApiBase(projectSlug, "file");
       const res = await authFetch(url, {
@@ -362,7 +423,7 @@ export function useDeleteFile() {
       const base = getApiBase(projectSlug, "file");
       const res = await authFetch(
         `${base}?path=${encodeURIComponent(filePath)}`,
-        { method: "DELETE" }
+        { method: "DELETE" },
       );
       if (!res.ok) throw new Error("Failed to delete file");
       return res.json();

@@ -33,7 +33,9 @@ export default function LogoSearchPanel({
   useEffect(() => {
     fetch("/api/logo/config")
       .then((r) => r.json())
-      .then((d) => { if (d.brandfetchId) setBrandfetchId(d.brandfetchId); })
+      .then((d) => {
+        if (d.brandfetchId) setBrandfetchId(d.brandfetchId);
+      })
       .catch(() => {});
   }, []);
 
@@ -105,7 +107,9 @@ export default function LogoSearchPanel({
   if (!open) return null;
 
   // Build variations for the selected domain
-  const variations = selectedDomain ? buildVariations(selectedDomain, brandfetchId) : [];
+  const variations = selectedDomain
+    ? buildVariations(selectedDomain, brandfetchId)
+    : [];
 
   return createPortal(
     <div
@@ -133,7 +137,10 @@ export default function LogoSearchPanel({
             "Logo Search"
           )}
         </h3>
-        <button onClick={() => onOpenChange(false)} className="text-white/30 hover:text-white/60 transition-colors">
+        <button
+          onClick={() => onOpenChange(false)}
+          className="text-white/30 hover:text-white/60 transition-colors"
+        >
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -148,7 +155,9 @@ export default function LogoSearchPanel({
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSearch();
+                }}
                 placeholder="Search company name (e.g. Intuit)"
                 className="w-full pl-8 pr-3 py-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg text-sm text-white/90 placeholder:text-white/30 outline-none focus:border-[#609FF8]/50"
               />
@@ -158,7 +167,11 @@ export default function LogoSearchPanel({
               disabled={loading || !query.trim()}
               className="px-3 py-1.5 rounded-lg bg-[#609FF8] hover:bg-[#7AB2FA] disabled:opacity-50 text-black text-xs font-medium transition-colors"
             >
-              {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Search"}
+              {loading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                "Search"
+              )}
             </button>
           </div>
         </div>
@@ -166,7 +179,9 @@ export default function LogoSearchPanel({
 
       <div className="px-4 pb-4 overflow-y-auto flex-1">
         {error && (
-          <div className="text-center py-4 text-red-400/70 text-xs">{error}</div>
+          <div className="text-center py-4 text-red-400/70 text-xs">
+            {error}
+          </div>
         )}
 
         {/* Search results */}
@@ -196,7 +211,9 @@ export default function LogoSearchPanel({
                   className="w-10 h-10"
                 />
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs text-white/80 font-medium">{r.name}</div>
+                  <div className="text-xs text-white/80 font-medium">
+                    {r.name}
+                  </div>
                   <div className="text-[10px] text-white/30">{r.domain}</div>
                 </div>
                 <span className="text-[10px] text-white/20">&rsaquo;</span>
@@ -231,11 +248,14 @@ export default function LogoSearchPanel({
                           className="max-w-[90%] max-h-[90%] object-contain"
                           loading="lazy"
                           onError={(e) => {
-                            (e.target as HTMLImageElement).style.opacity = "0.15";
+                            (e.target as HTMLImageElement).style.opacity =
+                              "0.15";
                           }}
                         />
                       </div>
-                      <span className="text-[9px] text-white/40 leading-tight text-center">{v.label}</span>
+                      <span className="text-[9px] text-white/40 leading-tight text-center">
+                        {v.label}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -250,15 +270,27 @@ export default function LogoSearchPanel({
 }
 
 /** Small logo preview with fallback handling */
-function LogoPreview({ src, alt, className }: { src: string; alt: string; className?: string }) {
+function LogoPreview({
+  src,
+  alt,
+  className,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+}) {
   return (
-    <div className={`flex-shrink-0 rounded-md bg-white/[0.06] flex items-center justify-center overflow-hidden ${className}`}>
+    <div
+      className={`flex-shrink-0 rounded-md bg-white/[0.06] flex items-center justify-center overflow-hidden ${className}`}
+    >
       <img
         src={src}
         alt={alt}
         className="w-4/5 h-4/5 object-contain"
         loading="lazy"
-        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+        onError={(e) => {
+          (e.target as HTMLImageElement).style.display = "none";
+        }}
       />
     </div>
   );
@@ -275,10 +307,14 @@ interface VariationGroup {
   items: LogoVariation[];
 }
 
-function buildVariations(domain: string, _brandfetchId: string | null): VariationGroup[] {
+function buildVariations(
+  domain: string,
+  _brandfetchId: string | null,
+): VariationGroup[] {
   // Brandfetch CDN works without client ID for free tier
   const bf = (path: string) => `https://cdn.brandfetch.io/${domain}/${path}`;
-  const ld = (params: string) => `https://img.logo.dev/${domain}?token=${LOGO_DEV_PK}&${params}`;
+  const ld = (params: string) =>
+    `https://img.logo.dev/${domain}?token=${LOGO_DEV_PK}&${params}`;
 
   return [
     {
@@ -292,7 +328,11 @@ function buildVariations(domain: string, _brandfetchId: string | null): Variatio
     {
       label: "Symbol / Icon",
       items: [
-        { label: "Symbol", url: bf("symbol.png"), bg: "rgba(255,255,255,0.03)" },
+        {
+          label: "Symbol",
+          url: bf("symbol.png"),
+          bg: "rgba(255,255,255,0.03)",
+        },
         { label: "Symbol dark", url: bf("theme/dark/symbol.png"), bg: "#111" },
         { label: "Icon", url: bf("icon.png"), bg: "rgba(255,255,255,0.03)" },
       ],
@@ -300,9 +340,21 @@ function buildVariations(domain: string, _brandfetchId: string | null): Variatio
     {
       label: "Logo.dev",
       items: [
-        { label: "Default", url: ld("size=400&format=png&retina=true"), bg: "rgba(255,255,255,0.03)" },
-        { label: "For dark bg", url: ld("size=400&format=png&retina=true&theme=light"), bg: "#111" },
-        { label: "Greyscale", url: ld("size=400&format=png&retina=true&greyscale=true"), bg: "rgba(255,255,255,0.03)" },
+        {
+          label: "Default",
+          url: ld("size=400&format=png&retina=true"),
+          bg: "rgba(255,255,255,0.03)",
+        },
+        {
+          label: "For dark bg",
+          url: ld("size=400&format=png&retina=true&theme=light"),
+          bg: "#111",
+        },
+        {
+          label: "Greyscale",
+          url: ld("size=400&format=png&retina=true&greyscale=true"),
+          bg: "rgba(255,255,255,0.03)",
+        },
       ],
     },
   ];

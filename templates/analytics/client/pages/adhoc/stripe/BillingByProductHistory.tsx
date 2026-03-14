@@ -26,7 +26,11 @@ export function BillingByProductHistoryLoading() {
   );
 }
 
-export function BillingByProductHistory({ products }: { products: ProductBillingAggregate[] }) {
+export function BillingByProductHistory({
+  products,
+}: {
+  products: ProductBillingAggregate[];
+}) {
   if (products.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-6 text-center">
@@ -43,7 +47,9 @@ export function BillingByProductHistory({ products }: { products: ProductBilling
             <TableHead>Product Name</TableHead>
             <TableHead className="text-right">Total Amount</TableHead>
             <TableHead className="text-right">Invoice Count</TableHead>
-            <TableHead className="text-xs text-muted-foreground font-mono">Product ID</TableHead>
+            <TableHead className="text-xs text-muted-foreground font-mono">
+              Product ID
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

@@ -69,7 +69,7 @@ export function useSlackTeam(workspace: Workspace) {
     queryKey: ["slack-team", workspace],
     queryFn: async () => {
       const data = await apiFetch<{ team: SlackTeamInfo }>(
-        `/api/slack/team?workspace=${workspace}`
+        `/api/slack/team?workspace=${workspace}`,
       );
       return data.team;
     },
@@ -82,7 +82,7 @@ export function useSlackChannels(workspace: Workspace) {
     queryKey: ["slack-channels", workspace],
     queryFn: async () => {
       const data = await apiFetch<{ channels: SlackChannel[] }>(
-        `/api/slack/channels?workspace=${workspace}`
+        `/api/slack/channels?workspace=${workspace}`,
       );
       return data.channels;
     },
@@ -104,13 +104,13 @@ const PAGE_SIZE = 20;
 export function useSlackPaginatedHistory(
   workspace: Workspace,
   channelIds: string[],
-  channelNames: string[]
+  channelNames: string[],
 ) {
   // Stack of cursor states for prev/next navigation
   // Each entry is the cursors object used to fetch that page
-  const [cursorStack, setCursorStack] = useState<
-    Record<string, string>[]
-  >([{}]); // start with empty cursors (first page)
+  const [cursorStack, setCursorStack] = useState<Record<string, string>[]>([
+    {},
+  ]); // start with empty cursors (first page)
   const [currentPageIdx, setCurrentPageIdx] = useState(0);
 
   const currentCursors = cursorStack[currentPageIdx] || {};
@@ -139,7 +139,7 @@ export function useSlackPaginatedHistory(
         params.set("cursors", JSON.stringify(currentCursors));
       }
       return apiFetch<MultiHistoryPage>(
-        `/api/slack/multi-history?${params.toString()}`
+        `/api/slack/multi-history?${params.toString()}`,
       );
     },
     enabled: channelIds.length > 0,
@@ -194,7 +194,7 @@ export function useSlackSearch(workspace: Workspace, query: string) {
     queryKey: ["slack-search", workspace, query],
     queryFn: () =>
       apiFetch<SearchResponse>(
-        `/api/slack/search?workspace=${workspace}&query=${encodeURIComponent(query)}`
+        `/api/slack/search?workspace=${workspace}&query=${encodeURIComponent(query)}`,
       ),
     enabled: query.length >= 2,
     staleTime: 60 * 1000,

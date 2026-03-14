@@ -46,7 +46,8 @@ export function TimeSeriesChart({
   };
 
   // Get latest value from data for validation
-  const latestValue = data.length > 0 ? (data[data.length - 1][yKey] as number | string) : null;
+  const latestValue =
+    data.length > 0 ? (data[data.length - 1][yKey] as number | string) : null;
 
   return (
     <Card className="bg-card border-border/50">

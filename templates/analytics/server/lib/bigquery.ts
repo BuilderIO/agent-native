@@ -52,13 +52,10 @@ function filterDevSchema(sql: string): string {
     if (!sql.toLowerCase().includes("where")) {
       sql = sql.replace(
         /FROM\s+`([^`]+)\.INFORMATION_SCHEMA/gi,
-        "FROM `$1.INFORMATION_SCHEMA` WHERE table_schema != 'dbt_dev'"
+        "FROM `$1.INFORMATION_SCHEMA` WHERE table_schema != 'dbt_dev'",
       );
     } else {
-      sql = sql.replace(
-        /WHERE\s+/gi,
-        "WHERE table_schema != 'dbt_dev' AND "
-      );
+      sql = sql.replace(/WHERE\s+/gi, "WHERE table_schema != 'dbt_dev' AND ");
     }
   }
 
@@ -146,7 +143,10 @@ export async function runQuery(sql: string): Promise<QueryResult> {
   });
 
   const [metadata] = await job.getMetadata();
-  const bytesProcessed = parseInt(metadata.statistics?.totalBytesProcessed || "0", 10);
+  const bytesProcessed = parseInt(
+    metadata.statistics?.totalBytesProcessed || "0",
+    10,
+  );
 
   const [rawRows, , response] = await job.getQueryResults();
 

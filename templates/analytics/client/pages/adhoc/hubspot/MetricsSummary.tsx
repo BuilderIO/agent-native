@@ -34,11 +34,31 @@ export function MetricsSummary({ metrics, isLoading }: Props) {
 
   const cards = [
     { label: "Open Deals", value: fmt(metrics.openDeals), color: "" },
-    { label: "Open Pipeline", value: fmtDollars(metrics.openPipelineValue), color: "text-blue-400" },
-    { label: "Won Revenue", value: fmtDollars(metrics.wonValue), color: "text-emerald-400" },
-    { label: "Win Rate", value: fmtPercent(metrics.winRate), color: "text-yellow-400" },
-    { label: "Avg ACV", value: fmtDollars(metrics.avgDealSize), color: "text-blue-400" },
-    { label: "Landing ACV", value: fmtDollars(metrics.landingAcv), color: "text-cyan-400" },
+    {
+      label: "Open Pipeline",
+      value: fmtDollars(metrics.openPipelineValue),
+      color: "text-blue-400",
+    },
+    {
+      label: "Won Revenue",
+      value: fmtDollars(metrics.wonValue),
+      color: "text-emerald-400",
+    },
+    {
+      label: "Win Rate",
+      value: fmtPercent(metrics.winRate),
+      color: "text-yellow-400",
+    },
+    {
+      label: "Avg ACV",
+      value: fmtDollars(metrics.avgDealSize),
+      color: "text-blue-400",
+    },
+    {
+      label: "Landing ACV",
+      value: fmtDollars(metrics.landingAcv),
+      color: "text-cyan-400",
+    },
     {
       label: "POV Success",
       value: fmtPercent(metrics.povSuccessRate),

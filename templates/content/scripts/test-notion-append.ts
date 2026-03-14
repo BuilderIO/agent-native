@@ -7,8 +7,10 @@ export default async function main() {
   try {
     const res = await notion.blocks.children.append({
       block_id: "30a3d727-4be5-804e-885f-f8681d267229",
-      children: [{ paragraph: { rich_text: [{ text: { content: "Test Start" } }] } }] as any,
-      position: { type: "start" }
+      children: [
+        { paragraph: { rich_text: [{ text: { content: "Test Start" } }] } },
+      ] as any,
+      position: { type: "start" },
     } as any);
     console.log("Success with position:start");
   } catch (e: any) {

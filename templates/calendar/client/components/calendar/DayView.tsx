@@ -45,11 +45,13 @@ export function DayView({ events, date, onEventClick }: DayViewProps) {
     <div className="flex flex-col h-full overflow-auto">
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-border bg-background px-4 py-3">
-        <div className="text-sm text-muted-foreground">{format(date, "EEEE")}</div>
+        <div className="text-sm text-muted-foreground">
+          {format(date, "EEEE")}
+        </div>
         <div
           className={cn(
             "text-2xl font-semibold",
-            isToday(date) && "text-primary"
+            isToday(date) && "text-primary",
           )}
         >
           {format(date, "MMMM d, yyyy")}
@@ -68,7 +70,7 @@ export function DayView({ events, date, onEventClick }: DayViewProps) {
                 "block w-full rounded-md px-3 py-1.5 text-left text-sm transition-colors hover:opacity-80",
                 event.source === "google"
                   ? "bg-green-500/20 text-green-300"
-                  : "bg-primary/20 text-primary"
+                  : "bg-primary/20 text-primary",
               )}
             >
               {event.title}
@@ -110,7 +112,7 @@ export function DayView({ events, date, onEventClick }: DayViewProps) {
                   "absolute left-1 right-4 overflow-hidden rounded-md px-3 py-1.5 text-left text-sm transition-opacity hover:opacity-80",
                   event.source === "google"
                     ? "bg-green-500/20 border-l-2 border-l-green-500 text-green-300"
-                    : "bg-primary/20 border-l-2 border-l-primary text-primary"
+                    : "bg-primary/20 border-l-2 border-l-primary text-primary",
                 )}
                 style={style}
               >

@@ -8,6 +8,7 @@ description: "Updates Builder.io product knowledge, persona, messaging, or compe
 Update any of the 4 builder knowledge skills when new features ship, positioning changes, personas evolve, competitive landscape shifts, or a blog post reveals a gap. This keeps acquisition and hybrid posts accurate and current.
 
 **Skills this command can update:**
+
 - `builder-product-knowledge` -- capabilities, topic mapping, CTAs, integration patterns, positioning playbook
 - `builder-persona-knowledge` -- buyer personas, recognition signals, objection handling
 - `builder-messaging` -- messaging pillars, strategic narrative, category definition
@@ -18,6 +19,7 @@ Update any of the 4 builder knowledge skills when new features ship, positioning
 <input> $ARGUMENTS </input>
 
 **If the input above is empty, ask the user:** "What Builder.io knowledge do you want to update? You can provide:
+
 1. Free text describing a product update, persona insight, messaging change, or competitive intelligence
 2. A URL to a Builder.io blog post, changelog, or docs page
 3. `--from-post output/posts/YYYY-MM-DD-topic-slug/` to extract knowledge from a successful post"
@@ -29,15 +31,18 @@ Do not proceed until you have input from the user.
 Determine the input type and extract information:
 
 ### Free text
+
 The input describes knowledge directly. Proceed to Step 1.
 
 ### URL
+
 1. **WebFetch** the URL
 2. Extract relevant information: feature names, persona insights, competitive positioning, messaging changes
 3. Present extracted findings to the user for confirmation: "I found these updates in the page: [list]. Correct?"
 4. If the user corrects or adds detail, update before proceeding
 
 ### --from-post [path]
+
 1. Read `post.md` and `metadata.yaml` from the output folder
 2. Read `phases/01-topic-validation.yaml` for `positioning_context`, `builder_capability`, `integration_pattern`, `messaging_pillar`
 3. Extract knowledge from the post:
@@ -52,15 +57,15 @@ The input describes knowledge directly. Proceed to Step 1.
 
 Classify the update type from the input, then load ONLY the target skill and file. Do not load all 4 skills upfront.
 
-| Update Type | Target Skill | Target File |
-|-------------|-------------|-------------|
-| New/updated capability | builder-product-knowledge | `references/builder-capabilities.md` |
-| New topic category | builder-product-knowledge | `SKILL.md` (Topic-to-Capability Mapping) |
-| New CTA template | builder-product-knowledge | `SKILL.md` (CTA Templates) |
-| Positioning example | builder-product-knowledge | `references/topic-positioning-playbook.md` |
-| Persona update (signals, objections, discovery questions) | builder-persona-knowledge | Relevant persona reference file |
-| Messaging update (pillar, narrative, category) | builder-messaging | `references/messaging-house.md` or `references/strategic-narrative.md` |
-| Competitor intelligence (new competitor, updated profile, proof point) | builder-competitor-knowledge | Relevant category reference file |
+| Update Type                                                            | Target Skill                 | Target File                                                            |
+| ---------------------------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------- |
+| New/updated capability                                                 | builder-product-knowledge    | `references/builder-capabilities.md`                                   |
+| New topic category                                                     | builder-product-knowledge    | `SKILL.md` (Topic-to-Capability Mapping)                               |
+| New CTA template                                                       | builder-product-knowledge    | `SKILL.md` (CTA Templates)                                             |
+| Positioning example                                                    | builder-product-knowledge    | `references/topic-positioning-playbook.md`                             |
+| Persona update (signals, objections, discovery questions)              | builder-persona-knowledge    | Relevant persona reference file                                        |
+| Messaging update (pillar, narrative, category)                         | builder-messaging            | `references/messaging-house.md` or `references/strategic-narrative.md` |
+| Competitor intelligence (new competitor, updated profile, proof point) | builder-competitor-knowledge | Relevant category reference file                                       |
 
 For `--from-post` input, multiple update types may apply. Classify each extracted insight independently and load each target file as needed.
 
@@ -83,15 +88,18 @@ Every update must pass branding rules before proceeding:
 Check for conflicts with existing knowledge:
 
 **Capability conflict:** If a capability already exists but the description differs:
+
 - Present old vs. new description
 - Ask: "The description for [capability] differs from what's currently documented. Which version is correct?"
 - Options: Keep existing, Use new, Merge both
 
 **Persona conflict:** If a persona insight contradicts an existing recognition signal or objection:
+
 - Present the conflict
 - Ask: "This insight conflicts with existing persona knowledge. Which is more current?"
 
 **Competitive conflict:** If competitor positioning has changed:
+
 - Present old vs. new positioning
 - Ask: "This competitor intelligence differs from existing data. Update?"
 
@@ -102,11 +110,13 @@ Present all proposed changes using **AskUserQuestion**:
 **Question:** "Here are the proposed updates to Builder.io knowledge. Approve?"
 
 Show each change with:
+
 - Target skill and file
 - What will change (add/modify/replace)
 - The full text of the change
 
 **Options:**
+
 1. **Approve all** -- Apply all changes
 2. **Approve some** -- Select which changes to apply
 3. **Edit** -- Modify wording before applying
@@ -150,6 +160,7 @@ Use **AskUserQuestion**:
 **Question:** "Knowledge updated. What's next?"
 
 **Options:**
+
 1. **Add more updates** -- Continue updating knowledge
 2. **View changes** -- Read the updated files
 3. **Done** -- Finish

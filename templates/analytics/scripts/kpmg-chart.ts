@@ -77,12 +77,17 @@ const result = await runQuery(`
   ORDER BY date, message_count DESC
 `);
 
-const daily = result.rows as { date: string; email: string; message_count: string }[];
+const daily = result.rows as {
+  date: string;
+  email: string;
+  message_count: string;
+}[];
 
 // Compute totals per user
 const userTotals: Record<string, number> = {};
 for (const row of daily) {
-  userTotals[row.email] = (userTotals[row.email] || 0) + parseInt(row.message_count);
+  userTotals[row.email] =
+    (userTotals[row.email] || 0) + parseInt(row.message_count);
 }
 const sortedUsers = Object.entries(userTotals).sort((a, b) => b[1] - a[1]);
 const top5 = sortedUsers.slice(0, 5).map(([email]) => email);
@@ -92,7 +97,8 @@ const dates = [...new Set(daily.map((r: any) => r.date as string))].sort();
 
 // Build per-user series
 const series: Record<string, number[]> = {};
-for (const email of [...top5, "Other"]) series[email] = new Array(dates.length).fill(0);
+for (const email of [...top5, "Other"])
+  series[email] = new Array(dates.length).fill(0);
 
 for (const row of daily) {
   const idx = dates.indexOf(row.date);
@@ -100,7 +106,14 @@ for (const row of daily) {
   series[bucket][idx] += parseInt(row.message_count);
 }
 
-const colors = ["#18B4F4", "#8b5cf6", "#22c55e", "#f59e0b", "#6366f1", "#94a3b8"];
+const colors = [
+  "#18B4F4",
+  "#8b5cf6",
+  "#22c55e",
+  "#f59e0b",
+  "#6366f1",
+  "#94a3b8",
+];
 const chartData = Object.entries(series).map(([email, vals], i) => ({
   label: email.replace("@kpmg.com", "").replace("@gmail.com", ""),
   data: vals,
@@ -126,13 +139,19 @@ const chartArgs = [
 
 const chartResult = execSync(
   `npx tsx scripts/run.ts generate-chart ${chartArgs.map((a) => `'${a}'`).join(" ")}`,
-  { cwd: process.cwd(), encoding: "utf8", timeout: 30000 }
+  { cwd: process.cwd(), encoding: "utf8", timeout: 30000 },
 );
 
 const chartOutput = JSON.parse(chartResult.trim());
 
 output({
-  totalMessages: daily.reduce((sum: number, r: any) => sum + parseInt(r.message_count), 0),
-  topUsers: sortedUsers.map(([email, count]) => ({ email, total_messages: count })),
+  totalMessages: daily.reduce(
+    (sum: number, r: any) => sum + parseInt(r.message_count),
+    0,
+  ),
+  topUsers: sortedUsers.map(([email, count]) => ({
+    email,
+    total_messages: count,
+  })),
   chart: chartOutput,
 });

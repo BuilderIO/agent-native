@@ -91,7 +91,7 @@ export function useJiraProjects() {
     queryKey: ["jira-projects"],
     queryFn: async () => {
       const data = await apiFetch<{ projects: JiraProject[] }>(
-        "/api/jira/projects"
+        "/api/jira/projects",
       );
       return data.projects;
     },
@@ -127,7 +127,7 @@ export function useJiraAnalytics(projects: string[], days: number) {
     queryKey: ["jira-analytics", projectsParam, days],
     queryFn: () =>
       apiFetch(
-        `/api/jira/analytics?projects=${encodeURIComponent(projectsParam)}&days=${days}`
+        `/api/jira/analytics?projects=${encodeURIComponent(projectsParam)}&days=${days}`,
       ),
     staleTime: 5 * 60 * 1000,
     retry: 1,
@@ -138,9 +138,7 @@ export function useJiraBoards() {
   return useQuery<JiraBoard[]>({
     queryKey: ["jira-boards"],
     queryFn: async () => {
-      const data = await apiFetch<{ boards: JiraBoard[] }>(
-        "/api/jira/boards"
-      );
+      const data = await apiFetch<{ boards: JiraBoard[] }>("/api/jira/boards");
       return data.boards;
     },
     staleTime: 10 * 60 * 1000,
@@ -153,7 +151,7 @@ export function useJiraSprints(boardId: number | null) {
     queryKey: ["jira-sprints", boardId],
     queryFn: async () => {
       const data = await apiFetch<{ sprints: JiraSprint[] }>(
-        `/api/jira/sprints?boardId=${boardId}`
+        `/api/jira/sprints?boardId=${boardId}`,
       );
       return data.sprints;
     },

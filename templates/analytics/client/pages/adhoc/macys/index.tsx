@@ -4,7 +4,10 @@ import { DashboardHeader } from "@/components/layout/DashboardHeader";
 import { ActivityCharts } from "./ActivityCharts";
 import { UsersTables } from "./UsersTables";
 
-function useUrlParam(key: string, defaultValue: string): [string, (v: string) => void] {
+function useUrlParam(
+  key: string,
+  defaultValue: string,
+): [string, (v: string) => void] {
   const [value, setValue] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get(key) || defaultValue;
@@ -18,7 +21,11 @@ function useUrlParam(key: string, defaultValue: string): [string, (v: string) =>
       params.set(key, value);
     }
     const s = params.toString();
-    window.history.replaceState(null, "", `${window.location.pathname}${s ? `?${s}` : ""}`);
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${s ? `?${s}` : ""}`,
+    );
   }, [value, key, defaultValue]);
 
   return [value, setValue];
@@ -46,11 +53,15 @@ export default function MacysDashboard() {
       <div className="rounded-lg border border-border p-3">
         <div className="flex flex-wrap gap-3 items-end">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground font-medium">From</label>
+            <label className="text-xs text-muted-foreground font-medium">
+              From
+            </label>
             <DatePicker value={dateStart} onChange={setDateStart} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground font-medium">To</label>
+            <label className="text-xs text-muted-foreground font-medium">
+              To
+            </label>
             <DatePicker value={dateEnd} onChange={setDateEnd} />
           </div>
         </div>

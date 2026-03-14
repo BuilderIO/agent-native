@@ -4,36 +4,38 @@ Patterns for converting declarative headings into question-based headings optimi
 
 ## 7 Transformation Patterns
 
-| # | Pattern | Before | After |
-|---|---------|--------|-------|
-| 1 | "What is/are..." | Server Components Overview | What Are React Server Components? |
-| 2 | "How do/does..." | Data Fetching Mechanism | How Do Server Components Fetch Data? |
-| 3 | "What are the..." | Benefits of RSC | What Are the Benefits of Server Components? |
-| 4 | "Which/What is best..." | RSC vs SSR Comparison | Which Approach Is Better: RSC or Traditional SSR? |
-| 5 | "When do/should you..." | Adoption Timing | When Should You Migrate to Server Components? |
-| 6 | "Why is/does..." | RSC Performance | Why Are Server Components Faster Than Client Components? |
-| 7 | "How can/do I..." | Getting Started | How Do I Add Server Components to an Existing Next.js App? |
+| #   | Pattern                 | Before                     | After                                                      |
+| --- | ----------------------- | -------------------------- | ---------------------------------------------------------- |
+| 1   | "What is/are..."        | Server Components Overview | What Are React Server Components?                          |
+| 2   | "How do/does..."        | Data Fetching Mechanism    | How Do Server Components Fetch Data?                       |
+| 3   | "What are the..."       | Benefits of RSC            | What Are the Benefits of Server Components?                |
+| 4   | "Which/What is best..." | RSC vs SSR Comparison      | Which Approach Is Better: RSC or Traditional SSR?          |
+| 5   | "When do/should you..." | Adoption Timing            | When Should You Migrate to Server Components?              |
+| 6   | "Why is/does..."        | RSC Performance            | Why Are Server Components Faster Than Client Components?   |
+| 7   | "How can/do I..."       | Getting Started            | How Do I Add Server Components to an Existing Next.js App? |
 
 ### Pattern Selection Guide
 
-| Topic Angle | Best Patterns | Reason |
-|-------------|--------------|--------|
-| Concept introduction | #1 "What is..." | Matches definitional queries AI assistants field most |
-| Implementation guide | #2 "How do..." or #7 "How can I..." | Matches how-to queries |
-| Evaluation / decision | #4 "Which is best..." or #5 "When should..." | Matches comparison and decision queries |
-| Deep dive / reasoning | #6 "Why is/does..." | Matches explanatory queries |
-| Benefits / trade-offs | #3 "What are the..." | Matches list-oriented queries |
+| Topic Angle           | Best Patterns                                | Reason                                                |
+| --------------------- | -------------------------------------------- | ----------------------------------------------------- |
+| Concept introduction  | #1 "What is..."                              | Matches definitional queries AI assistants field most |
+| Implementation guide  | #2 "How do..." or #7 "How can I..."          | Matches how-to queries                                |
+| Evaluation / decision | #4 "Which is best..." or #5 "When should..." | Matches comparison and decision queries               |
+| Deep dive / reasoning | #6 "Why is/does..."                          | Matches explanatory queries                           |
+| Benefits / trade-offs | #3 "What are the..."                         | Matches list-oriented queries                         |
 
 ### Variety Rule
 
 Do not use the same pattern for more than 2 headings in a single post. Mix patterns to match natural query diversity. A typical 5-section post should use at least 3 different patterns.
 
 **Bad (repetitive):**
+
 - How Do Server Components Work?
 - How Do You Fetch Data in Server Components?
 - How Do You Handle Client Interactivity?
 
 **Good (varied):**
+
 - What Are React Server Components?
 - How Do Server Components Fetch Data?
 - When Should You Use Client Components Instead?
@@ -46,31 +48,31 @@ Generic question headings compete with every other article on the topic. Specifi
 
 Add the audience to narrow the question.
 
-| Generic | Enhanced |
-|---------|----------|
-| What is a headless CMS? | What Is a Headless CMS for Marketing Teams? |
+| Generic                           | Enhanced                                                  |
+| --------------------------------- | --------------------------------------------------------- |
+| What is a headless CMS?           | What Is a Headless CMS for Marketing Teams?               |
 | How do you test React components? | How Do Frontend Engineers Test React Components at Scale? |
-| When should you use TypeScript? | When Should Solo Developers Switch to TypeScript? |
+| When should you use TypeScript?   | When Should Solo Developers Switch to TypeScript?         |
 
 ### 2. Tool/Integration Context
 
 Add the specific tool, version, or framework.
 
-| Generic | Enhanced |
-|---------|----------|
-| How do you implement RSC? | How Do You Implement RSC in Next.js 15? |
+| Generic                        | Enhanced                                           |
+| ------------------------------ | -------------------------------------------------- |
+| How do you implement RSC?      | How Do You Implement RSC in Next.js 15?            |
 | What is server-side rendering? | What Is Server-Side Rendering in Astro vs Next.js? |
-| How do you set up a CMS? | How Do You Set Up Builder.io with a React App? |
+| How do you set up a CMS?       | How Do You Set Up Builder.io with a React App?     |
 
 ### 3. Use Case/Scenario
 
 Add the specific problem or scenario.
 
-| Generic | Enhanced |
-|---------|----------|
-| When should you use RSC? | When Should You Use RSC for E-Commerce Pages? |
-| What are the benefits of headless CMS? | What Are the Benefits of Headless CMS for Multi-Brand Sites? |
-| How do you handle authentication? | How Do You Handle Authentication in a Micro-Frontend Architecture? |
+| Generic                                | Enhanced                                                           |
+| -------------------------------------- | ------------------------------------------------------------------ |
+| When should you use RSC?               | When Should You Use RSC for E-Commerce Pages?                      |
+| What are the benefits of headless CMS? | What Are the Benefits of Headless CMS for Multi-Brand Sites?       |
+| How do you handle authentication?      | How Do You Handle Authentication in a Micro-Frontend Architecture? |
 
 ### Combining Enhancers
 
@@ -84,34 +86,34 @@ Use at most 1-2 enhancers per heading. More than 2 makes headings too long (viol
 
 Do NOT transform these into questions. They serve structural or navigational purposes and question form makes them awkward.
 
-| Heading | Reason |
-|---------|--------|
-| Prerequisites | Setup section, not a query |
-| Requirements | Setup section, not a query |
-| TL;DR | Summary anchor, recognized format |
-| FAQ | Section label, individual questions inside are already questions |
-| References | Bibliography, not a query |
-| Acknowledgments | Credits, not a query |
+| Heading         | Reason                                                                                                   |
+| --------------- | -------------------------------------------------------------------------------------------------------- |
+| Prerequisites   | Setup section, not a query                                                                               |
+| Requirements    | Setup section, not a query                                                                               |
+| TL;DR           | Summary anchor, recognized format                                                                        |
+| FAQ             | Section label, individual questions inside are already questions                                         |
+| References      | Bibliography, not a query                                                                                |
+| Acknowledgments | Credits, not a query                                                                                     |
 | Getting Started | Acceptable as-is for introductory sections; can optionally transform to "How Do I Get Started with [X]?" |
-| Conclusion | Wrap-up, not a query |
+| Conclusion      | Wrap-up, not a query                                                                                     |
 
 ## Character Limits
 
-| Range | Guidance |
-|-------|----------|
-| 40-70 chars | Ideal. Concise enough for AI extraction, specific enough for query matching. |
-| 71-80 chars | Acceptable. Review for tightening opportunities. |
-| 81+ chars | Too long. Shorten by removing filler words or reducing enhancer count. |
-| Under 40 chars | May be too vague. Consider adding a specificity enhancer. |
+| Range          | Guidance                                                                     |
+| -------------- | ---------------------------------------------------------------------------- |
+| 40-70 chars    | Ideal. Concise enough for AI extraction, specific enough for query matching. |
+| 71-80 chars    | Acceptable. Review for tightening opportunities.                             |
+| 81+ chars      | Too long. Shorten by removing filler words or reducing enhancer count.       |
+| Under 40 chars | May be too vague. Consider adding a specificity enhancer.                    |
 
 ### Tightening Techniques
 
-| Technique | Before (82 chars) | After (62 chars) |
-|-----------|-------------------|-------------------|
+| Technique                           | Before (82 chars)                        | After (62 chars)                |
+| ----------------------------------- | ---------------------------------------- | ------------------------------- |
 | Remove "really", "actually", "just" | How Do You Actually Handle State in RSC? | How Do You Handle State in RSC? |
-| Use abbreviations readers know | How Do You Use React Server Components? | How Do You Use RSC in Next.js? |
-| Drop implied words | What Are the Main Benefits of Using RSC? | What Are the Benefits of RSC? |
-| Shorten question opener | What Is It That Makes RSC Fast? | Why Are RSC Fast? |
+| Use abbreviations readers know      | How Do You Use React Server Components?  | How Do You Use RSC in Next.js?  |
+| Drop implied words                  | What Are the Main Benefits of Using RSC? | What Are the Benefits of RSC?   |
+| Shorten question opener             | What Is It That Makes RSC Fast?          | Why Are RSC Fast?               |
 
 ## Common Mistakes
 
@@ -141,13 +143,13 @@ Content that AI assistants can extract and cite without needing surrounding cont
 
 ### Block Types
 
-| Type | Format | Best For |
-|------|--------|----------|
+| Type             | Format                                                       | Best For                                 |
+| ---------------- | ------------------------------------------------------------ | ---------------------------------------- |
 | Definition block | 40-60 word paragraph directly answering the heading question | Concept explanations, "What is" sections |
-| Step list | Numbered list with action-verb items | Tutorials, how-to sections |
-| Comparison table | 3+ row table with clear headers | Versus sections, feature comparisons |
-| Code snippet | Complete, runnable code with language identifier | Implementation sections |
-| Key insight | Bold-prefixed single sentence with supporting detail | Trade-off discussions, "Why" sections |
+| Step list        | Numbered list with action-verb items                         | Tutorials, how-to sections               |
+| Comparison table | 3+ row table with clear headers                              | Versus sections, feature comparisons     |
+| Code snippet     | Complete, runnable code with language identifier             | Implementation sections                  |
+| Key insight      | Bold-prefixed single sentence with supporting detail         | Trade-off discussions, "Why" sections    |
 
 ### What Makes a Block "Quote-Ready"
 
@@ -160,9 +162,11 @@ Content that AI assistants can extract and cite without needing surrounding cont
 ### Example: Before and After
 
 **Before (not quote-ready):**
+
 > As mentioned earlier, this approach has several advantages. It's faster and it reduces the bundle size significantly. You should consider using it when building data-heavy applications.
 
 **After (quote-ready):**
+
 > React Server Components reduce client JavaScript bundle size by rendering components on the server. Data-heavy pages load faster because data fetching happens server-side, eliminating client-side waterfalls. Use Server Components for any component that reads from a database or API but does not need browser interactivity.
 
 The "after" version works as a standalone citation. The "before" version requires context to understand what "this approach" and "it" refer to.
@@ -194,15 +198,15 @@ Different AI platforms have different content preferences. Optimize for all thre
 
 ### Cross-Platform Optimization Checklist
 
-| Element | ChatGPT | Perplexity | Google AI Overviews |
-|---------|---------|------------|---------------------|
-| Question headings | High value | High value | High value |
-| Answer-first blocks | Essential | Essential | Essential |
-| FAQ section | Moderate | High (Q&A format) | High (FAQ schema) |
-| Code examples | Moderate | High (specificity) | Moderate |
-| Tables | High (structured data) | High (comparison) | High (snippet target) |
-| Recency signals | Low | Essential | Moderate |
-| Author authority | High | Moderate | High (E-E-A-T) |
+| Element             | ChatGPT                | Perplexity         | Google AI Overviews   |
+| ------------------- | ---------------------- | ------------------ | --------------------- |
+| Question headings   | High value             | High value         | High value            |
+| Answer-first blocks | Essential              | Essential          | Essential             |
+| FAQ section         | Moderate               | High (Q&A format)  | High (FAQ schema)     |
+| Code examples       | Moderate               | High (specificity) | Moderate              |
+| Tables              | High (structured data) | High (comparison)  | High (snippet target) |
+| Recency signals     | Low                    | Essential          | Moderate              |
+| Author authority    | High                   | Moderate           | High (E-E-A-T)        |
 
 ## Business Impact Data
 

@@ -1,5 +1,9 @@
 import { useMemo } from "react";
-import type { HoverZone, HoverAnimationOptions, HoverAnimationResult } from "./useHoverAnimation";
+import type {
+  HoverZone,
+  HoverAnimationOptions,
+  HoverAnimationResult,
+} from "./useHoverAnimation";
 import type { CursorFrame } from "./useCursorHistory";
 import { CURSOR_CONFIG } from "@/config/constants";
 
@@ -22,12 +26,16 @@ import { CURSOR_CONFIG } from "@/config/constants";
 export function useHoverAnimationSmooth(
   cursorHistory: CursorFrame[],
   hoverZone: HoverZone,
-  options: HoverAnimationOptions = {}
+  options: HoverAnimationOptions = {},
 ): HoverAnimationResult {
   const { cursorSize = CURSOR_CONFIG.SIZE } = options;
 
   // Current cursor position (last frame in history)
-  const currentFrame = cursorHistory[cursorHistory.length - 1] ?? { x: 0, y: 0, clicking: 0 };
+  const currentFrame = cursorHistory[cursorHistory.length - 1] ?? {
+    x: 0,
+    y: 0,
+    clicking: 0,
+  };
   const cursorX = currentFrame.x;
   const cursorY = currentFrame.y;
 

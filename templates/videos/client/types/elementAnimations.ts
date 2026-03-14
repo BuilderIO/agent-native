@@ -1,6 +1,6 @@
 /**
  * Element Animation System
- * 
+ *
  * Defines animations triggered by cursor interactions (hover/click)
  * Applies to all instances of a component type
  */
@@ -45,7 +45,7 @@ function parseHexColor(hex: string): { r: number; g: number; b: number } {
   const cached = hexColorCache.get(hex);
   if (cached) return cached;
 
-  const cleanHex = hex.replace('#', '');
+  const cleanHex = hex.replace("#", "");
   const result = {
     r: parseInt(cleanHex.substring(0, 2), 16),
     g: parseInt(cleanHex.substring(2, 4), 16),
@@ -57,7 +57,11 @@ function parseHexColor(hex: string): { r: number; g: number; b: number } {
 }
 
 // Helper to interpolate between two hex colors
-export function interpolateColor(color1: string, color2: string, progress: number): string {
+export function interpolateColor(
+  color1: string,
+  color2: string,
+  progress: number,
+): string {
   // Parse hex colors (cached)
   const rgb1 = parseHexColor(color1);
   const rgb2 = parseHexColor(color2);
@@ -66,13 +70,13 @@ export function interpolateColor(color1: string, color2: string, progress: numbe
   const g = Math.round(rgb1.g + (rgb2.g - rgb1.g) * progress);
   const b = Math.round(rgb1.b + (rgb2.b - rgb1.b) * progress);
 
-  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
 }
 
 // Helper to get animation value at a specific progress
 export function getAnimationValue(
   property: AnimatedPropertyConfig,
-  progress: number // 0→1
+  progress: number, // 0→1
 ): number | string {
   const keyframes = property.keyframes;
 
@@ -84,7 +88,10 @@ export function getAnimationValue(
   let afterIdx = keyframes.length - 1;
 
   for (let i = 0; i < keyframes.length - 1; i++) {
-    if (progress >= keyframes[i].progress && progress <= keyframes[i + 1].progress) {
+    if (
+      progress >= keyframes[i].progress &&
+      progress <= keyframes[i + 1].progress
+    ) {
       beforeIdx = i;
       afterIdx = i + 1;
       break;
@@ -97,13 +104,17 @@ export function getAnimationValue(
   if (before.progress === after.progress) return before.value;
 
   // Linear interpolation between keyframes
-  const localProgress = (progress - before.progress) / (after.progress - before.progress);
+  const localProgress =
+    (progress - before.progress) / (after.progress - before.progress);
 
   // Handle color interpolation
-  if (typeof before.value === 'string' && typeof after.value === 'string') {
+  if (typeof before.value === "string" && typeof after.value === "string") {
     return interpolateColor(before.value, after.value, localProgress);
   }
 
   // Handle numeric interpolation
-  return (before.value as number) + ((after.value as number) - (before.value as number)) * localProgress;
+  return (
+    (before.value as number) +
+    ((after.value as number) - (before.value as number)) * localProgress
+  );
 }

@@ -65,13 +65,19 @@ export const handleStripeBilling: RequestHandler = async (req, res) => {
     allInvoices.sort((a, b) => b.created - a.created);
 
     res.json({
-      customers: customers.map((c) => ({ id: c.id, email: c.email, name: c.name })),
+      customers: customers.map((c) => ({
+        id: c.id,
+        email: c.email,
+        name: c.name,
+      })),
       invoices: allInvoices,
       total: allInvoices.length,
     });
   } catch (err: any) {
     console.error("Stripe billing error:", err.message);
-    res.status(err.message.includes("not configured") ? 503 : 500).json({ error: err.message });
+    res
+      .status(err.message.includes("not configured") ? 503 : 500)
+      .json({ error: err.message });
   }
 };
 
@@ -82,21 +88,31 @@ export const handleStripePaymentStatus: RequestHandler = async (req, res) => {
     const customers = await resolveCustomer(req);
 
     const [allCharges, allIntents] = await Promise.all([
-      Promise.all(customers.map((c) => getCharges(c.id, 10))).then((r) => r.flat()),
-      Promise.all(customers.map((c) => getPaymentIntents(c.id, 10))).then((r) => r.flat()),
+      Promise.all(customers.map((c) => getCharges(c.id, 10))).then((r) =>
+        r.flat(),
+      ),
+      Promise.all(customers.map((c) => getPaymentIntents(c.id, 10))).then((r) =>
+        r.flat(),
+      ),
     ]);
 
     allCharges.sort((a, b) => b.created - a.created);
     allIntents.sort((a, b) => b.created - a.created);
 
     res.json({
-      customers: customers.map((c) => ({ id: c.id, email: c.email, name: c.name })),
+      customers: customers.map((c) => ({
+        id: c.id,
+        email: c.email,
+        name: c.name,
+      })),
       charges: allCharges,
       paymentIntents: allIntents,
     });
   } catch (err: any) {
     console.error("Stripe payment status error:", err.message);
-    res.status(err.message.includes("not configured") ? 503 : 500).json({ error: err.message });
+    res
+      .status(err.message.includes("not configured") ? 503 : 500)
+      .json({ error: err.message });
   }
 };
 
@@ -113,13 +129,19 @@ export const handleStripeRefunds: RequestHandler = async (req, res) => {
     allRefunds.sort((a, b) => b.created - a.created);
 
     res.json({
-      customers: customers.map((c) => ({ id: c.id, email: c.email, name: c.name })),
+      customers: customers.map((c) => ({
+        id: c.id,
+        email: c.email,
+        name: c.name,
+      })),
       refunds: allRefunds,
       total: allRefunds.length,
     });
   } catch (err: any) {
     console.error("Stripe refunds error:", err.message);
-    res.status(err.message.includes("not configured") ? 503 : 500).json({ error: err.message });
+    res
+      .status(err.message.includes("not configured") ? 503 : 500)
+      .json({ error: err.message });
   }
 };
 
@@ -136,29 +158,40 @@ export const handleStripeSubscriptions: RequestHandler = async (req, res) => {
     allSubs.sort((a, b) => b.created - a.created);
 
     res.json({
-      customers: customers.map((c) => ({ id: c.id, email: c.email, name: c.name })),
+      customers: customers.map((c) => ({
+        id: c.id,
+        email: c.email,
+        name: c.name,
+      })),
       subscriptions: allSubs,
       total: allSubs.length,
     });
   } catch (err: any) {
     console.error("Stripe subscriptions error:", err.message);
-    res.status(err.message.includes("not configured") ? 503 : 500).json({ error: err.message });
+    res
+      .status(err.message.includes("not configured") ? 503 : 500)
+      .json({ error: err.message });
   }
 };
 
 // GET /api/stripe/billing-by-product?email=...&months=6
-export const handleStripeBillingByProduct: RequestHandler = async (req, res) => {
+export const handleStripeBillingByProduct: RequestHandler = async (
+  req,
+  res,
+) => {
   if (requireEnvKey(res, "STRIPE_SECRET_KEY", "Stripe")) return;
   try {
     const months = parseInt((req.query.months as string) || "6", 10);
     const customers = await resolveCustomer(req);
 
     const allProducts = (
-      await Promise.all(customers.map((c) => getInvoicesByProduct(c.id, months)))
+      await Promise.all(
+        customers.map((c) => getInvoicesByProduct(c.id, months)),
+      )
     ).flat();
 
     // Merge duplicates across multiple customers
-    const productMap = new Map<string, typeof allProducts[0]>();
+    const productMap = new Map<string, (typeof allProducts)[0]>();
     for (const product of allProducts) {
       const existing = productMap.get(product.productId);
       if (existing) {
@@ -170,16 +203,22 @@ export const handleStripeBillingByProduct: RequestHandler = async (req, res) => 
     }
 
     const products = Array.from(productMap.values()).sort(
-      (a, b) => b.totalAmount - a.totalAmount
+      (a, b) => b.totalAmount - a.totalAmount,
     );
 
     res.json({
-      customers: customers.map((c) => ({ id: c.id, email: c.email, name: c.name })),
+      customers: customers.map((c) => ({
+        id: c.id,
+        email: c.email,
+        name: c.name,
+      })),
       products,
       total: products.length,
     });
   } catch (err: any) {
     console.error("Stripe billing by product error:", err.message);
-    res.status(err.message.includes("not configured") ? 503 : 500).json({ error: err.message });
+    res
+      .status(err.message.includes("not configured") ? 503 : 500)
+      .json({ error: err.message });
   }
 };

@@ -34,7 +34,7 @@ async function slackApi<T>(
   workspace: Workspace,
   method: string,
   params?: Record<string, string>,
-  useCache = true
+  useCache = true,
 ): Promise<T> {
   const cacheKey = `slack:${workspace}:${method}:${JSON.stringify(params ?? {})}`;
   if (useCache) {
@@ -121,12 +121,14 @@ const userCache = new Map<string, SlackUser>();
 
 // -- API functions --
 
-export async function getTeamInfo(workspace: Workspace): Promise<SlackTeamInfo> {
+export async function getTeamInfo(
+  workspace: Workspace,
+): Promise<SlackTeamInfo> {
   const data = await slackApi<{ team: SlackTeamInfo }>(
     workspace,
     "auth.test",
     undefined,
-    true
+    true,
   );
   // auth.test returns flat fields, not nested team object
   const teamData = data as any;
@@ -136,7 +138,7 @@ export async function getTeamInfo(workspace: Workspace): Promise<SlackTeamInfo> 
       workspace,
       "team.info",
       undefined,
-      true
+      true,
     );
     return info.team;
   } catch {
@@ -149,7 +151,7 @@ export async function getTeamInfo(workspace: Workspace): Promise<SlackTeamInfo> 
 }
 
 export async function listChannels(
-  workspace: Workspace
+  workspace: Workspace,
 ): Promise<SlackChannel[]> {
   const all: SlackChannel[] = [];
   let cursor: string | undefined;
@@ -186,7 +188,7 @@ export async function getChannelHistory(
   workspace: Workspace,
   channelId: string,
   limit = 50,
-  cursor?: string // pass as "latest" to Slack
+  cursor?: string, // pass as "latest" to Slack
 ): Promise<ChannelHistoryResult> {
   try {
     const params: Record<string, string> = {
@@ -198,31 +200,30 @@ export async function getChannelHistory(
     const data = await slackApi<{
       messages: SlackMessage[];
       has_more?: boolean;
-    }>(
-      workspace,
-      "conversations.history",
-      params,
-      false
-    );
+    }>(workspace, "conversations.history", params, false);
     const messages = data.messages || [];
     return {
       messages,
       has_more: !!data.has_more,
-      next_cursor: messages.length > 0 ? messages[messages.length - 1].ts : undefined,
+      next_cursor:
+        messages.length > 0 ? messages[messages.length - 1].ts : undefined,
     };
   } catch (err: any) {
     if (err.message?.includes("not_in_channel")) {
       // Try to auto-join the channel (requires channels:join scope)
       try {
         const token = getToken(workspace);
-        const joinRes = await fetch("https://slack.com/api/conversations.join", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
+        const joinRes = await fetch(
+          "https://slack.com/api/conversations.join",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ channel: channelId }),
           },
-          body: JSON.stringify({ channel: channelId }),
-        });
+        );
         const joinData = await joinRes.json();
         if (joinData.ok) {
           // Joined successfully, retry history
@@ -236,7 +237,7 @@ export async function getChannelHistory(
               channel: channelId,
               limit: String(Math.min(limit, 200)),
             },
-            false
+            false,
           );
           const msgs = data.messages || [];
           return {
@@ -250,8 +251,8 @@ export async function getChannelHistory(
       }
       throw new Error(
         "Bot is not in this channel. Please invite the bot to the channel in Slack: " +
-        "open the channel, click the channel name, go to Integrations > Add apps, " +
-        "and add the Analytics bot."
+          "open the channel, click the channel name, go to Integrations > Add apps, " +
+          "and add the Analytics bot.",
       );
     }
     throw err;
@@ -261,7 +262,7 @@ export async function getChannelHistory(
 export async function searchMessages(
   workspace: Workspace,
   query: string,
-  count = 50
+  count = 50,
 ): Promise<{ messages: SlackMessage[]; total: number }> {
   // search.messages requires a user token, but we'll try with bot token
   // If it fails, we'll fall back to channel history filtering
@@ -276,7 +277,7 @@ export async function searchMessages(
       sort: "timestamp",
       sort_dir: "desc",
     },
-    false
+    false,
   );
   return {
     messages: data.messages?.matches || [],
@@ -286,7 +287,7 @@ export async function searchMessages(
 
 export async function getUserInfo(
   workspace: Workspace,
-  userId: string
+  userId: string,
 ): Promise<SlackUser> {
   const cacheKey = `${workspace}:${userId}`;
   const cached = userCache.get(cacheKey);
@@ -296,7 +297,7 @@ export async function getUserInfo(
     workspace,
     "users.info",
     { user: userId },
-    true
+    true,
   );
 
   userCache.set(cacheKey, data.user);
@@ -307,7 +308,7 @@ const botCache = new Map<string, SlackBotInfo>();
 
 export async function getBotInfo(
   workspace: Workspace,
-  botId: string
+  botId: string,
 ): Promise<SlackBotInfo> {
   const cacheKey = `${workspace}:bot:${botId}`;
   const cached = botCache.get(cacheKey);
@@ -317,7 +318,7 @@ export async function getBotInfo(
     workspace,
     "bots.info",
     { bot: botId },
-    true
+    true,
   );
 
   botCache.set(cacheKey, data.bot);
@@ -327,7 +328,7 @@ export async function getBotInfo(
 export async function resolveUsers(
   workspace: Workspace,
   userIds: string[],
-  messages?: SlackMessage[]
+  messages?: SlackMessage[],
 ): Promise<Record<string, SlackUser>> {
   const unique = [...new Set(userIds)];
   const results: Record<string, SlackUser> = {};
@@ -344,16 +345,18 @@ export async function resolveUsers(
           profile: { display_name: id, image_48: "", image_72: "" },
         };
       }
-    })
+    }),
   );
 
   // Resolve bot users from messages that have bot_id but no user
   if (messages) {
-    const botIds = [...new Set(
-      messages
-        .filter((m) => m.bot_id && !results[m.bot_id])
-        .map((m) => m.bot_id!)
-    )];
+    const botIds = [
+      ...new Set(
+        messages
+          .filter((m) => m.bot_id && !results[m.bot_id])
+          .map((m) => m.bot_id!),
+      ),
+    ];
 
     await Promise.all(
       botIds.map(async (botId) => {
@@ -383,7 +386,7 @@ export async function resolveUsers(
             },
           };
         }
-      })
+      }),
     );
   }
 
@@ -402,7 +405,7 @@ export async function resolveUsers(
 export async function sendDirectMessage(
   workspace: Workspace,
   email: string,
-  message: string
+  message: string,
 ): Promise<boolean> {
   try {
     // Step 1: Look up user by email
@@ -410,7 +413,7 @@ export async function sendDirectMessage(
       workspace,
       "users.lookupByEmail",
       { email },
-      false // Don't cache user lookups
+      false, // Don't cache user lookups
     );
 
     if (!userLookup.user?.id) {

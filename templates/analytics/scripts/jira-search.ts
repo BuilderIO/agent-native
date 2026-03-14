@@ -3,10 +3,13 @@ import { parseArgs, output, fatal } from "./helpers";
 import { searchIssues } from "../server/lib/jira";
 
 const args = parseArgs();
-if (!args.jql) fatal("--jql is required (e.g. --jql='project = ENG AND status = Open')");
+if (!args.jql)
+  fatal("--jql is required (e.g. --jql='project = ENG AND status = Open')");
 
 const maxResults = parseInt(args.maxResults ?? "50");
-const fields = args.fields ? args.fields.split(",").map((f) => f.trim()) : undefined;
+const fields = args.fields
+  ? args.fields.split(",").map((f) => f.trim())
+  : undefined;
 
 const result = await searchIssues(args.jql, fields, maxResults);
 

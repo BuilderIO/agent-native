@@ -17,7 +17,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, FolderPlus, FolderOpen, Check, AlertCircle } from "lucide-react";
+import {
+  Loader2,
+  FolderPlus,
+  FolderOpen,
+  Check,
+  AlertCircle,
+} from "lucide-react";
 import { useProjects, useCreateFile } from "@/hooks/use-projects";
 import type { CollectedLink } from "@shared/api";
 import TurndownService from "turndown";
@@ -42,7 +48,9 @@ function slugifyTitle(title: string): string {
 function isYouTubeUrl(url: string): boolean {
   try {
     const host = new URL(url).hostname.replace(/^www\./, "");
-    return host === "youtube.com" || host === "m.youtube.com" || host === "youtu.be";
+    return (
+      host === "youtube.com" || host === "m.youtube.com" || host === "youtu.be"
+    );
   } catch {
     return false;
   }
@@ -78,7 +86,9 @@ function htmlToMarkdown(html: string, link: CollectedLink): string {
     "",
     "---",
     "",
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return header + md;
 }
@@ -94,7 +104,9 @@ async function fetchLinkMarkdown(link: CollectedLink): Promise<string> {
   try {
     // YouTube: fetch transcript
     if (isYouTubeUrl(url)) {
-      const res = await authFetch(`/api/youtube/transcript?url=${encodeURIComponent(url)}`);
+      const res = await authFetch(
+        `/api/youtube/transcript?url=${encodeURIComponent(url)}`,
+      );
       if (res.ok) {
         const data = await res.json();
         const lines = [
@@ -115,7 +127,9 @@ async function fetchLinkMarkdown(link: CollectedLink): Promise<string> {
     }
 
     // Regular URL: fetch as markdown
-    const res = await authFetch(`/api/twitter/fetch-markdown?url=${encodeURIComponent(url)}`);
+    const res = await authFetch(
+      `/api/twitter/fetch-markdown?url=${encodeURIComponent(url)}`,
+    );
     if (res.ok) {
       const data = await res.json();
       let md = data.markdown as string;
@@ -154,7 +168,10 @@ export function SaveLinksToProjectDialog({
   const [selectedProject, setSelectedProject] = useState("");
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
 
   const projects = projectsData?.projects ?? [];

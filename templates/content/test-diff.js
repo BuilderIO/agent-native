@@ -1,5 +1,5 @@
-import { markdownToBuilder } from './client/lib/markdown-to-builder.js';
-import { builderToMarkdown } from './client/lib/builder-to-markdown.js';
+import { markdownToBuilder } from "./client/lib/markdown-to-builder.js";
+import { builderToMarkdown } from "./client/lib/builder-to-markdown.js";
 
 const md = `| Feature | Cursor | Fusion | Claude Code |
 | :--- | :--- | :--- | :--- |
@@ -25,8 +25,12 @@ async function run() {
   }
   if (firstDiff !== -1) {
     console.log(`diff at ${firstDiff}`);
-    console.log(`r: ${JSON.stringify(rmFull.substring(firstDiff - 10, firstDiff + 10))}`);
-    console.log(`l: ${JSON.stringify(lmFull.substring(firstDiff - 10, firstDiff + 10))}`);
+    console.log(
+      `r: ${JSON.stringify(rmFull.substring(firstDiff - 10, firstDiff + 10))}`,
+    );
+    console.log(
+      `l: ${JSON.stringify(lmFull.substring(firstDiff - 10, firstDiff + 10))}`,
+    );
   }
 }
 run();

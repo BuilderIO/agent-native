@@ -26,9 +26,7 @@ export function StudioHeader({
 
         <div className="w-px h-5 bg-border" />
 
-        <h1 className="text-sm font-semibold tracking-tight">
-          Video Studio
-        </h1>
+        <h1 className="text-sm font-semibold tracking-tight">Video Studio</h1>
 
         <div className="w-px h-5 bg-border" />
 
@@ -40,7 +38,7 @@ export function StudioHeader({
               "px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5",
               !isComponentLibrary
                 ? "bg-secondary text-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                : "text-muted-foreground hover:text-foreground hover:bg-secondary/50",
             )}
           >
             <Film className="w-3.5 h-3.5" />
@@ -52,7 +50,7 @@ export function StudioHeader({
               "px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5",
               isComponentLibrary
                 ? "bg-secondary text-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                : "text-muted-foreground hover:text-foreground hover:bg-secondary/50",
             )}
           >
             <Box className="w-3.5 h-3.5" />

@@ -99,7 +99,11 @@
 
   body {
     @apply bg-background text-foreground;
-    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    font-family:
+      "Inter",
+      system-ui,
+      -apple-system,
+      sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -253,7 +257,11 @@
 
 .notion-editor {
   outline: none;
-  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-family:
+    "Inter",
+    system-ui,
+    -apple-system,
+    sans-serif;
   color: hsl(var(--foreground));
   line-height: 1.7;
   font-size: 1rem;
@@ -486,7 +494,10 @@
   z-index: 2;
   position: absolute;
   content: "";
-  left: 0; right: 0; top: 0; bottom: 0;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
   background: hsl(var(--primary) / 0.1);
   pointer-events: none;
 }
@@ -629,7 +640,9 @@ video.media-block__content {
   background: hsl(var(--muted) / 0.5);
   color: hsl(var(--muted-foreground));
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
   font-size: 0.875rem;
 }
 
@@ -689,9 +702,15 @@ video.media-block__content {
   font-weight: 500;
 }
 
-.notion-editor strong { font-weight: 600; }
-.notion-editor em { font-style: italic; }
-.notion-editor s { text-decoration: line-through; }
+.notion-editor strong {
+  font-weight: 600;
+}
+.notion-editor em {
+  font-style: italic;
+}
+.notion-editor s {
+  text-decoration: line-through;
+}
 
 /* Selection */
 .notion-editor ::selection {
@@ -705,7 +724,9 @@ video.media-block__content {
   background: hsl(0 0% 15%);
   border-radius: 8px;
   padding: 4px;
-  box-shadow: 0 4px 20px rgb(0 0 0 / 0.25), 0 0 0 1px rgb(255 255 255 / 0.06);
+  box-shadow:
+    0 4px 20px rgb(0 0 0 / 0.25),
+    0 0 0 1px rgb(255 255 255 / 0.06);
 }
 
 /* ===== Slash Command Menu ===== */
@@ -713,7 +734,9 @@ video.media-block__content {
   background: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
-  box-shadow: 0 4px 24px rgb(0 0 0 / 0.12), 0 0 0 1px rgb(0 0 0 / 0.04);
+  box-shadow:
+    0 4px 24px rgb(0 0 0 / 0.12),
+    0 0 0 1px rgb(0 0 0 / 0.04);
   min-width: 260px;
   max-height: 360px;
   overflow-y: auto;

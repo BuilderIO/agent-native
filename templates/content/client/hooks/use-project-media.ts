@@ -31,11 +31,14 @@ export function useBulkDeleteProjectMedia(projectSlug: string | null) {
 
   return useMutation({
     mutationFn: async (filenames: string[]) => {
-      const res = await authFetch(`/api/projects/${projectSlug}/media/bulk-delete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filenames }),
-      });
+      const res = await authFetch(
+        `/api/projects/${projectSlug}/media/bulk-delete`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filenames }),
+        },
+      );
       if (!res.ok) throw new Error("Bulk delete failed");
       return res.json();
     },
@@ -52,9 +55,12 @@ export function useDeleteProjectMedia(projectSlug: string | null) {
 
   return useMutation({
     mutationFn: async (filename: string) => {
-      const res = await authFetch(`/api/projects/${projectSlug}/media/${filename}`, {
-        method: "DELETE",
-      });
+      const res = await authFetch(
+        `/api/projects/${projectSlug}/media/${filename}`,
+        {
+          method: "DELETE",
+        },
+      );
       if (!res.ok) throw new Error("Delete failed");
       return res.json();
     },

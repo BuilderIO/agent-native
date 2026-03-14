@@ -37,7 +37,7 @@ export const SlackMessageCard: React.FC<SlackMessageCardProps> = ({
 }) => {
   const bgOpacity = hoverProgress * 0.05;
   // Thread indicator background darkens on hover
-  const threadBgOpacity = 0.03 + (threadIndicatorHoverProgress * 0.05);
+  const threadBgOpacity = 0.03 + threadIndicatorHoverProgress * 0.05;
 
   return (
     <div
@@ -157,8 +157,14 @@ export const SlackMessageCard: React.FC<SlackMessageCardProps> = ({
               marginTop: 18,
               padding: "10px 16px",
               borderRadius: 8,
-              background: threadIndicatorHoverProgress > 0 ? `rgba(0, 0, 0, ${threadBgOpacity})` : "transparent",
-              border: threadIndicatorHoverProgress > 0 ? `1px solid rgba(255, 255, 255, ${0.08 + threadIndicatorHoverProgress * 0.04})` : "1px solid transparent",
+              background:
+                threadIndicatorHoverProgress > 0
+                  ? `rgba(0, 0, 0, ${threadBgOpacity})`
+                  : "transparent",
+              border:
+                threadIndicatorHoverProgress > 0
+                  ? `1px solid rgba(255, 255, 255, ${0.08 + threadIndicatorHoverProgress * 0.04})`
+                  : "1px solid transparent",
               opacity: threadIndicatorOpacity,
               transform: `scale(${0.96 + threadIndicatorOpacity * 0.04})`,
               transformOrigin: "left center",
@@ -170,7 +176,11 @@ export const SlackMessageCard: React.FC<SlackMessageCardProps> = ({
               <img
                 src={threadAvatar || avatar}
                 alt=""
-                style={{ width: 36, height: 36, borderRadius: threadAvatar ? 8 : 6 }}
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: threadAvatar ? 8 : 6,
+                }}
               />
             </div>
             <div
@@ -178,7 +188,8 @@ export const SlackMessageCard: React.FC<SlackMessageCardProps> = ({
                 display: "flex",
                 alignItems: "center",
                 gap: 14,
-                fontFamily: "Inter, -apple-system, Roboto, Helvetica, sans-serif",
+                fontFamily:
+                  "Inter, -apple-system, Roboto, Helvetica, sans-serif",
                 fontSize: 18,
                 fontWeight: 600,
                 flex: 1,
@@ -193,7 +204,9 @@ export const SlackMessageCard: React.FC<SlackMessageCardProps> = ({
                 {threadReplies} {threadReplies === 1 ? "reply" : "replies"}
               </div>
               <div style={{ color: "rgba(171, 171, 173, 1)", fontWeight: 400 }}>
-                {threadIndicatorHoverProgress > 0.5 ? "View thread" : threadPreview}
+                {threadIndicatorHoverProgress > 0.5
+                  ? "View thread"
+                  : threadPreview}
               </div>
             </div>
             <img

@@ -16,7 +16,10 @@ export interface FileChange {
 export type Unsubscribe = () => void;
 
 export interface FileSyncAdapter {
-  query(appId: string, ownerId: string): Promise<{ id: string; data: FileRecord }[]>;
+  query(
+    appId: string,
+    ownerId: string,
+  ): Promise<{ id: string; data: FileRecord }[]>;
   get(id: string): Promise<{ id: string; data: FileRecord } | null>;
   set(id: string, record: Partial<FileRecord>): Promise<void>;
   delete(id: string): Promise<void>;

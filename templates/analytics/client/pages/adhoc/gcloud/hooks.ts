@@ -32,8 +32,7 @@ export interface ServicesResponse {
 export function useGCloudServices() {
   return useQuery<ServicesResponse>({
     queryKey: ["gcloud-services"],
-    queryFn: () =>
-      apiFetch<ServicesResponse>("/api/gcloud/services"),
+    queryFn: () => apiFetch<ServicesResponse>("/api/gcloud/services"),
     staleTime: 10 * 60 * 1000,
   });
 }
@@ -48,7 +47,7 @@ export function useGCloudMetrics(
   metric: string,
   period: TimePeriod,
   type: ServiceType = "cloud_run",
-  extraFilter?: string
+  extraFilter?: string,
 ) {
   return useQuery<MetricsResponse>({
     queryKey: ["gcloud-metrics", service, metric, period, type, extraFilter],
@@ -61,7 +60,7 @@ export function useGCloudMetrics(
       });
       if (extraFilter) params.set("extraFilter", extraFilter);
       return apiFetch<MetricsResponse>(
-        `/api/gcloud/metrics?${params.toString()}`
+        `/api/gcloud/metrics?${params.toString()}`,
       );
     },
     enabled: !!service,
@@ -73,7 +72,7 @@ export function useGCloudLogs(
   service: string | undefined,
   severity: string | undefined,
   limit: number,
-  type: ServiceType = "cloud_run"
+  type: ServiceType = "cloud_run",
 ) {
   return useQuery<LogEntry[]>({
     queryKey: ["gcloud-logs", service, severity, limit, type],
@@ -84,7 +83,7 @@ export function useGCloudLogs(
       params.set("limit", String(limit));
       params.set("type", type);
       const data = await apiFetch<{ entries: LogEntry[] }>(
-        `/api/gcloud/logs?${params.toString()}`
+        `/api/gcloud/logs?${params.toString()}`,
       );
       return data.entries;
     },

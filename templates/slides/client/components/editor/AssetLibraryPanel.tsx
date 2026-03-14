@@ -50,8 +50,10 @@ export default function AssetLibraryPanel({
     try {
       const res = await fetch("/api/assets");
       if (res.ok) setAssets(await res.json());
-    } catch {}
-    finally { setLoading(false); }
+    } catch {
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -69,13 +71,18 @@ export default function AssetLibraryPanel({
         await fetch("/api/assets/upload", { method: "POST", body: form });
       }
       await fetchAssets();
-    } catch {}
-    finally { setUploading(false); e.target.value = ""; }
+    } catch {
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
   };
 
   const handleDelete = async (filename: string) => {
     try {
-      await fetch(`/api/assets/${encodeURIComponent(filename)}`, { method: "DELETE" });
+      await fetch(`/api/assets/${encodeURIComponent(filename)}`, {
+        method: "DELETE",
+      });
       setAssets((prev) => prev.filter((a) => a.filename !== filename));
     } catch {}
   };
@@ -106,10 +113,17 @@ export default function AssetLibraryPanel({
   }
 
   return createPortal(
-    <div ref={panelRef} style={style} className="w-80 max-h-[420px] bg-[hsl(240,5%,10%)] border border-white/[0.1] rounded-xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col">
+    <div
+      ref={panelRef}
+      style={style}
+      className="w-80 max-h-[420px] bg-[hsl(240,5%,10%)] border border-white/[0.1] rounded-xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
+    >
       <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
         <h3 className="text-sm font-semibold text-white/90">Asset Library</h3>
-        <button onClick={() => onOpenChange(false)} className="text-white/30 hover:text-white/60 transition-colors">
+        <button
+          onClick={() => onOpenChange(false)}
+          className="text-white/30 hover:text-white/60 transition-colors"
+        >
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -122,8 +136,17 @@ export default function AssetLibraryPanel({
           ) : (
             <Upload className="w-3.5 h-3.5 text-white/50" />
           )}
-          <span className="text-xs text-white/50">{uploading ? "Uploading..." : "Upload images"}</span>
-          <input type="file" accept="image/*" multiple onChange={handleUpload} className="hidden" disabled={uploading} />
+          <span className="text-xs text-white/50">
+            {uploading ? "Uploading..." : "Upload images"}
+          </span>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={handleUpload}
+            className="hidden"
+            disabled={uploading}
+          />
         </label>
 
         {/* Grid */}
@@ -138,15 +161,28 @@ export default function AssetLibraryPanel({
         ) : (
           <div className="grid grid-cols-3 gap-2">
             {assets.map((asset) => (
-              <div key={asset.filename} className="group relative aspect-square rounded-md overflow-hidden border border-white/[0.08] bg-white/[0.02]">
+              <div
+                key={asset.filename}
+                className="group relative aspect-square rounded-md overflow-hidden border border-white/[0.08] bg-white/[0.02]"
+              >
                 <button
-                  onClick={onSelectAsset ? () => handleSelect(asset.url) : undefined}
+                  onClick={
+                    onSelectAsset ? () => handleSelect(asset.url) : undefined
+                  }
                   className={`w-full h-full ${onSelectAsset ? "cursor-pointer hover:ring-2 hover:ring-[#609FF8]/50" : "cursor-default"}`}
                 >
-                  <img src={asset.url} alt={asset.filename} className="w-full h-full object-cover" loading="lazy" />
+                  <img
+                    src={asset.url}
+                    alt={asset.filename}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); handleDelete(asset.filename); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDelete(asset.filename);
+                  }}
                   className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/70 text-white/70 hover:text-red-400 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <Trash2 className="w-2.5 h-2.5" />

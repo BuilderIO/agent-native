@@ -18,7 +18,7 @@ import type { InteractiveComponentState } from "../hooks/useInteractiveComponent
  *   Click me
  * </AnimatedElement>
  * ```
- * 
+ *
  * SUPPORTED PROPERTIES (auto-detected):
  * - scale → transform: scale()
  * - translateX, translateY → transform: translate()
@@ -46,19 +46,19 @@ import type { InteractiveComponentState } from "../hooks/useInteractiveComponent
 export interface AnimatedElementProps {
   /** Interactive component state from useInteractiveComponent */
   interactive: InteractiveComponentState;
-  
+
   /** HTML element type or React component */
   as?: keyof JSX.IntrinsicElements | React.ComponentType<any>;
-  
+
   /** Additional inline styles (merged with animated properties) */
   style?: React.CSSProperties;
-  
+
   /** Class name */
   className?: string;
-  
+
   /** Children */
   children?: React.ReactNode;
-  
+
   /** Any other props to pass to the underlying element */
   [key: string]: any;
 }
@@ -70,23 +70,34 @@ export interface AnimatedElementProps {
  * IMPORTANT: Uses longhand properties (borderTopWidth, borderTopColor) instead of
  * shorthand properties (borderTop) to avoid React warnings when mixing with static styles.
  */
-function animatedPropsToStyles(props: Record<string, number | string>): React.CSSProperties {
+function animatedPropsToStyles(
+  props: Record<string, number | string>,
+): React.CSSProperties {
   const styles: React.CSSProperties = {};
   const transforms: string[] = [];
   const filters: string[] = [];
 
   // Detect if any longhand border/padding/margin properties exist
-  const hasLonghandBorder = Object.keys(props).some(k =>
-    k.startsWith("borderTop") || k.startsWith("borderBottom") ||
-    k.startsWith("borderLeft") || k.startsWith("borderRight")
+  const hasLonghandBorder = Object.keys(props).some(
+    (k) =>
+      k.startsWith("borderTop") ||
+      k.startsWith("borderBottom") ||
+      k.startsWith("borderLeft") ||
+      k.startsWith("borderRight"),
   );
-  const hasLonghandPadding = Object.keys(props).some(k =>
-    k === "paddingTop" || k === "paddingBottom" ||
-    k === "paddingLeft" || k === "paddingRight"
+  const hasLonghandPadding = Object.keys(props).some(
+    (k) =>
+      k === "paddingTop" ||
+      k === "paddingBottom" ||
+      k === "paddingLeft" ||
+      k === "paddingRight",
   );
-  const hasLonghandMargin = Object.keys(props).some(k =>
-    k === "marginTop" || k === "marginBottom" ||
-    k === "marginLeft" || k === "marginRight"
+  const hasLonghandMargin = Object.keys(props).some(
+    (k) =>
+      k === "marginTop" ||
+      k === "marginBottom" ||
+      k === "marginLeft" ||
+      k === "marginRight",
   );
 
   // Process each animated property
@@ -97,7 +108,14 @@ function animatedPropsToStyles(props: Record<string, number | string>): React.CS
     // CRITICAL: Skip shorthand properties if any longhand versions exist
     // This prevents React warnings about mixing shorthand and longhand properties
     if (key === "border" && hasLonghandBorder) return;
-    if ((key === "borderTop" || key === "borderBottom" || key === "borderLeft" || key === "borderRight") && hasLonghandBorder) return;
+    if (
+      (key === "borderTop" ||
+        key === "borderBottom" ||
+        key === "borderLeft" ||
+        key === "borderRight") &&
+      hasLonghandBorder
+    )
+      return;
     if (key === "padding" && hasLonghandPadding) return;
     if (key === "margin" && hasLonghandMargin) return;
 
@@ -105,21 +123,37 @@ function animatedPropsToStyles(props: Record<string, number | string>): React.CS
     if (key === "scale") {
       transforms.push(`scale(${value})`);
     } else if (key === "translateX") {
-      transforms.push(`translateX(${value}${typeof value === "number" ? "px" : ""})`);
+      transforms.push(
+        `translateX(${value}${typeof value === "number" ? "px" : ""})`,
+      );
     } else if (key === "translateY") {
-      transforms.push(`translateY(${value}${typeof value === "number" ? "px" : ""})`);
+      transforms.push(
+        `translateY(${value}${typeof value === "number" ? "px" : ""})`,
+      );
     } else if (key === "translateZ") {
-      transforms.push(`translateZ(${value}${typeof value === "number" ? "px" : ""})`);
+      transforms.push(
+        `translateZ(${value}${typeof value === "number" ? "px" : ""})`,
+      );
     } else if (key === "rotateX") {
-      transforms.push(`rotateX(${value}${typeof value === "number" ? "deg" : ""})`);
+      transforms.push(
+        `rotateX(${value}${typeof value === "number" ? "deg" : ""})`,
+      );
     } else if (key === "rotateY") {
-      transforms.push(`rotateY(${value}${typeof value === "number" ? "deg" : ""})`);
+      transforms.push(
+        `rotateY(${value}${typeof value === "number" ? "deg" : ""})`,
+      );
     } else if (key === "rotateZ" || key === "rotate") {
-      transforms.push(`rotateZ(${value}${typeof value === "number" ? "deg" : ""})`);
+      transforms.push(
+        `rotateZ(${value}${typeof value === "number" ? "deg" : ""})`,
+      );
     } else if (key === "skewX") {
-      transforms.push(`skewX(${value}${typeof value === "number" ? "deg" : ""})`);
+      transforms.push(
+        `skewX(${value}${typeof value === "number" ? "deg" : ""})`,
+      );
     } else if (key === "skewY") {
-      transforms.push(`skewY(${value}${typeof value === "number" ? "deg" : ""})`);
+      transforms.push(
+        `skewY(${value}${typeof value === "number" ? "deg" : ""})`,
+      );
     }
     // Handle filter properties
     // CRITICAL: brightness/contrast/saturate use UNITLESS multipliers (1 = normal, 1.5 = 50% brighter)
@@ -127,13 +161,15 @@ function animatedPropsToStyles(props: Record<string, number | string>): React.CS
     else if (key === "blur") {
       filters.push(`blur(${value}${typeof value === "number" ? "px" : ""})`);
     } else if (key === "brightness") {
-      filters.push(`brightness(${value})`);  // Unitless: 1 = normal, 1.5 = 50% brighter
+      filters.push(`brightness(${value})`); // Unitless: 1 = normal, 1.5 = 50% brighter
     } else if (key === "contrast") {
-      filters.push(`contrast(${value})`);  // Unitless: 1 = normal, 2 = 2x contrast
+      filters.push(`contrast(${value})`); // Unitless: 1 = normal, 2 = 2x contrast
     } else if (key === "saturate") {
-      filters.push(`saturate(${value})`);  // Unitless: 1 = normal, 0.5 = 50% saturation
+      filters.push(`saturate(${value})`); // Unitless: 1 = normal, 0.5 = 50% saturation
     } else if (key === "hueRotate") {
-      filters.push(`hue-rotate(${value}${typeof value === "number" ? "deg" : ""})`);
+      filters.push(
+        `hue-rotate(${value}${typeof value === "number" ? "deg" : ""})`,
+      );
     }
     // Handle direct CSS properties
     else if (key === "opacity") {
@@ -175,11 +211,13 @@ function animatedPropsToStyles(props: Record<string, number | string>): React.CS
     } else if (key === "borderTopWidth") {
       styles.borderTopWidth = typeof value === "number" ? `${value}px` : value;
     } else if (key === "borderBottomWidth") {
-      styles.borderBottomWidth = typeof value === "number" ? `${value}px` : value;
+      styles.borderBottomWidth =
+        typeof value === "number" ? `${value}px` : value;
     } else if (key === "borderLeftWidth") {
       styles.borderLeftWidth = typeof value === "number" ? `${value}px` : value;
     } else if (key === "borderRightWidth") {
-      styles.borderRightWidth = typeof value === "number" ? `${value}px` : value;
+      styles.borderRightWidth =
+        typeof value === "number" ? `${value}px` : value;
     } else if (key === "borderTopStyle") {
       styles.borderTopStyle = value as string;
     } else if (key === "borderBottomStyle") {
@@ -223,8 +261,13 @@ function animatedPropsToStyles(props: Record<string, number | string>): React.CS
     else {
       // Skip problematic shorthand properties that could conflict
       const shorthandPropsToSkip = [
-        'border', 'borderTop', 'borderBottom', 'borderLeft', 'borderRight',
-        'padding', 'margin'
+        "border",
+        "borderTop",
+        "borderBottom",
+        "borderLeft",
+        "borderRight",
+        "padding",
+        "margin",
       ];
 
       if (shorthandPropsToSkip.includes(key)) {
@@ -237,17 +280,17 @@ function animatedPropsToStyles(props: Record<string, number | string>): React.CS
       (styles as any)[camelKey] = value;
     }
   });
-  
+
   // Apply transform if any transform functions were added
   if (transforms.length > 0) {
     styles.transform = transforms.join(" ");
   }
-  
+
   // Apply filter if any filter functions were added
   if (filters.length > 0) {
     styles.filter = filters.join(" ");
   }
-  
+
   return styles;
 }
 
@@ -258,14 +301,18 @@ function animatedPropsToStyles(props: Record<string, number | string>): React.CS
 /**
  * Interpolate between two colors (hex format)
  */
-function interpolateColors(color1: string, color2: string, progress: number): string {
+function interpolateColors(
+  color1: string,
+  color2: string,
+  progress: number,
+): string {
   // Handle transparent/rgba/rgb
-  if (color1 === 'transparent') color1 = '#000000';
-  if (color2 === 'transparent') color2 = '#000000';
+  if (color1 === "transparent") color1 = "#000000";
+  if (color2 === "transparent") color2 = "#000000";
 
   // Simple hex interpolation
   const parseHex = (hex: string) => {
-    const clean = hex.replace('#', '');
+    const clean = hex.replace("#", "");
     return {
       r: parseInt(clean.substring(0, 2), 16),
       g: parseInt(clean.substring(2, 4), 16),
@@ -273,14 +320,14 @@ function interpolateColors(color1: string, color2: string, progress: number): st
     };
   };
 
-  const c1 = parseHex(color1.startsWith('#') ? color1 : '#000000');
-  const c2 = parseHex(color2.startsWith('#') ? color2 : '#000000');
+  const c1 = parseHex(color1.startsWith("#") ? color1 : "#000000");
+  const c2 = parseHex(color2.startsWith("#") ? color2 : "#000000");
 
   const r = Math.round(c1.r + (c2.r - c1.r) * progress);
   const g = Math.round(c1.g + (c2.g - c1.g) * progress);
   const b = Math.round(c1.b + (c2.b - c1.b) * progress);
 
-  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
 }
 
 export function AnimatedElement({
@@ -299,11 +346,14 @@ export function AnimatedElement({
   const isHovering = interactive.hover.isHovering;
 
   // Check if there's any animation progress (includes animate-out!)
-  const hasAnimation = interactive.hover.progress > 0 || interactive.click.progress > 0;
+  const hasAnimation =
+    interactive.hover.progress > 0 || interactive.click.progress > 0;
 
   if (hasAnimation) {
     // Convert animated properties
-    const animatedStyles = animatedPropsToStyles(interactive.animatedProperties);
+    const animatedStyles = animatedPropsToStyles(
+      interactive.animatedProperties,
+    );
     const targetStyles = animatedPropsToStyles(interactive.animatedTargets);
 
     // Two-track targets for smooth color transitions
@@ -321,39 +371,75 @@ export function AnimatedElement({
       ...Object.keys(clickTargetStyles),
     ]);
 
-    allKeys.forEach(key => {
+    allKeys.forEach((key) => {
       const animatedValue = (animatedStyles as any)[key];
       const staticValue = (style as any)[key];
       const hoverTarget = (hoverTargetStyles as any)[key];
       const clickTarget = (clickTargetStyles as any)[key];
 
       // Check if this is a color property
-      const isColorProperty = key === 'backgroundColor' || key === 'background' ||
-                             key === 'color' || key === 'borderColor' ||
-                             key.includes('Color');
+      const isColorProperty =
+        key === "backgroundColor" ||
+        key === "background" ||
+        key === "color" ||
+        key === "borderColor" ||
+        key.includes("Color");
 
       // TWO-TRACK COLOR BLENDING: Calculate hover and click colors separately
       // NOTE: Use clickProgress > 0 (not isClicking) to catch animate-out phase too
       const clickProgress = interactive.click.progress;
       if (isColorProperty) {
-        if (clickProgress > 0 && isHovering && clickTarget && hoverTarget &&
-            typeof staticValue === 'string' && typeof hoverTarget === 'string' && typeof clickTarget === 'string') {
+        if (
+          clickProgress > 0 &&
+          isHovering &&
+          clickTarget &&
+          hoverTarget &&
+          typeof staticValue === "string" &&
+          typeof hoverTarget === "string" &&
+          typeof clickTarget === "string"
+        ) {
           // BOTH hover and click animating: Calculate two-track blend
           // Works during click-in AND click animate-out (clickProgress > 0 but isClicking=false)
           // Step 1: Calculate current hover color
-          const currentHoverColor = interpolateColors(staticValue, hoverTarget, interactive.hover.progress);
+          const currentHoverColor = interpolateColors(
+            staticValue,
+            hoverTarget,
+            interactive.hover.progress,
+          );
 
           // Step 2: Blend from hover color → click target using click progress
           // As clickProgress→0 (animate-out), blendedColor approaches hoverColor (not static!)
-          const blendedColor = interpolateColors(currentHoverColor, clickTarget, clickProgress);
+          const blendedColor = interpolateColors(
+            currentHoverColor,
+            clickTarget,
+            clickProgress,
+          );
           (blendedStyles as any)[key] = blendedColor;
-        } else if (isHovering && hoverTarget && typeof staticValue === 'string' && typeof hoverTarget === 'string') {
+        } else if (
+          isHovering &&
+          hoverTarget &&
+          typeof staticValue === "string" &&
+          typeof hoverTarget === "string"
+        ) {
           // Only hovering: Blend static → hover target
-          const blendedColor = interpolateColors(staticValue, hoverTarget, interactive.hover.progress);
+          const blendedColor = interpolateColors(
+            staticValue,
+            hoverTarget,
+            interactive.hover.progress,
+          );
           (blendedStyles as any)[key] = blendedColor;
-        } else if (isClicking && clickTarget && typeof staticValue === 'string' && typeof clickTarget === 'string') {
+        } else if (
+          isClicking &&
+          clickTarget &&
+          typeof staticValue === "string" &&
+          typeof clickTarget === "string"
+        ) {
           // Only clicking (rare case): Blend static → click target
-          const blendedColor = interpolateColors(staticValue, clickTarget, interactive.click.progress);
+          const blendedColor = interpolateColors(
+            staticValue,
+            clickTarget,
+            interactive.click.progress,
+          );
           (blendedStyles as any)[key] = blendedColor;
         } else if (staticValue) {
           // No animation targets, use static color
@@ -365,17 +451,24 @@ export function AnimatedElement({
       // For non-color properties: Use two-track blend when BOTH targets exist,
       // NOTE: Use clickProgress > 0 (not isClicking) to catch animate-out phase too
       // This ensures click→hover is smooth, not click→static→hover
-      if (clickProgress > 0 && isHovering && typeof clickTarget === 'number' && typeof hoverTarget === 'number') {
+      if (
+        clickProgress > 0 &&
+        isHovering &&
+        typeof clickTarget === "number" &&
+        typeof hoverTarget === "number"
+      ) {
         // BOTH hover and click animating: Calculate two-track blend
         // Works during click-in AND click animate-out
-        const staticNum = typeof staticValue === 'number' ? staticValue : 0;
+        const staticNum = typeof staticValue === "number" ? staticValue : 0;
 
         // Step 1: Calculate current hover value
-        const currentHoverValue = staticNum + (hoverTarget - staticNum) * interactive.hover.progress;
+        const currentHoverValue =
+          staticNum + (hoverTarget - staticNum) * interactive.hover.progress;
 
         // Step 2: Blend from hover value → click target using click progress
         // As clickProgress→0 (animate-out), blendedValue approaches hoverValue (not static!)
-        const blendedValue = currentHoverValue + (clickTarget - currentHoverValue) * clickProgress;
+        const blendedValue =
+          currentHoverValue + (clickTarget - currentHoverValue) * clickProgress;
         (blendedStyles as any)[key] = blendedValue;
       } else if (animatedValue !== undefined) {
         // Use the animated value from the animation system
@@ -385,11 +478,7 @@ export function AnimatedElement({
     });
 
     return (
-      <Component
-        style={blendedStyles}
-        className={className}
-        {...restProps}
-      >
+      <Component style={blendedStyles} className={className} {...restProps}>
         {children}
       </Component>
     );
@@ -397,11 +486,7 @@ export function AnimatedElement({
 
   // At rest: use only static styles
   return (
-    <Component
-      style={style}
-      className={className}
-      {...restProps}
-    >
+    <Component style={style} className={className} {...restProps}>
       {children}
     </Component>
   );

@@ -22,7 +22,10 @@ const CADENCES: Cadence[] = ["Monthly", "Weekly", "Daily", "Quarterly"];
 const PRODUCT_GROUPS = ["All", "Publish + Fusion", "Shopify"];
 const FISCAL_YEARS = [2026, 2025, 2024, 2023];
 
-function useUrlParam(key: string, defaultValue: string): [string, (v: string) => void] {
+function useUrlParam(
+  key: string,
+  defaultValue: string,
+): [string, (v: string) => void] {
   const [value, setValue] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get(key) || defaultValue;
@@ -36,7 +39,11 @@ function useUrlParam(key: string, defaultValue: string): [string, (v: string) =>
       params.set(key, value);
     }
     const s = params.toString();
-    window.history.replaceState(null, "", `${window.location.pathname}${s ? `?${s}` : ""}`);
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${s ? `?${s}` : ""}`,
+    );
   }, [value, key, defaultValue]);
 
   return [value, setValue];
@@ -94,7 +101,7 @@ export default function ArrRevenueDashboard() {
                   size="sm"
                   className={cn(
                     "h-7 px-2.5 text-xs",
-                    cadence === c && "bg-secondary text-secondary-foreground"
+                    cadence === c && "bg-secondary text-secondary-foreground",
                   )}
                   onClick={() => setCadence(c)}
                 >
@@ -134,10 +141,7 @@ export default function ArrRevenueDashboard() {
       <QuarterSummary fiscalYear={fiscalYear} />
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <StatusBreakdown
-          fiscalYear={fiscalYear}
-          productGroup={productFilter}
-        />
+        <StatusBreakdown fiscalYear={fiscalYear} productGroup={productFilter} />
         <div /> {/* spacer for layout balance */}
       </div>
 
@@ -150,8 +154,11 @@ export default function ArrRevenueDashboard() {
       {/* Definitions */}
       <div className="rounded-lg border border-border/50 p-3 text-xs text-muted-foreground space-y-1">
         <p>
-          <span className="font-medium text-foreground">Data Source</span> &mdash;{" "}
-          <code className="text-[10px]">finance.arr_revenue_tracker_latest</code>{" "}
+          <span className="font-medium text-foreground">Data Source</span>{" "}
+          &mdash;{" "}
+          <code className="text-[10px]">
+            finance.arr_revenue_tracker_latest
+          </code>{" "}
           joined with <code className="text-[10px]">dbt_mart.dim_date</code> for
           fiscal calendar,{" "}
           <code className="text-[10px]">polytomic.stripe_customers</code> for

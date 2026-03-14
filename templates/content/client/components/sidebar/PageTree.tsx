@@ -48,7 +48,12 @@ interface PageTreeProps {
   onNewPage: () => void;
 }
 
-export function PageTree({ workspace, activePageId, onSelectPage, onNewPage }: PageTreeProps) {
+export function PageTree({
+  workspace,
+  activePageId,
+  onSelectPage,
+  onNewPage,
+}: PageTreeProps) {
   const { data, isLoading } = usePageTree(workspace);
   const pages = data?.pages ?? [];
 
@@ -65,7 +70,9 @@ export function PageTree({ workspace, activePageId, onSelectPage, onNewPage }: P
 
   if (isLoading) {
     return (
-      <div className="px-4 py-3 text-xs text-sidebar-muted">Loading pages...</div>
+      <div className="px-4 py-3 text-xs text-sidebar-muted">
+        Loading pages...
+      </div>
     );
   }
 
@@ -164,8 +171,9 @@ function PageNode({
             _filePath: result.path,
           });
         },
-        onError: (err) => toast.error(err.message || "Failed to create subpage"),
-      }
+        onError: (err) =>
+          toast.error(err.message || "Failed to create subpage"),
+      },
     );
   };
 
@@ -178,7 +186,7 @@ function PageNode({
         { slug: page._projectSlug },
         {
           onError: (err) => toast.error(err.message || "Failed to delete page"),
-        }
+        },
       );
     }
     setConfirmDeleteOpen(false);
@@ -211,7 +219,7 @@ function PageNode({
           "w-full flex items-center justify-between py-1 rounded-[4px] text-left group transition-colors cursor-pointer pr-1",
           isActive
             ? "bg-sidebar-accent text-sidebar-accent-foreground"
-            : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+            : "text-sidebar-foreground hover:bg-sidebar-accent/60",
         )}
         style={{ paddingLeft }}
       >
@@ -228,7 +236,7 @@ function PageNode({
                 size={12}
                 className={cn(
                   "transition-transform duration-150",
-                  !expanded && "-rotate-90"
+                  !expanded && "-rotate-90",
                 )}
               />
             </button>
@@ -281,7 +289,11 @@ function PageNode({
                   <MoreHorizontal size={13} />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44" onClick={(e) => e.stopPropagation()}>
+              <DropdownMenuContent
+                align="end"
+                className="w-44"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation();
@@ -387,7 +399,7 @@ function PageNode({
 function isDescendantActive(
   pageId: string,
   activePageId: string | null,
-  childMap: Map<string | null, Page[]>
+  childMap: Map<string | null, Page[]>,
 ): boolean {
   if (!activePageId) return false;
   const children = childMap.get(pageId);

@@ -56,6 +56,7 @@ This is an agent-native calendar app with Google Calendar integration and a publ
 All stateful data in this app is stored in **files**. The frontend (React/Vite) reads and writes files. The agent chat reads and writes files. Scripts read and write files. Files are the shared state mechanism between all three.
 
 This means:
+
 - When the UI updates something, it writes to files via the backend API (`/api/events`, `/api/bookings`, etc.)
 - When the agent needs to do something, it reads/writes the same JSON files directly (in `data/events/`, `data/bookings/`)
 - **No localStorage** — JSON files are the only source of truth
@@ -65,14 +66,14 @@ This means:
 
 All state lives in JSON files:
 
-| Path | Contents |
-|------|----------|
-| `data/events/{id}.json` | Calendar events (local or synced from Google) |
+| Path                      | Contents                                       |
+| ------------------------- | ---------------------------------------------- |
+| `data/events/{id}.json`   | Calendar events (local or synced from Google)  |
 | `data/bookings/{id}.json` | Incoming bookings from the public booking page |
-| `data/availability.json` | Availability schedule configuration |
-| `data/settings.json` | App settings (timezone, booking page config) |
-| `data/google-auth.json` | Google OAuth tokens (gitignored, sensitive) |
-| `data/sync-config.json` | Firestore sync patterns |
+| `data/availability.json`  | Availability schedule configuration            |
+| `data/settings.json`      | App settings (timezone, booking page config)   |
+| `data/google-auth.json`   | Google OAuth tokens (gitignored, sensitive)    |
+| `data/sync-config.json`   | Firestore sync patterns                        |
 
 ### Skills
 
@@ -95,18 +96,19 @@ The script runner (`scripts/run.ts`) dispatches to individual script files in `s
 
 ### Available Scripts
 
-| Script | Args | Purpose |
-|--------|------|---------|
-| `sync-google-calendar` | `--from`, `--to` | Pull Google Calendar events to data/events/ |
-| `create-event` | `--title`, `--start`, `--end`, `--description`, `--location`, `--google` | Create event locally + optionally on Google |
-| `list-events` | `--from`, `--to`, `--source` | List events with filtering |
-| `check-availability` | `--date`, `--duration` | Show available time slots for a date |
+| Script                 | Args                                                                     | Purpose                                     |
+| ---------------------- | ------------------------------------------------------------------------ | ------------------------------------------- |
+| `sync-google-calendar` | `--from`, `--to`                                                         | Pull Google Calendar events to data/events/ |
+| `create-event`         | `--title`, `--start`, `--end`, `--description`, `--location`, `--google` | Create event locally + optionally on Google |
+| `list-events`          | `--from`, `--to`, `--source`                                             | List events with filtering                  |
+| `check-availability`   | `--date`, `--duration`                                                   | Show available time slots for a date        |
 
 Usage: `pnpm script <name> --arg value`
 
 ### Adding New Scripts
 
 1. Create `scripts/my-script.ts`:
+
 ```typescript
 export default async function main(args: string[]) {
   // Parse args, do work, output results
@@ -115,6 +117,7 @@ export default async function main(args: string[]) {
 ```
 
 2. Register in `scripts/run.ts`:
+
 ```typescript
 const scripts: Record<string, () => Promise<...>> = {
   "my-script": () => import("./my-script.js"),
@@ -139,23 +142,25 @@ The app can delegate tasks to the agent chat using `agentChat` from `@agent-nati
 ### How It Works
 
 From browser code (React components):
+
 ```typescript
 import { agentChat } from "@agent-native/core";
 
 // Auto-submit to the agent
 agentChat.submit(
   "Find a 30-minute slot next Tuesday for a team meeting",
-  "Hidden context: user's timezone is America/Los_Angeles"
+  "Hidden context: user's timezone is America/Los_Angeles",
 );
 
 // Or prefill for user review
 agentChat.prefill(
   "Reschedule my 2pm meeting to 3pm tomorrow",
-  "Context about the event details..."
+  "Context about the event details...",
 );
 ```
 
 From scripts (Node.js context):
+
 ```typescript
 import { agentChat } from "@agent-native/core";
 
@@ -171,6 +176,7 @@ The `@agent-native/core` chat bridge handles the transport automatically — it 
 Data files are bidirectionally synced with Firestore so multiple users (and the cloud-hosted Builder harness) share the same state. The sync is powered by `@agent-native/core/adapters/firestore`.
 
 **What syncs:** Configured in `data/sync-config.json`:
+
 - `data/events/**/*.json` — Calendar events
 - `data/bookings/**/*.json` — Bookings
 - `data/availability.json` — Availability config
@@ -179,12 +185,14 @@ Data files are bidirectionally synced with Firestore so multiple users (and the 
 **What doesn't sync:** `data/google-auth.json` (sensitive), code files, sync-config itself.
 
 **How it works:**
+
 - On server start, `initFileSync()` does a startup sync (compare local vs Firestore timestamps, resolve conflicts)
 - A Firestore real-time listener pushes remote changes to disk
 - A file watcher pushes local changes to Firestore
 - Three-way merge resolves conflicts; unresolvable conflicts create `.conflict` sidecar files
 
 **Important for agents:**
+
 - Files in `data/events/` and `data/bookings/` are **gitignored** (synced at runtime, not checked in)
 - The `.ignore` file overrides this so agents can still search/grep/read these files
 - When editing data files, the changes are automatically synced to Firestore within seconds

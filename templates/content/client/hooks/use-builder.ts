@@ -136,7 +136,8 @@ export function useCreateProjectFromBuilder() {
         : Array.isArray(fullData?.blocks)
           ? fullData.blocks
           : [];
-      const blocksString = blocks.length > 0 ? builderToMarkdown(blocks) : undefined;
+      const blocksString =
+        blocks.length > 0 ? builderToMarkdown(blocks) : undefined;
 
       return createProject.mutateAsync({
         name,
@@ -210,7 +211,7 @@ export function useUploadArticle() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (
-      payload: BuilderUploadRequest & { existingId?: string }
+      payload: BuilderUploadRequest & { existingId?: string },
     ): Promise<BuilderUploadResponse> => {
       const url = payload.existingId
         ? `/api/builder/upload/${payload.existingId}`

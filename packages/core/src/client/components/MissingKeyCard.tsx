@@ -6,7 +6,11 @@ export interface MissingKeyCardProps {
   settingsPath: string;
 }
 
-export function MissingKeyCard({ label, message, settingsPath }: MissingKeyCardProps) {
+export function MissingKeyCard({
+  label,
+  message,
+  settingsPath,
+}: MissingKeyCardProps) {
   return (
     <div
       style={{

@@ -1,6 +1,14 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Wand2, FolderOpen, Upload, Search, Maximize, Minimize, Globe } from "lucide-react";
+import {
+  Wand2,
+  FolderOpen,
+  Upload,
+  Search,
+  Maximize,
+  Minimize,
+  Globe,
+} from "lucide-react";
 
 interface ImageOverlayProps {
   anchorRect: DOMRect;
@@ -61,23 +69,53 @@ export default function ImageOverlay({
       className="image-overlay-menu"
       style={{ top, left, width: menuWidth }}
     >
-      <button onClick={() => { onGenerate(); onClose(); }} className="image-overlay-btn">
+      <button
+        onClick={() => {
+          onGenerate();
+          onClose();
+        }}
+        className="image-overlay-btn"
+      >
         <Wand2 className="w-3.5 h-3.5 text-[#609FF8]" />
         Generate
       </button>
-      <button onClick={() => { onLibrary(); onClose(); }} className="image-overlay-btn">
+      <button
+        onClick={() => {
+          onLibrary();
+          onClose();
+        }}
+        className="image-overlay-btn"
+      >
         <FolderOpen className="w-3.5 h-3.5 text-[#00E5FF]" />
         Asset Library
       </button>
-      <button onClick={() => { onUpload(); onClose(); }} className="image-overlay-btn">
+      <button
+        onClick={() => {
+          onUpload();
+          onClose();
+        }}
+        className="image-overlay-btn"
+      >
         <Upload className="w-3.5 h-3.5 text-white/50" />
         Upload
       </button>
-      <button onClick={() => { onSearch(); onClose(); }} className="image-overlay-btn">
+      <button
+        onClick={() => {
+          onSearch();
+          onClose();
+        }}
+        className="image-overlay-btn"
+      >
         <Search className="w-3.5 h-3.5 text-white/50" />
         Search
       </button>
-      <button onClick={() => { onLogo(); onClose(); }} className="image-overlay-btn">
+      <button
+        onClick={() => {
+          onLogo();
+          onClose();
+        }}
+        className="image-overlay-btn"
+      >
         <Globe className="w-3.5 h-3.5 text-white/50" />
         Logo
       </button>

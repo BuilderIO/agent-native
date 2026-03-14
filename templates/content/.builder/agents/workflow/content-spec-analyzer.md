@@ -29,17 +29,17 @@ No skills consumed directly. Read phase artifacts and apply validation rules fro
 
 Read these files from the output folder. Prefer YAML phase files (compact, structured) over `.md` files (verbose) when both are available.
 
-| # | File | Purpose | Required? |
-|---|------|---------|-----------|
-| 1 | `phases/05-outline-creation.yaml` | Structured outline data (primary) | Yes |
-| 2 | `outline.md` | Per-section detail: heading text, key points, answer-first blocks, per-section word counts | Yes |
-| 3 | `phases/04-content-research.yaml` | Unified research synthesis | Yes |
-| 4 | `research-notes.md` | Readable research (fallback for detail) | Yes |
-| 5 | `phases/01-topic-validation.yaml` | Content goal, post type, timing | Yes |
-| 6 | `phases/02-keyword-research.yaml` | Keywords and targets | Yes (evergreen) |
-| 7 | `phases/03-serp-analysis.yaml` | SERP data, PAA questions, competitor word counts | Yes (evergreen) |
-| 8 | `seed/keywords.txt` | Keyword density targets | If present |
-| 9 | `seed/ai-search.txt` | AI search queries and facts | If present |
+| #   | File                              | Purpose                                                                                    | Required?       |
+| --- | --------------------------------- | ------------------------------------------------------------------------------------------ | --------------- |
+| 1   | `phases/05-outline-creation.yaml` | Structured outline data (primary)                                                          | Yes             |
+| 2   | `outline.md`                      | Per-section detail: heading text, key points, answer-first blocks, per-section word counts | Yes             |
+| 3   | `phases/04-content-research.yaml` | Unified research synthesis                                                                 | Yes             |
+| 4   | `research-notes.md`               | Readable research (fallback for detail)                                                    | Yes             |
+| 5   | `phases/01-topic-validation.yaml` | Content goal, post type, timing                                                            | Yes             |
+| 6   | `phases/02-keyword-research.yaml` | Keywords and targets                                                                       | Yes (evergreen) |
+| 7   | `phases/03-serp-analysis.yaml`    | SERP data, PAA questions, competitor word counts                                           | Yes (evergreen) |
+| 8   | `seed/keywords.txt`               | Keyword density targets                                                                    | If present      |
+| 9   | `seed/ai-search.txt`              | AI search queries and facts                                                                | If present      |
 
 ## Phase 1: Structural Feasibility Analysis
 
@@ -108,15 +108,15 @@ Synthesize findings and compute confidence.
 
 When `content_timing: trending` (from `phases/01-topic-validation.yaml`):
 
-| Check | Behavior |
-|-------|----------|
-| AEO heading-to-PAA mapping | **Skip** -- no PAA data available |
+| Check                              | Behavior                                                |
+| ---------------------------------- | ------------------------------------------------------- |
+| AEO heading-to-PAA mapping         | **Skip** -- no PAA data available                       |
 | Competitive word count feasibility | Use guidance-range target (not SERP competitive median) |
-| Featured snippet verification | **Skip** -- no SERP data |
-| Seed file coverage | Run normally (seed files exist independently of SERP) |
-| Post-type-specific checks | Run normally |
-| Research alignment | Run normally |
-| Content goal compliance | Run normally |
+| Featured snippet verification      | **Skip** -- no SERP data                                |
+| Seed file coverage                 | Run normally (seed files exist independently of SERP)   |
+| Post-type-specific checks          | Run normally                                            |
+| Research alignment                 | Run normally                                            |
+| Content goal compliance            | Run normally                                            |
 
 Add skipped checks to `checks_skipped` in output YAML for auditability.
 
@@ -124,11 +124,11 @@ Add skipped checks to `checks_skipped` in output YAML for auditability.
 
 When `refresh-scope.yaml` exists in the output folder:
 
-| Section Type | Validation |
-|-------------|------------|
-| **KEEP** | Not individually validated. Only checked for cross-references (does a REWRITE section depend on context from a KEEP section?). |
-| **REWRITE** | Full validation (same as new content). |
-| **ADD** | Full validation + verify `insert_after` position makes sense in the section sequence. |
+| Section Type | Validation                                                                                                                     |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| **KEEP**     | Not individually validated. Only checked for cross-references (does a REWRITE section depend on context from a KEEP section?). |
+| **REWRITE**  | Full validation (same as new content).                                                                                         |
+| **ADD**      | Full validation + verify `insert_after` position makes sense in the section sequence.                                          |
 
 Use artifact filename `phases/05.5-refresh-content-spec-analysis.yaml` (matches refresh naming convention).
 
@@ -161,6 +161,7 @@ status: spec-analyzed
 ```
 
 Each issue object:
+
 ```yaml
 - category: "Step Sequence"
   description: "Step 3 requires npm package not mentioned until Step 5"
@@ -169,6 +170,7 @@ Each issue object:
 ```
 
 Each verification checklist item:
+
 ```yaml
 - claim: "Builder.io SDK supports visual editing for Next.js App Router"
   section: "H2: How does visual editing work?"
@@ -177,6 +179,7 @@ Each verification checklist item:
 ```
 
 Each outline adjustment:
+
 ```yaml
 - section_index: 3
   section_heading: "H2: How do you configure X?"

@@ -52,6 +52,7 @@ Execute the Style Guide skill's load and merge process:
 4. The merged result is the active style guide for this draft
 
 Key rules to internalize before writing:
+
 - Voice characteristics (conversational, direct, developer-to-developer)
 - Hard rules (the non-negotiable list -- e.g., no generic openings, no AI-sounding phrases, max 3 sentences per paragraph)
 - Formatting rules (paragraph length, heading frequency, code block standards)
@@ -64,10 +65,12 @@ Key rules to internalize before writing:
 Read `content_timing` and `content_goal` from `phases/01-topic-validation.yaml`.
 
 **Content timing:**
+
 - **Evergreen:** Use full research depth. All sources are available.
 - **Trending:** Lean on official docs and early community signal. Acknowledge when information is preliminary. Add `content_timing: trending` and `trending_note` to YAML frontmatter.
 
 **Content goal** (drives Builder.io integration throughout the draft):
+
 - **Awareness:** No promotional Builder.io mentions. The post stands on its own merit. Internal links to related Builder.io blog posts are fine (subtle, SEO-helpful).
 - **Acquisition:** Read `integration_pattern` and `builder_capability` from Phase 1 output. Write the Builder.io section per the pattern. The 80/20 rule: 80% standalone value, 20% max for Builder.io.
 - **Hybrid:** No Builder.io mentions in the body. Light CTA in the conclusion connecting the topic to Builder.io.
@@ -98,6 +101,7 @@ If the file does not exist, skip this phase entirely. This handles backward comp
 Execute the Blog Drafting skill's 10-step process:
 
 **Step 1: Write the Introduction**
+
 - Open with the hook from the outline. No preamble, no throat-clearing.
 - Follow with 1-2 sentences of context: what problem, who it's for.
 - End with a thesis sentence: what the reader will learn or be able to do.
@@ -105,6 +109,7 @@ Execute the Blog Drafting skill's 10-step process:
 
 **Step 2: Write Body Sections**
 For each H2 section in the outline, in order:
+
 - Start with the answer-first block (40-60 words, self-contained, extractable by an LLM)
 - Expand with supporting content drawing on research-notes.md (data points, community opinions, code examples, trade-offs)
 - Follow the word count budget (~10% tolerance)
@@ -113,6 +118,7 @@ For each H2 section in the outline, in order:
 - Format for featured snippet targets where flagged (definition block, numbered list, table, or code block)
 
 **Step 3: Write Code Examples**
+
 - Every tutorial/how-to must include runnable code
 - Show problem, then solution (labeled with comments)
 - 5-15 lines ideal, 25 max. Break longer examples into multiple blocks.
@@ -121,22 +127,26 @@ For each H2 section in the outline, in order:
 - Comment the "why", not the "what"
 
 **Step 4: Write the Builder.io Section (if applicable)**
+
 - Skip for awareness content
 - For acquisition: follow the `integration_pattern` from Phase 1 (product-showcase, before-after, honest-comparison, problem-solution, light-cta-only)
 - If the integration feels forced during writing, downgrade to light-cta-only. Note the downgrade in the output YAML. Authenticity beats coverage.
 
 **Step 5: Write the FAQ Section (if in outline)**
+
 - Use questions and answer sketches from the outline
 - Write each answer in 40-60 words: direct, self-contained, no hedging
 - Use `**Q:**` / `**A:**` format
 
 **Step 6: Write the Conclusion**
+
 - Summary: 2-3 sentences restating the key takeaway (not a section-by-section rehash)
 - CTA: specific, content-connected, matching the content goal template
 - No "In conclusion...", no generic sign-offs
 
 **Step 7: Apply Paragraph Rhythm**
 Review the full draft:
+
 - No paragraph longer than 3 sentences (4 is hard max)
 - Vary sentence length within sections
 - Not every paragraph opens with a topic sentence
@@ -145,6 +155,7 @@ Review the full draft:
 
 **Step 8: Apply Keyword Placement**
 From `phases/02-keyword-research.yaml`:
+
 - Primary keyword in: title, at least 2 H2 headings, first paragraph, conclusion
 - Secondary keywords in: at least 1 H2 heading each and body text
 - Semantic keywords: scattered naturally for topical depth
@@ -183,6 +194,7 @@ Present the completed draft to the user. Include:
 5. **Confidence notes:** Areas where the writing is strong vs. areas that may need editing attention
 
 This is Gate 3 in the `/content-blog` pipeline. The user can:
+
 - **Proceed** -- move to the editing phase
 - **Request changes** -- specific feedback to address (re-run relevant steps)
 - **Stop** -- halt the pipeline
@@ -206,14 +218,14 @@ See [default-voice-and-tone.md](../../skills/style-guide/references/default-voic
 
 Follow the outline's per-section word budget. The overall targets:
 
-| Post Type | Target | Ceiling |
-|-----------|--------|---------|
-| Tutorial / Guide | 2,200 | 3,000 |
-| Comparison | 2,200 | 3,000 |
-| Concept Explainer | 2,000 | 2,500 |
-| How-to | 1,800 | 2,500 |
-| Quick Reference | 800 | 1,200 |
-| Thought Leadership | 1,500 | 2,000 |
+| Post Type          | Target | Ceiling |
+| ------------------ | ------ | ------- |
+| Tutorial / Guide   | 2,200  | 3,000   |
+| Comparison         | 2,200  | 3,000   |
+| Concept Explainer  | 2,000  | 2,500   |
+| How-to             | 1,800  | 2,500   |
+| Quick Reference    | 800    | 1,200   |
+| Thought Leadership | 1,500  | 2,000   |
 
 Use the ceiling declared in the outline. Editing (Phase 7) and AEO (Phase 9) may add words. Leave a ~200-word buffer by targeting the post type's target, not the ceiling.
 
@@ -222,6 +234,7 @@ When research is thin, write less. A confident 1,400-word post beats a padded 2,
 ## Trending Topic Adjustments
 
 When `content_timing: trending`:
+
 - Research notes are thinner. Lean on official docs and early community signal.
 - Acknowledge when information is preliminary ("early benchmarks suggest..." rather than "studies show...")
 - Keyword placement is best-effort (social-signal-derived keywords)

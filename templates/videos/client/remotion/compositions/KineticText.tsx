@@ -20,16 +20,21 @@ export type KineticTextProps = {
 
 const FALLBACK_TRACKS: AnimationTrack[] = [
   {
-    id: "kt-title", label: "Title Typing", startFrame: 0, endFrame: 50, easing: "linear",
+    id: "kt-title",
+    label: "Title Typing",
+    startFrame: 0,
+    endFrame: 50,
+    easing: "linear",
     animatedProps: [
       {
         property: "typing reveal",
-        from: "", to: "", unit: "",
+        from: "",
+        to: "",
+        unit: "",
         programmatic: true,
         description:
           "Letters appear one by one linearly while the text position drifts from right to left with quartic (power4) easing. Text starts offset to the right and smoothly drifts left to center as characters appear, creating an inertia effect.",
-        codeSnippet:
-`const charsToShow = Math.floor(titleP * title.length);
+        codeSnippet: `const charsToShow = Math.floor(titleP * title.length);
 const visibleTitle = title.slice(0, charsToShow);
 
 // Drift with quartic easing (power4.out)
@@ -45,21 +50,47 @@ transform: \`translateX(\${driftX}px)\``,
     ],
   },
   {
-    id: "kt-explode", label: "Text Explode", startFrame: 86, endFrame: 120, easing: "power2.out",
+    id: "kt-explode",
+    label: "Text Explode",
+    startFrame: 86,
+    endFrame: 120,
+    easing: "power2.out",
     animatedProps: [
       {
         property: "explode scatter",
-        from: "", to: "", unit: "",
+        from: "",
+        to: "",
+        unit: "",
         programmatic: true,
         description:
           "Each character explodes outward from its position. Characters scatter in seeded random directions with rotation and scale, then fade out. The explosion uses power2.out easing for a fast burst that decelerates.",
         parameters: [
-          { name: "spread", label: "Spread Distance", default: 800, min: 100, max: 2000, step: 50 },
-          { name: "rotationAmount", label: "Max Rotation", default: 720, min: 0, max: 1440, step: 45 },
-          { name: "scaleEnd", label: "End Scale", default: 0, min: 0, max: 2, step: 0.1 },
+          {
+            name: "spread",
+            label: "Spread Distance",
+            default: 800,
+            min: 100,
+            max: 2000,
+            step: 50,
+          },
+          {
+            name: "rotationAmount",
+            label: "Max Rotation",
+            default: 720,
+            min: 0,
+            max: 1440,
+            step: 45,
+          },
+          {
+            name: "scaleEnd",
+            label: "End Scale",
+            default: 0,
+            min: 0,
+            max: 2,
+            step: 0.1,
+          },
         ],
-        codeSnippet:
-`// Each char gets a seeded random direction
+        codeSnippet: `// Each char gets a seeded random direction
 const seed = (i * 7 + 13) % 100 / 100;
 const angle = seed * Math.PI * 2;
 const dist = spread * (0.5 + seed * 0.5) * progress;
@@ -103,12 +134,16 @@ export const KineticText: React.FC<KineticTextProps> = ({
   const visibleTitle = title.slice(0, charsToShow);
 
   // Read parameters from the typing reveal property
-  const typingProp = titleTrack?.animatedProps?.find(p => p.property === "typing reveal");
+  const typingProp = titleTrack?.animatedProps?.find(
+    (p) => p.property === "typing reveal",
+  );
   const avgCharWidth = typingProp?.parameterValues?.avgCharWidth ?? 0.6;
   const offsetScale = typingProp?.parameterValues?.offsetScale ?? 0.125;
 
   // Explode parameters
-  const explodeProp = explodeTrack?.animatedProps?.find(p => p.property === "explode scatter");
+  const explodeProp = explodeTrack?.animatedProps?.find(
+    (p) => p.property === "explode scatter",
+  );
   const spread = explodeProp?.parameterValues?.spread ?? 800;
   const rotationAmount = explodeProp?.parameterValues?.rotationAmount ?? 720;
   const scaleEnd = explodeProp?.parameterValues?.scaleEnd ?? 0;
@@ -187,8 +222,16 @@ export const KineticText: React.FC<KineticTextProps> = ({
               const x = Math.cos(s.angle) * dist;
               const y = Math.sin(s.angle) * dist;
               const rot = s.rotDir * rotationAmount * explodeP;
-              const charScale = interpolate(explodeP, [0, 1], [titleScale, scaleEnd]);
-              const charOpacity = interpolate(explodeP, [0, 0.6, 1], [titleOpacity, titleOpacity * 0.5, 0]);
+              const charScale = interpolate(
+                explodeP,
+                [0, 1],
+                [titleScale, scaleEnd],
+              );
+              const charOpacity = interpolate(
+                explodeP,
+                [0, 0.6, 1],
+                [titleOpacity, titleOpacity * 0.5, 0],
+              );
 
               return (
                 <span

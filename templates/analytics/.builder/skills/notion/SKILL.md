@@ -21,11 +21,11 @@ description: >
 
 ### Exported Functions
 
-| Function | Description |
-|---|---|
-| `getContentCalendar()` | Fetch all entries from the content calendar database |
-| `getNotionPage(pageId)` | Fetch a page with its block content (recursive) |
-| `getContentCalendarSchema()` | Get the database schema/properties |
+| Function                     | Description                                          |
+| ---------------------------- | ---------------------------------------------------- |
+| `getContentCalendar()`       | Fetch all entries from the content calendar database |
+| `getNotionPage(pageId)`      | Fetch a page with its block content (recursive)      |
+| `getContentCalendarSchema()` | Get the database schema/properties                   |
 
 ## Key Patterns & Gotchas
 

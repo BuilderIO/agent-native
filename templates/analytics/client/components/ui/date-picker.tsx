@@ -4,7 +4,11 @@ import { CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 interface DatePickerProps {
   /** Date string in YYYY-MM-DD format */
@@ -14,7 +18,12 @@ interface DatePickerProps {
   placeholder?: string;
 }
 
-export function DatePicker({ value, onChange, className, placeholder = "Pick a date" }: DatePickerProps) {
+export function DatePicker({
+  value,
+  onChange,
+  className,
+  placeholder = "Pick a date",
+}: DatePickerProps) {
   const [open, setOpen] = useState(false);
 
   const date = value ? parse(value, "yyyy-MM-dd", new Date()) : undefined;
@@ -32,7 +41,11 @@ export function DatePicker({ value, onChange, className, placeholder = "Pick a d
           )}
         >
           <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          {validDate ? format(validDate, "MMM d, yyyy") : <span>{placeholder}</span>}
+          {validDate ? (
+            format(validDate, "MMM d, yyyy")
+          ) : (
+            <span>{placeholder}</span>
+          )}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">

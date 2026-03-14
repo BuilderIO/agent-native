@@ -22,7 +22,7 @@ export function useUnsavedChanges(): boolean {
     const settingsKey = `videos-comp-settings:${compositionId}`;
 
     // Check if any localStorage keys exist for this composition
-    const hasOverrides = 
+    const hasOverrides =
       !!localStorage.getItem(tracksKey) ||
       !!localStorage.getItem(propsKey) ||
       !!localStorage.getItem(settingsKey);
@@ -31,16 +31,16 @@ export function useUnsavedChanges(): boolean {
 
     // Listen for storage changes (from other tabs or direct edits)
     const handleStorageChange = () => {
-      const newHasOverrides = 
+      const newHasOverrides =
         !!localStorage.getItem(tracksKey) ||
         !!localStorage.getItem(propsKey) ||
         !!localStorage.getItem(settingsKey);
-      
+
       setHasUnsavedChanges(newHasOverrides);
     };
 
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
   }, [compositionId, tracks]); // Re-check when tracks change
 
   return hasUnsavedChanges;

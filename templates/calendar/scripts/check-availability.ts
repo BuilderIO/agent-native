@@ -51,7 +51,9 @@ export default async function main(args: string[]) {
   // Load availability schedule
   let availability: AvailabilitySchedule;
   try {
-    availability = JSON.parse(readFileSync(join("data", "availability.json"), "utf-8"));
+    availability = JSON.parse(
+      readFileSync(join("data", "availability.json"), "utf-8"),
+    );
   } catch {
     console.error("Error: Could not read data/availability.json");
     process.exit(1);
@@ -59,7 +61,15 @@ export default async function main(args: string[]) {
 
   // Determine day of week
   const date = new Date(dateStr + "T00:00:00");
-  const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const dayNames = [
+    "sunday",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+  ];
   const dayName = dayNames[date.getDay()];
 
   const daySchedule = availability.schedule[dayName];
@@ -77,7 +87,9 @@ export default async function main(args: string[]) {
     const files = readdirSync(eventsDir).filter((f) => f.endsWith(".json"));
     for (const file of files) {
       try {
-        const event: CalendarEvent = JSON.parse(readFileSync(join(eventsDir, file), "utf-8"));
+        const event: CalendarEvent = JSON.parse(
+          readFileSync(join(eventsDir, file), "utf-8"),
+        );
 
         // Skip cancelled events
         if (event.status === "cancelled") continue;
@@ -156,16 +168,22 @@ export default async function main(args: string[]) {
 
   if (freeSlots.length === 0) {
     console.log("No available slots.");
-    agentChat.submit(`No available ${duration}-minute slots on ${dateStr} (${dayName}).`);
+    agentChat.submit(
+      `No available ${duration}-minute slots on ${dateStr} (${dayName}).`,
+    );
     return;
   }
 
   console.log("Available slots:");
   for (const slot of freeSlots) {
     const durationMin = slot.end - slot.start;
-    console.log(`  ${formatMinutes(slot.start)} – ${formatMinutes(slot.end)}  (${durationMin} min)`);
+    console.log(
+      `  ${formatMinutes(slot.start)} – ${formatMinutes(slot.end)}  (${durationMin} min)`,
+    );
   }
 
   console.log(`\nTotal: ${freeSlots.length} available slot(s)`);
-  agentChat.submit(`Found ${freeSlots.length} available slot(s) on ${dateStr} (${dayName}) with at least ${duration} minutes free.`);
+  agentChat.submit(
+    `Found ${freeSlots.length} available slot(s) on ${dateStr} (${dayName}) with at least ${duration} minutes free.`,
+  );
 }

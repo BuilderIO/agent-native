@@ -5,20 +5,23 @@
 ### 1. **Visual Save Button States**
 
 **🟢 Green Save Button** = You have unsaved changes
+
 - localStorage has overrides that differ from registry
 - Click to sync your changes to registry
 - Shows tooltip: "Save current settings as default"
 
 **⚪ Grey Save Button** = Everything is synced
+
 - No localStorage overrides
-- Registry and working state are identical  
+- Registry and working state are identical
 - Shows tooltip: "All changes saved to registry"
 
 **Implementation**: `useUnsavedChanges()` hook detects localStorage presence
 
-### 2. **Auto-Save After AI Generation** 
+### 2. **Auto-Save After AI Generation**
 
 When AI creates or modifies a composition:
+
 1. AI finishes (fires `builder.agentChat.chatRunning` event with `isRunning: false`)
 2. System waits 1 second for localStorage to settle
 3. **Automatically saves to registry** (silent mode, no alerts)
@@ -27,6 +30,7 @@ When AI creates or modifies a composition:
 6. 🟢 **Save button turns grey** (everything synced!)
 
 **Flow**:
+
 ```
 User asks AI to change composition
   ↓
@@ -46,6 +50,7 @@ Page reloads
 ### 3. **Orange Indicator + Reset Button**
 
 Still shows when you have localStorage overrides, but:
+
 - Now correctly disappears after Save
 - Perfectly syncs with Save button color
 - One-click reset available
@@ -53,17 +58,18 @@ Still shows when you have localStorage overrides, but:
 ## 🎯 Complete User Experience
 
 ### Scenario 1: Manual Editing
+
 ```
 1. User edits composition
    🟡 Orange indicator appears
    🟢 Save button turns green
-   
+
 2. User clicks Save
    ✅ Confirmation dialog
    ✅ Saves to registry
    ✅ Clears localStorage
    ✅ Reloads page
-   
+
 3. After reload:
    ⚪ No orange indicator
    ⚪ Grey Save button
@@ -71,18 +77,19 @@ Still shows when you have localStorage overrides, but:
 ```
 
 ### Scenario 2: AI Generation
+
 ```
 1. User asks AI to create composition
    🤖 AI generates code
    🟡 Changes auto-save to localStorage
    🟢 Save button green
-   
+
 2. AI finishes
    🤖 Auto-save triggers (silent)
    ✅ Saves to registry
    ✅ Clears localStorage
    ✅ Reloads page
-   
+
 3. After reload:
    ⚪ No orange indicator
    ⚪ Grey Save button
@@ -90,6 +97,7 @@ Still shows when you have localStorage overrides, but:
 ```
 
 ### Scenario 3: Version Bump
+
 ```
 Developer adds keyframes to registry:
 
@@ -106,11 +114,13 @@ Developer adds keyframes to registry:
 ### Files Modified:
 
 **`client/hooks/useUnsavedChanges.ts`** (NEW)
+
 - Hook that detects localStorage presence
 - Returns `true` if unsaved changes exist
 - Reactively updates when storage changes
 
 **`client/pages/CompositionView.tsx`**
+
 - Uses `useUnsavedChanges()` hook
 - Save button styling: `hasUnsavedChanges ? green : grey`
 - Refactored save into `performSave(silent)` function
@@ -118,17 +128,20 @@ Developer adds keyframes to registry:
 - Auto-saves silently after AI generation
 
 **`client/components/NewCompositionPopover.tsx`**
+
 - Listens for `builder.agentChat.chatRunning` event
 - Dispatches `videos.auto-save` when AI finishes
 - Waits 1 second for localStorage to settle
 
 **`client/contexts/TimelineContext.tsx`**
+
 - Version tracking system
 - Smart keyframe merge (registry wins when localStorage empty)
 - Auto-clear stale data on version mismatch
 - Comprehensive logging
 
 **`client/remotion/registry.ts`**
+
 - Added `version?` field to `CompositionEntry`
 - Documented keyframe sync patterns
 - UI Showcase uses `version: 3`
@@ -137,13 +150,13 @@ Developer adds keyframes to registry:
 
 ```javascript
 // Reset current composition
-resetCurrent()
+resetCurrent();
 
 // Reset only tracks/keyframes
-resetTracks('composition-id')
+resetTracks("composition-id");
 
 // Reset everything
-resetCompositionSettings('composition-id')
+resetCompositionSettings("composition-id");
 ```
 
 ## 📊 State Machine
@@ -153,7 +166,7 @@ Registry (Source of Truth)
     ↓
 localStorage (Working Copy)
     ↓ (user edits)
-localStorage (Modified) 
+localStorage (Modified)
     🟢 Green Save + 🟡 Orange indicator
     ↓ (click Save OR AI finishes)
 Registry (Updated)
@@ -163,12 +176,12 @@ Registry (Updated)
 
 ## 🎨 Visual Indicators at a Glance
 
-| State | Save Button | Orange Indicator | Meaning |
-|-------|-------------|------------------|---------|
-| Synced | Grey ⚪ | Hidden | Registry = localStorage |
-| Unsaved | Green 🟢 | Visible 🟡 | localStorage has changes |
-| After Save | Grey ⚪ | Hidden | Auto-synced! |
-| After AI | Grey ⚪ | Hidden | Auto-synced! |
+| State      | Save Button | Orange Indicator | Meaning                  |
+| ---------- | ----------- | ---------------- | ------------------------ |
+| Synced     | Grey ⚪     | Hidden           | Registry = localStorage  |
+| Unsaved    | Green 🟢    | Visible 🟡       | localStorage has changes |
+| After Save | Grey ⚪     | Hidden           | Auto-synced!             |
+| After AI   | Grey ⚪     | Hidden           | Auto-synced!             |
 
 ## 🚀 Benefits
 
@@ -181,11 +194,13 @@ Registry (Updated)
 ## 🎯 Best Practices
 
 **For Developers**:
+
 - Bump `version` when adding keyframes to existing compositions
 - Document breaking changes in description
 - Test auto-save flow after generating new compositions
 
 **For Users**:
+
 - 🟢 Green button = click to save your work
 - ⚪ Grey button = everything's synced, no action needed
 - 🟡 Orange badge = reminder you have unsaved changes

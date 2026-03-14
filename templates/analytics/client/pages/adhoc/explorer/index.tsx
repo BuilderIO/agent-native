@@ -17,7 +17,15 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ChevronDown, Save, FolderOpen, FilePlus, Trash2, Code, ChevronRight } from "lucide-react";
+import {
+  ChevronDown,
+  Save,
+  FolderOpen,
+  FilePlus,
+  Trash2,
+  Code,
+  ChevronRight,
+} from "lucide-react";
 import { useMetricsQuery } from "@/lib/query-metrics";
 import { EventPanel } from "./components/EventPanel";
 import { ChartTypePicker } from "./components/ChartTypePicker";
@@ -46,7 +54,11 @@ export default function ExplorerPage() {
   const configParam = searchParams.get("config");
   const [loadedParam, setLoadedParam] = useState<string | null>(null);
   useEffect(() => {
-    if (configParam && configParam !== loadedParam && configParam !== currentId) {
+    if (
+      configParam &&
+      configParam !== loadedParam &&
+      configParam !== currentId
+    ) {
       loadConfig(configParam);
       setLoadedParam(configParam);
     }
@@ -62,7 +74,7 @@ export default function ExplorerPage() {
   const { data: result, isLoading } = useMetricsQuery(
     ["explorer-query", sql],
     sql,
-    { enabled: hasValidEvents && sql.length > 0 }
+    { enabled: hasValidEvents && sql.length > 0 },
   );
 
   const handleSave = () => {
@@ -101,7 +113,12 @@ export default function ExplorerPage() {
 
         <div className="flex items-center gap-2">
           {/* Save */}
-          <Button size="sm" variant="outline" onClick={handleSave} disabled={isSaving}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleSave}
+            disabled={isSaving}
+          >
             <Save className="h-4 w-4 mr-1" />
             {isSaving ? "Saving..." : "Save"}
           </Button>

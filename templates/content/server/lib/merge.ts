@@ -32,7 +32,7 @@ export interface MergeResult {
 export function threeWayMerge(
   base: string,
   local: string,
-  remote: string
+  remote: string,
 ): MergeResult {
   // Quick wins
   if (local === remote) return { merged: local, success: true };
@@ -54,15 +54,17 @@ export function threeWayMerge(
 
   // Apply both sets of changes to base (remote first since we apply in reverse order)
   // Sort all hunks by base line index descending so indices stay valid
-  const allHunks = [...localHunks.map(h => ({ ...h, source: "local" as const })),
-                     ...remoteHunks.map(h => ({ ...h, source: "remote" as const }))]
-    .sort((a, b) => b.baseStart - a.baseStart);
+  const allHunks = [
+    ...localHunks.map((h) => ({ ...h, source: "local" as const })),
+    ...remoteHunks.map((h) => ({ ...h, source: "remote" as const })),
+  ].sort((a, b) => b.baseStart - a.baseStart);
 
   const result = [...baseLines];
   for (const hunk of allHunks) {
-    const replacement = hunk.source === "local"
-      ? localLines.slice(hunk.newStart, hunk.newStart + hunk.newLength)
-      : remoteLines.slice(hunk.newStart, hunk.newStart + hunk.newLength);
+    const replacement =
+      hunk.source === "local"
+        ? localLines.slice(hunk.newStart, hunk.newStart + hunk.newLength)
+        : remoteLines.slice(hunk.newStart, hunk.newStart + hunk.newLength);
     result.splice(hunk.baseStart, hunk.baseLength, ...replacement);
   }
 
@@ -89,8 +91,13 @@ function computeHunks(base: string[], modified: string[]): Hunk[] {
   let li = 0;
 
   while (bi < base.length || mi < modified.length) {
-    if (li < lcs.length && bi < base.length && mi < modified.length &&
-        base[bi] === lcs[li] && modified[mi] === lcs[li]) {
+    if (
+      li < lcs.length &&
+      bi < base.length &&
+      mi < modified.length &&
+      base[bi] === lcs[li] &&
+      modified[mi] === lcs[li]
+    ) {
       // Lines match — advance all pointers
       bi++;
       mi++;
@@ -105,7 +112,10 @@ function computeHunks(base: string[], modified: string[]): Hunk[] {
         bi++;
       }
       // Advance modified pointer until we hit the next LCS line (or end)
-      while (mi < modified.length && (li >= lcs.length || modified[mi] !== lcs[li])) {
+      while (
+        mi < modified.length &&
+        (li >= lcs.length || modified[mi] !== lcs[li])
+      ) {
         mi++;
       }
 
@@ -147,7 +157,7 @@ function longestCommonSubsequence(a: string[], b: string[]): string[] {
   if (m * n > 10_000_000) return [];
 
   const dp: number[][] = Array.from({ length: m + 1 }, () =>
-    new Array(n + 1).fill(0)
+    new Array(n + 1).fill(0),
   );
 
   for (let i = 1; i <= m; i++) {

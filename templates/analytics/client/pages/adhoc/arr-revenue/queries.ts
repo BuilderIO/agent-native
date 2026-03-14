@@ -113,7 +113,7 @@ export function arrOverTimeQuery(
   cadence: Cadence,
   fiscalYear: number,
   productGroup?: string,
-  statusGroup?: string
+  statusGroup?: string,
 ): string {
   const truncFn = trunc(cadence);
   const useFiscal = cadence === "Monthly" || cadence === "Quarterly";
@@ -143,7 +143,7 @@ ORDER BY period`;
 /** Breakdown by status */
 export function statusBreakdownQuery(
   fiscalYear: number,
-  productGroup?: string
+  productGroup?: string,
 ): string {
   const filters = [`fiscal_year = ${fiscalYear}`];
   if (productGroup) filters.push(`product_group = '${productGroup}'`);
@@ -216,10 +216,9 @@ ORDER BY fiscal_quarter`;
 export function topCustomersQuery(
   fiscalYear: number,
   direction: "positive" | "negative",
-  limit: number = 20
+  limit: number = 20,
 ): string {
-  const filter =
-    direction === "positive" ? "arr_change > 0" : "arr_change < 0";
+  const filter = direction === "positive" ? "arr_change > 0" : "arr_change < 0";
   const orderDir = direction === "positive" ? "DESC" : "ASC";
 
   return `WITH ${baseCte()}
@@ -239,7 +238,7 @@ LIMIT ${limit}`;
 /** Raw event-level data (paginated via LIMIT) */
 export function rawEventsQuery(
   fiscalYear: number,
-  limit: number = 200
+  limit: number = 200,
 ): string {
   return `WITH ${baseCte()}
 SELECT

@@ -24,7 +24,7 @@ function createOAuth2Client() {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
     throw new Error(
-      "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in environment"
+      "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in environment",
     );
   }
   return new google.auth.OAuth2(clientId, clientSecret, REDIRECT_URI);
@@ -63,7 +63,7 @@ export async function getClient() {
 
 export async function listEvents(
   timeMin: string,
-  timeMax: string
+  timeMax: string,
 ): Promise<CalendarEvent[]> {
   const client = await getClient();
   if (!client) return [];
@@ -94,7 +94,7 @@ export async function listEvents(
 }
 
 export async function createEvent(
-  event: CalendarEvent
+  event: CalendarEvent,
 ): Promise<string | undefined> {
   const client = await getClient();
   if (!client) return undefined;
@@ -120,7 +120,7 @@ export async function createEvent(
 
 export async function updateEvent(
   googleEventId: string,
-  event: Partial<CalendarEvent>
+  event: Partial<CalendarEvent>,
 ): Promise<void> {
   const client = await getClient();
   if (!client) return;
@@ -163,7 +163,11 @@ export async function deleteEvent(googleEventId: string): Promise<void> {
 export function isConnected(): boolean {
   const tokens = readJsonFile<GoogleTokens>(TOKENS_PATH);
   if (!tokens) return false;
-  if (tokens.expiry_date && tokens.expiry_date < Date.now() && !tokens.refresh_token) {
+  if (
+    tokens.expiry_date &&
+    tokens.expiry_date < Date.now() &&
+    !tokens.refresh_token
+  ) {
     return false;
   }
   return true;

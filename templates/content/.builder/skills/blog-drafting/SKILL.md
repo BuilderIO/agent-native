@@ -30,10 +30,12 @@ Write a first draft of a blog post from an approved outline and research artifac
 Read `content_timing` and `content_goal` from `phases/01-topic-validation.yaml`.
 
 **Content timing:**
+
 - If `content_timing: trending`: See the Trending Topic Mode section below for adjustments.
 - If `content_timing: evergreen`: Continue with Step 1 using all available data.
 
 **Content goal** (drives Builder.io integration):
+
 - `awareness`: No promotional Builder.io mentions (product pitches, dedicated sections, CTAs). The post stands on its own. Internal links to related Builder.io blog posts are fine -- they are subtle and help SEO.
 - `acquisition`: Read `integration_pattern` and `builder_capability` from Phase 1 output. If the `builder-product-knowledge` skill has been loaded, use it to write the product section. If it has not been loaded, do not mention Builder.io.
 - `hybrid`: Include a light CTA connecting the topic to Builder.io. No Builder.io mentions in the body.
@@ -47,6 +49,7 @@ Check for `refresh-scope.yaml` in the output folder.
 Enter refresh drafting mode. Read the original post content (from fetched seed URL content or existing `post.md`).
 
 For each section in the outline:
+
 - **[KEEP]:** Copy the section verbatim from the original post. Do not modify content. Exception: transition sentences at section boundaries may be lightly edited for flow with adjacent REWRITE/ADD sections.
 - **[REWRITE]:** Draft the section fresh using current research. Follow standard Step 3 rules. Reference the original section's approach to maintain voice consistency.
 - **[ADD]:** Draft the section fresh. Follow standard Step 3 rules. Write transition sentences that connect naturally to surrounding sections.
@@ -91,6 +94,7 @@ If `seed/keywords.txt` does not exist, skip this step.
 ### Step 1.7: Review Verification Checklist
 
 If `phases/05.5-content-spec-analysis.yaml` exists, read the `verification_checklist` array. Each item contains:
+
 - `claim`: a factual statement that needs verification
 - `section`: the heading where this claim appears
 - `method`: suggested verification approach (WebSearch or WebFetch URL)
@@ -109,6 +113,7 @@ Use the hook type and specific hook idea from the outline.
 **Temporal framing:** Read the current date. Frame recent events using relative language ("recently", "just launched") rather than absolute ("in early 2026"). Absolute year references work in titles and meta descriptions for SEO but sound unnatural in body copy when the year is still new.
 
 **Execution rules:**
+
 1. Open with the hook. No preamble, no throat-clearing, no "In this article."
 2. Follow the hook with 1-2 sentences of context: what problem this solves and who it's for.
 3. End the introduction with a thesis sentence: what the reader will learn or be able to do.
@@ -117,14 +122,14 @@ Use the hook type and specific hook idea from the outline.
 
 **Hook execution by type:**
 
-| Hook Type | First Sentence Pattern |
-|-----------|----------------------|
-| Bold Claim | State the claim directly. No hedging. |
-| Story Start | Drop into the moment. "Last week, I..." or "The deploy failed at 2am." |
-| Contrarian | State the popular opinion, then pivot. "Everyone says X. The data says otherwise." |
-| Question | Ask the question. Make it specific. Then immediately start answering it. |
-| Statistic | Lead with the number. "40% faster. That's what we measured after..." |
-| Problem | Describe the pain. The reader should nod in recognition. |
+| Hook Type   | First Sentence Pattern                                                             |
+| ----------- | ---------------------------------------------------------------------------------- |
+| Bold Claim  | State the claim directly. No hedging.                                              |
+| Story Start | Drop into the moment. "Last week, I..." or "The deploy failed at 2am."             |
+| Contrarian  | State the popular opinion, then pivot. "Everyone says X. The data says otherwise." |
+| Question    | Ask the question. Make it specific. Then immediately start answering it.           |
+| Statistic   | Lead with the number. "40% faster. That's what we measured after..."               |
+| Problem     | Describe the pain. The reader should nod in recognition.                           |
 
 See [writing-patterns.md](./references/writing-patterns.md) for full hook formulas with examples and anti-patterns to avoid.
 
@@ -171,19 +176,20 @@ Skip this step entirely for `awareness` content.
 
 For `acquisition` content, write the Builder.io section based on the `integration_pattern` from Phase 1:
 
-| Pattern | Approach |
-|---------|----------|
-| `product-showcase` | Builder.io is woven throughout the post as the tool being used. Product mention is organic because Builder.io IS the subject. |
-| `before-after` | Dedicated section showing the workflow pain point and the Builder.io improvement. |
-| `honest-comparison` | Feature comparison section where Builder.io is one of the options evaluated honestly. |
-| `problem-solution` | Lead with the audience's pain point, then show how Builder.io solves it specifically. Not generic -- the solution must connect to the problem discussed. |
-| `light-cta-only` | No dedicated section. A CTA line in the conclusion only. |
+| Pattern             | Approach                                                                                                                                                 |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `product-showcase`  | Builder.io is woven throughout the post as the tool being used. Product mention is organic because Builder.io IS the subject.                            |
+| `before-after`      | Dedicated section showing the workflow pain point and the Builder.io improvement.                                                                        |
+| `honest-comparison` | Feature comparison section where Builder.io is one of the options evaluated honestly.                                                                    |
+| `problem-solution`  | Lead with the audience's pain point, then show how Builder.io solves it specifically. Not generic -- the solution must connect to the problem discussed. |
+| `light-cta-only`    | No dedicated section. A CTA line in the conclusion only.                                                                                                 |
 
 For `hybrid` content, skip this step. The CTA goes in the conclusion (Step 7).
 
 **Hybrid anti-pattern -- competitor validation:** When the post's analysis section identifies limitations of a competitor's approach, do not write paragraphs that validate when the competitor's approach works ("the roundtrip earns its keep when...", "the right tool depends on team size"). The post's own analysis has already shown the limitations. The conclusion positions Builder.io as the better approach -- don't undermine it with hedging.
 
 **Integration rules:**
+
 - Reference the `builder_capability` from Phase 1 output (e.g., "parallel-agents", "collaborative-workspace", "figma-integration")
 - Frame the Builder.io section around the `messaging_pillar` from Phase 1 output (Context, Collaboration, or Trust). The pillar determines the framing angle -- lead with the pillar's core message when introducing Builder.io's solution.
 - The 80/20 rule: 80% of the article delivers standalone value. The Builder.io section is at most 20%.
@@ -206,6 +212,7 @@ If the outline includes an FAQ section:
 2. **CTA:** Use the CTA template matching the content goal. See [writing-patterns.md](./references/writing-patterns.md) for templates by goal (awareness / acquisition / hybrid).
 
 **Conclusion rules:**
+
 - No "In conclusion..."
 - No generic sign-offs ("Happy coding!", "I hope this was helpful")
 - The CTA must reference something specific from the post
@@ -217,6 +224,7 @@ If the outline includes an FAQ section:
 Review the full draft for rhythm. See [writing-patterns.md](./references/writing-patterns.md) for the complete rhythm rules.
 
 **Quick checks:**
+
 - No paragraph longer than 3 sentences (4 is hard max)
 - Sentence length varies within each section (mix short punches with longer explanations)
 - Not every paragraph opens with a topic sentence
@@ -326,7 +334,7 @@ keyword_density_check:
   keywords_below_target: []
   keywords_above_target: []
   keywords_on_target: []
-spec_checklist_results:          # Only present if Phase 5.5 ran
+spec_checklist_results: # Only present if Phase 5.5 ran
   verified: []
   unverified: []
   not_applicable: []
@@ -380,10 +388,12 @@ The outline's per-section word budget is the target. Follow it, not a fixed numb
 Delegate to the Style Guide skill for all voice and tone rules.
 
 **Load order:**
+
 1. Project default: `.builder/skills/style-guide/references/default-voice-and-tone.md`
 2. Local override: `.content-style-guide.md` at project root
 
 Local rules take precedence. If the Style Guide skill has not been built yet, apply these baseline rules:
+
 - Conversational, direct tone. Use "you" and "I."
 - No AI-sounding phrases. See anti-patterns in [writing-patterns.md](./references/writing-patterns.md).
 - Short paragraphs. 1-3 sentences.

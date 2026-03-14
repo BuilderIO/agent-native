@@ -22,7 +22,9 @@ function Main() {
       <div className="text-center space-y-4">
         <h1 className="text-4xl font-bold">Agent-Native App</h1>
         <p className="text-muted-foreground">
-          Edit <code className="bg-muted px-2 py-1 rounded">client/App.tsx</code> to get started.
+          Edit{" "}
+          <code className="bg-muted px-2 py-1 rounded">client/App.tsx</code> to
+          get started.
         </p>
         <p className="text-sm text-muted-foreground">
           API health: <HealthCheck />

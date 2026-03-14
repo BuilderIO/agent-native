@@ -14,22 +14,27 @@ interface ModelDropdownProps {
   onToggleModel: (model: ImageGenModel) => void;
 }
 
-export function ModelDropdown({ selectedModels, onToggleModel }: ModelDropdownProps) {
+export function ModelDropdown({
+  selectedModels,
+  onToggleModel,
+}: ModelDropdownProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const handleClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
-  const label = selectedModels.length === 1
-    ? models.find((m) => m.value === selectedModels[0])?.label ?? "Model"
-    : `${selectedModels.length} models`;
+  const label =
+    selectedModels.length === 1
+      ? (models.find((m) => m.value === selectedModels[0])?.label ?? "Model")
+      : `${selectedModels.length} models`;
 
   return (
     <div className="relative" ref={ref}>
@@ -50,10 +55,14 @@ export function ModelDropdown({ selectedModels, onToggleModel }: ModelDropdownPr
                 onClick={() => onToggleModel(m.value)}
                 className="flex items-center gap-2 w-full px-2 py-1.5 text-[11px] rounded-md hover:bg-muted transition-colors text-left"
               >
-                <div className={cn(
-                  "w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0",
-                  isSelected ? "bg-foreground border-foreground" : "border-border"
-                )}>
+                <div
+                  className={cn(
+                    "w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0",
+                    isSelected
+                      ? "bg-foreground border-foreground"
+                      : "border-border",
+                  )}
+                >
                   {isSelected && <Check size={9} className="text-background" />}
                 </div>
                 {m.label}

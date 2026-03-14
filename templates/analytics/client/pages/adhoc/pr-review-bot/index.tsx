@@ -61,10 +61,13 @@ export default function PRReviewBotDashboard() {
 
   const timeSeries = useMetricsQuery(
     ["pr-review-prs-reviewed", dateRange],
-    prsReviewedSql(dateRange)
+    prsReviewedSql(dateRange),
   );
 
-  const kpis = useMetricsQuery(["pr-review-kpis", dateRange], kpiSql(dateRange));
+  const kpis = useMetricsQuery(
+    ["pr-review-kpis", dateRange],
+    kpiSql(dateRange),
+  );
 
   const chartData = useMemo(() => {
     return (timeSeries.data?.rows ?? []).map((row) => ({
@@ -89,8 +92,7 @@ export default function PRReviewBotDashboard() {
                 size="sm"
                 className={cn(
                   "h-7 px-2 text-xs",
-                  dateRange === opt.value &&
-                    "bg-accent text-accent-foreground"
+                  dateRange === opt.value && "bg-accent text-accent-foreground",
                 )}
                 onClick={() => setDateRange(opt.value)}
               >

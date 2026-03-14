@@ -22,8 +22,10 @@ import { Route as DocsServerRouteImport } from './routes/docs/server'
 import { Route as DocsScriptsRouteImport } from './routes/docs/scripts'
 import { Route as DocsKeyConceptsRouteImport } from './routes/docs/key-concepts'
 import { Route as DocsHarnessesRouteImport } from './routes/docs/harnesses'
+import { Route as DocsDatabaseAdaptersRouteImport } from './routes/docs/database-adapters'
 import { Route as DocsCreatingTemplatesRouteImport } from './routes/docs/creating-templates'
 import { Route as DocsClientRouteImport } from './routes/docs/client'
+import { Route as DocsCliAdaptersRouteImport } from './routes/docs/cli-adapters'
 
 const TemplatesRoute = TemplatesRouteImport.update({
   id: '/templates',
@@ -90,6 +92,11 @@ const DocsHarnessesRoute = DocsHarnessesRouteImport.update({
   path: '/docs/harnesses',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DocsDatabaseAdaptersRoute = DocsDatabaseAdaptersRouteImport.update({
+  id: '/docs/database-adapters',
+  path: '/docs/database-adapters',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DocsCreatingTemplatesRoute = DocsCreatingTemplatesRouteImport.update({
   id: '/docs/creating-templates',
   path: '/docs/creating-templates',
@@ -100,12 +107,19 @@ const DocsClientRoute = DocsClientRouteImport.update({
   path: '/docs/client',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DocsCliAdaptersRoute = DocsCliAdaptersRouteImport.update({
+  id: '/docs/cli-adapters',
+  path: '/docs/cli-adapters',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/templates': typeof TemplatesRouteWithChildren
+  '/docs/cli-adapters': typeof DocsCliAdaptersRoute
   '/docs/client': typeof DocsClientRoute
   '/docs/creating-templates': typeof DocsCreatingTemplatesRoute
+  '/docs/database-adapters': typeof DocsDatabaseAdaptersRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
   '/docs/key-concepts': typeof DocsKeyConceptsRoute
   '/docs/scripts': typeof DocsScriptsRoute
@@ -120,8 +134,10 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/docs/cli-adapters': typeof DocsCliAdaptersRoute
   '/docs/client': typeof DocsClientRoute
   '/docs/creating-templates': typeof DocsCreatingTemplatesRoute
+  '/docs/database-adapters': typeof DocsDatabaseAdaptersRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
   '/docs/key-concepts': typeof DocsKeyConceptsRoute
   '/docs/scripts': typeof DocsScriptsRoute
@@ -138,8 +154,10 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/templates': typeof TemplatesRouteWithChildren
+  '/docs/cli-adapters': typeof DocsCliAdaptersRoute
   '/docs/client': typeof DocsClientRoute
   '/docs/creating-templates': typeof DocsCreatingTemplatesRoute
+  '/docs/database-adapters': typeof DocsDatabaseAdaptersRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
   '/docs/key-concepts': typeof DocsKeyConceptsRoute
   '/docs/scripts': typeof DocsScriptsRoute
@@ -157,8 +175,10 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/templates'
+    | '/docs/cli-adapters'
     | '/docs/client'
     | '/docs/creating-templates'
+    | '/docs/database-adapters'
     | '/docs/harnesses'
     | '/docs/key-concepts'
     | '/docs/scripts'
@@ -173,8 +193,10 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/docs/cli-adapters'
     | '/docs/client'
     | '/docs/creating-templates'
+    | '/docs/database-adapters'
     | '/docs/harnesses'
     | '/docs/key-concepts'
     | '/docs/scripts'
@@ -190,8 +212,10 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/templates'
+    | '/docs/cli-adapters'
     | '/docs/client'
     | '/docs/creating-templates'
+    | '/docs/database-adapters'
     | '/docs/harnesses'
     | '/docs/key-concepts'
     | '/docs/scripts'
@@ -208,8 +232,10 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   TemplatesRoute: typeof TemplatesRouteWithChildren
+  DocsCliAdaptersRoute: typeof DocsCliAdaptersRoute
   DocsClientRoute: typeof DocsClientRoute
   DocsCreatingTemplatesRoute: typeof DocsCreatingTemplatesRoute
+  DocsDatabaseAdaptersRoute: typeof DocsDatabaseAdaptersRoute
   DocsHarnessesRoute: typeof DocsHarnessesRoute
   DocsKeyConceptsRoute: typeof DocsKeyConceptsRoute
   DocsScriptsRoute: typeof DocsScriptsRoute
@@ -310,6 +336,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsHarnessesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/docs/database-adapters': {
+      id: '/docs/database-adapters'
+      path: '/docs/database-adapters'
+      fullPath: '/docs/database-adapters'
+      preLoaderRoute: typeof DocsDatabaseAdaptersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/docs/creating-templates': {
       id: '/docs/creating-templates'
       path: '/docs/creating-templates'
@@ -322,6 +355,13 @@ declare module '@tanstack/react-router' {
       path: '/docs/client'
       fullPath: '/docs/client'
       preLoaderRoute: typeof DocsClientRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/docs/cli-adapters': {
+      id: '/docs/cli-adapters'
+      path: '/docs/cli-adapters'
+      fullPath: '/docs/cli-adapters'
+      preLoaderRoute: typeof DocsCliAdaptersRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -352,8 +392,10 @@ const TemplatesRouteWithChildren = TemplatesRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   TemplatesRoute: TemplatesRouteWithChildren,
+  DocsCliAdaptersRoute: DocsCliAdaptersRoute,
   DocsClientRoute: DocsClientRoute,
   DocsCreatingTemplatesRoute: DocsCreatingTemplatesRoute,
+  DocsDatabaseAdaptersRoute: DocsDatabaseAdaptersRoute,
   DocsHarnessesRoute: DocsHarnessesRoute,
   DocsKeyConceptsRoute: DocsKeyConceptsRoute,
   DocsScriptsRoute: DocsScriptsRoute,

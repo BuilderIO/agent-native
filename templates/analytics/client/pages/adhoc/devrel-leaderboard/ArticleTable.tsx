@@ -1,7 +1,13 @@
 import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, ChevronRight } from "lucide-react";
+import {
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatNumber, formatPercent } from "../top-funnel/types";
 import type { BlogPageSeo, RankedKeyword } from "@/lib/api-hooks";
@@ -136,7 +142,10 @@ export function ArticleTable({
         ) : (
           <div className="overflow-auto max-h-[600px]">
             <table className="w-full text-xs">
-              <thead className="sticky top-0 z-10" style={{ backgroundColor: 'hsl(var(--table-header))' }}>
+              <thead
+                className="sticky top-0 z-10"
+                style={{ backgroundColor: "hsl(var(--table-header))" }}
+              >
                 <tr className="border-b border-border">
                   <th className="w-6 py-2 px-1" />
                   {COLUMNS.map((col) => (
@@ -144,7 +153,7 @@ export function ArticleTable({
                       key={col.key}
                       className={cn(
                         "text-left py-2 px-2 font-medium text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap select-none",
-                        col.width
+                        col.width,
                       )}
                       onClick={() => handleSort(col.key)}
                     >
@@ -166,7 +175,7 @@ export function ArticleTable({
                         key={i}
                         className={cn(
                           "border-b border-border/30 hover:bg-muted/30 cursor-pointer",
-                          isExpanded && "bg-muted/20"
+                          isExpanded && "bg-muted/20",
                         )}
                         onClick={() =>
                           setExpandedSlug(isExpanded ? null : slug)
@@ -189,11 +198,10 @@ export function ArticleTable({
                               col.format === "text"
                                 ? "max-w-[220px] truncate"
                                 : "text-right tabular-nums",
-                              col.key === "base_url" &&
-                                "font-mono text-[11px]",
+                              col.key === "base_url" && "font-mono text-[11px]",
                               (col.key === "seo_etv" ||
                                 col.key === "seo_keywords") &&
-                                "text-blue-400"
+                                "text-blue-400",
                             )}
                             title={
                               col.format === "text"
@@ -262,9 +270,7 @@ function KeywordDrillDown({ slug }: { slug: string }) {
           <tr className="text-muted-foreground">
             <th className="text-left py-1 px-2 font-medium">Keyword</th>
             <th className="text-right py-1 px-2 font-medium">Rank</th>
-            <th className="text-right py-1 px-2 font-medium">
-              Search Vol
-            </th>
+            <th className="text-right py-1 px-2 font-medium">Search Vol</th>
             <th className="text-right py-1 px-2 font-medium">Est. Traffic</th>
           </tr>
         </thead>

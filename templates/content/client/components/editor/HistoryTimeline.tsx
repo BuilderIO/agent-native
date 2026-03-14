@@ -26,7 +26,7 @@ export function HistoryTimeline({
 }: HistoryTimelineProps) {
   const selectedIndex = Math.max(
     versions.findIndex((version) => version.id === selectedVersionId),
-    0
+    0,
   );
   const selectedVersion = versions[selectedIndex] ?? null;
 
@@ -63,7 +63,10 @@ export function HistoryTimeline({
             </Button>
           )}
         </div>
-        <p className="mt-3">No saved history yet. Make an edit and wait for autosave to create the first snapshot.</p>
+        <p className="mt-3">
+          No saved history yet. Make an edit and wait for autosave to create the
+          first snapshot.
+        </p>
       </div>
     );
   }
@@ -86,9 +89,13 @@ export function HistoryTimeline({
                   <Bot className="h-3 w-3" />
                 )}
                 {selectedVersion.actorDisplayName ||
-                  (selectedVersion.actorType === "user" ? "Builder User" : "Agent")}
+                  (selectedVersion.actorType === "user"
+                    ? "Builder User"
+                    : "Agent")}
               </Badge>
-              <span>{dateTimeFormatter.format(new Date(selectedVersion.timestamp))}</span>
+              <span>
+                {dateTimeFormatter.format(new Date(selectedVersion.timestamp))}
+              </span>
               <span>
                 +{selectedVersion.wordsAdded} / -{selectedVersion.wordsRemoved}
               </span>
@@ -118,7 +125,7 @@ export function HistoryTimeline({
                   "rounded-lg border px-3 py-3 text-left transition-colors",
                   isSelected
                     ? "border-primary bg-primary/5"
-                    : "border-border hover:bg-muted/50"
+                    : "border-border hover:bg-muted/50",
                 )}
               >
                 <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">

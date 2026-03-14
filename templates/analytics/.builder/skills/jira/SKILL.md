@@ -21,27 +21,27 @@ description: >
 
 ### Exported Functions
 
-| Function | Description |
-|---|---|
-| `searchIssues(jql, fields?, maxResults?)` | Search via JQL |
-| `getIssue(issueKey)` | Get single issue detail |
-| `getProjects()` | List all projects |
-| `getStatuses(projectKey?)` | List statuses (optionally by project) |
-| `getBoards()` | List agile boards |
-| `getSprints(boardId)` | List sprints for a board |
-| `getAnalytics(projects, days)` | Aggregate ticket analytics |
+| Function                                  | Description                           |
+| ----------------------------------------- | ------------------------------------- |
+| `searchIssues(jql, fields?, maxResults?)` | Search via JQL                        |
+| `getIssue(issueKey)`                      | Get single issue detail               |
+| `getProjects()`                           | List all projects                     |
+| `getStatuses(projectKey?)`                | List statuses (optionally by project) |
+| `getBoards()`                             | List agile boards                     |
+| `getSprints(boardId)`                     | List sprints for a board              |
+| `getAnalytics(projects, days)`            | Aggregate ticket analytics            |
 
 ### API Routes
 
-| Route | Description |
-|---|---|
-| `GET /api/jira/search` | Search tickets via JQL |
-| `GET /api/jira/issue` | Get issue detail |
-| `GET /api/jira/projects` | List projects |
-| `GET /api/jira/statuses` | List statuses |
-| `GET /api/jira/boards` | List boards |
-| `GET /api/jira/sprints` | List sprints |
-| `GET /api/jira/analytics` | Ticket analytics |
+| Route                     | Description            |
+| ------------------------- | ---------------------- |
+| `GET /api/jira/search`    | Search tickets via JQL |
+| `GET /api/jira/issue`     | Get issue detail       |
+| `GET /api/jira/projects`  | List projects          |
+| `GET /api/jira/statuses`  | List statuses          |
+| `GET /api/jira/boards`    | List boards            |
+| `GET /api/jira/sprints`   | List sprints           |
+| `GET /api/jira/analytics` | Ticket analytics       |
 
 ### Dashboard
 

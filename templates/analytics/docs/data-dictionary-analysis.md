@@ -3,6 +3,7 @@
 ## Executive Summary
 
 **Current State:**
+
 - 38 total metrics defined
 - ✅ **100% complete**: Definition, Table, Department
 - ❌ **100% missing**: Owner
@@ -15,6 +16,7 @@
 **Problem:** Two entries are not metrics but reusable business logic:
 
 **Current:**
+
 - `⚙ Root Org ID Resolution (Business Logic)`
 - `⚙ Paid Org Filter (Business Logic)`
 
@@ -29,16 +31,19 @@ Many metrics are derivatives/calculations of base concepts. We should organize h
 #### **Example 1: Visitor → Conversion Funnel**
 
 **Base Metrics:**
+
 - Traffic (distinct visitor IDs)
 - Signups
 - QLs (Qualified Leads)
 
 **Derived Metrics (nest under parent):**
-- Signup Rate (Signups ÷ Traffic) → *child of Traffic + Signups*
-- QL Rate (QLs ÷ Signups) → *child of QLs + Signups*
-- WoW Signups Growth → *child of Signups*
+
+- Signup Rate (Signups ÷ Traffic) → _child of Traffic + Signups_
+- QL Rate (QLs ÷ Signups) → _child of QLs + Signups_
+- WoW Signups Growth → _child of Signups_
 
 **Recommended Structure:**
+
 ```
 📊 Traffic
   ├─ Definition: distinct visitor ids
@@ -57,19 +62,23 @@ Many metrics are derivatives/calculations of base concepts. We should organize h
 #### **Example 2: Subscription Metrics**
 
 **Base:**
+
 - Self Serve Paid Subs
 
 **Derived:**
-- Signup to Paid Sub Conversion (Paid Subs ÷ Signups) → *child of both*
+
+- Signup to Paid Sub Conversion (Paid Subs ÷ Signups) → _child of both_
 
 #### **Example 3: Enterprise Account Health**
 
 **Base Concepts to Define:**
+
 - Pageviews (not currently defined!)
 - Spaces (not currently defined!)
 - Registered Users (not currently defined!)
 
 **Derived (current metrics):**
+
 - % Pageviews Utilized
 - % Spaces Utilized
 - % Registered Users Utilized
@@ -113,10 +122,11 @@ Several "% Utilized" metrics reference concepts that aren't defined:
 - Pipeline (generic - includes S1, S2, S3)
 
 **Recommendation:** Create ONE "Pipeline" parent entry, then add a "Cuts" field for stage breakdowns:
+
 ```
 📊 Pipeline
   Definition: Total deal amount for qualified open deals
-  Cuts: 
+  Cuts:
     - By Stage: S1 (Qualified), S2 (Demo), S3 (Verbal Commit)
     - By Owner
     - By First Pageview Date (acquisition cohort)
@@ -139,6 +149,7 @@ Several "% Utilized" metrics reference concepts that aren't defined:
 Without SQL templates, users can't self-serve. Recommend starting with top 10 most-used metrics:
 
 **High-Priority Metrics for SQL Templates:**
+
 1. Signups (most queried)
 2. Traffic
 3. QLs
@@ -153,6 +164,7 @@ Without SQL templates, users can't self-serve. Recommend starting with top 10 mo
 **Priority 2: Add Common Questions**
 
 Example for "Signups":
+
 - How many signups came from paid vs organic?
 - What's the signup trend week-over-week?
 - Which channel drives the most signups?
@@ -161,6 +173,7 @@ Example for "Signups":
 **Priority 3: Add Known Gotchas**
 
 Example for "Signups":
+
 - ⚠️ Excludes builder.io domain emails (internal users)
 - ⚠️ Invited users vs original signups tracked separately
 - ⚠️ Date field is `signup_date`, not `created_at`
@@ -168,6 +181,7 @@ Example for "Signups":
 **Priority 4: Assign Owners**
 
 Every metric needs a DRI (Directly Responsible Individual). Recommendation:
+
 - Marketing metrics → Head of Marketing
 - Sales metrics → Head of Sales
 - Product metrics → Head of Product
@@ -178,6 +192,7 @@ Every metric needs a DRI (Directly Responsible Individual). Recommendation:
 ### 6. Specific Metric Recommendations
 
 #### **Signups**
+
 ```yaml
 Current Definition: ✅ Good
 Missing Fields:
@@ -190,23 +205,24 @@ Missing Fields:
       AND email NOT LIKE '%@builder.io'
     GROUP BY 1
     ORDER BY 1 DESC
-  
+
   Common Questions:
     - How many signups came from organic vs paid channels?
     - What's the week-over-week growth rate?
     - How many invited users vs original signups?
-  
+
   Known Gotchas:
     - Excludes builder.io domain emails (internal team)
     - Use `original_signups` column to exclude invited users
     - Date field is `signup_date`, not `created_at`
-  
+
   Example Use Case:
     Track acquisition funnel performance and identify which marketing channels
     drive the most new user registrations.
 ```
 
 #### **% Pageviews Utilized**
+
 ```yaml
 Current: Standalone metric
 Recommendation: Nest under "Pageviews" parent
@@ -216,7 +232,7 @@ Parent Entry to Create:
   Definition: Number of pages loaded/viewed in a Builder.io space during a billing period
   Table: dbt_mart.enterprise_companies
   Department: Product
-  
+
   Common Questions:
     - What's our pageview capacity vs usage?
     - Which accounts are approaching their limits?
@@ -229,6 +245,7 @@ Child Metric (existing):
 ```
 
 #### **Current ARR**
+
 ```yaml
 Current Definition: ✅ Good
 Missing Fields:
@@ -239,17 +256,17 @@ Missing Fields:
     FROM dbt_mart.enterprise_companies
     WHERE current_enterprise_arr > 0
     ORDER BY current_enterprise_arr DESC
-  
+
   Common Questions:
     - What's the total ARR across all enterprise accounts?
     - Which accounts have the highest ARR?
     - How has ARR trended month-over-month?
-  
+
   Known Gotchas:
     - Only includes enterprise accounts (excludes self-serve)
     - ARR is normalized to annual value (monthly contracts × 12)
     - Field is called `current_enterprise_arr` in the table
-  
+
   Example Use Case:
     Monitor recurring revenue health and identify expansion opportunities
     with high-value accounts.
@@ -264,12 +281,12 @@ Missing Fields:
   📊 Traffic (Base)
     ├─ New Visitors
     └─ Page Performance
-  
+
   📊 Signups (Base)
     ├─ 📈 Signup Rate
     ├─ 📈 WoW Signups Growth
     └─ 📈 Signup to Paid Sub Conversion
-  
+
   📊 QLs - Qualified Leads (Base)
     └─ 📈 QL Rate
 
@@ -285,13 +302,13 @@ Missing Fields:
   📊 Monthly User Count
   📊 Pageviews (Base) [NEW]
     └─ 📈 % Pageviews Utilized
-  
+
   📊 Spaces (Base) [NEW]
     └─ 📈 % Spaces Utilized
-  
+
   📊 Registered Users (Base) [NEW]
     └─ 📈 % Registered Users Utilized
-  
+
   📊 Sessions
     └─ 📈 % Users with ≥1 Session (Last 30 Days)
 
@@ -312,22 +329,26 @@ Missing Fields:
 ## Implementation Priorities
 
 ### Phase 1: Quick Wins (Week 1)
+
 1. ✅ Move business logic entries to "Common Filters" section
 2. ✅ Add 3 missing base metrics (Pageviews, Spaces, Registered Users)
 3. ✅ Assign owners to all 38 metrics
 4. ✅ Add Common Questions to top 10 metrics
 
 ### Phase 2: SQL Templates (Week 2-3)
+
 1. Write query templates for top 10 most-used metrics
 2. Add Known Gotchas for top 10
 3. Add Example Use Cases for top 10
 
 ### Phase 3: Hierarchy (Week 3-4)
+
 1. Reorganize into parent/child taxonomy
 2. Add cross-references between related metrics
 3. Create "Cuts" field for dimension breakdowns
 
 ### Phase 4: Complete Coverage (Ongoing)
+
 1. SQL templates for remaining 28 metrics
 2. Common Questions for all metrics
 3. Known Gotchas for all metrics
@@ -337,13 +358,13 @@ Missing Fields:
 
 ## Field Completion Targets
 
-| Field | Current | Target (30 days) | Target (90 days) |
-|---|---|---|---|
-| Owner | 0% | 100% | 100% |
-| Query Template | 5% | 30% | 80% |
-| Common Questions | 5% | 30% | 80% |
-| Known Gotchas | 5% | 20% | 60% |
-| Example Use Case | 5% | 20% | 60% |
+| Field            | Current | Target (30 days) | Target (90 days) |
+| ---------------- | ------- | ---------------- | ---------------- |
+| Owner            | 0%      | 100%             | 100%             |
+| Query Template   | 5%      | 30%              | 80%              |
+| Common Questions | 5%      | 30%              | 80%              |
+| Known Gotchas    | 5%      | 20%              | 60%              |
+| Example Use Case | 5%      | 20%              | 60%              |
 
 ---
 

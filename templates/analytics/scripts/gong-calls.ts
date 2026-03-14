@@ -10,7 +10,12 @@
  *   pnpm script gong-calls --users  (list Gong users)
  */
 import { parseArgs, output } from "./helpers";
-import { getCalls, getCallTranscript, getUsers, searchCalls } from "../server/lib/gong";
+import {
+  getCalls,
+  getCallTranscript,
+  getUsers,
+  searchCalls,
+} from "../server/lib/gong";
 
 const args = parseArgs();
 
@@ -26,7 +31,9 @@ if (args.users) {
   output({ calls, total: calls.length, query: args.company, days });
 } else {
   const days = args.days ? parseInt(args.days) : 30;
-  const fromDateTime = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const fromDateTime = new Date(
+    Date.now() - days * 24 * 60 * 60 * 1000,
+  ).toISOString();
   const result = await getCalls({ fromDateTime });
   output({ calls: result.calls, total: result.calls.length, days });
 }

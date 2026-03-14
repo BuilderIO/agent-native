@@ -52,8 +52,14 @@ export function ArrOverTimeChart({
 }: ArrOverTimeChartProps) {
   const sql = arrOverTimeQuery(cadence, fiscalYear, productGroup, statusGroup);
   const { data, isLoading } = useMetricsQuery(
-    ["arr-over-time", String(fiscalYear), cadence, productGroup ?? "", statusGroup ?? ""],
-    sql
+    [
+      "arr-over-time",
+      String(fiscalYear),
+      cadence,
+      productGroup ?? "",
+      statusGroup ?? "",
+    ],
+    sql,
   );
 
   const chartData = useMemo(() => {
@@ -120,9 +126,7 @@ export function ArrOverTimeChart({
                   ]}
                   labelFormatter={formatLabel}
                 />
-                <Legend
-                  wrapperStyle={{ fontSize: 11, color: "#a1a1aa" }}
-                />
+                <Legend wrapperStyle={{ fontSize: 11, color: "#a1a1aa" }} />
                 <Bar
                   dataKey="revenue_in"
                   name="Revenue In"

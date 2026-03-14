@@ -12,6 +12,7 @@ Document what worked and what didn't during content creation. Produces a searcha
 <input> $ARGUMENTS </input>
 
 **If the input above is empty, ask the user:** "What would you like to document? You can provide:
+
 1. A path to a post output folder (e.g., `output/posts/2026-02-08-react-server-components/`)
 2. A path to a single markdown file
 3. A description of what happened during content generation"
@@ -23,18 +24,21 @@ Do not proceed until you have input from the user.
 Determine the input type and extract context:
 
 ### Path to a directory
+
 1. Look for `post.md` and `metadata.yaml` in the directory
 2. Look for `phases/` subdirectory with phase artifacts
 3. Read `metadata.yaml` to get pipeline status and key metadata
 4. If `pipeline_status` is not `complete` or `status` is not one of `publish-ready`, `polished`, or `revised`, warn: "This post may not be finalized (status: [status]). Learnings from incomplete pipelines are still valuable. Continue?"
 
 ### Path to a single markdown file
+
 1. Read the file
 2. Check YAML frontmatter for `status` field
 3. If status is not `publish-ready`, `polished`, `revised`, or later, warn the user
 4. Look for a sibling `phases/` directory or `metadata.yaml` for additional context
 
 ### Free-text description
+
 1. No file validation needed
 2. The Learnings Capturer agent will work from the conversation context
 3. Phase artifacts add specificity but are not required
@@ -50,6 +54,7 @@ Pass the validated input to the Learnings Capturer agent. The agent runs its ful
 ### Phase 1: Detect and Classify
 
 The agent determines the learning type:
+
 - **Pipeline problem** -- something went wrong during generation
 - **Pipeline win** -- something went notably well
 - **Process improvement** -- insight about the workflow itself
@@ -60,6 +65,7 @@ The agent determines the learning type:
 The agent extracts specifics from:
 
 **Conversation context:**
+
 - What happened (symptom)
 - Which pipeline phase was involved (component)
 - What was tried first (what didn't work)
@@ -68,6 +74,7 @@ The agent extracts specifics from:
 - How to prevent or replicate
 
 **Phase artifacts (if the output folder was provided):**
+
 - `phases/01-topic-validation.yaml` -- content goal, content timing
 - `phases/02-keyword-research.yaml` -- Ahrefs unit count, keyword data
 - `phases/05-outline-creation.yaml` -- revision count, hook type, post type
@@ -107,6 +114,7 @@ What's next?
 ### Phase 5: Execute Decision
 
 **Option 2 (Update style guide):** The agent:
+
 1. Reads the current `.content-style-guide.md`
 2. Formulates a new rule from the learning
 3. Checks for conflicts with existing rules
@@ -114,6 +122,7 @@ What's next?
 5. Appends to `.content-style-guide.md` if approved
 
 **Option 4 (Update a skill):** The agent:
+
 1. Identifies which skill to update based on the component
 2. Proposes the specific change
 3. Presents for user approval
@@ -162,13 +171,17 @@ Pattern alert: [If 3+ similar learnings exist, note the pattern]
 ## Error Handling
 
 ### Missing Phase Artifacts
+
 If a post output folder is provided but phase artifacts are missing:
+
 - Work from available artifacts and conversation context
 - Note which artifacts were missing in the compound doc
 - Do not fail -- partial context is still valuable
 
 ### YAML Validation Failure
+
 If YAML validation fails (blocking gate in the compound docs process):
+
 - Present the validation errors to the user
 - Ask whether to fix the YAML fields or abandon
 - The most common issue is an invalid enum value -- suggest the closest valid option

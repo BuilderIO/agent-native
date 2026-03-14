@@ -82,7 +82,7 @@ Update `hub.yaml`:
      total: N
      verified: N
      implemented: N
-     planned: N  # Should be 0 after finalization
+     planned: N # Should be 0 after finalization
      errors: N
    ```
 

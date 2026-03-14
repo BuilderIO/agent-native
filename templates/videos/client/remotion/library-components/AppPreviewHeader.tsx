@@ -76,7 +76,12 @@ export const AppPreviewHeader: React.FC<AppPreviewHeaderProps> = ({
           <img
             src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/a1e15c3310f1176e6c1e9b5ff60a520650dd0d69?placeholderIfAbsent=true"
             alt=""
-            style={{ width: 15, aspectRatio: 1, objectFit: "contain", cursor: "pointer" }}
+            style={{
+              width: 15,
+              aspectRatio: 1,
+              objectFit: "contain",
+              cursor: "pointer",
+            }}
           />
         </div>
       </div>
@@ -220,12 +225,22 @@ export const AppPreviewHeader: React.FC<AppPreviewHeaderProps> = ({
         <img
           src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/5a657a3a7c0c66f62298e506a1cdcd33b0fa5801?placeholderIfAbsent=true"
           alt=""
-          style={{ width: 19, aspectRatio: 1, objectFit: "contain", cursor: "pointer" }}
+          style={{
+            width: 19,
+            aspectRatio: 1,
+            objectFit: "contain",
+            cursor: "pointer",
+          }}
         />
         <img
           src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/15e9b2a090b28b7953c43ca932eb877a204f19a0?placeholderIfAbsent=true"
           alt=""
-          style={{ width: 19, aspectRatio: 1, objectFit: "contain", cursor: "pointer" }}
+          style={{
+            width: 19,
+            aspectRatio: 1,
+            objectFit: "contain",
+            cursor: "pointer",
+          }}
         />
         <div
           style={{
@@ -305,7 +320,12 @@ export const AppPreviewHeader: React.FC<AppPreviewHeaderProps> = ({
         <img
           src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/13674a145727d75c65546b84d315a6f669744b07?placeholderIfAbsent=true"
           alt=""
-          style={{ width: 19, aspectRatio: 1, objectFit: "contain", cursor: "pointer" }}
+          style={{
+            width: 19,
+            aspectRatio: 1,
+            objectFit: "contain",
+            cursor: "pointer",
+          }}
         />
       </div>
     </div>

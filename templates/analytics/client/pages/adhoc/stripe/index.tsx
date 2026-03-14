@@ -9,18 +9,29 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, Receipt, CreditCard, RotateCcw, Repeat, Search, Package } from "lucide-react";
+import {
+  AlertCircle,
+  Receipt,
+  CreditCard,
+  RotateCcw,
+  Repeat,
+  Search,
+  Package,
+} from "lucide-react";
 import { BillingHistory, BillingHistoryLoading } from "./BillingHistory";
-import { BillingByProductHistory, BillingByProductHistoryLoading } from "./BillingByProductHistory";
+import {
+  BillingByProductHistory,
+  BillingByProductHistoryLoading,
+} from "./BillingByProductHistory";
 import { PaymentStatus, PaymentStatusLoading } from "./PaymentStatus";
 import { RefundStatus, RefundStatusLoading } from "./RefundStatus";
 import { SubscriptionList, SubscriptionListLoading } from "./SubscriptionList";
 
 function detectSearchType(input: string): string {
   const trimmed = input.trim();
-  if (trimmed.startsWith('cus_')) return 'Customer ID';
-  if (trimmed.includes('@')) return 'Email';
-  return 'Name / Root ID';
+  if (trimmed.startsWith("cus_")) return "Customer ID";
+  if (trimmed.includes("@")) return "Email";
+  return "Name / Root ID";
 }
 
 export default function StripeBillingTool() {
@@ -41,7 +52,11 @@ export default function StripeBillingTool() {
   const searchType = searchInput.trim() ? detectSearchType(searchInput) : null;
 
   const billingQuery = useStripeBilling(submittedSearch, months, enabled);
-  const billingByProductQuery = useStripeBillingByProduct(submittedSearch, months, enabled);
+  const billingByProductQuery = useStripeBillingByProduct(
+    submittedSearch,
+    months,
+    enabled,
+  );
   const paymentQuery = useStripePaymentStatus(submittedSearch, enabled);
   const refundQuery = useStripeRefunds(submittedSearch, enabled);
   const subsQuery = useStripeSubscriptions(submittedSearch, enabled);
@@ -102,10 +117,7 @@ export default function StripeBillingTool() {
               />
               <span className="text-xs text-muted-foreground">months</span>
             </div>
-            <Button
-              onClick={handleLookup}
-              disabled={!searchInput.trim()}
-            >
+            <Button onClick={handleLookup} disabled={!searchInput.trim()}>
               Look Up
             </Button>
           </div>
@@ -123,7 +135,9 @@ export default function StripeBillingTool() {
             <div className="text-xs space-y-1">
               <p className="font-medium text-amber-400">Stripe API error</p>
               {uniqueErrors.map((msg, i) => (
-                <p key={i} className="text-muted-foreground">{msg}</p>
+                <p key={i} className="text-muted-foreground">
+                  {msg}
+                </p>
               ))}
             </div>
           </CardContent>
@@ -168,7 +182,9 @@ export default function StripeBillingTool() {
               ) : subsQuery.error ? (
                 <ErrorInline error={subsQuery.error as Error} />
               ) : subsQuery.data ? (
-                <SubscriptionList subscriptions={subsQuery.data.subscriptions} />
+                <SubscriptionList
+                  subscriptions={subsQuery.data.subscriptions}
+                />
               ) : null}
             </CardContent>
           </Card>
@@ -227,7 +243,8 @@ export default function StripeBillingTool() {
                 Billing by Product History
                 {billingByProductQuery.data && (
                   <span className="text-xs text-muted-foreground font-normal">
-                    ({billingByProductQuery.data.total} products, last {months} months)
+                    ({billingByProductQuery.data.total} products, last {months}{" "}
+                    months)
                   </span>
                 )}
               </CardTitle>
@@ -238,7 +255,9 @@ export default function StripeBillingTool() {
               ) : billingByProductQuery.error ? (
                 <ErrorInline error={billingByProductQuery.error as Error} />
               ) : billingByProductQuery.data ? (
-                <BillingByProductHistory products={billingByProductQuery.data.products} />
+                <BillingByProductHistory
+                  products={billingByProductQuery.data.products}
+                />
               ) : null}
             </CardContent>
           </Card>
@@ -274,7 +293,8 @@ export default function StripeBillingTool() {
         <div className="text-center py-12 text-muted-foreground">
           <CreditCard className="h-10 w-10 mx-auto mb-3 opacity-30" />
           <p className="text-sm">
-            Search by email, name, customer ID, or root ID to see customer Stripe data.
+            Search by email, name, customer ID, or root ID to see customer
+            Stripe data.
           </p>
         </div>
       )}
@@ -283,7 +303,5 @@ export default function StripeBillingTool() {
 }
 
 function ErrorInline({ error }: { error: Error }) {
-  return (
-    <p className="text-xs text-amber-400 py-2">{error.message}</p>
-  );
+  return <p className="text-xs text-amber-400 py-2">{error.message}</p>;
 }

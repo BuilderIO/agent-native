@@ -18,11 +18,11 @@ export function TopCustomers({ fiscalYear }: TopCustomersProps) {
 
   const growth = useMetricsQuery(
     ["arr-top-growth", String(fiscalYear)],
-    growthSql
+    growthSql,
   );
   const churn = useMetricsQuery(
     ["arr-top-churn", String(fiscalYear)],
-    churnSql
+    churnSql,
   );
 
   return (
@@ -66,7 +66,7 @@ function CustomerTable({
         total_arr_change: Number(r.total_arr_change || 0),
         events: Number(r.events || 0),
       })),
-    [rawRows]
+    [rawRows],
   );
 
   return (
@@ -114,7 +114,7 @@ function CustomerTable({
                     <td
                       className={cn(
                         "py-2 px-3 text-right font-medium",
-                        positive ? "text-emerald-500" : "text-red-500"
+                        positive ? "text-emerald-500" : "text-red-500",
                       )}
                     >
                       {positive ? "+" : ""}

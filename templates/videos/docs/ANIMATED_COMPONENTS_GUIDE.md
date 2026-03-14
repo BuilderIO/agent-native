@@ -29,6 +29,7 @@ npm run generate:component ProductShowcase --elements Hero,Feature,CTA,Testimoni
 ```
 
 This creates:
+
 - Main composition file
 - Element components with animation support
 - Configuration file with cursor tracks
@@ -120,6 +121,7 @@ Child Component (receives animatedStyles)
 **NEVER create animations that users cannot see and edit.**
 
 Every visual state change MUST be visible in:
+
 1. **Animation Tracks** (timeline) - for ALL timed animations
 2. **Cursor Interactions** (hover zones) - for cursor-driven state changes
 3. **Interactive Element Registration** - ALL clickable/hoverable UI must be registered
@@ -127,6 +129,7 @@ Every visual state change MUST be visible in:
 **📘 See:** [Interactive Elements Guide](./INTERACTIVE_ELEMENTS_GUIDE.md) for complete registration patterns.
 
 **Examples requiring tracks:**
+
 - ✅ Button morphing (circle → square) - **FusionInputBox "sendButton" track**
 - ✅ Color transitions - create a "color" or "state" track
 - ✅ Text typing/clearing - use opacity or reveal tracks
@@ -313,6 +316,7 @@ const autoCursorType = useCursorTypeFromHover([
 5. **Add enter/exit** - Cursor flies in from offscreen, exits offscreen
 
 **Example timeline:**
+
 ```
 Frame 0-40:    Cursor enters from top-right
 Frame 40-45:   Cursor hovers over "Start" button
@@ -362,7 +366,7 @@ MyDashboard/
 ✅ **Type-safe props** - Full TypeScript support  
 ✅ **Default animations** - Hover lift + click press  
 ✅ **Cursor tracking** - Pre-configured cursor path  
-✅ **Properties panel** - Ready for customization  
+✅ **Properties panel** - Ready for customization
 
 ---
 
@@ -450,7 +454,10 @@ export const MyComposition = () => {
 
 ```typescript
 // At top of composition file (module level)
-import { initializeDefaultAnimations, AnimationPresets } from "@/remotion/utils/animationHelpers";
+import {
+  initializeDefaultAnimations,
+  AnimationPresets,
+} from "@/remotion/utils/animationHelpers";
 
 initializeDefaultAnimations("my-composition", [
   AnimationPresets.hoverLift("Button"),
@@ -470,25 +477,28 @@ initializeDefaultAnimations("my-composition", [
 import { AnimationPresets } from "@/remotion/utils/animationHelpers";
 
 // Lift on hover (card lifts up with shadow)
-AnimationPresets.hoverLift("Card")
+AnimationPresets.hoverLift("Card");
 
 // Press on click (button press down)
-AnimationPresets.clickPress("Button")
+AnimationPresets.clickPress("Button");
 
 // Glow on hover (element glows with color)
-AnimationPresets.hoverGlow("Panel", "#10b981")
+AnimationPresets.hoverGlow("Panel", "#10b981");
 
 // Bounce on click (element bounces)
-AnimationPresets.clickBounce("Toggle")
+AnimationPresets.clickBounce("Toggle");
 
 // Fade on hover (element fades)
-AnimationPresets.hoverFade("Image", 0.7)
+AnimationPresets.hoverFade("Image", 0.7);
 ```
 
 ### Custom Animations (Type-Safe Builder)
 
 ```typescript
-import { createAnimation, createProperty } from "@/remotion/utils/animationHelpers";
+import {
+  createAnimation,
+  createProperty,
+} from "@/remotion/utils/animationHelpers";
 
 const customHover = createAnimation("card-hover-custom", "Card", "hover")
   .setDuration(10)
@@ -499,7 +509,7 @@ const customHover = createAnimation("card-hover-custom", "Card", "hover")
       .at(1, 1.1)
       .withUnit("x")
       .withBounds(0.5, 2)
-      .build()
+      .build(),
   )
   .addProperty(
     createProperty("rotateZ")
@@ -507,7 +517,7 @@ const customHover = createAnimation("card-hover-custom", "Card", "hover")
       .at(1, 5)
       .withUnit("deg")
       .withBounds(-45, 45)
-      .build()
+      .build(),
   )
   .addProperty(
     createProperty("shadowBlur")
@@ -515,7 +525,7 @@ const customHover = createAnimation("card-hover-custom", "Card", "hover")
       .at(1, 40)
       .withUnit("px")
       .withBounds(0, 100)
-      .build()
+      .build(),
   )
   .build();
 ```
@@ -585,6 +595,7 @@ const { animatedStyles, hoverProgress, clickProgress } = useAnimatedElement({
 **Problem**: Hover/click doesn't trigger animations
 
 **Solutions**:
+
 1. ✅ Check animations initialized at module level
 2. ✅ Verify `animatedStyles` applied to DOM element
 3. ✅ Confirm element type matches animation elementType
@@ -601,6 +612,7 @@ console.log("Animations:", getAnimationsForElement("my-comp", "Button"));
 **Problem**: Elements don't have animated styles
 
 **Solutions**:
+
 1. ✅ Apply ALL properties from `animatedStyles`:
    ```typescript
    <div style={{
@@ -616,12 +628,13 @@ console.log("Animations:", getAnimationsForElement("my-comp", "Button"));
    }}>
    ```
 2. ✅ Don't override with hardcoded values:
+
    ```typescript
    // ❌ WRONG
-   background: "#3b82f6"  // Overrides animatedStyles.backgroundColor
-   
+   background: "#3b82f6"; // Overrides animatedStyles.backgroundColor
+
    // ✅ CORRECT
-   background: animatedStyles.backgroundColor
+   background: animatedStyles.backgroundColor;
    ```
 
 ### Click Not Detected
@@ -629,6 +642,7 @@ console.log("Animations:", getAnimationsForElement("my-comp", "Button"));
 **Problem**: Click animation doesn't trigger
 
 **Solutions**:
+
 1. ✅ Pass `cursorTrack` and `clickStartFrames` to AnimatedElement
 2. ✅ Ensure cursor path intersects element at click frame
 3. ✅ Check `isClicking` keyframes in cursor track
@@ -639,6 +653,7 @@ console.log("Animations:", getAnimationsForElement("my-comp", "Button"));
 **Problem**: Element doesn't show in Properties panel
 
 **Solutions**:
+
 1. ✅ Call `setCurrentElement()` on hover
 2. ✅ Use `onHoverChange` callback
 3. ✅ Verify compositionId matches
@@ -652,19 +667,19 @@ console.log("Animations:", getAnimationsForElement("my-comp", "Button"));
 
 ```typescript
 interface AnimatedElementProps {
-  id: string;                        // Unique element ID
-  elementType: string;               // Type (e.g., "Button", "Card")
-  label: string;                     // Display label for UI
-  compositionId: string;             // Composition ID
+  id: string; // Unique element ID
+  elementType: string; // Type (e.g., "Button", "Card")
+  label: string; // Display label for UI
+  compositionId: string; // Composition ID
   position: { x: number; y: number }; // Canvas position
   size: { width: number; height: number }; // Element size
-  baseColor?: string;                // Base background color
-  baseBorderColor?: string;          // Base border color
-  cursorHistory: CursorFrame[];      // From useCursorHistory()
+  baseColor?: string; // Base background color
+  baseBorderColor?: string; // Base border color
+  cursorHistory: CursorFrame[]; // From useCursorHistory()
   getAnimationsForElement: Function; // From useCurrentElement()
-  cursorTrack?: AnimationTrack;      // For click detection
-  clickStartFrames?: number[];       // Pre-calculated clicks
-  hoverPadding?: number;             // Hover zone padding (default: 8)
+  cursorTrack?: AnimationTrack; // For click detection
+  clickStartFrames?: number[]; // Pre-calculated clicks
+  hoverPadding?: number; // Hover zone padding (default: 8)
   cursorType?: "default" | "pointer" | "text"; // Cursor style
   onHoverChange?: (id: string, hovered: boolean) => void;
   onClick?: (id: string) => void;
@@ -676,14 +691,14 @@ interface AnimatedElementProps {
 
 ```typescript
 interface AnimatedStyles {
-  transform?: string;      // CSS transform (scale, translate, rotate, etc.)
-  filter?: string;         // CSS filter (brightness, blur, etc.)
-  opacity: number;         // 0-1
+  transform?: string; // CSS transform (scale, translate, rotate, etc.)
+  filter?: string; // CSS filter (brightness, blur, etc.)
+  opacity: number; // 0-1
   backgroundColor: string; // Hex or rgb color
-  borderColor: string;     // Hex or rgb color
-  borderRadius: number;    // Pixels
-  borderWidth: number;     // Pixels
-  boxShadow: string;       // CSS box-shadow
+  borderColor: string; // Hex or rgb color
+  borderRadius: number; // Pixels
+  borderWidth: number; // Pixels
+  boxShadow: string; // CSS box-shadow
 }
 ```
 

@@ -5,7 +5,9 @@ const SKILLS_DIR = path.join(process.cwd(), ".builder/skills");
 const RULES_DIR = path.join(process.cwd(), ".builder/rules");
 
 // Auth removed — stub always returns a local user
-async function getUserInfoFromToken(_req: any): Promise<{ uid: string; email: string } | null> {
+async function getUserInfoFromToken(
+  _req: any,
+): Promise<{ uid: string; email: string } | null> {
   return { uid: "local", email: "local@localhost" };
 }
 
@@ -31,17 +33,19 @@ export const handleListInstructions: RequestHandler = async (req, res) => {
     // Read skills directory
     try {
       const skillDirs = await fs.readdir(SKILLS_DIR);
-      
+
       for (const dir of skillDirs) {
         const skillPath = path.join(SKILLS_DIR, dir, "SKILL.md");
         try {
           const content = await fs.readFile(skillPath, "utf-8");
-          
+
           // Extract frontmatter description
           const frontmatterMatch = content.match(/---\n([\s\S]*?)\n---/);
           let description = "";
           if (frontmatterMatch) {
-            const descMatch = frontmatterMatch[1].match(/description:\s*>\s*([\s\S]*?)(?=\n\w+:|$)/);
+            const descMatch = frontmatterMatch[1].match(
+              /description:\s*>\s*([\s\S]*?)(?=\n\w+:|$)/,
+            );
             if (descMatch) {
               description = descMatch[1].trim().replace(/\n\s*/g, " ");
             }
@@ -65,18 +69,19 @@ export const handleListInstructions: RequestHandler = async (req, res) => {
     // Read rules directory
     try {
       const ruleFiles = await fs.readdir(RULES_DIR);
-      
+
       for (const file of ruleFiles) {
         if (file.endsWith(".mdc") || file.endsWith(".md")) {
           const rulePath = path.join(RULES_DIR, file);
           try {
             const content = await fs.readFile(rulePath, "utf-8");
-            
+
             // Extract frontmatter description
             const frontmatterMatch = content.match(/---\n([\s\S]*?)\n---/);
             let description = "";
             if (frontmatterMatch) {
-              const descMatch = frontmatterMatch[1].match(/description:\s*(.+)/);
+              const descMatch =
+                frontmatterMatch[1].match(/description:\s*(.+)/);
               if (descMatch) {
                 description = descMatch[1].trim();
               }
@@ -107,7 +112,7 @@ export const handleListInstructions: RequestHandler = async (req, res) => {
 
 /**
  * GET /api/ai-instructions/get?path=.builder/skills/bigquery/SKILL.md
- * 
+ *
  * Get content of a specific SKILL.md or .mdc file
  */
 export const handleGetInstruction: RequestHandler = async (req, res) => {
@@ -195,7 +200,9 @@ export const handleSaveInstruction: RequestHandler = async (req, res) => {
     const isAnalytics = allowedReviewers.includes(userInfo.email.toLowerCase());
 
     if (!isAdmin && !isAnalytics) {
-      res.status(403).json({ error: "Only admins and analytics team can edit AI instructions" });
+      res.status(403).json({
+        error: "Only admins and analytics team can edit AI instructions",
+      });
       return;
     }
 
@@ -218,19 +225,19 @@ export const handleSaveInstruction: RequestHandler = async (req, res) => {
     }
 
     const fullPath = path.join(process.cwd(), filePath);
-    
+
     // Ensure directory exists
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    
+
     // Write file
     await fs.writeFile(fullPath, content, "utf-8");
 
     console.log(`[ai-instructions] Saved ${filePath} by ${userInfo.email}`);
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       path: filePath,
-      savedBy: userInfo.email 
+      savedBy: userInfo.email,
     });
   } catch (err: any) {
     console.error("Save instruction error:", err.message);

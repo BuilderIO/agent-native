@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { MoreHorizontal, ArrowRightLeft, Lock, LockOpen, Trash2 } from "lucide-react";
+import {
+  MoreHorizontal,
+  ArrowRightLeft,
+  Lock,
+  LockOpen,
+  Trash2,
+} from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,8 +19,16 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useProjects, useUpdateProjectMeta, useDeleteProject } from "@/hooks/use-projects";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  useProjects,
+  useUpdateProjectMeta,
+  useDeleteProject,
+} from "@/hooks/use-projects";
 import { MoveProjectDialog } from "@/components/sidebar/MoveProjectDialog";
 
 interface ProjectActionsMenuProps {
@@ -53,7 +67,7 @@ export function ProjectActionsMenu({
     setConfirmOpen(false);
     deleteProject.mutate(
       { slug: project.slug },
-      { onSuccess: () => onProjectDeleted?.() }
+      { onSuccess: () => onProjectDeleted?.() },
     );
   };
 
@@ -79,7 +93,10 @@ export function ProjectActionsMenu({
           {project && (
             <>
               <DropdownMenuItem
-                onClick={() => { setMenuOpen(false); setMoveOpen(true); }}
+                onClick={() => {
+                  setMenuOpen(false);
+                  setMoveOpen(true);
+                }}
                 className="gap-2"
               >
                 <ArrowRightLeft size={13} className="shrink-0" />
@@ -107,7 +124,10 @@ export function ProjectActionsMenu({
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="gap-2 text-destructive focus:text-destructive"
-                onClick={() => { setMenuOpen(false); setConfirmOpen(true); }}
+                onClick={() => {
+                  setMenuOpen(false);
+                  setConfirmOpen(true);
+                }}
               >
                 <Trash2 size={13} className="shrink-0" />
                 <span>Delete</span>
@@ -115,7 +135,10 @@ export function ProjectActionsMenu({
             </>
           )}
           {!project && (
-            <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+            <DropdownMenuItem
+              disabled
+              className="text-xs text-muted-foreground"
+            >
               Loading...
             </DropdownMenuItem>
           )}

@@ -21,7 +21,9 @@ export default function HubSpotDashboard() {
   const deals = dealsQuery.data?.deals ?? [];
   const stageLabels = dealsQuery.data?.stageLabels ?? {};
   const pipelines = pipelinesQuery.data?.pipelines ?? [];
-  const error = (dealsQuery.error ?? pipelinesQuery.error ?? metricsQuery.error) as Error | null;
+  const error = (dealsQuery.error ??
+    pipelinesQuery.error ??
+    metricsQuery.error) as Error | null;
 
   return (
     <div className="space-y-4">
@@ -31,9 +33,7 @@ export default function HubSpotDashboard() {
           <CardContent className="py-3 px-4 flex items-start gap-3">
             <AlertCircle className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" />
             <div className="text-xs space-y-1">
-              <p className="font-medium text-amber-400">
-                HubSpot API error
-              </p>
+              <p className="font-medium text-amber-400">HubSpot API error</p>
               <p className="text-muted-foreground">{error.message}</p>
             </div>
           </CardContent>

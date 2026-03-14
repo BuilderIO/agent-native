@@ -1,5 +1,8 @@
 import { useCallback } from "react";
-import { useAgentChatGenerating, sendToAgentChat } from "@agent-native/core/client";
+import {
+  useAgentChatGenerating,
+  sendToAgentChat,
+} from "@agent-native/core/client";
 
 /**
  * Tracks whether an agent chat submission is in progress.
@@ -8,9 +11,12 @@ import { useAgentChatGenerating, sendToAgentChat } from "@agent-native/core/clie
 export function useAgentGenerating() {
   const [generating, send] = useAgentChatGenerating();
 
-  const submit = useCallback((message: string, context: string) => {
-    send({ message, context, submit: true });
-  }, [send]);
+  const submit = useCallback(
+    (message: string, context: string) => {
+      send({ message, context, submit: true });
+    },
+    [send],
+  );
 
   return { generating, submit };
 }

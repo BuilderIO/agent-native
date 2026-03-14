@@ -22,10 +22,11 @@ export function RegeneratePanel({
 }: RegeneratePanelProps) {
   const [prompt, setPrompt] = useState("");
   const [isGenerating, sendToAgentChat] = useAgentChatGenerating();
-  const { value: currentImageReference, reason: unresolvedReferenceReason } = useMemo(
-    () => resolveImageReferenceForChat(currentImageUrl),
-    [currentImageUrl]
-  );
+  const { value: currentImageReference, reason: unresolvedReferenceReason } =
+    useMemo(
+      () => resolveImageReferenceForChat(currentImageUrl),
+      [currentImageUrl],
+    );
 
   const handleRegenerate = () => {
     if (!prompt.trim() || isGenerating || !currentImageReference) return;
@@ -88,7 +89,9 @@ export function RegeneratePanel({
       />
 
       {!currentImageReference && unresolvedReferenceReason && (
-        <p className="text-[11px] text-amber-300/80">{unresolvedReferenceReason}</p>
+        <p className="text-[11px] text-amber-300/80">
+          {unresolvedReferenceReason}
+        </p>
       )}
 
       <div className="flex items-center justify-between">

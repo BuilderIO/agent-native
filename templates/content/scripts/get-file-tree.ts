@@ -1,6 +1,14 @@
 import fs from "fs";
 import path from "path";
-import { loadEnv, parseArgs, camelCaseArgs, isValidWorkspace, PROJECTS_DIR, SHARED_DIR, fail } from "./_utils.js";
+import {
+  loadEnv,
+  parseArgs,
+  camelCaseArgs,
+  isValidWorkspace,
+  PROJECTS_DIR,
+  SHARED_DIR,
+  fail,
+} from "./_utils.js";
 
 interface FileNode {
   name: string;
@@ -27,11 +35,25 @@ function buildFileTree(dir: string, basePath = ""): FileNode[] {
     const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name;
 
     if (entry.isDirectory()) {
-      nodes.push({ name: entry.name, path: relativePath, type: "directory", children: buildFileTree(fullPath, relativePath) });
+      nodes.push({
+        name: entry.name,
+        path: relativePath,
+        type: "directory",
+        children: buildFileTree(fullPath, relativePath),
+      });
     } else if (entry.name.endsWith(".md") || entry.name.endsWith(".json")) {
-      const node: FileNode = { name: entry.name, path: relativePath, type: "file" };
+      const node: FileNode = {
+        name: entry.name,
+        path: relativePath,
+        type: "file",
+      };
       if (entry.name.endsWith(".md")) {
-        try { node.title = extractTitle(fs.readFileSync(fullPath, "utf-8"), entry.name); } catch {}
+        try {
+          node.title = extractTitle(
+            fs.readFileSync(fullPath, "utf-8"),
+            entry.name,
+          );
+        } catch {}
       }
       nodes.push(node);
     }

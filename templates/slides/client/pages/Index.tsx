@@ -30,11 +30,15 @@ export default function Index() {
     navigate(`/deck/${deck.id}`);
   };
 
-  const handleCreateDeckWithPrompt = (prompt: string, files: UploadedFile[]) => {
+  const handleCreateDeckWithPrompt = (
+    prompt: string,
+    files: UploadedFile[],
+  ) => {
     const deck = createDeck(undefined, { noDefaultSlides: true });
-    const fileContext = files.length > 0
-      ? `\n\nThe user uploaded ${files.length} file(s) for context:\n${files.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
-      : "";
+    const fileContext =
+      files.length > 0
+        ? `\n\nThe user uploaded ${files.length} file(s) for context:\n${files.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
+        : "";
 
     const context = [
       `Create slides for a new deck "${deck.title}" (id: ${deck.id}).`,
@@ -63,7 +67,9 @@ export default function Index() {
         <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <BuilderLogo className="w-5 h-5" />
-            <span className="text-sm font-semibold text-white/90 tracking-tight">Deck Generator</span>
+            <span className="text-sm font-semibold text-white/90 tracking-tight">
+              Deck Generator
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <FeedbackButton />
@@ -96,8 +102,12 @@ export default function Index() {
         ) : (
           <>
             <div className="flex items-center justify-between mb-6">
-              <h1 className="text-lg font-semibold text-white/90">Your Decks</h1>
-              <span className="text-xs text-white/30">{decks.length} deck{decks.length !== 1 ? "s" : ""}</span>
+              <h1 className="text-lg font-semibold text-white/90">
+                Your Decks
+              </h1>
+              <span className="text-xs text-white/30">
+                {decks.length} deck{decks.length !== 1 ? "s" : ""}
+              </span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {/* New deck card */}
@@ -108,7 +118,9 @@ export default function Index() {
                 <div className="w-10 h-10 rounded-xl bg-white/[0.04] group-hover:bg-[#609FF8]/10 flex items-center justify-center transition-colors">
                   <Plus className="w-5 h-5 text-white/30 group-hover:text-[#609FF8] transition-colors" />
                 </div>
-                <span className="text-xs text-white/30 group-hover:text-white/50 transition-colors">New Deck</span>
+                <span className="text-xs text-white/30 group-hover:text-white/50 transition-colors">
+                  New Deck
+                </span>
               </button>
 
               {/* Deck cards */}
@@ -127,11 +139,17 @@ export default function Index() {
       {/* Delete Confirmation Dialog */}
       {deckToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/60" onClick={() => setDeckToDelete(null)} />
+          <div
+            className="fixed inset-0 bg-black/60"
+            onClick={() => setDeckToDelete(null)}
+          />
           <div className="relative bg-[hsl(240,5%,8%)] border border-white/[0.08] rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl">
-            <h3 className="text-base font-semibold text-white/90 mb-2">Delete Deck?</h3>
+            <h3 className="text-base font-semibold text-white/90 mb-2">
+              Delete Deck?
+            </h3>
             <p className="text-sm text-white/50 mb-5">
-              This will permanently delete this deck and all its slides. This action cannot be undone.
+              This will permanently delete this deck and all its slides. This
+              action cannot be undone.
             </p>
             <div className="flex gap-3 justify-end">
               <button
@@ -166,15 +184,22 @@ export default function Index() {
   );
 }
 
-function EmptyState({ onCreateDeck }: { onCreateDeck: (e: React.MouseEvent<HTMLElement>) => void }) {
+function EmptyState({
+  onCreateDeck,
+}: {
+  onCreateDeck: (e: React.MouseEvent<HTMLElement>) => void;
+}) {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
         <Layers className="w-7 h-7 text-[#609FF8]" />
       </div>
-      <h2 className="text-xl font-semibold text-white/90 mb-2">Create your first deck</h2>
+      <h2 className="text-xl font-semibold text-white/90 mb-2">
+        Create your first deck
+      </h2>
       <p className="text-sm text-white/40 max-w-sm mb-8 leading-relaxed">
-        Build beautiful slide presentations with AI-powered generation, image creation, and a stunning presentation mode.
+        Build beautiful slide presentations with AI-powered generation, image
+        creation, and a stunning presentation mode.
       </p>
       <button
         onClick={onCreateDeck as any}

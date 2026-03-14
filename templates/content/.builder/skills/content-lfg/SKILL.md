@@ -56,11 +56,11 @@ Run the full `/content-blog` pipeline with `--no-gates` behavior. Every phase ru
 
 **Standalone mode:**
 
-| Recommendation | Action |
-|---------------|--------|
-| **Go** | Proceed automatically |
-| **Pivot** | Auto-accept the pivot suggestion. Re-run Phase 1 with the pivoted topic. |
-| **Reject** | Stop. Output the rejection reason. Do not force a bad topic. |
+| Recommendation | Action                                                                   |
+| -------------- | ------------------------------------------------------------------------ |
+| **Go**         | Proceed automatically                                                    |
+| **Pivot**      | Auto-accept the pivot suggestion. Re-run Phase 1 with the pivoted topic. |
+| **Reject**     | Stop. Output the rejection reason. Do not force a bad topic.             |
 
 Content goal and timing classifications are accepted as-is. No override prompt.
 
@@ -72,11 +72,11 @@ Auto-approve. Proceed to Phase 5.5 (spec analysis).
 
 ### Phase 5.5: Content Spec Analysis
 
-| Confidence | Action |
-|------------|--------|
-| **Green** | Auto-proceed to Phase 6 |
-| **Yellow** | Auto-proceed. Pass `verification_checklist` and `outline_adjustments` to Phase 6 as advisory context. Log yellow issues for compound docs. |
-| **Red** | Auto-attempt ONE fix-loop: pass critical issues + `outline_adjustments` to Phase 5, re-run Gate 2 (auto-approve), re-run Phase 5.5. If still red after 1 attempt, stop pipeline. Set `pipeline_status: blocked-at-spec-analysis` in `metadata.yaml` for resume support. Report critical issues. |
+| Confidence | Action                                                                                                                                                                                                                                                                                          |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Green**  | Auto-proceed to Phase 6                                                                                                                                                                                                                                                                         |
+| **Yellow** | Auto-proceed. Pass `verification_checklist` and `outline_adjustments` to Phase 6 as advisory context. Log yellow issues for compound docs.                                                                                                                                                      |
+| **Red**    | Auto-attempt ONE fix-loop: pass critical issues + `outline_adjustments` to Phase 5, re-run Gate 2 (auto-approve), re-run Phase 5.5. If still red after 1 attempt, stop pipeline. Set `pipeline_status: blocked-at-spec-analysis` in `metadata.yaml` for resume support. Report critical issues. |
 
 ### Gate 3: Draft Approval (after Phase 6)
 
@@ -94,13 +94,16 @@ If the post exceeds the competitive median by 50%+ (or the guidance soft max if 
 ## Error Handling
 
 ### Phase Failure
+
 If any phase fails:
+
 1. Retry once
 2. If retry fails, skip the phase with a stub (`skipped: true`)
 3. Continue the pipeline
 4. Note skipped phases in the final summary
 
 ### Ahrefs MCP Unavailable
+
 Proceed with WebSearch fallbacks. Do not stop.
 
 ## Pipeline Complete

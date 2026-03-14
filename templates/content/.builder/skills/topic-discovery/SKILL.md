@@ -46,11 +46,11 @@ Seed content provides context for classification but does not override any decis
 
 Determine the primary purpose of the post:
 
-| Goal | Definition | Builder.io Role |
-|------|-----------|-----------------|
-| **awareness** | Genuinely helpful content on trending/high-demand topics. May have no connection to Builder.io. | None or tangential |
-| **acquisition** | Topics where Builder.io naturally solves the developer's problem. Product mention is organic. | Central to the solution |
-| **hybrid** | Primarily educational with a natural Builder.io connection at the end. | Light touch, end-of-article CTA |
+| Goal            | Definition                                                                                      | Builder.io Role                 |
+| --------------- | ----------------------------------------------------------------------------------------------- | ------------------------------- |
+| **awareness**   | Genuinely helpful content on trending/high-demand topics. May have no connection to Builder.io. | None or tangential              |
+| **acquisition** | Topics where Builder.io naturally solves the developer's problem. Product mention is organic.   | Central to the solution         |
+| **hybrid**      | Primarily educational with a natural Builder.io connection at the end.                          | Light touch, end-of-article CTA |
 
 Use these signals to classify:
 
@@ -62,18 +62,20 @@ Use these signals to classify:
 
 Determine whether this is an evergreen or trending topic:
 
-| Timing | Signals | Example |
-|--------|---------|---------|
-| **evergreen** | Topic has existed for months/years, established search volume | "What is a headless CMS" |
-| **trending** | Announced in last 48 hours, no established SERP, time-sensitive | "Claude 4.5 launched today" |
+| Timing        | Signals                                                         | Example                     |
+| ------------- | --------------------------------------------------------------- | --------------------------- |
+| **evergreen** | Topic has existed for months/years, established search volume   | "What is a headless CMS"    |
+| **trending**  | Announced in last 48 hours, no established SERP, time-sensitive | "Claude 4.5 launched today" |
 
 **Detection signals for trending:**
+
 - User explicitly says "just announced", "launched today", "breaking", "want to be first"
 - Topic references a specific event or release within the last 48 hours
 - WebSearch shows news results but no tutorial/blog content yet
 - Ahrefs returns zero or near-zero volume for the topic
 
 When `content_timing: trending`, the pipeline changes:
+
 - Phase 2 (Keyword Research) uses social signals instead of Ahrefs
 - Phase 3 (SERP Analysis) is skipped entirely (no SERP exists)
 - Phase 4 (Content Research) uses narrow skip: still runs HN, X, YouTube, official docs; skips Ahrefs competitive data, LLM patterns, Stack Overflow
@@ -84,11 +86,11 @@ When `content_timing: trending`, the pipeline changes:
 
 Rate the natural connection between the topic and Builder.io:
 
-| Rating | Meaning | Example |
-|--------|---------|---------|
-| **natural** | Builder.io IS the tool for this topic | "How to set up a visual CMS with Next.js" |
-| **light** | Builder.io fits as one option among many | "React state management patterns" (visual editor reduces state needs) |
-| **none** | No authentic connection exists | "Rust async programming patterns" |
+| Rating      | Meaning                                  | Example                                                               |
+| ----------- | ---------------------------------------- | --------------------------------------------------------------------- |
+| **natural** | Builder.io IS the tool for this topic    | "How to set up a visual CMS with Next.js"                             |
+| **light**   | Builder.io fits as one option among many | "React state management patterns" (visual editor reduces state needs) |
+| **none**    | No authentic connection exists           | "Rust async programming patterns"                                     |
 
 If relevance is `none`, the content goal must be `awareness`. Do not force a Builder.io connection.
 
@@ -96,13 +98,13 @@ If relevance is `none`, the content goal must be `awareness`. Do not force a Bui
 
 Determine the best format based on the topic and likely search intent:
 
-| Type | Best For | Signals |
-|------|----------|---------|
-| **tutorial** | Step-by-step implementation | "How to", "getting started", "build a" |
-| **comparison** | Evaluating alternatives | "vs", "best", "which", "alternatives" |
-| **explainer** | Conceptual understanding | "What is", "why", "how does X work" |
-| **how-to** | Achieving a specific goal | "N ways to", "improve", "optimize" |
-| **thought-leadership** | Opinion or prediction | Contrarian take, industry trend, emerging pattern |
+| Type                   | Best For                    | Signals                                           |
+| ---------------------- | --------------------------- | ------------------------------------------------- |
+| **tutorial**           | Step-by-step implementation | "How to", "getting started", "build a"            |
+| **comparison**         | Evaluating alternatives     | "vs", "best", "which", "alternatives"             |
+| **explainer**          | Conceptual understanding    | "What is", "why", "how does X work"               |
+| **how-to**             | Achieving a specific goal   | "N ways to", "improve", "optimize"                |
+| **thought-leadership** | Opinion or prediction       | Contrarian take, industry trend, emerging pattern |
 
 The post type cascades to outline templates (Phase 5), headline formulas (Phase 6), and schema markup (Phase 8).
 
@@ -113,17 +115,20 @@ The post type cascades to outline templates (Phase 5), headline formulas (Phase 
 Parse the topic to extract the individual products, tools, or concepts being compared. Store as a list for downstream phases to research each subject individually.
 
 **Extraction rules:**
+
 - Split on "vs", "vs.", "versus", "or" (when used in "X or Y" comparison context)
 - Trim whitespace and qualifiers like "in 2026", "for Enterprise"
 - Keep product names intact ("Claude Code" stays as "Claude Code", not "Claude" + "Code")
 - For 3-way comparisons ("Next.js vs Remix vs Astro"), extract all three subjects
 
 **Examples:**
+
 - "Claude Code vs Cursor" → `["Claude Code", "Cursor"]`
 - "React vs Vue for Enterprise Apps" → `["React", "Vue"]`
 - "Next.js vs Remix vs Astro" → `["Next.js", "Remix", "Astro"]`
 
 **Add disambiguators** if a subject name is generic (common English word or has multiple meanings):
+
 - "Cursor" → add `"cursor_disambiguator": "cursor ai code editor"` for platform searches
 - "Builder" → add `"builder_disambiguator": "builder.io visual development"`
 
@@ -133,12 +138,12 @@ Store as `comparison_subjects` in the output YAML. Downstream phases (Keyword Re
 
 Every post should strengthen one of Builder.io's 4 content pillars:
 
-| Pillar | Topics |
-|--------|--------|
-| **visual-development** | Visual CMS, design-to-code, component editing, Figma workflows |
-| **dev-marketer-collab** | Content workflows, reducing Jira tickets for copy changes, team handoffs |
-| **framework-integration** | Next.js, React, Angular, Qwik, Nuxt, Vue, Svelte |
-| **performance** | Core Web Vitals, image optimization, bundle size, visual editor performance |
+| Pillar                    | Topics                                                                      |
+| ------------------------- | --------------------------------------------------------------------------- |
+| **visual-development**    | Visual CMS, design-to-code, component editing, Figma workflows              |
+| **dev-marketer-collab**   | Content workflows, reducing Jira tickets for copy changes, team handoffs    |
+| **framework-integration** | Next.js, React, Angular, Qwik, Nuxt, Vue, Svelte                            |
+| **performance**           | Core Web Vitals, image optimization, bundle size, visual editor performance |
 
 For pure awareness content with no pillar fit, use the pillar closest to the topic's audience. Framework tutorials default to `framework-integration`.
 
@@ -164,6 +169,7 @@ For pure awareness content with no pillar fit, use the pillar closest to the top
    - **Declining**: Volume dropping -- reconsider unless the topic is evergreen
 
 **Minimum thresholds (evergreen only):**
+
 - `volume` >= 200 OR `traffic_potential` >= 1000
 - If both are below threshold, the topic may still be viable if it fills a clear content gap or supports a strategic pillar
 
@@ -192,6 +198,7 @@ When working within a hub, additionally check the proposed topic against ALL pla
 5. If 1-3 shared URLs, note as a warning but allow — the topics are related but likely distinct enough
 
 If cannibalization is detected:
+
 - Suggest a differentiated angle (different post type, different audience segment)
 - Or recommend updating the existing post instead of creating a new one
 - In hub mode: recommend merging the overlapping cluster pages or adjusting keyword assignments in `hub.yaml`
@@ -200,23 +207,23 @@ If cannibalization is detected:
 
 **For evergreen topics (`content_timing: evergreen`):**
 
-| Criterion | Weight | Score (1-5) | Question |
-|-----------|--------|-------------|----------|
-| Search Demand | 25% | | Are developers actively searching for this? |
-| Product Relevance | 25% | | Does Builder.io naturally solve this problem? |
-| Competitive Gap | 20% | | Is existing content weak, outdated, or missing? |
-| Conversion Potential | 15% | | Could this drive trials/signups? |
-| Topical Authority Fit | 15% | | Does it strengthen a content pillar? |
+| Criterion             | Weight | Score (1-5) | Question                                        |
+| --------------------- | ------ | ----------- | ----------------------------------------------- |
+| Search Demand         | 25%    |             | Are developers actively searching for this?     |
+| Product Relevance     | 25%    |             | Does Builder.io naturally solve this problem?   |
+| Competitive Gap       | 20%    |             | Is existing content weak, outdated, or missing? |
+| Conversion Potential  | 15%    |             | Could this drive trials/signups?                |
+| Topical Authority Fit | 15%    |             | Does it strengthen a content pillar?            |
 
 **For trending topics (`content_timing: trending`):**
 
-| Criterion | Weight | Score (1-5) | Question |
-|-----------|--------|-------------|----------|
-| Timeliness | 30% | | How many hours until competitors publish? (5 = we'd be first, 1 = already covered) |
-| Audience Match | 25% | | Does our developer audience care about this announcement? |
-| Product Relevance | 20% | | Does Builder.io naturally connect to this topic? |
-| Source Authority | 15% | | Is this from a major player or verified source? (not rumors) |
-| Content Depth | 10% | | Can we add value beyond restating the announcement? |
+| Criterion         | Weight | Score (1-5) | Question                                                                           |
+| ----------------- | ------ | ----------- | ---------------------------------------------------------------------------------- |
+| Timeliness        | 30%    |             | How many hours until competitors publish? (5 = we'd be first, 1 = already covered) |
+| Audience Match    | 25%    |             | Does our developer audience care about this announcement?                          |
+| Product Relevance | 20%    |             | Does Builder.io naturally connect to this topic?                                   |
+| Source Authority  | 15%    |             | Is this from a major player or verified source? (not rumors)                       |
+| Content Depth     | 10%    |             | Can we add value beyond restating the announcement?                                |
 
 **Weighted score** = sum of (score x weight) for each criterion.
 
@@ -229,11 +236,11 @@ If cannibalization is detected:
 
 Based on all signals, classify as:
 
-| Viability | When | Action |
-|-----------|------|--------|
-| **proceed** | Score >= 3.0, search demand exists, no cannibalization | Continue to Phase 2 |
-| **pivot** | Topic has potential but needs a different angle | Provide `pivot_suggestion` |
-| **reject** | Score < 2.0 or no search demand and no strategic value | Stop with reasoning |
+| Viability   | When                                                   | Action                     |
+| ----------- | ------------------------------------------------------ | -------------------------- |
+| **proceed** | Score >= 3.0, search demand exists, no cannibalization | Continue to Phase 2        |
+| **pivot**   | Topic has potential but needs a different angle        | Provide `pivot_suggestion` |
+| **reject**  | Score < 2.0 or no search demand and no strategic value | Stop with reasoning        |
 
 ## Output Schema
 
@@ -241,16 +248,16 @@ Write `phases/01-topic-validation.yaml` with this structure:
 
 ```yaml
 topic: "React Server Components"
-page_type: standalone | pillar | cluster  # standalone for regular posts, pillar/cluster for hub pages
-hub_slug: ""                              # empty for standalone, hub slug for hub pages
+page_type: standalone | pillar | cluster # standalone for regular posts, pillar/cluster for hub pages
+hub_slug: "" # empty for standalone, hub slug for hub pages
 content_goal: awareness | acquisition | hybrid
 content_timing: evergreen | trending
 builder_io_relevance: natural | light | none
 viability: proceed | pivot | reject
-pivot_suggestion: "Consider X instead"  # only if viability != proceed
+pivot_suggestion: "Consider X instead" # only if viability != proceed
 post_type: tutorial | comparison | explainer | how-to | thought-leadership
-comparison_subjects: ["Claude Code", "Cursor"]  # only when post_type == "comparison"
-comparison_disambiguators:  # only when a subject name is generic
+comparison_subjects: ["Claude Code", "Cursor"] # only when post_type == "comparison"
+comparison_disambiguators: # only when a subject name is generic
   Cursor: "cursor ai code editor"
 content_pillar: visual-development | dev-marketer-collab | framework-integration | performance
 priority_score: 4.2
@@ -262,16 +269,16 @@ priority_breakdown:
   competitive_gap: 4
   conversion_potential: 4
   topical_authority_fit: 5
-trend_direction: rising | stable | declining | new  # "new" for trending topics with no history
-search_volume: 12000       # 0 for trending topics
-keyword_difficulty: 45     # 0 for trending topics
-traffic_potential: 28000   # 0 for trending topics
+trend_direction: rising | stable | declining | new # "new" for trending topics with no history
+search_volume: 12000 # 0 for trending topics
+keyword_difficulty: 45 # 0 for trending topics
+traffic_potential: 28000 # 0 for trending topics
 data_source: ahrefs | estimated | social_signals
-trending_context: ""       # only for trending topics, e.g., "Announced by Anthropic on 2026-02-08"
+trending_context: "" # only for trending topics, e.g., "Announced by Anthropic on 2026-02-08"
 cannibalization_check: clear | conflict_detected
-cannibalization_note: ""   # details if conflict detected
-seed_detected: false       # true if seed/ subfolder found
-seed_summary:              # only when seed_detected: true
+cannibalization_note: "" # details if conflict detected
+seed_detected: false # true if seed/ subfolder found
+seed_summary: # only when seed_detected: true
   url_count: 0
   keyword_count: 0
   article_count: 0
@@ -288,6 +295,7 @@ seed_summary:              # only when seed_detected: true
 **Input:** "React Server Components"
 
 **Evaluation:**
+
 - Content goal: `awareness` (trending React topic, no direct Builder.io angle)
 - Builder.io relevance: `light` (Builder.io supports RSC via experimental SDK)
 - Post type: `explainer` (developers want to understand what RSC is)
@@ -301,6 +309,7 @@ seed_summary:              # only when seed_detected: true
 **Input:** "How to set up a visual CMS with Next.js"
 
 **Evaluation:**
+
 - Content goal: `acquisition` (Builder.io IS the tool for this)
 - Builder.io relevance: `natural`
 - Post type: `tutorial`
@@ -314,6 +323,7 @@ seed_summary:              # only when seed_detected: true
 **Input:** "Anthropic just launched Claude 4.5 -- I want to publish a tutorial tomorrow"
 
 **Evaluation:**
+
 - Content timing: `trending` (announced today, user wants speed)
 - Content goal: `awareness` (no direct Builder.io angle)
 - Builder.io relevance: `light` (Builder.io Fusion uses Anthropic models)
@@ -332,6 +342,7 @@ seed_summary:              # only when seed_detected: true
 **Input:** "Rust async programming patterns"
 
 **Evaluation:**
+
 - Content goal: `awareness` (no Builder.io connection)
 - Builder.io relevance: `none`
 - Post type: `explainer`
@@ -346,6 +357,7 @@ seed_summary:              # only when seed_detected: true
 **Input:** "Claude Code vs Cursor" (within hub_slug: `claude-code`, page_type: `cluster`)
 
 **Evaluation:**
+
 - Hub context: detected `hub_slug: claude-code`, `page_type: cluster`
 - Hub sibling keywords loaded from `hub.yaml`: "claude code", "how to use claude code", "claude code tips", etc.
 - Content goal: `acquisition` (overridden per-cluster in `hub.yaml`)

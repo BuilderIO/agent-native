@@ -9,7 +9,9 @@ function extractVideoId(url: string): string | null {
     const host = u.hostname.replace(/^www\./, "");
     if (host === "youtube.com" || host === "m.youtube.com") {
       if (u.pathname === "/watch") return u.searchParams.get("v");
-      const shortMatch = u.pathname.match(/^\/(?:embed|v|shorts)\/([a-zA-Z0-9_-]{11})/);
+      const shortMatch = u.pathname.match(
+        /^\/(?:embed|v|shorts)\/([a-zA-Z0-9_-]{11})/,
+      );
       if (shortMatch) return shortMatch[1];
     }
     if (host === "youtu.be") {
@@ -62,7 +64,9 @@ export const getYouTubeTranscript: RequestHandler = async (req, res) => {
     clearTimeout(timeout);
 
     if (!pageRes.ok) {
-      res.status(502).json({ error: `Failed to fetch YouTube page (${pageRes.status})` });
+      res
+        .status(502)
+        .json({ error: `Failed to fetch YouTube page (${pageRes.status})` });
       return;
     }
 
@@ -72,15 +76,23 @@ export const getYouTubeTranscript: RequestHandler = async (req, res) => {
     const titleMatch =
       html.match(/<meta\s+name="title"\s+content="([^"]+)"/i) ||
       html.match(/<title>([^<]+)<\/title>/i);
-    const title = titleMatch?.[1]?.replace(/ - YouTube$/, "").trim() || `YouTube Video ${videoId}`;
+    const title =
+      titleMatch?.[1]?.replace(/ - YouTube$/, "").trim() ||
+      `YouTube Video ${videoId}`;
 
     // Extract captions from playerCaptionsTracklistRenderer
-    const captionsMatch = html.match(/"captions":\s*(\{[^}]*"playerCaptionsTracklistRenderer":\s*\{[^]*?\}\s*\})/);
+    const captionsMatch = html.match(
+      /"captions":\s*(\{[^}]*"playerCaptionsTracklistRenderer":\s*\{[^]*?\}\s*\})/,
+    );
     if (!captionsMatch) {
       // Try alternative: look for timedtext URL directly
-      const timedtextMatch = html.match(/\"(https?:\/\/www\.youtube\.com\/api\/timedtext[^"]+)\"/);
+      const timedtextMatch = html.match(
+        /\"(https?:\/\/www\.youtube\.com\/api\/timedtext[^"]+)\"/,
+      );
       if (timedtextMatch) {
-        const transcript = await fetchTranscriptFromUrl(timedtextMatch[1].replace(/\\u0026/g, "&"));
+        const transcript = await fetchTranscriptFromUrl(
+          timedtextMatch[1].replace(/\\u0026/g, "&"),
+        );
         res.json({ title, transcript, videoId, url: watchUrl });
         return;
       }
@@ -104,7 +116,9 @@ export const getYouTubeTranscript: RequestHandler = async (req, res) => {
     }
 
     // Prefer manual English captions, then auto-generated English, then first available
-    const manualEn = tracks.find((t) => t.languageCode === "en" && t.kind !== "asr");
+    const manualEn = tracks.find(
+      (t) => t.languageCode === "en" && t.kind !== "asr",
+    );
     const autoEn = tracks.find((t) => t.languageCode === "en");
     const track = manualEn || autoEn || tracks[0];
 
@@ -120,7 +134,9 @@ export const getYouTubeTranscript: RequestHandler = async (req, res) => {
       res.status(504).json({ error: "Timed out fetching YouTube page" });
       return;
     }
-    res.status(500).json({ error: `Failed to fetch transcript: ${err.message}` });
+    res
+      .status(500)
+      .json({ error: `Failed to fetch transcript: ${err.message}` });
   }
 };
 

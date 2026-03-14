@@ -57,7 +57,9 @@ export function camelCaseArgs(
 export function isValidPath(p: string): boolean {
   const normalized = path.normalize(p);
   return (
-    !normalized.startsWith("..") && !path.isAbsolute(normalized) && !p.includes("\0")
+    !normalized.startsWith("..") &&
+    !path.isAbsolute(normalized) &&
+    !p.includes("\0")
   );
 }
 

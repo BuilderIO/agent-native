@@ -16,7 +16,8 @@ export default function Placeholder() {
         </div>
         <h2 className="text-2xl font-bold tracking-tight">{formattedName}</h2>
         <p className="text-muted-foreground max-w-sm">
-          This page is currently under construction. Please check back later or return to the dashboard.
+          This page is currently under construction. Please check back later or
+          return to the dashboard.
         </p>
         <Link to="/">
           <Button>Return to Dashboard</Button>

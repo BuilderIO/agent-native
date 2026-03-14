@@ -50,13 +50,13 @@ export function WorkspaceResourceTree({
   const handleDelete = (filePath: string) => {
     deleteMutation.mutate(
       { projectSlug: slug, filePath },
-      { onSuccess: () => onDeleteFile(filePath) }
+      { onSuccess: () => onDeleteFile(filePath) },
     );
   };
 
   const openNewFileDialog = (
     parentPath?: string,
-    type: "file" | "directory" = "file"
+    type: "file" | "directory" = "file",
   ) => {
     setNewFileParent(parentPath);
     setNewFileType(type);
@@ -152,7 +152,7 @@ function TreeNode({
               size={11}
               className={cn(
                 "shrink-0 transition-transform duration-150",
-                !isExpanded && "-rotate-90"
+                !isExpanded && "-rotate-90",
               )}
             />
             {isExpanded ? (
@@ -230,7 +230,7 @@ function TreeNode({
         "w-full flex items-center gap-1 pr-1 py-1 rounded-sm text-left group transition-colors overflow-hidden cursor-pointer",
         isActive
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+          : "text-sidebar-foreground hover:bg-sidebar-accent/60",
       )}
       style={{ paddingLeft: paddingLeft + 14 }}
     >

@@ -24,6 +24,7 @@ Do not proceed until a valid folder is selected.
 Read `refresh-scope.yaml` from the output folder.
 
 **If scope is `metadata-only`:** Exit with:
+
 ```
 Scope is metadata-only -- no content changes needed.
 Run /content-optimize [folder path] instead.
@@ -99,6 +100,7 @@ Present the outline using **AskUserQuestion**:
 **File to review:** Tell the user: "Read `outline.md` in the output folder for the full refresh outline with KEEP/REWRITE/ADD markers."
 
 **Show the user:**
+
 - Original title (preserved or changed)
 - Sections marked KEEP (count and list)
 - Sections marked REWRITE (count and list with changes)
@@ -108,6 +110,7 @@ Present the outline using **AskUserQuestion**:
 **Question:** "Refresh outline ready. How do you want to proceed?"
 
 **Options:**
+
 1. **Approve** -- Proceed to drafting
 2. **Modify** -- Describe specific changes (re-runs Phase 5, re-presents Gate 2)
 3. **Stop** -- Abandon refresh
@@ -148,6 +151,7 @@ Present a draft summary using **AskUserQuestion**:
 **File to review:** Tell the user: "Read `draft.md` in the output folder for the refreshed draft."
 
 **Show the user:**
+
 - Title
 - Word count (old → new)
 - Sections preserved vs rewritten vs added
@@ -156,6 +160,7 @@ Present a draft summary using **AskUserQuestion**:
 **Question:** "Refreshed draft complete. How do you want to proceed?"
 
 **Options:**
+
 1. **Proceed** -- Move to editing
 2. **Request changes** -- Describe changes (re-runs Phase 6, re-presents Gate 3)
 3. **Stop** -- Abandon refresh
@@ -207,6 +212,7 @@ Use **AskUserQuestion** to present options:
 **Question:** "Refreshed draft is written and edited. What would you like to do next?"
 
 **Options:**
+
 1. **Optimize** -- Run `/content-optimize [folder]` after `/clear` for SEO, AEO, and final QA (recommended)
 2. **Review draft** -- Read `draft.md` for manual review
 3. **Done** -- Save for later
@@ -218,16 +224,21 @@ Consider running `/content-polish` after optimization for long posts (>2,500 wor
 ## Error Handling
 
 ### Phase Failure
+
 If a phase produces an error or incomplete output:
+
 1. Announce the failure to the user
 2. Ask whether to retry the phase, skip it, or stop the pipeline
 3. If skipped, write a stub YAML with `skipped: true` and `reason`
 
 ### Gate Loops
+
 Gate loops (Modify, Request Changes) re-present the same gate after re-running. They do not skip ahead.
 
 ### Word Count Overflow
+
 If the refreshed draft exceeds the competitive median (or guidance range soft max) by 50%+ after Phase 7:
+
 1. Flag the overflow in the editing report
 2. Suggest trimming specific sections (identify the longest non-essential sections)
 3. Do not auto-trim without user approval

@@ -1,10 +1,17 @@
 import { RequestHandler } from "express";
 import crypto from "crypto";
-import type { ShareDeckRequest, ShareDeckResponse, SharedDeckResponse } from "@shared/api";
+import type {
+  ShareDeckRequest,
+  ShareDeckResponse,
+  SharedDeckResponse,
+} from "@shared/api";
 
 // In-memory store for shared decks (persists as long as server runs)
 // In production, this would use a database
-const sharedDecks = new Map<string, { title: string; slides: any[]; createdAt: number }>();
+const sharedDecks = new Map<
+  string,
+  { title: string; slides: any[]; createdAt: number }
+>();
 
 // Clean up old shared decks (older than 30 days)
 function cleanupOldShares() {
@@ -61,7 +68,9 @@ export const getSharedDeck: RequestHandler = (req, res) => {
   const shared = sharedDecks.get(token);
 
   if (!shared) {
-    res.status(404).json({ error: "Shared presentation not found or has expired" });
+    res
+      .status(404)
+      .json({ error: "Shared presentation not found or has expired" });
     return;
   }
 

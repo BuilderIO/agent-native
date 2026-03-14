@@ -107,7 +107,7 @@ export function DataTable({
                           "h-3 w-3",
                           sortCol === col
                             ? "text-foreground"
-                            : "text-muted-foreground/50"
+                            : "text-muted-foreground/50",
                         )}
                       />
                     </span>

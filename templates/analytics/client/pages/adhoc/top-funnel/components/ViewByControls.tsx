@@ -29,7 +29,10 @@ export function ViewByControls({
         <label className="text-xs text-muted-foreground font-medium">
           Date Cadence
         </label>
-        <Select value={cadence} onValueChange={(v) => onCadenceChange(v as DateCadence)}>
+        <Select
+          value={cadence}
+          onValueChange={(v) => onCadenceChange(v as DateCadence)}
+        >
           <SelectTrigger className="h-8 w-[120px] text-xs">
             <SelectValue />
           </SelectTrigger>
@@ -46,7 +49,10 @@ export function ViewByControls({
         <label className="text-xs text-muted-foreground font-medium">
           View By
         </label>
-        <Select value={viewBy} onValueChange={(v) => onViewByChange(v as ViewByOption)}>
+        <Select
+          value={viewBy}
+          onValueChange={(v) => onViewByChange(v as ViewByOption)}
+        >
           <SelectTrigger className="h-8 w-[180px] text-xs">
             <SelectValue />
           </SelectTrigger>

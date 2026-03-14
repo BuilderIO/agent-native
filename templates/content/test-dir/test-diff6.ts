@@ -1,5 +1,8 @@
 import { hashBlock } from "../server/routes/notion-diff.ts";
-import { getNotionMetadata, parseFrontmatter } from "../client/lib/frontmatter.ts";
+import {
+  getNotionMetadata,
+  parseFrontmatter,
+} from "../client/lib/frontmatter.ts";
 import { markdownToNotionBlocks } from "../client/lib/markdown-to-notion.ts";
 import { Client } from "@notionhq/client";
 import * as fs from "fs";
@@ -11,13 +14,18 @@ dotenv.config({ path: "../.env" });
 const client = new Client({ auth: process.env.NOTION_API_KEY });
 
 async function run() {
-  const mdPath = path.resolve(process.cwd(), "content/projects/alice/how-to-run-claude-code-on-mobile/draft.md");
+  const mdPath = path.resolve(
+    process.cwd(),
+    "content/projects/alice/how-to-run-claude-code-on-mobile/draft.md",
+  );
   const md = fs.readFileSync(mdPath, "utf-8");
   const parsed = parseFrontmatter(md);
   const notionMeta = getNotionMetadata(md);
-  
+
   let existingBlocks: any[] = [];
-  const { results } = await client.blocks.children.list({ block_id: notionMeta.page_id });
+  const { results } = await client.blocks.children.list({
+    block_id: notionMeta.page_id,
+  });
   existingBlocks = results;
 
   let contentToConvert = parsed.content;

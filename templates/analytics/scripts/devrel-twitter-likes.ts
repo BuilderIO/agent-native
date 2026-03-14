@@ -28,10 +28,22 @@ for (const user of DEVREL_USERS) {
     return new Date(t.createdAt) >= cutoff;
   });
 
-  const totalLikes = recentTweets.reduce((sum, t) => sum + (t.likeCount ?? 0), 0);
-  const totalRetweets = recentTweets.reduce((sum, t) => sum + (t.retweetCount ?? 0), 0);
-  const totalViews = recentTweets.reduce((sum, t) => sum + (t.viewCount ?? 0), 0);
-  const totalReplies = recentTweets.reduce((sum, t) => sum + (t.replyCount ?? 0), 0);
+  const totalLikes = recentTweets.reduce(
+    (sum, t) => sum + (t.likeCount ?? 0),
+    0,
+  );
+  const totalRetweets = recentTweets.reduce(
+    (sum, t) => sum + (t.retweetCount ?? 0),
+    0,
+  );
+  const totalViews = recentTweets.reduce(
+    (sum, t) => sum + (t.viewCount ?? 0),
+    0,
+  );
+  const totalReplies = recentTweets.reduce(
+    (sum, t) => sum + (t.replyCount ?? 0),
+    0,
+  );
 
   const topTweets = recentTweets
     .sort((a, b) => (b.likeCount ?? 0) - (a.likeCount ?? 0))

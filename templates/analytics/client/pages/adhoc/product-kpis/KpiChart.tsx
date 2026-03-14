@@ -55,11 +55,13 @@ export function KpiChart({
     }));
   }, [rows, dataKey]);
 
-  const formatY = yFormatter ?? ((v: number) => {
-    if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-    if (v >= 1_000) return `${(v / 1_000).toFixed(0)}k`;
-    return String(v);
-  });
+  const formatY =
+    yFormatter ??
+    ((v: number) => {
+      if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+      if (v >= 1_000) return `${(v / 1_000).toFixed(0)}k`;
+      return String(v);
+    });
 
   return (
     <Card className="bg-card border-border/50">
@@ -73,7 +75,9 @@ export function KpiChart({
           </div>
           <div className="flex items-center gap-2">
             {latestValue && (
-              <span className="text-xl font-bold tabular-nums">{latestValue}</span>
+              <span className="text-xl font-bold tabular-nums">
+                {latestValue}
+              </span>
             )}
             {onEditSql && (
               <Button
@@ -95,57 +99,186 @@ export function KpiChart({
         ) : error ? (
           <p className="text-sm text-red-400 py-4 text-center">{error}</p>
         ) : data.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4 text-center">No data</p>
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            No data
+          </p>
         ) : (
           <div className="h-[220px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               {chartType === "bar" ? (
                 <BarChart data={data}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                  <XAxis dataKey="period" stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} tickFormatter={formatDate} />
-                  <YAxis stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} tickFormatter={formatY} />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#27272a"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="period"
+                    stroke="#52525b"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={formatDate}
+                  />
+                  <YAxis
+                    stroke="#52525b"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={formatY}
+                  />
                   <Tooltip
                     cursor={{ fill: "rgba(255,255,255,0.06)" }}
-                    contentStyle={{ backgroundColor: "#09090b", border: "1px solid #27272a", borderRadius: "8px", color: "#fafafa", fontSize: "12px" }}
+                    contentStyle={{
+                      backgroundColor: "#09090b",
+                      border: "1px solid #27272a",
+                      borderRadius: "8px",
+                      color: "#fafafa",
+                      fontSize: "12px",
+                    }}
                     labelFormatter={formatDate}
                     formatter={(v: number) => [formatY(v), title]}
                   />
                   <Bar dataKey={dataKey} fill={color} radius={[3, 3, 0, 0]} />
-                  {referenceLine && <ReferenceLine y={referenceLine.y} stroke={referenceLine.color} strokeDasharray="6 3" strokeOpacity={0.7} label={{ value: referenceLine.label, fill: referenceLine.color, fontSize: 10, position: "insideTopRight" }} />}
+                  {referenceLine && (
+                    <ReferenceLine
+                      y={referenceLine.y}
+                      stroke={referenceLine.color}
+                      strokeDasharray="6 3"
+                      strokeOpacity={0.7}
+                      label={{
+                        value: referenceLine.label,
+                        fill: referenceLine.color,
+                        fontSize: 10,
+                        position: "insideTopRight",
+                      }}
+                    />
+                  )}
                 </BarChart>
               ) : chartType === "line" ? (
                 <LineChart data={data}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                  <XAxis dataKey="period" stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} tickFormatter={formatDate} />
-                  <YAxis stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} tickFormatter={formatY} />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#27272a"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="period"
+                    stroke="#52525b"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={formatDate}
+                  />
+                  <YAxis
+                    stroke="#52525b"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={formatY}
+                  />
                   <Tooltip
                     cursor={{ stroke: "rgba(255,255,255,0.15)" }}
-                    contentStyle={{ backgroundColor: "#09090b", border: "1px solid #27272a", borderRadius: "8px", color: "#fafafa", fontSize: "12px" }}
+                    contentStyle={{
+                      backgroundColor: "#09090b",
+                      border: "1px solid #27272a",
+                      borderRadius: "8px",
+                      color: "#fafafa",
+                      fontSize: "12px",
+                    }}
                     labelFormatter={formatDate}
                     formatter={(v: number) => [formatY(v), title]}
                   />
-                  <Line type="monotone" dataKey={dataKey} stroke={color} strokeWidth={2} dot={false} />
-                  {referenceLine && <ReferenceLine y={referenceLine.y} stroke={referenceLine.color} strokeDasharray="6 3" strokeOpacity={0.7} label={{ value: referenceLine.label, fill: referenceLine.color, fontSize: 10, position: "insideTopRight" }} />}
+                  <Line
+                    type="monotone"
+                    dataKey={dataKey}
+                    stroke={color}
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  {referenceLine && (
+                    <ReferenceLine
+                      y={referenceLine.y}
+                      stroke={referenceLine.color}
+                      strokeDasharray="6 3"
+                      strokeOpacity={0.7}
+                      label={{
+                        value: referenceLine.label,
+                        fill: referenceLine.color,
+                        fontSize: 10,
+                        position: "insideTopRight",
+                      }}
+                    />
+                  )}
                 </LineChart>
               ) : (
                 <AreaChart data={data}>
                   <defs>
-                    <linearGradient id={`grad-${dataKey}`} x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient
+                      id={`grad-${dataKey}`}
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
                       <stop offset="5%" stopColor={color} stopOpacity={0.3} />
                       <stop offset="95%" stopColor={color} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                  <XAxis dataKey="period" stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} tickFormatter={formatDate} />
-                  <YAxis stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} tickFormatter={formatY} />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#27272a"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="period"
+                    stroke="#52525b"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={formatDate}
+                  />
+                  <YAxis
+                    stroke="#52525b"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={formatY}
+                  />
                   <Tooltip
                     cursor={{ stroke: "rgba(255,255,255,0.15)" }}
-                    contentStyle={{ backgroundColor: "#09090b", border: "1px solid #27272a", borderRadius: "8px", color: "#fafafa", fontSize: "12px" }}
+                    contentStyle={{
+                      backgroundColor: "#09090b",
+                      border: "1px solid #27272a",
+                      borderRadius: "8px",
+                      color: "#fafafa",
+                      fontSize: "12px",
+                    }}
                     labelFormatter={formatDate}
                     formatter={(v: number) => [formatY(v), title]}
                   />
-                  <Area type="monotone" dataKey={dataKey} stroke={color} strokeWidth={2} fillOpacity={1} fill={`url(#grad-${dataKey})`} />
-                  {referenceLine && <ReferenceLine y={referenceLine.y} stroke={referenceLine.color} strokeDasharray="6 3" strokeOpacity={0.7} label={{ value: referenceLine.label, fill: referenceLine.color, fontSize: 10, position: "insideTopRight" }} />}
+                  <Area
+                    type="monotone"
+                    dataKey={dataKey}
+                    stroke={color}
+                    strokeWidth={2}
+                    fillOpacity={1}
+                    fill={`url(#grad-${dataKey})`}
+                  />
+                  {referenceLine && (
+                    <ReferenceLine
+                      y={referenceLine.y}
+                      stroke={referenceLine.color}
+                      strokeDasharray="6 3"
+                      strokeOpacity={0.7}
+                      label={{
+                        value: referenceLine.label,
+                        fill: referenceLine.color,
+                        fontSize: 10,
+                        position: "insideTopRight",
+                      }}
+                    />
+                  )}
                 </AreaChart>
               )}
             </ResponsiveContainer>

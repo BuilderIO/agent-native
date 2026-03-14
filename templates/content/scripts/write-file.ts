@@ -6,7 +6,18 @@ import {
   registerPendingFileWrite,
   suppressWatcherVersionHistory,
 } from "../server/lib/version-history.js";
-import { loadEnv, parseArgs, camelCaseArgs, isValidPath, isValidProjectPath, isValidWorkspace, ensureDir, PROJECTS_DIR, SHARED_DIR, fail } from "./_utils.js";
+import {
+  loadEnv,
+  parseArgs,
+  camelCaseArgs,
+  isValidPath,
+  isValidProjectPath,
+  isValidWorkspace,
+  ensureDir,
+  PROJECTS_DIR,
+  SHARED_DIR,
+  fail,
+} from "./_utils.js";
 
 export default async function main(args: string[]) {
   loadEnv();
@@ -28,7 +39,8 @@ Options:
   if (!filePath) fail("--file-path is required");
   if (content === undefined) fail("--content is required");
   if (!isValidPath(filePath)) fail("Invalid file path");
-  if (projectSlug && !isValidProjectPath(projectSlug)) fail("Invalid project slug");
+  if (projectSlug && !isValidProjectPath(projectSlug))
+    fail("Invalid project slug");
   if (workspace && !isValidWorkspace(workspace)) fail("Invalid workspace name");
 
   let baseDir: string;

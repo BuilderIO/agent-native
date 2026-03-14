@@ -39,11 +39,11 @@ You are a Hub Strategist for Builder.io's DevRel blog. Your job is to plan conte
 
 Follow Hub Planning Step 0. Call `subscription-info-limits-and-usage` and display remaining units. Apply the budget threshold table:
 
-| Remaining Units | Action |
-|----------------|--------|
-| >= 50,000 | Proceed normally |
-| 40,000 - 49,999 | Proceed with warning: "Budget tight for a full hub. Planning is safe." |
-| < 40,000 | Warn user: "Insufficient budget for a full hub. Proceed with planning only?" |
+| Remaining Units | Action                                                                       |
+| --------------- | ---------------------------------------------------------------------------- |
+| >= 50,000       | Proceed normally                                                             |
+| 40,000 - 49,999 | Proceed with warning: "Budget tight for a full hub. Planning is safe."       |
+| < 40,000        | Warn user: "Insufficient budget for a full hub. Proceed with planning only?" |
 
 If the user declines, stop. Hub planning alone costs 2,000-3,300 units; the full hub pipeline can cost up to 40,000.
 
@@ -58,6 +58,7 @@ Follow Hub Planning Steps 1a-1e:
 5. **Hub opportunity score:** search_demand x strategic_fit x gap_size (each 1-5). Score >= 3.0 = proceed.
 
 If the topic fails validation, present one of:
+
 - **Too narrow:** "This topic has only N subtopics. Consider a standalone post, or broaden to [suggestion]."
 - **Too broad:** "This topic has 20+ subtopics. Consider narrowing to [suggestion]."
 - **Low demand:** "Pillar keyword has volume X (need >= 1,000). Not enough search demand for a hub."
@@ -78,12 +79,14 @@ If no user ideas were provided, skip to Phase 2.
 Follow Hub Planning Step 2 (Ahrefs API Sequence). Include user seed clusters (if any) in the validation pipeline.
 
 **Phase A -- Keyword Universe** (~1,000-1,500 units):
+
 1. `keywords-explorer-matching-terms` (phrase_match, limit 500)
 2. `keywords-explorer-related-terms` (also_rank_for, limit 200)
 3. `keywords-explorer-related-terms` (also_talk_about, limit 200)
 4. `keywords-explorer-search-suggestions` (limit 100)
 
 **Phase B -- Cluster Identification** (~500-1,000 units):
+
 1. Group by Parent Topic. Label Ahrefs clusters with `source: ahrefs`.
 2. `keywords-explorer-overview` per cluster for volume, KD, traffic potential
 3. **Validate user seed clusters:** Call `keywords-explorer-overview` on each user idea's keyword. If a user idea matches an Ahrefs cluster's parent topic, merge (keep user's angle, enrich with Ahrefs data, label `source: user+ahrefs`). Unmatched user ideas remain `source: user`.
@@ -91,6 +94,7 @@ Follow Hub Planning Step 2 (Ahrefs API Sequence). Include user seed clusters (if
 5. `serp-overview` on pillar keyword for PAA questions
 
 **Phase C -- Cannibalization Check** (~500-800 units):
+
 1. `serp-overview` per cluster keyword (both Ahrefs-discovered and user-provided), compare top-10 URLs
 2. Merge or differentiate clusters sharing > 3 URLs in top-10. If a user idea cannibalizes an Ahrefs cluster, flag and present options.
 3. Cross-check against `output/posts/*/metadata.yaml` and `output/hubs/*/hub.yaml`
@@ -128,12 +132,12 @@ Follow Hub Planning Step 5, consulting the Hub Linking skill for rules:
 
 If existing standalone posts overlap with planned cluster topics (detected in Phase 2C), present options per overlapping post:
 
-| Option | Action |
-|--------|--------|
-| **Adopt** | Move the existing post into the hub as a cluster page |
-| **Refresh** | Run `/content-refresh` on the existing post with hub context |
-| **Create new** | Create a fresh cluster page (old post remains standalone) |
-| **Exclude** | Remove that subtopic from the hub plan |
+| Option         | Action                                                       |
+| -------------- | ------------------------------------------------------------ |
+| **Adopt**      | Move the existing post into the hub as a cluster page        |
+| **Refresh**    | Run `/content-refresh` on the existing post with hub context |
+| **Create new** | Create a fresh cluster page (old post remains standalone)    |
+| **Exclude**    | Remove that subtopic from the hub plan                       |
 
 Wait for user decisions before finalizing the hub plan.
 
@@ -196,6 +200,7 @@ Present the hub plan to the user as:
 After presenting, ask for Gate 1 approval:
 
 **Options:**
+
 1. **Approve** -- proceed with hub creation via `/content-hub`
 2. **Modify clusters** -- add, remove, or reorder cluster pages
 3. **Change priorities** -- adjust creation order
@@ -206,6 +211,7 @@ After presenting, ask for Gate 1 approval:
 After approval (or after applying modifications), write the hub.yaml file to `output/hubs/<hub-slug>/hub.yaml` following the schema defined in the Hub Planning skill (Step 7).
 
 Set initial statuses:
+
 - Hub status: `planning`
 - All page statuses: `planned`
 - All link statuses: `planned`

@@ -24,7 +24,10 @@ export function SqlPreview({ sql }: SqlPreviewProps) {
         onClick={() => setExpanded(!expanded)}
       >
         <ChevronRight
-          className={cn("h-4 w-4 transition-transform", expanded && "rotate-90")}
+          className={cn(
+            "h-4 w-4 transition-transform",
+            expanded && "rotate-90",
+          )}
         />
         SQL Query
       </button>
@@ -39,7 +42,11 @@ export function SqlPreview({ sql }: SqlPreviewProps) {
             className="absolute top-2 right-2 h-6 w-6"
             onClick={handleCopy}
           >
-            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+            {copied ? (
+              <Check className="h-3 w-3" />
+            ) : (
+              <Copy className="h-3 w-3" />
+            )}
           </Button>
         </div>
       )}

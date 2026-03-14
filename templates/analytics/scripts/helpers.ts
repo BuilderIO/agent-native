@@ -1,7 +1,9 @@
 import "dotenv/config";
 
 /** Parse CLI args like --key=value into a Record */
-export function parseArgs(argv = process.argv.slice(2)): Record<string, string> {
+export function parseArgs(
+  argv = process.argv.slice(2),
+): Record<string, string> {
   const args: Record<string, string> = {};
   for (const arg of argv.filter((a) => a !== "--")) {
     const match = arg.match(/^--(\w[\w-]*)=(.*)$/);
@@ -34,7 +36,10 @@ export function output(data: unknown): void {
     result = grepFilter(result, args.grep);
   }
   if (args.fields) {
-    result = pickFields(result, args.fields.split(",").map((f) => f.trim()));
+    result = pickFields(
+      result,
+      args.fields.split(",").map((f) => f.trim()),
+    );
   }
 
   console.log(JSON.stringify(result, null, 2));
@@ -63,7 +68,9 @@ function grepFilter(data: unknown, term: string): unknown {
   }
   if (data && typeof data === "object") {
     const filtered: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+    for (const [key, value] of Object.entries(
+      data as Record<string, unknown>,
+    )) {
       if (Array.isArray(value)) {
         const matches = value.filter((item) => matchesGrep(item, term));
         if (matches.length > 0) filtered[key] = matches;

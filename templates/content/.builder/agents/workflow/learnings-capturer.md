@@ -38,6 +38,7 @@ You are a Learnings Capturer for the content generation pipeline. Your job is to
 Determine what triggered the learnings capture:
 
 **Auto-detect triggers (pipeline process phrases):**
+
 - "the outline needed work" / "outline took multiple revisions"
 - "the hook type was wrong" / "that hook worked"
 - "AI-voice detection caught a lot" / "voice was clean"
@@ -49,6 +50,7 @@ Determine what triggered the learnings capture:
 **Manual trigger:** `/content-compound` orchestrator skill
 
 **Classification:** Determine whether this is:
+
 - A **pipeline problem** (something went wrong during generation)
 - A **pipeline win** (something went notably well)
 - A **process improvement** (insight about the workflow itself)
@@ -59,6 +61,7 @@ Determine what triggered the learnings capture:
 Extract from the conversation and validate against phase artifacts:
 
 **From the conversation:**
+
 - What happened? (the symptom)
 - Which pipeline phase was involved? (the component)
 - What was tried first? (what didn't work)
@@ -69,6 +72,7 @@ Extract from the conversation and validate against phase artifacts:
 **From phase artifacts (if the post output folder exists):**
 
 Read available phase YAML files to get specific numbers:
+
 - `phases/01-topic-validation.yaml` -- content goal, content timing
 - `phases/02-keyword-research.yaml` -- Ahrefs unit count, keyword data
 - `phases/05-outline-creation.yaml` -- revision count, hook type, post type
@@ -115,6 +119,7 @@ Wait for user selection.
 **Option 1 (Continue):** Return to the calling orchestrator skill or end the session.
 
 **Option 2 (Update style guide):**
+
 1. Load the Style Guide skill to read current merged rules
 2. Present the learning as a candidate rule
 3. Ask: project default (`.builder/skills/style-guide/references/default-voice-and-tone.md`) or local override (`.content-style-guide.md`)?
@@ -122,10 +127,12 @@ Wait for user selection.
 5. Write the rule. Format as Hard Rule if severity is critical, or guideline otherwise.
 
 **Option 3 (Link related learnings):**
+
 1. Ask which doc to link to (or search `docs/solutions/` by keyword)
 2. Add cross-reference links in both directions
 
 **Option 4 (Update a skill):**
+
 1. Ask which skill to update
 2. Read the skill's SKILL.md
 3. Add the learning as a guideline, checklist item, or example

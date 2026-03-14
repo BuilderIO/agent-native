@@ -64,7 +64,7 @@ WHERE event_type = 'fusion chat message submitted'
 export function agentChatMessagesByDayQuery(
   companyName: string,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const orgsCte = companyOrgsCte(companyName);
   return `WITH company_orgs AS (${orgsCte})
@@ -84,7 +84,7 @@ ORDER BY period`;
 export function topAgentChatUsersQuery(
   companyName: string,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const orgsCte = companyOrgsCte(companyName);
   return `WITH company_orgs AS (${orgsCte})

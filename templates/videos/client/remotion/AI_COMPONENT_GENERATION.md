@@ -11,6 +11,7 @@ No exceptions. No "we'll add interactivity later." Every single component should
 ## Required Pattern (Copy This Every Time)
 
 ### 1. Imports (Always Include These)
+
 ```typescript
 import React from "react";
 import { useInteractiveComponent } from "@/remotion/hooks/useInteractiveComponent";
@@ -19,6 +20,7 @@ import type { AnimationTrack } from "@/types";
 ```
 
 ### 2. Props Interface (Always Include These)
+
 ```typescript
 interface YourComponentProps {
   // REQUIRED - Interactive system props
@@ -32,13 +34,14 @@ interface YourComponentProps {
   cursorHistory: CursorFrame[];
   tracks: AnimationTrack[];
   registerForCursor: (component: any) => void;
-  
+
   // Your custom props here
   // ...
 }
 ```
 
 ### 3. Component Body (Always Include This Pattern)
+
 ```typescript
 function YourComponent({
   id,
@@ -125,14 +128,15 @@ Before generating ANY component, verify:
 **ALWAYS extract from animatedProperties (hover + click automatically combined):**
 
 ```typescript
-const scale = (interactive.animatedProperties?.scale as number) ?? 1;  // Scale (1 = normal)
-const lift = (interactive.animatedProperties?.lift as number) ?? 0;    // Lift up (pixels)
-const glow = (interactive.animatedProperties?.glow as number) ?? 0;    // Shadow intensity
-const blur = (interactive.animatedProperties?.blur as number) ?? 0;    // Blur (pixels)
-const color = (interactive.animatedProperties?.color as number) ?? 0;  // Hue shift (degrees)
+const scale = (interactive.animatedProperties?.scale as number) ?? 1; // Scale (1 = normal)
+const lift = (interactive.animatedProperties?.lift as number) ?? 0; // Lift up (pixels)
+const glow = (interactive.animatedProperties?.glow as number) ?? 0; // Shadow intensity
+const blur = (interactive.animatedProperties?.blur as number) ?? 0; // Blur (pixels)
+const color = (interactive.animatedProperties?.color as number) ?? 0; // Hue shift (degrees)
 ```
 
 **IMPORTANT:**
+
 - Values are **absolute**, not deltas (scale is 1.0 at rest, 1.2 when active)
 - The hook automatically combines hover and click animations for you!
 - Default scale to **1**, all others to **0**
@@ -151,6 +155,7 @@ style={{
 ## Zone Calculation Examples
 
 ### Button in Center
+
 ```typescript
 const buttonWidth = 200;
 const buttonHeight = 60;
@@ -161,6 +166,7 @@ zone: { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight }
 ```
 
 ### Card in Grid
+
 ```typescript
 const cardWidth = 300;
 const cardHeight = 200;
@@ -176,6 +182,7 @@ zone: { x: cardX, y: cardY, width: cardWidth, height: cardHeight }
 ```
 
 ### Absolute Positioned Element
+
 ```typescript
 // Element positioned with CSS
 <div style={{ position: "absolute", left: 150, top: 250, width: 180, height: 80 }}>
@@ -189,6 +196,7 @@ zone: { x: 150, y: 250, width: 180, height: 80 }
 **ALWAYS prefer reusable components when possible:**
 
 ### Use InteractiveButton for:
+
 - CTAs (Call to Action)
 - Submit buttons
 - Navigation buttons
@@ -210,6 +218,7 @@ zone: { x: 150, y: 250, width: 180, height: 80 }
 ```
 
 ### Use InteractiveCard for:
+
 - Feature showcases
 - Product cards
 - Info panels
@@ -248,7 +257,7 @@ export const MyComposition = createInteractiveComposition<MyCompositionProps>({
     // - cameraTrack
     // - cursorTrack
     // - registerForCursor
-    
+
     return (
       <AbsoluteFill>
         {/* Your components here */}
@@ -261,23 +270,29 @@ export const MyComposition = createInteractiveComposition<MyCompositionProps>({
 ## Common User Requests → Implementation
 
 ### "Create a button"
+
 → Use `InteractiveButton` component
 
 ### "Add a card"
+
 → Use `InteractiveCard` component
 
 ### "Make this interactive"
+
 → It should already be interactive! Check the pattern above.
 
 ### "Add hover effect"
+
 → No code needed! User adds it through Cursor Interactions panel.
 
 ### "Make this clickable"
+
 → Already clickable if following the pattern. User configures click animations through UI.
 
 ## Anti-Patterns to Avoid
 
 ### ❌ NEVER: Static, non-interactive components
+
 ```typescript
 // BAD - Not selectable, can't add animations
 <div style={{ position: "absolute", left: 100, top: 100 }}>
@@ -286,6 +301,7 @@ export const MyComposition = createInteractiveComposition<MyCompositionProps>({
 ```
 
 ### ✅ ALWAYS: Interactive from the start
+
 ```typescript
 // GOOD - Selectable, animation-ready
 <InteractiveButton
@@ -303,18 +319,21 @@ export const MyComposition = createInteractiveComposition<MyCompositionProps>({
 ```
 
 ### ❌ NEVER: Accessing values without fallbacks
+
 ```typescript
 // BAD - Will crash without animations
 const scale = 1 + interactive.scale.value;
 ```
 
 ### ✅ ALWAYS: Safe fallbacks
+
 ```typescript
 // GOOD - Works with or without animations
 const scale = 1 + (interactive.scale?.value ?? 0);
 ```
 
 ### ❌ NEVER: Forgetting to register
+
 ```typescript
 // BAD - Won't show in Cursor Interactions panel
 const interactive = useInteractiveComponent({ ... });
@@ -322,6 +341,7 @@ const interactive = useInteractiveComponent({ ... });
 ```
 
 ### ✅ ALWAYS: Register in useEffect
+
 ```typescript
 // GOOD - Shows in panel when hovered
 const interactive = useInteractiveComponent({ ... });

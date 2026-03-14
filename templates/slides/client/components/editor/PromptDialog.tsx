@@ -1,4 +1,10 @@
-import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useLayoutEffect,
+} from "react";
 import { createPortal } from "react-dom";
 import { Loader2, Paperclip, X, ArrowUp } from "lucide-react";
 
@@ -103,7 +109,8 @@ export default function PromptPopover({
     if (!open) return;
     const handleClick = (e: MouseEvent) => {
       if (
-        panelRef.current && !panelRef.current.contains(e.target as Node) &&
+        panelRef.current &&
+        !panelRef.current.contains(e.target as Node) &&
         (!anchorRef?.current || !anchorRef.current.contains(e.target as Node))
       ) {
         onOpenChange(false);
@@ -126,12 +133,17 @@ export default function PromptPopover({
     try {
       const formData = new FormData();
       newFiles.forEach((f) => formData.append("files", f));
-      const res = await fetch("/api/uploads", { method: "POST", body: formData });
+      const res = await fetch("/api/uploads", {
+        method: "POST",
+        body: formData,
+      });
       if (res.ok) {
         const results: UploadedFile[] = await res.json();
         setUploadedFiles((prev) => [...prev, ...results]);
       }
-    } catch { /* silent */ } finally {
+    } catch {
+      /* silent */
+    } finally {
       setUploading(false);
     }
   }, []);
@@ -143,12 +155,15 @@ export default function PromptPopover({
     e.target.value = "";
   };
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
-    const droppedFiles = Array.from(e.dataTransfer.files);
-    if (droppedFiles.length > 0) uploadFiles(droppedFiles);
-  }, [uploadFiles]);
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragging(false);
+      const droppedFiles = Array.from(e.dataTransfer.files);
+      if (droppedFiles.length > 0) uploadFiles(droppedFiles);
+    },
+    [uploadFiles],
+  );
 
   const removeFile = (index: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== index));
@@ -167,16 +182,29 @@ export default function PromptPopover({
 
   const popover = (
     <>
-      {centered && <div className="fixed inset-0 bg-black/40 z-[199]" onClick={() => onOpenChange(false)} />}
+      {centered && (
+        <div
+          className="fixed inset-0 bg-black/40 z-[199]"
+          onClick={() => onOpenChange(false)}
+        />
+      )}
       <div
         ref={panelRef}
         className={`fixed z-[200] w-[min(400px,calc(100vw-24px))] rounded-xl border bg-[hsl(240,5%,10%)] shadow-2xl shadow-black/60 overflow-hidden transition-colors ${
-          dragging ? "border-[#609FF8]/50 bg-[hsl(240,5%,12%)]" : "border-white/[0.1]"
+          dragging
+            ? "border-[#609FF8]/50 bg-[hsl(240,5%,12%)]"
+            : "border-white/[0.1]"
         }`}
         style={{ top: 0, left: 0, visibility: "visible" }}
         onDrop={handleDrop}
-        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-        onDragLeave={(e) => { e.preventDefault(); setDragging(false); }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          setDragging(false);
+        }}
       >
         <div className="px-3.5 pt-3 pb-1.5">
           <span className="text-sm font-medium text-white/80">{title}</span>
@@ -190,7 +218,8 @@ export default function PromptPopover({
               setPrompt(e.target.value);
               const el = e.target;
               el.style.height = "auto";
-              el.style.height = Math.min(el.scrollHeight, window.innerHeight * 0.5) + "px";
+              el.style.height =
+                Math.min(el.scrollHeight, window.innerHeight * 0.5) + "px";
             }}
             placeholder={placeholder}
             className="w-full bg-transparent text-sm text-white/90 placeholder:text-white/30 outline-none resize-none"
@@ -209,9 +238,15 @@ export default function PromptPopover({
         {files.length > 0 && (
           <div className="px-3.5 pb-2 flex flex-wrap gap-1.5">
             {files.map((file, i) => (
-              <div key={i} className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.06] border border-white/[0.08] text-[11px] text-white/50">
+              <div
+                key={i}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.06] border border-white/[0.08] text-[11px] text-white/50"
+              >
                 <span className="max-w-[120px] truncate">{file.name}</span>
-                <button onClick={() => removeFile(i)} className="p-0.5 rounded hover:bg-white/[0.1]">
+                <button
+                  onClick={() => removeFile(i)}
+                  className="p-0.5 rounded hover:bg-white/[0.1]"
+                >
                   <X className="w-2.5 h-2.5" />
                 </button>
               </div>
@@ -230,7 +265,13 @@ export default function PromptPopover({
             >
               <Paperclip className="w-4 h-4" />
             </button>
-            <input ref={fileInputRef} type="file" multiple onChange={handleFileChange} className="hidden" />
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              onChange={handleFileChange}
+              className="hidden"
+            />
           </div>
 
           <div className="flex items-center gap-3">
@@ -256,9 +297,13 @@ export default function PromptPopover({
               title="Submit"
             >
               {busy ? (
-                <Loader2 className={`w-4 h-4 animate-spin ${hasContent ? "text-black" : "text-white/70"}`} />
+                <Loader2
+                  className={`w-4 h-4 animate-spin ${hasContent ? "text-black" : "text-white/70"}`}
+                />
               ) : (
-                <ArrowUp className={`w-4 h-4 ${hasContent ? "text-black" : "text-white/70"}`} />
+                <ArrowUp
+                  className={`w-4 h-4 ${hasContent ? "text-black" : "text-white/70"}`}
+                />
               )}
             </button>
           </div>

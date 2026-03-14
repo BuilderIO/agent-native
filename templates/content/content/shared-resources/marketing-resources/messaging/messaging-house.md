@@ -49,13 +49,13 @@ Structured pillar details with proof points, customer evidence, and persona reso
 
 **Persona resonance:**
 
-| Persona | How Context lands |
-| :---- | :---- |
+| Persona        | How Context lands                                                                                                                     |
+| :------------- | :------------------------------------------------------------------------------------------------------------------------------------ |
 | **Eng Leader** | Get more done with less. AI output meets your standards from the start. Engineers stay on architecture, performance, and code review. |
-| **Developer** | Code already follows your patterns and standards. Spend time on architecture and business logic. AI handles the UI translation. |
-| **Designer** | Design in real app context with real components. Edit and test in-flow instead of reproducing screens in Figma. |
-| **PM** | Output is production-grade from the start. Prototype in the real product, validate with real users, then ship. |
-| **DS Lead** | Adherence happens by default. Teams use correct components and tokens automatically. |
+| **Developer**  | Code already follows your patterns and standards. Spend time on architecture and business logic. AI handles the UI translation.       |
+| **Designer**   | Design in real app context with real components. Edit and test in-flow instead of reproducing screens in Figma.                       |
+| **PM**         | Output is production-grade from the start. Prototype in the real product, validate with real users, then ship.                        |
+| **DS Lead**    | Adherence happens by default. Teams use correct components and tokens automatically.                                                  |
 
 ---
 
@@ -80,13 +80,13 @@ Structured pillar details with proof points, customer evidence, and persona reso
 
 **Persona resonance:**
 
-| Persona | How Collaboration lands |
-| :---- | :---- |
-| **Eng Leader** | Teams work in parallel instead of sequentially. Engineering focuses on high-value work. More gets done with less. |
-| **Developer** | PM, design, and QA refine and verify work themselves. They send you fully verified PRs. You review and merge. Work comes off your plate. |
-| **Designer** | Full control over what goes to production. No redlines, no devs butchering your designs. Pixel-perfect every screen and interaction yourself. |
-| **PM** | Turn tickets into working features and validate directly. Skip the memos and alignment meetings. Go straight to hands-on demos and customer feedback. |
-| **DS Lead** | Hand teams a tool that's adherent by default. Velocity goes up, your standards stay intact. |
+| Persona        | How Collaboration lands                                                                                                                               |
+| :------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Eng Leader** | Teams work in parallel instead of sequentially. Engineering focuses on high-value work. More gets done with less.                                     |
+| **Developer**  | PM, design, and QA refine and verify work themselves. They send you fully verified PRs. You review and merge. Work comes off your plate.              |
+| **Designer**   | Full control over what goes to production. No redlines, no devs butchering your designs. Pixel-perfect every screen and interaction yourself.         |
+| **PM**         | Turn tickets into working features and validate directly. Skip the memos and alignment meetings. Go straight to hands-on demos and customer feedback. |
+| **DS Lead**    | Hand teams a tool that's adherent by default. Velocity goes up, your standards stay intact.                                                           |
 
 ---
 
@@ -110,10 +110,10 @@ Structured pillar details with proof points, customer evidence, and persona reso
 
 **Persona resonance:**
 
-| Persona | How Trust lands |
-| :---- | :---- |
+| Persona        | How Trust lands                                                                                                |
+| :------------- | :------------------------------------------------------------------------------------------------------------- |
 | **Eng Leader** | Scale AI usage across teams without sacrificing quality or standards. Engineers stay in control of what ships. |
-| **Developer** | You're the final gatekeeper. AI and teammates do the work. Nothing merges without your review. |
-| **Designer** | What you approve is what ships. Period. |
-| **PM** | Production-grade prototypes validated before they ship. Get the highest-signal feedback from real users. |
-| **DS Lead** | The tool enforces your standards automatically. You stop being the compliance police. |
+| **Developer**  | You're the final gatekeeper. AI and teammates do the work. Nothing merges without your review.                 |
+| **Designer**   | What you approve is what ships. Period.                                                                        |
+| **PM**         | Production-grade prototypes validated before they ship. Get the highest-signal feedback from real users.       |
+| **DS Lead**    | The tool enforces your standards automatically. You stop being the compliance police.                          |

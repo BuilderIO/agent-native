@@ -8,20 +8,30 @@ function validateDashboard(dashboard: DashboardMeta): void {
   const errors: string[] = [];
 
   if (!dashboard.author) {
-    errors.push(`Missing 'author' field - YOU MUST provide the creator's name or email (e.g., "jane@builder.io" or "Jane Doe")`);
+    errors.push(
+      `Missing 'author' field - YOU MUST provide the creator's name or email (e.g., "jane@builder.io" or "Jane Doe")`,
+    );
   }
 
   if (!dashboard.lastUpdated) {
-    errors.push(`Missing 'lastUpdated' field - set to today's date in YYYY-MM-DD format`);
+    errors.push(
+      `Missing 'lastUpdated' field - set to today's date in YYYY-MM-DD format`,
+    );
   } else if (!/^\d{4}-\d{2}-\d{2}$/.test(dashboard.lastUpdated)) {
-    errors.push(`'lastUpdated' must be in YYYY-MM-DD format, got: ${dashboard.lastUpdated}`);
+    errors.push(
+      `'lastUpdated' must be in YYYY-MM-DD format, got: ${dashboard.lastUpdated}`,
+    );
   }
 
-  if (dashboard.category === 'adhoc') {
+  if (dashboard.category === "adhoc") {
     if (!dashboard.dateCreated) {
-      errors.push(`Ad-hoc analyses require 'dateCreated' field (YYYY-MM-DD format)`);
+      errors.push(
+        `Ad-hoc analyses require 'dateCreated' field (YYYY-MM-DD format)`,
+      );
     } else if (!/^\d{4}-\d{2}-\d{2}$/.test(dashboard.dateCreated)) {
-      errors.push(`'dateCreated' must be in YYYY-MM-DD format, got: ${dashboard.dateCreated}`);
+      errors.push(
+        `'dateCreated' must be in YYYY-MM-DD format, got: ${dashboard.dateCreated}`,
+      );
     }
 
     if (!dashboard.description) {
@@ -32,9 +42,9 @@ function validateDashboard(dashboard: DashboardMeta): void {
   if (errors.length > 0) {
     console.error(
       `❌ Dashboard '${dashboard.id}' (${dashboard.name}) is missing required metadata:\n` +
-      errors.map(e => `  - ${e}`).join('\n') +
-      '\n\n⚠️  REQUIRED: Provide author name manually when creating dashboards.' +
-      '\n   Update the dashboard entry in client/pages/adhoc/registry.ts'
+        errors.map((e) => `  - ${e}`).join("\n") +
+        "\n\n⚠️  REQUIRED: Provide author name manually when creating dashboards." +
+        "\n   Update the dashboard entry in client/pages/adhoc/registry.ts",
     );
   }
 }
@@ -52,7 +62,7 @@ export interface DashboardMeta {
   subviews?: DashboardSubview[];
   description?: string; // For ad-hoc analyses
   dateCreated?: string; // REQUIRED: For ad-hoc analyses (YYYY-MM-DD format)
-  category?: 'dashboard' | 'adhoc'; // Default is 'dashboard'
+  category?: "dashboard" | "adhoc"; // Default is 'dashboard'
 
   /**
    * REQUIRED: Email or name of the person who created this dashboard.
@@ -71,7 +81,12 @@ export interface DashboardMeta {
 // Add new dashboards here. Each entry needs a matching file in this directory.
 // REQUIRED FIELDS: id, name, author, lastUpdated
 export const dashboards: DashboardMeta[] = [
-  { id: "key-metrics", name: "Key Metrics", author: "Builder Team", lastUpdated: "2025-01-15" },
+  {
+    id: "key-metrics",
+    name: "Key Metrics",
+    author: "Builder Team",
+    lastUpdated: "2025-01-15",
+  },
   {
     id: "top-funnel",
     name: "Top Funnel Acquisition",
@@ -81,17 +96,35 @@ export const dashboards: DashboardMeta[] = [
       {
         id: "blog-signups",
         name: "Blog by Signups",
-        params: { "t1.blogOnly": "true", "t1.sortCol": "signups", "t1.sortDir": "desc" },
+        params: {
+          "t1.blogOnly": "true",
+          "t1.sortCol": "signups",
+          "t1.sortDir": "desc",
+        },
       },
       {
         id: "blog-visitors",
         name: "Blog by Visitors",
-        params: { "t1.blogOnly": "true", "t1.sortCol": "new_visitors", "t1.sortDir": "desc" },
+        params: {
+          "t1.blogOnly": "true",
+          "t1.sortCol": "new_visitors",
+          "t1.sortDir": "desc",
+        },
       },
     ],
   },
-  { id: "signup-growth", name: "Signup Growth vs 2x Goal", author: "Builder Team", lastUpdated: "2025-01-20" },
-  { id: "self-serve-revenue", name: "Self-Serve Revenue", author: "Builder Team", lastUpdated: "2025-01-25" },
+  {
+    id: "signup-growth",
+    name: "Signup Growth vs 2x Goal",
+    author: "Builder Team",
+    lastUpdated: "2025-01-20",
+  },
+  {
+    id: "self-serve-revenue",
+    name: "Self-Serve Revenue",
+    author: "Builder Team",
+    lastUpdated: "2025-01-25",
+  },
   {
     id: "devrel-leaderboard",
     name: "DevRel Leaderboard",
@@ -101,19 +134,68 @@ export const dashboards: DashboardMeta[] = [
       {
         id: "recent",
         name: "Recent Articles Only",
-        params: { "dr.pubDateStart": new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10) },
+        params: {
+          "dr.pubDateStart": new Date(Date.now() - 30 * 86400000)
+            .toISOString()
+            .slice(0, 10),
+        },
       },
     ],
   },
-  { id: "content-calendar", name: "Content SEO", author: "Builder Team", lastUpdated: "2025-02-15" },
-  { id: "hubspot", name: "HubSpot Sales", author: "Builder Team", lastUpdated: "2025-01-30" },
-{ id: "macys", name: "Macy's Account", author: "Builder Team", lastUpdated: "2025-02-20" },
-  { id: "sentry", name: "Sentry Error Health", author: "Builder Team", lastUpdated: "2025-02-25" },
-  { id: "gcloud", name: "Google Cloud Health", author: "Builder Team", lastUpdated: "2025-02-28" },
-  { id: "jira", name: "Jira Tickets", author: "Builder Team", lastUpdated: "2025-03-02" },
-  { id: "stripe", name: "Stripe Billing", author: "Builder Team", lastUpdated: "2025-03-04" },
-  { id: "onboarding-funnel", name: "Onboarding Funnel Analysis", author: "Builder Team", lastUpdated: "2025-03-06" },
-  { id: "pr-review-bot", name: "PR Review Bot", author: "Builder Team", lastUpdated: "2025-03-10" },
+  {
+    id: "content-calendar",
+    name: "Content SEO",
+    author: "Builder Team",
+    lastUpdated: "2025-02-15",
+  },
+  {
+    id: "hubspot",
+    name: "HubSpot Sales",
+    author: "Builder Team",
+    lastUpdated: "2025-01-30",
+  },
+  {
+    id: "macys",
+    name: "Macy's Account",
+    author: "Builder Team",
+    lastUpdated: "2025-02-20",
+  },
+  {
+    id: "sentry",
+    name: "Sentry Error Health",
+    author: "Builder Team",
+    lastUpdated: "2025-02-25",
+  },
+  {
+    id: "gcloud",
+    name: "Google Cloud Health",
+    author: "Builder Team",
+    lastUpdated: "2025-02-28",
+  },
+  {
+    id: "jira",
+    name: "Jira Tickets",
+    author: "Builder Team",
+    lastUpdated: "2025-03-02",
+  },
+  {
+    id: "stripe",
+    name: "Stripe Billing",
+    author: "Builder Team",
+    lastUpdated: "2025-03-04",
+  },
+  {
+    id: "onboarding-funnel",
+    name: "Onboarding Funnel Analysis",
+    author: "Builder Team",
+    lastUpdated: "2025-03-06",
+  },
+  {
+    id: "pr-review-bot",
+    name: "PR Review Bot",
+    author: "Builder Team",
+    lastUpdated: "2025-03-10",
+  },
 ];
 
 // Ad-hoc analyses - One-time deep dives and investigations
@@ -122,11 +204,12 @@ export const adHocAnalyses: DashboardMeta[] = [
   {
     id: "conversion-analysis",
     name: "Traffic to Signup Conversion Analysis",
-    description: "Deep dive into declining conversion rates with funnel analysis, traffic source breakdown, and data quality checks",
+    description:
+      "Deep dive into declining conversion rates with funnel analysis, traffic source breakdown, and data quality checks",
     dateCreated: "2026-03-11",
     author: "team@builder.io",
     lastUpdated: "2026-03-11",
-    category: 'adhoc'
+    category: "adhoc",
   },
 ];
 
@@ -213,7 +296,7 @@ export const dashboardComponents: Record<
   "devrel-leaderboard": lazy(() => import("./devrel-leaderboard")),
   "content-calendar": lazy(() => import("./content-calendar")),
   hubspot: lazy(() => import("./hubspot")),
-macys: lazy(() => import("./macys")),
+  macys: lazy(() => import("./macys")),
   "customer-health": lazy(() => import("./customer-health")),
   sentry: lazy(() => import("./sentry")),
   gcloud: lazy(() => import("./gcloud")),

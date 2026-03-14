@@ -60,6 +60,7 @@ For each subject in `comparison_subjects`:
 3. Run Steps 2-6 on each individual SERP (intent, snippets, formats, beatability, PAA)
 
 **Why this matters:** The comparison SERP ("Claude Code vs Cursor") shows what comparison posts look like. The individual SERPs ("Claude Code", "Cursor") reveal:
+
 - How each product is positioned by its own community (tutorials? reviews? docs?)
 - What content formats dominate for each product individually
 - What questions people ask about each product separately (PAA from individual SERPs become subheading candidates)
@@ -94,12 +95,12 @@ Check if `seed/serp-intents.txt` exists in the post output folder and is not emp
 
 **If `seed_serp_intents: false` (default):** Determine the dominant search intent from the SERP results. Look at the content types and titles across all 10 results:
 
-| Intent | Signals from SERP |
-|--------|-------------------|
+| Intent            | Signals from SERP                                            |
+| ----------------- | ------------------------------------------------------------ |
 | **informational** | "What is", "How to", "Guide", tutorials, explainers dominate |
-| **navigational** | Brand names, official docs, product pages dominate |
-| **commercial** | "Best", "vs", "review", comparison pages dominate |
-| **transactional** | Pricing pages, "buy", "download", signup pages dominate |
+| **navigational**  | Brand names, official docs, product pages dominate           |
+| **commercial**    | "Best", "vs", "review", comparison pages dominate            |
+| **transactional** | Pricing pages, "buy", "download", signup pages dominate      |
 
 If the SERP shows mixed intent (e.g., half tutorials, half comparisons), classify as the majority and note the split. Mixed intent SERPs are harder to rank for -- consider narrowing the angle.
 
@@ -116,11 +117,11 @@ the SERP has **fractured intent**. Handle as follows:
    Note it as a secondary angle opportunity.
 3. **Classify the fracture type:**
 
-   | Fracture Type | Signal | Example |
-   |---------------|--------|---------|
-   | **intent split** | Same topic, different goals (some want to learn, some want to buy) | "docker" -- tutorials + download page + docs |
-   | **meaning split** | Ambiguous term with multiple interpretations | "react native" -- the framework vs. native React features |
-   | **format split** | Same intent, Google testing different formats | "API testing" -- tutorials + tools + comparisons all ranking |
+   | Fracture Type     | Signal                                                             | Example                                                      |
+   | ----------------- | ------------------------------------------------------------------ | ------------------------------------------------------------ |
+   | **intent split**  | Same topic, different goals (some want to learn, some want to buy) | "docker" -- tutorials + download page + docs                 |
+   | **meaning split** | Ambiguous term with multiple interpretations                       | "react native" -- the framework vs. native React features    |
+   | **format split**  | Same intent, Google testing different formats                      | "API testing" -- tutorials + tools + comparisons all ranking |
 
 4. **Assess SERP stability:**
    - Check if the top 10 results show a consistent set of domains (stable)
@@ -145,10 +146,12 @@ the SERP has **fractured intent**. Handle as follows:
 Examine the `serp-overview` response for SERP features:
 
 **AI Overview detection:**
+
 - Check the response `type` array or SERP features for `ai_overview` presence
 - If AI Overview is present: organic CTR for positions 1-5 drops significantly. Flag this for Phase 9 -- AEO optimization becomes critical. Note in output: `has_ai_overview: true`
 
 **Featured Snippet detection:**
+
 - Check for `featured_snippet` in SERP features
 - If present, identify the type:
   - **definition**: Paragraph answering "What is X?" (target with a concise 40-60 word definition)
@@ -162,14 +165,14 @@ Examine the `serp-overview` response for SERP features:
 
 For each of the top 10 results, classify the content format using the `page_type` field:
 
-| Format | Identifies As |
-|--------|---------------|
-| **tutorial** | Step-by-step guide, "How to", implementation walkthrough |
-| **comparison** | "vs", "best X for Y", pros/cons format |
-| **explainer** | "What is", conceptual deep dive, architecture overview |
-| **listicle** | "N ways to", "top N", numbered list format |
-| **reference** | Documentation, API reference, specification |
-| **opinion** | Thought leadership, prediction, hot take |
+| Format         | Identifies As                                            |
+| -------------- | -------------------------------------------------------- |
+| **tutorial**   | Step-by-step guide, "How to", implementation walkthrough |
+| **comparison** | "vs", "best X for Y", pros/cons format                   |
+| **explainer**  | "What is", conceptual deep dive, architecture overview   |
+| **listicle**   | "N ways to", "top N", numbered list format               |
+| **reference**  | Documentation, API reference, specification              |
+| **opinion**    | Thought leadership, prediction, hot take                 |
 
 Count the format distribution. The dominant format (3+ of 10) is what Google rewards for this query.
 
@@ -183,25 +186,26 @@ For each of the top 10 SERP positions, assess whether Builder.io's blog could re
 
 **Per-position scoring:**
 
-| Factor | Beatable Signal | Strong Signal |
-|--------|----------------|---------------|
-| `domain_rating` | DR < 50 | DR < 30 |
-| `url_rating` | UR < 30 | UR < 15 |
-| `refdomains` | < 20 referring domains | < 5 referring domains |
-| `backlinks` | < 50 backlinks | < 10 backlinks |
+| Factor          | Beatable Signal        | Strong Signal         |
+| --------------- | ---------------------- | --------------------- |
+| `domain_rating` | DR < 50                | DR < 30               |
+| `url_rating`    | UR < 30                | UR < 15               |
+| `refdomains`    | < 20 referring domains | < 5 referring domains |
+| `backlinks`     | < 50 backlinks         | < 10 backlinks        |
 
 Mark each position as:
+
 - **beatable**: 3+ of 4 factors show beatable signals
 - **challenging**: 1-2 factors show beatable signals
 - **strong**: 0 factors show beatable signals
 
 **Overall keyword beatability:**
 
-| Condition | Classification |
-|-----------|---------------|
-| 3+ positions in top 10 are "beatable" | **Beatable** -- proceed with confidence |
-| 1-2 positions are "beatable" | **Challenging** -- proceed but set realistic expectations |
-| 0 positions are "beatable" | **Difficult** -- consider long-tail pivot or differentiation strategy |
+| Condition                             | Classification                                                        |
+| ------------------------------------- | --------------------------------------------------------------------- |
+| 3+ positions in top 10 are "beatable" | **Beatable** -- proceed with confidence                               |
+| 1-2 positions are "beatable"          | **Challenging** -- proceed but set realistic expectations             |
+| 0 positions are "beatable"            | **Difficult** -- consider long-tail pivot or differentiation strategy |
 
 If "Difficult", suggest revisiting keyword selection. A long-tail variation from Phase 2 may have weaker competition.
 
@@ -210,14 +214,17 @@ If "Difficult", suggest revisiting keyword selection. A long-tail variation from
 The `serp-overview` response may include "People Also Ask" (PAA) questions. Extract all available PAA questions.
 
 If PAA is not available from the Ahrefs response, supplement with:
+
 1. `question_keywords` from `phases/02-keyword-research.yaml` (already extracted in Phase 2)
 2. A WebSearch for `"<primary keyword>"` and note the PAA box in Google results
 
 PAA questions serve two purposes:
+
 - **Outline headings:** Direct candidates for H2/H3 question-based headings (AEO optimization)
 - **FAQ section:** Can populate a FAQ schema section at the end of the post
 
 Select 4-8 PAA questions. Prefer questions that:
+
 - Have clear, answerable scope (not too broad)
 - Complement the primary topic angle
 - Do not duplicate question keywords already captured in Phase 2
@@ -299,14 +306,14 @@ Write `phases/03-serp-analysis.yaml`:
 
 ```yaml
 skipped: false
-seed_serp_intents: false  # true when seed/serp-intents.txt was ingested
+seed_serp_intents: false # true when seed/serp-intents.txt was ingested
 search_intent: informational | navigational | commercial | transactional
-search_intent_confidence: high | medium | low  # low when fractured
+search_intent_confidence: high | medium | low # low when fractured
 intent_fractured: true | false
 intent_fracture_type: intent_split | meaning_split | format_split | null
-intent_dominant_pct: 60  # percentage of top 10 matching dominant intent
-intent_secondary: commercial | null  # the runner-up intent (null if not fractured)
-intent_secondary_pct: 30  # null if not fractured
+intent_dominant_pct: 60 # percentage of top 10 matching dominant intent
+intent_secondary: commercial | null # the runner-up intent (null if not fractured)
+intent_secondary_pct: 30 # null if not fractured
 serp_stability: stable | volatile
 # When seed_serp_intents is true, also include:
 # intent_clusters:
@@ -334,7 +341,7 @@ format_distribution:
   comparison: 2
   listicle: 1
 beatability: beatable | challenging | difficult
-beatable_positions: 4  # count of "beatable" positions in top 10
+beatable_positions: 4 # count of "beatable" positions in top 10
 top_results:
   - position: 1
     title: "..."
@@ -400,7 +407,7 @@ comparison_subject_serps:
     unique_angles: "Many generic reviews, few cover workflow philosophy differences"
 data_quality:
   api_available: true
-  units_used: 0  # estimated after all calls
+  units_used: 0 # estimated after all calls
   notes: ""
 ```
 
@@ -410,10 +417,13 @@ Also append a narrative analysis to `research-notes.md`:
 ## SERP Analysis
 
 ### Search Intent: [intent]
+
 [Brief justification for the classification]
 
 ### Fractured Intent: [Yes/No]
+
 [Only include this section when `intent_fractured: true`]
+
 - Fracture type: [intent_split / meaning_split / format_split]
 - Dominant: [intent] ([X]% of top 10)
 - Secondary: [intent] ([Y]% of top 10)
@@ -421,35 +431,44 @@ Also append a narrative analysis to `research-notes.md`:
 - Strategy: Target [dominant intent]. [Note about secondary angle if applicable.]
 
 ### AI Overview Present: Yes/No
+
 [If yes: "Organic CTR is significantly reduced. AEO optimization (Phase 9) is critical for this keyword."]
 [If no: "Standard organic positioning strategy applies."]
 
 ### Featured Snippet Opportunity
+
 [Type: definition/list/table/none. If present, note the target format for the answer-first section.]
 
 ### Dominant Content Format: [format]
+
 [Distribution breakdown. Recommendation: match or differentiate?]
 
 ### Beatability: [beatable/challenging/difficult]
+
 [Summary: X of 10 positions are beatable. Key weak spots at positions N, N.]
 
 ### Top Results Analysis
+
 1. [Title](url) - DR: X | Format: Y | Beatable: yes/no
 2. ...
-(all 10 positions)
+   (all 10 positions)
 
 ### Content Gaps
+
 - Gap 1: ...
 - Gap 2: ...
 
 ### People Also Ask
+
 - Question 1?
 - Question 2?
 
 ### Competitive Landscape
+
 [Top competing domains, their strengths, and where they are beatable]
 
 ### Recommended Strategy
+
 [1-2 sentences: Based on SERP analysis, recommend the approach -- format, angle, differentiation strategy]
 ```
 
@@ -499,6 +518,7 @@ Downstream phases will use social-signal-derived data from Phase 2 in place of S
 **Primary keyword:** "react server components tutorial"
 
 **SERP findings:**
+
 - Search intent: `informational` (9/10 results are tutorials)
 - AI Overview: `false`
 - Featured snippet: `list` (step-by-step snippet from position 1)
@@ -513,6 +533,7 @@ Downstream phases will use social-signal-derived data from Phase 2 in place of S
 **Primary keyword:** "javascript frameworks comparison 2026"
 
 **SERP findings:**
+
 - Search intent: `commercial` (7/10 are comparison pages)
 - AI Overview: `true` (Google AI synthesizes a comparison table)
 - Featured snippet: `table` (comparison table at position 0)

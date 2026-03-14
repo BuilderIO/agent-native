@@ -73,7 +73,9 @@ export function CollectedLinksBar({
                   <Link2 size={11} className="text-muted-foreground shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{link.title}</p>
-                    <p className="text-muted-foreground truncate">{link.domain}</p>
+                    <p className="text-muted-foreground truncate">
+                      {link.domain}
+                    </p>
                   </div>
                   <button
                     onClick={() => onRemove(link.url)}
@@ -117,7 +119,9 @@ export function CollectedLinksBar({
                   <Link2 size={11} className="text-muted-foreground shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{link.title}</p>
-                    <p className="text-muted-foreground truncate">{link.domain}</p>
+                    <p className="text-muted-foreground truncate">
+                      {link.domain}
+                    </p>
                   </div>
                   <button
                     onClick={() => onRemove(link.url)}

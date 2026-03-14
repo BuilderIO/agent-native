@@ -1,5 +1,5 @@
-import { markdownToBuilder } from './client/lib/markdown-to-builder.js';
-import { builderToMarkdown } from './client/lib/builder-to-markdown.js';
+import { markdownToBuilder } from "./client/lib/markdown-to-builder.js";
+import { builderToMarkdown } from "./client/lib/builder-to-markdown.js";
 
 const md = `| Feature | Cursor | Fusion | Claude Code |
 | --- | --- | --- | --- |

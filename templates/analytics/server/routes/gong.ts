@@ -12,7 +12,9 @@ export const handleGongCalls: RequestHandler = async (req, res) => {
       res.json({ calls, total: calls.length });
     } else {
       const days = req.query.days ? parseInt(req.query.days as string) : 30;
-      const fromDateTime = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const fromDateTime = new Date(
+        Date.now() - days * 24 * 60 * 60 * 1000,
+      ).toISOString();
       const result = await getCalls({ fromDateTime });
       res.json({ calls: result.calls, total: result.calls.length });
     }

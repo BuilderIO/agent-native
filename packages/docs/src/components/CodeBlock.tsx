@@ -1,35 +1,40 @@
-import { useEffect, useState, useRef } from 'react'
-import { codeToHtml } from 'shiki'
+import { useEffect, useState, useRef } from "react";
+import { codeToHtml } from "shiki";
 
 interface CodeBlockProps {
-  code: string
-  lang?: string
+  code: string;
+  lang?: string;
 }
 
-export default function CodeBlock({ code, lang = 'typescript' }: CodeBlockProps) {
-  const [html, setHtml] = useState('')
-  const [copied, setCopied] = useState(false)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>(null)
+export default function CodeBlock({
+  code,
+  lang = "typescript",
+}: CodeBlockProps) {
+  const [html, setHtml] = useState("");
+  const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
     codeToHtml(code.trim(), {
       lang,
       themes: {
-        light: 'github-light-default',
-        dark: 'github-dark-default',
+        light: "github-light-default",
+        dark: "github-dark-default",
       },
     }).then((result) => {
-      if (!cancelled) setHtml(result)
-    })
-    return () => { cancelled = true }
-  }, [code, lang])
+      if (!cancelled) setHtml(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [code, lang]);
 
   function handleCopy() {
-    navigator.clipboard.writeText(code.trim())
-    setCopied(true)
-    if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    timeoutRef.current = setTimeout(() => setCopied(false), 2000)
+    navigator.clipboard.writeText(code.trim());
+    setCopied(true);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => setCopied(false), 2000);
   }
 
   return (
@@ -41,11 +46,29 @@ export default function CodeBlock({ code, lang = 'typescript' }: CodeBlockProps)
         aria-label="Copy code"
       >
         {copied ? (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <polyline points="20 6 9 17 4 12" />
           </svg>
         ) : (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
           </svg>
@@ -59,5 +82,5 @@ export default function CodeBlock({ code, lang = 'typescript' }: CodeBlockProps)
         </pre>
       )}
     </div>
-  )
+  );
 }

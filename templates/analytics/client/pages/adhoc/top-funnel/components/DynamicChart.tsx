@@ -45,7 +45,7 @@ function pivotData(
   rows: Record<string, unknown>[],
   dateKey: string,
   seriesKey: string,
-  valueKey: string
+  valueKey: string,
 ): { data: PivotedRow[]; seriesNames: string[] } {
   const seriesTotals = new Map<string, number>();
   const dateMap = new Map<string, Record<string, number>>();
@@ -65,7 +65,9 @@ function pivotData(
 
   // Rank series by total value, keep top N, bucket rest as "Other"
   const ranked = Array.from(seriesTotals.entries()).sort((a, b) => b[1] - a[1]);
-  const topSeriesSet = new Set(ranked.slice(0, MAX_SERIES).map(([name]) => name));
+  const topSeriesSet = new Set(
+    ranked.slice(0, MAX_SERIES).map(([name]) => name),
+  );
   const hasOther = ranked.length > MAX_SERIES;
 
   const seriesNames = ranked.slice(0, MAX_SERIES).map(([name]) => name);
@@ -117,7 +119,7 @@ export function DynamicChart({
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const { data, seriesNames } = useMemo(
     () => pivotData(rows, dateKey, seriesKey, valueKey),
-    [rows, dateKey, seriesKey, valueKey]
+    [rows, dateKey, seriesKey, valueKey],
   );
 
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set());
@@ -149,14 +151,19 @@ export function DynamicChart({
   // Calculate total value for validation
   const totalValue = useMemo(() => {
     return data.reduce((sum, row) => {
-      const rowSum = visibleSeries.reduce((s, series) => s + (Number(row[series]) || 0), 0);
+      const rowSum = visibleSeries.reduce(
+        (s, series) => s + (Number(row[series]) || 0),
+        0,
+      );
       return sum + rowSum;
     }, 0);
   }, [data, visibleSeries]);
 
   return (
     <Card className="bg-card border-border/50">
-      <CardHeader className={`${collapsed ? "py-3" : "pb-2"} flex flex-row items-center justify-between space-y-0`}>
+      <CardHeader
+        className={`${collapsed ? "py-3" : "pb-2"} flex flex-row items-center justify-between space-y-0`}
+      >
         <div
           className="flex items-center gap-1.5 flex-1 cursor-pointer select-none"
           onClick={() => setCollapsed((c) => !c)}
@@ -193,32 +200,112 @@ export function DynamicChart({
                 <ResponsiveContainer width="100%" height="100%">
                   {chartType === "stacked-area" ? (
                     <AreaChart data={data}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                      <XAxis dataKey="date" stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} tickFormatter={formatDate} />
-                      <YAxis stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} tickFormatter={compactFormatter} />
-                      <Tooltip contentStyle={tooltipStyle} labelFormatter={formatDate} />
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="#27272a"
+                        vertical={false}
+                      />
+                      <XAxis
+                        dataKey="date"
+                        stroke="#52525b"
+                        fontSize={11}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={formatDate}
+                      />
+                      <YAxis
+                        stroke="#52525b"
+                        fontSize={11}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={compactFormatter}
+                      />
+                      <Tooltip
+                        contentStyle={tooltipStyle}
+                        labelFormatter={formatDate}
+                      />
                       {visibleSeries.map((name) => (
-                        <Area key={name} type="monotone" dataKey={name} stackId="1" stroke={getColor(name)} fill={getColor(name)} fillOpacity={0.6} />
+                        <Area
+                          key={name}
+                          type="monotone"
+                          dataKey={name}
+                          stackId="1"
+                          stroke={getColor(name)}
+                          fill={getColor(name)}
+                          fillOpacity={0.6}
+                        />
                       ))}
                     </AreaChart>
                   ) : chartType === "stacked-bar" ? (
                     <BarChart data={data}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                      <XAxis dataKey="date" stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} tickFormatter={formatDate} />
-                      <YAxis stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} tickFormatter={compactFormatter} />
-                      <Tooltip contentStyle={tooltipStyle} labelFormatter={formatDate} />
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="#27272a"
+                        vertical={false}
+                      />
+                      <XAxis
+                        dataKey="date"
+                        stroke="#52525b"
+                        fontSize={11}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={formatDate}
+                      />
+                      <YAxis
+                        stroke="#52525b"
+                        fontSize={11}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={compactFormatter}
+                      />
+                      <Tooltip
+                        contentStyle={tooltipStyle}
+                        labelFormatter={formatDate}
+                      />
                       {visibleSeries.map((name) => (
-                        <Bar key={name} dataKey={name} stackId="1" fill={getColor(name)} />
+                        <Bar
+                          key={name}
+                          dataKey={name}
+                          stackId="1"
+                          fill={getColor(name)}
+                        />
                       ))}
                     </BarChart>
                   ) : (
                     <LineChart data={data}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                      <XAxis dataKey="date" stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} tickFormatter={formatDate} />
-                      <YAxis stroke="#52525b" fontSize={11} tickLine={false} axisLine={false} tickFormatter={compactFormatter} />
-                      <Tooltip contentStyle={tooltipStyle} labelFormatter={formatDate} />
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="#27272a"
+                        vertical={false}
+                      />
+                      <XAxis
+                        dataKey="date"
+                        stroke="#52525b"
+                        fontSize={11}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={formatDate}
+                      />
+                      <YAxis
+                        stroke="#52525b"
+                        fontSize={11}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={compactFormatter}
+                      />
+                      <Tooltip
+                        contentStyle={tooltipStyle}
+                        labelFormatter={formatDate}
+                      />
                       {visibleSeries.map((name) => (
-                        <Line key={name} type="monotone" dataKey={name} stroke={getColor(name)} strokeWidth={2} dot={false} />
+                        <Line
+                          key={name}
+                          type="monotone"
+                          dataKey={name}
+                          stroke={getColor(name)}
+                          strokeWidth={2}
+                          dot={false}
+                        />
                       ))}
                     </LineChart>
                   )}

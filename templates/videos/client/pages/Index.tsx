@@ -20,16 +20,19 @@ function StudioContent() {
   const [cursorControlsTrigger, setCursorControlsTrigger] = useState(0);
   const [compSettingsTrigger, setCompSettingsTrigger] = useState(0);
 
-  const handleCameraKeyframeClick = useCallback((trackType: 'camera' | 'cursor') => {
-    if (trackType === 'camera') {
-      setCameraControlsTrigger(prev => prev + 1);
-    } else {
-      setCursorControlsTrigger(prev => prev + 1);
-    }
-  }, []);
+  const handleCameraKeyframeClick = useCallback(
+    (trackType: "camera" | "cursor") => {
+      if (trackType === "camera") {
+        setCameraControlsTrigger((prev) => prev + 1);
+      } else {
+        setCursorControlsTrigger((prev) => prev + 1);
+      }
+    },
+    [],
+  );
 
   const handleCompSettingsClick = useCallback(() => {
-    setCompSettingsTrigger(prev => prev + 1);
+    setCompSettingsTrigger((prev) => prev + 1);
   }, []);
 
   return (
@@ -70,15 +73,19 @@ export default function Studio() {
 
   // ── Redirects ─────────────────────────────────────────────────────────────
   if (!compositionId) {
-    return compositions.length > 0
-      ? <Navigate to={`/c/${compositions[0].id}`} replace />
-      : <Navigate to="/c/new" replace />;
+    return compositions.length > 0 ? (
+      <Navigate to={`/c/${compositions[0].id}`} replace />
+    ) : (
+      <Navigate to="/c/new" replace />
+    );
   }
 
   if (!isNew && !selected) {
-    return compositions.length > 0
-      ? <Navigate to={`/c/${compositions[0].id}`} replace />
-      : <Navigate to="/c/new" replace />;
+    return compositions.length > 0 ? (
+      <Navigate to={`/c/${compositions[0].id}`} replace />
+    ) : (
+      <Navigate to="/c/new" replace />
+    );
   }
 
   // ─── Provide context and render ───────────────────────────────────────────
@@ -93,7 +100,13 @@ export default function Studio() {
               <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
                 <StudioHeader sidebarOpen onToggleSidebar={() => {}} />
                 <div className="flex flex-1 min-h-0">
-                  <Sidebar open cameraControlsTrigger={0} cursorControlsTrigger={0} compSettingsTrigger={0} onGeneratingChange={() => {}} />
+                  <Sidebar
+                    open
+                    cameraControlsTrigger={0}
+                    cursorControlsTrigger={0}
+                    compSettingsTrigger={0}
+                    onGeneratingChange={() => {}}
+                  />
                   <div className="flex-1 min-w-0 overflow-y-auto">
                     <NewComposition isGenerating={false} />
                   </div>

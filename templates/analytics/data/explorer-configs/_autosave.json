@@ -10,9 +10,7 @@
           "value": ""
         }
       ],
-      "groupBy": [
-        "org_subscription"
-      ]
+      "groupBy": ["org_subscription"]
     }
   ],
   "chartType": "line",

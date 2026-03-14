@@ -26,8 +26,7 @@ export function createProductionServer(
   const appName = options.appName ?? "Agent-Native";
 
   // Resolve SPA directory
-  const spaDir =
-    options.spaDir ?? path.resolve(process.cwd(), "dist/spa");
+  const spaDir = options.spaDir ?? path.resolve(process.cwd(), "dist/spa");
 
   // Serve static files
   app.use(express.static(spaDir));

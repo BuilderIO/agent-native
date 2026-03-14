@@ -49,8 +49,22 @@ const FALLBACK_TRACKS: AnimationTrack[] = [
         description:
           "Each piece of the Builder.io logo gets its own random explosion vector — angle, speed, and rotation direction. Pieces spring outward from their resting position, spin, shrink, and fade out with staggered timing for an organic shatter feel.",
         parameters: [
-          { name: "spreadRadius", label: "Spread Radius", default: 500, min: 100, max: 1200, step: 25 },
-          { name: "stagger", label: "Stagger (frames)", default: 2, min: 0, max: 8, step: 1 },
+          {
+            name: "spreadRadius",
+            label: "Spread Radius",
+            default: 500,
+            min: 100,
+            max: 1200,
+            step: 25,
+          },
+          {
+            name: "stagger",
+            label: "Stagger (frames)",
+            default: 2,
+            min: 0,
+            max: 8,
+            step: 1,
+          },
         ],
         codeSnippet: `// Per-piece spring with stagger
 const p = spring({ frame, fps, delay: startFrame + i * stagger,
@@ -100,7 +114,7 @@ export const LogoExplode: React.FC<LogoExplodeProps> = ({
 
   // --- Explosion parameters ---
   const scatterProp = explodeTrack.animatedProps?.find(
-    (p) => p.property === "letter scatter"
+    (p) => p.property === "letter scatter",
   );
   const spreadRadius = scatterProp?.parameterValues?.spreadRadius ?? 500;
   const stagger = scatterProp?.parameterValues?.stagger ?? 2;
@@ -180,8 +194,10 @@ export const LogoExplode: React.FC<LogoExplodeProps> = ({
               config: { damping: 20, stiffness: 40 },
             });
 
-            const dx = (Math.cos(phys.angle) * phys.speed * spreadRadius * p) / svgScale;
-            const dy = (Math.sin(phys.angle) * phys.speed * spreadRadius * p) / svgScale;
+            const dx =
+              (Math.cos(phys.angle) * phys.speed * spreadRadius * p) / svgScale;
+            const dy =
+              (Math.sin(phys.angle) * phys.speed * spreadRadius * p) / svgScale;
             const rot = phys.rotDir * phys.rotAmount * p;
 
             const pieceOpacity =
@@ -191,7 +207,7 @@ export const LogoExplode: React.FC<LogoExplodeProps> = ({
                     elapsed,
                     [0, explosionDuration * 0.5, explosionDuration],
                     [1, 0.7, 0],
-                    { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
+                    { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
                   );
 
             const pieceScale =

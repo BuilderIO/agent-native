@@ -14,7 +14,7 @@ export const SlackSearchInput: React.FC<SlackSearchInputProps> = ({
   isFocused = false,
   hoverProgress = 0,
 }) => {
-  const borderOpacity = 0.25 + (hoverProgress * 0.15);
+  const borderOpacity = 0.25 + hoverProgress * 0.15;
 
   return (
     <div

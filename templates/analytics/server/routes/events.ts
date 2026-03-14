@@ -25,7 +25,7 @@ function getBigQueryClient(): BigQuery {
 
 /**
  * POST /api/events/track
- * 
+ *
  * Logs custom events to BigQuery events_partitioned table.
  * Used for tracking metric views, user actions, etc.
  */

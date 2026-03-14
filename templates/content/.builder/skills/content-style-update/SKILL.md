@@ -12,6 +12,7 @@ Extract editorial corrections, formulate structured rules, and append them to `.
 <input> $ARGUMENTS </input>
 
 **If the input above is empty, ask the user:** "What style correction do you want to add? You can provide:
+
 1. A correction in plain text (e.g., \"Never use 'In this article we will explore' -- jump directly into the topic\")
 2. A path to a post with inline corrections or comments"
 
@@ -22,9 +23,11 @@ Do not proceed until you have input from the user.
 Determine the input type:
 
 ### Free-text correction
+
 The input is a verbal correction. Proceed directly to rule formulation.
 
 ### Path to a file
+
 1. Read the file
 2. Look for inline corrections: strikethrough (`~~text~~`), comments (`<!-- comment -->`), tracked changes, or annotations
 3. If no corrections are found, ask: "I didn't find inline corrections in this file. Can you describe what should change?"
@@ -48,13 +51,13 @@ For each correction in the input, formulate a structured rule:
 
 **Determine the target section:**
 
-| Correction type | Target section |
-|----------------|---------------|
+| Correction type                                                      | Target section        |
+| -------------------------------------------------------------------- | --------------------- |
 | Voice/tone correction ("don't sound preachy", "more conversational") | Voice Characteristics |
-| Writing constraint ("no em dashes", "short paragraphs") | Hard Rules |
-| Format rule ("code blocks need language identifiers") | Formatting |
-| Banned phrase ("never say 'deep dive'") | Phrases to Avoid |
-| Content structure ("always end with a challenge") | Content Rules |
+| Writing constraint ("no em dashes", "short paragraphs")              | Hard Rules            |
+| Format rule ("code blocks need language identifiers")                | Formatting            |
+| Banned phrase ("never say 'deep dive'")                              | Phrases to Avoid      |
+| Content structure ("always end with a challenge")                    | Content Rules         |
 
 **For Hard Rules, use this format:**
 
@@ -91,10 +94,12 @@ Present both rules using **AskUserQuestion**:
 **Question:** "This new rule conflicts with an existing rule. Which should apply?"
 
 Show:
+
 - **Existing rule:** [rule text] (source: [default/local])
 - **New rule:** [proposed rule text]
 
 **Options:**
+
 1. **Replace** -- New rule replaces the existing one
 2. **Keep existing** -- Discard the new rule
 3. **Merge** -- Combine both rules (describe how)
@@ -112,11 +117,13 @@ Use **AskUserQuestion**:
 **Question:** "Here are the rules I'll add to `.content-style-guide.md`. Approve?"
 
 Show each rule with:
+
 - Target section (Hard Rules, Phrases to Avoid, etc.)
 - The formatted rule text
 - Whether it's new or replacing an existing rule
 
 **Options:**
+
 1. **Approve all** -- Add all rules
 2. **Approve some** -- Select which rules to add (follow up with selection)
 3. **Edit** -- Modify rule wording before adding
@@ -129,15 +136,18 @@ Do not proceed without explicit approval. Bad rules degrade all future posts.
 Apply approved rules to `.content-style-guide.md`:
 
 **If the target section has placeholder text** (`[Add rules here via /content-style-update]`):
+
 - Replace the placeholder with the new rule(s)
 - For Hard Rules: add the table header row first, then the rule rows
 
 **If the target section has existing content:**
+
 - For Hard Rules: append new row(s) to the existing table, incrementing the row number
 - For bullet sections: append new bullet(s) after existing bullets
 - For Phrases to Avoid: append new phrases after existing phrases
 
 **If the target section doesn't exist:**
+
 - Add the section heading and content before the last section in the file
 
 **Never modify the project default** (`.builder/skills/style-guide/references/default-voice-and-tone.md`). All updates go to the local override only.
@@ -170,6 +180,7 @@ Use **AskUserQuestion**:
 **Question:** "Style guide updated. What's next?"
 
 **Options:**
+
 1. **Add more rules** -- Continue adding corrections
 2. **View style guide** -- Read the full `.content-style-guide.md`
 3. **Done** -- Finish
@@ -185,6 +196,7 @@ If the user selects "Add more rules," loop back to the input step.
 **Input:** "Never use 'deep dive' -- it's the most AI-sounding phrase in tech writing"
 
 **Formulated rule:**
+
 - Section: Phrases to Avoid
 - Rule: `- "deep dive" -- replace with specific action ("explore", "examine", "break down")`
 
@@ -193,6 +205,7 @@ If the user selects "Add more rules," loop back to the input step.
 **Input:** "Stop starting paragraphs with 'It's worth noting that' -- just say the thing"
 
 **Formulated rule:**
+
 - Section: Hard Rules
 - Rule: `| N | No throat-clearing openers | "It's worth noting that...", "It's important to mention..." | Delete the opener; start with the actual point |`
 
@@ -209,6 +222,7 @@ If the user selects "Add more rules," loop back to the input step.
 **Input:** Path to a post with comments like `<!-- too wordy -->`, `<!-- AI-sounding -->`, `<!-- needs a code example here -->`
 
 **Formulated rules:**
+
 1. Hard Rules: "Flag sections over 100 words without a code example or visual"
 2. Phrases to Avoid: [specific phrases marked as AI-sounding]
 

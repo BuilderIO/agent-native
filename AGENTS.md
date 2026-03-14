@@ -50,9 +50,10 @@ data/            # App data files (watched by SSE)
 ## Scripts
 
 Create `scripts/my-script.ts`:
+
 ```ts
 import { parseArgs } from "@agent-native/core";
-export default async function(args: string[]) {
+export default async function (args: string[]) {
   const { name } = parseArgs(args);
   // do work, write files to data/
 }

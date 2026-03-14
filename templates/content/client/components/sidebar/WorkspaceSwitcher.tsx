@@ -87,29 +87,42 @@ export function WorkspaceSwitcher({
         >
           {/* Show private first, then shared, then others */}
           {["private", "shared"].map((special) =>
-            workspaces.filter(ws => ws === special).map((ws) => (
+            workspaces
+              .filter((ws) => ws === special)
+              .map((ws) => (
+                <DropdownMenuItem
+                  key={ws}
+                  onSelect={() => onSelect(ws)}
+                  className={ws === selected ? "bg-accent" : ""}
+                >
+                  {ws === "shared" ? (
+                    <Globe className="mr-2 size-4" />
+                  ) : (
+                    <Lock className="mr-2 size-4" />
+                  )}
+                  {formatLabel(ws)}
+                </DropdownMenuItem>
+              )),
+          )}
+          {workspaces
+            .filter((ws) => ws !== "shared" && ws !== "private")
+            .map((ws) => (
               <DropdownMenuItem
                 key={ws}
                 onSelect={() => onSelect(ws)}
                 className={ws === selected ? "bg-accent" : ""}
               >
-                {ws === "shared" ? <Globe className="mr-2 size-4" /> : <Lock className="mr-2 size-4" />}
+                <FolderOpen className="mr-2 size-4" />
                 {formatLabel(ws)}
               </DropdownMenuItem>
-            ))
-          )}
-          {workspaces.filter(ws => ws !== "shared" && ws !== "private").map((ws) => (
-            <DropdownMenuItem
-              key={ws}
-              onSelect={() => onSelect(ws)}
-              className={ws === selected ? "bg-accent" : ""}
-            >
-              <FolderOpen className="mr-2 size-4" />
-              {formatLabel(ws)}
-            </DropdownMenuItem>
-          ))}
+            ))}
           {workspaces.length > 0 && <DropdownMenuSeparator />}
-          <DropdownMenuItem onSelect={(e) => { e.preventDefault(); setDialogOpen(true); }}>
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault();
+              setDialogOpen(true);
+            }}
+          >
             <Plus className="mr-2 size-4" />
             New Workspace
           </DropdownMenuItem>
@@ -137,10 +150,7 @@ export function WorkspaceSwitcher({
             </div>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDialogOpen(false)}
-            >
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Cancel
             </Button>
             <Button

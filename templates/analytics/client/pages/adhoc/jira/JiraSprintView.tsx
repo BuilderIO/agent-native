@@ -4,7 +4,8 @@ import { useJiraBoards, useJiraSprints, type JiraSprint } from "./hooks";
 export function JiraSprintView() {
   const { data: boards, isLoading: boardsLoading } = useJiraBoards();
   const [selectedBoard, setSelectedBoard] = useState<number | null>(null);
-  const { data: sprints, isLoading: sprintsLoading } = useJiraSprints(selectedBoard);
+  const { data: sprints, isLoading: sprintsLoading } =
+    useJiraSprints(selectedBoard);
 
   if (boardsLoading) {
     return (
@@ -124,7 +125,7 @@ function groupSprints(sprints: JiraSprint[]) {
     .sort(
       (a, b) =>
         new Date(b.completeDate ?? 0).getTime() -
-        new Date(a.completeDate ?? 0).getTime()
+        new Date(a.completeDate ?? 0).getTime(),
     )
     .slice(0, 5);
 

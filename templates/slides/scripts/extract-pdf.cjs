@@ -1,9 +1,9 @@
-const fs = require('fs');
-const { PDFParse } = require('pdf-parse');
+const fs = require("fs");
+const { PDFParse } = require("pdf-parse");
 
 const pdfPath = process.argv[2];
 if (!pdfPath) {
-  console.error('Usage: node scripts/extract-pdf.cjs <path-to-pdf>');
+  console.error("Usage: node scripts/extract-pdf.cjs <path-to-pdf>");
   process.exit(1);
 }
 
@@ -13,11 +13,11 @@ async function main() {
   await pdf.load();
   const result = await pdf.getText();
   const pages = result.pages || [];
-  console.log('Total pages:', pages.length);
+  console.log("Total pages:", pages.length);
   pages.forEach((page) => {
     console.log(`\n=== PAGE ${page.num} ===`);
     console.log(page.text);
   });
 }
 
-main().catch(e => console.error(e));
+main().catch((e) => console.error(e));

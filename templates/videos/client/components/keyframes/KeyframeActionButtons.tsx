@@ -14,7 +14,7 @@ export function KeyframeActionButtons({
   onDuplicate,
   onReset,
   onRemove,
-  resetTooltip = "Reset to defaults"
+  resetTooltip = "Reset to defaults",
 }: KeyframeActionButtonsProps) {
   if (!isOnKeyframe) return null;
 

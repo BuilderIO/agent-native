@@ -37,7 +37,9 @@ export class ErrorBoundary extends Component<Props, State> {
         <Card className="border-destructive">
           <CardHeader>
             <CardTitle className="text-destructive">
-              {this.props.componentName ? `Error in ${this.props.componentName}` : "Component Error"}
+              {this.props.componentName
+                ? `Error in ${this.props.componentName}`
+                : "Component Error"}
             </CardTitle>
           </CardHeader>
           <CardContent>

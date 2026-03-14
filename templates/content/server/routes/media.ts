@@ -20,11 +20,7 @@ const ALLOWED_IMAGE_TYPES = [
   "image/webp",
   "image/svg+xml",
 ];
-const ALLOWED_VIDEO_TYPES = [
-  "video/mp4",
-  "video/webm",
-  "video/quicktime",
-];
+const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
 const ALLOWED_TYPES = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_VIDEO_TYPES];
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const CHUNK_SIZE = 1 * 1024 * 1024;
@@ -76,9 +72,14 @@ function getErrorMessage(error: unknown): string {
 function logMediaEvent(
   level: "info" | "warn" | "error",
   message: string,
-  details: Record<string, unknown>
+  details: Record<string, unknown>,
 ) {
-  const log = level === "error" ? console.error : level === "warn" ? console.warn : console.info;
+  const log =
+    level === "error"
+      ? console.error
+      : level === "warn"
+        ? console.warn
+        : console.info;
   log(`[media] ${message}`, details);
 }
 
@@ -92,7 +93,10 @@ function getHeaderValue(value: string | string[] | undefined): string {
 function isLoopbackHost(value: string): boolean {
   try {
     const parsed = new URL(value.includes("://") ? value : `https://${value}`);
-    return ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(parsed.hostname) || parsed.hostname.endsWith(".local");
+    return (
+      ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(parsed.hostname) ||
+      parsed.hostname.endsWith(".local")
+    );
   } catch {
     return false;
   }
@@ -119,7 +123,10 @@ type ByteRange = {
   end: number;
 };
 
-function parseByteRange(rangeHeader: string | undefined, size: number): ByteRange | null {
+function parseByteRange(
+  rangeHeader: string | undefined,
+  size: number,
+): ByteRange | null {
   if (!rangeHeader) return null;
 
   const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
@@ -159,11 +166,21 @@ function streamMediaFile(
     streamErrorMessage: string;
     streamErrorCode: string;
     logDetails: Record<string, unknown>;
-  }
+  },
 ) {
-  const { filePath, mimeType, cacheControl, streamErrorMessage, streamErrorCode, logDetails } = options;
+  const {
+    filePath,
+    mimeType,
+    cacheControl,
+    streamErrorMessage,
+    streamErrorCode,
+    logDetails,
+  } = options;
   const stat = fs.statSync(filePath);
-  const range = parseByteRange(typeof req.headers.range === "string" ? req.headers.range : undefined, stat.size);
+  const range = parseByteRange(
+    typeof req.headers.range === "string" ? req.headers.range : undefined,
+    stat.size,
+  );
 
   res.setHeader("Content-Type", mimeType);
   res.setHeader("Accept-Ranges", "bytes");
@@ -173,14 +190,20 @@ function streamMediaFile(
     const contentLength = range.end - range.start + 1;
     res.status(206);
     res.setHeader("Content-Length", String(contentLength));
-    res.setHeader("Content-Range", `bytes ${range.start}-${range.end}/${stat.size}`);
+    res.setHeader(
+      "Content-Range",
+      `bytes ${range.start}-${range.end}/${stat.size}`,
+    );
 
     if (req.method === "HEAD") {
       res.end();
       return;
     }
 
-    const stream = fs.createReadStream(filePath, { start: range.start, end: range.end });
+    const stream = fs.createReadStream(filePath, {
+      start: range.start,
+      end: range.end,
+    });
     stream.on("error", (error) => {
       logMediaEvent("error", streamErrorMessage, {
         ...logDetails,
@@ -189,7 +212,9 @@ function streamMediaFile(
         rangeEnd: range.end,
       });
       if (!res.headersSent) {
-        res.status(500).json({ error: streamErrorMessage, code: streamErrorCode });
+        res
+          .status(500)
+          .json({ error: streamErrorMessage, code: streamErrorCode });
         return;
       }
       res.destroy(error instanceof Error ? error : undefined);
@@ -212,7 +237,9 @@ function streamMediaFile(
       error: getErrorMessage(error),
     });
     if (!res.headersSent) {
-      res.status(500).json({ error: streamErrorMessage, code: streamErrorCode });
+      res
+        .status(500)
+        .json({ error: streamErrorMessage, code: streamErrorCode });
       return;
     }
     res.destroy(error instanceof Error ? error : undefined);
@@ -247,11 +274,17 @@ function getUploadSessionDir(projectSlug: string, uploadId: string): string {
   return path.join(getProjectUploadTempDir(projectSlug), uploadId);
 }
 
-function getUploadSessionMetaPath(projectSlug: string, uploadId: string): string {
+function getUploadSessionMetaPath(
+  projectSlug: string,
+  uploadId: string,
+): string {
   return path.join(getUploadSessionDir(projectSlug, uploadId), "session.json");
 }
 
-function getUploadSessionDataPath(projectSlug: string, uploadId: string): string {
+function getUploadSessionDataPath(
+  projectSlug: string,
+  uploadId: string,
+): string {
   return path.join(getUploadSessionDir(projectSlug, uploadId), "upload.bin");
 }
 
@@ -274,7 +307,10 @@ function generateFilename(originalName: string): string {
   return `${baseName}-${id}${ext}`;
 }
 
-function saveMediaMetadata(project: string, metadata: MediaMetadata): SavedMediaMetadata {
+function saveMediaMetadata(
+  project: string,
+  metadata: MediaMetadata,
+): SavedMediaMetadata {
   const mediaDir = getMediaDir(project);
   ensureDir(mediaDir);
   const modifiedAt = Date.now();
@@ -285,7 +321,7 @@ function saveMediaMetadata(project: string, metadata: MediaMetadata): SavedMedia
   const metadataPath = path.join(mediaDir, `${metadata.filename}.json`);
   fs.writeFileSync(
     metadataPath,
-    JSON.stringify({ ...normalizedMetadata, modifiedAt }, null, 2)
+    JSON.stringify({ ...normalizedMetadata, modifiedAt }, null, 2),
   );
 
   return {
@@ -294,7 +330,10 @@ function saveMediaMetadata(project: string, metadata: MediaMetadata): SavedMedia
   };
 }
 
-function normalizeAllowedMimeType(originalName: string, mimeType: string): string {
+function normalizeAllowedMimeType(
+  originalName: string,
+  mimeType: string,
+): string {
   return getMimeType(originalName, mimeType || "application/octet-stream");
 }
 
@@ -303,8 +342,22 @@ function isAllowedMediaType(originalName: string, mimeType: string): boolean {
   if (ALLOWED_TYPES.includes(normalizedMimeType)) return true;
 
   const ext = path.extname(originalName).toLowerCase();
-  const allowedExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".mp4", ".webm", ".mov"];
-  return allowedExtensions.includes(ext) || normalizedMimeType.startsWith("image/") || normalizedMimeType.startsWith("video/");
+  const allowedExtensions = [
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".webp",
+    ".svg",
+    ".mp4",
+    ".webm",
+    ".mov",
+  ];
+  return (
+    allowedExtensions.includes(ext) ||
+    normalizedMimeType.startsWith("image/") ||
+    normalizedMimeType.startsWith("video/")
+  );
 }
 
 function isUploadSessionExpired(session: UploadSession): boolean {
@@ -314,11 +367,15 @@ function isUploadSessionExpired(session: UploadSession): boolean {
 function cleanupExpiredUploadSessions() {
   if (!fs.existsSync(TEMP_UPLOADS_ROOT)) return;
 
-  for (const projectEntry of fs.readdirSync(TEMP_UPLOADS_ROOT, { withFileTypes: true })) {
+  for (const projectEntry of fs.readdirSync(TEMP_UPLOADS_ROOT, {
+    withFileTypes: true,
+  })) {
     if (!projectEntry.isDirectory()) continue;
 
     const projectDir = path.join(TEMP_UPLOADS_ROOT, projectEntry.name);
-    for (const sessionEntry of fs.readdirSync(projectDir, { withFileTypes: true })) {
+    for (const sessionEntry of fs.readdirSync(projectDir, {
+      withFileTypes: true,
+    })) {
       if (!sessionEntry.isDirectory()) continue;
 
       const sessionDir = path.join(projectDir, sessionEntry.name);
@@ -330,7 +387,9 @@ function cleanupExpiredUploadSessions() {
       }
 
       try {
-        const session = JSON.parse(fs.readFileSync(metaPath, "utf-8")) as UploadSession;
+        const session = JSON.parse(
+          fs.readFileSync(metaPath, "utf-8"),
+        ) as UploadSession;
         if (isUploadSessionExpired(session)) {
           fs.rmSync(sessionDir, { recursive: true, force: true });
         }
@@ -341,11 +400,14 @@ function cleanupExpiredUploadSessions() {
   }
 }
 
-function createUploadSession(project: string, file: {
-  originalName: string;
-  size: number;
-  mimeType: string;
-}): UploadSession {
+function createUploadSession(
+  project: string,
+  file: {
+    originalName: string;
+    size: number;
+    mimeType: string;
+  },
+): UploadSession {
   cleanupExpiredUploadSessions();
 
   const uploadId = crypto.randomBytes(12).toString("hex");
@@ -367,17 +429,28 @@ function createUploadSession(project: string, file: {
     status: "uploading",
   };
 
-  fs.writeFileSync(getUploadSessionMetaPath(project, uploadId), JSON.stringify(session, null, 2));
-  fs.writeFileSync(getUploadSessionDataPath(project, uploadId), Buffer.alloc(0));
+  fs.writeFileSync(
+    getUploadSessionMetaPath(project, uploadId),
+    JSON.stringify(session, null, 2),
+  );
+  fs.writeFileSync(
+    getUploadSessionDataPath(project, uploadId),
+    Buffer.alloc(0),
+  );
   return session;
 }
 
-function readUploadSession(project: string, uploadId: string): UploadSession | null {
+function readUploadSession(
+  project: string,
+  uploadId: string,
+): UploadSession | null {
   const metaPath = getUploadSessionMetaPath(project, uploadId);
   if (!fs.existsSync(metaPath)) return null;
 
   try {
-    const session = JSON.parse(fs.readFileSync(metaPath, "utf-8")) as UploadSession;
+    const session = JSON.parse(
+      fs.readFileSync(metaPath, "utf-8"),
+    ) as UploadSession;
     if (session.project !== project || isUploadSessionExpired(session)) {
       deleteUploadSession(project, uploadId);
       return null;
@@ -393,12 +466,15 @@ function writeUploadSession(project: string, session: UploadSession) {
   session.expiresAt = Date.now() + UPLOAD_SESSION_TTL_MS;
   fs.writeFileSync(
     getUploadSessionMetaPath(project, session.id),
-    JSON.stringify(session, null, 2)
+    JSON.stringify(session, null, 2),
   );
 }
 
 function deleteUploadSession(project: string, uploadId: string) {
-  fs.rmSync(getUploadSessionDir(project, uploadId), { recursive: true, force: true });
+  fs.rmSync(getUploadSessionDir(project, uploadId), {
+    recursive: true,
+    force: true,
+  });
 }
 
 function deleteUploadSessionData(project: string, uploadId: string) {
@@ -414,12 +490,19 @@ function getChunkedUploadStatusPayload(session: UploadSession) {
     uploadId: session.id,
     status: session.status,
     pollAfterMs: session.status === "processing" ? 1500 : undefined,
-    error: session.status === "failed" ? session.failureMessage || "Upload failed" : undefined,
+    error:
+      session.status === "failed"
+        ? session.failureMessage || "Upload failed"
+        : undefined,
     result: session.status === "complete" ? session.resultMetadata : undefined,
   };
 }
 
-function markChunkedUploadFailed(project: string, uploadId: string, error: unknown) {
+function markChunkedUploadFailed(
+  project: string,
+  uploadId: string,
+  error: unknown,
+) {
   const session = readUploadSession(project, uploadId);
   if (!session) return;
 
@@ -453,8 +536,12 @@ function startChunkedMediaUploadProcessing(options: {
         return;
       }
 
-      const filename = session.uploadFilename || generateFilename(session.originalName);
-      const mimeType = normalizeAllowedMimeType(session.originalName, session.mimeType);
+      const filename =
+        session.uploadFilename || generateFilename(session.originalName);
+      const mimeType = normalizeAllowedMimeType(
+        session.originalName,
+        session.mimeType,
+      );
       const isVideo = ALLOWED_VIDEO_TYPES.includes(mimeType);
       const dataPath = getUploadSessionDataPath(project, uploadId);
 
@@ -467,15 +554,19 @@ function startChunkedMediaUploadProcessing(options: {
         throw new Error("Upload size mismatch");
       }
 
-      logMediaEvent("info", "Starting Builder CDN upload for completed chunked media", {
-        project,
-        uploadId,
-        filename,
-        bytes: stat.size,
-        mimeType,
-        uploadMode: "source-url",
-        retries: isVideo ? BUILDER_VIDEO_UPLOAD_RETRIES : 0,
-      });
+      logMediaEvent(
+        "info",
+        "Starting Builder CDN upload for completed chunked media",
+        {
+          project,
+          uploadId,
+          filename,
+          bytes: stat.size,
+          mimeType,
+          uploadMode: "source-url",
+          retries: isVideo ? BUILDER_VIDEO_UPLOAD_RETRIES : 0,
+        },
+      );
 
       const cdnUrl = await uploadUrlToBuilderCDN(filename, sourceUrl, {
         apiKey,
@@ -483,16 +574,20 @@ function startChunkedMediaUploadProcessing(options: {
         retries: isVideo ? BUILDER_VIDEO_UPLOAD_RETRIES : 0,
       });
 
-      logMediaEvent("info", "Completed Builder CDN upload for completed chunked media", {
-        project,
-        uploadId,
-        filename,
-        bytes: stat.size,
-        mimeType,
-        uploadMode: "source-url",
-        durationMs: Date.now() - startedAt,
-        cdnUrl,
-      });
+      logMediaEvent(
+        "info",
+        "Completed Builder CDN upload for completed chunked media",
+        {
+          project,
+          uploadId,
+          filename,
+          bytes: stat.size,
+          mimeType,
+          uploadMode: "source-url",
+          durationMs: Date.now() - startedAt,
+          cdnUrl,
+        },
+      );
 
       const metadata = saveMediaMetadata(project, {
         filename,
@@ -517,14 +612,18 @@ function startChunkedMediaUploadProcessing(options: {
       deleteUploadSessionData(project, uploadId);
     } catch (error) {
       if (error instanceof BuilderUploadError) {
-        logMediaEvent("error", "Builder media upload failed during chunked processing", {
-          project,
-          uploadId,
-          durationMs: Date.now() - startedAt,
-          status: error.status,
-          code: error.code,
-          response: error.responseBody.slice(0, 500),
-        });
+        logMediaEvent(
+          "error",
+          "Builder media upload failed during chunked processing",
+          {
+            project,
+            uploadId,
+            durationMs: Date.now() - startedAt,
+            status: error.status,
+            code: error.code,
+            response: error.responseBody.slice(0, 500),
+          },
+        );
         markChunkedUploadFailed(project, uploadId, error.message);
         return;
       }
@@ -557,49 +656,91 @@ function getUploadToken(req: express.Request): string {
 }
 
 function getUploadRequestId(res: express.Response): string | undefined {
-  return typeof res.locals.uploadRequestId === "string" ? res.locals.uploadRequestId : undefined;
+  return typeof res.locals.uploadRequestId === "string"
+    ? res.locals.uploadRequestId
+    : undefined;
 }
 
-function getChunkRequestLogDetails(req: express.Request, res: express.Response) {
+function getChunkRequestLogDetails(
+  req: express.Request,
+  res: express.Response,
+) {
   return {
     requestId: getUploadRequestId(res),
     project: normalizeProjectParam(req.params.project),
-    uploadId: typeof req.params.uploadId === "string" ? req.params.uploadId : "",
+    uploadId:
+      typeof req.params.uploadId === "string" ? req.params.uploadId : "",
     chunkIndex: getChunkIndex(req.query.index),
   };
 }
 
 function validateChunkUploadSession(req: express.Request) {
   const project = normalizeProjectParam(req.params.project);
-  const uploadId = typeof req.params.uploadId === "string" ? req.params.uploadId : "";
+  const uploadId =
+    typeof req.params.uploadId === "string" ? req.params.uploadId : "";
   const uploadToken = getUploadToken(req);
 
   if (!isValidProjectPath(project) || !uploadId) {
-    return { error: { status: 400, body: { error: "Invalid upload request", code: "invalid_upload_request" } } };
+    return {
+      error: {
+        status: 400,
+        body: {
+          error: "Invalid upload request",
+          code: "invalid_upload_request",
+        },
+      },
+    };
   }
 
   if (!uploadToken) {
-    return { error: { status: 401, body: { error: "Upload token is required", code: "missing_upload_token" } } };
+    return {
+      error: {
+        status: 401,
+        body: {
+          error: "Upload token is required",
+          code: "missing_upload_token",
+        },
+      },
+    };
   }
 
   const session = readUploadSession(project, uploadId);
   if (!session) {
-    return { error: { status: 404, body: { error: "Upload session not found", code: "upload_session_not_found" } } };
+    return {
+      error: {
+        status: 404,
+        body: {
+          error: "Upload session not found",
+          code: "upload_session_not_found",
+        },
+      },
+    };
   }
 
   if (uploadToken !== session.accessToken) {
-    return { error: { status: 403, body: { error: "Invalid upload token", code: "invalid_upload_token" } } };
+    return {
+      error: {
+        status: 403,
+        body: { error: "Invalid upload token", code: "invalid_upload_token" },
+      },
+    };
   }
 
   return { project, uploadId, session };
 }
 
-function sendBuilderUploadError(res: express.Response, req: express.Request, err: BuilderUploadError) {
+function sendBuilderUploadError(
+  res: express.Response,
+  req: express.Request,
+  err: BuilderUploadError,
+) {
   console.error("[media] Builder media upload failed", {
     project: normalizeProjectParam(req.params.project),
     filename: req.file?.originalname,
     size: req.file?.size,
-    mimeType: req.file ? getMimeType(req.file.originalname, req.file.mimetype) : undefined,
+    mimeType: req.file
+      ? getMimeType(req.file.originalname, req.file.mimetype)
+      : undefined,
     status: err.status,
     code: err.code,
     response: err.responseBody.slice(0, 500),
@@ -627,10 +768,14 @@ function getRequestBaseUrl(req: express.Request): string {
     try {
       return new URL(originHeader).origin;
     } catch {
-      logMediaEvent("warn", "Ignoring invalid origin header during Builder upload handoff", {
-        originHeader,
-        project: normalizeProjectParam(req.params.project),
-      });
+      logMediaEvent(
+        "warn",
+        "Ignoring invalid origin header during Builder upload handoff",
+        {
+          originHeader,
+          project: normalizeProjectParam(req.params.project),
+        },
+      );
     }
   }
 
@@ -639,15 +784,23 @@ function getRequestBaseUrl(req: express.Request): string {
     try {
       return new URL(refererHeader).origin;
     } catch {
-      logMediaEvent("warn", "Ignoring invalid referer header during Builder upload handoff", {
-        refererHeader,
-        project: normalizeProjectParam(req.params.project),
-      });
+      logMediaEvent(
+        "warn",
+        "Ignoring invalid referer header during Builder upload handoff",
+        {
+          refererHeader,
+          project: normalizeProjectParam(req.params.project),
+        },
+      );
     }
   }
 
-  const forwardedProto = getHeaderValue(req.headers["x-forwarded-proto"]).split(",")[0]?.trim();
-  const forwardedHost = getHeaderValue(req.headers["x-forwarded-host"]).split(",")[0]?.trim();
+  const forwardedProto = getHeaderValue(req.headers["x-forwarded-proto"])
+    .split(",")[0]
+    ?.trim();
+  const forwardedHost = getHeaderValue(req.headers["x-forwarded-host"])
+    .split(",")[0]
+    ?.trim();
   const host = forwardedHost || req.get("host")?.trim() || "";
   const protocol = forwardedProto || req.protocol || "https";
 
@@ -655,10 +808,16 @@ function getRequestBaseUrl(req: express.Request): string {
     return `${protocol}://${host}`;
   }
 
-  throw new Error("Public upload origin is unavailable. Set APP_ORIGIN to the public app URL before uploading large videos.");
+  throw new Error(
+    "Public upload origin is unavailable. Set APP_ORIGIN to the public app URL before uploading large videos.",
+  );
 }
 
-function getChunkedUploadSourceUrl(req: express.Request, project: string, session: UploadSession): string {
+function getChunkedUploadSourceUrl(
+  req: express.Request,
+  project: string,
+  session: UploadSession,
+): string {
   const baseUrl = getRequestBaseUrl(req);
   const pathname = `/api/projects/${project}/media/chunked/${session.id}/source`;
   const url = new URL(pathname, `${baseUrl}/`);
@@ -680,9 +839,23 @@ const upload = multer({
     }
 
     const ext = path.extname(file.originalname).toLowerCase();
-    const allowedExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".mp4", ".webm", ".mov"];
+    const allowedExtensions = [
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".gif",
+      ".webp",
+      ".svg",
+      ".mp4",
+      ".webm",
+      ".mov",
+    ];
 
-    if (allowedExtensions.includes(ext) || mimeType.startsWith("image/") || mimeType.startsWith("video/")) {
+    if (
+      allowedExtensions.includes(ext) ||
+      mimeType.startsWith("image/") ||
+      mimeType.startsWith("video/")
+    ) {
       cb(null, true);
     } else {
       cb(new Error(`File type ${file.mimetype} (${ext}) not allowed`));
@@ -795,7 +968,10 @@ export const initializeChunkedMediaUpload: RequestHandler = (req, res) => {
   }
 
   if (!originalName || typeof size !== "number" || !mimeType) {
-    res.status(400).json({ error: "Missing upload metadata", code: "missing_upload_metadata" });
+    res.status(400).json({
+      error: "Missing upload metadata",
+      code: "missing_upload_metadata",
+    });
     return;
   }
 
@@ -824,7 +1000,11 @@ export const initializeChunkedMediaUpload: RequestHandler = (req, res) => {
       mimeType,
     });
 
-    const session = createUploadSession(project, { originalName, size, mimeType });
+    const session = createUploadSession(project, {
+      originalName,
+      size,
+      mimeType,
+    });
     res.json({
       uploadId: session.id,
       uploadToken: session.accessToken,
@@ -848,7 +1028,8 @@ export const initializeChunkedMediaUpload: RequestHandler = (req, res) => {
 
 export const appendChunkedMediaUpload: RequestHandler = (req, res) => {
   const project = normalizeProjectParam(req.params.project);
-  const uploadId = typeof req.params.uploadId === "string" ? req.params.uploadId : "";
+  const uploadId =
+    typeof req.params.uploadId === "string" ? req.params.uploadId : "";
   const chunkIndex = getChunkIndex(req.query.index);
 
   logMediaEvent("info", "Chunk append handler entered", {
@@ -861,14 +1042,19 @@ export const appendChunkedMediaUpload: RequestHandler = (req, res) => {
   }
 
   if (chunkIndex === null) {
-    res.status(400).json({ error: "Chunk index is required", code: "missing_chunk_index" });
+    res
+      .status(400)
+      .json({ error: "Chunk index is required", code: "missing_chunk_index" });
     return;
   }
 
   try {
     const session = readUploadSession(project, uploadId);
     if (!session) {
-      res.status(404).json({ error: "Upload session not found", code: "upload_session_not_found" });
+      res.status(404).json({
+        error: "Upload session not found",
+        code: "upload_session_not_found",
+      });
       return;
     }
 
@@ -892,7 +1078,9 @@ export const appendChunkedMediaUpload: RequestHandler = (req, res) => {
 
     const chunk = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
     if (chunk.length === 0) {
-      res.status(400).json({ error: "Chunk body is required", code: "missing_chunk_body" });
+      res
+        .status(400)
+        .json({ error: "Chunk body is required", code: "missing_chunk_body" });
       return;
     }
 
@@ -907,7 +1095,10 @@ export const appendChunkedMediaUpload: RequestHandler = (req, res) => {
 
     const nextReceivedBytes = session.receivedBytes + chunk.length;
     if (nextReceivedBytes > session.size) {
-      res.status(400).json({ error: "Chunk exceeds declared file size", code: "chunk_out_of_bounds" });
+      res.status(400).json({
+        error: "Chunk exceeds declared file size",
+        code: "chunk_out_of_bounds",
+      });
       return;
     }
 
@@ -943,7 +1134,8 @@ export const appendChunkedMediaUpload: RequestHandler = (req, res) => {
 
 export const serveChunkedMediaUploadSource: RequestHandler = (req, res) => {
   const project = normalizeProjectParam(req.params.project);
-  const uploadId = typeof req.params.uploadId === "string" ? req.params.uploadId : "";
+  const uploadId =
+    typeof req.params.uploadId === "string" ? req.params.uploadId : "";
   const token = typeof req.query.token === "string" ? req.query.token : "";
 
   if (!isValidProjectPath(project) || !uploadId || !token) {
@@ -954,12 +1146,17 @@ export const serveChunkedMediaUploadSource: RequestHandler = (req, res) => {
   try {
     const session = readUploadSession(project, uploadId);
     if (!session) {
-      res.status(404).json({ error: "Upload session not found", code: "upload_session_not_found" });
+      res.status(404).json({
+        error: "Upload session not found",
+        code: "upload_session_not_found",
+      });
       return;
     }
 
     if (token !== session.accessToken) {
-      res.status(403).json({ error: "Invalid upload token", code: "invalid_upload_token" });
+      res
+        .status(403)
+        .json({ error: "Invalid upload token", code: "invalid_upload_token" });
       return;
     }
 
@@ -975,7 +1172,10 @@ export const serveChunkedMediaUploadSource: RequestHandler = (req, res) => {
 
     const filePath = getUploadSessionDataPath(project, uploadId);
     if (!fs.existsSync(filePath)) {
-      res.status(404).json({ error: "Upload file not found", code: "upload_file_not_found" });
+      res.status(404).json({
+        error: "Upload file not found",
+        code: "upload_file_not_found",
+      });
       return;
     }
 
@@ -1006,7 +1206,10 @@ export const serveChunkedMediaUploadSource: RequestHandler = (req, res) => {
       uploadId,
       error: getErrorMessage(error),
     });
-    res.status(500).json({ error: "Could not prepare the upload source", code: "upload_source_failed" });
+    res.status(500).json({
+      error: "Could not prepare the upload source",
+      code: "upload_source_failed",
+    });
   }
 };
 
@@ -1061,7 +1264,10 @@ export const completeChunkedMediaUpload: RequestHandler = async (req, res) => {
   if (session.status !== "processing") {
     const dataPath = getUploadSessionDataPath(project, uploadId);
     if (!fs.existsSync(dataPath)) {
-      res.status(404).json({ error: "Upload file not found", code: "upload_file_not_found" });
+      res.status(404).json({
+        error: "Upload file not found",
+        code: "upload_file_not_found",
+      });
       return;
     }
 
@@ -1080,17 +1286,22 @@ export const completeChunkedMediaUpload: RequestHandler = async (req, res) => {
     session.processingStartedAt = Date.now();
     session.completedAt = undefined;
     session.failureMessage = undefined;
-    session.uploadFilename = session.uploadFilename || generateFilename(session.originalName);
+    session.uploadFilename =
+      session.uploadFilename || generateFilename(session.originalName);
     writeUploadSession(project, session);
 
-    logMediaEvent("info", "Queued chunked media upload for background Builder processing", {
-      project,
-      uploadId,
-      filename: session.originalName,
-      uploadFilename: session.uploadFilename,
-      bytes: stat.size,
-      mimeType: session.mimeType,
-    });
+    logMediaEvent(
+      "info",
+      "Queued chunked media upload for background Builder processing",
+      {
+        project,
+        uploadId,
+        filename: session.originalName,
+        uploadFilename: session.uploadFilename,
+        bytes: stat.size,
+        mimeType: session.mimeType,
+      },
+    );
   }
 
   const sourceUrl = getChunkedUploadSourceUrl(req, project, session);
@@ -1125,12 +1336,18 @@ export const uploadMedia: RequestHandler = async (req, res) => {
     const filename = generateFilename(file.originalname);
     const mimeType = getMimeType(file.originalname, file.mimetype);
     const isVideo = ALLOWED_VIDEO_TYPES.includes(mimeType);
-    const uploadMimeType = mimeType === "image/svg+xml" ? "image/svg+xml" : mimeType;
+    const uploadMimeType =
+      mimeType === "image/svg+xml" ? "image/svg+xml" : mimeType;
 
-    const cdnUrl = await uploadBufferToBuilderCDN(filename, file.buffer, uploadMimeType, {
-      apiKey,
-      privateKey,
-    });
+    const cdnUrl = await uploadBufferToBuilderCDN(
+      filename,
+      file.buffer,
+      uploadMimeType,
+      {
+        apiKey,
+        privateKey,
+      },
+    );
 
     const metadata = saveMediaMetadata(project, {
       filename,
@@ -1153,7 +1370,10 @@ export const uploadMedia: RequestHandler = async (req, res) => {
       size: req.file?.size,
       error: err?.message || String(err),
     });
-    res.status(500).json({ error: err.message || "Upload failed", code: "media_upload_failed" });
+    res.status(500).json({
+      error: err.message || "Upload failed",
+      code: "media_upload_failed",
+    });
   }
 };
 
@@ -1178,8 +1398,7 @@ export const serveMedia: RequestHandler = (req, res) => {
           res.redirect(302, normalizeBuilderAssetUrl(meta.url));
           return;
         }
-      } catch {
-      }
+      } catch {}
     }
 
     res.status(404).json({ error: "File not found" });
@@ -1227,11 +1446,25 @@ export const listMedia: RequestHandler = (req, res) => {
         const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
         files.push({
           ...data,
-          url: typeof data?.url === "string" ? normalizeBuilderAssetUrl(data.url) : data?.url,
+          url:
+            typeof data?.url === "string"
+              ? normalizeBuilderAssetUrl(data.url)
+              : data?.url,
         });
-      } catch {
-      }
-    } else if ([".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".mp4", ".webm", ".mov"].includes(ext)) {
+      } catch {}
+    } else if (
+      [
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".webp",
+        ".svg",
+        ".mp4",
+        ".webm",
+        ".mov",
+      ].includes(ext)
+    ) {
       const stat = fs.statSync(filePath);
       const isVideo = [".mp4", ".webm", ".mov"].includes(ext);
       const mimeTypes: Record<string, string> = {

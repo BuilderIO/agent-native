@@ -2,8 +2,19 @@ import { useState, useMemo } from "react";
 import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { KNOWN_EVENTS } from "../types";
 import { useDynamicEvents } from "../use-dynamic-schema";
 
@@ -14,20 +25,29 @@ interface EventComboboxProps {
 
 export function EventCombobox({ value, onChange }: EventComboboxProps) {
   const [open, setOpen] = useState(false);
-  const { events: dynamicEvents, eventNames, isLoading } = useDynamicEvents(open);
+  const {
+    events: dynamicEvents,
+    eventNames,
+    isLoading,
+  } = useDynamicEvents(open);
 
   const knownSet = useMemo(() => new Set(KNOWN_EVENTS.map((e) => e.value)), []);
 
   // Dynamic events not in the known list
   const extraEvents = useMemo(
     () => dynamicEvents.filter((e) => !knownSet.has(e.value)),
-    [dynamicEvents, knownSet]
+    [dynamicEvents, knownSet],
   );
 
   // Event names (the `name` column, different from `event` column)
   const extraNames = useMemo(
-    () => eventNames.filter((e) => !knownSet.has(e.value) && !dynamicEvents.some((d) => d.value === e.value)),
-    [eventNames, knownSet, dynamicEvents]
+    () =>
+      eventNames.filter(
+        (e) =>
+          !knownSet.has(e.value) &&
+          !dynamicEvents.some((d) => d.value === e.value),
+      ),
+    [eventNames, knownSet, dynamicEvents],
   );
 
   const displayLabel = useMemo(() => {
@@ -74,9 +94,16 @@ export function EventCombobox({ value, onChange }: EventComboboxProps) {
                     setOpen(false);
                   }}
                 >
-                  <Check className={cn("mr-2 h-3 w-3 shrink-0", value === ev.value ? "opacity-100" : "opacity-0")} />
+                  <Check
+                    className={cn(
+                      "mr-2 h-3 w-3 shrink-0",
+                      value === ev.value ? "opacity-100" : "opacity-0",
+                    )}
+                  />
                   <span className="truncate">{ev.label}</span>
-                  <span className="ml-auto text-[10px] text-muted-foreground font-mono truncate max-w-[140px]">{ev.value}</span>
+                  <span className="ml-auto text-[10px] text-muted-foreground font-mono truncate max-w-[140px]">
+                    {ev.value}
+                  </span>
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -91,9 +118,16 @@ export function EventCombobox({ value, onChange }: EventComboboxProps) {
                       setOpen(false);
                     }}
                   >
-                    <Check className={cn("mr-2 h-3 w-3 shrink-0", value === ev.value ? "opacity-100" : "opacity-0")} />
+                    <Check
+                      className={cn(
+                        "mr-2 h-3 w-3 shrink-0",
+                        value === ev.value ? "opacity-100" : "opacity-0",
+                      )}
+                    />
                     <span className="truncate">{ev.value}</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground">{ev.count.toLocaleString()}</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      {ev.count.toLocaleString()}
+                    </span>
                   </CommandItem>
                 ))}
               </CommandGroup>
@@ -109,9 +143,16 @@ export function EventCombobox({ value, onChange }: EventComboboxProps) {
                       setOpen(false);
                     }}
                   >
-                    <Check className={cn("mr-2 h-3 w-3 shrink-0", value === ev.value ? "opacity-100" : "opacity-0")} />
+                    <Check
+                      className={cn(
+                        "mr-2 h-3 w-3 shrink-0",
+                        value === ev.value ? "opacity-100" : "opacity-0",
+                      )}
+                    />
                     <span className="truncate">{ev.value}</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground">{ev.count.toLocaleString()}</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      {ev.count.toLocaleString()}
+                    </span>
                   </CommandItem>
                 ))}
               </CommandGroup>
@@ -119,7 +160,8 @@ export function EventCombobox({ value, onChange }: EventComboboxProps) {
             {isLoading && extraEvents.length === 0 && (
               <CommandGroup>
                 <div className="flex items-center justify-center py-4 text-muted-foreground text-xs gap-2">
-                  <Loader2 className="h-3 w-3 animate-spin" /> Loading from BigQuery...
+                  <Loader2 className="h-3 w-3 animate-spin" /> Loading from
+                  BigQuery...
                 </div>
               </CommandGroup>
             )}

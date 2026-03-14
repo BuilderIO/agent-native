@@ -22,7 +22,7 @@ Step-by-step guide to migrate existing Remotion components to use the new `Anima
 ✅ **Type safety** - Compile-time checks for props  
 ✅ **Automatic wiring** - Animation system handled for you  
 ✅ **Easier maintenance** - Centralized animation logic  
-✅ **Better performance** - Optimized cursor history sharing  
+✅ **Better performance** - Optimized cursor history sharing
 
 ### Prerequisites
 
@@ -42,19 +42,24 @@ Step-by-step guide to migrate existing Remotion components to use the new `Anima
 ### Step 1: Move Animation Initialization to Module Level
 
 **Before:**
+
 ```typescript
 export const MyComposition = () => {
   useEffect(() => {
     initializeSandboxAnimations(); // ❌ Too late!
   }, []);
-  
+
   // ... rest of component
 };
 ```
 
 **After:**
+
 ```typescript
-import { initializeDefaultAnimations, AnimationPresets } from "@/remotion/utils/animationHelpers";
+import {
+  initializeDefaultAnimations,
+  AnimationPresets,
+} from "@/remotion/utils/animationHelpers";
 
 // ✅ At module level (before component)
 initializeDefaultAnimations("my-composition", [
@@ -73,6 +78,7 @@ export const MyComposition = () => {
 Create separate components for each interactive element.
 
 **Before:**
+
 ```typescript
 // Everything in one file
 <div style={{
@@ -85,6 +91,7 @@ Create separate components for each interactive element.
 ```
 
 **After:**
+
 ```typescript
 // MyCard.tsx
 import type { AnimatedStyles } from "@/remotion/components/AnimatedElement";
@@ -121,6 +128,7 @@ export const MyCard: React.FC<MyCardProps> = ({ animatedStyles, title, descripti
 ### Step 3: Replace Manual Hover Zones with AnimatedElement
 
 **Before:**
+
 ```typescript
 // Manual hover zone setup
 const hCard1 = useHoverAnimationSmooth(cursorHistory, {
@@ -147,6 +155,7 @@ const card1Styles = calculateElementAnimations({
 ```
 
 **After:**
+
 ```typescript
 // Automatic with AnimatedElement
 <AnimatedElement
@@ -172,13 +181,14 @@ const card1Styles = calculateElementAnimations({
 ### Step 4: Update Hover State Tracking
 
 **Before:**
+
 ```typescript
 const allHoverStates = [hCard1, hCard2, hCard3];
 const autoCursorType = useCursorTypeFromHover(allHoverStates);
 
 const hoveredIdx = useMemo(
-  () => allHoverStates.findIndex(s => s.hoverProgress > 0),
-  [allHoverStates]
+  () => allHoverStates.findIndex((s) => s.hoverProgress > 0),
+  [allHoverStates],
 );
 
 useEffect(() => {
@@ -195,6 +205,7 @@ useEffect(() => {
 ```
 
 **After:**
+
 ```typescript
 const [hoveredElement, setHoveredElement] = useState<string | null>(null);
 
@@ -212,12 +223,12 @@ useEffect(() => {
     "card-2": { type: "Card", label: "Card 2" },
     // ...
   };
-  
+
   if (hoveredElement) {
     const element = elementMap[hoveredElement];
     if (element) {
-      setCurrentElement({ 
-        id: hoveredElement, 
+      setCurrentElement({
+        id: hoveredElement,
         ...element,
         compositionId: "my-composition"
       });
@@ -237,6 +248,7 @@ useEffect(() => {
 ### Step 5: Consolidate Element Rendering
 
 **Before:**
+
 ```typescript
 // Lots of duplication
 <div style={{ position: "absolute", left: 100, top: 200, width: 400, height: 300 }}>
@@ -251,6 +263,7 @@ useEffect(() => {
 ```
 
 **After:**
+
 ```typescript
 // Data-driven rendering
 const CARDS = [
@@ -276,7 +289,7 @@ const CARDS = [
     onHoverChange={handleHoverChange}
   >
     {(animatedStyles) => (
-      <MyCard 
+      <MyCard
         animatedStyles={animatedStyles}
         title={card.title}
         description={card.description}
@@ -297,7 +310,7 @@ const CARDS = [
 export const Sandbox = ({ tracks }) => {
   const { getAnimationsForElement } = useCurrentElement();
   const cursorHistory = useCursorHistory(cursorTrack, 6);
-  
+
   // Manual hover zones (repeated for each element)
   const hCard1 = useHoverAnimationSmooth(cursorHistory, {
     x: CONTENT_X, y: ROW1_Y, width: CARD_W, height: CARD_H, padding: 8
@@ -306,12 +319,12 @@ export const Sandbox = ({ tracks }) => {
     x: CONTENT_X + CARD_W + CARD_GAP, y: ROW1_Y, width: CARD_W, height: CARD_H, padding: 8
   });
   // ... repeated for all cards
-  
+
   // Manual animation resolution
   const cardAnims = getAnimationsForElement("sandbox", "AutomationCard");
   const cardHover = cardAnims.find(a => a.triggerType === "hover");
   const cardClick = cardAnims.find(a => a.triggerType === "click");
-  
+
   // Manual style calculation
   const card1Styles = calculateElementAnimations({
     elementType: "AutomationCard",
@@ -322,19 +335,19 @@ export const Sandbox = ({ tracks }) => {
     clickAnimation: cardClick,
   });
   // ... repeated for all cards
-  
+
   // Manual hover tracking
   const allHoverStates = [hCard1, hCard2, hCard3, hCard4, hCard5];
-  const hoveredIdx = useMemo(() => 
+  const hoveredIdx = useMemo(() =>
     allHoverStates.findIndex(s => s.hoverProgress > 0), [allHoverStates]
   );
-  
+
   // Manual element tracking
   useEffect(() => {
     const elementMap = [...];
     if (hoveredIdx >= 0) setCurrentElement(elementMap[hoveredIdx]);
   }, [hoveredIdx]);
-  
+
   return (
     <AbsoluteFill>
       <SandboxCard card={CARDS[0]} animatedStyles={card1Styles} />
@@ -362,12 +375,12 @@ export const Sandbox = ({ tracks }) => {
   const { getAnimationsForElement } = useCurrentElement();
   const cursorHistory = useCursorHistory(cursorTrack, 6);
   const [hoveredElement, setHoveredElement] = useState<string | null>(null);
-  
+
   // ✅ Simple hover tracking
   const handleHoverChange = (id: string, hovered: boolean) => {
     setHoveredElement(hovered ? id : null);
   };
-  
+
   // ✅ Automatic element tracking
   useEffect(() => {
     if (hoveredElement) {
@@ -384,7 +397,7 @@ export const Sandbox = ({ tracks }) => {
       setCurrentElement(null);
     }
   }, [hoveredElement]);
-  
+
   return (
     <AbsoluteFill>
       {/* ✅ Clean, declarative rendering */}
@@ -416,8 +429,9 @@ export const Sandbox = ({ tracks }) => {
 ```
 
 **Lines of code:**
+
 - Before: ~250 lines
-- After: ~80 lines  
+- After: ~80 lines
 - **Reduction: 68%**
 
 ---
@@ -491,6 +505,7 @@ If your composition manually renders a cursor with `interpolate()` for x/y posit
 **STEP 1: Find hardcoded cursor logic**
 
 Look for patterns like this:
+
 ```typescript
 // ❌ OLD PATTERN - MUST BE REMOVED
 const cursorX = interpolate(frame, [0, 100], [0, 1920]);
@@ -652,6 +667,7 @@ const autoCursorType = useCursorTypeFromHover([
 ```
 
 **Remove manual type keyframes from cursor track:**
+
 ```typescript
 // Before (remove this):
 { property: "type", keyframes: [
@@ -668,12 +684,14 @@ const autoCursorType = useCursorTypeFromHover([
 See `client/remotion/compositions/FusionInputBox.tsx` for a complete example with:
 
 **Cursor Track** (`client/remotion/registry.ts`):
+
 - Entry/exit animations (x/y keyframes)
 - Multiple click events (isClicking keyframes)
 - Opacity fade in/out
 - **NO manual type keyframes** (handled by hover zones)
 
 **Hover Zones** (`FusionInputBox.tsx`):
+
 - Textarea hover zone → `cursorType: "text"`
 - Send button hover zone → `cursorType: "pointer"`
 - All other buttons/icons → `cursorType: "pointer"`
@@ -696,6 +714,7 @@ See `client/remotion/compositions/FusionInputBox.tsx` for a complete example wit
 **Cause**: Not using all properties from animatedStyles
 
 **Fix**: Apply all 8 properties:
+
 ```typescript
 {
   transform: animatedStyles.transform,
@@ -714,6 +733,7 @@ See `client/remotion/compositions/FusionInputBox.tsx` for a complete example wit
 **Cause**: Missing required props
 
 **Fix**: Ensure all required props are provided:
+
 - id, elementType, label, compositionId
 - position, size
 - cursorHistory, getAnimationsForElement
@@ -723,6 +743,7 @@ See `client/remotion/compositions/FusionInputBox.tsx` for a complete example wit
 **Cause**: Missing cursorTrack or clickStartFrames
 
 **Fix**: Pass both props:
+
 ```typescript
 <AnimatedElement
   cursorTrack={cursorTrack}
@@ -738,12 +759,14 @@ See `client/remotion/compositions/FusionInputBox.tsx` for a complete example wit
 Use this checklist when migrating a component:
 
 ### Pre-Migration
+
 - [ ] Understand existing hover zones and element positions
 - [ ] Identify all interactive elements
 - [ ] Note animation types used (hover/click)
 - [ ] 🎯 **Check if cursor is hardcoded** (if yes, plan cursor track migration)
 
 ### During Migration
+
 - [ ] Move animation initialization to module level
 - [ ] 🎯 **Migrate hardcoded cursor to track** (see [Cursor Migration](#-critical-migrating-hardcoded-cursor-to-track))
 - [ ] Extract element components (accept animatedStyles)
@@ -754,6 +777,7 @@ Use this checklist when migrating a component:
 - [ ] Consolidate with data-driven rendering
 
 ### Post-Migration
+
 - [ ] Run validation: `npm run validate:compositions`
 - [ ] 🎯 **Verify cursor track shows in timeline** (not hardcoded)
 - [ ] Test hover interactions
@@ -764,6 +788,7 @@ Use this checklist when migrating a component:
 - [ ] Delete old boilerplate code
 
 ### Quality Checks
+
 - [ ] 🎯 **Cursor animated via track, not interpolate()** (CRITICAL)
 - [ ] All animatedStyles properties applied
 - [ ] No hardcoded styles (transform, opacity, etc.)

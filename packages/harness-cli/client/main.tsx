@@ -10,5 +10,5 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <HarnessConfigProvider configs={allHarnesses}>
       <App />
     </HarnessConfigProvider>
-  </React.StrictMode>
+  </React.StrictMode>,
 );

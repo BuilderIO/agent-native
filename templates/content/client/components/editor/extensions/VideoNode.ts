@@ -5,7 +5,10 @@ import type { UploadOptions } from "@/hooks/use-media-upload";
 
 export interface VideoNodeOptions {
   HTMLAttributes: Record<string, any>;
-  onUpload?: (file: File, options?: UploadOptions) => Promise<{ url: string } | null>;
+  onUpload?: (
+    file: File,
+    options?: UploadOptions,
+  ) => Promise<{ url: string } | null>;
 }
 
 declare module "@tiptap/react" {
@@ -83,7 +86,7 @@ export const VideoNode = Node.create<VideoNodeOptions>({
 
           const title = node.attrs.title || "";
           state.write(
-            `<video src="${src}" controls${title ? ` title="${title}"` : ""}></video>`
+            `<video src="${src}" controls${title ? ` title="${title}"` : ""}></video>`,
           );
           state.closeBlock(node);
         },

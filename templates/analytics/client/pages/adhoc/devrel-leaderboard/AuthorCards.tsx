@@ -68,7 +68,7 @@ export function AuthorCards({
             key={a.author}
             className={cn(
               "bg-gradient-to-br border min-w-[200px]",
-              i < 3 ? MEDAL_COLORS[i] : "from-card to-card border-border/50"
+              i < 3 ? MEDAL_COLORS[i] : "from-card to-card border-border/50",
             )}
           >
             <CardContent className="pt-4 pb-4 px-4 space-y-2">
@@ -83,7 +83,11 @@ export function AuthorCards({
                 )}
               </div>
               <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                <Stat label="Signups" value={formatNumber(a.signups)} highlight />
+                <Stat
+                  label="Signups"
+                  value={formatNumber(a.signups)}
+                  highlight
+                />
                 <Stat label="Traffic" value={formatNumber(a.new_visitors)} />
                 <Stat label="Signup %" value={formatPercent(a.signup_rate)} />
                 <Stat label="Articles" value={formatNumber(a.article_count)} />
@@ -116,7 +120,7 @@ function Stat({
         className={cn(
           "text-sm font-semibold tabular-nums",
           highlight && "text-emerald-400",
-          blue && "text-blue-400"
+          blue && "text-blue-400",
         )}
       >
         {value}

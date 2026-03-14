@@ -8,8 +8,8 @@ export type CompSettings = {
 };
 
 const SIZE_PRESETS = [
-  { label: "Square",    description: "1080×1080", width: 1080, height: 1080 },
-  { label: "Wide",      description: "1920×1080", width: 1920, height: 1080 },
+  { label: "Square", description: "1080×1080", width: 1080, height: 1080 },
+  { label: "Wide", description: "1920×1080", width: 1920, height: 1080 },
 ] as const;
 
 type CompSettingsEditorProps = {
@@ -17,8 +17,13 @@ type CompSettingsEditorProps = {
   onChange: (patch: Partial<CompSettings>) => void;
 };
 
-export function CompSettingsEditor({ settings, onChange }: CompSettingsEditorProps) {
-  const durationSeconds = +(settings.durationInFrames / settings.fps).toFixed(2);
+export function CompSettingsEditor({
+  settings,
+  onChange,
+}: CompSettingsEditorProps) {
+  const durationSeconds = +(settings.durationInFrames / settings.fps).toFixed(
+    2,
+  );
 
   const handleDurationSeconds = (raw: string) => {
     const seconds = parseFloat(raw);
@@ -43,7 +48,9 @@ export function CompSettingsEditor({ settings, onChange }: CompSettingsEditorPro
               onChange={(e) => handleDurationSeconds(e.target.value)}
               className="flex-1 text-xs bg-secondary border border-border rounded-lg px-3 py-2 text-foreground/80 font-mono focus:outline-none focus:ring-1 focus:ring-primary/40"
             />
-            <span className="text-xs text-muted-foreground flex-shrink-0">sec</span>
+            <span className="text-xs text-muted-foreground flex-shrink-0">
+              sec
+            </span>
           </div>
           <span className="text-[10px] text-muted-foreground/45 font-mono">
             {settings.durationInFrames}f · {durationSeconds}s · 30fps
@@ -55,26 +62,37 @@ export function CompSettingsEditor({ settings, onChange }: CompSettingsEditorPro
           <label className="text-xs text-muted-foreground">Output Size</label>
           <div className="flex gap-1">
             {SIZE_PRESETS.map((preset) => {
-              const active = settings.width === preset.width && settings.height === preset.height;
+              const active =
+                settings.width === preset.width &&
+                settings.height === preset.height;
               return (
                 <button
                   key={preset.label}
-                  onClick={() => onChange({ width: preset.width, height: preset.height })}
+                  onClick={() =>
+                    onChange({ width: preset.width, height: preset.height })
+                  }
                   className={cn(
                     "flex-1 flex flex-col items-center py-1.5 rounded-lg border transition-all duration-150",
                     active
                       ? "bg-primary/15 border-primary/40 text-primary"
-                      : "bg-secondary border-border text-muted-foreground hover:border-primary/30 hover:text-foreground/70"
+                      : "bg-secondary border-border text-muted-foreground hover:border-primary/30 hover:text-foreground/70",
                   )}
                 >
-                  <span className="text-[10px] font-medium">{preset.label}</span>
-                  <span className="text-[9px] font-mono opacity-60">{preset.description}</span>
+                  <span className="text-[10px] font-medium">
+                    {preset.label}
+                  </span>
+                  <span className="text-[9px] font-mono opacity-60">
+                    {preset.description}
+                  </span>
                 </button>
               );
             })}
           </div>
           <div className="text-[10px] text-muted-foreground/60">
-            Output: <span className="font-mono">{settings.width}×{settings.height}</span>
+            Output:{" "}
+            <span className="font-mono">
+              {settings.width}×{settings.height}
+            </span>
           </div>
         </div>
       </div>

@@ -1,15 +1,35 @@
 export type EasingKey =
   | "linear"
-  | "power1.in" | "power1.out" | "power1.inOut"
-  | "power2.in" | "power2.out" | "power2.inOut"
-  | "power3.in" | "power3.out" | "power3.inOut"
-  | "power4.in" | "power4.out" | "power4.inOut"
-  | "back.in" | "back.out" | "back.inOut"
-  | "bounce.in" | "bounce.out" | "bounce.inOut"
-  | "circ.in" | "circ.out" | "circ.inOut"
-  | "elastic.in" | "elastic.out" | "elastic.inOut"
-  | "expo.in" | "expo.out" | "expo.inOut"
-  | "sine.in" | "sine.out" | "sine.inOut"
+  | "power1.in"
+  | "power1.out"
+  | "power1.inOut"
+  | "power2.in"
+  | "power2.out"
+  | "power2.inOut"
+  | "power3.in"
+  | "power3.out"
+  | "power3.inOut"
+  | "power4.in"
+  | "power4.out"
+  | "power4.inOut"
+  | "back.in"
+  | "back.out"
+  | "back.inOut"
+  | "bounce.in"
+  | "bounce.out"
+  | "bounce.inOut"
+  | "circ.in"
+  | "circ.out"
+  | "circ.inOut"
+  | "elastic.in"
+  | "elastic.out"
+  | "elastic.inOut"
+  | "expo.in"
+  | "expo.out"
+  | "expo.inOut"
+  | "sine.in"
+  | "sine.out"
+  | "sine.inOut"
   | "spring";
 
 // ─── Animated property ────────────────────────────────────────────────────────
@@ -46,12 +66,12 @@ export interface AnimatedProp {
    * without needing to edit the source code.
    */
   parameters?: Array<{
-    name: string;        // Key used to access value (e.g., "avgCharWidth")
-    label: string;       // Display label in UI (e.g., "Character Width")
-    default: number;     // Default value
-    min?: number;        // Minimum value (for validation/slider)
-    max?: number;        // Maximum value (for validation/slider)
-    step?: number;       // Step increment (e.g., 0.05)
+    name: string; // Key used to access value (e.g., "avgCharWidth")
+    label: string; // Display label in UI (e.g., "Character Width")
+    default: number; // Default value
+    min?: number; // Minimum value (for validation/slider)
+    max?: number; // Maximum value (for validation/slider)
+    step?: number; // Step increment (e.g., 0.05)
   }>;
   /**
    * Stores user-adjusted parameter values for programmatic animations.
@@ -64,9 +84,9 @@ export interface AnimatedProp {
    * Each keyframe specifies an absolute frame number and value.
    */
   keyframes?: Array<{
-    frame: number;  // Absolute frame number
-    value: string;  // Numeric value as string (e.g., "1.5")
-    easing?: EasingKey;  // Motion curve for this keyframe segment
+    frame: number; // Absolute frame number
+    value: string; // Numeric value as string (e.g., "1.5")
+    easing?: EasingKey; // Motion curve for this keyframe segment
   }>;
   /** Motion curve for keyframed properties (applies to all segments) */
   easing?: EasingKey;
@@ -83,15 +103,70 @@ export interface CommonPropTemplate {
 
 /** Preset list shown in the "Add Property" picker inside TrackPropertiesPanel */
 export const COMMON_PROP_TEMPLATES: CommonPropTemplate[] = [
-  { label: "Translate Y",  property: "translateY", unit: "px",  defaultFrom: "40",  defaultTo: "0"   },
-  { label: "Translate X",  property: "translateX", unit: "px",  defaultFrom: "-40", defaultTo: "0"   },
-  { label: "Opacity",      property: "opacity",    unit: "",    defaultFrom: "0",   defaultTo: "1"   },
-  { label: "Scale",        property: "scale",      unit: "",    defaultFrom: "0",   defaultTo: "1"   },
-  { label: "Rotate",       property: "rotate",     unit: "deg", defaultFrom: "-15", defaultTo: "0"   },
-  { label: "Width",        property: "width",      unit: "px",  defaultFrom: "0",   defaultTo: "200" },
-  { label: "Blur",         property: "blur",       unit: "px",  defaultFrom: "8",   defaultTo: "0"   },
-  { label: "Radius (%)",   property: "radius",     unit: "%",   defaultFrom: "0",   defaultTo: "35"  },
-  { label: "Custom CSS",   property: "custom",     unit: "",    defaultFrom: "",    defaultTo: "",   isCustom: true },
+  {
+    label: "Translate Y",
+    property: "translateY",
+    unit: "px",
+    defaultFrom: "40",
+    defaultTo: "0",
+  },
+  {
+    label: "Translate X",
+    property: "translateX",
+    unit: "px",
+    defaultFrom: "-40",
+    defaultTo: "0",
+  },
+  {
+    label: "Opacity",
+    property: "opacity",
+    unit: "",
+    defaultFrom: "0",
+    defaultTo: "1",
+  },
+  {
+    label: "Scale",
+    property: "scale",
+    unit: "",
+    defaultFrom: "0",
+    defaultTo: "1",
+  },
+  {
+    label: "Rotate",
+    property: "rotate",
+    unit: "deg",
+    defaultFrom: "-15",
+    defaultTo: "0",
+  },
+  {
+    label: "Width",
+    property: "width",
+    unit: "px",
+    defaultFrom: "0",
+    defaultTo: "200",
+  },
+  {
+    label: "Blur",
+    property: "blur",
+    unit: "px",
+    defaultFrom: "8",
+    defaultTo: "0",
+  },
+  {
+    label: "Radius (%)",
+    property: "radius",
+    unit: "%",
+    defaultFrom: "0",
+    defaultTo: "35",
+  },
+  {
+    label: "Custom CSS",
+    property: "custom",
+    unit: "",
+    defaultFrom: "",
+    defaultTo: "",
+    isCustom: true,
+  },
 ];
 
 // ─── Animation track ──────────────────────────────────────────────────────────

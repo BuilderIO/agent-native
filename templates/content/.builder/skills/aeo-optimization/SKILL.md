@@ -42,10 +42,12 @@ AEO is especially high-value for trending topics -- AI assistants are among the 
 Read `content_timing` and `content_goal` from `phases/01-topic-validation.yaml`.
 
 **Content timing:**
+
 - If `content_timing: trending`: See the Trending Topic Mode section below. AEO is MORE important for trending topics, not less. Apply all heading and block techniques at full strength. Skip Brand Radar only.
 - If `content_timing: evergreen`: Apply all steps including Brand Radar integration.
 
 **Content goal** (drives Brand Radar scope):
+
 - `awareness`: Brand Radar is informational only -- understand how AI discusses the topic, do not optimize for Builder.io mentions.
 - `acquisition`: Brand Radar is strategic -- analyze how AI assistants position Builder.io vs competitors, identify citation gaps to fill.
 - `hybrid`: Brand Radar is targeted -- check if AI assistants mention Builder.io in the topic context, reinforce the connection in the CTA.
@@ -68,16 +70,17 @@ Verify that H2 headings follow AEO question-based heading patterns from [heading
 
 **Checklist for each H2:**
 
-| Check | Target | Action if Failed |
-|-------|--------|-----------------|
-| Question form | 60-80% of body H2s are questions | Transform declarative headings using the 7 patterns |
-| Character length | 40-70 chars ideal, 80 max | Tighten with techniques from reference file |
-| Pattern variety | At least 3 different question patterns per post | Replace duplicate patterns with alternatives |
-| Primary keyword | Present in at least 2 H2 headings | Add keyword naturally or use a close variation |
-| Specificity enhancer | At least 2 headings have an enhancer (user type, tool, use case) | Add 1 enhancer to the most generic headings |
-| Structural headings | Prerequisites, TL;DR, FAQ, Conclusion left as-is | Revert any incorrectly transformed structural headings |
+| Check                | Target                                                           | Action if Failed                                       |
+| -------------------- | ---------------------------------------------------------------- | ------------------------------------------------------ |
+| Question form        | 60-80% of body H2s are questions                                 | Transform declarative headings using the 7 patterns    |
+| Character length     | 40-70 chars ideal, 80 max                                        | Tighten with techniques from reference file            |
+| Pattern variety      | At least 3 different question patterns per post                  | Replace duplicate patterns with alternatives           |
+| Primary keyword      | Present in at least 2 H2 headings                                | Add keyword naturally or use a close variation         |
+| Specificity enhancer | At least 2 headings have an enhancer (user type, tool, use case) | Add 1 enhancer to the most generic headings            |
+| Structural headings  | Prerequisites, TL;DR, FAQ, Conclusion left as-is                 | Revert any incorrectly transformed structural headings |
 
 **Process:**
+
 1. List all H2 headings from `post.md`.
 2. For each, record: question form (yes/no), character count, pattern type (#1-7 or declarative), has specificity enhancer (yes/no).
 3. Score against the checklist. If any check fails, apply the minimum fix.
@@ -89,15 +92,16 @@ Verify that every H2 body section opens with an answer-first block -- a 40-60 wo
 
 **Verification checklist for each answer-first block:**
 
-| Check | Requirement | Fix |
-|-------|------------|-----|
-| Exists | Block is present as the first paragraph after the H2 | Write one using the heading question as the prompt |
-| Length | 40-60 words | Trim if over 60, expand if under 40 |
-| Self-contained | Reads coherently without preceding or following context | Remove pronouns that reference earlier content ("this", "it", "the above") |
-| Specific | Contains concrete details (tool names, numbers, versions) | Replace vague language with specifics from the section body |
-| Answers the heading | Directly responds to the question in the H2 | Rewrite to match the heading's question |
+| Check               | Requirement                                               | Fix                                                                        |
+| ------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Exists              | Block is present as the first paragraph after the H2      | Write one using the heading question as the prompt                         |
+| Length              | 40-60 words                                               | Trim if over 60, expand if under 40                                        |
+| Self-contained      | Reads coherently without preceding or following context   | Remove pronouns that reference earlier content ("this", "it", "the above") |
+| Specific            | Contains concrete details (tool names, numbers, versions) | Replace vague language with specifics from the section body                |
+| Answers the heading | Directly responds to the question in the H2               | Rewrite to match the heading's question                                    |
 
 **Process:**
+
 1. For each H2 section, extract the first paragraph.
 2. Check against the table above.
 3. If a block is missing, write one. Draw from the section's key insight.
@@ -111,15 +115,16 @@ Beyond answer-first blocks, each H2 section should contain at least one addition
 
 **Quote-ready block types:**
 
-| Type | Format | Best For |
-|------|--------|----------|
-| Definition block | 40-60 word paragraph | Concept sections |
-| Step list | Numbered list with action-verb items | Tutorial sections |
-| Comparison table | 3+ row table with clear headers | Versus sections |
-| Code snippet | Complete, runnable code with language identifier | Implementation sections |
-| Key insight | Bold sentence with supporting detail | Trade-off and "Why" sections |
+| Type             | Format                                           | Best For                     |
+| ---------------- | ------------------------------------------------ | ---------------------------- |
+| Definition block | 40-60 word paragraph                             | Concept sections             |
+| Step list        | Numbered list with action-verb items             | Tutorial sections            |
+| Comparison table | 3+ row table with clear headers                  | Versus sections              |
+| Code snippet     | Complete, runnable code with language identifier | Implementation sections      |
+| Key insight      | Bold sentence with supporting detail             | Trade-off and "Why" sections |
 
 **Audit process:**
+
 1. Scan each H2 section for quote-ready blocks beyond the answer-first block.
 2. Count: total quote-ready blocks across the post.
 3. If a section has zero quote-ready blocks (only the answer-first block), identify the best candidate from the section's content and restructure it.
@@ -132,11 +137,13 @@ Minimum target: 1 quote-ready block per H2 section (the answer-first block count
 Review headings that already have specificity enhancers and refine those that are too generic.
 
 **3 enhancer types:**
+
 1. **Target user/team type** -- "for frontend developers", "for marketing teams"
 2. **Tool/integration context** -- "in Next.js 15", "with React and TypeScript"
 3. **Use case/scenario** -- "for e-commerce pages", "in large-scale apps"
 
 **Refinement process:**
+
 1. List headings with enhancers. Check that the enhancer matches the post's actual audience and tools discussed.
 2. List headings without enhancers. For the 2-3 most generic headings, add an enhancer that reflects the post content.
 3. Verify no heading exceeds 80 characters after adding enhancers. If it does, choose a shorter enhancer or remove filler words.
@@ -183,14 +190,15 @@ Use Ahrefs Brand Radar tools to understand how AI assistants currently discuss B
 
 **How to use the data:**
 
-| Data Point | Action |
-|------------|--------|
-| AI assistants answer topic questions but don't cite Builder.io | This post fills a citation gap. Strengthen quote-ready blocks with Builder.io-specific examples. |
-| Builder.io is already cited for this topic | Reinforce existing citations. Ensure the new post's answer-first blocks are more specific than the currently cited content. |
-| Competitor domains dominate citations | Study what format the competitor content uses (list? table? code?). Mirror the format in quote-ready blocks. |
-| No AI responses exist for this topic | New territory. Focus on being the first authoritative source. Maximize quote-ready blocks. |
+| Data Point                                                     | Action                                                                                                                      |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| AI assistants answer topic questions but don't cite Builder.io | This post fills a citation gap. Strengthen quote-ready blocks with Builder.io-specific examples.                            |
+| Builder.io is already cited for this topic                     | Reinforce existing citations. Ensure the new post's answer-first blocks are more specific than the currently cited content. |
+| Competitor domains dominate citations                          | Study what format the competitor content uses (list? table? code?). Mirror the format in quote-ready blocks.                |
+| No AI responses exist for this topic                           | New territory. Focus on being the first authoritative source. Maximize quote-ready blocks.                                  |
 
 **Content goal adjustments:**
+
 - `awareness`: Record findings but do not change the post to force Builder.io mentions. The data informs strategy, not this post.
 - `acquisition`: Use findings to strengthen Builder.io-specific quote-ready blocks. If competitors dominate, add differentiation in answer-first blocks.
 - `hybrid`: Use findings to refine the light CTA. If AI assistants already associate Builder.io with this topic, the CTA can be bolder.
@@ -200,6 +208,7 @@ Use Ahrefs Brand Radar tools to understand how AI assistants currently discuss B
 Verify that People Also Ask questions from SERP analysis are addressed in the post, either as H2 headings or in the FAQ section.
 
 **Process:**
+
 1. Read PAA questions from `phases/03-serp-analysis.yaml` (field: `paa_questions`).
 2. For each PAA question, check if it is:
    - Used as an H2 heading (best -- direct AEO match)
@@ -215,11 +224,13 @@ If `phases/03-serp-analysis.yaml` has `skipped: true` (trending topic), check fo
 If `seed/ai-search.txt` exists, verify the post covers both the AI search queries and the raw facts.
 
 **AI search queries:**
+
 1. Read the queries from the file (the section before "Raw facts").
 2. For each query, verify it is answered by an H2 heading or FAQ entry. The outline (Phase 5) should have mapped these. Confirm the draft followed through.
 3. If a query is not covered, add it as an FAQ entry with a 40-60 word answer-first block.
 
 **Raw facts:**
+
 1. Read the raw facts (the section after "Raw facts SurferSEO found from various articles").
 2. For each fact, check if the post covers the same topic with equal or better information.
 3. Facts the post already covers well: no action needed.
@@ -237,6 +248,7 @@ If `seed/ai-search.txt` does not exist, skip this step.
 Count words in `post.md` after all AEO modifications. See [word-count-guidance.md](../../shared/word-count-guidance.md) for the full word count logic. AEO is the one phase where slightly exceeding the target is acceptable.
 
 **Rules:**
+
 - Record `word_count_before` (from Phase 8) and `word_count_after` in the output YAML.
 - AEO optimization primarily restructures existing content. Typical additions are small (answer-first block rewrites, specificity enhancer words in headings, quote-ready block restructuring).
 - If slightly over the competitive target (within the Phase 8-9 buffer of 3-5%): note in the output but do not trim AEO improvements. Well-structured quote-ready blocks are worth more than hitting the number exactly.
@@ -256,24 +268,25 @@ Write `phases/09-aeo-optimization.yaml`:
 
 ```yaml
 question_headings_count: 4
-question_headings_total: 6  # total H2s in the post
+question_headings_total: 6 # total H2s in the post
 question_heading_ratio: 0.67
-answer_first_blocks: 4  # count of verified answer-first blocks
+answer_first_blocks: 4 # count of verified answer-first blocks
 answer_first_blocks_missing: 0
-quote_ready_blocks_total: 9  # total across all sections
-heading_character_lengths: [52, 48, 61, 55]  # question headings only
+quote_ready_blocks_total: 9 # total across all sections
+heading_character_lengths: [52, 48, 61, 55] # question headings only
 headings_over_80_chars: 0
 specificity_enhancers_count: 3
-pattern_variety: ["What is", "How do", "When should", "Why is"]  # distinct patterns used
+pattern_variety: ["What is", "How do", "When should", "Why is"] # distinct patterns used
 patterns_used_count: 4
 paa_questions_addressed:
   as_heading: ["How do RSC work?"]
   in_faq: ["RSC vs SSR?", "Do RSC replace client components?"]
   in_body: []
   not_addressed: []
-structured_answer_formats: ["definition", "steps", "comparison table", "code snippet"]
+structured_answer_formats:
+  ["definition", "steps", "comparison table", "code snippet"]
 ai_search_coverage:
-  status: completed  # or "skipped -- no seed file"
+  status: completed # or "skipped -- no seed file"
   queries_total: 5
   queries_covered_as_heading: 3
   queries_covered_in_faq: 2
@@ -284,15 +297,15 @@ ai_search_coverage:
   raw_facts_not_addressed: 1
   gaps_flagged: ["team governance features"]
 brand_radar:
-  status: completed  # or "skipped -- trending topic" or "skipped -- awareness goal"
-  builder_cited: true  # whether Builder.io is currently cited for this topic
+  status: completed # or "skipped -- trending topic" or "skipped -- awareness goal"
+  builder_cited: true # whether Builder.io is currently cited for this topic
   competitor_domains_top3: ["vercel.com", "nextjs.org", "reactjs.org"]
   citation_gap_identified: true
   action_taken: "Strengthened RSC implementation section with Builder.io SDK example"
 word_count_before: 2210
 word_count_after: 2230
-content_goal: awareness  # from Phase 1
-content_timing: evergreen  # from Phase 1
+content_goal: awareness # from Phase 1
+content_timing: evergreen # from Phase 1
 status: aeo-optimized
 ```
 
@@ -329,15 +342,21 @@ brand_radar:
 ### Example 1: Heading Compliance Fix
 
 **Before (Phase 8 output):**
+
 ```markdown
 ## Server Component Architecture
+
 ## Data Fetching in Server Components
+
 ## When to Use Server Components
+
 ## Migration Guide
+
 ## FAQ
 ```
 
 **Audit results:**
+
 - "Server Component Architecture" -- declarative, no question form, no enhancer (54 chars)
 - "Data Fetching in Server Components" -- declarative, no question form (35 chars, too short)
 - "When to Use Server Components" -- question-adjacent but not a question (30 chars, too short)
@@ -345,11 +364,16 @@ brand_radar:
 - "FAQ" -- structural, keep as-is
 
 **After (Phase 9 fixes):**
+
 ```markdown
 ## How Do React Server Components Work Under the Hood? (53 chars, pattern #2, keyword)
+
 ## How Do Server Components Fetch Data in Next.js 15? (53 chars, pattern #2 + tool enhancer)
+
 ## When Should You Migrate to Server Components for Data-Heavy Apps? (67 chars, pattern #5 + use case enhancer)
+
 ## Migration Guide (keep as-is -- structural)
+
 ## FAQ (keep as-is -- structural)
 ```
 
@@ -360,6 +384,7 @@ brand_radar:
 **H2:** What Are the Benefits of Server Components for React Teams?
 
 **Before (missing answer-first block):**
+
 ```markdown
 ## What Are the Benefits of Server Components for React Teams?
 
@@ -371,6 +396,7 @@ at the main advantages.
 ```
 
 **After (answer-first block added):**
+
 ```markdown
 ## What Are the Benefits of Server Components for React Teams?
 
@@ -391,6 +417,7 @@ The new block is self-contained, specific, answers the heading directly, and can
 **Topic:** Headless CMS comparison
 **Content goal:** `acquisition`
 **Brand Radar findings:**
+
 - `brand-radar-ai-responses`: ChatGPT mentions Builder.io in 3 of 12 headless CMS queries, but only for "visual editing" -- not for "developer experience" or "performance."
 - `brand-radar-cited-pages`: The Builder.io blog post `/blog/headless-cms-guide` is cited twice.
 - `brand-radar-cited-domains`: Contentful (cited 8 times), Sanity (cited 6 times), Builder.io (cited 3 times).

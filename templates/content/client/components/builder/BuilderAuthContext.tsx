@@ -1,4 +1,11 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  ReactNode,
+} from "react";
 import { authFetch } from "@/lib/auth-fetch";
 
 interface BuilderAuth {
@@ -66,7 +73,10 @@ export function BuilderAuthProvider({ children }: { children: ReactNode }) {
       authFetch("/api/builder/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey: auth.apiKey, privateKey: auth.privateKey }),
+        body: JSON.stringify({
+          apiKey: auth.apiKey,
+          privateKey: auth.privateKey,
+        }),
       }).catch(console.error);
     }
   }, [auth]);
@@ -83,7 +93,9 @@ export function BuilderAuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <BuilderAuthContext.Provider value={{ auth, isConnected: !!auth, connect, disconnect }}>
+    <BuilderAuthContext.Provider
+      value={{ auth, isConnected: !!auth, connect, disconnect }}
+    >
       {children}
     </BuilderAuthContext.Provider>
   );

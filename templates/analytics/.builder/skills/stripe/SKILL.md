@@ -1,3 +1,8 @@
+---
+name: stripe
+description: How to connect to and query the Stripe API for analytics data.
+---
+
 # Stripe Integration
 
 ## Connection
@@ -14,12 +19,12 @@
 
 ## API Routes
 
-| Route | Method | Params | Description |
-|---|---|---|---|
-| `/api/stripe/billing` | GET | `email`, `months` (default 6) | Invoices for a customer in timeframe |
-| `/api/stripe/payment-status` | GET | `email` | Recent charges + payment intents |
-| `/api/stripe/refunds` | GET | `email` | Refunds associated with customer |
-| `/api/stripe/subscriptions` | GET | `email` | All subscriptions (active + inactive) |
+| Route                        | Method | Params                        | Description                           |
+| ---------------------------- | ------ | ----------------------------- | ------------------------------------- |
+| `/api/stripe/billing`        | GET    | `email`, `months` (default 6) | Invoices for a customer in timeframe  |
+| `/api/stripe/payment-status` | GET    | `email`                       | Recent charges + payment intents      |
+| `/api/stripe/refunds`        | GET    | `email`                       | Refunds associated with customer      |
+| `/api/stripe/subscriptions`  | GET    | `email`                       | All subscriptions (active + inactive) |
 
 All routes resolve email → Stripe customer ID(s) internally.
 
@@ -52,6 +57,7 @@ All hooks use `enabled` flag — data is only fetched when a button is clicked.
 ## UI Pattern
 
 The Stripe page is a **tool** (not a dashboard). It has:
+
 1. Email input field
 2. Four action buttons (Billing History, Payment Status, Refund Status, Subscriptions)
 3. Results panel that shows data for whichever action was last triggered

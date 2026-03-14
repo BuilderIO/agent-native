@@ -47,6 +47,7 @@ Execute the Style Guide skill's load and merge process:
 4. The merged result is the active style guide for this editing session
 
 Internalize before editing:
+
 - Hard Rules become the violation checklist
 - Voice Violation Taxonomy drives Pass 3 (AI-Voice Detection)
 - Severity Classification determines issue categorization
@@ -57,10 +58,12 @@ Internalize before editing:
 Read `content_timing` and `content_goal` from `phases/01-topic-validation.yaml`.
 
 **Content timing:**
+
 - **Evergreen:** Apply all passes at full rigor.
 - **Trending:** Relax Pass 1 evidence requirements (community signal counts) and Pass 4 motivation density. See Trending Mode below.
 
 **Content goal** (drives Pass 4 compliance checks):
+
 - **Awareness:** No promotional Builder.io mentions. Internal links to related Builder.io blog posts are fine. Flag promotional mentions as critical issues.
 - **Acquisition:** Builder.io section follows the 80/20 rule. Integration feels natural, not forced. Flag forced integration as important issues.
 - **Hybrid:** Builder.io appears only in the conclusion CTA. Flag body mentions as important issues.
@@ -70,6 +73,7 @@ Read `content_timing` and `content_goal` from `phases/01-topic-validation.yaml`.
 Execute the Content Editing skill's full process. The passes are sequential -- each builds on the previous.
 
 **Pass 1 -- Clarity:**
+
 - One idea per paragraph
 - Sentences under 30 words
 - Jargon defined or removed
@@ -79,6 +83,7 @@ Execute the Content Editing skill's full process. The passes are sequential -- e
 - "Specificity" sub-check: replace generic statements with concrete numbers, tool names, versions
 
 **Pass 2 -- Flow:**
+
 - Heading story test: H2 headings read as a logical narrative
 - Transitions: content bridges between sections (no "Now let's look at...")
 - Section opening: answer-first block serves as the opener, not a heading repeat
@@ -87,6 +92,7 @@ Execute the Content Editing skill's full process. The passes are sequential -- e
 
 **Pass 3 -- AI-Voice Detection:**
 Run the 5-pass sub-workflow from [ai-voice-detection.md](../../skills/content-editing/references/ai-voice-detection.md):
+
 1. **Vocabulary Scan** -- Flag Category A-D instances. Replace or cut per the reference tables.
 2. **Structure Analysis** -- Check sentence length variation, Rule of Three lists, trailing participles, synonym carousels.
 3. **Voice Injection** -- Verify each H2 section has at least one personal detail, opinion, or informal moment.
@@ -94,6 +100,7 @@ Run the 5-pass sub-workflow from [ai-voice-detection.md](../../skills/content-ed
 5. **Read-Aloud Test** -- Flag sentences with flat cadence, textbook tone, or phrasing nobody would say aloud.
 
 **Pass 4 -- Engagement:**
+
 - Hook check: specific to this post, not generic
 - Example check: each body section has at least one concrete example
 - CTA specificity: references something specific from the post
@@ -104,6 +111,7 @@ Run the 5-pass sub-workflow from [ai-voice-detection.md](../../skills/content-ed
 ### Phase 5: Word Count and Report
 
 **Word count enforcement:**
+
 - Count words in edited `post.md` (excluding YAML frontmatter and code blocks)
 - If over the word count ceiling for this post type (from the outline): trim weakest supporting points. Do not trim answer-first blocks, code examples, or the hook.
 - If under post type minimum: flag as minor issue but do not pad
@@ -138,6 +146,7 @@ Run the 5-pass sub-workflow from [ai-voice-detection.md](../../skills/content-ed
 ```
 
 **Scoring guide:**
+
 - **9-10:** Publish-ready after SEO/AEO passes. No critical issues.
 - **7-8:** Strong draft. A few important issues resolved.
 - **5-6:** Significant editing needed. Multiple important issues or several AI-voice patterns.

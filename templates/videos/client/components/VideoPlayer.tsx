@@ -9,7 +9,14 @@ import {
   forwardRef,
   useImperativeHandle,
 } from "react";
-import { Play, Pause, SkipBack, Repeat, Maximize2, Minimize2 } from "lucide-react";
+import {
+  Play,
+  Pause,
+  SkipBack,
+  Repeat,
+  Maximize2,
+  Minimize2,
+} from "lucide-react";
 
 export type VideoPlayerHandle = {
   seekTo: (frame: number) => void;
@@ -34,22 +41,33 @@ type VideoPlayerProps = {
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   function VideoPlayer(
-    { composition, onFrameUpdate, onPlayingChange, playbackRate = 1, onPlaybackRateChange, viewStart = 0, viewEnd, initialFrame = 0 },
+    {
+      composition,
+      onFrameUpdate,
+      onPlayingChange,
+      playbackRate = 1,
+      onPlaybackRateChange,
+      viewStart = 0,
+      viewEnd,
+      initialFrame = 0,
+    },
     ref,
   ) {
-    const playerRef    = useRef<PlayerRef>(null);
+    const playerRef = useRef<PlayerRef>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    const [playing, setPlaying]         = useState(false);
+    const [playing, setPlaying] = useState(false);
     const [currentFrame, setCurrentFrame] = useState(initialFrame);
     const [isFullscreen, setIsFullscreen] = useState(false);
-    const [repeat, setRepeat]             = useState(false);
+    const [repeat, setRepeat] = useState(false);
 
     // Ref so the frameupdate handler sees latest repeat value without re-registering
     const repeatRef = useRef(false);
     repeatRef.current = repeat;
 
     // Validate and sanitize viewStart
-    const safeViewStart = Number.isFinite(viewStart) ? Math.max(0, viewStart) : 0;
+    const safeViewStart = Number.isFinite(viewStart)
+      ? Math.max(0, viewStart)
+      : 0;
 
     // Resolved range end — defaults to full duration
     const rangeEnd = Number.isFinite(viewEnd)
@@ -72,8 +90,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setCurrentFrame(frame);
         onFrameUpdate?.(frame);
       },
-      play:   () => playerRef.current?.play(),
-      pause:  () => playerRef.current?.pause(),
+      play: () => playerRef.current?.play(),
+      pause: () => playerRef.current?.pause(),
       toggle: () => {
         if (playing) playerRef.current?.pause();
         else playerRef.current?.play();
@@ -98,8 +116,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         const { start, end } = rangeRef.current;
 
         // Safety check: ensure all values are finite
-        if (!Number.isFinite(frame) || !Number.isFinite(start) || !Number.isFinite(end)) {
-          console.error("VideoPlayer.onFrame: Invalid values", { frame, start, end });
+        if (
+          !Number.isFinite(frame) ||
+          !Number.isFinite(start) ||
+          !Number.isFinite(end)
+        ) {
+          console.error("VideoPlayer.onFrame: Invalid values", {
+            frame,
+            start,
+            end,
+          });
           return;
         }
 
@@ -132,22 +158,27 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         onFrameUpdate?.(rangeRef.current.start);
       };
 
-      player.addEventListener("play",        onPlay);
-      player.addEventListener("pause",       onPause);
+      player.addEventListener("play", onPlay);
+      player.addEventListener("pause", onPause);
       player.addEventListener("frameupdate", onFrame as any);
-      player.addEventListener("ended",       onEnded);
+      player.addEventListener("ended", onEnded);
 
       return () => {
-        player.removeEventListener("play",        onPlay);
-        player.removeEventListener("pause",       onPause);
+        player.removeEventListener("play", onPlay);
+        player.removeEventListener("pause", onPause);
         player.removeEventListener("frameupdate", onFrame as any);
-        player.removeEventListener("ended",       onEnded);
+        player.removeEventListener("ended", onEnded);
       };
     }, [composition.id, onFrameUpdate, onPlayingChange]);
 
     // Seek to initialFrame when player is ready
     useEffect(() => {
-      console.log("VideoPlayer - seeking to initialFrame:", initialFrame, "playerRef ready:", !!playerRef.current);
+      console.log(
+        "VideoPlayer - seeking to initialFrame:",
+        initialFrame,
+        "playerRef ready:",
+        !!playerRef.current,
+      );
       if (playerRef.current && initialFrame > 0) {
         playerRef.current.seekTo(initialFrame);
         setCurrentFrame(initialFrame);
@@ -218,25 +249,28 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
     // Progress within the active range (0–1)
     const rangeDuration = Math.max(1, rangeEnd - viewStart);
-    const rangeProgress = Math.max(0, Math.min(1, (currentFrame - viewStart) / rangeDuration));
+    const rangeProgress = Math.max(
+      0,
+      Math.min(1, (currentFrame - viewStart) / rangeDuration),
+    );
 
     const currentTime = currentFrame / composition.fps;
-    const totalTime   = composition.durationInFrames / composition.fps;
+    const totalTime = composition.durationInFrames / composition.fps;
     // Range bounds in seconds, for the time display
     const rangeStartTime = viewStart / composition.fps;
-    const rangeEndTime   = rangeEnd  / composition.fps;
+    const rangeEndTime = rangeEnd / composition.fps;
     const isRanged = viewStart > 0 || rangeEnd < composition.durationInFrames;
 
     const formatTime = (seconds: number) => {
-      const m  = Math.floor(seconds / 60);
-      const s  = Math.floor(seconds % 60);
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
       const ms = Math.floor((seconds % 1) * 10);
       return `${m}:${s.toString().padStart(2, "0")}.${ms}`;
     };
 
     const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-      const rect     = e.currentTarget.getBoundingClientRect();
-      const x        = e.clientX - rect.left;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left;
       const fraction = Math.max(0, Math.min(1, x / rect.width));
       // Seek within the active range
       const targetFrame = Math.round(viewStart + fraction * rangeDuration);
@@ -256,7 +290,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             className="w-full mx-auto"
             style={{
               aspectRatio: `${composition.width}/${composition.height}`,
-              maxHeight:   "55vh",
+              maxHeight: "55vh",
               // Prevent layout thrashing
               contain: "layout style paint",
               // Hardware acceleration
@@ -278,7 +312,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 height: "100%",
                 // Hardware acceleration hints
                 transform: "translateZ(0)",
-                willChange: "transform"
+                willChange: "transform",
               }}
               autoPlay={false}
               loop={false}
@@ -339,7 +373,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 title={repeat ? "Loop: on" : "Loop: off"}
                 className={cn(
                   "p-2 rounded-lg transition-colors hover:bg-secondary",
-                  repeat ? "text-primary" : "text-muted-foreground hover:text-foreground",
+                  repeat
+                    ? "text-primary"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 <Repeat size={14} />
@@ -350,7 +386,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               {/* Time readout — clean and compact */}
               <span className="text-xs font-mono tabular-nums text-foreground/70">
                 {formatTime(currentTime)}
-                <span className="text-muted-foreground/40"> / {formatTime(isRanged ? rangeEndTime : totalTime)}</span>
+                <span className="text-muted-foreground/40">
+                  {" "}
+                  / {formatTime(isRanged ? rangeEndTime : totalTime)}
+                </span>
               </span>
 
               {/* Range pill — only shown when sub-range is active */}
@@ -367,7 +406,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               {/* Playback speed dropdown */}
               <select
                 value={playbackRate}
-                onChange={(e) => onPlaybackRateChange?.(parseFloat(e.target.value))}
+                onChange={(e) =>
+                  onPlaybackRateChange?.(parseFloat(e.target.value))
+                }
                 className="text-[10px] px-2 py-1 pr-6 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono transition-colors cursor-pointer"
                 title="Playback speed"
               >
@@ -385,7 +426,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
                 className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
               >
-                {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                {isFullscreen ? (
+                  <Minimize2 size={13} />
+                ) : (
+                  <Maximize2 size={13} />
+                )}
               </button>
             </div>
           </div>

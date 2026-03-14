@@ -9,17 +9,25 @@ const MAX_CACHE = 120;
 
 function getToken(): string {
   const token = process.env.STRIPE_SECRET_KEY;
-  if (!token) throw new Error("STRIPE_SECRET_KEY env var not configured. Add your Stripe secret key to continue.");
+  if (!token)
+    throw new Error(
+      "STRIPE_SECRET_KEY env var not configured. Add your Stripe secret key to continue.",
+    );
   return token;
 }
 
-async function apiGet<T>(path: string, params?: Record<string, string | string[]>, cacheKey?: string): Promise<T> {
+async function apiGet<T>(
+  path: string,
+  params?: Record<string, string | string[]>,
+  cacheKey?: string,
+): Promise<T> {
   let qs = "";
   if (params) {
     const parts: string[] = [];
     for (const [k, v] of Object.entries(params)) {
       if (Array.isArray(v)) {
-        for (const item of v) parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(item)}`);
+        for (const item of v)
+          parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(item)}`);
       } else {
         parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
       }
@@ -171,17 +179,27 @@ interface StripeList<T> {
 
 // -- Exported functions --
 
-export async function getCustomersByEmail(email: string): Promise<StripeCustomer[]> {
-  const res = await apiGet<StripeList<StripeCustomer>>("/v1/customers", { email, limit: "10" });
+export async function getCustomersByEmail(
+  email: string,
+): Promise<StripeCustomer[]> {
+  const res = await apiGet<StripeList<StripeCustomer>>("/v1/customers", {
+    email,
+    limit: "10",
+  });
   return res.data;
 }
 
-export async function searchCustomersByName(name: string): Promise<StripeCustomer[]> {
+export async function searchCustomersByName(
+  name: string,
+): Promise<StripeCustomer[]> {
   const escapedName = name.replace(/'/g, "\\'");
 
   // Stage 1: Try exact name match
   let query = `name:'${escapedName}'`;
-  let res = await apiGet<StripeList<StripeCustomer>>("/v1/customers/search", { query, limit: "10" });
+  let res = await apiGet<StripeList<StripeCustomer>>("/v1/customers/search", {
+    query,
+    limit: "10",
+  });
 
   if (res.data.length > 0) {
     return res.data; // Found exact matches
@@ -189,7 +207,10 @@ export async function searchCustomersByName(name: string): Promise<StripeCustome
 
   // Stage 2: Try partial name match
   query = `name~'${escapedName}'`;
-  res = await apiGet<StripeList<StripeCustomer>>("/v1/customers/search", { query, limit: "10" });
+  res = await apiGet<StripeList<StripeCustomer>>("/v1/customers/search", {
+    query,
+    limit: "10",
+  });
 
   if (res.data.length > 0) {
     return res.data; // Found partial matches
@@ -197,30 +218,40 @@ export async function searchCustomersByName(name: string): Promise<StripeCustome
 
   // Stage 3: Try multi-field search (name OR email)
   query = `name~'${escapedName}' OR email~'${escapedName}'`;
-  res = await apiGet<StripeList<StripeCustomer>>("/v1/customers/search", { query, limit: "10" });
+  res = await apiGet<StripeList<StripeCustomer>>("/v1/customers/search", {
+    query,
+    limit: "10",
+  });
 
   return res.data; // Return whatever we found (may be empty)
 }
 
-export async function getCustomerById(customerId: string): Promise<StripeCustomer> {
+export async function getCustomerById(
+  customerId: string,
+): Promise<StripeCustomer> {
   return await apiGet<StripeCustomer>(`/v1/customers/${customerId}`);
 }
 
-export async function getCustomersByRootId(rootId: string): Promise<StripeCustomer[]> {
+export async function getCustomersByRootId(
+  rootId: string,
+): Promise<StripeCustomer[]> {
   // Search subscriptions by root_id metadata, then get unique customers
   const query = `metadata['root_id']:'${rootId.replace(/'/g, "\\'")}'`;
-  const res = await apiGet<StripeList<StripeSubscription>>("/v1/subscriptions/search", {
-    query,
-    limit: "100",
-    "expand[]": "data.customer"
-  });
+  const res = await apiGet<StripeList<StripeSubscription>>(
+    "/v1/subscriptions/search",
+    {
+      query,
+      limit: "100",
+      "expand[]": "data.customer",
+    },
+  );
 
   // Extract unique customer IDs
   const customerIds = new Set<string>();
   for (const sub of res.data) {
-    if (typeof sub.customer === 'string') {
+    if (typeof sub.customer === "string") {
       customerIds.add(sub.customer);
-    } else if (sub.customer && typeof sub.customer === 'object') {
+    } else if (sub.customer && typeof sub.customer === "object") {
       customerIds.add(sub.customer.id);
     }
   }
@@ -239,7 +270,10 @@ export async function getCustomersByRootId(rootId: string): Promise<StripeCustom
   return customers;
 }
 
-export async function getInvoices(customerId: string, months?: number): Promise<StripeInvoice[]> {
+export async function getInvoices(
+  customerId: string,
+  months?: number,
+): Promise<StripeInvoice[]> {
   const params: Record<string, string[]> = {
     customer: [customerId],
     limit: ["100"],
@@ -267,9 +301,15 @@ interface StripeProduct {
   description: string | null;
 }
 
-export async function getInvoicesByProduct(customerId: string, months?: number): Promise<ProductBillingAggregate[]> {
+export async function getInvoicesByProduct(
+  customerId: string,
+  months?: number,
+): Promise<ProductBillingAggregate[]> {
   const invoices = await getInvoices(customerId, months);
-  const productMap = new Map<string, { totalAmount: number; currency: string; invoiceCount: number }>();
+  const productMap = new Map<
+    string,
+    { totalAmount: number; currency: string; invoiceCount: number }
+  >();
   const productIds = new Set<string>();
 
   // First pass: aggregate amounts by product ID
@@ -279,7 +319,7 @@ export async function getInvoicesByProduct(customerId: string, months?: number):
     for (const line of invoice.lines.data) {
       // @ts-ignore - price.product exists on invoice line items
       const productId = line.price?.product;
-      if (!productId || typeof productId !== 'string') continue;
+      if (!productId || typeof productId !== "string") continue;
 
       productIds.add(productId);
 
@@ -324,7 +364,10 @@ export async function getInvoicesByProduct(customerId: string, months?: number):
   return results.sort((a, b) => b.totalAmount - a.totalAmount);
 }
 
-export async function getCharges(customerId: string, limit = 25): Promise<StripeCharge[]> {
+export async function getCharges(
+  customerId: string,
+  limit = 25,
+): Promise<StripeCharge[]> {
   const res = await apiGet<StripeList<StripeCharge>>("/v1/charges", {
     customer: customerId,
     limit: String(limit),
@@ -332,33 +375,46 @@ export async function getCharges(customerId: string, limit = 25): Promise<Stripe
   return res.data;
 }
 
-export async function getPaymentIntents(customerId: string, limit = 25): Promise<StripePaymentIntent[]> {
-  const res = await apiGet<StripeList<StripePaymentIntent>>("/v1/payment_intents", {
-    customer: customerId,
-    limit: String(limit),
-  });
+export async function getPaymentIntents(
+  customerId: string,
+  limit = 25,
+): Promise<StripePaymentIntent[]> {
+  const res = await apiGet<StripeList<StripePaymentIntent>>(
+    "/v1/payment_intents",
+    {
+      customer: customerId,
+      limit: String(limit),
+    },
+  );
   return res.data;
 }
 
-export async function getSubscriptions(customerId: string): Promise<StripeSubscription[]> {
+export async function getSubscriptions(
+  customerId: string,
+): Promise<StripeSubscription[]> {
   // Only fetch active subscriptions (active, trialing, past_due)
   // Multiple status values require multiple API calls or client-side filtering
-  const res = await apiGet<StripeList<StripeSubscription>>("/v1/subscriptions", {
-    customer: customerId,
-    limit: "100",
-    status: "all",
-    "expand[]": "data.items.data.price",
-  });
+  const res = await apiGet<StripeList<StripeSubscription>>(
+    "/v1/subscriptions",
+    {
+      customer: customerId,
+      limit: "100",
+      status: "all",
+      "expand[]": "data.items.data.price",
+    },
+  );
 
   // Filter to only active statuses
   const activeStatuses = ["active", "trialing", "past_due"];
-  const subscriptions = res.data.filter((sub) => activeStatuses.includes(sub.status));
+  const subscriptions = res.data.filter((sub) =>
+    activeStatuses.includes(sub.status),
+  );
 
   // Collect all unique product IDs
   const productIds = new Set<string>();
   for (const sub of subscriptions) {
     for (const item of sub.items?.data ?? []) {
-      if (item.price?.product && typeof item.price.product === 'string') {
+      if (item.price?.product && typeof item.price.product === "string") {
         productIds.add(item.price.product);
       }
     }
@@ -378,7 +434,7 @@ export async function getSubscriptions(customerId: string): Promise<StripeSubscr
   // Augment subscriptions with product names
   for (const sub of subscriptions) {
     for (const item of sub.items?.data ?? []) {
-      if (item.price?.product && typeof item.price.product === 'string') {
+      if (item.price?.product && typeof item.price.product === "string") {
         const productId = item.price.product;
         // @ts-ignore - Adding productName to the price object
         item.price.productName = productNames.get(productId) || productId;
@@ -397,14 +453,19 @@ export async function getRefunds(customerId: string): Promise<StripeRefund[]> {
 
   if (refundedCharges.length === 0) {
     // Also try fetching recent refunds and matching by charge ownership
-    const allRefunds = await apiGet<StripeList<StripeRefund>>("/v1/refunds", { limit: "100" });
+    const allRefunds = await apiGet<StripeList<StripeRefund>>("/v1/refunds", {
+      limit: "100",
+    });
     const chargeIds = new Set(charges.map((c) => c.id));
     return allRefunds.data.filter((r) => r.charge && chargeIds.has(r.charge));
   }
 
   const refunds: StripeRefund[] = [];
   for (const charge of refundedCharges) {
-    const res = await apiGet<StripeList<StripeRefund>>("/v1/refunds", { charge: charge.id, limit: "100" });
+    const res = await apiGet<StripeList<StripeRefund>>("/v1/refunds", {
+      charge: charge.id,
+      limit: "100",
+    });
     refunds.push(...res.data);
   }
   return refunds;

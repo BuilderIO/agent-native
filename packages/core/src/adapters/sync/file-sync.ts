@@ -69,11 +69,15 @@ export class FileSync {
     const patterns = config.syncFilePatterns;
 
     if (patterns.length === 0) {
-      console.log("[file-sync] No syncFilePatterns configured - file sync disabled");
+      console.log(
+        "[file-sync] No syncFilePatterns configured - file sync disabled",
+      );
       return;
     }
 
-    console.log(`[file-sync:shared] Initializing with ${patterns.length} pattern(s)`);
+    console.log(
+      `[file-sync:shared] Initializing with ${patterns.length} pattern(s)`,
+    );
 
     this.startPurgeTimer();
     await this.initStartupSync(patterns, this.options.ownerId, "shared");
@@ -96,7 +100,9 @@ export class FileSync {
       return;
     }
 
-    console.log(`[file-sync:private] Initializing private sync for user ${userUid.slice(0, 8)}...`);
+    console.log(
+      `[file-sync:private] Initializing private sync for user ${userUid.slice(0, 8)}...`,
+    );
 
     await this.initStartupSync(patterns, userUid, "private");
     this.startRemoteListener(patterns, userUid, "private");
@@ -182,7 +188,10 @@ export class FileSync {
           })
           .then(() => this.markRecent(this.recentlyPushed, filePath))
           .catch((err) =>
-            console.error(`[file-sync] Failed to push merged ${filePath}:`, err),
+            console.error(
+              `[file-sync] Failed to push merged ${filePath}:`,
+              err,
+            ),
           );
 
         this.emitSyncEvent({
@@ -198,7 +207,9 @@ export class FileSync {
     // Auto-merge failed or no base -- write .conflict sidecar
     const conflictPath = absPath + ".conflict";
     fs.writeFileSync(conflictPath, remoteContent, "utf-8");
-    console.log(`[file-sync] conflict in ${filePath} - wrote ${filePath}.conflict`);
+    console.log(
+      `[file-sync] conflict in ${filePath} - wrote ${filePath}.conflict`,
+    );
 
     this.emitSyncEvent({
       type: "conflict-saved",
@@ -241,7 +252,9 @@ export class FileSync {
     }
 
     if (orphanedDocIds.length > 0) {
-      console.log(`[file-sync:${label}] Cleaning up ${orphanedDocIds.length} orphaned doc(s)...`);
+      console.log(
+        `[file-sync:${label}] Cleaning up ${orphanedDocIds.length} orphaned doc(s)...`,
+      );
       for (const id of orphanedDocIds) {
         await this.options.adapter.delete(id).catch(() => {});
       }
@@ -423,7 +436,10 @@ export class FileSync {
           console.log(`[file-sync:${label}] -> deleted ${relPath}`);
         })
         .catch((err) =>
-          console.error(`[file-sync:${label}] Failed to delete ${relPath}:`, err),
+          console.error(
+            `[file-sync:${label}] Failed to delete ${relPath}:`,
+            err,
+          ),
         );
     };
 

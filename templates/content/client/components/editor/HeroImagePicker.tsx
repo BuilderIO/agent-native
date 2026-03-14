@@ -1,12 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import {
-  ImageIcon,
-  Upload,
-  X,
-  Loader2,
-  Send,
-  FolderOpen,
-} from "lucide-react";
+import { ImageIcon, Upload, X, Loader2, Send, FolderOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMediaUpload } from "@/hooks/use-media-upload";
 import { useAgentChatGenerating } from "@agent-native/core";
@@ -90,7 +83,12 @@ export function HeroImagePicker({
 
   // Has hero image — show it with hover controls
   return (
-    <div className={cn("relative mb-6 rounded-lg group", panelView === null && "overflow-hidden")}>
+    <div
+      className={cn(
+        "relative mb-6 rounded-lg group",
+        panelView === null && "overflow-hidden",
+      )}
+    >
       <input
         ref={fileInputRef}
         type="file"
@@ -104,10 +102,14 @@ export function HeroImagePicker({
         className="w-full aspect-video object-cover"
       />
       {/* Hover overlay — hide when gen panel is open */}
-      <div className={cn(
-        "absolute inset-0 bg-black/40 flex items-center justify-center gap-3 transition-opacity",
-        panelView !== null ? "opacity-0 pointer-events-none" : "opacity-0 group-hover:opacity-100"
-      )}>
+      <div
+        className={cn(
+          "absolute inset-0 bg-black/40 flex items-center justify-center gap-3 transition-opacity",
+          panelView !== null
+            ? "opacity-0 pointer-events-none"
+            : "opacity-0 group-hover:opacity-100",
+        )}
+      >
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={isUploading}
@@ -189,7 +191,8 @@ function HeroGenPanel({
 }) {
   const [prompt, setPrompt] = useState("");
   const [isGenerating, sendToAgentChat] = useAgentChatGenerating();
-  const { value: currentImageReference, reason: unresolvedReferenceReason } = resolveImageReferenceForChat(currentImageUrl);
+  const { value: currentImageReference, reason: unresolvedReferenceReason } =
+    resolveImageReferenceForChat(currentImageUrl);
   const isRegenerating = !!currentImageUrl;
 
   // Auto-close when generation finishes (isGenerating goes from true → false)
@@ -204,7 +207,9 @@ function HeroGenPanel({
   const handleGenerate = () => {
     if (isGenerating || (isRegenerating && !currentImageReference)) return;
 
-    const referenceImagePaths = currentImageReference ? [currentImageReference] : [];
+    const referenceImagePaths = currentImageReference
+      ? [currentImageReference]
+      : [];
     const imagePayload = {
       model: "gemini",
       projectSlug,
@@ -249,7 +254,10 @@ function HeroGenPanel({
   return (
     <div className="border border-border rounded-lg bg-background">
       <div className="flex justify-end px-3 pt-2">
-        <button onClick={onClose} className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors">
+        <button
+          onClick={onClose}
+          className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+        >
           <X size={14} />
         </button>
       </div>
@@ -258,7 +266,11 @@ function HeroGenPanel({
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder={isRegenerating ? "Describe how to refine the current hero image..." : "Describe the hero image you want... (optional)"}
+          placeholder={
+            isRegenerating
+              ? "Describe how to refine the current hero image..."
+              : "Describe the hero image you want... (optional)"
+          }
           className="flex w-full rounded-md border border-input bg-muted px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[60px] resize-y"
           autoFocus
           onKeyDown={(e) => {
@@ -266,12 +278,18 @@ function HeroGenPanel({
           }}
         />
 
-        {isRegenerating && !currentImageReference && unresolvedReferenceReason && (
-          <p className="text-[11px] text-amber-600">{unresolvedReferenceReason}</p>
-        )}
+        {isRegenerating &&
+          !currentImageReference &&
+          unresolvedReferenceReason && (
+            <p className="text-[11px] text-amber-600">
+              {unresolvedReferenceReason}
+            </p>
+          )}
 
         <div className="flex items-center justify-between">
-          <span className="text-[11px] text-muted-foreground">Cmd+Enter to generate</span>
+          <span className="text-[11px] text-muted-foreground">
+            Cmd+Enter to generate
+          </span>
           <div className="flex items-center gap-1">
             <button
               onClick={onLibrary}
@@ -285,15 +303,21 @@ function HeroGenPanel({
               disabled={isUploading}
               className="inline-flex items-center justify-center rounded-md text-[11px] font-medium h-7 px-2.5 border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             >
-              {isUploading ? <Loader2 size={12} className="animate-spin" /> : "Upload"}
+              {isUploading ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                "Upload"
+              )}
             </button>
             <button
               onClick={handleGenerate}
-              disabled={isGenerating || (isRegenerating && !currentImageReference)}
+              disabled={
+                isGenerating || (isRegenerating && !currentImageReference)
+              }
               className={cn(
                 "inline-flex items-center gap-1.5 justify-center rounded-md text-[11px] font-medium h-7 px-3 transition-colors",
                 "bg-primary text-primary-foreground hover:bg-primary/90",
-                "disabled:opacity-50 disabled:pointer-events-none"
+                "disabled:opacity-50 disabled:pointer-events-none",
               )}
             >
               {isGenerating ? (

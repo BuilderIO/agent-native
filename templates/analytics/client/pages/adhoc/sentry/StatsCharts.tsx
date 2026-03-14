@@ -186,7 +186,7 @@ export function ErrorsByLevelChart({ issues, isLoading }: ErrorsByLevelProps) {
     for (const issue of issues) {
       byLevel.set(
         issue.level,
-        (byLevel.get(issue.level) ?? 0) + parseInt(issue.count)
+        (byLevel.get(issue.level) ?? 0) + parseInt(issue.count),
       );
     }
     return Array.from(byLevel.entries()).map(([name, value]) => ({
@@ -254,9 +254,7 @@ export function ErrorsByLevelChart({ issues, isLoading }: ErrorsByLevelProps) {
 function ChartSkeleton({ title }: { title: string }) {
   return (
     <div className="rounded-lg border border-border bg-card p-4">
-      <h3 className="text-sm font-medium text-card-foreground mb-3">
-        {title}
-      </h3>
+      <h3 className="text-sm font-medium text-card-foreground mb-3">{title}</h3>
       <div className="h-[280px] flex flex-col gap-3 pt-4">
         <div className="h-4 w-24 rounded bg-muted animate-pulse" />
         <div className="flex-1 rounded bg-muted/50 animate-pulse" />
@@ -268,9 +266,7 @@ function ChartSkeleton({ title }: { title: string }) {
 function EmptyChart({ title }: { title: string }) {
   return (
     <div className="rounded-lg border border-border bg-card p-4">
-      <h3 className="text-sm font-medium text-card-foreground mb-3">
-        {title}
-      </h3>
+      <h3 className="text-sm font-medium text-card-foreground mb-3">{title}</h3>
       <div className="h-[280px] flex items-center justify-center">
         <div className="text-sm text-muted-foreground">No data available</div>
       </div>

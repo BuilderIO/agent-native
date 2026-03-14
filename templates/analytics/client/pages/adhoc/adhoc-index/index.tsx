@@ -14,10 +14,10 @@ export default function AdHocAnalysesIndex() {
     if (!dateStr) return "Date unknown";
     try {
       const d = new Date(dateStr);
-      return d.toLocaleDateString("en-US", { 
-        year: "numeric", 
-        month: "long", 
-        day: "numeric" 
+      return d.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
       });
     } catch {
       return dateStr;
@@ -29,7 +29,8 @@ export default function AdHocAnalysesIndex() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Ad Hoc Analyses</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          One-time deep dives, investigations, and diagnostic analyses to answer specific business questions
+          One-time deep dives, investigations, and diagnostic analyses to answer
+          specific business questions
         </p>
       </div>
 
@@ -40,11 +41,16 @@ export default function AdHocAnalysesIndex() {
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground space-y-2">
           <p>
-            Ad hoc analyses are <strong>targeted investigations</strong> built to answer specific business questions or diagnose issues. Unlike ongoing dashboards that you check regularly, these are created for a specific purpose and timeframe.
+            Ad hoc analyses are <strong>targeted investigations</strong> built
+            to answer specific business questions or diagnose issues. Unlike
+            ongoing dashboards that you check regularly, these are created for a
+            specific purpose and timeframe.
           </p>
           <div className="grid md:grid-cols-2 gap-3 mt-4">
             <div className="rounded-lg border border-border p-3 bg-background">
-              <div className="font-semibold text-foreground mb-1 text-xs">Dashboards (Regular)</div>
+              <div className="font-semibold text-foreground mb-1 text-xs">
+                Dashboards (Regular)
+              </div>
               <div className="text-xs space-y-1">
                 <div>• Monitor ongoing metrics</div>
                 <div>• Check weekly/daily</div>
@@ -53,7 +59,9 @@ export default function AdHocAnalysesIndex() {
               </div>
             </div>
             <div className="rounded-lg border border-primary/30 p-3 bg-primary/5">
-              <div className="font-semibold text-foreground mb-1 text-xs">Ad Hoc Analyses (These)</div>
+              <div className="font-semibold text-foreground mb-1 text-xs">
+                Ad Hoc Analyses (These)
+              </div>
               <div className="text-xs space-y-1">
                 <div>• Answer specific questions</div>
                 <div>• One-time investigation</div>
@@ -67,8 +75,10 @@ export default function AdHocAnalysesIndex() {
 
       {/* Available Analyses */}
       <div className="space-y-3">
-        <h2 className="text-lg font-semibold">Available Analyses ({sortedAnalyses.length})</h2>
-        
+        <h2 className="text-lg font-semibold">
+          Available Analyses ({sortedAnalyses.length})
+        </h2>
+
         <div className="grid gap-3">
           {sortedAnalyses.map((analysis) => (
             <Link key={analysis.id} to={`/adhoc/${analysis.id}`}>
@@ -114,15 +124,34 @@ export default function AdHocAnalysesIndex() {
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground space-y-3">
           <div>
-            <div className="font-medium text-foreground mb-1">1. Create the Analysis Dashboard</div>
-            <p className="text-xs">Build your analysis in <code className="text-xs bg-muted px-1 py-0.5 rounded">client/pages/adhoc/your-analysis-name/</code></p>
+            <div className="font-medium text-foreground mb-1">
+              1. Create the Analysis Dashboard
+            </div>
+            <p className="text-xs">
+              Build your analysis in{" "}
+              <code className="text-xs bg-muted px-1 py-0.5 rounded">
+                client/pages/adhoc/your-analysis-name/
+              </code>
+            </p>
           </div>
-          
+
           <div>
-            <div className="font-medium text-foreground mb-1">2. Register in Registry</div>
-            <p className="text-xs">Add to <code className="text-xs bg-muted px-1 py-0.5 rounded">adHocAnalyses</code> array in <code className="text-xs bg-muted px-1 py-0.5 rounded">client/pages/adhoc/registry.ts</code>:</p>
+            <div className="font-medium text-foreground mb-1">
+              2. Register in Registry
+            </div>
+            <p className="text-xs">
+              Add to{" "}
+              <code className="text-xs bg-muted px-1 py-0.5 rounded">
+                adHocAnalyses
+              </code>{" "}
+              array in{" "}
+              <code className="text-xs bg-muted px-1 py-0.5 rounded">
+                client/pages/adhoc/registry.ts
+              </code>
+              :
+            </p>
             <pre className="text-[10px] bg-muted p-2 rounded mt-1 overflow-x-auto">
-{`{
+              {`{
   id: "your-analysis-name",
   name: "Your Analysis Title",
   description: "What this analysis investigates",
@@ -133,15 +162,31 @@ export default function AdHocAnalysesIndex() {
           </div>
 
           <div>
-            <div className="font-medium text-foreground mb-1">3. Add Lazy Import</div>
-            <p className="text-xs">Add to <code className="text-xs bg-muted px-1 py-0.5 rounded">dashboardComponents</code> map in the same file</p>
+            <div className="font-medium text-foreground mb-1">
+              3. Add Lazy Import
+            </div>
+            <p className="text-xs">
+              Add to{" "}
+              <code className="text-xs bg-muted px-1 py-0.5 rounded">
+                dashboardComponents
+              </code>{" "}
+              map in the same file
+            </p>
           </div>
 
           <div className="mt-4 p-3 rounded-lg bg-muted/50 border border-border">
-            <div className="font-medium text-foreground mb-2 text-xs">Best Practices:</div>
+            <div className="font-medium text-foreground mb-2 text-xs">
+              Best Practices:
+            </div>
             <ul className="text-xs space-y-1">
-              <li>• Include the date range in your analysis (e.g., "Q1 2026 investigation")</li>
-              <li>• Add a clear description so others know what question it answers</li>
+              <li>
+                • Include the date range in your analysis (e.g., "Q1 2026
+                investigation")
+              </li>
+              <li>
+                • Add a clear description so others know what question it
+                answers
+              </li>
               <li>• Document assumptions and data sources used</li>
               <li>• Keep analyses focused on one specific question</li>
               <li>• Archive or remove analyses once the issue is resolved</li>

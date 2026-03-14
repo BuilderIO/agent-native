@@ -10,11 +10,11 @@ Use `<Sequence>` with a negative `from` value to trim the start of an animation.
 ## Trim the Beginning
 
 ```tsx
-const {fps} = useVideoConfig();
+const { fps } = useVideoConfig();
 
 <Sequence from={-0.5 * fps}>
   <MyAnimation />
-</Sequence>
+</Sequence>;
 ```
 
 ## Trim the End

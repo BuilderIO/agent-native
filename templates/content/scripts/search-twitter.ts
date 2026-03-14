@@ -4,7 +4,11 @@ const TWITTER_API_BASE = "https://api.twitterapi.io";
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 6000;
 
-async function fetchWithRetry(url: string, headers: Record<string, string>, retries = MAX_RETRIES): Promise<Response> {
+async function fetchWithRetry(
+  url: string,
+  headers: Record<string, string>,
+  retries = MAX_RETRIES,
+): Promise<Response> {
   for (let attempt = 1; attempt <= retries; attempt++) {
     const response = await fetch(url, { headers });
     if (response.status === 429 && attempt < retries) {
@@ -47,7 +51,8 @@ Options:
 
   if (!response.ok) {
     const text = await response.text();
-    if (response.status === 429) fail("Rate limited by Twitter API. Wait a few seconds and try again.");
+    if (response.status === 429)
+      fail("Rate limited by Twitter API. Wait a few seconds and try again.");
     fail(`Twitter API error (${response.status}): ${text}`);
   }
 
@@ -64,23 +69,38 @@ Options:
     quoteCount: t.quoteCount || 0,
     viewCount: t.viewCount || 0,
     bookmarkCount: t.bookmarkCount || 0,
-    media: t.extendedEntities?.media?.map((m: any) => ({ type: m.type, url: m.media_url_https || m.url }))
-      || t.media?.map((m: any) => ({ type: m.type || "photo", url: m.media_url_https || m.url }))
-      || undefined,
+    media:
+      t.extendedEntities?.media?.map((m: any) => ({
+        type: m.type,
+        url: m.media_url_https || m.url,
+      })) ||
+      t.media?.map((m: any) => ({
+        type: m.type || "photo",
+        url: m.media_url_https || m.url,
+      })) ||
+      undefined,
     author: {
       userName: t.author?.userName,
       name: t.author?.name,
       followers: t.author?.followers,
       isBlueVerified: t.author?.isBlueVerified,
     },
-    article: t.article ? { title: t.article.title || "", previewText: t.article.preview_text || t.article.previewText || "" } : undefined,
+    article: t.article
+      ? {
+          title: t.article.title || "",
+          previewText: t.article.preview_text || t.article.previewText || "",
+        }
+      : undefined,
   }));
 
   // Apply filters
   let filtered = tweets;
-  if (filter === "articles") filtered = tweets.filter((t: any) => t.article != null);
-  else if (filter === "links") filtered = tweets.filter((t: any) => /https?:\/\/t\.co\/\w+/.test(t.text));
-  else if (filter === "media") filtered = tweets.filter((t: any) => t.media && t.media.length > 0);
+  if (filter === "articles")
+    filtered = tweets.filter((t: any) => t.article != null);
+  else if (filter === "links")
+    filtered = tweets.filter((t: any) => /https?:\/\/t\.co\/\w+/.test(t.text));
+  else if (filter === "media")
+    filtered = tweets.filter((t: any) => t.media && t.media.length > 0);
 
   // Sort by engagement for Top
   if (!queryType || queryType === "Top") {
@@ -92,7 +112,8 @@ Options:
   }
 
   const nextCursor = data.next_cursor || data.nextCursor || null;
-  const hasNextPage = data.has_next_page ?? data.hasNextPage ?? !!data.next_cursor;
+  const hasNextPage =
+    data.has_next_page ?? data.hasNextPage ?? !!data.next_cursor;
 
   let output = `Found ${filtered.length} tweets for "${query}"`;
   if (filter) output += ` (filter: ${filter})`;

@@ -9,13 +9,20 @@ interface AgentChatActivityChartProps {
   dateEnd: string;
 }
 
-export function AgentChatActivityChart({ companyName, dateStart, dateEnd }: AgentChatActivityChartProps) {
+export function AgentChatActivityChart({
+  companyName,
+  dateStart,
+  dateEnd,
+}: AgentChatActivityChartProps) {
   const sql = useMemo(
     () => agentChatMessagesByDayQuery(companyName, dateStart, dateEnd),
-    [companyName, dateStart, dateEnd]
+    [companyName, dateStart, dateEnd],
   );
 
-  const { data, isLoading } = useMetricsQuery(["ch-agent-chat-daily", companyName, dateStart, dateEnd], sql);
+  const { data, isLoading } = useMetricsQuery(
+    ["ch-agent-chat-daily", companyName, dateStart, dateEnd],
+    sql,
+  );
   const rows = data?.rows ?? [];
 
   return (

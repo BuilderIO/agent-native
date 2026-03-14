@@ -33,24 +33,24 @@ for (const user of DEVREL_USERS) {
   const tweets = (await fetchAllTweetsForUser(
     apiKey,
     user.handle,
-    pages
+    pages,
   )) as any[];
   const recent = tweets.filter(
     (t) =>
       t.createdAt &&
       !t.text?.startsWith("RT @") &&
-      new Date(t.createdAt) >= cutoff
+      new Date(t.createdAt) >= cutoff,
   );
   const totalLikes = recent.reduce(
     (s: number, t: any) => s + (t.likeCount ?? 0),
-    0
+    0,
   );
   const totalViews = recent.reduce(
     (s: number, t: any) => s + (t.viewCount ?? 0),
-    0
+    0,
   );
   const sorted = recent.sort(
-    (a: any, b: any) => (b.likeCount ?? 0) - (a.likeCount ?? 0)
+    (a: any, b: any) => (b.likeCount ?? 0) - (a.likeCount ?? 0),
   );
   results.push({
     name: user.name,

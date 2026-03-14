@@ -12,7 +12,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Trophy, Medal, Award, GraduationCap, Briefcase, User, TrendingUp } from "lucide-react";
+import {
+  Trophy,
+  Medal,
+  Award,
+  GraduationCap,
+  Briefcase,
+  User,
+  TrendingUp,
+} from "lucide-react";
 import { getIdToken } from "@/lib/auth";
 
 interface LeaderboardEntry {
@@ -26,13 +34,16 @@ interface LeaderboardEntry {
   lastActivity: Date;
 }
 
-async function fetchLeaderboard(period: string, track: string): Promise<LeaderboardEntry[]> {
+async function fetchLeaderboard(
+  period: string,
+  track: string,
+): Promise<LeaderboardEntry[]> {
   const token = await getIdToken();
   const response = await fetch(
     `/api/gamification/leaderboard?period=${period}&track=${track}`,
     {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
-    }
+    },
   );
 
   if (!response.ok) {
@@ -62,17 +73,20 @@ function PersonaBadge({ persona }: { persona: string }) {
     analytics: {
       icon: GraduationCap,
       label: "Analytics",
-      color: "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30",
+      color:
+        "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30",
     },
     dept_head: {
       icon: Briefcase,
       label: "Dept Head",
-      color: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30",
+      color:
+        "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30",
     },
     regular: {
       icon: User,
       label: "Validator",
-      color: "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30",
+      color:
+        "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30",
     },
   };
 
@@ -96,11 +110,15 @@ function PodiumCard({ rank, user }: { rank: number; user: LeaderboardEntry }) {
   const { icon: Icon, color, bg } = icons[rank - 1];
 
   return (
-    <Card className={`${bg} border-2 ${rank === 1 ? "border-yellow-500/50" : "border-border"}`}>
+    <Card
+      className={`${bg} border-2 ${rank === 1 ? "border-yellow-500/50" : "border-border"}`}
+    >
       <CardContent className="pt-6 space-y-4">
         <div className="flex items-center justify-between">
           <Icon className={`h-8 w-8 ${color}`} />
-          <span className="text-2xl font-bold text-muted-foreground">#{rank}</span>
+          <span className="text-2xl font-bold text-muted-foreground">
+            #{rank}
+          </span>
         </div>
 
         <div className="space-y-2">
@@ -119,7 +137,9 @@ function PodiumCard({ rank, user }: { rank: number; user: LeaderboardEntry }) {
           <div className="pt-2 space-y-1">
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">Points</span>
-              <span className="text-lg font-bold text-primary">{user.totalPoints}</span>
+              <span className="text-lg font-bold text-primary">
+                {user.totalPoints}
+              </span>
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Contributions</span>
@@ -138,7 +158,9 @@ function PodiumCard({ rank, user }: { rank: number; user: LeaderboardEntry }) {
 
 export function LeaderboardView() {
   const [period, setPeriod] = useState<"week" | "month" | "alltime">("week");
-  const [track, setTrack] = useState<"all" | "contributors" | "validators">("all");
+  const [track, setTrack] = useState<"all" | "contributors" | "validators">(
+    "all",
+  );
 
   const { data: leaderboard = [], isLoading } = useQuery({
     queryKey: ["leaderboard", period, track],
@@ -166,8 +188,12 @@ export function LeaderboardView() {
                 <p className="text-sm text-muted-foreground">Your Stats</p>
                 <div className="flex items-center gap-4">
                   <div>
-                    <p className="text-3xl font-bold text-primary">{myStats.totalPoints}</p>
-                    <p className="text-xs text-muted-foreground">Total Points</p>
+                    <p className="text-3xl font-bold text-primary">
+                      {myStats.totalPoints}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Total Points
+                    </p>
                   </div>
                   {myStats.rank && (
                     <div className="flex items-center gap-2 text-muted-foreground">
@@ -179,11 +205,15 @@ export function LeaderboardView() {
               </div>
               <div className="grid grid-cols-2 gap-4 text-right">
                 <div>
-                  <p className="text-2xl font-semibold">{myStats.contributionCount}</p>
+                  <p className="text-2xl font-semibold">
+                    {myStats.contributionCount}
+                  </p>
                   <p className="text-xs text-muted-foreground">Contributions</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-semibold">{myStats.validationCount}</p>
+                  <p className="text-2xl font-semibold">
+                    {myStats.validationCount}
+                  </p>
                   <p className="text-xs text-muted-foreground">Validations</p>
                 </div>
               </div>
@@ -255,7 +285,9 @@ export function LeaderboardView() {
                       <TableHead>Persona</TableHead>
                       <TableHead>Department</TableHead>
                       <TableHead className="text-right">Points</TableHead>
-                      <TableHead className="text-right">Contributions</TableHead>
+                      <TableHead className="text-right">
+                        Contributions
+                      </TableHead>
                       <TableHead className="text-right">Validations</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -272,7 +304,9 @@ export function LeaderboardView() {
                                 {user.email.slice(0, 2).toUpperCase()}
                               </AvatarFallback>
                             </Avatar>
-                            <span className="font-medium text-sm">{user.email}</span>
+                            <span className="font-medium text-sm">
+                              {user.email}
+                            </span>
                           </div>
                         </TableCell>
                         <TableCell>

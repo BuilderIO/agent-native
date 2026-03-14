@@ -22,21 +22,21 @@ description: >
 
 ### Exported Functions
 
-| Function | Description |
-|---|---|
-| `listProjects()` | List all projects in the org |
+| Function                                         | Description                              |
+| ------------------------------------------------ | ---------------------------------------- |
+| `listProjects()`                                 | List all projects in the org             |
 | `listIssues(projectSlug?, query?, statsPeriod?)` | List issues (project-scoped or org-wide) |
-| `getIssueEvents(issueId)` | Events for a specific issue |
-| `getOrganizationStats(statsPeriod?, category?)` | Org-level error stats over time |
+| `getIssueEvents(issueId)`                        | Events for a specific issue              |
+| `getOrganizationStats(statsPeriod?, category?)`  | Org-level error stats over time          |
 
 ### API Routes
 
-| Route | Description |
-|---|---|
-| `GET /api/sentry/projects` | List projects |
-| `GET /api/sentry/issues` | List issues |
+| Route                          | Description         |
+| ------------------------------ | ------------------- |
+| `GET /api/sentry/projects`     | List projects       |
+| `GET /api/sentry/issues`       | List issues         |
 | `GET /api/sentry/issue-events` | Events for an issue |
-| `GET /api/sentry/stats` | Org error stats |
+| `GET /api/sentry/stats`        | Org error stats     |
 
 ### Dashboard
 

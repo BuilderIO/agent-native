@@ -40,7 +40,7 @@ export interface CursorTrackOptions {
  * Demonstrates hover and click interactions clearly
  */
 export function createComponentCursorTrack(
-  options: CursorTrackOptions
+  options: CursorTrackOptions,
 ): AnimationTrack {
   const {
     startPosition = { x: 200, y: 200 }, // Start from top-left visible area
@@ -124,7 +124,7 @@ export function createComponentCursorTrack(
  */
 export function createCenteredCursorTrack(
   width: number,
-  height: number
+  height: number,
 ): AnimationTrack {
   return createComponentCursorTrack({
     hoverPosition: {
@@ -141,7 +141,7 @@ export function createPositionedCursorTrack(
   x: number,
   y: number,
   width: number,
-  height: number
+  height: number,
 ): AnimationTrack {
   return createComponentCursorTrack({
     hoverPosition: {

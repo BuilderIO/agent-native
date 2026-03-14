@@ -27,6 +27,7 @@ description: >
 Appends a structured entry to `docs/learnings.md`.
 
 **Structured entry** (preferred for individual learnings):
+
 ```json
 {
   "category": "User Preferences",
@@ -36,6 +37,7 @@ Appends a structured entry to `docs/learnings.md`.
 ```
 
 **Raw markdown** (for complex multi-line entries):
+
 ```json
 {
   "rawMarkdown": "### Customer Data\n\n**Acme Corp** org ID: `abc123`. Primary contact: jane@acme.com."
@@ -64,14 +66,14 @@ Use `Other` if none fit — the learning will be appended at the end of the file
 
 When reviewing a thread, focus on:
 
-| Signal | Example |
-|---|---|
-| **User corrections** | "No, that metric should use `signup` not `sign_up`" |
-| **Data source mappings** | "Macy's org IDs are X, Y, Z" |
-| **Query patterns** | "Always join on `dim_hs_contacts` for customer lookups" |
-| **Preferences** | "I prefer stacked bar charts for per-user breakdowns" |
-| **Gotchas** | "The `data` column is JSON — use `JSON_VALUE()` to extract" |
-| **Workflow insights** | "Check Grafana before looking at code for incidents" |
+| Signal                   | Example                                                     |
+| ------------------------ | ----------------------------------------------------------- |
+| **User corrections**     | "No, that metric should use `signup` not `sign_up`"         |
+| **Data source mappings** | "Macy's org IDs are X, Y, Z"                                |
+| **Query patterns**       | "Always join on `dim_hs_contacts` for customer lookups"     |
+| **Preferences**          | "I prefer stacked bar charts for per-user breakdowns"       |
+| **Gotchas**              | "The `data` column is JSON — use `JSON_VALUE()` to extract" |
+| **Workflow insights**    | "Check Grafana before looking at code for incidents"        |
 
 **Skip** obvious or trivial observations. Each learning should be actionable — what to do, what not to do, and why.
 
@@ -87,6 +89,7 @@ User types `/learn`. Agent responds:
    ```
 3. Summarize what was saved:
    > Saved 3 learnings to `docs/learnings.md`:
+   >
    > - **Customer Data**: Acme Corp org ID is `abc123`
    > - **User Preferences**: Use dark theme for all exported charts
    > - **Agent Behavior Rules**: Always check Sentry before investigating code for error spikes

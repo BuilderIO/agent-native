@@ -24,7 +24,8 @@ function createMockSql(state: Map<string, any> = new Map()) {
 
     if (query.startsWith("INSERT")) {
       // set() - upsert
-      const [id, path, content, app, owner_id, last_updated, created_at] = values;
+      const [id, path, content, app, owner_id, last_updated, created_at] =
+        values;
       const existing = state.get(id);
       state.set(id, {
         id,
@@ -131,7 +132,12 @@ describe("NeonFileSyncAdapter", () => {
 
   describe("delete", () => {
     it("removes a row", async () => {
-      state.set("doc1", { id: "doc1", path: "a.json", app: "myapp", owner_id: "u1" });
+      state.set("doc1", {
+        id: "doc1",
+        path: "a.json",
+        app: "myapp",
+        owner_id: "u1",
+      });
 
       await adapter.delete("doc1");
       expect(state.has("doc1")).toBe(false);

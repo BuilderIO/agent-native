@@ -1,14 +1,18 @@
 import { type RequestHandler } from "express";
 import { runQuery } from "../lib/bigquery";
-import { getDataDictionary, createDataDictionaryEntry, syncDataDictionary } from "../lib/notion";
+import {
+  getDataDictionary,
+  createDataDictionaryEntry,
+  syncDataDictionary,
+} from "../lib/notion";
 import { sendDirectMessage } from "../lib/slack";
 
 /**
  * GET /api/data-dictionary/missing-metrics
- * 
+ *
  * Detects metrics that are viewed frequently but missing from the Data Dictionary.
  * Uses the last 30 days of "metric viewed" events from BigQuery.
- * 
+ *
  * Query params:
  * - limit: max results to return (default: 20)
  * - days: lookback period (default: 30)
@@ -21,7 +25,7 @@ export const handleMissingMetrics: RequestHandler = async (req, res) => {
     // Get all metrics from the Data Dictionary
     const dictionaryEntries = await getDataDictionary();
     const definedMetrics = new Set(
-      dictionaryEntries.map((entry) => entry.Metric.toLowerCase().trim())
+      dictionaryEntries.map((entry) => entry.Metric.toLowerCase().trim()),
     );
 
     // Query metric_viewed events from BigQuery
@@ -58,7 +62,9 @@ export const handleMissingMetrics: RequestHandler = async (req, res) => {
     // Filter out metrics that are already defined
     const missingMetrics = result.rows
       .filter((row) => {
-        const metricName = String(row.metric_name || "").toLowerCase().trim();
+        const metricName = String(row.metric_name || "")
+          .toLowerCase()
+          .trim();
         return metricName && !definedMetrics.has(metricName);
       })
       .slice(0, limit)
@@ -99,7 +105,9 @@ export const handleApproveSuggestion: RequestHandler = async (req, res) => {
     const { metricName, definition, table, department, owner } = req.body;
 
     if (!metricName || !definition || !table) {
-      res.status(400).json({ error: "Missing required fields: metricName, definition, table" });
+      res.status(400).json({
+        error: "Missing required fields: metricName, definition, table",
+      });
       return;
     }
 
@@ -117,7 +125,12 @@ export const handleApproveSuggestion: RequestHandler = async (req, res) => {
     // Trigger data dictionary sync (fire and forget)
     syncDataDictionary()
       .then(() => console.log("[approval] Data dictionary synced"))
-      .catch((err) => console.error("[approval] Failed to sync data dictionary:", err.message));
+      .catch((err) =>
+        console.error(
+          "[approval] Failed to sync data dictionary:",
+          err.message,
+        ),
+      );
 
     // Send Slack notification to submitter (fire and forget)
     // Note: submitter email needs to be tracked in the validation submission
@@ -126,7 +139,9 @@ export const handleApproveSuggestion: RequestHandler = async (req, res) => {
       // TODO: Get submitter email from validation record
       // const submitterEmail = ... fetch from validations table
       // For now, just log that we would send a notification
-      console.log(`[approval] Would send Slack notification for "${metricName}" approval`);
+      console.log(
+        `[approval] Would send Slack notification for "${metricName}" approval`,
+      );
 
       // Example of how to send:
       // sendDirectMessage("primary", submitterEmail,
@@ -179,7 +194,9 @@ export const handleUpdateEntry: RequestHandler = async (req, res) => {
     // Trigger data dictionary sync (fire and forget)
     syncDataDictionary()
       .then(() => console.log("[update] Data dictionary synced"))
-      .catch((err) => console.error("[update] Failed to sync data dictionary:", err.message));
+      .catch((err) =>
+        console.error("[update] Failed to sync data dictionary:", err.message),
+      );
 
     res.json({ success: true });
   } catch (err: any) {
@@ -212,9 +229,19 @@ export const handleCanEdit: RequestHandler = async (req, res) => {
 
     // Allow if user is in reviewer list OR is an admin (builder.io domain or specific admin list)
     const isAdmin = userInfo.email.toLowerCase().endsWith("@builder.io");
-    const canEdit = allowedReviewers.includes(userInfo.email.toLowerCase()) || isAdmin;
+    const canEdit =
+      allowedReviewers.includes(userInfo.email.toLowerCase()) || isAdmin;
 
-    console.log("[can-edit] User:", userInfo.email, "| Allowed reviewers:", allowedReviewers, "| Is admin:", isAdmin, "| Can edit:", canEdit);
+    console.log(
+      "[can-edit] User:",
+      userInfo.email,
+      "| Allowed reviewers:",
+      allowedReviewers,
+      "| Is admin:",
+      isAdmin,
+      "| Can edit:",
+      canEdit,
+    );
 
     res.json({ canEdit, email: userInfo.email });
   } catch (err: any) {
@@ -226,6 +253,8 @@ export const handleCanEdit: RequestHandler = async (req, res) => {
 // --- Helper Functions ---
 
 // Auth removed — stubs always return a local user
-async function getUserInfoFromToken(_req: any): Promise<{ uid: string; email: string } | null> {
+async function getUserInfoFromToken(
+  _req: any,
+): Promise<{ uid: string; email: string } | null> {
   return { uid: "local", email: "local@localhost" };
 }

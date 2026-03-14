@@ -2,14 +2,14 @@
 
 /**
  * Composition Validation Agent
- * 
+ *
  * Scans Remotion compositions and validates:
  * - Animation initialization
  * - AnimatedElement usage
  * - Style application
  * - Type safety
  * - Performance issues
- * 
+ *
  * Usage:
  *   npm run validate:compositions
  *   npm run validate:compositions --fix
@@ -54,12 +54,12 @@ class CompositionValidator {
     console.log(`\n🔍 Validating compositions in ${compositionsDir}\n`);
 
     const files = this.findTsxFiles(compositionsDir);
-    
-    files.forEach(file => {
+
+    files.forEach((file) => {
       this.validateFile(file);
     });
 
-    const passed = !this.issues.some(i => i.severity === "error");
+    const passed = !this.issues.some((i) => i.severity === "error");
 
     return {
       passed,
@@ -77,7 +77,7 @@ class CompositionValidator {
     const scan = (currentDir: string) => {
       const entries = fs.readdirSync(currentDir, { withFileTypes: true });
 
-      entries.forEach(entry => {
+      entries.forEach((entry) => {
         const fullPath = path.join(currentDir, entry.name);
 
         if (entry.isDirectory() && entry.name !== "node_modules") {
@@ -103,23 +103,27 @@ class CompositionValidator {
       filePath,
       content,
       ts.ScriptTarget.Latest,
-      true
+      true,
     );
 
     // Check for composition exports
-    const hasComposition = this.checkForComposition(sourceFile, content, filePath);
+    const hasComposition = this.checkForComposition(
+      sourceFile,
+      content,
+      filePath,
+    );
     if (hasComposition) {
       this.stats.componentsFound++;
-      
+
       // Validate animation initialization
       this.checkAnimationInitialization(sourceFile, content, filePath);
-      
+
       // Check AnimatedElement usage
       this.checkAnimatedElementUsage(sourceFile, content, filePath);
-      
+
       // Check for hardcoded styles
       this.checkHardcodedStyles(sourceFile, content, filePath);
-      
+
       // Check for missing props
       this.checkMissingProps(sourceFile, content, filePath);
 
@@ -131,7 +135,11 @@ class CompositionValidator {
   /**
    * Check if file exports a composition component
    */
-  private checkForComposition(sourceFile: ts.SourceFile, content: string, filePath: string): boolean {
+  private checkForComposition(
+    sourceFile: ts.SourceFile,
+    content: string,
+    filePath: string,
+  ): boolean {
     // Look for export const ComponentName: React.FC
     const exportPattern = /export\s+const\s+(\w+):\s*React\.FC/;
     return exportPattern.test(content);
@@ -140,7 +148,11 @@ class CompositionValidator {
   /**
    * Check if initializeDefaultAnimations is called at module level
    */
-  private checkAnimationInitialization(sourceFile: ts.SourceFile, content: string, filePath: string): void {
+  private checkAnimationInitialization(
+    sourceFile: ts.SourceFile,
+    content: string,
+    filePath: string,
+  ): void {
     const initPattern = /initializeDefaultAnimations\s*\(/;
     const hasInit = initPattern.test(content);
 
@@ -158,18 +170,22 @@ class CompositionValidator {
       const lines = content.split("\n");
       let inFunction = false;
       let bracketCount = 0;
-      
+
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        
+
         // Track function/component scope
-        if (/function\s+\w+|const\s+\w+\s*=\s*\(.*\)\s*=>|export\s+const\s+\w+.*=/.test(line)) {
+        if (
+          /function\s+\w+|const\s+\w+\s*=\s*\(.*\)\s*=>|export\s+const\s+\w+.*=/.test(
+            line,
+          )
+        ) {
           inFunction = true;
         }
-        
+
         bracketCount += (line.match(/{/g) || []).length;
         bracketCount -= (line.match(/}/g) || []).length;
-        
+
         if (bracketCount === 0) {
           inFunction = false;
         }
@@ -180,7 +196,8 @@ class CompositionValidator {
             file: filePath,
             line: i + 1,
             severity: "error",
-            message: "initializeDefaultAnimations() must be called at module level, not inside a function/useEffect",
+            message:
+              "initializeDefaultAnimations() must be called at module level, not inside a function/useEffect",
             fix: "Move initializeDefaultAnimations() to top of file (after imports)",
           });
         }
@@ -191,10 +208,14 @@ class CompositionValidator {
   /**
    * Check for proper AnimatedElement usage
    */
-  private checkAnimatedElementUsage(sourceFile: ts.SourceFile, content: string, filePath: string): void {
+  private checkAnimatedElementUsage(
+    sourceFile: ts.SourceFile,
+    content: string,
+    filePath: string,
+  ): void {
     const animatedElementPattern = /<AnimatedElement/g;
     const matches = content.match(animatedElementPattern);
-    
+
     if (matches) {
       this.stats.animatedElementsFound += matches.length;
 
@@ -216,7 +237,7 @@ class CompositionValidator {
         const endIdx = content.indexOf(">", startIdx);
         const elementJsx = content.substring(startIdx, endIdx);
 
-        requiredProps.forEach(prop => {
+        requiredProps.forEach((prop) => {
           if (!elementJsx.includes(`${prop}=`)) {
             this.issues.push({
               file: filePath,
@@ -228,11 +249,15 @@ class CompositionValidator {
         });
 
         // Check for children render function
-        if (!content.includes("(animatedStyles)") && !content.includes("{animatedStyles}")) {
+        if (
+          !content.includes("(animatedStyles)") &&
+          !content.includes("{animatedStyles}")
+        ) {
           this.issues.push({
             file: filePath,
             severity: "warning",
-            message: "AnimatedElement children should receive animatedStyles parameter",
+            message:
+              "AnimatedElement children should receive animatedStyles parameter",
             fix: "{(animatedStyles) => <YourComponent animatedStyles={animatedStyles} />}",
           });
         }
@@ -243,7 +268,11 @@ class CompositionValidator {
   /**
    * Check for hardcoded styles that should use animatedStyles
    */
-  private checkHardcodedStyles(sourceFile: ts.SourceFile, content: string, filePath: string): void {
+  private checkHardcodedStyles(
+    sourceFile: ts.SourceFile,
+    content: string,
+    filePath: string,
+  ): void {
     // Check for hardcoded transform/filter/opacity in components that receive animatedStyles
     const lines = content.split("\n");
     let receivesAnimatedStyles = false;
@@ -256,29 +285,40 @@ class CompositionValidator {
 
       if (receivesAnimatedStyles) {
         // Check for hardcoded transform
-        if (/transform:\s*['"`]/.test(line) && !/animatedStyles\.transform/.test(line)) {
+        if (
+          /transform:\s*['"`]/.test(line) &&
+          !/animatedStyles\.transform/.test(line)
+        ) {
           this.issues.push({
             file: filePath,
             line: index + 1,
             severity: "warning",
-            message: "Hardcoded 'transform' should use animatedStyles.transform",
+            message:
+              "Hardcoded 'transform' should use animatedStyles.transform",
             fix: "transform: animatedStyles.transform",
           });
         }
 
         // Check for hardcoded background
-        if (/background(Color)?:\s*['"`]#/.test(line) && !/animatedStyles\.backgroundColor/.test(line)) {
+        if (
+          /background(Color)?:\s*['"`]#/.test(line) &&
+          !/animatedStyles\.backgroundColor/.test(line)
+        ) {
           this.issues.push({
             file: filePath,
             line: index + 1,
             severity: "warning",
-            message: "Hardcoded background should use animatedStyles.backgroundColor",
+            message:
+              "Hardcoded background should use animatedStyles.backgroundColor",
             fix: "backgroundColor: animatedStyles.backgroundColor",
           });
         }
 
         // Check for hardcoded opacity
-        if (/opacity:\s*[0-9.]+/.test(line) && !/animatedStyles\.opacity/.test(line)) {
+        if (
+          /opacity:\s*[0-9.]+/.test(line) &&
+          !/animatedStyles\.opacity/.test(line)
+        ) {
           this.issues.push({
             file: filePath,
             line: index + 1,
@@ -294,7 +334,11 @@ class CompositionValidator {
   /**
    * Check for missing required props in element components
    */
-  private checkMissingProps(sourceFile: ts.SourceFile, content: string, filePath: string): void {
+  private checkMissingProps(
+    sourceFile: ts.SourceFile,
+    content: string,
+    filePath: string,
+  ): void {
     // Check if component accepts animatedStyles but doesn't apply all properties
     if (/animatedStyles:\s*AnimatedStyles/.test(content)) {
       const styleProperties = [
@@ -308,7 +352,7 @@ class CompositionValidator {
         "boxShadow",
       ];
 
-      styleProperties.forEach(prop => {
+      styleProperties.forEach((prop) => {
         if (!content.includes(`animatedStyles.${prop}`)) {
           this.issues.push({
             file: filePath,
@@ -325,7 +369,11 @@ class CompositionValidator {
    * 🎯 CRITICAL: Check for hardcoded cursor animations
    * Cursor animations must be defined as tracks, not in component logic
    */
-  private checkHardcodedCursor(sourceFile: ts.SourceFile, content: string, filePath: string): void {
+  private checkHardcodedCursor(
+    sourceFile: ts.SourceFile,
+    content: string,
+    filePath: string,
+  ): void {
     // Skip non-composition files (element components)
     if (!/<CameraHost|AbsoluteFill/.test(content)) {
       return;
@@ -340,14 +388,16 @@ class CompositionValidator {
           this.issues.push({
             file: filePath,
             severity: "error",
-            message: "🚫 CRITICAL: Cursor animation hardcoded with interpolate(). Define cursor as track in registry instead.",
+            message:
+              "🚫 CRITICAL: Cursor animation hardcoded with interpolate(). Define cursor as track in registry instead.",
             fix: "1. Remove manual <Cursor> component\n2. Add cursor track to registry with x/y keyframes\n3. Use <CameraHost tracks={tracks}> (it renders cursor automatically)\n4. See InputBox.tsx for correct pattern",
           });
         } else if (/x=\{.*\}|y=\{.*\}/.test(match[0])) {
           this.issues.push({
             file: filePath,
             severity: "error",
-            message: "🚫 CRITICAL: Manual Cursor component found. Use cursor track + CameraHost instead.",
+            message:
+              "🚫 CRITICAL: Manual Cursor component found. Use cursor track + CameraHost instead.",
             fix: "Remove <Cursor> and let CameraHost render it from track. See docs/ANIMATED_COMPONENTS_GUIDE.md#cursor-animation-tracks",
           });
         }
@@ -359,7 +409,8 @@ class CompositionValidator {
       this.issues.push({
         file: filePath,
         severity: "warning",
-        message: "renderCursor={false} found - ensure cursor track exists and is intentionally hidden",
+        message:
+          "renderCursor={false} found - ensure cursor track exists and is intentionally hidden",
         fix: "Remove renderCursor={false} to show cursor from track, or document why it's hidden",
       });
     }
@@ -369,7 +420,8 @@ class CompositionValidator {
       this.issues.push({
         file: filePath,
         severity: "warning",
-        message: "Old cursor pattern detected - useCursorHistory should only be for hover detection, not manual cursor rendering",
+        message:
+          "Old cursor pattern detected - useCursorHistory should only be for hover detection, not manual cursor rendering",
         fix: "Let CameraHost render cursor from track. Use useCursorHistory only for AnimatedElement hover detection.",
       });
     }
@@ -386,7 +438,9 @@ class CompositionValidator {
     console.log(`Files scanned:         ${result.stats.filesScanned}`);
     console.log(`Compositions found:    ${result.stats.componentsFound}`);
     console.log(`AnimatedElements:      ${result.stats.animatedElementsFound}`);
-    console.log(`Animations initialized: ${result.stats.animationsInitialized}\n`);
+    console.log(
+      `Animations initialized: ${result.stats.animationsInitialized}\n`,
+    );
 
     if (result.issues.length === 0) {
       console.log(`✅ All checks passed!\n`);
@@ -394,27 +448,27 @@ class CompositionValidator {
     }
 
     // Group issues by severity
-    const errors = result.issues.filter(i => i.severity === "error");
-    const warnings = result.issues.filter(i => i.severity === "warning");
-    const info = result.issues.filter(i => i.severity === "info");
+    const errors = result.issues.filter((i) => i.severity === "error");
+    const warnings = result.issues.filter((i) => i.severity === "warning");
+    const info = result.issues.filter((i) => i.severity === "info");
 
     if (errors.length > 0) {
       console.log(`❌ Errors (${errors.length}):\n`);
-      errors.forEach(issue => this.printIssue(issue));
+      errors.forEach((issue) => this.printIssue(issue));
     }
 
     if (warnings.length > 0) {
       console.log(`\n⚠️  Warnings (${warnings.length}):\n`);
-      warnings.forEach(issue => this.printIssue(issue));
+      warnings.forEach((issue) => this.printIssue(issue));
     }
 
     if (info.length > 0) {
       console.log(`\nℹ️  Info (${info.length}):\n`);
-      info.forEach(issue => this.printIssue(issue));
+      info.forEach((issue) => this.printIssue(issue));
     }
 
     console.log(`\n${"=".repeat(60)}\n`);
-    
+
     if (result.passed) {
       console.log(`✅ Validation passed (with warnings)\n`);
     } else {
@@ -438,7 +492,10 @@ class CompositionValidator {
 
 // Run validator
 const validator = new CompositionValidator();
-const compositionsDir = path.join(process.cwd(), "client/remotion/compositions");
+const compositionsDir = path.join(
+  process.cwd(),
+  "client/remotion/compositions",
+);
 const result = validator.validate(compositionsDir);
 validator.printResults(result);
 

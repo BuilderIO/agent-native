@@ -13,7 +13,11 @@ function getApiKey(): string {
   return key;
 }
 
-async function apiPost<T>(path: string, body: Record<string, unknown>, cacheKey?: string): Promise<T> {
+async function apiPost<T>(
+  path: string,
+  body: Record<string, unknown>,
+  cacheKey?: string,
+): Promise<T> {
   const key = cacheKey ?? `POST:${path}:${JSON.stringify(body)}`;
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
@@ -84,26 +88,29 @@ export async function searchPeople(params: {
     page: params.page ?? 1,
   };
   if (params.q_person_name) body.q_person_name = params.q_person_name;
-  if (params.q_organization_name) body.q_organization_name = params.q_organization_name;
+  if (params.q_organization_name)
+    body.q_organization_name = params.q_organization_name;
   if (params.person_titles) body.person_titles = params.person_titles;
   if (params.person_locations) body.person_locations = params.person_locations;
 
-  const data = await apiPost<{ people?: ApolloPerson[]; pagination?: { total_entries?: number } }>(
-    "/v1/mixed_people/search",
-    body
-  );
+  const data = await apiPost<{
+    people?: ApolloPerson[];
+    pagination?: { total_entries?: number };
+  }>("/v1/mixed_people/search", body);
   return {
     people: data.people ?? [],
     total: data.pagination?.total_entries ?? 0,
   };
 }
 
-export async function enrichPerson(email: string): Promise<ApolloPerson | null> {
+export async function enrichPerson(
+  email: string,
+): Promise<ApolloPerson | null> {
   try {
     const data = await apiPost<{ person?: ApolloPerson }>(
       "/v1/people/match",
       { email },
-      `enrich:person:${email}`
+      `enrich:person:${email}`,
     );
     return data.person ?? null;
   } catch {
@@ -111,32 +118,37 @@ export async function enrichPerson(email: string): Promise<ApolloPerson | null> 
   }
 }
 
-export async function searchOrganizations(query: string, params?: {
-  per_page?: number;
-  page?: number;
-}): Promise<{ organizations: ApolloOrganization[]; total: number }> {
+export async function searchOrganizations(
+  query: string,
+  params?: {
+    per_page?: number;
+    page?: number;
+  },
+): Promise<{ organizations: ApolloOrganization[]; total: number }> {
   const body: Record<string, unknown> = {
     q_organization_name: query,
     per_page: params?.per_page ?? 25,
     page: params?.page ?? 1,
   };
 
-  const data = await apiPost<{ organizations?: ApolloOrganization[]; pagination?: { total_entries?: number } }>(
-    "/v1/mixed_companies/search",
-    body
-  );
+  const data = await apiPost<{
+    organizations?: ApolloOrganization[];
+    pagination?: { total_entries?: number };
+  }>("/v1/mixed_companies/search", body);
   return {
     organizations: data.organizations ?? [],
     total: data.pagination?.total_entries ?? 0,
   };
 }
 
-export async function enrichOrganization(domain: string): Promise<ApolloOrganization | null> {
+export async function enrichOrganization(
+  domain: string,
+): Promise<ApolloOrganization | null> {
   try {
     const data = await apiPost<{ organization?: ApolloOrganization }>(
       "/v1/organizations/enrich",
       { domain },
-      `enrich:org:${domain}`
+      `enrich:org:${domain}`,
     );
     return data.organization ?? null;
   } catch {

@@ -46,7 +46,11 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
   return data as T;
 }
 
-async function apiPost<T>(path: string, body: unknown, cacheKey?: string): Promise<T> {
+async function apiPost<T>(
+  path: string,
+  body: unknown,
+  cacheKey?: string,
+): Promise<T> {
   const key = cacheKey ?? `POST:${path}:${JSON.stringify(body)}`;
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
@@ -145,14 +149,18 @@ export interface GrafanaAlertInstance {
 
 // -- API functions --
 
-export async function listDashboards(query?: string): Promise<GrafanaDashboardSummary[]> {
+export async function listDashboards(
+  query?: string,
+): Promise<GrafanaDashboardSummary[]> {
   const params = new URLSearchParams({ type: "dash-db" });
   if (query) params.set("query", query);
   return apiGet<GrafanaDashboardSummary[]>(`/api/search?${params.toString()}`);
 }
 
 export async function getDashboard(uid: string): Promise<GrafanaDashboardFull> {
-  return apiGet<GrafanaDashboardFull>(`/api/dashboards/uid/${encodeURIComponent(uid)}`);
+  return apiGet<GrafanaDashboardFull>(
+    `/api/dashboards/uid/${encodeURIComponent(uid)}`,
+  );
 }
 
 export async function getDatasources(): Promise<GrafanaDatasource[]> {
@@ -162,7 +170,7 @@ export async function getDatasources(): Promise<GrafanaDatasource[]> {
 export async function getAlertRules(): Promise<GrafanaAlertRule[]> {
   // Grafana unified alerting API returns groups; flatten to rules
   const data = await apiGet<Record<string, { rules: GrafanaAlertRule[] }[]>>(
-    "/api/ruler/grafana/api/v1/rules"
+    "/api/ruler/grafana/api/v1/rules",
   );
   const rules: GrafanaAlertRule[] = [];
   for (const groups of Object.values(data)) {
@@ -175,7 +183,7 @@ export async function getAlertRules(): Promise<GrafanaAlertRule[]> {
 
 export async function getAlertInstances(): Promise<GrafanaAlertInstance[]> {
   const data = await apiGet<{ data: { alerts: GrafanaAlertInstance[] } }>(
-    "/api/alertmanager/grafana/api/v2/alerts"
+    "/api/alertmanager/grafana/api/v2/alerts",
   );
   // The v2 alerts endpoint returns an array directly
   if (Array.isArray(data)) return data as GrafanaAlertInstance[];
@@ -186,7 +194,7 @@ export async function queryDatasource(
   datasourceUid: string,
   queries: unknown[],
   from?: string,
-  to?: string
+  to?: string,
 ): Promise<unknown> {
   const now = Date.now();
   const body = {

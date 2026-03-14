@@ -63,14 +63,14 @@ In the browser, messages are sent via `window.postMessage()`. In Node.js (script
 
 ## Utility Functions
 
-| Function | Returns | Description |
-|----------|---------|-------------|
-| `loadEnv(path?)` | `void` | Load .env from project root (or custom path) |
-| `camelCaseArgs(args)` | `Record` | Convert kebab-case keys to camelCase |
-| `isValidPath(p)` | `boolean` | Validate relative path (no traversal, no absolute) |
-| `isValidProjectPath(p)` | `boolean` | Validate project slug (e.g. "my-project") |
-| `ensureDir(dir)` | `void` | mkdir -p helper |
-| `fail(message)` | `never` | Print error to stderr and exit(1) |
+| Function                | Returns   | Description                                        |
+| ----------------------- | --------- | -------------------------------------------------- |
+| `loadEnv(path?)`        | `void`    | Load .env from project root (or custom path)       |
+| `camelCaseArgs(args)`   | `Record`  | Convert kebab-case keys to camelCase               |
+| `isValidPath(p)`        | `boolean` | Validate relative path (no traversal, no absolute) |
+| `isValidProjectPath(p)` | `boolean` | Validate project slug (e.g. "my-project")          |
+| `ensureDir(dir)`        | `void`    | mkdir -p helper                                    |
+| `fail(message)`         | `never`   | Print error to stderr and exit(1)                  |
 
 ## Database Sync Adapters
 
@@ -79,7 +79,10 @@ For apps that need bidirectional file sync across instances, agent-native provid
 ### Google Cloud Firestore
 
 ```ts
-import { FileSync, FirestoreFileSyncAdapter } from "@agent-native/core/adapters/firestore";
+import {
+  FileSync,
+  FirestoreFileSyncAdapter,
+} from "@agent-native/core/adapters/firestore";
 
 const adapter = new FirestoreFileSyncAdapter(() => db.collection("files"));
 const sync = new FileSync({
@@ -94,7 +97,10 @@ await sync.initFileSync();
 ### Supabase
 
 ```ts
-import { FileSync, SupabaseFileSyncAdapter } from "@agent-native/core/adapters/supabase";
+import {
+  FileSync,
+  SupabaseFileSyncAdapter,
+} from "@agent-native/core/adapters/supabase";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -111,7 +117,10 @@ await sync.initFileSync();
 ### Neon (Postgres)
 
 ```ts
-import { FileSync, NeonFileSyncAdapter } from "@agent-native/core/adapters/neon";
+import {
+  FileSync,
+  NeonFileSyncAdapter,
+} from "@agent-native/core/adapters/neon";
 import { neon } from "@neondatabase/serverless";
 
 const sql = neon(DATABASE_URL);

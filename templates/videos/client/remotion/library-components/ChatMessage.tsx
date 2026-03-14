@@ -20,7 +20,10 @@ export type UserMessageProps = {
   avatarUrl?: string;
 };
 
-export const UserMessage: React.FC<UserMessageProps> = ({ text, avatarUrl }) => {
+export const UserMessage: React.FC<UserMessageProps> = ({
+  text,
+  avatarUrl,
+}) => {
   // Only show chevron/gradient for long messages (roughly > 150 chars)
   const isLongMessage = text.length > 150;
 
@@ -96,7 +99,8 @@ export const UserMessage: React.FC<UserMessageProps> = ({ text, avatarUrl }) => 
                 bottom: 0,
                 width: "100%",
                 height: "100%",
-                background: "linear-gradient(180deg, transparent 0%, transparent 70%, #2a2a2a 100%)",
+                background:
+                  "linear-gradient(180deg, transparent 0%, transparent 70%, #2a2a2a 100%)",
                 pointerEvents: "none",
                 zIndex: 1,
               }}
@@ -124,7 +128,10 @@ export const UserMessage: React.FC<UserMessageProps> = ({ text, avatarUrl }) => 
 
         {/* Avatar */}
         <img
-          src={avatarUrl || "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/d14e996f0be0b20c787a293fa3f01a69d1b9e6af?placeholderIfAbsent=true"}
+          src={
+            avatarUrl ||
+            "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/d14e996f0be0b20c787a293fa3f01a69d1b9e6af?placeholderIfAbsent=true"
+          }
           alt=""
           style={{
             width: 37,
@@ -266,9 +273,7 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
               flexShrink: 0,
             }}
           />
-          <div style={{ flex: 1 }}>
-            {thinkingText}
-          </div>
+          <div style={{ flex: 1 }}>{thinkingText}</div>
           {/* Gradient overlay */}
           <div
             style={{
@@ -277,7 +282,8 @@ export const AgentMessage: React.FC<AgentMessageProps> = ({
               bottom: 0,
               width: "100%",
               height: "100%",
-              background: "linear-gradient(180deg, transparent 0%, transparent 60%, #191919 100%)",
+              background:
+                "linear-gradient(180deg, transparent 0%, transparent 60%, #191919 100%)",
               pointerEvents: "none",
             }}
           />

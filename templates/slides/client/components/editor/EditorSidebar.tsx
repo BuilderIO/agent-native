@@ -1,8 +1,21 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { useSortable, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import {
+  useSortable,
+  SortableContext,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Plus, GripVertical, Copy, Trash2, Loader2, Paperclip, X, ArrowUp } from "lucide-react";
+import {
+  Plus,
+  GripVertical,
+  Copy,
+  Trash2,
+  Loader2,
+  Paperclip,
+  X,
+  ArrowUp,
+} from "lucide-react";
 import type { Slide } from "@/context/DeckContext";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
@@ -34,7 +47,14 @@ function SortableSlideThumb({
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
     id: slide.id,
   });
 
@@ -79,14 +99,20 @@ function SortableSlideThumb({
       {/* Actions */}
       <div className="absolute top-2 right-2 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
-          onClick={(e) => { e.stopPropagation(); onDuplicate(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDuplicate();
+          }}
           className="p-1 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80 transition-colors"
           title="Duplicate"
         >
           <Copy className="w-3 h-3 text-white/60" />
         </button>
         <button
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
           className="p-1 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-red-900/80 transition-colors"
           title="Delete"
         >
@@ -147,12 +173,17 @@ function AddSlidePopover({
     try {
       const formData = new FormData();
       newFiles.forEach((f) => formData.append("files", f));
-      const res = await fetch("/api/uploads", { method: "POST", body: formData });
+      const res = await fetch("/api/uploads", {
+        method: "POST",
+        body: formData,
+      });
       if (res.ok) {
         const results: UploadedFile[] = await res.json();
         setUploadedFiles((prev) => [...prev, ...results]);
       }
-    } catch { /* silent */ } finally {
+    } catch {
+      /* silent */
+    } finally {
       setUploading(false);
     }
   }, []);
@@ -164,25 +195,29 @@ function AddSlidePopover({
     e.target.value = "";
   };
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
-    const dropped = Array.from(e.dataTransfer.files);
-    if (dropped.length > 0) doUpload(dropped);
-  }, [doUpload]);
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragging(false);
+      const dropped = Array.from(e.dataTransfer.files);
+      if (dropped.length > 0) doUpload(dropped);
+    },
+    [doUpload],
+  );
 
   const removeFile = (index: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== index));
     setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-
   useEffect(() => {
     if (!open) return;
     const handleClick = (e: MouseEvent) => {
       if (
-        panelRef.current && !panelRef.current.contains(e.target as Node) &&
-        anchorRef.current && !anchorRef.current.contains(e.target as Node)
+        panelRef.current &&
+        !panelRef.current.contains(e.target as Node) &&
+        anchorRef.current &&
+        !anchorRef.current.contains(e.target as Node)
       ) {
         onOpenChange(false);
       }
@@ -200,9 +235,10 @@ function AddSlidePopover({
 
   const handleSubmit = () => {
     const description = prompt.trim() || "a new slide";
-    const fileContext = uploadedFiles.length > 0
-      ? `\n\nThe user uploaded ${uploadedFiles.length} file(s) for context:\n${uploadedFiles.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
-      : "";
+    const fileContext =
+      uploadedFiles.length > 0
+        ? `\n\nThe user uploaded ${uploadedFiles.length} file(s) for context:\n${uploadedFiles.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
+        : "";
     const context = [
       `Add a new slide to deck "${deckTitle}" (id: ${deckId}).`,
       `Insert after slide ${activeSlideIndex + 1} of ${slideCount} (active slide id: ${activeSlideId}).`,
@@ -229,15 +265,23 @@ function AddSlidePopover({
     <div
       ref={panelRef}
       className={`fixed w-[24rem] rounded-xl border bg-[hsl(240,5%,10%)] shadow-2xl shadow-black/60 z-[200] overflow-hidden transition-colors ${
-        dragging ? "border-[#609FF8]/50 bg-[hsl(240,5%,12%)]" : "border-white/[0.1]"
+        dragging
+          ? "border-[#609FF8]/50 bg-[hsl(240,5%,12%)]"
+          : "border-white/[0.1]"
       }`}
       style={{
         top: rect.bottom + 8,
         left: rect.left,
       }}
       onDrop={handleDrop}
-      onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-      onDragLeave={(e) => { e.preventDefault(); setDragging(false); }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        e.preventDefault();
+        setDragging(false);
+      }}
     >
       <div className="px-3.5 pb-2 pt-3">
         <textarea
@@ -247,7 +291,8 @@ function AddSlidePopover({
             setPrompt(e.target.value);
             const el = e.target;
             el.style.height = "auto";
-            el.style.height = Math.min(el.scrollHeight, window.innerHeight * 0.5) + "px";
+            el.style.height =
+              Math.min(el.scrollHeight, window.innerHeight * 0.5) + "px";
           }}
           placeholder="Describe the slides you want..."
           className="w-full bg-transparent text-sm text-white/90 placeholder:text-white/30 outline-none resize-none"
@@ -266,9 +311,15 @@ function AddSlidePopover({
       {files.length > 0 && (
         <div className="px-3.5 pb-2 flex flex-wrap gap-1.5">
           {files.map((file, i) => (
-            <div key={i} className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.06] border border-white/[0.08] text-[11px] text-white/50">
+            <div
+              key={i}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.06] border border-white/[0.08] text-[11px] text-white/50"
+            >
               <span className="max-w-[100px] truncate">{file.name}</span>
-              <button onClick={() => removeFile(i)} className="p-0.5 rounded hover:bg-white/[0.1]">
+              <button
+                onClick={() => removeFile(i)}
+                className="p-0.5 rounded hover:bg-white/[0.1]"
+              >
                 <X className="w-2.5 h-2.5" />
               </button>
             </div>
@@ -286,7 +337,13 @@ function AddSlidePopover({
         >
           <Paperclip className="w-4 h-4" />
         </button>
-        <input ref={fileInputRef} type="file" multiple onChange={handleFileChange} className="hidden" />
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          onChange={handleFileChange}
+          className="hidden"
+        />
 
         <button
           onClick={handleSubmit}
@@ -332,15 +389,21 @@ export default function EditorSidebar({
       if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
       // Don't intercept if user is typing in an input/textarea or contenteditable
       const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        (e.target as HTMLElement)?.isContentEditable
+      )
+        return;
 
       e.preventDefault();
       const currentIndex = slides.findIndex((s) => s.id === activeSlideId);
       if (currentIndex === -1) return;
 
-      const nextIndex = e.key === "ArrowUp"
-        ? Math.max(0, currentIndex - 1)
-        : Math.min(slides.length - 1, currentIndex + 1);
+      const nextIndex =
+        e.key === "ArrowUp"
+          ? Math.max(0, currentIndex - 1)
+          : Math.min(slides.length - 1, currentIndex + 1);
 
       if (nextIndex !== currentIndex) {
         onSelectSlide(slides[nextIndex].id);
@@ -354,7 +417,9 @@ export default function EditorSidebar({
   return (
     <div className="w-64 flex-shrink-0 border-r border-white/[0.06] bg-[hsl(240,5%,6%)] flex flex-col h-full">
       <div className="p-3 border-b border-white/[0.06] flex items-center justify-between">
-        <span className="text-xs font-medium text-white/50 uppercase tracking-wider">Slides</span>
+        <span className="text-xs font-medium text-white/50 uppercase tracking-wider">
+          Slides
+        </span>
         {addSlideGenerating ? (
           <Loader2 className="w-4 h-4 text-white/40 animate-spin" />
         ) : (
@@ -370,7 +435,10 @@ export default function EditorSidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        <SortableContext items={slides.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+        <SortableContext
+          items={slides.map((s) => s.id)}
+          strategy={verticalListSortingStrategy}
+        >
           {slides.map((slide, index) => (
             <SortableSlideThumb
               key={slide.id}

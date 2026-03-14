@@ -116,6 +116,7 @@ This returns the complete comment tree with author, text, points, and nested rep
 **Step 2c: Extract insights**
 
 From HN threads, extract:
+
 - **Pain points:** What frustrates developers about this topic?
 - **Strong opinions:** Contrarian takes, heated debates, "actually..." corrections
 - **Expert explanations:** Long comments from clearly experienced developers
@@ -150,11 +151,13 @@ YouTube transcripts require an external tool. Check availability in this order:
    > YouTube transcript tool not found. Transcripts provide richer research (expert explanations, mental models, gaps in video coverage).
    >
    > **Option A (recommended):** Install npm package globally:
+   >
    > ```
    > npm install -g youtube-transcript
    > ```
    >
    > **Option B:** Add MCP server to Claude Code settings:
+   >
    > ```
    > claude mcp add youtube-transcript npx -y @anthropic/mcp-server-youtube-transcript
    > ```
@@ -214,6 +217,7 @@ Reddit has massive developer communities and is heavily cited by LLMs. Access is
 **Extract the same categories as Hacker News:** pain points, misconceptions, authentic language, common questions, strong opinions.
 
 Reddit is especially valuable for:
+
 - Subreddit-specific pain points (r/reactjs, r/nextjs, r/webdev, etc.)
 - Highly-upvoted workarounds that never make it into docs
 - Authentic developer language (how people actually describe problems)
@@ -334,39 +338,48 @@ Also append to `research-notes.md`:
 ## Content Research
 
 ### Key Facts (from Official Documentation)
+
 - [Verified fact 1 with source link]
 - [Verified fact 2 with source link]
 
 ### Developer Sentiment (from Hacker News, X & Community)
+
 - Common pain point: [description]
 - Recurring misconception: [what people get wrong]
 - Authentic language: [how developers describe this topic]
 - Strong opinions: [contrarian or notable takes from HN/X]
 
 ### Expert Perspectives (from YouTube)
+
 - [Expert name] explains [concept] as [analogy/approach]
 - Key implementation pattern from [video title]
 
 ### Common Gotchas (from Stack Overflow)
+
 - [Gotcha 1 with SO link]
 - [Debugging tip from accepted answer]
 
 ### LLM Query Patterns
+
 - Subtopics LLMs consistently cover: [list]
 - Subtopics LLMs consistently miss: [list] -- content opportunity
 
 ### Content Gaps Identified
+
 - Gap 1: [No existing article covers X]
 - Gap 2: [Developers consistently ask about Y but no tutorial exists]
 - Gap 3: [LLMs provide incorrect information about Z]
 
 ### Research Synthesis Matrix
+
 [Source-theme matrix table -- see synthesis-matrix-template.md]
 
 ### Source Access Notes
+
 [Note any sources that were unavailable or degraded]
 
 ### Unique Value Proposition
+
 [2-3 sentences: what this post will provide that no existing resource does]
 ```
 
@@ -400,14 +413,14 @@ The source research tasks (Steps 1-7) are independent and run in parallel via su
 
 **Orchestration:** The Content Researcher Agent (Phase 15) spawns the sub-agents. The `/content-blog` orchestrator skill (Phase 19) references this architecture. This skill documents the grouping, schema, and synthesis contract.
 
-| Group | Sources | Skill Step(s) | Output File |
-|:-----:|:--------|:--------------|:------------|
-| A | Official docs (WebFetch) | Step 1 | `phases/04-research-group-a.yaml` |
-| B | Hacker News (Algolia API via WebFetch) | Step 2 | `phases/04-research-group-b.yaml` |
-| C | Reddit (WebSearch indirect) | Step 7 | `phases/04-research-group-c.yaml` |
-| D | X/Twitter (WebSearch) | Step 3 | `phases/04-research-group-d.yaml` |
-| E | YouTube (MCP/npm/WebSearch) | Step 4 | `phases/04-research-group-e.yaml` |
-| F | Stack Overflow (WebFetch) + LLM patterns (WebSearch) | Steps 5-6 | `phases/04-research-group-f.yaml` |
+| Group | Sources                                              | Skill Step(s) | Output File                       |
+| :---: | :--------------------------------------------------- | :------------ | :-------------------------------- |
+|   A   | Official docs (WebFetch)                             | Step 1        | `phases/04-research-group-a.yaml` |
+|   B   | Hacker News (Algolia API via WebFetch)               | Step 2        | `phases/04-research-group-b.yaml` |
+|   C   | Reddit (WebSearch indirect)                          | Step 7        | `phases/04-research-group-c.yaml` |
+|   D   | X/Twitter (WebSearch)                                | Step 3        | `phases/04-research-group-d.yaml` |
+|   E   | YouTube (MCP/npm/WebSearch)                          | Step 4        | `phases/04-research-group-e.yaml` |
+|   F   | Stack Overflow (WebFetch) + LLM patterns (WebSearch) | Steps 5-6     | `phases/04-research-group-f.yaml` |
 
 **Trending mode:** Skip Group F (SO/LLM have no data for new topics). Groups A-E still run. Reddit (Group C) runs best-effort.
 
@@ -421,8 +434,8 @@ Each sub-agent writes its findings using this schema:
 
 ```yaml
 # phases/04-research-group-{letter}.yaml
-group: a  # a through f
-source: "Official Documentation"  # human-readable source name
+group: a # a through f
+source: "Official Documentation" # human-readable source name
 status: completed | failed | skipped
 content_timing: evergreen | trending
 is_comparison: false
@@ -432,18 +445,18 @@ findings:
     key_insights:
       - "RSC eliminates client-server waterfalls"
       - "Use 'use client' directive at component boundary"
-    source_authority: tier_1  # tier_1 | tier_2 | tier_3 (see source-authority-tiers.md)
-    relevance: high  # high | medium | low
+    source_authority: tier_1 # tier_1 | tier_2 | tier_3 (see source-authority-tiers.md)
+    relevance: high # high | medium | low
 data_quality:
   total_sources: 5
   verified_facts: 12
   unique_insights: 3
   notes: "Full access to official React docs and Next.js docs"
-error:  # only present if status: failed
+error: # only present if status: failed
   step: 1
   message: "WebFetch returned 403 for documentation URL"
   retry_recommended: true
-partial_findings: []  # findings recovered before failure
+partial_findings: [] # findings recovered before failure
 ```
 
 **Schema tolerance:** The Synthesis step (Step 9) handles variations gracefully -- unexpected fields are preserved, missing fields are noted as gaps, absent group files mean the source was skipped or failed.
@@ -456,6 +469,7 @@ partial_findings: []  # findings recovered before failure
 **Content timing:** `evergreen`
 
 **Research findings:**
+
 - Official docs: React docs cover RSC basics, Next.js docs cover App Router integration. 12 verified facts extracted.
 - Hacker News: 3 threads with 200+ comments total. Strong debate about RSC complexity. Pain point: "mental model is confusing for teams migrating from Pages Router."
 - X/Twitter: 15 tweet snippets. Mixed sentiment -- senior devs positive, mid-level devs frustrated. Dan Abramov's thread explaining the architecture is frequently referenced.
@@ -472,6 +486,7 @@ partial_findings: []  # findings recovered before failure
 **Content timing:** `trending`
 
 **Research findings:**
+
 - Official docs: Anthropic announcement blog post + API changelog. 8 verified facts about new capabilities.
 - Hacker News: 2 threads, 400+ comments. Strong signal: developers excited about extended thinking, skeptical about pricing. Top question: "How does extended thinking compare to chain-of-thought?"
 - X/Twitter: 20+ tweet snippets. Influencers comparing to GPT-5. Key angle: "first model to feel like a true coding partner."
@@ -488,6 +503,7 @@ partial_findings: []  # findings recovered before failure
 **Content timing:** `evergreen`
 
 **Research findings:**
+
 - Official docs: MDN comprehensive reference. 10 verified facts.
 - Hacker News: 1 thread with 50 comments. Moderate interest.
 - X/Twitter: 8 tweet snippets. Positive sentiment.

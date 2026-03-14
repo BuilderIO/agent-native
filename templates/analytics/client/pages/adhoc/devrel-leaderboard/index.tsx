@@ -57,14 +57,14 @@ export default function DevRelLeaderboard() {
   // Author summary cards
   const summarySql = useMemo(
     () => authorSummaryQuery(f.dateStart, f.dateEnd, f.pubDateStart),
-    [f.dateStart, f.dateEnd, f.pubDateStart]
+    [f.dateStart, f.dateEnd, f.pubDateStart],
   );
   const summary = useMetricsQuery(["devrel-summary", summarySql], summarySql);
 
   // Article detail table
   const detailSql = useMemo(
     () => articleDetailQuery(f.dateStart, f.dateEnd, f.pubDateStart),
-    [f.dateStart, f.dateEnd, f.pubDateStart]
+    [f.dateStart, f.dateEnd, f.pubDateStart],
   );
   const detail = useMetricsQuery(["devrel-detail", detailSql], detailSql);
 
@@ -76,9 +76,9 @@ export default function DevRelLeaderboard() {
         f.dateEnd,
         f.pubDateStart,
         metric,
-        cadence
+        cadence,
       ),
-    [f.dateStart, f.dateEnd, f.pubDateStart, metric, cadence]
+    [f.dateStart, f.dateEnd, f.pubDateStart, metric, cadence],
   );
   const timeseries = useMetricsQuery(["devrel-ts", tsSql], tsSql);
 
@@ -144,7 +144,10 @@ export default function DevRelLeaderboard() {
                 <label className="text-xs text-muted-foreground font-medium">
                   Published After
                 </label>
-                <DatePicker value={f.pubDateStart} onChange={(v) => setF("pubDateStart", v)} />
+                <DatePicker
+                  value={f.pubDateStart}
+                  onChange={(v) => setF("pubDateStart", v)}
+                />
               </div>
             </>
           )}

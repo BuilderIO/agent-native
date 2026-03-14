@@ -33,7 +33,7 @@ GROUP BY day ORDER BY day ASC`;
 // linearly grow to 2x that rate by Dec 31, 2026.
 function buildGoalLine(
   actualData: Record<string, unknown>[],
-  granularity: Granularity
+  granularity: Granularity,
 ) {
   if (actualData.length < 3) return [];
 
@@ -41,7 +41,7 @@ function buildGoalLine(
   const baselineWindow = granularity === "weekly" ? 2 : 14;
   const baselineSlice = actualData.slice(
     0,
-    Math.min(baselineWindow, actualData.length)
+    Math.min(baselineWindow, actualData.length),
   );
   const baselineRate =
     baselineSlice.reduce((sum, r) => sum + Number(r.signups || 0), 0) /
@@ -64,7 +64,7 @@ function buildGoalLine(
 
 function mergeData(
   actual: Record<string, unknown>[],
-  goal: { day: string; goal: number }[]
+  goal: { day: string; goal: number }[],
 ) {
   const goalMap = new Map(goal.map((g) => [g.day, g.goal]));
   return actual.map((row) => ({
@@ -88,7 +88,7 @@ export default function SignupGrowthDashboard() {
 
   const signups = useMetricsQuery(
     ["signup-growth", granularity],
-    signupsSql(granularity)
+    signupsSql(granularity),
   );
 
   const chartData = useMemo(() => {
@@ -117,7 +117,7 @@ export default function SignupGrowthDashboard() {
               size="sm"
               className={cn(
                 "h-7 px-3 text-xs capitalize",
-                granularity === g && "bg-secondary text-secondary-foreground"
+                granularity === g && "bg-secondary text-secondary-foreground",
               )}
               onClick={() => setGranularity(g)}
             >
@@ -127,17 +127,17 @@ export default function SignupGrowthDashboard() {
         </div>
         {baseline !== null && (
           <span className="text-xs text-muted-foreground">
-            Jan baseline: ~{baseline.toLocaleString()}/{granularity === "weekly" ? "wk" : "day"}
-            {" "}— Goal: ~{(baseline * 2).toLocaleString()}/{granularity === "weekly" ? "wk" : "day"} by Dec 31, 2026
+            Jan baseline: ~{baseline.toLocaleString()}/
+            {granularity === "weekly" ? "wk" : "day"} — Goal: ~
+            {(baseline * 2).toLocaleString()}/
+            {granularity === "weekly" ? "wk" : "day"} by Dec 31, 2026
           </span>
         )}
       </div>
 
       <Card className="bg-card border-border/50">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">
-            Signups vs 2x YoY Goal
-          </CardTitle>
+          <CardTitle className="text-base">Signups vs 2x YoY Goal</CardTitle>
         </CardHeader>
         <CardContent>
           {signups.isLoading ? (
@@ -163,11 +163,7 @@ export default function SignupGrowthDashboard() {
                       y2="1"
                     >
                       <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                      <stop
-                        offset="95%"
-                        stopColor="#10b981"
-                        stopOpacity={0}
-                      />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <XAxis

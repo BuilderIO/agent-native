@@ -10,7 +10,8 @@ const MAX_CACHE = 120;
 function getAuthHeader(): string {
   const accessKey = process.env.GONG_ACCESS_KEY;
   const secret = process.env.GONG_ACCESS_SECRET;
-  if (!accessKey || !secret) throw new Error("GONG_ACCESS_KEY and GONG_ACCESS_SECRET env vars required");
+  if (!accessKey || !secret)
+    throw new Error("GONG_ACCESS_KEY and GONG_ACCESS_SECRET env vars required");
   return `Basic ${Buffer.from(`${accessKey}:${secret}`).toString("base64")}`;
 }
 
@@ -44,7 +45,11 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
   return data as T;
 }
 
-async function apiPost<T>(path: string, body: unknown, cacheKey?: string): Promise<T> {
+async function apiPost<T>(
+  path: string,
+  body: unknown,
+  cacheKey?: string,
+): Promise<T> {
   const key = cacheKey ?? `POST:${path}:${JSON.stringify(body)}`;
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
@@ -105,7 +110,10 @@ export async function getCalls(filters?: {
 
   const query = params.toString();
   const path = `/calls${query ? `?${query}` : ""}`;
-  const data = await apiGet<{ calls?: GongCall[]; records?: { cursor?: string } }>(path);
+  const data = await apiGet<{
+    calls?: GongCall[];
+    records?: { cursor?: string };
+  }>(path);
   return {
     calls: data.calls ?? [],
     cursor: data.records?.cursor,
@@ -117,18 +125,14 @@ export async function getCall(callId: string): Promise<GongCall | null> {
   const data = await apiPost<{ calls?: GongCall[] }>(
     "/calls",
     body,
-    `call:${callId}`
+    `call:${callId}`,
   );
   return data.calls?.[0] ?? null;
 }
 
 export async function getCallTranscript(callId: string): Promise<unknown> {
   const body = { filter: { callIds: [callId] } };
-  return apiPost(
-    "/calls/transcript",
-    body,
-    `transcript:${callId}`
-  );
+  return apiPost("/calls/transcript", body, `transcript:${callId}`);
 }
 
 export async function getUsers(): Promise<GongUser[]> {
@@ -136,8 +140,13 @@ export async function getUsers(): Promise<GongUser[]> {
   return data.users ?? [];
 }
 
-export async function searchCalls(query: string, days = 90): Promise<GongCall[]> {
-  const fromDateTime = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+export async function searchCalls(
+  query: string,
+  days = 90,
+): Promise<GongCall[]> {
+  const fromDateTime = new Date(
+    Date.now() - days * 24 * 60 * 60 * 1000,
+  ).toISOString();
 
   // Use GET /v2/calls to list calls, then filter client-side
   let allCalls: GongCall[] = [];
@@ -145,9 +154,10 @@ export async function searchCalls(query: string, days = 90): Promise<GongCall[]>
   do {
     const params = new URLSearchParams({ fromDateTime });
     if (cursor) params.set("cursor", cursor);
-    const data = await apiGet<{ calls?: GongCall[]; records?: { cursor?: string; totalRecords?: number } }>(
-      `/calls?${params.toString()}`
-    );
+    const data = await apiGet<{
+      calls?: GongCall[];
+      records?: { cursor?: string; totalRecords?: number };
+    }>(`/calls?${params.toString()}`);
     allCalls = allCalls.concat(data.calls ?? []);
     cursor = data.records?.cursor;
   } while (cursor);
@@ -155,7 +165,8 @@ export async function searchCalls(query: string, days = 90): Promise<GongCall[]>
   const lowerQuery = query.toLowerCase();
   return allCalls.filter((call) => {
     const title = call.title?.toLowerCase() ?? "";
-    const parties = call.parties?.map((p) => p.name.toLowerCase()).join(" ") ?? "";
+    const parties =
+      call.parties?.map((p) => p.name.toLowerCase()).join(" ") ?? "";
     return title.includes(lowerQuery) || parties.includes(lowerQuery);
   });
 }
