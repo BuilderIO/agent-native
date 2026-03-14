@@ -359,6 +359,10 @@ When generating outbound content (deck slides, marketing copy, sales materials, 
 
 Always match content to the appropriate persona and competitive context. Use proof points and customer quotes where relevant.
 
+## TypeScript Everywhere
+
+All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`, or `.mjs` files. Node 22+ runs `.ts` files natively, so no compilation step is needed for scripts. Use ESM imports (`import`), not CommonJS (`require`).
+
 ## Key Conventions
 
 1. **Files are the only source of truth** — all deck state lives in JSON files in `data/decks/`. UI edits save to these files via API. Agent edits the files directly. SSE pushes file changes to the UI in real-time. Undo/redo is client-side but each state change writes to the file.
