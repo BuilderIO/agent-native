@@ -21,7 +21,7 @@ const CLI_REGISTRY: Record<string, { installPackage: string; stripEnv: string[] 
     stripEnv: [],
   },
   opencode: {
-    installPackage: 'opencode',
+    installPackage: '',
     stripEnv: [],
   },
 };
@@ -132,13 +132,23 @@ wss.on('connection', async (ws: WebSocket, req) => {
   // Check if CLI is installed; if not, try to install it
   if (!commandExists(command)) {
     const registry = CLI_REGISTRY[command];
-    if (registry) {
+    if (registry?.installPackage) {
       console.log(`[harness] ${command} CLI not found, attempting install...`);
       const installed = await installCLI(ws, command, registry.installPackage);
       if (!installed) {
         if (ws.readyState === WebSocket.OPEN) ws.close();
         return;
       }
+    } else {
+      // No auto-install available — tell client
+      const sendStatus = (status: string, message: string) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'setup-status', status, message }));
+        }
+      };
+      sendStatus('not-found', `"${command}" not found on PATH. Please install it manually.`);
+      if (ws.readyState === WebSocket.OPEN) ws.close();
+      return;
     }
   }
 

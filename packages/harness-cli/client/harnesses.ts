@@ -72,7 +72,7 @@ export const geminiConfig: HarnessConfig = {
 export const opencodeConfig: HarnessConfig = {
   name: "OpenCode",
   command: "opencode",
-  installPackage: "opencode",
+  installPackage: "",
   options: [],
   customPlaceholder: 'e.g. --provider anthropic',
 };

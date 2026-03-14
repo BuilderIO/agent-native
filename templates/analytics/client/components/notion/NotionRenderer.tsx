@@ -336,6 +336,7 @@ function NotionBlockRenderer({ block }: { block: NotionBlock }) {
 
 /** Groups consecutive list items into proper <ul>/<ol> wrappers */
 function NotionBlocks({ blocks }: { blocks: NotionBlock[] }) {
+  if (!blocks) return null;
   const grouped: React.ReactNode[] = [];
   let i = 0;
 
