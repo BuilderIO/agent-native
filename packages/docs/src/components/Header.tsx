@@ -1,6 +1,13 @@
 import { Link } from '@tanstack/react-router'
 import ThemeToggle from './ThemeToggle'
 import { useSearchModal, SearchModal } from './SearchModal'
+import { useState } from 'react'
+
+const BUILDER_LOGO = (
+  <svg width="14" height="14" viewBox="0 0 231 260" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+    <path d="M230.28 78C230.28 34.73 195.16 0 152.28 0H20.53C9.15003 0 0 9.24004 0 20.54C0 41.59 44.5701 57.5598 44.5701 130C44.5701 202.44 0 218.42 0 239.46C0 250.76 9.15003 260 20.53 260H152.28C195.16 260 230.28 225.27 230.28 182C230.28 150.2 211.17 130.83 210.43 130C211.17 129.17 230.28 109.8 230.28 78ZM27.17 22.29H152.28C167.16 22.29 181.15 28.0799 191.68 38.6099C202.2 49.1299 208 63.12 208 78.01C208 92.9 202.52 106.02 192.75 116.31L27.17 22.29ZM191.67 221.4C181.15 231.92 167.16 237.72 152.27 237.72H27.16L192.74 143.7C202.51 153.99 207.99 167.6 207.99 182C207.99 196.4 202.19 210.87 191.67 221.4ZM51.41 198.32C52.73 195.55 66.85 168.15 66.85 130C66.85 91.8498 52.73 64.4499 51.41 61.6799L171.73 130L51.41 198.32Z" />
+  </svg>
+)
 
 function SearchTrigger({ onClick }: { onClick: () => void }) {
   return (
@@ -20,8 +27,30 @@ function SearchTrigger({ onClick }: { onClick: () => void }) {
   )
 }
 
+function HamburgerIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  )
+}
+
 export default function Header() {
   const { open, setOpen } = useSearchModal()
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  const closeMobileMenu = () => setMobileMenuOpen(false)
 
   return (
     <>
@@ -29,12 +58,13 @@ export default function Header() {
         <nav className="mx-auto flex h-16 max-w-[1440px] items-center gap-6 px-6">
           <Link
             to="/"
-            className="flex items-center gap-2 text-[var(--fg)] no-underline"
+            className="flex shrink-0 items-center gap-2 text-[var(--fg)] no-underline"
           >
             <span className="text-base font-bold tracking-tight">Agent-Native</span>
           </Link>
 
-          <div className="flex items-center gap-5 text-sm">
+          {/* Desktop nav links */}
+          <div className="hidden sm:flex items-center gap-5 text-sm">
             <Link
               to="/docs"
               className="header-link"
@@ -62,19 +92,68 @@ export default function Header() {
           <div className="ml-auto flex items-center gap-3">
             <SearchTrigger onClick={() => setOpen(true)} />
             <ThemeToggle />
+
+            {/* Desktop Cloud CTA */}
             <a
               href="https://builder.io"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-black no-underline transition hover:bg-gray-200 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+              className="hidden sm:inline-flex items-center gap-2 rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-black no-underline transition hover:bg-gray-200 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
             >
-              <svg width="14" height="14" viewBox="0 0 231 260" fill="black" xmlns="http://www.w3.org/2000/svg">
-                <path d="M230.28 78C230.28 34.73 195.16 0 152.28 0H20.53C9.15003 0 0 9.24004 0 20.54C0 41.59 44.5701 57.5598 44.5701 130C44.5701 202.44 0 218.42 0 239.46C0 250.76 9.15003 260 20.53 260H152.28C195.16 260 230.28 225.27 230.28 182C230.28 150.2 211.17 130.83 210.43 130C211.17 129.17 230.28 109.8 230.28 78ZM27.17 22.29H152.28C167.16 22.29 181.15 28.0799 191.68 38.6099C202.2 49.1299 208 63.12 208 78.01C208 92.9 202.52 106.02 192.75 116.31L27.17 22.29ZM191.67 221.4C181.15 231.92 167.16 237.72 152.27 237.72H27.16L192.74 143.7C202.51 153.99 207.99 167.6 207.99 182C207.99 196.4 202.19 210.87 191.67 221.4ZM51.41 198.32C52.73 195.55 66.85 168.15 66.85 130C66.85 91.8498 52.73 64.4499 51.41 61.6799L171.73 130L51.41 198.32Z" />
-              </svg>
+              <span style={{ color: 'black' }}>{BUILDER_LOGO}</span>
               Cloud
             </a>
+
+            {/* Mobile hamburger */}
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="sm:hidden flex items-center justify-center w-8 h-8 text-[var(--fg-secondary)] hover:text-[var(--fg)] transition"
+              aria-label="Toggle navigation menu"
+              aria-expanded={mobileMenuOpen}
+            >
+              {mobileMenuOpen ? <CloseIcon /> : <HamburgerIcon />}
+            </button>
           </div>
         </nav>
+
+        {/* Mobile dropdown menu */}
+        {mobileMenuOpen && (
+          <div className="sm:hidden border-t border-[var(--border)] bg-[var(--header-bg)] backdrop-blur-lg px-6 py-4 flex flex-col gap-4">
+            <Link
+              to="/docs"
+              className="header-link"
+              activeProps={{ className: 'header-link is-active' }}
+              onClick={closeMobileMenu}
+            >
+              Docs
+            </Link>
+            <Link
+              to="/templates"
+              className="header-link"
+              activeProps={{ className: 'header-link is-active' }}
+              onClick={closeMobileMenu}
+            >
+              Templates
+            </Link>
+            <a
+              href="https://github.com/BuilderIO/agent-native"
+              target="_blank"
+              rel="noreferrer"
+              className="header-link"
+            >
+              GitHub
+            </a>
+            <a
+              href="https://builder.io"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mobile-cloud-link"
+            >
+              {BUILDER_LOGO}
+              Builder Cloud
+            </a>
+          </div>
+        )}
       </header>
       <SearchModal open={open} onClose={() => setOpen(false)} />
     </>
