@@ -346,14 +346,10 @@ html.dark .shiki span {
   display: none;
 }
 
-/* SaaS Tools vs Raw AI Agents comparison section */
-.approaches-section {
-  background: var(--bg);
-}
-
+/* Comparison table */
 .approaches-table-wrapper {
   margin: 0 auto;
-  max-width: 720px;
+  max-width: 900px;
   border-radius: 12px;
   border: 1px solid var(--border);
   overflow: hidden;
@@ -367,7 +363,7 @@ html.dark .shiki span {
 
 .approaches-table {
   width: 100%;
-  min-width: 480px;
+  min-width: 600px;
   border-collapse: collapse;
   font-size: 14px;
 }
@@ -381,22 +377,15 @@ html.dark .shiki span {
 }
 
 .approaches-col-dim {
-  width: 30%;
-}
-
-.approaches-col-saas,
-.approaches-col-agent {
-  width: 35%;
-}
-
-.approaches-col-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  width: 18%;
 }
 
 .approaches-col-label--bad {
   color: #f87171;
+}
+
+.approaches-col-highlight {
+  color: var(--accent);
 }
 
 .approaches-td {
@@ -409,6 +398,10 @@ html.dark .shiki span {
   font-weight: 500;
   color: var(--fg);
   white-space: nowrap;
+}
+
+.approaches-td--highlight {
+  color: var(--fg);
 }
 
 .approaches-solution {
@@ -435,7 +428,6 @@ html.dark .shiki span {
   font-size: 28px;
   font-weight: 700;
   letter-spacing: -0.03em;
-  color: var(--fg);
   margin: 0 0 12px;
   background: linear-gradient(135deg, var(--accent), #7928ca);
   -webkit-background-clip: text;
@@ -462,17 +454,12 @@ html.dark .shiki span {
     border-right: none;
   }
 
-  .approaches-table-scroll {
-    /* Show a subtle scrollbar on mobile so users know it scrolls */
-    scrollbar-width: auto;
-  }
-
   .approaches-th,
   .approaches-td {
-    padding: 10px 16px;
+    padding: 10px 14px;
   }
 
-  /* First column sticks to left edge so dimension labels stay readable */
+  /* First column sticks so dimension labels stay visible while scrolling */
   .approaches-td--dim,
   .approaches-th.approaches-col-dim {
     position: sticky;
