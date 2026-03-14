@@ -267,9 +267,7 @@ function BrandImageGeneratorTemplate() {
                 <path d="M12 3l1.912 5.813a2 2 0 0 0 1.275 1.275L21 12l-5.813 1.912a2 2 0 0 0-1.275 1.275L12 21l-1.912-5.813a2 2 0 0 0-1.275-1.275L3 12l5.813-1.912a2 2 0 0 0 1.275-1.275L12 3z" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">
-              On-Brand Generation
-            </h3>
+            <h3 className="mb-1 text-sm font-semibold">On-Brand Generation</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               Generate images from text prompts that match your brand's visual
               style with 1-8 variations.

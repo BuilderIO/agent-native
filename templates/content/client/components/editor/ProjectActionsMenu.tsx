@@ -57,7 +57,7 @@ export function ProjectActionsMenu({
     updateMeta.mutate({
       slug: project.slug,
       isPrivate: !project.isPrivate,
-      ownerId: currentUid,
+      ownerId: "local",
     });
     setMenuOpen(false);
   };

@@ -58,9 +58,7 @@ console.log(
 console.log(
   `\x1b[36m[dev-all]\x1b[0m Single port: http://localhost:${UI_PORT}`,
 );
-console.log(
-  `\x1b[36m[dev-all]\x1b[0m Docs: http://localhost:${UI_PORT}/docs/`,
-);
+console.log(`\x1b[36m[dev-all]\x1b[0m Docs: http://localhost:${UI_PORT}/docs/`);
 
 const names: string[] = [];
 const commands: string[] = [];

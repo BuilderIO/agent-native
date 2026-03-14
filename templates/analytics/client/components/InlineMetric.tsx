@@ -22,9 +22,7 @@ export function InlineMetric({
           {isLoading ? (
             <Skeleton className="h-8 w-24" />
           ) : (
-            <p className="text-2xl font-bold tabular-nums truncate">
-              {value}
-            </p>
+            <p className="text-2xl font-bold tabular-nums truncate">{value}</p>
           )}
         </div>
       </CardContent>

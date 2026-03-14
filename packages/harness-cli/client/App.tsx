@@ -271,7 +271,7 @@ export function App() {
             <p className="text-xs text-white/50 leading-relaxed">
               Running{" "}
               <code className="bg-white/10 px-1.5 py-0.5 rounded text-[11px]">
-                npm install -g {config.installPackage}
+                npx --yes {config.installPackage}
               </code>
             </p>
             <p className="text-[11px] text-white/30 mt-3">
@@ -293,7 +293,7 @@ export function App() {
               Install manually:
             </p>
             <code className="block bg-white/10 px-3 py-2 rounded text-[11px] text-white/70 mt-2">
-              npm install -g {config.installPackage}
+              npx --yes {config.installPackage}
             </code>
             <button
               onClick={() => restart(settings, activeApp)}

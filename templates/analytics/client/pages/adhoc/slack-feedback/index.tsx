@@ -22,7 +22,7 @@ const DEFAULT_CHANNELS = [
 
 export default function SlackFeedbackDashboard() {
   const workspace: Workspace = "primary";
-  const isAnalyzing = useAgentChatGenerating();
+  const [isAnalyzing] = useAgentChatGenerating();
   const [selectedChannels, setSelectedChannels] = useState<Map<string, string>>(
     new Map(),
   );

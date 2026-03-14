@@ -15,7 +15,10 @@ const brands = [
 ];
 
 async function fetchLogos() {
-  const results: Record<string, { url: string; format: string; theme: string }> = {};
+  const results: Record<
+    string,
+    { url: string; format: string; theme: string }
+  > = {};
 
   for (const domain of brands) {
     try {
@@ -34,7 +37,9 @@ async function fetchLogos() {
       const logos = data.logos || [];
 
       // Find dark theme logo (for dark backgrounds = white logo)
-      const darkLogo = logos.find((l: any) => l.type === "logo" && l.theme === "dark");
+      const darkLogo = logos.find(
+        (l: any) => l.type === "logo" && l.theme === "dark",
+      );
       const anyLogo = logos.find((l: any) => l.type === "logo");
 
       const logo = darkLogo || anyLogo;
