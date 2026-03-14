@@ -4,23 +4,25 @@ import { FitAddon } from "@xterm/addon-fit";
 import { settingsToFlags, type LaunchSettings } from "../lib/settings";
 
 export type SetupStatus = {
-  status: 'none' | 'installing' | 'installed' | 'not-found' | 'failed';
+  status: "none" | "installing" | "installed" | "not-found" | "failed";
   message: string;
 };
 
-export interface UseTerminalOptions {
-  appPort: number;
-}
-
-export function useTerminal({ appPort }: UseTerminalOptions) {
+export function useTerminal() {
   const termRef = useRef<HTMLDivElement>(null);
   const termInstance = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const autoReconnect = useRef(true);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [connected, setConnected] = useState(false);
-  const [setupStatus, setSetupStatus] = useState<SetupStatus>({ status: 'none', message: '' });
+  const [setupStatus, setSetupStatus] = useState<SetupStatus>({
+    status: "none",
+    message: "",
+  });
+
+  // Connection ID — incremented each time connect is called.
+  // Old onclose handlers check this to avoid reconnecting stale connections.
+  const connectionId = useRef(0);
 
   // Initialize terminal
   useEffect(() => {
@@ -29,7 +31,8 @@ export function useTerminal({ appPort }: UseTerminalOptions) {
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 11,
-      fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
+      fontFamily:
+        "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
       theme: {
         background: "#1e1e1e",
         foreground: "#e0e0e0",
@@ -53,12 +56,12 @@ export function useTerminal({ appPort }: UseTerminalOptions) {
     termInstance.current = term;
     fitAddon.current = fit;
 
-    // Delay fit until the container has its final layout size
     requestAnimationFrame(() => {
-      try { fit.fit(); } catch {}
+      try {
+        fit.fit();
+      } catch {}
     });
 
-    // Terminal input -> WebSocket
     term.onData((data) => {
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -76,7 +79,9 @@ export function useTerminal({ appPort }: UseTerminalOptions) {
     const ws = wsRef.current;
     const term = termInstance.current;
     if (ws && ws.readyState === WebSocket.OPEN && term) {
-      ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+      ws.send(
+        JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows })
+      );
     }
   }, []);
 
@@ -87,106 +92,130 @@ export function useTerminal({ appPort }: UseTerminalOptions) {
     );
   }, []);
 
-  const connect = useCallback((settings: LaunchSettings) => {
-    const term = termInstance.current;
-    if (!term) return;
+  const connect = useCallback(
+    (settings: LaunchSettings, appName: string) => {
+      const term = termInstance.current;
+      if (!term) return;
 
-    const flags = settingsToFlags(settings);
-    const params = flags ? `?flags=${encodeURIComponent(flags)}` : "";
-    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${location.host}/ws${params}`);
-    ws.binaryType = "arraybuffer";
-    wsRef.current = ws;
+      // Increment connection ID to invalidate any old onclose handlers
+      const thisConnectionId = ++connectionId.current;
 
-    let agentRunning = false;
-    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+      // Close existing connection
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
 
-    ws.onopen = () => {
-      setConnected(true);
-      // Send initial terminal size
-      ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-    };
+      const flags = settingsToFlags(settings);
+      const params = flags ? `?flags=${encodeURIComponent(flags)}` : "";
+      const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(
+        `${protocol}//${location.host}/ws/${appName}${params}`
+      );
+      ws.binaryType = "arraybuffer";
+      wsRef.current = ws;
 
-    ws.onmessage = (event) => {
-      const data =
-        event.data instanceof ArrayBuffer
-          ? new TextDecoder().decode(event.data)
-          : event.data;
+      let agentRunning = false;
+      let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
-      // Handle structured JSON messages from the server
-      try {
-        const msg = JSON.parse(data);
-        if (msg.type === 'setup-status') {
-          setSetupStatus({ status: msg.status, message: msg.message });
-          if (msg.status === 'not-found' || msg.status === 'failed') {
-            // Don't auto-reconnect on setup failures
-            autoReconnect.current = false;
-          } else if (msg.status === 'installed') {
-            // Claude was just installed — reconnect to spawn it
-            autoReconnect.current = true;
+      ws.onopen = () => {
+        setConnected(true);
+        ws.send(
+          JSON.stringify({
+            type: "resize",
+            cols: term.cols,
+            rows: term.rows,
+          })
+        );
+      };
+
+      ws.onmessage = (event) => {
+        const data =
+          event.data instanceof ArrayBuffer
+            ? new TextDecoder().decode(event.data)
+            : event.data;
+
+        try {
+          const msg = JSON.parse(data);
+          if (msg.type === "setup-status") {
+            setSetupStatus({ status: msg.status, message: msg.message });
+            return;
           }
-          return; // Don't write JSON to terminal
+        } catch {
+          // Not JSON — regular terminal output
         }
-      } catch {
-        // Not JSON — regular terminal output
-      }
 
-      // Clear setup status once we get real terminal output
-      setSetupStatus((prev) => prev.status !== 'none' ? { status: 'none', message: '' } : prev);
+        setSetupStatus((prev) =>
+          prev.status !== "none"
+            ? { status: "none", message: "" }
+            : prev
+        );
 
-      term.write(data);
+        term.write(data);
 
-      // Idle detection: Claude shows "❯" when waiting for input
-      if (data.includes("❯") || data.includes("\x1b[?25h")) {
-        if (idleTimer) clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => {
-          if (agentRunning) {
-            agentRunning = false;
-            notifyApp(false);
+        // Idle detection
+        if (data.includes("❯") || data.includes("\x1b[?25h")) {
+          if (idleTimer) clearTimeout(idleTimer);
+          idleTimer = setTimeout(() => {
+            if (agentRunning) {
+              agentRunning = false;
+              notifyApp(false);
+            }
+          }, 600);
+        } else if (agentRunning) {
+          if (idleTimer) clearTimeout(idleTimer);
+        }
+      };
+
+      ws.onclose = () => {
+        setConnected(false);
+        // Only reconnect if this is still the current connection
+        if (connectionId.current === thisConnectionId) {
+          term.write(
+            "\r\n\x1b[31m[harness] Connection closed. Reconnecting in 3s...\x1b[0m\r\n"
+          );
+          setTimeout(() => {
+            // Double-check we're still the current connection before reconnecting
+            if (connectionId.current === thisConnectionId) {
+              connect(settings, appName);
+            }
+          }, 3000);
+        }
+      };
+
+      ws.onerror = () => ws.close();
+
+      const messageHandler = (event: MessageEvent) => {
+        if (event.data?.type === "builder.submitChat") {
+          const message = event.data.data?.message;
+          if (message && ws.readyState === WebSocket.OPEN) {
+            ws.send(message + "\r");
+            agentRunning = true;
+            notifyApp(true);
           }
-        }, 600);
-      } else if (agentRunning) {
-        if (idleTimer) clearTimeout(idleTimer);
-      }
-    };
-
-    ws.onclose = () => {
-      setConnected(false);
-      if (autoReconnect.current) {
-        term.write("\r\n\x1b[31m[harness] Connection closed. Reconnecting in 3s...\x1b[0m\r\n");
-        setTimeout(() => connect(settings), 3000);
-      }
-    };
-
-    ws.onerror = () => ws.close();
-
-    // Listen for messages from app iframe
-    const messageHandler = (event: MessageEvent) => {
-      if (event.data?.type === "builder.submitChat") {
-        const message = event.data.data?.message;
-        if (message && ws.readyState === WebSocket.OPEN) {
-          ws.send(message + "\r");
-          agentRunning = true;
-          notifyApp(true);
         }
-      }
-    };
-    window.addEventListener("message", messageHandler);
+      };
+      window.addEventListener("message", messageHandler);
 
-    return () => {
-      window.removeEventListener("message", messageHandler);
-      if (idleTimer) clearTimeout(idleTimer);
-    };
-  }, [notifyApp]);
+      return () => {
+        window.removeEventListener("message", messageHandler);
+        if (idleTimer) clearTimeout(idleTimer);
+      };
+    },
+    [notifyApp]
+  );
 
-  const restart = useCallback((settings: LaunchSettings) => {
-    autoReconnect.current = false;
-    wsRef.current?.close();
-    termInstance.current?.clear();
-    termInstance.current?.write("\x1b[33m[harness] Restarting Claude Code...\x1b[0m\r\n");
-    autoReconnect.current = true;
-    setTimeout(() => connect(settings), 500);
-  }, [connect]);
+  const restart = useCallback(
+    (settings: LaunchSettings, appName: string) => {
+      wsRef.current?.close();
+      termInstance.current?.clear();
+      termInstance.current?.write(
+        "\x1b[33m[harness] Restarting Claude Code...\x1b[0m\r\n"
+      );
+      setTimeout(() => connect(settings, appName), 500);
+    },
+    [connect]
+  );
 
   const fit = useCallback(() => {
     fitAddon.current?.fit();

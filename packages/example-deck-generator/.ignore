@@ -1,2 +1,0 @@
-# Override .gitignore so the agent can still search/grep/read these files
-!data/decks/

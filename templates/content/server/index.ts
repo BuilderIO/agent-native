@@ -113,6 +113,7 @@ import { getYouTubeTranscript } from "./routes/youtube";
 import { searchGoogle, googleSearchStatus, configureGoogleSearch } from "./routes/google-search";
 import { getPages, fetchPage, pushPage, getDatabaseSchema, getPageMeta } from "./routes/notion";
 import { sendFeedback } from "./routes/feedback";
+import { getPages as getPageTree } from "./routes/pages";
 import {
   persistVersionHistory,
   resolveProjectVersionHistoryTarget,
@@ -303,6 +304,9 @@ export function createAppServer() {
 
     next();
   });
+
+  // Pages API (unified page tree)
+  app.get("/api/pages", getPageTree);
 
   // Project routes
   app.get("/api/projects", listProjects);

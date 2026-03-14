@@ -5,6 +5,7 @@ export interface LaunchSettings {
   resume: boolean;
   verbose: boolean;
   custom: string;
+  activeApp: string;
 }
 
 const defaults: LaunchSettings = {
@@ -12,6 +13,7 @@ const defaults: LaunchSettings = {
   resume: false,
   verbose: false,
   custom: "",
+  activeApp: "",
 };
 
 export function loadSettings(): LaunchSettings {

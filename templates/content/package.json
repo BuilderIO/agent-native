@@ -20,7 +20,7 @@
     "script": "agent-native script"
   },
   "dependencies": {
-    "@agent-native/core": "^0.2.0",
+    "@agent-native/core": "workspace:*",
     "@google/genai": "^1.41.0",
     "@monaco-editor/react": "^4.7.0",
     "@notionhq/client": "^5.11.1",

@@ -74,13 +74,23 @@ export default function Index() {
 
   // --- Redirect / workspace validation ---
   useEffect(() => {
-    // Don't redirect test or utility routes
     if (location.pathname.startsWith('/test/') || location.pathname.startsWith('/builder-')) {
       return;
     }
 
-    // Top-level tool routes (/image-gen, /research-search) are valid — no redirect
     if (isImageGenRoute || isResearchRoute) {
+      return;
+    }
+
+    // Redirect /blog and /docs to the first workspace
+    if (isBlog || isDocs) {
+      const groups = projectsData?.groups ?? [];
+      if (groups.length > 0) {
+        const stored = localStorage.getItem("workspaceOwner");
+        const target = stored && groups.includes(stored) ? stored : groups[0];
+        const prefixed = !!projectsData?.groupMeta?.[target]?.prefixed;
+        navigate(workspaceUrl(target, prefixed), { replace: true });
+      }
       return;
     }
 
@@ -88,11 +98,13 @@ export default function Index() {
     if (!groups.length) return;
 
     if (!urlWorkspace) {
-      // Root / or unknown - redirect to blog
-      navigate(`/blog`, { replace: true });
+      // Root / - redirect to first workspace
+      const stored = localStorage.getItem("workspaceOwner");
+      const target = stored && groups.includes(stored) ? stored : groups[0];
+      const prefixed = !!projectsData?.groupMeta?.[target]?.prefixed;
+      navigate(workspaceUrl(target, prefixed), { replace: true });
     } else if (urlWorkspace !== "workspace" && !groups.includes(urlWorkspace)) {
       const stored = localStorage.getItem("workspaceOwner");
-      // If stored is invalid, pick the first group
       const target = stored && groups.includes(stored) ? stored : groups[0];
       const prefixed = !!projectsData?.groupMeta?.[target]?.prefixed;
       navigate(workspaceUrl(target, prefixed), { replace: true });
@@ -116,6 +128,8 @@ export default function Index() {
   }, [
     activeProject?.activeDraft,
     activeProjectRouteSlug,
+    isBlog,
+    isDocs,
     isImageGenRoute,
     isProjectHistoryRoute,
     isProjectMediaRoute,
@@ -132,10 +146,6 @@ export default function Index() {
   if (location.pathname.startsWith('/test') || location.pathname.startsWith('/builder-')) {
     return null;
   }
-
-  // NOTE: sidebarCollapsed state is now in AppLayout. ResearchSearchPanel needs it.
-  // We will just pass false since it's hard to sync, or we accept that ResearchSearchPanel might not toggle it perfectly without Context.
-  // Actually, ResearchSearchPanel only uses onPreviewChange to collapse the sidebar. We can just ignore it for now or rely on AppLayout.
 
   return (
     <AppLayout>

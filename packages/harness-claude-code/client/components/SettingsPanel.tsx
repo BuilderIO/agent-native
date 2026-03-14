@@ -25,12 +25,25 @@ interface SettingsPanelProps {
   settings: LaunchSettings;
   onChange: (s: LaunchSettings) => void;
   onRestart: () => void;
-  appPort: number;
+  appUrl: string;
   iframeRef: RefObject<HTMLIFrameElement | null>;
   connected: boolean;
+  apps: Array<{ name: string; appPort: number; wsPort: number }>;
+  activeApp: string;
+  onSwitchApp: (name: string) => void;
 }
 
-export function SettingsPanel({ settings, onChange, onRestart, appPort, iframeRef, connected }: SettingsPanelProps) {
+export function SettingsPanel({
+  settings,
+  onChange,
+  onRestart,
+  appUrl,
+  iframeRef,
+  connected,
+  apps,
+  activeApp,
+  onSwitchApp,
+}: SettingsPanelProps) {
   const update = (patch: Partial<LaunchSettings>) =>
     onChange({ ...settings, ...patch });
 
@@ -65,20 +78,16 @@ export function SettingsPanel({ settings, onChange, onRestart, appPort, iframeRe
     });
   };
 
-  const singlePort = new URLSearchParams(location.search).get("singlePort") === "1";
-
   const navigate = useCallback((path: string) => {
     const trimmed = path.trim();
     if (!trimmed) return;
     const normalized = trimmed.startsWith("/") ? trimmed : "/" + trimmed;
     if (iframeRef.current) {
-      iframeRef.current.src = singlePort
-        ? `/app${normalized}`
-        : `http://localhost:${appPort}${normalized}`;
+      iframeRef.current.src = `${appUrl}${normalized.slice(1)}`;
     }
     setUrlInput(normalized);
     addToHistory(normalized);
-  }, [iframeRef, appPort, singlePort]);
+  }, [iframeRef, appUrl]);
 
   const toggleStar = (path: string) => {
     setStarred((prev) => {
@@ -113,6 +122,31 @@ export function SettingsPanel({ settings, onChange, onRestart, appPort, iframeRe
 
   return (
     <div className="absolute top-9 left-0 bg-[#2a2a2a] border border-white/10 rounded-lg p-3 z-50 min-w-[300px] max-h-[calc(100vh-60px)] overflow-y-auto shadow-2xl">
+      {/* Template Picker */}
+      {apps.length > 1 && (
+        <>
+          <h3 className="text-[12px] font-medium text-white/70 mb-1.5">
+            Template
+          </h3>
+          <div className="flex flex-wrap gap-1 mb-2">
+            {apps.map((app) => (
+              <button
+                key={app.name}
+                onClick={() => onSwitchApp(app.name)}
+                className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
+                  app.name === activeApp
+                    ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                    : "bg-white/[0.04] text-white/50 hover:text-white/80 hover:bg-white/[0.08] border border-transparent"
+                }`}
+              >
+                {app.name}
+              </button>
+            ))}
+          </div>
+          <div className="border-t border-white/10 my-2" />
+        </>
+      )}
+
       {/* Preview URL */}
       <h3 className="text-[12px] font-medium text-white/70 mb-1.5">
         Preview URL

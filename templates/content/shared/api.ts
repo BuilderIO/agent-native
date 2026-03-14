@@ -141,6 +141,26 @@ export interface RestoreVersionResponse {
   updatedAt?: string;
 }
 
+// --- Pages (unified tree) ---
+
+export interface Page {
+  id: string;              // project slug or "slug::filepath"
+  title: string;
+  parentId: string | null; // null = top-level in workspace
+  type: "page" | "folder"; // folder = expandable group only
+  updatedAt: string;
+  hasChildren: boolean;
+  isPrivate?: boolean;
+  // Internal mapping (used by client for CRUD delegation)
+  _projectSlug: string;
+  _filePath: string | null; // null = project root (activeDraft)
+}
+
+export interface PageTreeResponse {
+  pages: Page[];
+  workspace: string;
+}
+
 // --- Keyword Research ---
 
 export interface KeywordSuggestion {

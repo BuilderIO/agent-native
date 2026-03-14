@@ -128,7 +128,7 @@ function TerminalCommand() {
       className="group mx-auto mt-8 flex items-center gap-3 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-5 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)]"
     >
       <span className="text-[var(--fg-secondary)]">$</span>
-      <span className="text-[var(--fg)]">{command}</span>
+      <span className="terminal-command-text text-[var(--fg)]">{command}</span>
       <span className="ml-2 text-[var(--fg-secondary)] opacity-0 transition group-hover:opacity-100">
         {copied ? (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -262,6 +262,7 @@ function Home() {
           </p>
         </div>
 
+        <div className="approaches-table-outer">
         <div className="approaches-table-wrapper">
           <div className="approaches-table-scroll">
             <table className="approaches-table">
@@ -313,6 +314,7 @@ function Home() {
               </tbody>
             </table>
           </div>
+        </div>
         </div>
 
         <div className="approaches-solution">
