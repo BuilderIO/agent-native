@@ -305,14 +305,14 @@ Knowledge is stored in three places:
 
 ### What belongs where
 
-| Content                                                       | Location                  |
-| ------------------------------------------------------------- | ------------------------- |
-| BigQuery table names, column mappings, SQL patterns           | `bigquery/SKILL.md`       |
-| API quirks for a specific provider                            | `<provider>/SKILL.md`     |
-| Customer data (IDs, deal info, stakeholders)                  | `docs/learnings.md`       |
-| User preferences, UI patterns                                 | `docs/learnings.md`       |
-| Agent behavior rules                                          | `docs/learnings.md`       |
-| Chart styling preferences                                     | `charts/SKILL.md`         |
+| Content                                             | Location              |
+| --------------------------------------------------- | --------------------- |
+| BigQuery table names, column mappings, SQL patterns | `bigquery/SKILL.md`   |
+| API quirks for a specific provider                  | `<provider>/SKILL.md` |
+| Customer data (IDs, deal info, stakeholders)        | `docs/learnings.md`   |
+| User preferences, UI patterns                       | `docs/learnings.md`   |
+| Agent behavior rules                                | `docs/learnings.md`   |
+| Chart styling preferences                           | `charts/SKILL.md`     |
 
 ## Answering Data Questions in Chat
 
