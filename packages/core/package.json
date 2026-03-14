@@ -4,6 +4,11 @@
   "type": "module",
   "description": "Framework for agent-native application development — where AI agents and UI share state via files",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/core"
+  },
   "bin": {
     "agent-native": "dist/cli/index.js"
   },
