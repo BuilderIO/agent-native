@@ -19,9 +19,7 @@ import {
   handleContentCalendar,
   handleContentCalendarSchema,
   handleNotionPage,
-  handleDataDictionary,
 } from "./routes/notion";
-import { syncDataDictionary } from "./lib/notion";
 import { handleTwitterTweets, handleTwitterMulti } from "./routes/twitter";
 import { handlePylonIssues, handlePylonAccounts } from "./routes/pylon";
 import { handleCommonRoomMembers } from "./routes/commonroom";
@@ -78,12 +76,6 @@ import {
   handleMyStats,
   handleNewMetrics,
 } from "./routes/gamification";
-import {
-  handleMissingMetrics,
-  handleApproveSuggestion,
-  handleUpdateEntry,
-  handleCanEdit,
-} from "./routes/data-dictionary";
 import {
   handleStripeBilling,
   handleStripeBillingByProduct,
@@ -168,8 +160,6 @@ export function createAppServer() {
   app.get("/api/notion/content-calendar", handleContentCalendar);
   app.get("/api/notion/content-calendar/schema", handleContentCalendarSchema);
   app.get("/api/notion/page/:pageId", handleNotionPage);
-  app.get("/api/notion/data-dictionary", handleDataDictionary);
-
   // Twitter
   app.get("/api/twitter/tweets", handleTwitterTweets);
   app.get("/api/twitter/multi", handleTwitterMulti);
@@ -252,12 +242,6 @@ export function createAppServer() {
   app.get("/api/stripe/refunds", handleStripeRefunds);
   app.get("/api/stripe/subscriptions", handleStripeSubscriptions);
 
-  // Data Dictionary gamification
-  app.get("/api/data-dictionary/missing-metrics", handleMissingMetrics);
-  app.get("/api/data-dictionary/can-edit", handleCanEdit);
-  app.post("/api/data-dictionary/approve-suggestion", handleApproveSuggestion);
-  app.post("/api/data-dictionary/update-entry", handleUpdateEntry);
-
   // Gamification system
   app.get("/api/gamification/persona", handleGetPersona);
   app.post("/api/gamification/persona", handleSetPersona);
@@ -265,17 +249,6 @@ export function createAppServer() {
   app.get("/api/gamification/leaderboard", handleLeaderboard);
   app.get("/api/gamification/my-stats", handleMyStats);
   app.get("/api/gamification/new-metrics", handleNewMetrics);
-
-  // Sync data dictionary from Notion to local file (fire-and-forget)
-  syncDataDictionary()
-    .then(() =>
-      console.log(
-        "[startup] Data dictionary synced to docs/data-dictionary.md",
-      ),
-    )
-    .catch((err) =>
-      console.error("[startup] Failed to sync data dictionary:", err.message),
-    );
 
   return app;
 }

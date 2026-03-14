@@ -214,7 +214,7 @@ export function useTerminal() {
   const restart = useCallback(
     (settings: LaunchSettings, appName: string) => {
       wsRef.current?.close();
-      termInstance.current?.clear();
+      termInstance.current?.reset();
       connect(settings, appName);
     },
     [connect],

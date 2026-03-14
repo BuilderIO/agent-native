@@ -76,9 +76,9 @@ Manage events, sync with Google Calendar, and share a public booking page with A
 </td>
 <td width="33%" align="center" valign="top">
 
-**Brand**
+**Brand Image Generator**
 
-<a href="https://agent-native.com/templates/brand"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fbrand-placeholder" alt="Brand template" width="100%" /></a>
+<a href="https://agent-native.com/templates/brand-image-generator"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7f5a10a8029b4895ad02276da0f5071b?format=webp&width=800" alt="Brand Image Generator template" width="100%" /></a>
 
 **AI-Native Brand Asset Manager**
 
@@ -89,7 +89,7 @@ Upload your brand assets and generate on-brand images with AI style matching.
 <tr>
 <td align="center"><a href="https://agent-native.com/templates/video"><img src=".github/assets/launch-button.svg" alt="Launch Video" height="36" /></a></td>
 <td align="center"><a href="https://agent-native.com/templates/calendar"><img src=".github/assets/launch-button.svg" alt="Launch Calendar" height="36" /></a></td>
-<td align="center"><a href="https://agent-native.com/templates/brand"><img src=".github/assets/launch-button.svg" alt="Launch Brand" height="36" /></a></td>
+<td align="center"><a href="https://agent-native.com/templates/brand-image-generator"><img src=".github/assets/launch-button.svg" alt="Launch Brand Image Generator" height="36" /></a></td>
 </tr>
 </table>
 

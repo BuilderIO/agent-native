@@ -2,7 +2,6 @@ import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ExternalLink, type LucideIcon } from "lucide-react";
-import { MetricValidationButton } from "@/components/MetricValidationButton";
 
 interface MetricCardProps {
   title: string;
@@ -30,12 +29,6 @@ export function MetricCard({
           {title}
         </CardTitle>
         <div className="flex items-center gap-1">
-          <MetricValidationButton
-            metricName={title}
-            metricValue={value}
-            variant="ghost"
-            size="icon"
-          />
           {sql && (
             <Link
               to={`/query?sql=${encodeURIComponent(sql)}`}

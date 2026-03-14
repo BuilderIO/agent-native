@@ -22,7 +22,6 @@ import {
   GripVertical,
   Home,
   BarChart3,
-  FileText,
   LayoutDashboard,
 } from "lucide-react";
 import { getIdToken } from "@/lib/auth";
@@ -36,7 +35,7 @@ import {
 } from "@/lib/cost-tracker";
 import {
   dashboards,
-  adHocAnalyses,
+
   hideDashboard,
   getHiddenDashboards,
   getFavoriteDashboards,
@@ -454,7 +453,7 @@ export function Sidebar() {
   const [costOpen, setCostOpen] = useState(() => getTotalCost() > 50);
   const [dashOpen, setDashOpen] = useState(true);
   const [toolsOpen, setToolsOpen] = useState(true);
-  const [adhocOpen, setAdhocOpen] = useState(true);
+
   const [light, setLight] = useState(() =>
     document.documentElement.classList.contains("light"),
   );
@@ -664,20 +663,6 @@ export function Sidebar() {
             Overview
           </Link>
 
-          {/* Data Dictionary link */}
-          <Link
-            to="/data-dictionary"
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-              location.pathname === "/data-dictionary"
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50",
-            )}
-          >
-            <Info className="h-4 w-4" />
-            Data Dictionary
-          </Link>
-
           {/* Dashboards section */}
           <button
             onClick={() => setDashOpen(!dashOpen)}
@@ -726,60 +711,6 @@ export function Sidebar() {
                 </div>
               </SortableContext>
             </DndContext>
-          )}
-
-          {/* Ad Hoc Analyses section */}
-          <button
-            onClick={() => setAdhocOpen(!adhocOpen)}
-            className={cn(
-              "flex w-full items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary text-left",
-              adHocAnalyses.some((a) => location.pathname === `/adhoc/${a.id}`)
-                ? "text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50",
-            )}
-          >
-            <FileText className="h-4 w-4" />
-            <span className="flex-1">Ad Hoc Analyses</span>
-            <ChevronDown
-              className={cn(
-                "h-3.5 w-3.5 transition-transform",
-                !adhocOpen && "-rotate-90",
-              )}
-            />
-          </button>
-
-          {adhocOpen && (
-            <div className="ml-4 space-y-0.5">
-              {/* Index/Directory Link */}
-              <Link
-                to="/adhoc/adhoc-index"
-                className={cn(
-                  "flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-all hover:text-primary",
-                  location.pathname === "/adhoc/adhoc-index"
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
-                )}
-              >
-                <BarChart3 className="h-3 w-3" />
-                View All Analyses
-              </Link>
-
-              {/* Individual Analyses */}
-              {adHocAnalyses.map((analysis) => (
-                <Link
-                  key={analysis.id}
-                  to={`/adhoc/${analysis.id}`}
-                  className={cn(
-                    "flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-all hover:text-primary",
-                    location.pathname === `/adhoc/${analysis.id}`
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-muted-foreground hover:bg-sidebar-accent/50",
-                  )}
-                >
-                  <span className="truncate">{analysis.name}</span>
-                </Link>
-              ))}
-            </div>
           )}
 
           {/* Tools section */}

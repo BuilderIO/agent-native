@@ -4,7 +4,6 @@ import {
   getContentCalendar,
   getContentCalendarSchema,
   getNotionPage,
-  getDataDictionary,
 } from "../lib/notion";
 
 // GET /api/notion/content-calendar — returns all content calendar entries
@@ -51,14 +50,3 @@ export const handleNotionPage: RequestHandler = async (req, res) => {
   }
 };
 
-// GET /api/notion/data-dictionary — returns all data dictionary entries
-export const handleDataDictionary: RequestHandler = async (_req, res) => {
-  if (requireEnvKey(res, "NOTION_API_KEY", "Notion")) return;
-  try {
-    const entries = await getDataDictionary();
-    res.json({ entries, total: entries.length });
-  } catch (err: any) {
-    console.error("Notion data-dictionary error:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-};

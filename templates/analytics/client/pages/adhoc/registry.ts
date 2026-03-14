@@ -23,22 +23,6 @@ function validateDashboard(dashboard: DashboardMeta): void {
     );
   }
 
-  if (dashboard.category === "adhoc") {
-    if (!dashboard.dateCreated) {
-      errors.push(
-        `Ad-hoc analyses require 'dateCreated' field (YYYY-MM-DD format)`,
-      );
-    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(dashboard.dateCreated)) {
-      errors.push(
-        `'dateCreated' must be in YYYY-MM-DD format, got: ${dashboard.dateCreated}`,
-      );
-    }
-
-    if (!dashboard.description) {
-      errors.push(`Ad-hoc analyses require 'description' field`);
-    }
-  }
-
   if (errors.length > 0) {
     console.error(
       `❌ Dashboard '${dashboard.id}' (${dashboard.name}) is missing required metadata:\n` +
@@ -60,9 +44,8 @@ export interface DashboardMeta {
   id: string;
   name: string;
   subviews?: DashboardSubview[];
-  description?: string; // For ad-hoc analyses
-  dateCreated?: string; // REQUIRED: For ad-hoc analyses (YYYY-MM-DD format)
-  category?: "dashboard" | "adhoc"; // Default is 'dashboard'
+  description?: string;
+  dateCreated?: string; // YYYY-MM-DD format
 
   /**
    * REQUIRED: Email or name of the person who created this dashboard.
@@ -198,21 +181,6 @@ export const dashboards: DashboardMeta[] = [
   },
 ];
 
-// Ad-hoc analyses - One-time deep dives and investigations
-// REQUIRED FIELDS: id, name, author, lastUpdated, dateCreated, description, category: 'adhoc'
-export const adHocAnalyses: DashboardMeta[] = [
-  {
-    id: "conversion-analysis",
-    name: "Traffic to Signup Conversion Analysis",
-    description:
-      "Deep dive into declining conversion rates with funnel analysis, traffic source breakdown, and data quality checks",
-    dateCreated: "2026-03-11",
-    author: "team@builder.io",
-    lastUpdated: "2026-03-11",
-    category: "adhoc",
-  },
-];
-
 const HIDDEN_KEY = "hidden-dashboards";
 
 export function getHiddenDashboards(): Set<string> {
@@ -304,15 +272,14 @@ export const dashboardComponents: Record<
   jira: lazy(() => import("./jira")),
   stripe: lazy(() => import("./stripe")),
   "onboarding-funnel": lazy(() => import("./onboarding-funnel")),
-  "conversion-analysis": lazy(() => import("./conversion-analysis")),
-  "adhoc-index": lazy(() => import("./adhoc-index")),
+
   explorer: lazy(() => import("./explorer")),
   "explorer-dashboard": lazy(() => import("./explorer-dashboard")),
   "pr-review-bot": lazy(() => import("./pr-review-bot")),
 };
 
-// Validate all dashboards and ad-hoc analyses at module load time
+// Validate all dashboards at module load time
 // This catches missing metadata during development
 if (import.meta.env.DEV) {
-  [...dashboards, ...adHocAnalyses].forEach(validateDashboard);
+  dashboards.forEach(validateDashboard);
 }
