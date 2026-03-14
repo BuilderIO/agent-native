@@ -210,12 +210,23 @@ function Home() {
           </p>
         </div>
 
-        {/* Carousel on smaller screens, grid on ultra-wide */}
-        <div className="2xl:hidden">
+        {/* Mobile: vertical stack */}
+        <div className="md:hidden">
+          <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5">
+            {templates.map((t) => (
+              <TemplateCard key={t.name} template={t} />
+            ))}
+          </div>
+        </div>
+
+        {/* Tablet/desktop carousel */}
+        <div className="hidden md:block 2xl:hidden">
           <div className="mx-auto max-w-[1200px]">
             <TemplateCarousel />
           </div>
         </div>
+
+        {/* Ultra-wide: 4-column grid */}
         <div className="hidden 2xl:block">
           <div className="mx-auto grid max-w-[1680px] grid-cols-4 gap-5">
             {templates.map((t) => (
