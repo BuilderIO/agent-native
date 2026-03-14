@@ -371,6 +371,10 @@ pnpm script seo-top-keywords --grep=remix --fields=keyword,rank_absolute,etv
 
 **Key principle**: When asked a question, don't just say "you can check the dashboard" — actually run the query, get the data, and present the answer directly in chat with tables and/or charts.
 
+## TypeScript Everywhere
+
+All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`, or `.mjs` files. Node 22+ runs `.ts` files natively, so no compilation step is needed for scripts. Use ESM imports (`import`), not CommonJS (`require`).
+
 ## Code Comments Policy
 
 - Do not add unnecessary comments. Only comment complex logic that isn't self-evident.
