@@ -11,7 +11,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ExternalLink } from "lucide-react";
-import { MetricValidationButton } from "@/components/MetricValidationButton";
 
 interface TimeSeriesChartProps {
   title: string;
@@ -45,21 +44,11 @@ export function TimeSeriesChart({
     }
   };
 
-  // Get latest value from data for validation
-  const latestValue =
-    data.length > 0 ? (data[data.length - 1][yKey] as number | string) : null;
-
   return (
     <Card className="bg-card border-border/50">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-base">{title}</CardTitle>
         <div className="flex items-center gap-1">
-          <MetricValidationButton
-            metricName={title}
-            metricValue={latestValue}
-            variant="ghost"
-            size="icon"
-          />
           {sql && (
             <Link
               to={`/query?sql=${encodeURIComponent(sql)}`}

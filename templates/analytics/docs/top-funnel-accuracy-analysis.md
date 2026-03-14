@@ -1,10 +1,8 @@
 # Top Funnel Acquisition Accuracy Analysis
 
-## Data Dictionary Metrics vs Current Implementation
+## Metrics vs Current Implementation
 
 ### 1. **Traffic** ❌ MISSING
-
-**Data Dictionary Definition:**
 
 - **Metric:** Traffic
 - **Definition:** "distinct visitor ids"
@@ -16,8 +14,6 @@
 ---
 
 ### 2. **New Visitors** ⚠️ PARTIALLY INCORRECT
-
-**Data Dictionary Definition:**
 
 - **Metric:** New Visitors
 - **Definition:** "Count of distinct first-time visitors (by User_Id) cohorted by their first pageview date. Only counts users whose first-ever pageview falls within the selected date range."
@@ -36,7 +32,7 @@ GROUP BY flex_date, flex_view_by
 **Issues:**
 
 1. ❌ Using `dbt_staging_bigquery.first_pageviews` instead of recommended sigma materialized view
-2. ⚠️ The current query relies on `first_pageviews` table which should contain first pageviews, but not confirmed to match Data Dictionary's logic
+2. ⚠️ The current query relies on `first_pageviews` table which should contain first pageviews, but not confirmed to match the expected logic
 3. ❌ Missing joins to `dbt_analytics.hs_contacts` and `dbt_mart.user_top_subscription` as specified
 
 **Recommendation:** Update to use sigma materialized view `t_mat_ab7b70cf` or verify that `first_pageviews` implements the exact same logic
@@ -44,8 +40,6 @@ GROUP BY flex_date, flex_view_by
 ---
 
 ### 3. **Signups** ⚠️ PARTIALLY INCORRECT
-
-**Data Dictionary Definition:**
 
 - **Metric:** Signups
 - **Definition:** "Count of distinct users who created an account, cohorted by User_Create_D. Pageview Centric view excludes signups without a tracked pageview (e.g. adblock/Figma plugin). Signup Centric view includes ALL product signups."
@@ -76,13 +70,11 @@ FROM ${PRODUCT_SIGNUPS} ps  -- dbt_analytics.product_signups
 **Recommendation:**
 
 - Tab 1: Switch to sigma materialized view for consistency
-- Both tabs: Add joins to contacts and subscriptions tables per Data Dictionary spec
+- Both tabs: Add joins to contacts and subscriptions tables per spec
 
 ---
 
 ### 4. **First Touch Channel** ⚠️ IMPLEMENTATION MISMATCH
-
-**Data Dictionary Definition:**
 
 - **Metric:** First Touch Channel
 - **Definition:** "Attributed acquisition channel based on a user's first tracked touchpoint. Coalesce_Channel prioritizes First_Touch_Channel over the pageview-level Channel field. Values: direct, organic, figma, oss, ai chat, paid, referral, social, other."
@@ -107,8 +99,6 @@ case "Channel":
 ---
 
 ### 5. **Signup to Paid Sub Conversion** ⚠️ CALCULATION DIFFERS
-
-**Data Dictionary Definition:**
 
 - **Metric:** Signup to Paid Sub Conversion
 - **Definition:** "Percentage of signups that convert to at least one paid subscription. Calculated as Paid Subscribers ÷ Total Signups."
@@ -146,8 +136,8 @@ SAFE_DIVIDE(
 
 ### Medium Priority (Completeness)
 
-6. ❌ **Add missing joins** - Include hs_contacts and user_top_subscription joins per Data Dictionary specs
-7. ❌ **Standardize table references** - Ensure all metrics use Data Dictionary specified tables
+6. ❌ **Add missing joins** - Include hs_contacts and user_top_subscription joins per specs
+7. ❌ **Standardize table references** - Ensure all metrics use specified tables
 
 ### Recommended Tables
 

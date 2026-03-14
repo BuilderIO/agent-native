@@ -15,8 +15,6 @@ import Settings from "./pages/Settings";
 import AdhocRouter from "./pages/adhoc/AdhocRouter";
 import NotFound from "./pages/NotFound";
 import About from "./pages/About";
-import DataDictionary from "./pages/DataDictionary";
-import DataDictionaryReviewQueue from "./pages/DataDictionaryReviewQueue";
 import { CommandPalette } from "./components/layout/CommandPalette";
 
 const queryClient = new QueryClient();
@@ -37,11 +35,6 @@ const App = () => (
             <Routes>
               <Route path="/" element={<Welcome />} />
               <Route path="/overview" element={<Index />} />
-              <Route path="/data-dictionary" element={<DataDictionary />} />
-              <Route
-                path="/data-dictionary/review-queue"
-                element={<DataDictionaryReviewQueue />}
-              />
               <Route path="/adhoc/:id" element={<AdhocRouter />} />
               <Route path="/query" element={<QueryExplorer />} />
               <Route path="/settings" element={<Settings />} />

@@ -1,8 +1,8 @@
-This project is for adhoc analysis of Builder.io app event data stored in BigQuery.
+This project is for analysis of Builder.io app event data stored in BigQuery.
 
 ## Dashboard system
 
-The app supports multiple adhoc dashboards. Each dashboard is a separate file in
+The app supports multiple dashboards. Each dashboard is a separate file in
 `client/pages/adhoc/` and is registered in `client/pages/adhoc/registry.ts`.
 
 When users ask for charts, data breakdowns, or metrics:
