@@ -11,6 +11,7 @@
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true"
   },
   "dependencies": {
+    "@agent-native/harness-shared": "workspace:*",
     "express": "^5.1.0",
     "node-pty": "^1.1.0",
     "ws": "^8.18.0"

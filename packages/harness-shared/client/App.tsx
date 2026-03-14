@@ -14,6 +14,7 @@ import {
   saveSettings,
   type LaunchSettings,
 } from "./lib/settings";
+import { useHarnessConfig } from "./lib/config";
 
 function Tooltip({ children, label }: { children: ReactNode; label: string }) {
   return (
@@ -32,14 +33,18 @@ const APP_CONFIG: Array<{ name: string; appPort: number; wsPort: number }> =
   ];
 
 export function App() {
-  const [settings, setSettings] = useState<LaunchSettings>(loadSettings);
+  const config = useHarnessConfig();
+
+  const [settings, setSettings] = useState<LaunchSettings>(() =>
+    loadSettings(config)
+  );
   const [showSettings, setShowSettings] = useState(false);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
   const shareRef = useRef<HTMLDivElement>(null);
 
   const [activeApp, setActiveApp] = useState(() => {
-    const saved = loadSettings().activeApp;
+    const saved = loadSettings(config).activeApp;
     return APP_CONFIG.find((a) => a.name === saved)?.name || APP_CONFIG[0]?.name || "default";
   });
 
@@ -58,8 +63,8 @@ export function App() {
 
   const updateSettings = useCallback((s: LaunchSettings) => {
     setSettings(s);
-    saveSettings(s);
-  }, []);
+    saveSettings(config, s);
+  }, [config]);
 
   const switchApp = useCallback(
     (name: string) => {
@@ -219,9 +224,9 @@ export function App() {
         {setupStatus.status === "installing" ? (
           <>
             <div className="w-8 h-8 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin mx-auto mb-4" />
-            <h3 className="text-sm font-medium text-white/90 mb-2">Installing Claude Code</h3>
+            <h3 className="text-sm font-medium text-white/90 mb-2">Installing {config.name}</h3>
             <p className="text-xs text-white/50 leading-relaxed">
-              Running <code className="bg-white/10 px-1.5 py-0.5 rounded text-[11px]">npm install -g @anthropic-ai/claude-code</code>
+              Running <code className="bg-white/10 px-1.5 py-0.5 rounded text-[11px]">npm install -g {config.installPackage}</code>
             </p>
             <p className="text-[11px] text-white/30 mt-3">This may take a minute...</p>
           </>
@@ -230,11 +235,11 @@ export function App() {
             <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
               <span className="text-red-400 text-lg">!</span>
             </div>
-            <h3 className="text-sm font-medium text-white/90 mb-2">Claude Code Not Found</h3>
+            <h3 className="text-sm font-medium text-white/90 mb-2">{config.name} Not Found</h3>
             <p className="text-xs text-white/50 leading-relaxed mb-4">{setupStatus.message}</p>
             <p className="text-xs text-white/40 leading-relaxed">Install manually:</p>
             <code className="block bg-white/10 px-3 py-2 rounded text-[11px] text-white/70 mt-2">
-              npm install -g @anthropic-ai/claude-code
+              npm install -g {config.installPackage}
             </code>
             <button
               onClick={() => restart(settings, activeApp)}
