@@ -14,7 +14,9 @@ const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname);
-    const base = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
+    const base = path
+      .basename(file.originalname, ext)
+      .replace(/[^a-zA-Z0-9_-]/g, "_");
     const unique = `${base}-${Date.now()}${ext}`;
     cb(null, unique);
   },
@@ -65,7 +67,10 @@ assetsRouter.get("/", (_req, res) => {
           createdAt: stat.birthtime.toISOString(),
         };
       })
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
     res.json(assets);
   } catch {
     res.json([]);

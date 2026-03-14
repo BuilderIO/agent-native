@@ -24,14 +24,24 @@ interface Props {
   onDealClick?: (deal: HubSpotDeal) => void;
 }
 
-export function KanbanBoard({ deals, pipelines, isLoading, onDealClick }: Props) {
-  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(null);
+export function KanbanBoard({
+  deals,
+  pipelines,
+  isLoading,
+  onDealClick,
+}: Props) {
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(
+    null,
+  );
 
   // Default to "Enterprise: New Business" if available, otherwise first pipeline
   const activePipeline = useMemo(() => {
     if (!pipelines.length) return null;
-    if (selectedPipelineId) return pipelines.find((p) => p.id === selectedPipelineId) ?? pipelines[0];
-    const enterprise = pipelines.find((p) => p.label.includes("Enterprise") && p.label.includes("New"));
+    if (selectedPipelineId)
+      return pipelines.find((p) => p.id === selectedPipelineId) ?? pipelines[0];
+    const enterprise = pipelines.find(
+      (p) => p.label.includes("Enterprise") && p.label.includes("New"),
+    );
     return enterprise ?? pipelines[0];
   }, [pipelines, selectedPipelineId]);
 
@@ -54,7 +64,7 @@ export function KanbanBoard({ deals, pipelines, isLoading, onDealClick }: Props)
       const stageDeals = byStage.get(stage.id) ?? [];
       const totalValue = stageDeals.reduce(
         (sum, d) => sum + (parseFloat(d.properties.amount ?? "0") || 0),
-        0
+        0,
       );
       return {
         stageId: stage.id,
@@ -62,7 +72,7 @@ export function KanbanBoard({ deals, pipelines, isLoading, onDealClick }: Props)
         deals: stageDeals.sort(
           (a, b) =>
             (parseFloat(b.properties.amount ?? "0") || 0) -
-            (parseFloat(a.properties.amount ?? "0") || 0)
+            (parseFloat(a.properties.amount ?? "0") || 0),
         ),
         totalValue,
       };
@@ -75,7 +85,10 @@ export function KanbanBoard({ deals, pipelines, isLoading, onDealClick }: Props)
         <CardContent className="py-6">
           <div className="flex gap-3 overflow-x-auto">
             {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-[300px] w-[220px] flex-shrink-0 rounded-lg" />
+              <Skeleton
+                key={i}
+                className="h-[300px] w-[220px] flex-shrink-0 rounded-lg"
+              />
             ))}
           </div>
         </CardContent>
@@ -100,7 +113,7 @@ export function KanbanBoard({ deals, pipelines, isLoading, onDealClick }: Props)
                       "px-2 py-1 transition-colors whitespace-nowrap",
                       activePipeline?.id === p.id
                         ? "bg-primary text-primary-foreground"
-                        : "bg-muted/30 hover:bg-muted/50 text-muted-foreground"
+                        : "bg-muted/30 hover:bg-muted/50 text-muted-foreground",
                     )}
                   >
                     {p.label}
@@ -127,11 +140,20 @@ export function KanbanBoard({ deals, pipelines, isLoading, onDealClick }: Props)
 
 function getStageColor(label: string): string {
   const lower = label.toLowerCase();
-  if (lower.includes("closed won") || lower === "won") return "border-t-emerald-500";
-  if (lower.includes("closed lost") || lower === "lost") return "border-t-red-500";
-  if (lower.includes("stalled") || lower.includes("disqualified")) return "border-t-orange-500";
-  if (lower.includes("pov") || lower.includes("poc") || lower.includes("proof")) return "border-t-purple-500";
-  if (lower.includes("paper") || lower.includes("contract") || lower.includes("negotiat")) return "border-t-yellow-500";
+  if (lower.includes("closed won") || lower === "won")
+    return "border-t-emerald-500";
+  if (lower.includes("closed lost") || lower === "lost")
+    return "border-t-red-500";
+  if (lower.includes("stalled") || lower.includes("disqualified"))
+    return "border-t-orange-500";
+  if (lower.includes("pov") || lower.includes("poc") || lower.includes("proof"))
+    return "border-t-purple-500";
+  if (
+    lower.includes("paper") ||
+    lower.includes("contract") ||
+    lower.includes("negotiat")
+  )
+    return "border-t-yellow-500";
   return "border-t-blue-500/50";
 }
 
@@ -146,7 +168,7 @@ function KanbanColumnCard({
     <div
       className={cn(
         "flex-shrink-0 w-[210px] rounded-lg border border-border/50 bg-muted/10 border-t-2",
-        getStageColor(column.label)
+        getStageColor(column.label),
       )}
     >
       <div className="px-2.5 py-2 border-b border-border/30">
@@ -192,7 +214,10 @@ function DealCard({
       onClick={() => onClick?.(deal)}
       className="w-full text-left rounded-md bg-card border border-border/30 p-2 hover:border-border transition-colors"
     >
-      <p className="text-[11px] font-medium leading-tight truncate" title={name}>
+      <p
+        className="text-[11px] font-medium leading-tight truncate"
+        title={name}
+      >
         {name}
       </p>
       {amount > 0 && (

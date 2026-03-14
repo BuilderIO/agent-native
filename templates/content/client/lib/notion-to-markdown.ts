@@ -1,22 +1,27 @@
-import { BlockObjectResponse, RichTextItemResponse } from "@notionhq/client/build/src/api-endpoints";
+import {
+  BlockObjectResponse,
+  RichTextItemResponse,
+} from "@notionhq/client/build/src/api-endpoints";
 
 function richTextToMarkdown(richText: any[]): string {
   if (!richText || richText.length === 0) return "";
 
-  return richText.map(t => {
-    let text = t.plain_text || t.text?.content || "";
-    if (t.annotations) {
-      if (t.annotations.code) text = `\`${text}\``;
-      if (t.annotations.bold) text = `**${text}**`;
-      if (t.annotations.italic) text = `*${text}*`;
-      if (t.annotations.strikethrough) text = `~~${text}~~`;
-    }
-    const href = t.href || t.text?.link?.url;
-    if (href) {
-      text = `[${text}](${href})`;
-    }
-    return text;
-  }).join("");
+  return richText
+    .map((t) => {
+      let text = t.plain_text || t.text?.content || "";
+      if (t.annotations) {
+        if (t.annotations.code) text = `\`${text}\``;
+        if (t.annotations.bold) text = `**${text}**`;
+        if (t.annotations.italic) text = `*${text}*`;
+        if (t.annotations.strikethrough) text = `~~${text}~~`;
+      }
+      const href = t.href || t.text?.link?.url;
+      if (href) {
+        text = `[${text}](${href})`;
+      }
+      return text;
+    })
+    .join("");
 }
 
 export function notionBlocksToMarkdown(blocks: any[]): string {
@@ -26,7 +31,10 @@ export function notionBlocksToMarkdown(blocks: any[]): string {
 
   for (const block of blocks) {
     // Basic newline between blocks unless they are consecutive list items
-    if (block.type !== "bulleted_list_item" && block.type !== "numbered_list_item") {
+    if (
+      block.type !== "bulleted_list_item" &&
+      block.type !== "numbered_list_item"
+    ) {
       if (inListType) {
         markdown += "\n";
         inListType = null;
@@ -61,7 +69,10 @@ export function notionBlocksToMarkdown(blocks: any[]): string {
         markdown += `\`\`\`${block.code.language}\n${richTextToMarkdown(block.code.rich_text)}\n\`\`\`\n\n`;
         break;
       case "image":
-        const url = block.image.type === "external" ? block.image.external.url : block.image.file?.url;
+        const url =
+          block.image.type === "external"
+            ? block.image.external.url
+            : block.image.file?.url;
         markdown += `![](${url})\n\n`;
         break;
       case "divider":
@@ -82,7 +93,8 @@ export function notionBlocksToMarkdown(blocks: any[]): string {
           markdown += "| " + tableRows[i].join(" | ") + " |\n";
           // Add separator after the first row (header)
           if (i === 0) {
-            markdown += "| " + tableRows[i].map(() => "-----").join(" | ") + " |\n";
+            markdown +=
+              "| " + tableRows[i].map(() => "-----").join(" | ") + " |\n";
           }
         }
         markdown += "\n";

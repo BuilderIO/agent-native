@@ -9,7 +9,10 @@ interface FolderBrowserProps {
   onTogglePath: (path: string) => void;
 }
 
-export function FolderBrowser({ selectedPaths, onTogglePath }: FolderBrowserProps) {
+export function FolderBrowser({
+  selectedPaths,
+  onTogglePath,
+}: FolderBrowserProps) {
   const { data, isLoading } = useImageFolders();
   const [openFolder, setOpenFolder] = useState<ImageFolder | null>(null);
 
@@ -29,7 +32,10 @@ export function FolderBrowser({ selectedPaths, onTogglePath }: FolderBrowserProp
       <div className="text-center py-6 text-xs text-muted-foreground">
         <p>No image reference folders found.</p>
         <p className="mt-1 text-[11px]">
-          Add folders to <code className="bg-muted px-1 rounded">shared-resources/image-references/</code>
+          Add folders to{" "}
+          <code className="bg-muted px-1 rounded">
+            shared-resources/image-references/
+          </code>
         </p>
       </div>
     );
@@ -37,7 +43,7 @@ export function FolderBrowser({ selectedPaths, onTogglePath }: FolderBrowserProp
 
   if (openFolder) {
     const folderSelectedCount = openFolder.images.filter((img) =>
-      selectedPaths.includes(img.path)
+      selectedPaths.includes(img.path),
     ).length;
 
     return (
@@ -59,7 +65,7 @@ export function FolderBrowser({ selectedPaths, onTogglePath }: FolderBrowserProp
           <button
             onClick={() => {
               const allSelected = openFolder.images.every((img) =>
-                selectedPaths.includes(img.path)
+                selectedPaths.includes(img.path),
               );
               for (const img of openFolder.images) {
                 if (allSelected && selectedPaths.includes(img.path)) {
@@ -85,7 +91,9 @@ export function FolderBrowser({ selectedPaths, onTogglePath }: FolderBrowserProp
                 onClick={() => onTogglePath(img.path)}
                 className={cn(
                   "relative rounded-md overflow-hidden border-2 transition-colors shrink-0 w-24 h-24",
-                  isSelected ? "border-primary" : "border-transparent hover:border-border"
+                  isSelected
+                    ? "border-primary"
+                    : "border-transparent hover:border-border",
                 )}
               >
                 <img
@@ -111,7 +119,7 @@ export function FolderBrowser({ selectedPaths, onTogglePath }: FolderBrowserProp
     <div className="flex gap-2 overflow-x-auto scrollbar-thin pb-1">
       {folders.map((folder) => {
         const selectedInFolder = folder.images.filter((img) =>
-          selectedPaths.includes(img.path)
+          selectedPaths.includes(img.path),
         ).length;
         return (
           <button
@@ -121,7 +129,7 @@ export function FolderBrowser({ selectedPaths, onTogglePath }: FolderBrowserProp
               "rounded-lg border transition-colors overflow-hidden text-left shrink-0 w-36",
               selectedInFolder > 0
                 ? "border-primary/50"
-                : "border-border hover:border-foreground/20"
+                : "border-border hover:border-foreground/20",
             )}
           >
             {folder.thumbnailPath && (
@@ -134,7 +142,9 @@ export function FolderBrowser({ selectedPaths, onTogglePath }: FolderBrowserProp
                 />
                 {selectedInFolder > 0 && (
                   <div className="absolute top-1 right-1 min-w-[20px] h-5 px-1 rounded-full bg-primary flex items-center justify-center">
-                    <span className="text-[10px] font-bold text-primary-foreground">{selectedInFolder}</span>
+                    <span className="text-[10px] font-bold text-primary-foreground">
+                      {selectedInFolder}
+                    </span>
                   </div>
                 )}
               </div>
@@ -142,7 +152,9 @@ export function FolderBrowser({ selectedPaths, onTogglePath }: FolderBrowserProp
             <div className="px-2 py-1.5">
               <div className="flex items-center gap-1">
                 <Folder size={11} className="text-muted-foreground shrink-0" />
-                <span className="text-[11px] font-medium truncate">{folder.name}</span>
+                <span className="text-[11px] font-medium truncate">
+                  {folder.name}
+                </span>
               </div>
               <span className="text-[10px] text-muted-foreground">
                 {folder.imageCount} image{folder.imageCount !== 1 ? "s" : ""}

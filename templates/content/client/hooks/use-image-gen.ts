@@ -30,7 +30,9 @@ export function useGenerateImage() {
           signal: controller.signal,
         });
         if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: "Generation failed" }));
+          const err = await res
+            .json()
+            .catch(() => ({ error: "Generation failed" }));
           throw new Error(err.error || "Generation failed");
         }
         return res.json();
@@ -38,7 +40,10 @@ export function useGenerateImage() {
         if (e.name === "AbortError") {
           throw new Error("Image generation timed out (2 min limit)");
         }
-        throw new Error(e.message || "Image generation failed — check your API key and network");
+        throw new Error(
+          e.message ||
+            "Image generation failed — check your API key and network",
+        );
       } finally {
         clearTimeout(timeout);
       }

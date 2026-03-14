@@ -18,7 +18,12 @@ import { TableHoverControls } from "./TableHoverControls";
 import { InlineImageGen } from "./InlineImageGen";
 import { ImageNode } from "./extensions/ImageNode";
 import { VideoNode } from "./extensions/VideoNode";
-import { useMediaUpload, isImageFile, isVideoFile, isMediaFile } from "@/hooks/use-media-upload";
+import {
+  useMediaUpload,
+  isImageFile,
+  isVideoFile,
+  isMediaFile,
+} from "@/hooks/use-media-upload";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
@@ -50,13 +55,19 @@ const CustomTable = BaseTable.extend({
                   const src = child.attrs.src || "";
                   const alt = child.attrs.alt || "";
                   const title = child.attrs.title || "";
-                  const escapedTitle = title ? ` "${title.replace(/"/g, '\\"')}"` : "";
-                  state.write(`![${state.esc(alt)}](${state.esc(src)}${escapedTitle})`);
+                  const escapedTitle = title
+                    ? ` "${title.replace(/"/g, '\\"')}"`
+                    : "";
+                  state.write(
+                    `![${state.esc(alt)}](${state.esc(src)}${escapedTitle})`,
+                  );
                 } else if (child.type.name === "video") {
                   const src = child.attrs.src;
                   const title = child.attrs.title || "";
                   if (isPersistableMediaSrc(src)) {
-                    state.write(`<video src="${src}" controls${title ? ` title="${title}"` : ""}></video>`);
+                    state.write(
+                      `<video src="${src}" controls${title ? ` title="${title}"` : ""}></video>`,
+                    );
                   }
                 } else if (child.isTextblock) {
                   // Intercept writes to prevent newlines inside table cells
@@ -72,7 +83,9 @@ const CustomTable = BaseTable.extend({
                   state.write = oldWrite;
                 } else {
                   // Fallback: render text content only, stripped of newlines
-                  state.write(state.esc(child.textContent || "").replace(/\n/g, " "));
+                  state.write(
+                    state.esc(child.textContent || "").replace(/\n/g, " "),
+                  );
                 }
               });
             });
@@ -106,9 +119,13 @@ interface PendingUploadLocator {
 
 function findPendingUploadNode(
   doc: any,
-  { uploadId, tempUrl }: PendingUploadLocator
+  { uploadId, tempUrl }: PendingUploadLocator,
 ): { node: any; nodePos: number; matchedBy: "uploadId" | "tempUrl" } | null {
-  let fallbackMatch: { node: any; nodePos: number; matchedBy: "uploadId" | "tempUrl" } | null = null;
+  let fallbackMatch: {
+    node: any;
+    nodePos: number;
+    matchedBy: "uploadId" | "tempUrl";
+  } | null = null;
 
   doc.descendants((node: any, pos: number) => {
     if (node.attrs?.uploadId === uploadId) {
@@ -116,7 +133,11 @@ function findPendingUploadNode(
       return false;
     }
 
-    if (!fallbackMatch && node.attrs?.uploading && node.attrs?.src === tempUrl) {
+    if (
+      !fallbackMatch &&
+      node.attrs?.uploading &&
+      node.attrs?.src === tempUrl
+    ) {
       fallbackMatch = { node, nodePos: pos, matchedBy: "tempUrl" };
     }
 
@@ -129,7 +150,7 @@ function findPendingUploadNode(
 function updatePendingUploadStatus(
   editor: any,
   locator: PendingUploadLocator,
-  status: "uploading" | "processing"
+  status: "uploading" | "processing",
 ): boolean {
   if (!editor || editor.isDestroyed) return false;
 
@@ -141,7 +162,7 @@ function updatePendingUploadStatus(
       ...match.node.attrs,
       uploading: true,
       uploadStatus: status,
-    })
+    }),
   );
   return true;
 }
@@ -149,7 +170,7 @@ function updatePendingUploadStatus(
 function applyPendingUploadResult(
   editor: any,
   locator: PendingUploadLocator,
-  result: { url: string } | null
+  result: { url: string } | null,
 ): "updated" | "removed" | "missing" {
   if (!editor || editor.isDestroyed) return "missing";
 
@@ -164,22 +185,29 @@ function applyPendingUploadResult(
         uploading: false,
         uploadId: null,
         uploadStatus: null,
-      })
+      }),
     );
     return "updated";
   }
 
-  editor.view.dispatch(editor.state.tr.delete(match.nodePos, match.nodePos + match.node.nodeSize));
+  editor.view.dispatch(
+    editor.state.tr.delete(match.nodePos, match.nodePos + match.node.nodeSize),
+  );
   return "removed";
 }
 
-function removePendingUploadNode(editor: any, locator: PendingUploadLocator): boolean {
+function removePendingUploadNode(
+  editor: any,
+  locator: PendingUploadLocator,
+): boolean {
   if (!editor || editor.isDestroyed) return false;
 
   const match = findPendingUploadNode(editor.state.doc, locator);
   if (!match) return false;
 
-  editor.view.dispatch(editor.state.tr.delete(match.nodePos, match.nodePos + match.node.nodeSize));
+  editor.view.dispatch(
+    editor.state.tr.delete(match.nodePos, match.nodePos + match.node.nodeSize),
+  );
   return true;
 }
 
@@ -195,7 +223,7 @@ function finalizePendingUpload(
     locator: PendingUploadLocator;
     result: { url: string } | null;
     context: "drop" | "paste";
-  }
+  },
 ): boolean {
   try {
     const outcome = applyPendingUploadResult(editor, locator, result);
@@ -205,13 +233,16 @@ function finalizePendingUpload(
 
     const removed = removePendingUploadNode(editor, locator);
 
-    console.warn(`[editor] Uploaded media node could not be reconciled during ${context}`, {
-      fileName,
-      uploadId: locator.uploadId,
-      tempUrl: locator.tempUrl,
-      hasResult: Boolean(result),
-      removed,
-    });
+    console.warn(
+      `[editor] Uploaded media node could not be reconciled during ${context}`,
+      {
+        fileName,
+        uploadId: locator.uploadId,
+        tempUrl: locator.tempUrl,
+        hasResult: Boolean(result),
+        removed,
+      },
+    );
 
     if (result) {
       toast.error(`Could not finish uploading ${fileName} in the editor.`);
@@ -254,10 +285,14 @@ export function VisualEditor({
   const [isDragging, setIsDragging] = useState(false);
   const [imageGenText, setImageGenText] = useState<string | null>(null);
   const imageGenInsertPos = useRef<number | null>(null);
-  const [imageGenTopOffset, setImageGenTopOffset] = useState<number | null>(null);
+  const [imageGenTopOffset, setImageGenTopOffset] = useState<number | null>(
+    null,
+  );
   const wrapperRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<any>(null);
-  const selectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   const handleUpload = useCallback(
     async (file: File) => {
@@ -267,7 +302,7 @@ export function VisualEditor({
       }
       return null;
     },
-    [upload]
+    [upload],
   );
 
   const handlePendingUpload = useCallback(
@@ -280,16 +315,21 @@ export function VisualEditor({
       if (result) return { url: result.url };
       return null;
     },
-    [upload]
+    [upload],
   );
 
   const handleUploadForNode = useCallback(
-    async (file: File, options?: { onStatusChange?: (status: "uploading" | "processing") => void }) => {
+    async (
+      file: File,
+      options?: {
+        onStatusChange?: (status: "uploading" | "processing") => void;
+      },
+    ) => {
       const result = await upload(file, options);
       if (result) return { url: result.url };
       return null;
     },
-    [upload]
+    [upload],
   );
 
   const editor = useEditor({
@@ -382,7 +422,7 @@ export function VisualEditor({
 
           // Re-resolve position
           const $pos = view.state.doc.resolve(insertPos);
-          if ($pos.parent.type.name === 'heading') {
+          if ($pos.parent.type.name === "heading") {
             if (insertPos === $pos.start()) {
               insertPos = $pos.before();
             } else {
@@ -393,7 +433,12 @@ export function VisualEditor({
           const isVideo = file.type.startsWith("video/");
           editor.commands.insertContentAt(insertPos, {
             type: isVideo ? "video" : "image",
-            attrs: { src: tempUrl, uploading: true, uploadId, uploadStatus: "uploading" },
+            attrs: {
+              src: tempUrl,
+              uploading: true,
+              uploadId,
+              uploadStatus: "uploading",
+            },
           });
 
           // Advance insertPos so subsequent files are inserted after this one
@@ -413,18 +458,23 @@ export function VisualEditor({
               }
             })
             .catch((error) => {
-              console.error("[editor] Media upload request failed during drop", {
-                fileName: file.name,
-                uploadId,
-                tempUrl,
-                error,
-              });
+              console.error(
+                "[editor] Media upload request failed during drop",
+                {
+                  fileName: file.name,
+                  uploadId,
+                  tempUrl,
+                  error,
+                },
+              );
 
               const removed = removePendingUploadNode(editor, pendingUpload);
               if (removed) {
                 URL.revokeObjectURL(tempUrl);
               }
-              toast.error(`Could not finish uploading ${file.name} in the editor.`);
+              toast.error(
+                `Could not finish uploading ${file.name} in the editor.`,
+              );
             });
         });
 
@@ -452,7 +502,7 @@ export function VisualEditor({
           }
 
           const $pos = view.state.doc.resolve(insertPos);
-          if ($pos.parent.type.name === 'heading') {
+          if ($pos.parent.type.name === "heading") {
             if (insertPos === $pos.start()) {
               insertPos = $pos.before();
             } else {
@@ -463,7 +513,12 @@ export function VisualEditor({
           const isVideo = file.type.startsWith("video/");
           editor.commands.insertContentAt(insertPos, {
             type: isVideo ? "video" : "image",
-            attrs: { src: tempUrl, uploading: true, uploadId, uploadStatus: "uploading" },
+            attrs: {
+              src: tempUrl,
+              uploading: true,
+              uploadId,
+              uploadStatus: "uploading",
+            },
           });
 
           insertPos += 1;
@@ -482,18 +537,23 @@ export function VisualEditor({
               }
             })
             .catch((error) => {
-              console.error("[editor] Media upload request failed during paste", {
-                fileName: file.name,
-                uploadId,
-                tempUrl,
-                error,
-              });
+              console.error(
+                "[editor] Media upload request failed during paste",
+                {
+                  fileName: file.name,
+                  uploadId,
+                  tempUrl,
+                  error,
+                },
+              );
 
               const removed = removePendingUploadNode(editor, pendingUpload);
               if (removed) {
                 URL.revokeObjectURL(tempUrl);
               }
-              toast.error(`Could not finish uploading ${file.name} in the editor.`);
+              toast.error(
+                `Could not finish uploading ${file.name} in the editor.`,
+              );
             });
         });
 
@@ -557,7 +617,14 @@ export function VisualEditor({
         authFetch("/api/selection", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ projectSlug, filePath, text, from, to, type: "text" }),
+          body: JSON.stringify({
+            projectSlug,
+            filePath,
+            text,
+            from,
+            to,
+            type: "text",
+          }),
         }).catch(() => {});
       }, 300);
     },
@@ -618,7 +685,7 @@ export function VisualEditor({
     <div
       ref={wrapperRef}
       className={`visual-editor-wrapper ${isDragging ? "visual-editor-wrapper--dragging" : ""}`}
-      style={{ position: 'relative' }}
+      style={{ position: "relative" }}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -648,10 +715,13 @@ export function VisualEditor({
 
           // Find the DOM node for the block to compute position
           try {
-            const blockNode = editor.view.domAtPos(resolved.start(resolved.depth));
-            const blockEl = blockNode.node instanceof HTMLElement
-              ? blockNode.node
-              : blockNode.node.parentElement;
+            const blockNode = editor.view.domAtPos(
+              resolved.start(resolved.depth),
+            );
+            const blockEl =
+              blockNode.node instanceof HTMLElement
+                ? blockNode.node
+                : blockNode.node.parentElement;
             if (blockEl && wrapperRef.current) {
               const blockRect = blockEl.getBoundingClientRect();
               const wrapperRect = wrapperRef.current.getBoundingClientRect();
@@ -669,13 +739,17 @@ export function VisualEditor({
       <EditorContent editor={editor} />
       {imageGenText && (
         <div
-          style={imageGenTopOffset != null ? {
-            position: 'absolute',
-            top: imageGenTopOffset,
-            left: 0,
-            right: 0,
-            zIndex: 10,
-          } : undefined}
+          style={
+            imageGenTopOffset != null
+              ? {
+                  position: "absolute",
+                  top: imageGenTopOffset,
+                  left: 0,
+                  right: 0,
+                  zIndex: 10,
+                }
+              : undefined
+          }
         >
           <InlineImageGen
             selectedText={imageGenText}

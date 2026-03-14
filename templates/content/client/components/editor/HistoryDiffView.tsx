@@ -20,9 +20,9 @@ export function HistoryDiffView({
     () =>
       Diff.diffWordsWithSpace(
         previousVersion?.content ?? "",
-        currentVersion?.content ?? ""
+        currentVersion?.content ?? "",
       ),
-    [previousVersion?.content, currentVersion?.content]
+    [previousVersion?.content, currentVersion?.content],
   );
 
   if (isLoading) {
@@ -53,8 +53,10 @@ export function HistoryDiffView({
               <span
                 key={`${index}-${part.value.length}`}
                 className={cn(
-                  part.added && "rounded-sm bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-                  part.removed && "rounded-sm bg-rose-500/15 text-rose-700 line-through dark:text-rose-300"
+                  part.added &&
+                    "rounded-sm bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+                  part.removed &&
+                    "rounded-sm bg-rose-500/15 text-rose-700 line-through dark:text-rose-300",
                 )}
               >
                 {part.value}

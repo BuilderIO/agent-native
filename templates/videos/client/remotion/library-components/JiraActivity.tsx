@@ -130,12 +130,14 @@ export const JiraActivity: React.FC<JiraActivityProps> = ({
 
       {/* Comment 2 - Builder.io Bot - AI work complete (appears second, ABOVE first comment) */}
       {showSecondComment && (
-        <div style={{
-          marginTop: 36,
-          opacity: secondCommentSpring,
-          transform: `translateY(${(1 - secondCommentSpring) * 20}px) scale(${0.95 + secondCommentSpring * 0.05})`,
-          transformOrigin: "top left",
-        }}>
+        <div
+          style={{
+            marginTop: 36,
+            opacity: secondCommentSpring,
+            transform: `translateY(${(1 - secondCommentSpring) * 20}px) scale(${0.95 + secondCommentSpring * 0.05})`,
+            transformOrigin: "top left",
+          }}
+        >
           <JiraCommentCard
             x={0}
             y={0}
@@ -153,7 +155,13 @@ export const JiraActivity: React.FC<JiraActivityProps> = ({
                 <br />
                 🌳 Branch: story-buffer-gyjdjokk
                 <br />
-                <span style={{ textDecoration: "underline", color: "#48a1ff", cursor: "pointer" }}>
+                <span
+                  style={{
+                    textDecoration: "underline",
+                    color: "#48a1ff",
+                    cursor: "pointer",
+                  }}
+                >
                   🔗 View/Edit in Builder.io
                 </span>
               </div>
@@ -164,12 +172,14 @@ export const JiraActivity: React.FC<JiraActivityProps> = ({
 
       {/* Comment 1 - Builder.io Bot - Working on request (appears first, gets pushed down when second appears) */}
       {showFirstComment && (
-        <div style={{
-          marginTop: showSecondComment ? 36 : 36,
-          opacity: firstCommentSpring,
-          transform: `translateY(${(1 - firstCommentSpring) * 20}px) scale(${0.95 + firstCommentSpring * 0.05})`,
-          transformOrigin: "top left",
-        }}>
+        <div
+          style={{
+            marginTop: showSecondComment ? 36 : 36,
+            opacity: firstCommentSpring,
+            transform: `translateY(${(1 - firstCommentSpring) * 20}px) scale(${0.95 + firstCommentSpring * 0.05})`,
+            transformOrigin: "top left",
+          }}
+        >
           <JiraCommentCard
             x={0}
             y={0}
@@ -185,7 +195,13 @@ export const JiraActivity: React.FC<JiraActivityProps> = ({
                 <br />
                 🌳 Branch: story-buffer-gyjdjokk
                 <br />
-                <span style={{ textDecoration: "underline", color: "#48a1ff", cursor: "pointer" }}>
+                <span
+                  style={{
+                    textDecoration: "underline",
+                    color: "#48a1ff",
+                    cursor: "pointer",
+                  }}
+                >
                   🔗 View/Edit in Builder.io
                 </span>
               </div>

@@ -27,7 +27,7 @@ export function useSentryProjects() {
     queryKey: ["sentry-projects"],
     queryFn: async () => {
       const data = await apiFetch<{ projects: SentryProject[] }>(
-        "/api/sentry/projects"
+        "/api/sentry/projects",
       );
       return data.projects;
     },
@@ -38,7 +38,7 @@ export function useSentryProjects() {
 export function useSentryIssues(
   project?: string,
   query?: string,
-  period?: TimePeriod
+  period?: TimePeriod,
 ) {
   return useQuery<SentryIssue[]>({
     queryKey: ["sentry-issues", project, query, period],
@@ -48,7 +48,7 @@ export function useSentryIssues(
       if (query) params.set("query", query);
       if (period) params.set("statsPeriod", period);
       const data = await apiFetch<{ issues: SentryIssue[] }>(
-        `/api/sentry/issues?${params.toString()}`
+        `/api/sentry/issues?${params.toString()}`,
       );
       return data.issues;
     },
@@ -61,7 +61,7 @@ export function useSentryIssueEvents(issueId: string | null) {
     queryKey: ["sentry-issue-events", issueId],
     queryFn: async () => {
       const data = await apiFetch<{ events: SentryEvent[] }>(
-        `/api/sentry/issue-events?issueId=${issueId}`
+        `/api/sentry/issue-events?issueId=${issueId}`,
       );
       return data.events;
     },
@@ -75,7 +75,7 @@ export function useSentryStats(period: TimePeriod) {
     queryKey: ["sentry-stats", period],
     queryFn: () =>
       apiFetch<SentryOrgStats>(
-        `/api/sentry/stats?statsPeriod=${period}&category=error`
+        `/api/sentry/stats?statsPeriod=${period}&category=error`,
       ),
     staleTime: 2 * 60 * 1000,
   });

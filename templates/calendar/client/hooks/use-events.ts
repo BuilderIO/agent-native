@@ -32,7 +32,9 @@ export function useEvent(id: string) {
 export function useCreateEvent() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (data: Omit<CalendarEvent, "id" | "createdAt" | "updatedAt" | "source">) => {
+    mutationFn: async (
+      data: Omit<CalendarEvent, "id" | "createdAt" | "updatedAt" | "source">,
+    ) => {
       const res = await fetch("/api/events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -50,7 +52,10 @@ export function useCreateEvent() {
 export function useUpdateEvent() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, ...data }: Partial<CalendarEvent> & { id: string }) => {
+    mutationFn: async ({
+      id,
+      ...data
+    }: Partial<CalendarEvent> & { id: string }) => {
       const res = await fetch(`/api/events/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },

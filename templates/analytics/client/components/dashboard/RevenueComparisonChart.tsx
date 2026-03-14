@@ -46,7 +46,11 @@ function CustomTooltip({ active, payload, label }: any) {
     <div className="rounded-lg border border-border bg-[#09090b] px-3 py-2 text-xs text-foreground shadow-lg">
       <p className="mb-1 font-medium">{formatDate(label)}</p>
       {payload.map((entry: any) => (
-        <p key={entry.dataKey} style={{ color: entry.color }} className="flex items-center gap-2">
+        <p
+          key={entry.dataKey}
+          style={{ color: entry.color }}
+          className="flex items-center gap-2"
+        >
           <span
             className="inline-block h-2 w-2 rounded-full"
             style={{ backgroundColor: entry.color }}

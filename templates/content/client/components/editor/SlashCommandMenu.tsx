@@ -31,7 +31,7 @@ interface CommandItem {
 }
 
 function createCommands(
-  onUpload?: (file: File) => Promise<{ url: string; type: string } | null>
+  onUpload?: (file: File) => Promise<{ url: string; type: string } | null>,
 ): CommandItem[] {
   return [
     {
@@ -70,48 +70,42 @@ function createCommands(
       description: "Unordered list",
       icon: List,
       category: "basic",
-      action: (editor) =>
-        editor.chain().focus().toggleBulletList().run(),
+      action: (editor) => editor.chain().focus().toggleBulletList().run(),
     },
     {
       title: "Numbered List",
       description: "Ordered list",
       icon: ListOrdered,
       category: "basic",
-      action: (editor) =>
-        editor.chain().focus().toggleOrderedList().run(),
+      action: (editor) => editor.chain().focus().toggleOrderedList().run(),
     },
     {
       title: "To-do List",
       description: "Checklist items",
       icon: CheckSquare,
       category: "basic",
-      action: (editor) =>
-        editor.chain().focus().toggleTaskList().run(),
+      action: (editor) => editor.chain().focus().toggleTaskList().run(),
     },
     {
       title: "Code Block",
       description: "Code snippet",
       icon: Code2,
       category: "basic",
-      action: (editor) =>
-        editor.chain().focus().toggleCodeBlock().run(),
+      action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
     },
     {
       title: "Quote",
       description: "Block quote",
       icon: Quote,
       category: "basic",
-      action: (editor) =>
-        editor.chain().focus().toggleBlockquote().run(),
+      action: (editor) => editor.chain().focus().toggleBlockquote().run(),
     },
     {
       title: "Divider",
       description: "Horizontal rule",
       icon: Minus,
       category: "basic",
-      action: (editor) =>
-        editor.chain().focus().setHorizontalRule().run(),
+      action: (editor) => editor.chain().focus().setHorizontalRule().run(),
     },
     {
       title: "Table",
@@ -119,7 +113,11 @@ function createCommands(
       icon: TableIcon,
       category: "basic",
       action: (editor) =>
-        editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+        editor
+          .chain()
+          .focus()
+          .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+          .run(),
     },
     {
       title: "Image",
@@ -190,7 +188,7 @@ export function SlashCommandMenu({ editor, onUpload }: SlashCommandMenuProps) {
   const filteredCommands = commands.filter(
     (cmd) =>
       cmd.title.toLowerCase().includes(query.toLowerCase()) ||
-      cmd.description.toLowerCase().includes(query.toLowerCase())
+      cmd.description.toLowerCase().includes(query.toLowerCase()),
   );
 
   const executeCommand = useCallback(
@@ -208,7 +206,7 @@ export function SlashCommandMenu({ editor, onUpload }: SlashCommandMenuProps) {
       setQuery("");
       slashPosRef.current = null;
     },
-    [editor]
+    [editor],
   );
 
   useEffect(() => {
@@ -219,14 +217,11 @@ export function SlashCommandMenu({ editor, onUpload }: SlashCommandMenuProps) {
 
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedIndex(
-          (i) => (i + 1) % filteredCommands.length
-        );
+        setSelectedIndex((i) => (i + 1) % filteredCommands.length);
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         setSelectedIndex(
-          (i) =>
-            (i - 1 + filteredCommands.length) % filteredCommands.length
+          (i) => (i - 1 + filteredCommands.length) % filteredCommands.length,
         );
       } else if (e.key === "Enter") {
         e.preventDefault();
@@ -253,7 +248,7 @@ export function SlashCommandMenu({ editor, onUpload }: SlashCommandMenuProps) {
       const textBefore = state.doc.textBetween(
         Math.max(0, from - 20),
         from,
-        "\n"
+        "\n",
       );
 
       const slashMatch = textBefore.match(/\/([a-zA-Z0-9]*)$/);
@@ -293,12 +288,8 @@ export function SlashCommandMenu({ editor, onUpload }: SlashCommandMenuProps) {
   if (!isOpen || !position || filteredCommands.length === 0) return null;
 
   // Group commands by category
-  const basicCommands = filteredCommands.filter(
-    (c) => c.category !== "media"
-  );
-  const mediaCommands = filteredCommands.filter(
-    (c) => c.category === "media"
-  );
+  const basicCommands = filteredCommands.filter((c) => c.category !== "media");
+  const mediaCommands = filteredCommands.filter((c) => c.category === "media");
 
   return (
     <div
@@ -372,7 +363,7 @@ function CommandButton({
       onMouseEnter={onHover}
       className={cn(
         "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors",
-        isSelected ? "bg-accent" : "hover:bg-accent/50"
+        isSelected ? "bg-accent" : "hover:bg-accent/50",
       )}
     >
       <div className="flex items-center justify-center w-9 h-9 rounded-md border border-border bg-background text-muted-foreground">

@@ -3,7 +3,9 @@ interface BuilderLogoProps {
 }
 
 /** Builder.io "B" logo extracted from the official builder-logo-white.svg */
-export default function BuilderLogo({ className = "w-7 h-7" }: BuilderLogoProps) {
+export default function BuilderLogo({
+  className = "w-7 h-7",
+}: BuilderLogoProps) {
   return (
     <svg
       viewBox="0 0 71 80"

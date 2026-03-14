@@ -71,7 +71,9 @@ export default async function main(args: string[]) {
       const clientId = process.env.GOOGLE_CLIENT_ID;
       const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
       if (!clientId || !clientSecret) {
-        console.warn("Warning: GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET not set. Skipping Google Calendar.");
+        console.warn(
+          "Warning: GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET not set. Skipping Google Calendar.",
+        );
       } else {
         const { google } = await import("googleapis");
         const oauth2 = new google.auth.OAuth2(clientId, clientSecret);
@@ -97,14 +99,20 @@ export default async function main(args: string[]) {
           htmlLink: googleEvent.data.htmlLink || "",
         };
         writeFileSync(eventPath, JSON.stringify(updatedEvent, null, 2));
-        console.log(`Also created on Google Calendar: ${googleEvent.data.htmlLink}`);
+        console.log(
+          `Also created on Google Calendar: ${googleEvent.data.htmlLink}`,
+        );
       }
     } catch (err: any) {
-      console.warn(`Warning: Could not create on Google Calendar: ${err.message}`);
+      console.warn(
+        `Warning: Could not create on Google Calendar: ${err.message}`,
+      );
       console.log("Event was created locally.");
     }
   }
 
   console.log(`Event "${event.title}" created successfully.`);
-  agentChat.submit(`Created event "${event.title}" on ${new Date(event.start).toLocaleDateString()} (${new Date(event.start).toLocaleTimeString()} – ${new Date(event.end).toLocaleTimeString()}).`);
+  agentChat.submit(
+    `Created event "${event.title}" on ${new Date(event.start).toLocaleDateString()} (${new Date(event.start).toLocaleTimeString()} – ${new Date(event.end).toLocaleTimeString()}).`,
+  );
 }

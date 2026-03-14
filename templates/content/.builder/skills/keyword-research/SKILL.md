@@ -49,12 +49,12 @@ Call `subscription-info-limits-and-usage` to verify sufficient units remain. Dis
 
 **Unit budget thresholds:**
 
-| Remaining Units | Action |
-|----------------|--------|
-| >= 10,000 | Proceed normally with full field selection |
-| 5,000 - 9,999 | Proceed with reduced fields: drop `intents`, `global_volume`, `parent_volume` from select |
-| 2,000 - 4,999 | Warn user. Use only `keywords-explorer-overview` (skip matching-terms and related-terms). Supplement with WebSearch for secondary/long-tail keywords. |
-| < 2,000 | Warn user. Switch entirely to WebSearch fallback. Mark `data_source: estimated`. |
+| Remaining Units | Action                                                                                                                                                |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| >= 10,000       | Proceed normally with full field selection                                                                                                            |
+| 5,000 - 9,999   | Proceed with reduced fields: drop `intents`, `global_volume`, `parent_volume` from select                                                             |
+| 2,000 - 4,999   | Warn user. Use only `keywords-explorer-overview` (skip matching-terms and related-terms). Supplement with WebSearch for secondary/long-tail keywords. |
+| < 2,000         | Warn user. Switch entirely to WebSearch fallback. Mark `data_source: estimated`.                                                                      |
 
 A full keyword research phase uses approximately 200-400 units (comparison posts: 250-500 units due to per-subject keyword research). The entire blog post workflow uses ~1,800-2,000 units across all phases (comparison posts: ~2,100-2,300).
 
@@ -74,12 +74,12 @@ Call `keywords-explorer-overview` with the topic as keyword.
 
 **Viability assessment:**
 
-| Condition | Classification |
-|-----------|---------------|
-| difficulty <= 30 AND volume >= 200 | Strong opportunity |
-| difficulty <= 50 AND traffic_potential >= 1000 | Worth pursuing |
-| difficulty > 50 AND serp has weak players (DR < 50) | Challenging but feasible |
-| difficulty > 50 AND no weak players | Too competitive -- suggest long-tail alternatives |
+| Condition                                           | Classification                                    |
+| --------------------------------------------------- | ------------------------------------------------- |
+| difficulty <= 30 AND volume >= 200                  | Strong opportunity                                |
+| difficulty <= 50 AND traffic_potential >= 1000      | Worth pursuing                                    |
+| difficulty > 50 AND serp has weak players (DR < 50) | Challenging but feasible                          |
+| difficulty > 50 AND no weak players                 | Too competitive -- suggest long-tail alternatives |
 
 ### Step 2.5: Individual Subject Keyword Research (Comparison Posts Only)
 
@@ -110,12 +110,18 @@ These are keyword variations and synonyms that top-ranking pages also rank for. 
 **Filtering:** Set `limit: 30` and use `where` to filter for viable keywords:
 
 ```json
-{"and":[{"field":"volume","is":["gte",100]},{"field":"difficulty","is":["lte",60]}]}
+{
+  "and": [
+    { "field": "volume", "is": ["gte", 100] },
+    { "field": "difficulty", "is": ["lte", 60] }
+  ]
+}
 ```
 
 Order by `traffic_potential:desc` to surface the highest-opportunity keywords first.
 
 Select the top 3-5 secondary keywords based on:
+
 - Relevance to the primary topic
 - Traffic potential (prefer higher)
 - Difficulty (prefer lower)
@@ -143,12 +149,13 @@ These question-form keywords become AEO-optimized H2/H3 headings directly. They 
 Set `limit: 20` and filter for viable questions:
 
 ```json
-{"and":[{"field":"volume","is":["gte",50]}]}
+{ "and": [{ "field": "volume", "is": ["gte", 50] }] }
 ```
 
 Order by `volume:desc`.
 
 Select 4-6 question keywords. Prefer questions that:
+
 - Match the post type (e.g., "How to..." for tutorials, "What is..." for explainers)
 - Have clear, answerable scope
 - Appear in "People Also Ask" (cross-reference with SERP Analysis in Phase 3)
@@ -164,7 +171,12 @@ Long-tail keywords are longer, more specific phrases with lower competition. The
 Set `limit: 20` and filter:
 
 ```json
-{"and":[{"field":"volume","is":["gte",50]},{"field":"word_count","is":["gte",4]}]}
+{
+  "and": [
+    { "field": "volume", "is": ["gte", 50] },
+    { "field": "word_count", "is": ["gte", 4] }
+  ]
+}
 ```
 
 Select 3-5 long-tail keywords with the lowest difficulty scores.
@@ -199,15 +211,16 @@ For each keyword in the final set (primary + secondary + long-tail), assign a
 business potential score based on how naturally Builder.io fits the topic.
 Load the builder-product-knowledge skill for context.
 
-| Score | Criteria | Action |
-|-------|----------|--------|
-| **3** | Builder.io is an irreplaceable solution to the searcher's problem | Keyword becomes a primary or prominent secondary target |
-| **2** | Builder.io helps significantly but alternatives exist | Keyword is a valid secondary target; natural product mention |
-| **1** | Builder.io can only be mentioned in passing | Keyword is fine for topical coverage; do not force product placement |
-| **0** | No natural way to mention Builder.io | Drop the keyword unless it serves a pure awareness goal |
+| Score | Criteria                                                          | Action                                                               |
+| ----- | ----------------------------------------------------------------- | -------------------------------------------------------------------- |
+| **3** | Builder.io is an irreplaceable solution to the searcher's problem | Keyword becomes a primary or prominent secondary target              |
+| **2** | Builder.io helps significantly but alternatives exist             | Keyword is a valid secondary target; natural product mention         |
+| **1** | Builder.io can only be mentioned in passing                       | Keyword is fine for topical coverage; do not force product placement |
+| **0** | No natural way to mention Builder.io                              | Drop the keyword unless it serves a pure awareness goal              |
 
 **Rules:**
-- Score the *primary* keyword first. If it scores 0, flag this to the user --
+
+- Score the _primary_ keyword first. If it scores 0, flag this to the user --
   a 0-score primary keyword means the topic may not justify the pipeline effort.
 - Drop all 0-score secondary and long-tail keywords unless `content_goal: awareness`.
   For awareness posts, 0-score keywords are acceptable (the goal is reach, not product
@@ -277,13 +290,15 @@ keywords:
       difficulty: 22
       traffic_potential: 18000
       parent_topic: "claude code"
-      unique_keywords: ["claude code mcp", "claude code terminal", "agentic coding cli"]
+      unique_keywords:
+        ["claude code mcp", "claude code terminal", "agentic coding cli"]
     - subject: "Cursor"
       volume: 33000
       difficulty: 35
       traffic_potential: 45000
       parent_topic: "cursor ai"
-      unique_keywords: ["cursor composer", "cursor ai review", "cursor tab completion"]
+      unique_keywords:
+        ["cursor composer", "cursor ai review", "cursor tab completion"]
 data_source: ahrefs | estimated | social_signals
 data_quality:
   api_available: true
@@ -291,10 +306,10 @@ data_quality:
   fallback_used: false
   notes: ""
 # Seed keyword merge data (only when seed keywords present)
-seed_keywords_merged: 0       # count of seed keywords added
+seed_keywords_merged: 0 # count of seed keywords added
 seed_keywords_with_metrics: 0 # seed keywords with Ahrefs data
-seed_keywords_unscored: 0     # seed keywords without Ahrefs data
-seed_duplicates_removed: 0    # keywords in both seed and Ahrefs (seed kept)
+seed_keywords_unscored: 0 # seed keywords without Ahrefs data
+seed_duplicates_removed: 0 # keywords in both seed and Ahrefs (seed kept)
 ```
 
 ## Trending Topic Mode
@@ -347,6 +362,7 @@ Estimated data is acceptable for proceeding but should be noted in the final met
 **Input keyword:** "rsc next.js"
 
 **`keywords-explorer-overview` returns:**
+
 - volume: 1,800 | difficulty: 32 | traffic_potential: 28,000
 - parent_topic: "react server components" (different from input)
 - parent_volume: 12,000
@@ -358,6 +374,7 @@ Estimated data is acceptable for proceeding but should be noted in the final met
 **Input keyword:** "javascript frameworks"
 
 **`keywords-explorer-overview` returns:**
+
 - volume: 45,000 | difficulty: 82 | traffic_potential: 120,000
 
 **Decision:** Too competitive (difficulty 82, no weak players in top 10). Pivot to long-tail: "best javascript frameworks for beginners 2026" (difficulty 28, volume 2,400). Report this as a recommended pivot back to Topic Discovery.

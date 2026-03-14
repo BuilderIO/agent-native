@@ -55,7 +55,7 @@ You're talking to this persona when:
 - "What tools have you tried for AI code generation? What was your experience with them?"
 - "When designers hand off work, what gaps or issues do you typically find?"
 
-*Listen for:*
+_Listen for:_
 
 - **Pain signals:** Manual spec checking, constant Figma reference switching, time spent on pixel-perfect matching vs. business logic
 - **Tool failures:** AI tools generating generic code instead of using their design system, rework cycles from design-code mismatches
@@ -67,7 +67,7 @@ You're talking to this persona when:
 - "When you build a feature from scratch, how much time goes into matching the design vs. building functionality?"
 - "What's your typical rework cycle - how many rounds before approval?"
 
-*Listen for:*
+_Listen for:_
 
 - **Metrics:** Majority of time on UI work or full-time on frontend
 - **Quality issues:** Multiple redline cycles, production code that doesn't match designs
@@ -81,7 +81,7 @@ You're talking to this persona when:
 - "What does 'enterprise-ready' mean for your organization - accessibility, localization, security?"
 - "If a tool generated code, what would need to be true for your team to trust and use it?"
 
-*Listen for:*
+_Listen for:_
 
 - **Design system maturity:** Mature systems with React/Angular/Vue/Web Components, custom component libraries vs. generic solutions
 - **Quality requirements:** Accessibility, localization, tokens not hard-coded values, CI/CD and linting requirements

@@ -1,6 +1,6 @@
 /**
  * Debug Utility
- * 
+ *
  * Provides controlled logging for development.
  * All logs are stripped in production builds via Vite's define.
  */
@@ -13,7 +13,7 @@ export const debug = {
    */
   log: (...args: any[]) => {
     if (IS_DEV) {
-      console.log('[Videos]', ...args);
+      console.log("[Videos]", ...args);
     }
   },
 
@@ -22,7 +22,7 @@ export const debug = {
    */
   warn: (...args: any[]) => {
     if (IS_DEV) {
-      console.warn('[Videos]', ...args);
+      console.warn("[Videos]", ...args);
     }
   },
 
@@ -30,15 +30,15 @@ export const debug = {
    * Log errors (always shown, even in production)
    */
   error: (...args: any[]) => {
-    console.error('[Videos]', ...args);
+    console.error("[Videos]", ...args);
   },
 
   /**
    * Log only in verbose debug mode (for noisy logs)
    */
   verbose: (...args: any[]) => {
-    if (IS_DEV && import.meta.env.VITE_DEBUG_VERBOSE === 'true') {
-      console.log('[Videos:Verbose]', ...args);
+    if (IS_DEV && import.meta.env.VITE_DEBUG_VERBOSE === "true") {
+      console.log("[Videos:Verbose]", ...args);
     }
   },
 
@@ -46,8 +46,8 @@ export const debug = {
    * Log animation frame data (very noisy)
    */
   frame: (...args: any[]) => {
-    if (IS_DEV && import.meta.env.VITE_DEBUG_FRAMES === 'true') {
-      console.log('[Videos:Frame]', ...args);
+    if (IS_DEV && import.meta.env.VITE_DEBUG_FRAMES === "true") {
+      console.log("[Videos:Frame]", ...args);
     }
   },
 

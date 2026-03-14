@@ -17,12 +17,14 @@ Integrated Development Environments enhanced with AI coding assistance that help
 **How competitors cluster:**
 
 **Cluster 1: AI-Native IDEs (Cursor, Windsurf)**
+
 - Built from the ground up with AI as core feature
 - Advanced codebase understanding and context awareness
 - Premium pricing models ($20-40/month)
 - Developer-focused workflows and terminal-first experiences
 
 **Cluster 2: AI Assistants (GitHub Copilot, Codeium)**
+
 - AI features integrated into existing editors
 - Code completion and suggestion focus
 - Broad IDE compatibility
@@ -91,6 +93,7 @@ Builder is not a pure AI IDE but competes when developers evaluate AI tools for 
 - **Why Builder won:** Need for visual iteration without constant reprompting, plus Spectrum design system integration
 
 **Adobe:**
+
 > "What we really want is kind of what we've got, but with the additional ability to allow people to not have to reprompt every time they want to make an iteration on something...just give them more flexibility in how they go about the actual prototyping process."
 
 **Switching story:** Adobe equipped 800 designers with Cursor licenses to accelerate prototyping with AI. While Cursor's codebase understanding and prompting capabilities impressed the team, designers consistently hit the "reprompting ceiling" -- every design adjustment required crafting a new prompt and waiting for regeneration rather than directly manipulating the visual result. This created friction in the iterative design process, especially when designers wanted to experiment with multiple layout variations.
@@ -102,6 +105,7 @@ Builder is not a pure AI IDE but competes when developers evaluate AI tools for 
 - **Why Builder matters:** Visual editing provides quality control layer on top of AI generation, ensures design system consistency
 
 **Jane App:**
+
 > "There is a need really for the design leadership wants a tool that's a bit more approachable for designers because some of them are fine like going through the setup which is a bit more technical to get cursor going. And they want something that's a bit more sort of plug and play"
 
 ## Common Customer Paths

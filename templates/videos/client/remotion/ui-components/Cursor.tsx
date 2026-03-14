@@ -2,7 +2,7 @@ import React from "react";
 
 /**
  * Cursor Component - Animated cursor for Remotion compositions
- * 
+ *
  * Displays a cursor (arrow, pointer hand, or text I-beam) at specified coordinates.
  * Useful for screen recording simulations, UI demonstrations, and interactive tutorials.
  */

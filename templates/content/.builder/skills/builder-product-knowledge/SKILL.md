@@ -30,21 +30,23 @@ See blog-drafting skill for blog-specific integration pattern behavior.
 
 These rules are non-negotiable. Every mention of Builder.io in any content must comply.
 
-| Rule | Correct | Incorrect |
-|------|---------|-----------|
-| Product name | **Builder.io** or **Builder** | "Fusion" (internal codename -- never use externally) |
-| Product category | Agentic Development Platform | "headless CMS", "visual editor", "CMS" |
-| What the product is | Collaborative workspace where your whole team builds real products with AI agents | "a coding assistant", "an IDE", "a CMS" |
-| What it produces | Production code shipped via PRs | "prototypes", "mockups" |
-| Design-to-code | Builder.io (the platform does this natively) | "Visual Copilot" (legacy name, now absorbed into Builder.io) |
+| Rule                | Correct                                                                           | Incorrect                                                    |
+| ------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Product name        | **Builder.io** or **Builder**                                                     | "Fusion" (internal codename -- never use externally)         |
+| Product category    | Agentic Development Platform                                                      | "headless CMS", "visual editor", "CMS"                       |
+| What the product is | Collaborative workspace where your whole team builds real products with AI agents | "a coding assistant", "an IDE", "a CMS"                      |
+| What it produces    | Production code shipped via PRs                                                   | "prototypes", "mockups"                                      |
+| Design-to-code      | Builder.io (the platform does this natively)                                      | "Visual Copilot" (legacy name, now absorbed into Builder.io) |
 
 **Builder.io IS:**
+
 - An Agentic Development Platform with a collaborative development workspace
 - A system where devs run 20+ agents in parallel, each with its own remote container and full dev environment
 - A platform where designers, PMs, QA, and devs all contribute directly -- not just devs copy-pasting feedback to an AI
 - A tool that connects to your existing stack (Slack, Jira, Figma, GitHub/GitLab/Azure DevOps/Bitbucket)
 
 **Builder.io IS NOT:**
+
 - A solo-developer coding assistant (it is team-oriented, cross-functional)
 - A prototype generator (it generates production code shipped via PRs)
 - A new IDE (it integrates with existing tools and workflows)
@@ -71,18 +73,18 @@ If the topic does not clearly map to any category, ask the user:
 
 ## Topic-to-Capability Mapping
 
-| Topic Category | Primary Capability | Positioning Angle |
-|---------------|-------------------|-------------------|
-| React/Next.js/Frameworks | Visual development + design system intelligence | "Build in [framework] with AI agents that understand your components and design tokens" |
-| Design-to-Code / Figma | Figma integration + design system intelligence | "Copy-paste Figma designs into your codebase -- Builder maps them to your actual components" |
-| AI Development Tools | Agentic platform (massively parallel agents) | "Run 20+ agents in parallel, each in its own container with full dev environment and browser preview" |
-| CI/CD / DevOps / PRs | Git integration + auto-PR + review response | "Assign tickets to the bot, it creates PRs, responds to reviews, and fixes build failures" |
-| Design Systems | Design system intelligence + component mapping | "Indexes your components and enforces your design tokens -- AI uses your Button, not a generated one" |
-| Team Collaboration / DX | Collaborative workspace + full-team workflows | "Designers, PMs, and QA contribute directly -- devs review and merge, not copy-paste feedback" |
-| Parallel Development / Productivity | Massively parallel agents + cloud containers | "Each agent gets its own remote container -- no git worktree hacks, no maxed-out local machine" |
-| MCP / AI Integrations | MCP server ecosystem | "Built-in MCP servers for Neon, Supabase, Linear, Stripe, Sentry -- connect agents to real data" |
-| Marketing / Demand Gen | Collaborative workspace + speed to market | "Go from idea to live landing page faster -- your whole team builds and iterates together" |
-| Sales Enablement | Collaborative workspace + enterprise features | "Enterprise-grade permissions, role-based access, and compliance-friendly deployment" |
+| Topic Category                      | Primary Capability                              | Positioning Angle                                                                                     |
+| ----------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| React/Next.js/Frameworks            | Visual development + design system intelligence | "Build in [framework] with AI agents that understand your components and design tokens"               |
+| Design-to-Code / Figma              | Figma integration + design system intelligence  | "Copy-paste Figma designs into your codebase -- Builder maps them to your actual components"          |
+| AI Development Tools                | Agentic platform (massively parallel agents)    | "Run 20+ agents in parallel, each in its own container with full dev environment and browser preview" |
+| CI/CD / DevOps / PRs                | Git integration + auto-PR + review response     | "Assign tickets to the bot, it creates PRs, responds to reviews, and fixes build failures"            |
+| Design Systems                      | Design system intelligence + component mapping  | "Indexes your components and enforces your design tokens -- AI uses your Button, not a generated one" |
+| Team Collaboration / DX             | Collaborative workspace + full-team workflows   | "Designers, PMs, and QA contribute directly -- devs review and merge, not copy-paste feedback"        |
+| Parallel Development / Productivity | Massively parallel agents + cloud containers    | "Each agent gets its own remote container -- no git worktree hacks, no maxed-out local machine"       |
+| MCP / AI Integrations               | MCP server ecosystem                            | "Built-in MCP servers for Neon, Supabase, Linear, Stripe, Sentry -- connect agents to real data"      |
+| Marketing / Demand Gen              | Collaborative workspace + speed to market       | "Go from idea to live landing page faster -- your whole team builds and iterates together"            |
+| Sales Enablement                    | Collaborative workspace + enterprise features   | "Enterprise-grade permissions, role-based access, and compliance-friendly deployment"                 |
 
 For topics that do not map to any category: use a light CTA connecting the topic to Builder.io's most relevant capability.
 
@@ -96,37 +98,37 @@ For full buyer persona profiles including discovery questions, objection handlin
 
 ### Marketing Personas
 
-| Persona | Core Value | One-Liner |
-|---------|-----------|-----------|
-| Marketing Leader | Faster campaign execution, less dependency on dev team | "Launch landing pages and campaign assets without waiting in the dev queue -- your team builds directly." |
-| Content Marketer | Consistent brand voice across all channels | "Every piece of content aligns with brand guidelines and product positioning automatically." |
-| Demand Gen Manager | Faster experimentation and iteration | "Test landing page variants, launch campaigns faster, and iterate based on results -- not dev sprints." |
-| Product Marketer | Accurate positioning and competitive differentiation | "Position Builder.io's unique capabilities (parallel agents, collaborative workspace) against competitors with precision." |
+| Persona            | Core Value                                             | One-Liner                                                                                                                  |
+| ------------------ | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| Marketing Leader   | Faster campaign execution, less dependency on dev team | "Launch landing pages and campaign assets without waiting in the dev queue -- your team builds directly."                  |
+| Content Marketer   | Consistent brand voice across all channels             | "Every piece of content aligns with brand guidelines and product positioning automatically."                               |
+| Demand Gen Manager | Faster experimentation and iteration                   | "Test landing page variants, launch campaigns faster, and iterate based on results -- not dev sprints."                    |
+| Product Marketer   | Accurate positioning and competitive differentiation   | "Position Builder.io's unique capabilities (parallel agents, collaborative workspace) against competitors with precision." |
 
 ### Sales Personas
 
-| Persona | Core Value | One-Liner |
-|---------|-----------|-----------|
-| Sales Leader | Clear differentiation in competitive deals | "Builder.io is the only platform where the whole team collaborates -- not just another AI coding tool." |
-| Account Executive | Tailored value props per prospect persona | "Match the prospect's role to the right capability: CTOs care about parallel agents, VPs of Design care about Figma integration." |
-| Sales Engineer | Technical depth for demos and POCs | "Show 20+ agents running in parallel, Figma-to-code in real time, and Jira integration -- concrete, not slideware." |
+| Persona           | Core Value                                 | One-Liner                                                                                                                         |
+| ----------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| Sales Leader      | Clear differentiation in competitive deals | "Builder.io is the only platform where the whole team collaborates -- not just another AI coding tool."                           |
+| Account Executive | Tailored value props per prospect persona  | "Match the prospect's role to the right capability: CTOs care about parallel agents, VPs of Design care about Figma integration." |
+| Sales Engineer    | Technical depth for demos and POCs         | "Show 20+ agents running in parallel, Figma-to-code in real time, and Jira integration -- concrete, not slideware."               |
 
 ### Pillar-Persona Quick Match
 
 Use this table to select the messaging pillar (Context, Collaboration, or Trust) that resonates most with the target persona. For the full messaging framework, see the `builder-messaging` skill.
 
-| Persona | Primary Pillar | Why |
-|---------|---------------|-----|
-| Engineering Leader | Collaboration | Teams work in parallel, engineering focuses on high-value work |
-| Developer | Context | Code follows existing patterns and standards from the start |
-| Designer | Trust | What they approve is what ships -- full control over production output |
-| PM | Collaboration | Turn tickets into working features, validate directly |
-| Design System Leader | Context | Adherence happens by default, correct components used automatically |
-| Marketing Leader | Collaboration | Team builds directly without waiting in dev queue |
-| Demand Gen Manager | Collaboration | Faster experimentation and iteration cycles |
-| Sales Leader | Trust | Clear differentiation, the whole team collaborates |
-| Account Executive | Collaboration | Tailored value props per prospect persona |
-| Sales Engineer | Context | Technical depth with concrete, real demos |
+| Persona              | Primary Pillar | Why                                                                    |
+| -------------------- | -------------- | ---------------------------------------------------------------------- |
+| Engineering Leader   | Collaboration  | Teams work in parallel, engineering focuses on high-value work         |
+| Developer            | Context        | Code follows existing patterns and standards from the start            |
+| Designer             | Trust          | What they approve is what ships -- full control over production output |
+| PM                   | Collaboration  | Turn tickets into working features, validate directly                  |
+| Design System Leader | Context        | Adherence happens by default, correct components used automatically    |
+| Marketing Leader     | Collaboration  | Team builds directly without waiting in dev queue                      |
+| Demand Gen Manager   | Collaboration  | Faster experimentation and iteration cycles                            |
+| Sales Leader         | Trust          | Clear differentiation, the whole team collaborates                     |
+| Account Executive    | Collaboration  | Tailored value props per prospect persona                              |
+| Sales Engineer       | Context        | Technical depth with concrete, real demos                              |
 
 ## Natural Integration Patterns
 
@@ -176,31 +178,31 @@ Use the messaging pillars from `builder-messaging` to select which capability to
 
 ### Marketing CTAs
 
-| Content Type | CTA Template |
-|-------------|-------------|
-| Landing page (hero) | "Build real products with your whole team. [Start free]" |
-| Landing page (feature) | "Builder.io lets your team [specific benefit from section]. [See how it works]" |
-| Email (campaign) | "See how [Company] [achieved specific result] with Builder.io. [Read the case study]" |
-| Social post | "[Specific stat or result]. That's what happens when your whole team builds together. [link]" |
-| Event brief | "Live demo: Watch 20+ agents build a feature in parallel while the team collaborates in real time." |
+| Content Type           | CTA Template                                                                                        |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| Landing page (hero)    | "Build real products with your whole team. [Start free]"                                            |
+| Landing page (feature) | "Builder.io lets your team [specific benefit from section]. [See how it works]"                     |
+| Email (campaign)       | "See how [Company] [achieved specific result] with Builder.io. [Read the case study]"               |
+| Social post            | "[Specific stat or result]. That's what happens when your whole team builds together. [link]"       |
+| Event brief            | "Live demo: Watch 20+ agents build a feature in parallel while the team collaborates in real time." |
 
 ### Sales CTAs
 
-| Content Type | CTA Template |
-|-------------|-------------|
-| Case study | "[Company] achieved [metric] by switching to Builder.io. [See their story]" |
-| Battle card | "Unlike [competitor], Builder.io gives the WHOLE team a collaborative workspace -- not just developers." |
-| Outreach email | "Your team at [Company] could [specific benefit]. Here's a 2-minute demo showing how. [link]" |
-| Demo follow-up | "Here's the [specific feature] we discussed. Try it yourself: [link]" |
+| Content Type   | CTA Template                                                                                             |
+| -------------- | -------------------------------------------------------------------------------------------------------- |
+| Case study     | "[Company] achieved [metric] by switching to Builder.io. [See their story]"                              |
+| Battle card    | "Unlike [competitor], Builder.io gives the WHOLE team a collaborative workspace -- not just developers." |
+| Outreach email | "Your team at [Company] could [specific benefit]. Here's a 2-minute demo showing how. [link]"            |
+| Demo follow-up | "Here's the [specific feature] we discussed. Try it yourself: [link]"                                    |
 
 ### General CTAs (topic-connected)
 
-| Topic Type | CTA Template |
-|-----------|-------------|
-| Framework / frontend | "Builder.io lets your whole team build in [Framework] -- devs run parallel agents while designers and PMs contribute directly. [Try Builder.io]" |
-| Design-to-code | "Stop translating Figma mockups by hand. Builder.io maps your Figma designs to your actual codebase components and ships production code. [See it in action]" |
-| AI tools / agents | "Builder.io runs 20+ agents in parallel, each in its own cloud container with browser preview. No git worktree hacks, no maxed-out laptop. [Watch the demo]" |
-| Team workflow | "Builder.io gives your whole team a collaborative workspace -- designers propose changes, PMs verify, devs review and merge. [Start free]" |
+| Topic Type           | CTA Template                                                                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Framework / frontend | "Builder.io lets your whole team build in [Framework] -- devs run parallel agents while designers and PMs contribute directly. [Try Builder.io]"              |
+| Design-to-code       | "Stop translating Figma mockups by hand. Builder.io maps your Figma designs to your actual codebase components and ships production code. [See it in action]" |
+| AI tools / agents    | "Builder.io runs 20+ agents in parallel, each in its own cloud container with browser preview. No git worktree hacks, no maxed-out laptop. [Watch the demo]"  |
+| Team workflow        | "Builder.io gives your whole team a collaborative workspace -- designers propose changes, PMs verify, devs review and merge. [Start free]"                    |
 
 ## Guidelines
 

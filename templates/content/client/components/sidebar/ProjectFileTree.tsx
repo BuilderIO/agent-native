@@ -45,11 +45,14 @@ export function ProjectFileTree({
   const handleDelete = (filePath: string) => {
     deleteMutation.mutate(
       { projectSlug, filePath },
-      { onSuccess: () => onDeleteFile(filePath) }
+      { onSuccess: () => onDeleteFile(filePath) },
     );
   };
 
-  const openNewFileDialog = (parentPath?: string, type: "file" | "directory" = "file") => {
+  const openNewFileDialog = (
+    parentPath?: string,
+    type: "file" | "directory" = "file",
+  ) => {
     setNewFileParent(parentPath);
     setNewFileType(type);
     setShowNewFile(true);
@@ -80,7 +83,9 @@ export function ProjectFileTree({
                 <FilePlus size={13} />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="top" className="text-xs">New document</TooltipContent>
+            <TooltipContent side="top" className="text-xs">
+              New document
+            </TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -91,7 +96,9 @@ export function ProjectFileTree({
                 <FolderPlus size={13} />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="top" className="text-xs">New folder</TooltipContent>
+            <TooltipContent side="top" className="text-xs">
+              New folder
+            </TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -176,7 +183,7 @@ function TreeNode({
               size={12}
               className={cn(
                 "shrink-0 transition-transform duration-150",
-                !isExpanded && "-rotate-90"
+                !isExpanded && "-rotate-90",
               )}
             />
             {isExpanded ? (
@@ -196,7 +203,9 @@ function TreeNode({
                   <FilePlus size={12} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">New document</TooltipContent>
+              <TooltipContent side="top" className="text-xs">
+                New document
+              </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -207,7 +216,9 @@ function TreeNode({
                   <Trash2 size={12} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">Delete</TooltipContent>
+              <TooltipContent side="top" className="text-xs">
+                Delete
+              </TooltipContent>
             </Tooltip>
           </div>
         </div>
@@ -250,7 +261,7 @@ function TreeNode({
         "w-full flex items-center gap-1 pr-1 py-1.5 rounded-sm text-left group transition-colors overflow-hidden cursor-pointer",
         isActive
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+          : "text-sidebar-foreground hover:bg-sidebar-accent/60",
       )}
       style={{ paddingLeft: paddingLeft + 14 }}
     >
@@ -278,7 +289,9 @@ function TreeNode({
             <Trash2 size={12} />
           </button>
         </TooltipTrigger>
-        <TooltipContent side="top" className="text-xs">Delete</TooltipContent>
+        <TooltipContent side="top" className="text-xs">
+          Delete
+        </TooltipContent>
       </Tooltip>
     </div>
   );

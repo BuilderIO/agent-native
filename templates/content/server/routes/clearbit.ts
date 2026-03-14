@@ -26,7 +26,7 @@ function isValidProjectPath(project: string): boolean {
  */
 export async function fetchLogo(
   domain: string,
-  size = 256
+  size = 256,
 ): Promise<{ imageData: Buffer; mimeType: string; source: string }> {
   const logoDevKey = process.env.LOGO_DEV_API_KEY;
 
@@ -64,14 +64,21 @@ export async function saveLogoToProject(
   projectSlug: string,
   domain: string,
   imageData: Buffer,
-  mimeType: string
+  mimeType: string,
 ): Promise<string> {
   const mediaDir = path.join(PROJECTS_DIR, projectSlug, "media");
   ensureDir(mediaDir);
-  const ext = mimeType.includes("jpeg") || mimeType.includes("jpg") ? ".jpg"
-    : mimeType.includes("webp") ? ".webp"
-    : ".png";
-  const hash = crypto.createHash("md5").update(imageData).digest("hex").slice(0, 8);
+  const ext =
+    mimeType.includes("jpeg") || mimeType.includes("jpg")
+      ? ".jpg"
+      : mimeType.includes("webp")
+        ? ".webp"
+        : ".png";
+  const hash = crypto
+    .createHash("md5")
+    .update(imageData)
+    .digest("hex")
+    .slice(0, 8);
   const safeDomain = domain.replace(/[^a-z0-9.-]/gi, "_");
   const filename = `logo-${safeDomain}-${hash}${ext}`;
 
@@ -105,11 +112,19 @@ export const getClearbitLogo: RequestHandler = async (req, res) => {
   }
 
   try {
-    const { imageData, mimeType, source } = await fetchLogo(domain.trim(), size);
+    const { imageData, mimeType, source } = await fetchLogo(
+      domain.trim(),
+      size,
+    );
 
     let savedPath: string | undefined;
     if (project && isValidProjectPath(project)) {
-      savedPath = await saveLogoToProject(project, domain.trim(), imageData, mimeType);
+      savedPath = await saveLogoToProject(
+        project,
+        domain.trim(),
+        imageData,
+        mimeType,
+      );
     }
 
     res.json({

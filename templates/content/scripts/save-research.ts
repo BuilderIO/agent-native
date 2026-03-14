@@ -1,6 +1,14 @@
 import fs from "fs";
 import path from "path";
-import { loadEnv, parseArgs, camelCaseArgs, isValidProjectPath, ensureDir, PROJECTS_DIR, fail } from "./_utils.js";
+import {
+  loadEnv,
+  parseArgs,
+  camelCaseArgs,
+  isValidProjectPath,
+  ensureDir,
+  PROJECTS_DIR,
+  fail,
+} from "./_utils.js";
 
 export default async function main(args: string[]) {
   loadEnv();
@@ -25,7 +33,11 @@ Options:
   if (!fs.existsSync(projectDir)) fail("Project not found");
 
   let parsed: any;
-  try { parsed = JSON.parse(dataJson); } catch { fail("Invalid JSON data"); }
+  try {
+    parsed = JSON.parse(dataJson);
+  } catch {
+    fail("Invalid JSON data");
+  }
   if (!parsed.topic) fail("Research data must include a 'topic' field");
 
   parsed.updatedAt = new Date().toISOString();

@@ -17,7 +17,7 @@ export function getGoogleAuthUrl(_req: Request, res: Response): void {
 
 export async function handleGoogleCallback(
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> {
   try {
     const code = req.query.code as string;
@@ -34,7 +34,7 @@ export async function handleGoogleCallback(
 
 export async function getGoogleStatus(
   _req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> {
   try {
     const status = await getAuthStatus();

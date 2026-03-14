@@ -37,7 +37,11 @@ export default async function main(_args: string[]) {
         const meta = JSON.parse(fs.readFileSync(projectMeta, "utf-8"));
         name = meta.name || name;
       } catch {}
-      projects.push({ slug: `${entry.name}/${groupEntry.name}`, name, group: entry.name });
+      projects.push({
+        slug: `${entry.name}/${groupEntry.name}`,
+        name,
+        group: entry.name,
+      });
     }
   }
 

@@ -1,10 +1,17 @@
 import { useState, useRef, useEffect } from "react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Plus, ArrowUp, X, Paperclip } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { sendToAgentChat, useAgentChatGenerating } from "@agent-native/core/client";
+import {
+  sendToAgentChat,
+  useAgentChatGenerating,
+} from "@agent-native/core/client";
 
 type NewCompositionPopoverProps = {
   isNew: boolean;
@@ -17,7 +24,11 @@ type Attachment = {
   path: string; // data URL
 };
 
-export function NewCompositionPopover({ isNew, onNavigate, onGeneratingChange }: NewCompositionPopoverProps) {
+export function NewCompositionPopover({
+  isNew,
+  onNavigate,
+  onGeneratingChange,
+}: NewCompositionPopoverProps) {
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -49,14 +60,16 @@ export function NewCompositionPopover({ isNew, onNavigate, onGeneratingChange }:
 
         if (match && match[1] !== "new") {
           const compositionId = match[1];
-          console.log('[AI Auto-Save] Saving changes for:', compositionId);
+          console.log("[AI Auto-Save] Saving changes for:", compositionId);
 
           try {
-            window.dispatchEvent(new CustomEvent('videos.auto-save', {
-              detail: { compositionId }
-            }));
+            window.dispatchEvent(
+              new CustomEvent("videos.auto-save", {
+                detail: { compositionId },
+              }),
+            );
           } catch (error) {
-            console.error('[AI Auto-Save] Failed:', error);
+            console.error("[AI Auto-Save] Failed:", error);
           }
         }
       }, 2000); // Wait 2 seconds for localStorage and state to settle
@@ -67,9 +80,11 @@ export function NewCompositionPopover({ isNew, onNavigate, onGeneratingChange }:
     if (!prompt.trim()) return;
 
     // Build context with attachment references
-    let context = "The user wants to generate a new Remotion video composition. Help them create the component, register it, and set up tracks.";
+    let context =
+      "The user wants to generate a new Remotion video composition. Help them create the component, register it, and set up tracks.";
     if (attachments.length > 0) {
-      context += "\n\nAttached files:\n" +
+      context +=
+        "\n\nAttached files:\n" +
         attachments.map((a) => `- ${a.name}: ${a.path}`).join("\n");
     }
 
@@ -80,7 +95,10 @@ export function NewCompositionPopover({ isNew, onNavigate, onGeneratingChange }:
       submit: true,
     });
 
-    console.log('[NewComposition] Sent to agent chat:', { message: prompt.trim(), attachments: attachments.length });
+    console.log("[NewComposition] Sent to agent chat:", {
+      message: prompt.trim(),
+      attachments: attachments.length,
+    });
 
     // Update state
     setIsGenerating(true);
@@ -88,7 +106,7 @@ export function NewCompositionPopover({ isNew, onNavigate, onGeneratingChange }:
     setOpen(false);
     setPrompt("");
     setAttachments([]);
-    
+
     // Navigate to /c/new for loading state
     onNavigate("/c/new");
   };
@@ -109,9 +127,9 @@ export function NewCompositionPopover({ isNew, onNavigate, onGeneratingChange }:
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      
+
       // Only allow images, videos, and SVGs
-      if (!file.type.match(/^(image|video)\//) && !file.name.endsWith('.svg')) {
+      if (!file.type.match(/^(image|video)\//) && !file.name.endsWith(".svg")) {
         continue;
       }
 
@@ -128,15 +146,15 @@ export function NewCompositionPopover({ isNew, onNavigate, onGeneratingChange }:
           path: dataUrl,
         });
       } catch (error) {
-        console.error('Failed to read file:', file.name, error);
+        console.error("Failed to read file:", file.name, error);
       }
     }
 
     setAttachments((prev) => [...prev, ...newAttachments]);
-    
+
     // Reset input so same file can be selected again
     if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+      fileInputRef.current.value = "";
     }
   };
 
@@ -148,9 +166,9 @@ export function NewCompositionPopover({ isNew, onNavigate, onGeneratingChange }:
   useEffect(() => {
     const textarea = promptRef.current;
     if (!textarea) return;
-    
-    textarea.style.height = 'auto';
-    textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+
+    textarea.style.height = "auto";
+    textarea.style.height = Math.min(textarea.scrollHeight, 200) + "px";
   }, [prompt]);
 
   return (
@@ -177,7 +195,9 @@ export function NewCompositionPopover({ isNew, onNavigate, onGeneratingChange }:
         <div className="space-y-4">
           {/* Header */}
           <div>
-            <h3 className="text-sm font-semibold text-foreground">New Composition</h3>
+            <h3 className="text-sm font-semibold text-foreground">
+              New Composition
+            </h3>
             <p className="text-xs text-muted-foreground mt-1">
               Describe the video you want to create
             </p>

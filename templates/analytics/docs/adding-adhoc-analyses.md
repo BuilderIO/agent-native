@@ -4,16 +4,17 @@
 
 Ad hoc analyses are **one-time investigations** built to answer specific business questions or diagnose issues. They differ from regular dashboards:
 
-| Regular Dashboards | Ad Hoc Analyses |
-|-------------------|-----------------|
-| Ongoing monitoring | One-time investigation |
-| Check weekly/daily | Built for specific question |
-| Evergreen content | Time-bound (e.g., "Q1 2026 deep dive") |
+| Regular Dashboards            | Ad Hoc Analyses                              |
+| ----------------------------- | -------------------------------------------- |
+| Ongoing monitoring            | One-time investigation                       |
+| Check weekly/daily            | Built for specific question                  |
+| Evergreen content             | Time-bound (e.g., "Q1 2026 deep dive")       |
 | Example: "Overview Dashboard" | Example: "Why did conversion drop in March?" |
 
 ## When to Create an Ad Hoc Analysis
 
 Create an ad-hoc analysis when:
+
 - ✅ Investigating a specific problem or anomaly
 - ✅ Answering a one-time business question
 - ✅ Doing a deep dive on a metric that spiked/dropped
@@ -22,6 +23,7 @@ Create an ad-hoc analysis when:
 - ✅ Exploratory analysis that may not be needed long-term
 
 Do NOT create an ad-hoc analysis for:
+
 - ❌ Metrics you'll check regularly → Use regular dashboards
 - ❌ Permanent KPI tracking → Use regular dashboards
 - ❌ General-purpose tools → Use the Tools section
@@ -42,6 +44,7 @@ client/pages/adhoc/
 ```
 
 **Example structure:**
+
 ```typescript
 // client/pages/adhoc/conversion-analysis/index.tsx
 import { useState } from "react";
@@ -50,7 +53,7 @@ import { FunnelChart } from "./FunnelChart";
 
 export default function ConversionAnalysisDashboard() {
   const [months, setMonths] = useState(6);
-  
+
   return (
     <div className="space-y-6">
       <div>
@@ -110,7 +113,7 @@ export const adHocAnalyses: DashboardMeta[] = [
     name: "Your Analysis Title",
     description: "Brief description of what this investigates (1-2 sentences)",
     dateCreated: "2026-03-11", // When analysis was created
-    category: 'adhoc'
+    category: "adhoc",
   },
   // ... other analyses
 ];
@@ -144,23 +147,25 @@ export const dashboardComponents: Record<
 
 Use kebab-case for IDs and descriptive names:
 
-| ✅ Good | ❌ Bad |
-|---------|--------|
-| `signup-drop-q1-2026` | `analysis1` |
-| `pricing-page-conversion` | `temp-dashboard` |
-| `mobile-traffic-investigation` | `test` |
+| ✅ Good                        | ❌ Bad           |
+| ------------------------------ | ---------------- |
+| `signup-drop-q1-2026`          | `analysis1`      |
+| `pricing-page-conversion`      | `temp-dashboard` |
+| `mobile-traffic-investigation` | `test`           |
 
 ### Documentation
 
 Include in your analysis dashboard:
 
 1. **Title & Description** (at the top)
+
    ```tsx
    <h1>Traffic to Signup Conversion Analysis</h1>
    <p>Investigation of 20% decline in conversion rate from Feb-Mar 2026</p>
    ```
 
 2. **Date Context** (when analysis is relevant)
+
    ```tsx
    <p className="text-xs text-muted-foreground">
      Analysis Period: Feb 1 - Mar 10, 2026
@@ -168,6 +173,7 @@ Include in your analysis dashboard:
    ```
 
 3. **Key Findings Section** (what you discovered)
+
    ```tsx
    <Card>
      <CardHeader>
@@ -188,6 +194,7 @@ Include in your analysis dashboard:
 ### When to Archive
 
 Consider archiving an analysis when:
+
 - The issue is resolved
 - The data is no longer relevant (>6 months old)
 - It's been replaced by a better analysis
@@ -203,6 +210,7 @@ Store analyses in chronological order (newest first). The index page automatical
 ### By Topic
 
 You can group related analyses using prefixes:
+
 - `conversion-*` - Conversion-related analyses
 - `pricing-*` - Pricing experiments and investigations
 - `traffic-*` - Traffic source investigations
@@ -254,10 +262,7 @@ const SQL_QUERY = `
 `;
 
 export default function QuickAnalysis() {
-  const { data, isLoading } = useMetricsQuery(
-    ["quick-analysis"],
-    SQL_QUERY
-  );
+  const { data, isLoading } = useMetricsQuery(["quick-analysis"], SQL_QUERY);
 
   if (isLoading) return <div>Loading...</div>;
 
@@ -275,9 +280,7 @@ export default function QuickAnalysis() {
           <CardTitle>Results</CardTitle>
         </CardHeader>
         <CardContent>
-          <pre className="text-xs">
-            {JSON.stringify(data?.rows, null, 2)}
-          </pre>
+          <pre className="text-xs">{JSON.stringify(data?.rows, null, 2)}</pre>
         </CardContent>
       </Card>
     </div>
@@ -288,6 +291,7 @@ export default function QuickAnalysis() {
 ## Examples from Real Analyses
 
 ### Conversion Analysis (Full Featured)
+
 - Multiple visualizations (trend chart, funnel, tables)
 - Interactive controls (date ranges, comparison periods)
 - Data quality checks
@@ -297,6 +301,7 @@ export default function QuickAnalysis() {
 **Use when:** Complex investigation with multiple dimensions
 
 ### Revenue Deep Dive (Medium)
+
 - 2-3 charts
 - Basic filtering
 - Summary stats
@@ -305,6 +310,7 @@ export default function QuickAnalysis() {
 **Use when:** Focused investigation on a specific metric
 
 ### Quick Investigation (Minimal)
+
 - Single query
 - Simple table or chart
 - No sub-components
@@ -341,6 +347,7 @@ If an ad-hoc analysis proves valuable for ongoing monitoring:
 5. Add a note in the ad-hoc analysis linking to the new permanent dashboard
 
 **Example:**
+
 ```typescript
 // In the ad-hoc analysis component
 <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">

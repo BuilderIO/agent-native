@@ -21,24 +21,24 @@ description: >
 
 ### Exported Functions
 
-| Function | Description |
-|---|---|
-| `listDashboards(query?)` | Search dashboards by query |
-| `getDashboard(uid)` | Full dashboard JSON with panels |
-| `getDatasources()` | List all datasources |
-| `getAlertRules()` | All alert rules (flattened from groups) |
-| `getAlertInstances()` | Currently firing alert instances |
-| `queryDatasource(uid, queries[], from?, to?)` | Proxy to Grafana's `/api/ds/query` |
+| Function                                      | Description                             |
+| --------------------------------------------- | --------------------------------------- |
+| `listDashboards(query?)`                      | Search dashboards by query              |
+| `getDashboard(uid)`                           | Full dashboard JSON with panels         |
+| `getDatasources()`                            | List all datasources                    |
+| `getAlertRules()`                             | All alert rules (flattened from groups) |
+| `getAlertInstances()`                         | Currently firing alert instances        |
+| `queryDatasource(uid, queries[], from?, to?)` | Proxy to Grafana's `/api/ds/query`      |
 
 ### API Routes
 
-| Route | Description |
-|---|---|
-| `GET /api/grafana/dashboards` | Search dashboards |
-| `GET /api/grafana/dashboard?uid=...` | Full dashboard JSON |
-| `GET /api/grafana/datasources` | List datasources |
-| `GET /api/grafana/alerts` | Alert rules and firing instances |
-| `POST /api/grafana/query` | Query datasource (Prometheus, Loki, etc.) |
+| Route                                | Description                               |
+| ------------------------------------ | ----------------------------------------- |
+| `GET /api/grafana/dashboards`        | Search dashboards                         |
+| `GET /api/grafana/dashboard?uid=...` | Full dashboard JSON                       |
+| `GET /api/grafana/datasources`       | List datasources                          |
+| `GET /api/grafana/alerts`            | Alert rules and firing instances          |
+| `POST /api/grafana/query`            | Query datasource (Prometheus, Loki, etc.) |
 
 ### Dashboard
 
@@ -81,6 +81,7 @@ description: >
 ## Incident Investigation Pattern
 
 For production issues, query Grafana/Prometheus FIRST:
+
 1. LLM latency by model (`llm_latency_bucket`)
 2. Request rates (`api_request_total`)
 3. Error rates (`llm_failures_total`)

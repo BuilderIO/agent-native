@@ -100,17 +100,22 @@ export function PagePerformanceTable({
   };
 
   const SortIcon = ({ col }: { col: string }) => {
-    if (sortCol !== col) return <ArrowUpDown className="h-3 w-3 text-muted-foreground/30" />;
-    return sortDir === "asc"
-      ? <ArrowUp className="h-3 w-3 text-foreground" />
-      : <ArrowDown className="h-3 w-3 text-foreground" />;
+    if (sortCol !== col)
+      return <ArrowUpDown className="h-3 w-3 text-muted-foreground/30" />;
+    return sortDir === "asc" ? (
+      <ArrowUp className="h-3 w-3 text-foreground" />
+    ) : (
+      <ArrowDown className="h-3 w-3 text-foreground" />
+    );
   };
 
   return (
     <Card className="bg-card border-border/50">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium">Page Performance</CardTitle>
+          <CardTitle className="text-sm font-medium">
+            Page Performance
+          </CardTitle>
           <div className="flex gap-2">
             {onBlogOnlyChange && (
               <Button
@@ -152,7 +157,7 @@ export function PagePerformanceTable({
                       key={col.key}
                       className={cn(
                         "text-left py-2 px-2 font-medium text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap select-none",
-                        col.width
+                        col.width,
                       )}
                       onClick={() => handleSort(col.key)}
                     >
@@ -176,20 +181,31 @@ export function PagePerformanceTable({
                       </tr>
                     ))
                   : rows.map((row, i) => (
-                      <tr key={i} className="border-b border-border/30 hover:bg-muted/30">
+                      <tr
+                        key={i}
+                        className="border-b border-border/30 hover:bg-muted/30"
+                      >
                         {columns.map((col) => (
                           <td
                             key={col.key}
                             className={cn(
                               "py-1.5 px-2 whitespace-nowrap",
-                              col.format === "text" ? "max-w-[250px] truncate" : "text-right tabular-nums",
-                              col.key === "url" && "font-mono text-[11px]"
+                              col.format === "text"
+                                ? "max-w-[250px] truncate"
+                                : "text-right tabular-nums",
+                              col.key === "url" && "font-mono text-[11px]",
                             )}
-                            title={col.format === "text" ? String(row[col.key] ?? "") : undefined}
+                            title={
+                              col.format === "text"
+                                ? String(row[col.key] ?? "")
+                                : undefined
+                            }
                           >
                             {col.key === "url" ? (
                               <span className="flex items-center gap-1">
-                                <span className="truncate">{formatVal(row[col.key], col.format)}</span>
+                                <span className="truncate">
+                                  {formatVal(row[col.key], col.format)}
+                                </span>
                                 <a
                                   href={`https://www.builder.io${row[col.key]}`}
                                   target="_blank"

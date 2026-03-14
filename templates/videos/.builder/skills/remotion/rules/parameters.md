@@ -16,7 +16,7 @@ pnpm i zod@3.22.3
 Then define a Zod schema alongside the component:
 
 ```tsx
-import {z} from 'zod';
+import { z } from "zod";
 
 export const MyCompositionSchema = z.object({
   title: z.string(),
@@ -37,7 +37,7 @@ In the root file, pass the schema to the composition:
   fps={30}
   width={1080}
   height={1080}
-  defaultProps={{title: 'Hello World'}}
+  defaultProps={{ title: "Hello World" }}
   schema={MyCompositionSchema}
 />
 ```
@@ -51,7 +51,7 @@ pnpm exec remotion add @remotion/zod-types
 ```
 
 ```tsx
-import {zColor} from '@remotion/zod-types';
+import { zColor } from "@remotion/zod-types";
 
 export const MyCompositionSchema = z.object({
   color: zColor(),

@@ -50,7 +50,7 @@ export const codexConfig: HarnessConfig = {
       defaultValue: false,
     },
   ],
-  customPlaceholder: 'e.g. --model o3 --provider openai',
+  customPlaceholder: "e.g. --model o3 --provider openai",
 };
 
 export const geminiConfig: HarnessConfig = {
@@ -66,15 +66,15 @@ export const geminiConfig: HarnessConfig = {
       defaultValue: false,
     },
   ],
-  customPlaceholder: 'e.g. --model gemini-2.5-pro',
+  customPlaceholder: "e.g. --model gemini-2.5-pro",
 };
 
 export const opencodeConfig: HarnessConfig = {
   name: "OpenCode",
   command: "opencode",
-  installPackage: "",
+  installPackage: "opencode-ai",
   options: [],
-  customPlaceholder: 'e.g. --provider anthropic',
+  customPlaceholder: "e.g. --provider anthropic",
 };
 
 export const allHarnesses: HarnessConfig[] = [

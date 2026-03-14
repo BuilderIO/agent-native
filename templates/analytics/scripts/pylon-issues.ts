@@ -22,8 +22,8 @@ if (args.accounts) {
 
   if (args.account) {
     const accounts = await getAccounts(args.account);
-    const match = accounts.find(
-      (a) => a.name.toLowerCase().includes(args.account.toLowerCase())
+    const match = accounts.find((a) =>
+      a.name.toLowerCase().includes(args.account.toLowerCase()),
     );
     if (match) accountId = match.id;
   }

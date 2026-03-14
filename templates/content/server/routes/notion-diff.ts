@@ -2,7 +2,7 @@ import { BlockObjectRequest } from "@notionhq/client/build/src/api-endpoints";
 
 export function hashBlock(block: any): string {
   if (!block || !block.type) return "";
-  
+
   const type = block.type;
   const data = block[type] || {};
 
@@ -15,7 +15,8 @@ export function hashBlock(block: any): string {
       const annotations: any = {};
       if (rt.annotations) {
         for (const [key, value] of Object.entries(rt.annotations)) {
-          if (value && value !== false && value !== "default") annotations[key] = true;
+          if (value && value !== false && value !== "default")
+            annotations[key] = true;
         }
       }
       return {
@@ -25,7 +26,7 @@ export function hashBlock(block: any): string {
       };
     });
   }
-  
+
   if (type === "to_do") {
     repr.checked = data.checked || false;
   } else if (type === "code") {
@@ -45,31 +46,45 @@ export function hashBlock(block: any): string {
   } else if (type === "callout") {
     repr.icon = data.icon || null;
     repr.color = data.color || "default";
-  } else if (type === "heading_1" || type === "heading_2" || type === "heading_3") {
+  } else if (
+    type === "heading_1" ||
+    type === "heading_2" ||
+    type === "heading_3"
+  ) {
     repr.is_toggleable = data.is_toggleable || false;
     repr.color = data.color || "default";
-  } else if (type === "bulleted_list_item" || type === "numbered_list_item" || type === "paragraph" || type === "quote") {
+  } else if (
+    type === "bulleted_list_item" ||
+    type === "numbered_list_item" ||
+    type === "paragraph" ||
+    type === "quote"
+  ) {
     repr.color = data.color || "default";
   }
-  
+
   return JSON.stringify(repr);
 }
 
-export type DiffOperation = 
-  | { type: 'keep', oldIndex: number, newIndex: number }
-  | { type: 'update', oldIndex: number, newIndex: number }
-  | { type: 'insert', newIndex: number }
-  | { type: 'delete', oldIndex: number };
+export type DiffOperation =
+  | { type: "keep"; oldIndex: number; newIndex: number }
+  | { type: "update"; oldIndex: number; newIndex: number }
+  | { type: "insert"; newIndex: number }
+  | { type: "delete"; oldIndex: number };
 
-export function computeBlockDiff(oldBlocks: any[], newBlocks: any[]): DiffOperation[] {
+export function computeBlockDiff(
+  oldBlocks: any[],
+  newBlocks: any[],
+): DiffOperation[] {
   const oldHashes = oldBlocks.map(hashBlock);
   const newHashes = newBlocks.map(hashBlock);
 
   const m = oldHashes.length;
   const n = newHashes.length;
-  
-  const c = Array(m + 1).fill(0).map(() => Array(n + 1).fill(0));
-  
+
+  const c = Array(m + 1)
+    .fill(0)
+    .map(() => Array(n + 1).fill(0));
+
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
       if (oldHashes[i - 1] === newHashes[j - 1]) {
@@ -79,25 +94,27 @@ export function computeBlockDiff(oldBlocks: any[], newBlocks: any[]): DiffOperat
       }
     }
   }
-  
+
   const ops: any[] = [];
-  let i = m, j = n;
-  
+  let i = m,
+    j = n;
+
   while (i > 0 || j > 0) {
     if (i > 0 && j > 0 && oldHashes[i - 1] === newHashes[j - 1]) {
-      ops.push({ type: 'keep', oldIndex: i - 1, newIndex: j - 1 });
-      i--; j--;
+      ops.push({ type: "keep", oldIndex: i - 1, newIndex: j - 1 });
+      i--;
+      j--;
     } else if (j > 0 && (i === 0 || c[i][j - 1] >= c[i - 1][j])) {
-      ops.push({ type: 'insert', newIndex: j - 1 });
+      ops.push({ type: "insert", newIndex: j - 1 });
       j--;
     } else if (i > 0 && (j === 0 || c[i][j - 1] < c[i - 1][j])) {
-      ops.push({ type: 'delete', oldIndex: i - 1 });
+      ops.push({ type: "delete", oldIndex: i - 1 });
       i--;
     }
   }
-  
+
   ops.reverse();
-  
+
   // Coalescence optimization
   const coalescedOps: DiffOperation[] = [];
   let pendingDeletes: number[] = [];
@@ -111,7 +128,11 @@ export function computeBlockDiff(oldBlocks: any[], newBlocks: any[]): DiffOperat
           const oIdx = pendingDeletes[di];
           const nIdx = pendingInserts[ii];
           if (oldBlocks[oIdx].type === newBlocks[nIdx].type) {
-            coalescedOps.push({ type: 'update', oldIndex: oIdx, newIndex: nIdx });
+            coalescedOps.push({
+              type: "update",
+              oldIndex: oIdx,
+              newIndex: nIdx,
+            });
             pendingDeletes.splice(di, 1);
             pendingInserts.splice(ii, 1);
             matched = true;
@@ -122,12 +143,12 @@ export function computeBlockDiff(oldBlocks: any[], newBlocks: any[]): DiffOperat
       }
       if (!matched) break;
     }
-    
+
     for (const oldIndex of pendingDeletes) {
-      coalescedOps.push({ type: 'delete', oldIndex });
+      coalescedOps.push({ type: "delete", oldIndex });
     }
     for (const newIndex of pendingInserts) {
-      coalescedOps.push({ type: 'insert', newIndex });
+      coalescedOps.push({ type: "insert", newIndex });
     }
     pendingDeletes = [];
     pendingInserts = [];
@@ -135,12 +156,12 @@ export function computeBlockDiff(oldBlocks: any[], newBlocks: any[]): DiffOperat
 
   for (let k = 0; k < ops.length; k++) {
     const op = ops[k];
-    if (op.type === 'keep') {
+    if (op.type === "keep") {
       flush();
       coalescedOps.push(op);
-    } else if (op.type === 'delete') {
+    } else if (op.type === "delete") {
       pendingDeletes.push(op.oldIndex);
-    } else if (op.type === 'insert') {
+    } else if (op.type === "insert") {
       pendingInserts.push(op.newIndex);
     }
   }

@@ -39,11 +39,14 @@ export function ServiceSelector({ selected, onChange }: Props) {
     const q = search.toLowerCase().trim();
 
     // Sort by updateTime descending (most recently deployed first)
-    const sortByUpdate = <T extends { displayName: string; updateTime: string }>(
-      list: T[]
+    const sortByUpdate = <
+      T extends { displayName: string; updateTime: string },
+    >(
+      list: T[],
     ) =>
       [...list].sort((a, b) => {
-        if (!a.updateTime && !b.updateTime) return a.displayName.localeCompare(b.displayName);
+        if (!a.updateTime && !b.updateTime)
+          return a.displayName.localeCompare(b.displayName);
         if (!a.updateTime) return 1;
         if (!b.updateTime) return -1;
         return b.updateTime.localeCompare(a.updateTime);
@@ -57,10 +60,10 @@ export function ServiceSelector({ selected, onChange }: Props) {
     }
     return {
       cloudRun: sortByUpdate(
-        cloudRun.filter((s) => s.displayName.toLowerCase().includes(q))
+        cloudRun.filter((s) => s.displayName.toLowerCase().includes(q)),
       ),
       cloudFunctions: sortByUpdate(
-        cloudFunctions.filter((f) => f.displayName.toLowerCase().includes(q))
+        cloudFunctions.filter((f) => f.displayName.toLowerCase().includes(q)),
       ),
     };
   }, [cloudRun, cloudFunctions, search]);
@@ -165,7 +168,7 @@ export function ServiceSelector({ selected, onChange }: Props) {
                         onChange(
                           isSelected
                             ? null
-                            : { name: svc.displayName, type: "cloud_run" }
+                            : { name: svc.displayName, type: "cloud_run" },
                         );
                         setOpen(false);
                         setSearch("");
@@ -214,7 +217,7 @@ export function ServiceSelector({ selected, onChange }: Props) {
                             : {
                                 name: fn.displayName,
                                 type: "cloud_function",
-                              }
+                              },
                         );
                         setOpen(false);
                         setSearch("");

@@ -15,7 +15,9 @@ const personaStore = new Map<string, UserPersona>();
 /**
  * Get user persona from in-memory store
  */
-export async function getUserPersona(userId: string): Promise<UserPersona | null> {
+export async function getUserPersona(
+  userId: string,
+): Promise<UserPersona | null> {
   try {
     return personaStore.get(userId) || null;
   } catch (error) {
@@ -27,7 +29,9 @@ export async function getUserPersona(userId: string): Promise<UserPersona | null
 /**
  * Get user persona by email (for Notion contributor mapping)
  */
-export async function getUserPersonaByEmail(email: string): Promise<UserPersona | null> {
+export async function getUserPersonaByEmail(
+  email: string,
+): Promise<UserPersona | null> {
   try {
     for (const persona of personaStore.values()) {
       if (persona.email === email) {
@@ -48,10 +52,15 @@ export async function setUserPersona(
   userId: string,
   persona: PersonaType,
   email: string,
-  department?: string
+  department?: string,
 ): Promise<void> {
   try {
-    console.log("Setting user persona:", { userId, persona, email, department });
+    console.log("Setting user persona:", {
+      userId,
+      persona,
+      email,
+      department,
+    });
 
     const userPersona: UserPersona = {
       userId,
@@ -84,7 +93,10 @@ export async function setUserPersona(
 /**
  * Check if user can edit specific field based on persona
  */
-export function canEditField(persona: PersonaType | undefined, fieldName: string): boolean {
+export function canEditField(
+  persona: PersonaType | undefined,
+  fieldName: string,
+): boolean {
   // Analytics team can edit everything
   if (persona === "analytics") return true;
 

@@ -7,7 +7,16 @@ import { CompSettingsEditor } from "@/components/CompSettingsEditor";
 import { CameraControls } from "@/components/CameraControls";
 import { CursorControls } from "@/components/CursorControls";
 import { CurrentElementPanel } from "@/components/CurrentElementPanel";
-import { SlidersHorizontal, Camera, Mouse, ChevronRight, Settings, FileText, MousePointerClick, Layers } from "lucide-react";
+import {
+  SlidersHorizontal,
+  Camera,
+  Mouse,
+  ChevronRight,
+  Settings,
+  FileText,
+  MousePointerClick,
+  Layers,
+} from "lucide-react";
 import { NewCompositionPopover } from "@/components/NewCompositionPopover";
 import { cn } from "@/lib/utils";
 import { useComposition } from "@/contexts/CompositionContext";
@@ -59,7 +68,8 @@ export function Sidebar({
   const trackDetailsRef = useRef<HTMLDetailsElement>(null);
   const compSettingsDetailsRef = useRef<HTMLDetailsElement>(null);
 
-  const selectedTrack = timelineTracks.find((t) => t.id === selectedTrackId) ?? null;
+  const selectedTrack =
+    timelineTracks.find((t) => t.id === selectedTrackId) ?? null;
   const cameraTrack = timelineTracks.find((t) => t.id === "camera");
   const cursorTrack = timelineTracks.find((t) => t.id === "cursor");
 
@@ -74,7 +84,8 @@ export function Sidebar({
           // Close camera and cursor panels
           if (cameraDetailsRef.current) cameraDetailsRef.current.open = false;
           if (cursorDetailsRef.current) cursorDetailsRef.current.open = false;
-          if (compSettingsDetailsRef.current) compSettingsDetailsRef.current.open = false;
+          if (compSettingsDetailsRef.current)
+            compSettingsDetailsRef.current.open = false;
 
           // Open track panel
           if (trackDetailsRef.current) {
@@ -83,7 +94,7 @@ export function Sidebar({
             setTimeout(() => {
               trackDetailsRef.current?.scrollIntoView({
                 behavior: "smooth",
-                block: "nearest"
+                block: "nearest",
               });
             }, 50);
           }
@@ -103,7 +114,8 @@ export function Sidebar({
         // Close other panels
         if (cursorDetailsRef.current) cursorDetailsRef.current.open = false;
         if (trackDetailsRef.current) trackDetailsRef.current.open = false;
-        if (compSettingsDetailsRef.current) compSettingsDetailsRef.current.open = false;
+        if (compSettingsDetailsRef.current)
+          compSettingsDetailsRef.current.open = false;
 
         // Open camera panel
         if (cameraDetailsRef.current) {
@@ -113,7 +125,7 @@ export function Sidebar({
           setTimeout(() => {
             cameraDetailsRef.current?.scrollIntoView({
               behavior: "smooth",
-              block: "nearest"
+              block: "nearest",
             });
           }, 50);
         }
@@ -132,7 +144,8 @@ export function Sidebar({
         // Close other panels
         if (cameraDetailsRef.current) cameraDetailsRef.current.open = false;
         if (trackDetailsRef.current) trackDetailsRef.current.open = false;
-        if (compSettingsDetailsRef.current) compSettingsDetailsRef.current.open = false;
+        if (compSettingsDetailsRef.current)
+          compSettingsDetailsRef.current.open = false;
 
         // Open cursor panel
         if (cursorDetailsRef.current) {
@@ -142,7 +155,7 @@ export function Sidebar({
           setTimeout(() => {
             cursorDetailsRef.current?.scrollIntoView({
               behavior: "smooth",
-              block: "nearest"
+              block: "nearest",
             });
           }, 50);
         }
@@ -171,7 +184,7 @@ export function Sidebar({
           setTimeout(() => {
             compSettingsDetailsRef.current?.scrollIntoView({
               behavior: "smooth",
-              block: "nearest"
+              block: "nearest",
             });
           }, 50);
         }
@@ -183,7 +196,7 @@ export function Sidebar({
     <div
       className={cn(
         "relative flex-shrink-0 border-r border-border bg-card/40 transition-all duration-200 overflow-hidden h-full",
-        open ? "w-64 lg:w-72" : "w-0"
+        open ? "w-64 lg:w-72" : "w-0",
       )}
     >
       <div className="w-64 lg:w-72 h-full flex flex-col">
@@ -208,7 +221,11 @@ export function Sidebar({
         <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5 scrollbar-thin">
           {tab === "compositions" ? (
             <>
-              <NewCompositionPopover isNew={isNew} onNavigate={onNavigate} onGeneratingChange={onGeneratingChange} />
+              <NewCompositionPopover
+                isNew={isNew}
+                onNavigate={onNavigate}
+                onGeneratingChange={onGeneratingChange}
+              />
 
               {compositions.map((comp) => (
                 <CompositionCard
@@ -226,10 +243,10 @@ export function Sidebar({
                 <details ref={cameraDetailsRef} className="group">
                   <summary className="cursor-pointer list-none">
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
-                    <Camera className="w-3.5 h-3.5 text-blue-400 mr-1 ml-[3px]" />
-                    <span className="text-xs font-medium">Camera</span>
-                    <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
-                  </div>
+                      <Camera className="w-3.5 h-3.5 text-blue-400 mr-1 ml-[3px]" />
+                      <span className="text-xs font-medium">Camera</span>
+                      <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
+                    </div>
                   </summary>
                   <div className="mt-1">
                     <CameraControls
@@ -262,7 +279,10 @@ export function Sidebar({
                     onUpdateTrack={onUpdateTrack}
                     onAddTrack={onAddTrack}
                     onSeek={onSeek}
-                    durationInFrames={compSettings?.durationInFrames ?? selected?.durationInFrames}
+                    durationInFrames={
+                      compSettings?.durationInFrames ??
+                      selected?.durationInFrames
+                    }
                     compositionWidth={compSettings?.width ?? selected?.width}
                     compositionHeight={compSettings?.height ?? selected?.height}
                     compositionId={compositionId}
@@ -276,7 +296,9 @@ export function Sidebar({
                   <summary className="cursor-pointer list-none">
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
                       <MousePointerClick className="w-3.5 h-3.5 text-green-400" />
-                      <span className="text-xs font-medium">Cursor Interactions</span>
+                      <span className="text-xs font-medium">
+                        Cursor Interactions
+                      </span>
                       <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                     </div>
                   </summary>
@@ -287,7 +309,11 @@ export function Sidebar({
               )}
 
               {/* Track properties */}
-              <details ref={trackDetailsRef} className="group" open={!!selectedTrack}>
+              <details
+                ref={trackDetailsRef}
+                className="group"
+                open={!!selectedTrack}
+              >
                 <summary className="cursor-pointer list-none">
                   <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
                     <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
@@ -301,7 +327,9 @@ export function Sidebar({
                   </div>
                 </summary>
                 <div className="mt-1">
-                  {selectedTrack && selectedTrack.id !== "camera" && selectedTrack.id !== "cursor" ? (
+                  {selectedTrack &&
+                  selectedTrack.id !== "camera" &&
+                  selectedTrack.id !== "cursor" ? (
                     <TrackPropertiesPanel
                       track={selectedTrack}
                       fps={selected.fps}
@@ -310,7 +338,9 @@ export function Sidebar({
                     />
                   ) : (
                     <div className="text-center py-6 px-4 bg-muted/30 rounded-lg border border-dashed border-border">
-                      <p className="text-xs text-muted-foreground">Select a track to edit its properties</p>
+                      <p className="text-xs text-muted-foreground">
+                        Select a track to edit its properties
+                      </p>
                       <p className="text-xs text-muted-foreground/60 mt-1">
                         Click any track in the timeline below
                       </p>
@@ -387,7 +417,7 @@ function TabButton({
         "flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-[11px] font-medium transition-colors",
         active
           ? "text-foreground border-b-2 border-primary"
-          : "text-muted-foreground hover:text-foreground/70"
+          : "text-muted-foreground hover:text-foreground/70",
       )}
     >
       {icon}

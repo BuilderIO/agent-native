@@ -15,5 +15,11 @@ export default function Presentation() {
   const slideParam = searchParams.get("slide");
   const startSlide = slideParam ? Math.max(0, parseInt(slideParam, 10) - 1) : 0;
 
-  return <PresentationView slides={deck.slides} deckId={id} startIndex={startSlide} />;
+  return (
+    <PresentationView
+      slides={deck.slides}
+      deckId={id}
+      startIndex={startSlide}
+    />
+  );
 }

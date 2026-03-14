@@ -28,39 +28,39 @@ Use this skill when producing content that involves competitive positioning:
 
 ### Category Overview
 
-| Category | Slug | Reference File | Key Competitors | Core Battle | Builder's Advantage |
-|----------|------|---------------|----------------|-------------|-------------------|
-| Prototyping/AI App Builders | `prototyping` | [prototyping-ai-app-builders.md](./references/prototyping-ai-app-builders.md) | v0, Lovable, Bolt, Replit, Figma Make | Production-ready vs. demo code | Real design system components, no "demo code ceiling" |
-| AI IDEs | `ai-ides` | [ai-ides.md](./references/ai-ides.md) | Cursor, GitHub Copilot, Windsurf | Visual editing + AI vs. pure code generation | No "reprompting ceiling," non-developers participate |
-| AI Agents | `ai-agents` | [ai-agents.md](./references/ai-agents.md) | Devin, Factory.ai, GitHub Copilot Workspace | Collaboration workspace vs. autonomous agent | No "autonomy ceiling," human-in-the-loop, distributed QA |
-| Traditional CMS | `traditional-cms` | [traditional-cms.md](./references/traditional-cms.md) | Contentful, Sanity, Strapi, Webflow, Framer, Wix, WordPress, Drupal, AEM | Speed + intelligence vs. traditional workflows | AI-first workflows, real design system integration, no developer blockers |
+| Category                    | Slug              | Reference File                                                                | Key Competitors                                                          | Core Battle                                    | Builder's Advantage                                                       |
+| --------------------------- | ----------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------- |
+| Prototyping/AI App Builders | `prototyping`     | [prototyping-ai-app-builders.md](./references/prototyping-ai-app-builders.md) | v0, Lovable, Bolt, Replit, Figma Make                                    | Production-ready vs. demo code                 | Real design system components, no "demo code ceiling"                     |
+| AI IDEs                     | `ai-ides`         | [ai-ides.md](./references/ai-ides.md)                                         | Cursor, GitHub Copilot, Windsurf                                         | Visual editing + AI vs. pure code generation   | No "reprompting ceiling," non-developers participate                      |
+| AI Agents                   | `ai-agents`       | [ai-agents.md](./references/ai-agents.md)                                     | Devin, Factory.ai, GitHub Copilot Workspace                              | Collaboration workspace vs. autonomous agent   | No "autonomy ceiling," human-in-the-loop, distributed QA                  |
+| Traditional CMS             | `traditional-cms` | [traditional-cms.md](./references/traditional-cms.md)                         | Contentful, Sanity, Strapi, Webflow, Framer, Wix, WordPress, Drupal, AEM | Speed + intelligence vs. traditional workflows | AI-first workflows, real design system integration, no developer blockers |
 
 ### Competitor-to-Category Lookup
 
-| Competitor | Aliases | Category | Tier |
-|-----------|---------|----------|------|
-| v0 (Vercel) | v0, vercel v0 | `prototyping` | Tier 1 |
-| Lovable | GPT Engineer | `prototyping` | Tier 1 |
-| Bolt (StackBlitz) | StackBlitz | `prototyping` | Tier 1 |
-| Replit Agent | Replit | `prototyping` | Tier 1 |
-| Figma Make | | `prototyping` | Tier 1 |
-| Claude Artifacts | Anthropic Artifacts | `prototyping` | Tier 2 |
-| Cursor | | `ai-ides` | Tier 1 |
-| GitHub Copilot | Copilot | `ai-ides` | Tier 1 |
-| Windsurf | Codeium | `ai-ides` | Tier 1 |
-| Devin (Cognition) | Devin, Cognition | `ai-agents` | Tier 1 |
-| GitHub Copilot Workspace | Copilot Workspace | `ai-agents` | Tier 2 |
-| Factory.ai | Factory | `ai-agents` | Tier 2 |
-| Cursor Background Agents | | `ai-agents` | Tier 2 |
-| Contentful | | `traditional-cms` | Tier 1 |
-| Sanity | | `traditional-cms` | Tier 1 |
-| Strapi | | `traditional-cms` | Tier 1 |
-| Webflow | | `traditional-cms` | Tier 1 |
-| Framer | | `traditional-cms` | Tier 1 |
-| Wix | | `traditional-cms` | Tier 1 |
-| WordPress | WP | `traditional-cms` | Legacy |
-| Adobe AEM | AEM | `traditional-cms` | Legacy |
-| Drupal | | `traditional-cms` | Legacy |
+| Competitor               | Aliases             | Category          | Tier   |
+| ------------------------ | ------------------- | ----------------- | ------ |
+| v0 (Vercel)              | v0, vercel v0       | `prototyping`     | Tier 1 |
+| Lovable                  | GPT Engineer        | `prototyping`     | Tier 1 |
+| Bolt (StackBlitz)        | StackBlitz          | `prototyping`     | Tier 1 |
+| Replit Agent             | Replit              | `prototyping`     | Tier 1 |
+| Figma Make               |                     | `prototyping`     | Tier 1 |
+| Claude Artifacts         | Anthropic Artifacts | `prototyping`     | Tier 2 |
+| Cursor                   |                     | `ai-ides`         | Tier 1 |
+| GitHub Copilot           | Copilot             | `ai-ides`         | Tier 1 |
+| Windsurf                 | Codeium             | `ai-ides`         | Tier 1 |
+| Devin (Cognition)        | Devin, Cognition    | `ai-agents`       | Tier 1 |
+| GitHub Copilot Workspace | Copilot Workspace   | `ai-agents`       | Tier 2 |
+| Factory.ai               | Factory             | `ai-agents`       | Tier 2 |
+| Cursor Background Agents |                     | `ai-agents`       | Tier 2 |
+| Contentful               |                     | `traditional-cms` | Tier 1 |
+| Sanity                   |                     | `traditional-cms` | Tier 1 |
+| Strapi                   |                     | `traditional-cms` | Tier 1 |
+| Webflow                  |                     | `traditional-cms` | Tier 1 |
+| Framer                   |                     | `traditional-cms` | Tier 1 |
+| Wix                      |                     | `traditional-cms` | Tier 1 |
+| WordPress                | WP                  | `traditional-cms` | Legacy |
+| Adobe AEM                | AEM                 | `traditional-cms` | Legacy |
+| Drupal                   |                     | `traditional-cms` | Legacy |
 
 ## Shared Differentiators
 
@@ -82,6 +82,7 @@ Identify which category a deliverable targets using one of three paths:
 **Path 3 -- Contextual:** No competitor named but competitive intent detected. Competitive intent indicators: "vs.", "compare", "alternative to", "switch from", "migrate from", "better than", "competitor", "battle card", "competitive", "displacement", "win against". Ask the user which category:
 
 > "Which competitive category does this target?"
+>
 > 1. Prototyping/AI App Builders (v0, Lovable, Bolt, Replit, Figma Make)
 > 2. AI IDEs (Cursor, GitHub Copilot, Windsurf)
 > 3. AI Agents (Devin, Factory.ai, Copilot Workspace)
@@ -100,11 +101,11 @@ How many reference files to read based on category count:
 - **3+ categories or "all"** -- Read ONLY the Quick Reference tables and Shared Differentiators above, not individual reference files. If the user needs deeper detail, split the deliverable by category.
 - **Default maximum: 2 reference files per deliverable.** If more are needed, the deliverable should be split.
 
-| Scenario | Files Loaded | Estimated Words |
-|----------|-------------|-----------------|
-| Single-category competitive landing page | SKILL.md + 1 reference | ~950-1,250 |
-| Two-category competitive campaign brief | SKILL.md + 2 references | ~1,650-2,250 |
-| Generic review (competitive check only) | SKILL.md only | ~250 |
+| Scenario                                 | Files Loaded            | Estimated Words |
+| ---------------------------------------- | ----------------------- | --------------- |
+| Single-category competitive landing page | SKILL.md + 1 reference  | ~950-1,250      |
+| Two-category competitive campaign brief  | SKILL.md + 2 references | ~1,650-2,250    |
+| Generic review (competitive check only)  | SKILL.md only           | ~250            |
 
 ## Guidelines
 
@@ -115,6 +116,7 @@ Only use information from the reference files. Do not invent, exaggerate, or spe
 ### Attribution Accuracy
 
 Never cite unattributed proof points as attributed. The AI Agents category has unattributed industry feedback -- do not present it as named customer quotes. Use the attribution markers in reference files to distinguish:
+
 - `**Adobe:**` or `**Cisco:**` -- attributed, named company
 - `**Industry feedback (unattributed):**` -- real feedback, no company name
 - `**Expected pattern:**` -- hypothetical, no real source

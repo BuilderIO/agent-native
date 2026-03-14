@@ -15,23 +15,39 @@ import { CollectedLinksBar } from "./CollectedLinksBar";
 
 const STORAGE_KEY = "twitter-research-filters";
 
-function loadFilters(): { dateRange: DateRange; tweetFilter: TweetFilter; sortType: SortType } {
-  const defaults = { dateRange: "90d" as DateRange, tweetFilter: "links" as TweetFilter, sortType: "Top" as SortType };
+function loadFilters(): {
+  dateRange: DateRange;
+  tweetFilter: TweetFilter;
+  sortType: SortType;
+} {
+  const defaults = {
+    dateRange: "90d" as DateRange,
+    tweetFilter: "links" as TweetFilter,
+    sortType: "Top" as SortType,
+  };
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
       const validFilters: TweetFilter[] = ["all", "links", "media"];
-      if (!validFilters.includes(parsed.tweetFilter)) parsed.tweetFilter = defaults.tweetFilter;
+      if (!validFilters.includes(parsed.tweetFilter))
+        parsed.tweetFilter = defaults.tweetFilter;
       return { ...defaults, ...parsed };
     }
   } catch {}
   return defaults;
 }
 
-function saveFilters(dateRange: DateRange, tweetFilter: TweetFilter, sortType: SortType) {
+function saveFilters(
+  dateRange: DateRange,
+  tweetFilter: TweetFilter,
+  sortType: SortType,
+) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ dateRange, tweetFilter, sortType }));
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ dateRange, tweetFilter, sortType }),
+    );
   } catch {}
 }
 
@@ -51,7 +67,11 @@ function isTwitterVideoUrl(url: string): boolean {
   try {
     const u = new URL(url);
     const host = u.hostname.replace(/^www\./, "");
-    if ((host === "twitter.com" || host === "x.com") && /\/video\//.test(u.pathname)) return true;
+    if (
+      (host === "twitter.com" || host === "x.com") &&
+      /\/video\//.test(u.pathname)
+    )
+      return true;
     if (/\.(mp4|webm|mov|avi|m3u8)(\?|$)/i.test(u.pathname)) return true;
   } catch {}
   return false;
@@ -63,7 +83,9 @@ function extractLinks(text: string): string[] {
 }
 
 function getPreviewUrlForTweet(tweet: TwitterTweet): string | null {
-  const hasVideo = tweet.media?.some((m) => m.type === "video" || m.type === "animated_gif");
+  const hasVideo = tweet.media?.some(
+    (m) => m.type === "video" || m.type === "animated_gif",
+  );
   const rawLinks = extractLinks(tweet.text);
   const links = hasVideo
     ? rawLinks.filter((url) => {
@@ -83,10 +105,14 @@ interface TwitterResearchPanelProps {
   onPreviewChange?: (isOpen: boolean) => void;
 }
 
-export function TwitterResearchPanel({ onPreviewChange }: TwitterResearchPanelProps) {
+export function TwitterResearchPanel({
+  onPreviewChange,
+}: TwitterResearchPanelProps) {
   const initial = loadFilters();
   const [dateRange, setDateRange] = useState<DateRange>(initial.dateRange);
-  const [tweetFilter, setTweetFilter] = useState<TweetFilter>(initial.tweetFilter);
+  const [tweetFilter, setTweetFilter] = useState<TweetFilter>(
+    initial.tweetFilter,
+  );
   const [sortType, setSortType] = useState<SortType>(initial.sortType);
   const [allTweets, setAllTweets] = useState<TwitterTweet[]>([]);
   const lastQueryRef = useRef<string>("");
@@ -131,7 +157,7 @@ export function TwitterResearchPanel({ onPreviewChange }: TwitterResearchPanelPr
       });
       setAllTweets([]);
     },
-    [sortType, dateRange, tweetFilter]
+    [sortType, dateRange, tweetFilter],
   );
 
   useEffect(() => {
@@ -158,13 +184,18 @@ export function TwitterResearchPanel({ onPreviewChange }: TwitterResearchPanelPr
     }
   }, [data, frozenParams]);
 
-  const handleLinkClick = useCallback((url: string, tweet: TwitterTweet) => {
-    explicitOpenRef.current = true;
-    setPreviewUrl(url);
-    setPreviewTweet(tweet);
-    setPreviewIndex(previewItems.findIndex((item) => item.tweet.id === tweet.id));
-    onPreviewChange?.(true);
-  }, [onPreviewChange, previewItems]);
+  const handleLinkClick = useCallback(
+    (url: string, tweet: TwitterTweet) => {
+      explicitOpenRef.current = true;
+      setPreviewUrl(url);
+      setPreviewTweet(tweet);
+      setPreviewIndex(
+        previewItems.findIndex((item) => item.tweet.id === tweet.id),
+      );
+      onPreviewChange?.(true);
+    },
+    [onPreviewChange, previewItems],
+  );
 
   const handleCollectLink = useCallback((link: CollectedLink) => {
     setCollectedLinks((prev) => {
@@ -182,9 +213,14 @@ export function TwitterResearchPanel({ onPreviewChange }: TwitterResearchPanelPr
   const navigatePreview = useCallback(
     (direction: -1 | 1) => {
       if (!previewItems.length) return;
-      const currentIndex = previewIndex ?? previewItems.findIndex((item) => item.tweet.id === previewTweet?.id);
+      const currentIndex =
+        previewIndex ??
+        previewItems.findIndex((item) => item.tweet.id === previewTweet?.id);
       if (currentIndex < 0) return;
-      const nextIndex = Math.min(Math.max(currentIndex + direction, 0), previewItems.length - 1);
+      const nextIndex = Math.min(
+        Math.max(currentIndex + direction, 0),
+        previewItems.length - 1,
+      );
       if (nextIndex === currentIndex) return;
       const nextItem = previewItems[nextIndex];
       setPreviewIndex(nextIndex);
@@ -192,7 +228,7 @@ export function TwitterResearchPanel({ onPreviewChange }: TwitterResearchPanelPr
       setPreviewUrl(nextItem.url || nextItem.tweet.url);
       onPreviewChange?.(true);
     },
-    [previewItems, previewIndex, previewTweet, onPreviewChange]
+    [previewItems, previewIndex, previewTweet, onPreviewChange],
   );
 
   useEffect(() => {
@@ -202,7 +238,9 @@ export function TwitterResearchPanel({ onPreviewChange }: TwitterResearchPanelPr
       explicitOpenRef.current = false;
       return;
     }
-    const idx = previewItems.findIndex((item) => item.tweet.id === previewTweet.id);
+    const idx = previewItems.findIndex(
+      (item) => item.tweet.id === previewTweet.id,
+    );
     if (idx === -1) {
       setPreviewTweet(null);
       setPreviewUrl(null);
@@ -218,7 +256,8 @@ export function TwitterResearchPanel({ onPreviewChange }: TwitterResearchPanelPr
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
-      if (tag === "input" || tag === "textarea" || target?.isContentEditable) return;
+      if (tag === "input" || tag === "textarea" || target?.isContentEditable)
+        return;
       if (event.key === "j" || event.key === "ArrowDown") {
         event.preventDefault();
         navigatePreview(1);
@@ -302,7 +341,9 @@ export function TwitterResearchPanel({ onPreviewChange }: TwitterResearchPanelPr
             </div>
           ) : lastQueryRef.current ? (
             <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-              <p className="text-sm">No tweets found for "{lastQueryRef.current}"</p>
+              <p className="text-sm">
+                No tweets found for "{lastQueryRef.current}"
+              </p>
               <p className="text-xs mt-1">
                 Try a different query or adjust filters
               </p>
@@ -310,7 +351,6 @@ export function TwitterResearchPanel({ onPreviewChange }: TwitterResearchPanelPr
           ) : (
             <EmptyState />
           )}
-
         </div>
       </div>
 
@@ -330,7 +370,9 @@ export function TwitterResearchPanel({ onPreviewChange }: TwitterResearchPanelPr
           onPrev={() => navigatePreview(-1)}
           onNext={() => navigatePreview(1)}
           hasPrev={(previewIndex ?? 0) > 0}
-          hasNext={previewIndex != null && previewIndex < previewItems.length - 1}
+          hasNext={
+            previewIndex != null && previewIndex < previewItems.length - 1
+          }
         />
       )}
     </div>

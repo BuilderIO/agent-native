@@ -21,7 +21,9 @@ export function KeywordResearchPanel() {
       <header className="flex items-center justify-between px-6 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2.5">
           <Search size={16} className="text-muted-foreground" />
-          <h1 className="text-sm font-semibold text-foreground">Keyword Research</h1>
+          <h1 className="text-sm font-semibold text-foreground">
+            Keyword Research
+          </h1>
         </div>
         <button
           onClick={() => setShowApiSetup(!showApiSetup)}
@@ -67,9 +69,12 @@ export function KeywordResearchPanel() {
           {!data && !isLoading && !error && (
             <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
               <Search size={32} className="mb-3 opacity-30" />
-              <p className="text-sm">Enter a keyword to discover related terms</p>
+              <p className="text-sm">
+                Enter a keyword to discover related terms
+              </p>
               <p className="text-xs mt-1.5">
-                Try terms like "content marketing", "react hooks", "seo strategy"
+                Try terms like "content marketing", "react hooks", "seo
+                strategy"
               </p>
             </div>
           )}

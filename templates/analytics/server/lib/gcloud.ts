@@ -75,7 +75,11 @@ async function apiGet<T>(url: string, cacheKey?: string): Promise<T> {
   return data as T;
 }
 
-async function apiPost<T>(url: string, body: unknown, cacheKey?: string): Promise<T> {
+async function apiPost<T>(
+  url: string,
+  body: unknown,
+  cacheKey?: string,
+): Promise<T> {
   const key = cacheKey ?? `POST:${url}:${JSON.stringify(body)}`;
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
@@ -192,7 +196,10 @@ export async function listCloudFunctions(): Promise<CloudFunction[]> {
   });
 }
 
-function buildTimeInterval(period: string): { startTime: string; endTime: string } {
+function buildTimeInterval(period: string): {
+  startTime: string;
+  endTime: string;
+} {
   const now = new Date();
   const end = now.toISOString();
   let ms: number;
@@ -236,7 +243,7 @@ export async function queryMetrics(
   period: string,
   perSeriesAligner: string = "ALIGN_RATE",
   crossSeriesReducer?: string,
-  groupByFields?: string[]
+  groupByFields?: string[],
 ): Promise<MetricTimeSeries[]> {
   const interval = buildTimeInterval(period);
   const alignPeriod = alignmentPeriod(period);
@@ -287,7 +294,7 @@ export async function getServiceMetrics(
   serviceName: string,
   metric: string,
   period: string,
-  extraFilter?: string
+  extraFilter?: string,
 ): Promise<MetricTimeSeries[]> {
   let filter: string;
   if (serviceType === "cloud_run") {
@@ -304,15 +311,26 @@ export async function getServiceMetrics(
   let aligner: string;
   let reducer = "REDUCE_SUM";
 
-  if (metric.includes("latenc") || metric.includes("duration") || metric.includes("execution_times") || metric.includes("utilizations")) {
+  if (
+    metric.includes("latenc") ||
+    metric.includes("duration") ||
+    metric.includes("execution_times") ||
+    metric.includes("utilizations")
+  ) {
     // Distribution metrics — use percentile
     aligner = "ALIGN_PERCENTILE_99";
-  } else if (metric.includes("instance_count") || metric.includes("active_instances") ||
-             metric.includes("memory")) {
+  } else if (
+    metric.includes("instance_count") ||
+    metric.includes("active_instances") ||
+    metric.includes("memory")
+  ) {
     // Gauge metrics — use mean
     aligner = "ALIGN_MEAN";
     reducer = "REDUCE_MEAN";
-  } else if (metric.includes("request_count") || metric.includes("execution_count")) {
+  } else if (
+    metric.includes("request_count") ||
+    metric.includes("execution_count")
+  ) {
     // Delta counter metrics — use delta (sum over alignment period)
     aligner = "ALIGN_DELTA";
   } else {
@@ -326,7 +344,7 @@ export async function getServiceMetrics(
 
 export async function listLogEntries(
   filter: string,
-  pageSize: number = 100
+  pageSize: number = 100,
 ): Promise<LogEntry[]> {
   const url = "https://logging.googleapis.com/v2/entries:list";
   const body = {

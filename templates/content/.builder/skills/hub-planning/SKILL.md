@@ -28,11 +28,11 @@ Display to the user: "Ahrefs API: X units remaining (resets YYYY-MM-DD). Hub pla
 
 **Budget thresholds for hub planning:**
 
-| Remaining Units | Action |
-|----------------|--------|
-| >= 50,000 | Proceed normally |
-| 40,000 - 49,999 | Proceed with warning: "Budget tight for a full hub. Planning is safe." |
-| < 40,000 | Warn user: "Insufficient budget for a full hub. Proceed with planning only?" |
+| Remaining Units | Action                                                                       |
+| --------------- | ---------------------------------------------------------------------------- |
+| >= 50,000       | Proceed normally                                                             |
+| 40,000 - 49,999 | Proceed with warning: "Budget tight for a full hub. Planning is safe."       |
+| < 40,000        | Warn user: "Insufficient budget for a full hub. Proceed with planning only?" |
 
 ### Step 1: Hub Topic Validation
 
@@ -40,10 +40,12 @@ Confirm the hub topic is viable before investing in cluster discovery.
 
 **1a. Search demand check:**
 Call `keywords-explorer-overview` with the broad hub topic. Check `volume` and `traffic_potential`. A viable pillar topic should have:
+
 - Volume >= 1,000 (broad topics need high demand)
 - Traffic potential >= 5,000 (the #1 page gets traffic from many related keywords)
 
 **1b. Subtopic breadth check (Ahrefs pillar qualifying questions):**
+
 - Does the topic have enough subtopics? Target 5-20 cluster pages. Too few = not worth a hub. Too many = topic is too broad, narrow it.
 - Can we match search intent for the pillar query? Check top 10 results via `serp-overview` — are they comprehensive guides or narrow articles?
 
@@ -53,12 +55,12 @@ Scan `output/hubs/*/hub.yaml` for an existing hub covering the same or overlappi
 **1d. Content pillar alignment:**
 Map the hub topic to one of the 4 content pillars:
 
-| Pillar | Topics |
-|--------|--------|
-| **visual-development** | Visual CMS, design-to-code, component editing, Figma workflows |
-| **dev-marketer-collab** | Content workflows, reducing Jira tickets, team handoffs |
-| **framework-integration** | Next.js, React, Angular, Qwik, Nuxt, Vue, Svelte |
-| **performance** | Core Web Vitals, image optimization, bundle size |
+| Pillar                    | Topics                                                         |
+| ------------------------- | -------------------------------------------------------------- |
+| **visual-development**    | Visual CMS, design-to-code, component editing, Figma workflows |
+| **dev-marketer-collab**   | Content workflows, reducing Jira tickets, team handoffs        |
+| **framework-integration** | Next.js, React, Angular, Qwik, Nuxt, Vue, Svelte               |
+| **performance**           | Core Web Vitals, image optimization, bundle size               |
 
 **1e. Hub opportunity score:**
 Score = search_demand × strategic_fit × gap_size (each 1-5). Score >= 3.0 = proceed.
@@ -111,23 +113,23 @@ Map each cluster (Ahrefs-discovered, user-provided, or merged) to a planned clus
 
 **3a. Search intent assignment** using intent modifiers:
 
-| Intent | Modifiers |
-|--------|-----------|
+| Intent            | Modifiers                                              |
+| ----------------- | ------------------------------------------------------ |
 | **informational** | how, what, why, guide, tutorial, tips, learn, examples |
-| **commercial** | best, top, review, comparison, vs, pricing |
-| **transactional** | buy, order, pricing, cheap, download |
-| **navigational** | [brand name], [product name], login, docs |
+| **commercial**    | best, top, review, comparison, vs, pricing             |
+| **transactional** | buy, order, pricing, cheap, download                   |
+| **navigational**  | [brand name], [product name], login, docs              |
 
 A well-balanced hub should cover multiple intent types.
 
 **3b. Business potential scoring** (0-3, from Ahrefs product-led content methodology):
 
-| Score | Meaning | Example |
-|-------|---------|---------|
+| Score | Meaning                                             | Example                         |
+| ----- | --------------------------------------------------- | ------------------------------- |
 | **3** | Builder.io is irreplaceable for solving the problem | "Visual CMS setup with Next.js" |
-| **2** | Builder.io helps but is not essential | "Component-driven development" |
-| **1** | Builder.io can only be mentioned briefly | "React vs Vue comparison" |
-| **0** | No business connection — remove from hub plan | "Rust async patterns" |
+| **2** | Builder.io helps but is not essential               | "Component-driven development"  |
+| **1** | Builder.io can only be mentioned briefly            | "React vs Vue comparison"       |
+| **0** | No business connection — remove from hub plan       | "Rust async patterns"           |
 
 For Ahrefs-discovered clusters (`source: ahrefs`), remove any scoring 0 — it dilutes the hub. For user-provided clusters (`source: user` or `source: user+ahrefs`), a score of 0 triggers a **warning** instead: "Your idea [X] has no clear Builder.io connection. Keep it?" The user decides whether to keep or remove their own ideas.
 
@@ -155,15 +157,18 @@ Define the pillar page structure at overview depth.
 Design the internal linking structure and write it into `hub.yaml`.
 
 **5a. Mandatory links:**
+
 - Pillar → every cluster: contextual link in the relevant body section, descriptive anchor text
 - Cluster → pillar: within the first 2-3 paragraphs of every cluster page, using pillar's primary keyword as anchor
 
 **5b. Sibling links (strategic, not exhaustive):**
+
 - Link clusters with related search intents (e.g., "beginner guide" → "vs comparison")
 - Target 2-3 sibling links per cluster page
 - Avoid a complete mesh — not every cluster needs to link to every other
 
 **5c. Anchor text distribution:**
+
 - 50% primary keyword of the target page
 - 30% semantic variations and long-tail forms
 - 20% natural phrases (e.g., "learn more about X")
@@ -171,6 +176,7 @@ Design the internal linking structure and write it into `hub.yaml`.
 - Never use bare "click here" or "read more"
 
 **5d. Max links per page:**
+
 - Pillar: 15-20 internal links (one per cluster + a few cross-references)
 - Cluster: 5-8 internal links (1 pillar + 2-3 siblings + 2-3 external)
 
@@ -185,6 +191,7 @@ Recommend the creation order and estimate timeline.
 **6b. Creation order:** Cluster pages are created sequentially in priority order (from Step 3c). No waves or batches for v1.
 
 **6c. Timeline estimate:**
+
 - Hub planning: 15-30 minutes
 - Pillar page (lfg mode): 45-90 minutes
 - Each cluster page (lfg mode): 30-60 minutes
@@ -278,12 +285,12 @@ planning → scaffolded → in-progress → published (all non-skipped pages don
 
 If hub planning discovers existing standalone posts in `output/posts/` that cover a planned cluster topic, present these options:
 
-| Option | Action |
-|--------|--------|
-| **Adopt** | Move the existing post into the hub as a cluster page |
-| **Refresh** | Run `/content-refresh` on the existing post with hub context |
-| **Create new** | Create a fresh cluster page (old post remains standalone) |
-| **Exclude** | Remove that subtopic from the hub plan |
+| Option         | Action                                                       |
+| -------------- | ------------------------------------------------------------ |
+| **Adopt**      | Move the existing post into the hub as a cluster page        |
+| **Refresh**    | Run `/content-refresh` on the existing post with hub context |
+| **Create new** | Create a fresh cluster page (old post remains standalone)    |
+| **Exclude**    | Remove that subtopic from the hub plan                       |
 
 ## Examples
 
@@ -292,6 +299,7 @@ If hub planning discovers existing standalone posts in `output/posts/` that cove
 **Input:** "Claude Code"
 
 **Evaluation:**
+
 - Search volume: 12,000+, traffic potential: 28,000+
 - Subtopics: 15+ (setup, vs Cursor, CLAUDE.md, MCP, hooks, IDE integration, testing, debugging, etc.)
 - Content pillar: `framework-integration`
@@ -306,6 +314,7 @@ If hub planning discovers existing standalone posts in `output/posts/` that cove
 **Input:** "CSS Grid"
 
 **Evaluation:**
+
 - Search volume: 8,000, traffic potential: 15,000
 - Subtopics: 4-5 (not enough for a hub)
 - Recommendation: Create a standalone comprehensive post instead. Or broaden to "CSS Layout" hub (grid, flexbox, container queries, subgrid, etc.)
@@ -315,6 +324,7 @@ If hub planning discovers existing standalone posts in `output/posts/` that cove
 **Input:** "Visual CMS"
 
 **Evaluation:**
+
 - Discovered 3 existing posts in `output/posts/` that cover planned cluster topics
 - Presented adopt/refresh/create/exclude options for each
 - After user decisions: 2 adopted, 1 excluded, 7 new cluster pages planned

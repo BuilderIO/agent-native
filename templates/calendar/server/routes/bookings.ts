@@ -16,11 +16,7 @@ import {
 
 const BOOKINGS_DIR = path.join(process.cwd(), "data", "bookings");
 const EVENTS_DIR = path.join(process.cwd(), "data", "events");
-const AVAILABILITY_PATH = path.join(
-  process.cwd(),
-  "data",
-  "availability.json"
-);
+const AVAILABILITY_PATH = path.join(process.cwd(), "data", "availability.json");
 
 function bookingPath(id: string): string {
   return path.join(BOOKINGS_DIR, `${id}.json`);
@@ -30,7 +26,7 @@ export function listBookings(_req: Request, res: Response): void {
   try {
     const bookings = listJsonFiles<Booking>(BOOKINGS_DIR);
     bookings.sort(
-      (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
+      (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
     );
     res.json(bookings);
   } catch (error: any) {
@@ -113,7 +109,11 @@ export function getAvailableSlots(req: Request, res: Response): void {
     const daySchedule =
       config.weeklySchedule[dayName as keyof typeof config.weeklySchedule];
 
-    if (!daySchedule || !daySchedule.enabled || daySchedule.slots.length === 0) {
+    if (
+      !daySchedule ||
+      !daySchedule.enabled ||
+      daySchedule.slots.length === 0
+    ) {
       res.json({ slots: [] });
       return;
     }
@@ -154,10 +154,13 @@ export function getAvailableSlots(req: Request, res: Response): void {
 
       let current = new Date(slotStart);
 
-      while (current.getTime() + slotDuration * 60 * 1000 <= slotEnd.getTime()) {
+      while (
+        current.getTime() + slotDuration * 60 * 1000 <=
+        slotEnd.getTime()
+      ) {
         const candidateStart = new Date(current);
         const candidateEnd = new Date(
-          current.getTime() + slotDuration * 60 * 1000
+          current.getTime() + slotDuration * 60 * 1000,
         );
 
         // Check for conflicts with events (including buffer)

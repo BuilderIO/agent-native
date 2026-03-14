@@ -76,12 +76,10 @@ export default function About() {
     <Layout>
       <div className="mx-auto max-w-4xl space-y-10 p-6 md:p-10">
         <header>
-          <h1 className="text-3xl font-bold tracking-tight">
-            About This App
-          </h1>
+          <h1 className="text-3xl font-bold tracking-tight">About This App</h1>
           <p className="mt-2 text-muted-foreground text-lg">
-            Analytics gives you a single place to explore, visualize, and
-            ask questions across all of Builder.io's key data sources.
+            Analytics gives you a single place to explore, visualize, and ask
+            questions across all of Builder.io's key data sources.
           </p>
         </header>
 

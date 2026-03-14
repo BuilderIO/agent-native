@@ -10,7 +10,11 @@
  * @param damping - How much the spring dampens (higher = less bounce)
  * @returns Animated value from 0 to 1 with spring physics
  */
-export function spring(progress: number, stiffness = 300, damping = 25): number {
+export function spring(
+  progress: number,
+  stiffness = 300,
+  damping = 25,
+): number {
   if (progress <= 0) return 0;
   if (progress >= 1) return 1;
 
@@ -18,25 +22,33 @@ export function spring(progress: number, stiffness = 300, damping = 25): number 
   const mass = 1;
   const angularFreq = Math.sqrt(stiffness / mass);
   const dampingRatio = damping / (2 * Math.sqrt(stiffness * mass));
-  
+
   if (dampingRatio < 1) {
     // Underdamped (bouncy)
     const dampedFreq = angularFreq * Math.sqrt(1 - dampingRatio * dampingRatio);
     const envelope = Math.exp(-dampingRatio * angularFreq * progress);
-    const phase = Math.atan(dampingRatio / Math.sqrt(1 - dampingRatio * dampingRatio));
-    
-    return 1 - envelope * Math.cos(dampedFreq * progress - phase) / Math.cos(phase);
+    const phase = Math.atan(
+      dampingRatio / Math.sqrt(1 - dampingRatio * dampingRatio),
+    );
+
+    return (
+      1 - (envelope * Math.cos(dampedFreq * progress - phase)) / Math.cos(phase)
+    );
   } else if (dampingRatio === 1) {
     // Critically damped
     const envelope = Math.exp(-angularFreq * progress);
     return 1 - envelope * (1 + angularFreq * progress);
   } else {
     // Overdamped (no bounce)
-    const r1 = -angularFreq * (dampingRatio + Math.sqrt(dampingRatio * dampingRatio - 1));
-    const r2 = -angularFreq * (dampingRatio - Math.sqrt(dampingRatio * dampingRatio - 1));
+    const r1 =
+      -angularFreq *
+      (dampingRatio + Math.sqrt(dampingRatio * dampingRatio - 1));
+    const r2 =
+      -angularFreq *
+      (dampingRatio - Math.sqrt(dampingRatio * dampingRatio - 1));
     const c2 = -1 / (r2 - r1);
     const c1 = 1 - c2;
-    
+
     return 1 - (c1 * Math.exp(r1 * progress) + c2 * Math.exp(r2 * progress));
   }
 }

@@ -8,7 +8,10 @@ interface CustomerSearchProps {
   selectedCompany: string | null;
 }
 
-export function CustomerSearch({ onSelect, selectedCompany }: CustomerSearchProps) {
+export function CustomerSearch({
+  onSelect,
+  selectedCompany,
+}: CustomerSearchProps) {
   const [input, setInput] = useState(selectedCompany ?? "");
   const [debouncedInput, setDebouncedInput] = useState("");
   const [open, setOpen] = useState(false);
@@ -23,14 +26,15 @@ export function CustomerSearch({ onSelect, selectedCompany }: CustomerSearchProp
   }, [input]);
 
   const sql = useMemo(
-    () => (debouncedInput.length >= 2 ? searchCompaniesQuery(debouncedInput) : ""),
-    [debouncedInput]
+    () =>
+      debouncedInput.length >= 2 ? searchCompaniesQuery(debouncedInput) : "",
+    [debouncedInput],
   );
 
   const { data, isLoading } = useMetricsQuery(
     ["customer-search", debouncedInput],
     sql,
-    { enabled: sql.length > 0 }
+    { enabled: sql.length > 0 },
   );
 
   const results = data?.rows ?? [];
@@ -41,12 +45,20 @@ export function CustomerSearch({ onSelect, selectedCompany }: CustomerSearchProp
   }, [results]);
 
   useEffect(() => {
-    if (results.length > 0 && debouncedInput.length >= 2 && !hasSelected.current) setOpen(true);
+    if (
+      results.length > 0 &&
+      debouncedInput.length >= 2 &&
+      !hasSelected.current
+    )
+      setOpen(true);
   }, [results, debouncedInput]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
         setOpen(false);
       }
     }
@@ -62,7 +74,7 @@ export function CustomerSearch({ onSelect, selectedCompany }: CustomerSearchProp
       setDebouncedInput("");
       onSelect(company);
     },
-    [onSelect]
+    [onSelect],
   );
 
   // Scroll highlighted item into view
@@ -90,7 +102,9 @@ export function CustomerSearch({ onSelect, selectedCompany }: CustomerSearchProp
         break;
       case "ArrowUp":
         e.preventDefault();
-        setHighlightIndex((prev) => (prev - 1 + results.length) % results.length);
+        setHighlightIndex(
+          (prev) => (prev - 1 + results.length) % results.length,
+        );
         break;
       case "Enter":
         e.preventDefault();
@@ -159,11 +173,14 @@ export function CustomerSearch({ onSelect, selectedCompany }: CustomerSearchProp
         </div>
       )}
 
-      {open && debouncedInput.length >= 2 && !isLoading && results.length === 0 && (
-        <div className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-popover shadow-lg px-4 py-3">
-          <p className="text-sm text-muted-foreground">No companies found</p>
-        </div>
-      )}
+      {open &&
+        debouncedInput.length >= 2 &&
+        !isLoading &&
+        results.length === 0 && (
+          <div className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-popover shadow-lg px-4 py-3">
+            <p className="text-sm text-muted-foreground">No companies found</p>
+          </div>
+        )}
     </div>
   );
 }

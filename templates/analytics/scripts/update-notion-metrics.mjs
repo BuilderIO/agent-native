@@ -1,17 +1,17 @@
-const NOTION_API = 'https://api.notion.com/v1';
-const NOTION_VERSION = '2022-06-28';
+const NOTION_API = "https://api.notion.com/v1";
+const NOTION_VERSION = "2022-06-28";
 const NOTION_API_KEY = process.env.NOTION_API_KEY;
 
 // Helper to update a Notion page
 async function updateNotionPage(pageId, properties) {
   const res = await fetch(`${NOTION_API}/pages/${pageId}`, {
-    method: 'PATCH',
+    method: "PATCH",
     headers: {
-      'Authorization': `Bearer ${NOTION_API_KEY}`,
-      'Notion-Version': NOTION_VERSION,
-      'Content-Type': 'application/json',
+      Authorization: `Bearer ${NOTION_API_KEY}`,
+      "Notion-Version": NOTION_VERSION,
+      "Content-Type": "application/json",
     },
-    body: JSON.stringify({ properties })
+    body: JSON.stringify({ properties }),
   });
 
   if (!res.ok) {
@@ -26,17 +26,17 @@ function richText(text) {
   return {
     rich_text: [
       {
-        type: 'text',
-        text: { content: text }
-      }
-    ]
+        type: "text",
+        text: { content: text },
+      },
+    ],
   };
 }
 
 // Metric updates with full content
 const metricUpdates = {
-  'Signups': {
-    'Query Template': richText(`-- Basic signup count by day
+  Signups: {
+    "Query Template": richText(`-- Basic signup count by day
 SELECT
   date_trunc('day', signup_date) AS signup_day,
   count(DISTINCT user_id) AS signups
@@ -58,19 +58,23 @@ WHERE s.signup_date IS NOT NULL
   AND s.email NOT LIKE '%@builder.io'
 GROUP BY 1, 2
 ORDER BY 1 DESC, 3 DESC;`),
-    'Common Questions': richText(`• How many signups came from organic vs paid channels? Use the channel breakdown query above
+    "Common Questions":
+      richText(`• How many signups came from organic vs paid channels? Use the channel breakdown query above
 • What's the week-over-week growth rate? Use WoW Signups Growth metric
 • How many invited users vs original signups? Filter by is_original = true in dim_users_core
 • Which landing pages drive the most signups? Join with first_pageviews on landing_page_url`),
-    'Known Gotchas': richText(`⚠️ Excludes builder.io domain emails - Internal team members are filtered out
+    "Known Gotchas":
+      richText(`⚠️ Excludes builder.io domain emails - Internal team members are filtered out
 ⚠️ Invited vs original distinction - Use is_original column to exclude invited users
 ⚠️ Signup date can be null - Some old users don't have signup_date, they're excluded
 ⚠️ Deduplication - Always use count(DISTINCT user_id), not just count(*)`),
-    'Example Use Case': richText('Track weekly signup trends to measure the impact of a new marketing campaign. Compare signup volume before and after campaign launch, broken down by acquisition channel.')
+    "Example Use Case": richText(
+      "Track weekly signup trends to measure the impact of a new marketing campaign. Compare signup volume before and after campaign launch, broken down by acquisition channel.",
+    ),
   },
-  
-  'Traffic': {
-    'Query Template': richText(`-- Daily unique visitors
+
+  Traffic: {
+    "Query Template": richText(`-- Daily unique visitors
 SELECT
   date_trunc('day', pageview_date) AS traffic_day,
   count(DISTINCT visitor_id) AS unique_visitors
@@ -91,19 +95,23 @@ WHERE pageview_date >= current_date - interval '30 days'
 GROUP BY 1, 2, 3
 ORDER BY 4 DESC
 LIMIT 50;`),
-    'Common Questions': richText(`• What's our total traffic this month? Use the daily query aggregated
+    "Common Questions":
+      richText(`• What's our total traffic this month? Use the daily query aggregated
 • Which pages get the most traffic? Group by page_url
 • What percentage of traffic comes from organic search? Filter by channel = 'organic'
 • How does traffic correlate with signups? Join with signups on visitor_id → user_id`),
-    'Known Gotchas': richText(`⚠️ Uses visitor_id, not user_id - Anonymous visitors are counted
+    "Known Gotchas":
+      richText(`⚠️ Uses visitor_id, not user_id - Anonymous visitors are counted
 ⚠️ Bots and crawlers included - May need additional filtering
 ⚠️ Deduplication is critical - Always count DISTINCT visitor_id
 ⚠️ First pageview vs all pageviews - Use first_pageviews table for acquisition analysis`),
-    'Example Use Case': richText('Monitor the impact of SEO improvements by tracking organic search traffic trends week-over-week. Identify which blog posts drive the most qualified traffic.')
+    "Example Use Case": richText(
+      "Monitor the impact of SEO improvements by tracking organic search traffic trends week-over-week. Identify which blog posts drive the most qualified traffic.",
+    ),
   },
 
-  'QLs (Qualified Leads)': {
-    'Query Template': richText(`-- QLs by cohort week
+  "QLs (Qualified Leads)": {
+    "Query Template": richText(`-- QLs by cohort week
 SELECT
   date_trunc('week', date_moved_from_s0) AS ql_week,
   count(DISTINCT contact_id) AS qualified_leads
@@ -123,19 +131,23 @@ LEFT JOIN dbt_staging_bigquery.first_pageviews fp
 WHERE c.date_moved_from_s0 IS NOT NULL
 GROUP BY 1, 2
 ORDER BY 1 DESC, 3 DESC;`),
-    'Common Questions': richText(`• How many QLs did we generate this month? Sum count from monthly query
+    "Common Questions":
+      richText(`• How many QLs did we generate this month? Sum count from monthly query
 • What's our QL conversion rate from signups? Divide QLs by signups (QL Rate metric)
 • Which channel produces the highest quality leads? Compare QL rate by channel
 • How long does it take from signup to QL? Join with signups and calculate datediff`),
-    'Known Gotchas': richText(`⚠️ Date is when they MOVED from S0 - Not when they entered the system
+    "Known Gotchas":
+      richText(`⚠️ Date is when they MOVED from S0 - Not when they entered the system
 ⚠️ Null values mean never qualified - Filter these out
 ⚠️ Can move backwards - A QL can be disqualified later
 ⚠️ HubSpot sync delays - Data may be 24 hours behind real-time`),
-    'Example Use Case': richText('Measure sales team\'s lead qualification efficiency by tracking the percentage of signups that reach QL status within 30 days, segmented by lead source.')
+    "Example Use Case": richText(
+      "Measure sales team's lead qualification efficiency by tracking the percentage of signups that reach QL status within 30 days, segmented by lead source.",
+    ),
   },
 
-  'Pipeline': {
-    'Query Template': richText(`-- Total qualified pipeline (S1, S2, S3 stages)
+  Pipeline: {
+    "Query Template": richText(`-- Total qualified pipeline (S1, S2, S3 stages)
 SELECT
   date_trunc('month', d.createdate) AS created_month,
   d.dealstage,
@@ -160,19 +172,23 @@ WHERE d.dealstage IN ('S1 - Qualified', 'S2 - Demo', 'S3 - Verbal Commit')
   AND d.is_closed = false
 GROUP BY 1
 ORDER BY 3 DESC;`),
-    'Common Questions': richText(`• What's our total pipeline value? Sum amount across all qualified stages
+    "Common Questions":
+      richText(`• What's our total pipeline value? Sum amount across all qualified stages
 • How is pipeline distributed across stages? Group by dealstage
 • Which rep has the most pipeline? Group by owner
 • What's the average time in each stage? Calculate datediff between stage entry dates`),
-    'Known Gotchas': richText(`⚠️ Excludes S0 (unqualified) - Pre-qualification deals not counted
+    "Known Gotchas":
+      richText(`⚠️ Excludes S0 (unqualified) - Pre-qualification deals not counted
 ⚠️ Excludes closed deals - Only open pipeline shown
 ⚠️ Self-Serve pipeline separate - Different sales motion, tracked separately
 ⚠️ Amount can be null - Handle nulls as 0 or exclude`),
-    'Example Use Case': richText('Forecast quarterly revenue by analyzing pipeline coverage. Calculate total pipeline divided by average win rate to predict likely closed-won revenue.')
+    "Example Use Case": richText(
+      "Forecast quarterly revenue by analyzing pipeline coverage. Calculate total pipeline divided by average win rate to predict likely closed-won revenue.",
+    ),
   },
 
-  'Current ARR': {
-    'Query Template': richText(`-- Total ARR across all enterprise accounts
+  "Current ARR": {
+    "Query Template": richText(`-- Total ARR across all enterprise accounts
 SELECT
   sum(current_enterprise_arr) AS total_arr,
   count(DISTINCT company_id) AS num_accounts,
@@ -194,19 +210,23 @@ FROM dbt_mart.enterprise_companies
 WHERE current_enterprise_arr > 0
 GROUP BY 1
 ORDER BY 2 DESC;`),
-    'Common Questions': richText(`• What's our total ARR? Sum current_enterprise_arr across all accounts
+    "Common Questions":
+      richText(`• What's our total ARR? Sum current_enterprise_arr across all accounts
 • Which accounts have the highest ARR? Order by amount DESC
 • How has ARR trended month-over-month? Track historical snapshots
 • What percentage of ARR is at risk of churn? Join with health scores`),
-    'Known Gotchas': richText(`⚠️ Enterprise-only - Excludes self-serve subscriptions
+    "Known Gotchas":
+      richText(`⚠️ Enterprise-only - Excludes self-serve subscriptions
 ⚠️ Normalized to annual - Monthly contracts multiplied by 12
 ⚠️ Snapshot data - Point-in-time value, not historical trend
 ⚠️ Contract vs actual usage - ARR is contractual, not usage-based`),
-    'Example Use Case': richText('Calculate net revenue retention by comparing current ARR to ARR from 12 months ago for the same cohort of customers, accounting for expansion, contraction, and churn.')
+    "Example Use Case": richText(
+      "Calculate net revenue retention by comparing current ARR to ARR from 12 months ago for the same cohort of customers, accounting for expansion, contraction, and churn.",
+    ),
   },
 
-  'Self Serve Paid Subs': {
-    'Query Template': richText(`-- Monthly self-serve subscription count
+  "Self Serve Paid Subs": {
+    "Query Template": richText(`-- Monthly self-serve subscription count
 SELECT
   date_trunc('month', subscription_start_date) AS sub_month,
   count(DISTINCT subscription_id) AS paid_subs,
@@ -228,19 +248,23 @@ WHERE plan = 'self-serve'
   AND status = 'active'
 GROUP BY 1
 ORDER BY 2 DESC;`),
-    'Common Questions': richText(`• How many active paid self-serve subs do we have? Count where status = 'active'
+    "Common Questions":
+      richText(`• How many active paid self-serve subs do we have? Count where status = 'active'
 • What's the conversion rate from free to paid? Divide paid subs by total signups
 • Which plan tier is most popular? Group by plan_tier
 • What's the average MRR per subscription? Sum MRR / count subs`),
-    'Known Gotchas': richText(`⚠️ Stripe data source - Synced from Stripe, may have delay
+    "Known Gotchas":
+      richText(`⚠️ Stripe data source - Synced from Stripe, may have delay
 ⚠️ Active vs all subscriptions - Filter by status = 'active'
 ⚠️ Plan = 'self-serve' - Excludes enterprise contracts
 ⚠️ Cancellations included if active - Check cancelled_at for churn`),
-    'Example Use Case': richText('Track product-led growth by monitoring the self-serve paid subscription acquisition rate and comparing it to free trial starts, identifying conversion bottlenecks.')
+    "Example Use Case": richText(
+      "Track product-led growth by monitoring the self-serve paid subscription acquisition rate and comparing it to free trial starts, identifying conversion bottlenecks.",
+    ),
   },
 
-  'Monthly User Count': {
-    'Query Template': richText(`-- User count trend for a specific account
+  "Monthly User Count": {
+    "Query Template": richText(`-- User count trend for a specific account
 SELECT
   date_trunc('month', snapshot_date) AS month,
   count(DISTINCT user_id) AS total_users
@@ -265,19 +289,23 @@ WHERE ro.subscription_name NOT IN ('free', 'internal')
   AND snapshot_date = last_day(snapshot_date)
 GROUP BY 1
 ORDER BY 1;`),
-    'Common Questions': richText(`• How many users does account X have? Filter by account name
+    "Common Questions":
+      richText(`• How many users does account X have? Filter by account name
 • Is user count growing or declining? Compare month-over-month
 • Which accounts have the fastest user growth? Calculate % change MoM
 • What's the average user count per account? Group by account, average`),
-    'Known Gotchas': richText(`⚠️ Snapshot on last day of month - Only counts users as of month-end
+    "Known Gotchas":
+      richText(`⚠️ Snapshot on last day of month - Only counts users as of month-end
 ⚠️ Includes inactive users - Filter by last_login if needed
 ⚠️ Invited users counted - No distinction between invited and original
 ⚠️ Root org level - Users are rolled up to parent organization`),
-    'Example Use Case': richText('Monitor customer expansion by tracking monthly user count growth for enterprise accounts, identifying which customers are scaling up usage and may need capacity upgrades.')
+    "Example Use Case": richText(
+      "Monitor customer expansion by tracking monthly user count growth for enterprise accounts, identifying which customers are scaling up usage and may need capacity upgrades.",
+    ),
   },
 
-  'Signup Rate': {
-    'Query Template': richText(`-- Overall signup rate by week
+  "Signup Rate": {
+    "Query Template": richText(`-- Overall signup rate by week
 SELECT
   date_trunc('week', fp.pageview_date) AS week,
   count(DISTINCT fp.visitor_id) AS new_visitors,
@@ -305,19 +333,23 @@ LEFT JOIN dbt_staging_bigquery.signups s
 WHERE fp.pageview_date >= current_date - interval '90 days'
 GROUP BY 1
 ORDER BY 4 DESC;`),
-    'Common Questions': richText(`• What's our current signup conversion rate? Calculate signups / new visitors
+    "Common Questions":
+      richText(`• What's our current signup conversion rate? Calculate signups / new visitors
 • Which channel has the best signup rate? Group by channel and compare
 • Has signup rate improved after UX changes? Compare before/after periods
 • What's the typical time-to-signup? Calculate datediff(signup_date, first_pageview_date)`),
-    'Known Gotchas': richText(`⚠️ Attribution window matters - Use 30-day window for most cases
+    "Known Gotchas":
+      richText(`⚠️ Attribution window matters - Use 30-day window for most cases
 ⚠️ Visitor ID matching - Some visitors may not match due to cookies/tracking
 ⚠️ Exclude internal traffic - Filter out builder.io domain
 ⚠️ New visitors only - Uses first_pageviews, not all pageviews`),
-    'Example Use Case': richText('Optimize landing page conversion by A/B testing different headlines and CTAs, measuring impact on signup rate for organic search traffic specifically.')
+    "Example Use Case": richText(
+      "Optimize landing page conversion by A/B testing different headlines and CTAs, measuring impact on signup rate for organic search traffic specifically.",
+    ),
   },
 
-  'New Visitors': {
-    'Query Template': richText(`-- New visitors by day
+  "New Visitors": {
+    "Query Template": richText(`-- New visitors by day
 SELECT
   date_trunc('day', pageview_date) AS visitor_day,
   count(DISTINCT visitor_id) AS new_visitors,
@@ -339,19 +371,23 @@ WHERE pageview_date >= current_date - interval '30 days'
 GROUP BY 1
 ORDER BY 2 DESC
 LIMIT 50;`),
-    'Common Questions': richText(`• How many new visitors do we get per day? Sum from daily query
+    "Common Questions":
+      richText(`• How many new visitors do we get per day? Sum from daily query
 • What percentage come from organic search? Organic / total
 • Which landing pages attract the most new visitors? Group by landing_page_url
 • How does new visitor count correlate with signups? Join with signups`),
-    'Known Gotchas': richText(`⚠️ First pageview only - Each visitor counted once, at first visit
+    "Known Gotchas":
+      richText(`⚠️ First pageview only - Each visitor counted once, at first visit
 ⚠️ Cookie-based tracking - Clearing cookies creates "new" visitor
 ⚠️ Channel attribution - Uses last-click attribution model
 ⚠️ Bot traffic may be included - Consider additional filtering`),
-    'Example Use Case': richText('Measure the effectiveness of content marketing by tracking new visitor acquisition from blog posts, comparing SEO performance across different content topics.')
+    "Example Use Case": richText(
+      "Measure the effectiveness of content marketing by tracking new visitor acquisition from blog posts, comparing SEO performance across different content topics.",
+    ),
   },
 
-  '% Users with ≥1 Session (Last 30 Days)': {
-    'Query Template': richText(`-- Session engagement rate for all paid accounts
+  "% Users with ≥1 Session (Last 30 Days)": {
+    "Query Template": richText(`-- Session engagement rate for all paid accounts
 SELECT
   ro.account_name,
   count(DISTINCT u.user_id) AS total_users,
@@ -372,40 +408,47 @@ LEFT JOIN dbt_mart.user_sessions us
 WHERE ro.subscription_name NOT IN ('free', 'internal')
 GROUP BY 1
 ORDER BY 4 DESC;`),
-    'Common Questions': richText(`• Which accounts have low engagement? Filter for pct_active < 20%
+    "Common Questions":
+      richText(`• Which accounts have low engagement? Filter for pct_active < 20%
 • Is engagement improving over time? Compare month-over-month
 • What's the average engagement across all accounts? Average pct_active
 • How does engagement correlate with churn? Join with churn events`),
-    'Known Gotchas': richText(`⚠️ 30-day rolling window - Dynamic window, updates daily
+    "Known Gotchas":
+      richText(`⚠️ 30-day rolling window - Dynamic window, updates daily
 ⚠️ Session definition varies - Confirm what constitutes a "session"
 ⚠️ Includes all users - Active and inactive accounts counted
 ⚠️ Denominator is total users - Not just users who could have sessions`),
-    'Example Use Case': richText('Identify at-risk enterprise accounts by monitoring the percentage of users with recent sessions. Accounts with <20% active users may need intervention to prevent churn.')
-  }
+    "Example Use Case": richText(
+      "Identify at-risk enterprise accounts by monitoring the percentage of users with recent sessions. Accounts with <20% active users may need intervention to prevent churn.",
+    ),
+  },
 };
 
 // Fetch all data dictionary entries to get page IDs
 async function getDataDictionary() {
-  const DATA_DICTIONARY_DB_ID = '31a3d7274be580da9da7cf54909e1b7c';
-  
-  const res = await fetch(`${NOTION_API}/databases/${DATA_DICTIONARY_DB_ID}/query`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${NOTION_API_KEY}`,
-      'Notion-Version': NOTION_VERSION,
-      'Content-Type': 'application/json',
+  const DATA_DICTIONARY_DB_ID = "31a3d7274be580da9da7cf54909e1b7c";
+
+  const res = await fetch(
+    `${NOTION_API}/databases/${DATA_DICTIONARY_DB_ID}/query`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${NOTION_API_KEY}`,
+        "Notion-Version": NOTION_VERSION,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ page_size: 100 }),
     },
-    body: JSON.stringify({ page_size: 100 })
-  });
+  );
 
   const result = await res.json();
   const entries = {};
 
   for (const page of result.results ?? []) {
     const props = page.properties ?? {};
-    const metricProp = props['Metric'];
-    const metricName = metricProp?.title?.[0]?.plain_text ?? '';
-    
+    const metricProp = props["Metric"];
+    const metricName = metricProp?.title?.[0]?.plain_text ?? "";
+
     if (metricName) {
       entries[metricName] = page.id;
     }
@@ -416,44 +459,44 @@ async function getDataDictionary() {
 
 // Main update function
 async function updateMetrics() {
-  console.log('🔍 Fetching data dictionary entries...\n');
+  console.log("🔍 Fetching data dictionary entries...\n");
   const entries = await getDataDictionary();
-  
+
   console.log(`📊 Found ${Object.keys(entries).length} metrics in Notion\n`);
-  
+
   let updated = 0;
   let skipped = 0;
-  
+
   for (const [metricName, updates] of Object.entries(metricUpdates)) {
     const pageId = entries[metricName];
-    
+
     if (!pageId) {
       console.log(`⚠️  Skipped: "${metricName}" - not found in Notion`);
       skipped++;
       continue;
     }
-    
+
     try {
       console.log(`📝 Updating: "${metricName}"...`);
       await updateNotionPage(pageId, updates);
       console.log(`✅ Updated: "${metricName}"\n`);
       updated++;
-      
+
       // Rate limit: wait 350ms between updates
-      await new Promise(resolve => setTimeout(resolve, 350));
+      await new Promise((resolve) => setTimeout(resolve, 350));
     } catch (error) {
       console.error(`❌ Failed to update "${metricName}":`, error.message);
     }
   }
-  
-  console.log('\n=== SUMMARY ===');
+
+  console.log("\n=== SUMMARY ===");
   console.log(`✅ Successfully updated: ${updated} metrics`);
   console.log(`⚠️  Skipped: ${skipped} metrics`);
-  console.log('\n🎉 Done! Your top 10 metrics are now fully documented.');
+  console.log("\n🎉 Done! Your top 10 metrics are now fully documented.");
 }
 
 // Run the updates
-updateMetrics().catch(err => {
-  console.error('Fatal error:', err);
+updateMetrics().catch((err) => {
+  console.error("Fatal error:", err);
   process.exit(1);
 });

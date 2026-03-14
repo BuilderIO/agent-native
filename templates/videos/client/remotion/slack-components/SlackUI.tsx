@@ -100,7 +100,10 @@ export const SlackUI: React.FC<SlackUIProps> = ({
       {/* Main Content Area */}
       <div style={{ display: "flex", height: contentHeight }}>
         {/* Left Sidebar - Navigation */}
-        <SlackLeftSidebar height={contentHeight} navHoverStates={navHoverStates} />
+        <SlackLeftSidebar
+          height={contentHeight}
+          navHoverStates={navHoverStates}
+        />
 
         {/* Middle Sidebar - Channels & DMs */}
         <SlackMiddleSidebar
@@ -117,7 +120,12 @@ export const SlackUI: React.FC<SlackUIProps> = ({
           }}
         >
           <SlackMainContent
-            width={width - leftSidebarWidth - middleSidebarWidth - animatedThreadPanelWidth}
+            width={
+              width -
+              leftSidebarWidth -
+              middleSidebarWidth -
+              animatedThreadPanelWidth
+            }
             height={contentHeight}
             currentFrame={currentFrame}
             messageHoverStates={messageHoverStates}

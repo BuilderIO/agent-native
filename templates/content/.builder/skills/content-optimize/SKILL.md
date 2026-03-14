@@ -12,6 +12,7 @@ Apply SEO optimization, AEO optimization, and the post-publish checklist to an e
 <folder> $ARGUMENTS </folder>
 
 **If the folder above is empty:** Scan `output/posts/` for folders eligible for optimization. A folder is eligible if:
+
 - **Blog mode:** phases 01-07 complete, missing phase 08
 - **Refresh mode:** `refresh-scope.yaml` present, missing phase 08
 
@@ -119,6 +120,7 @@ Run the 12-step SEO optimization from the SEO Optimization skill:
 **Refresh mode (metadata-only):** This is the first phase that runs after Gate 1. Read the original `post.md` as the working file (no `draft.md` exists). Apply SEO re-optimization in place.
 
 **Refresh mode (selective/full):** Same as blog mode -- creates `post.md` from `draft.md`. Additionally:
+
 - Add `dateModified` to schema markup (today's date)
 - Preserve the original `datePublished`
 - Preserve the original slug
@@ -174,6 +176,7 @@ Run the 13-step final QA:
 **Trending mode:** Accept empty SERP-derived fields. Add `trending_followup` scheduling to `metadata.yaml`.
 
 **Refresh mode:** Additionally:
+
 - Verify original slug is preserved
 - Add `dateModified` to metadata
 - Update `metadata.yaml` with `refresh_history` entry (date, scope, sections rewritten/added, word count before/after, archive path)
@@ -188,6 +191,7 @@ Run the 13-step final QA:
 When Phase 10 finishes, present the final summary:
 
 **Blog mode:**
+
 ```
 Blog post complete!
 
@@ -211,6 +215,7 @@ Minor issues: [count]
 ```
 
 **Refresh mode:**
+
 ```
 Content refresh complete!
 
@@ -240,6 +245,7 @@ Use **AskUserQuestion** to present options:
 **Question:** "What would you like to do next?"
 
 **Options:**
+
 1. **Polish** -- Run `/content-polish` for section-by-section editorial refinement (recommended for posts >2,500 words)
 2. **Capture learnings** -- Run `/content-compound` on this post to document what worked and what didn't
 3. **View the post** -- Open `post.md` for review
@@ -250,20 +256,26 @@ Use **AskUserQuestion** to present options:
 ## Error Handling
 
 ### Ahrefs MCP Unavailable
+
 If any Ahrefs MCP call fails during the pipeline:
+
 1. Log the failure in the current phase's YAML output
 2. Fall back to WebSearch-based research for that specific call
 3. Note reduced data quality in the phase output
 4. Continue the pipeline -- do not stop
 
 ### Phase Failure
+
 If a phase produces an error or incomplete output:
+
 1. Announce the failure to the user
 2. Ask whether to retry the phase, skip it, or stop the pipeline
 3. If skipped, write a stub YAML with `skipped: true` and `reason`
 
 ### Word Count Overflow
+
 If the post exceeds the competitive median (or guidance range soft max for trending) by 50%+ after Phase 9:
+
 1. The Post-Publish Checklist flags it
 2. Suggest trimming specific sections (identify the longest non-essential sections)
 3. Do not auto-trim without user approval

@@ -45,7 +45,7 @@ export function ReferenceImagePicker({
         reader.readAsDataURL(file);
       }
     },
-    [uploadedImages, onUploadedImagesChange]
+    [uploadedImages, onUploadedImagesChange],
   );
 
   const handleDrop = useCallback(
@@ -56,7 +56,7 @@ export function ReferenceImagePicker({
         handleFiles(e.dataTransfer.files);
       }
     },
-    [handleFiles]
+    [handleFiles],
   );
 
   const removeUploaded = (index: number) => {
@@ -102,7 +102,7 @@ export function ReferenceImagePicker({
               "flex items-center gap-1 px-2 py-1 text-[11px] font-medium transition-colors",
               mode === "upload"
                 ? "bg-foreground text-background"
-                : "text-muted-foreground hover:text-foreground"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             <Upload size={10} />
@@ -114,7 +114,7 @@ export function ReferenceImagePicker({
               "flex items-center gap-1 px-2 py-1 text-[11px] font-medium transition-colors border-l border-border",
               mode === "folder"
                 ? "bg-foreground text-background"
-                : "text-muted-foreground hover:text-foreground"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             <FolderOpen size={10} />
@@ -138,10 +138,13 @@ export function ReferenceImagePicker({
               "border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors bg-muted",
               isDragging
                 ? "border-primary bg-primary/10"
-                : "border-border hover:border-foreground/20"
+                : "border-border hover:border-foreground/20",
             )}
           >
-            <Upload size={20} className="mx-auto mb-1.5 text-muted-foreground/50" />
+            <Upload
+              size={20}
+              className="mx-auto mb-1.5 text-muted-foreground/50"
+            />
             <p className="text-xs text-muted-foreground">
               Drop images here or click to upload
             </p>
@@ -165,8 +168,15 @@ export function ReferenceImagePicker({
           {uploadedImages.length > 0 && (
             <div className="grid grid-cols-4 gap-2">
               {uploadedImages.map((img, i) => (
-                <div key={i} className="relative group rounded-md overflow-hidden aspect-square border border-border">
-                  <img src={img} alt={`Reference ${i + 1}`} className="w-full h-full object-cover" />
+                <div
+                  key={i}
+                  className="relative group rounded-md overflow-hidden aspect-square border border-border"
+                >
+                  <img
+                    src={img}
+                    alt={`Reference ${i + 1}`}
+                    className="w-full h-full object-cover"
+                  />
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -182,7 +192,10 @@ export function ReferenceImagePicker({
           )}
         </div>
       ) : (
-        <FolderBrowser selectedPaths={folderPaths} onTogglePath={toggleFolderPath} />
+        <FolderBrowser
+          selectedPaths={folderPaths}
+          onTogglePath={toggleFolderPath}
+        />
       )}
     </div>
   );

@@ -75,7 +75,7 @@ export const handleSlackHistory: RequestHandler = async (req, res) => {
       workspace,
       channel,
       Math.min(limit, 200),
-      cursor
+      cursor,
     );
 
     const userIds = result.messages
@@ -127,8 +127,8 @@ export const handleSlackMultiHistory: RequestHandler = async (req, res) => {
     // Fetch pageSize messages from each channel in parallel
     const results = await Promise.all(
       channelIds.map((id) =>
-        getChannelHistory(workspace, id, pageSize, cursors[id])
-      )
+        getChannelHistory(workspace, id, pageSize, cursors[id]),
+      ),
     );
 
     // Tag messages with channel name and merge
@@ -164,7 +164,8 @@ export const handleSlackMultiHistory: RequestHandler = async (req, res) => {
     const users = await resolveUsers(workspace, userIds, enrichedMessages);
 
     // has_more is true if any channel has more messages
-    const hasMore = Object.values(perChannelHasMore).some(Boolean) ||
+    const hasMore =
+      Object.values(perChannelHasMore).some(Boolean) ||
       allMessages.length > pageSize;
 
     res.json({

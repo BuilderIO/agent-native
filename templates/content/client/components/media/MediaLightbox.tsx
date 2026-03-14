@@ -1,7 +1,20 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { X, Trash2, RefreshCw, Upload, ChevronDown, Loader2, ChevronLeft, ChevronRight, Download } from "lucide-react";
+import {
+  X,
+  Trash2,
+  RefreshCw,
+  Upload,
+  ChevronDown,
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useDeleteProjectMedia, type MediaFile } from "@/hooks/use-project-media";
+import {
+  useDeleteProjectMedia,
+  type MediaFile,
+} from "@/hooks/use-project-media";
 import { useMediaUpload } from "@/hooks/use-media-upload";
 import { useQueryClient } from "@tanstack/react-query";
 import { RegeneratePanel } from "./RegeneratePanel";
@@ -14,10 +27,17 @@ interface MediaLightboxProps {
   onClose: () => void;
 }
 
-export function MediaLightbox({ filename, files, projectSlug, onClose }: MediaLightboxProps) {
+export function MediaLightbox({
+  filename,
+  files,
+  projectSlug,
+  onClose,
+}: MediaLightboxProps) {
   // Find initial index
   const initialIndex = files.findIndex((f) => f.filename === filename);
-  const [currentIndex, setCurrentIndex] = useState(initialIndex !== -1 ? initialIndex : 0);
+  const [currentIndex, setCurrentIndex] = useState(
+    initialIndex !== -1 ? initialIndex : 0,
+  );
   const deleteMutation = useDeleteProjectMedia(projectSlug);
   const { upload } = useMediaUpload(projectSlug);
   const queryClient = useQueryClient();
@@ -30,8 +50,10 @@ export function MediaLightbox({ filename, files, projectSlug, onClose }: MediaLi
   // Get current file info
   const currentFile = files[currentIndex];
   const currentFilename = currentFile?.filename || filename;
-  const url = currentFile?.url || `/api/projects/${projectSlug}/media/${currentFilename}`;
-  const isVideo = /\.(mp4|webm|mov)$/i.test(currentFilename) || currentFile?.type === "video";
+  const url =
+    currentFile?.url || `/api/projects/${projectSlug}/media/${currentFilename}`;
+  const isVideo =
+    /\.(mp4|webm|mov)$/i.test(currentFilename) || currentFile?.type === "video";
 
   // Navigation functions
   const navigatePrevious = useCallback(() => {
@@ -62,20 +84,23 @@ export function MediaLightbox({ filename, files, projectSlug, onClose }: MediaLi
     deleteMutation.mutate(currentFilename, { onSuccess: onClose });
   };
 
-  const handleDownload = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (isDownloading) return;
+  const handleDownload = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (isDownloading) return;
 
-    setIsDownloading(true);
-    try {
-      await downloadMediaAsset({
-        url,
-        filename: currentFilename,
-      });
-    } finally {
-      setIsDownloading(false);
-    }
-  }, [currentFilename, isDownloading, url]);
+      setIsDownloading(true);
+      try {
+        await downloadMediaAsset({
+          url,
+          filename: currentFilename,
+        });
+      } finally {
+        setIsDownloading(false);
+      }
+    },
+    [currentFilename, isDownloading, url],
+  );
 
   const handleUploadReplace = useCallback(
     async (file: File) => {
@@ -83,19 +108,30 @@ export function MediaLightbox({ filename, files, projectSlug, onClose }: MediaLi
       deleteMutation.mutate(currentFilename, {
         onSuccess: async () => {
           await upload(file);
-          queryClient.invalidateQueries({ queryKey: ["project-media", projectSlug] });
+          queryClient.invalidateQueries({
+            queryKey: ["project-media", projectSlug],
+          });
           onClose();
         },
       });
     },
-    [deleteMutation, currentFilename, upload, queryClient, projectSlug, onClose]
+    [
+      deleteMutation,
+      currentFilename,
+      upload,
+      queryClient,
+      projectSlug,
+      onClose,
+    ],
   );
 
   const handleRegenerated = useCallback(() => {
     // Delete the old file, then close
     deleteMutation.mutate(currentFilename, {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ["project-media", projectSlug] });
+        queryClient.invalidateQueries({
+          queryKey: ["project-media", projectSlug],
+        });
         onClose();
       },
     });
@@ -107,7 +143,10 @@ export function MediaLightbox({ filename, files, projectSlug, onClose }: MediaLi
       onClick={onClose}
     >
       {/* Top bar actions */}
-      <div className="absolute top-4 right-4 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="absolute top-4 right-4 flex items-center gap-2"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Replace dropdown */}
         {!isVideo && (
           <div className="relative">
@@ -120,7 +159,10 @@ export function MediaLightbox({ filename, files, projectSlug, onClose }: MediaLi
             </button>
             {showReplaceMenu && (
               <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowReplaceMenu(false)} />
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setShowReplaceMenu(false)}
+                />
                 <div className="absolute right-0 top-full mt-1 z-20 w-44 rounded-md bg-neutral-900 border border-white/10 shadow-xl overflow-hidden">
                   <button
                     onClick={() => {
@@ -161,7 +203,11 @@ export function MediaLightbox({ filename, files, projectSlug, onClose }: MediaLi
           className="p-2 rounded-md bg-white/10 text-white/80 hover:bg-blue-600/80 hover:text-white transition-colors disabled:cursor-progress disabled:opacity-60"
           title="Download"
         >
-          {isDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+          {isDownloading ? (
+            <Loader2 size={16} className="animate-spin" />
+          ) : (
+            <Download size={16} />
+          )}
         </button>
         <button
           onClick={onClose}
@@ -240,7 +286,7 @@ export function MediaLightbox({ filename, files, projectSlug, onClose }: MediaLi
           alt={currentFilename}
           className={cn(
             "max-w-[90vw] max-h-[85vh] object-contain rounded-lg",
-            showRegenerate && "max-h-[60vh]"
+            showRegenerate && "max-h-[60vh]",
           )}
           onClick={(e) => e.stopPropagation()}
         />

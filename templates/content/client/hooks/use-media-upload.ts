@@ -28,17 +28,19 @@ function summarizeErrorText(text: string): string {
     const parsed = JSON.parse(trimmed);
     if (typeof parsed?.error === "string") return parsed.error;
     if (typeof parsed?.message === "string") return parsed.message;
-    if (typeof parsed?.details === "string") return summarizeErrorText(parsed.details);
+    if (typeof parsed?.details === "string")
+      return summarizeErrorText(parsed.details);
   } catch {}
 
   return trimmed.replace(/\s+/g, " ").slice(0, 300);
 }
 
 async function readUploadErrorResponse(
-  res: Response
+  res: Response,
 ): Promise<{ message: string; code?: string; expectedChunkIndex?: number }> {
   const text = await res.text().catch(() => "");
-  const fallbackMessage = summarizeErrorText(text) || `Upload failed (${res.status})`;
+  const fallbackMessage =
+    summarizeErrorText(text) || `Upload failed (${res.status})`;
 
   try {
     const parsed = JSON.parse(text);
@@ -46,7 +48,9 @@ async function readUploadErrorResponse(
       message: summarizeErrorText(text) || fallbackMessage,
       code: typeof parsed?.code === "string" ? parsed.code : undefined,
       expectedChunkIndex:
-        typeof parsed?.expectedChunkIndex === "number" ? parsed.expectedChunkIndex : undefined,
+        typeof parsed?.expectedChunkIndex === "number"
+          ? parsed.expectedChunkIndex
+          : undefined,
     };
   } catch {
     return { message: fallbackMessage };
@@ -64,12 +68,18 @@ function sleep(ms: number): Promise<void> {
 
 function shouldRetryChunkUpload(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return message.includes("Failed to fetch") || message.includes("NetworkError") || message.includes("Load failed");
+  return (
+    message.includes("Failed to fetch") ||
+    message.includes("NetworkError") ||
+    message.includes("Load failed")
+  );
 }
 
 function getUploadErrorMessage(error: unknown, file: File): string {
   const message = error instanceof Error ? error.message : "Upload failed";
-  const stageMatch = message.match(/^Upload request failed during (.+):\s*(.+)$/);
+  const stageMatch = message.match(
+    /^Upload request failed during (.+):\s*(.+)$/,
+  );
 
   if (stageMatch && stageMatch[2]?.includes("Failed to fetch")) {
     return `${file.name} upload failed during ${stageMatch[1]} before the server responded. Check the network request and try again.`;
@@ -83,7 +93,10 @@ function getUploadErrorMessage(error: unknown, file: File): string {
     return `${file.name} could not be uploaded. ${message}`;
   }
 
-  if (message.includes("Builder connection required") || message.includes("authentication")) {
+  if (
+    message.includes("Builder connection required") ||
+    message.includes("authentication")
+  ) {
     return `Builder upload is not connected for ${file.name}. Reconnect Builder and try again.`;
   }
 
@@ -111,7 +124,9 @@ type ChunkedUploadStatusResponse = {
   mimeType?: string;
 };
 
-function getUploadResult(payload: ChunkedUploadStatusResponse | UploadResult | null | undefined): UploadResult | null {
+function getUploadResult(
+  payload: ChunkedUploadStatusResponse | UploadResult | null | undefined,
+): UploadResult | null {
   if (!payload) return null;
   if ("result" in payload && payload.result?.url) return payload.result;
 
@@ -139,18 +154,21 @@ async function pollChunkedUploadStatus(
   uploadId: string,
   uploadToken: string,
   file: File,
-  options?: UploadOptions
+  options?: UploadOptions,
 ): Promise<UploadResult> {
   const startedAt = Date.now();
   options?.onStatusChange?.("processing");
 
   while (Date.now() - startedAt < CHUNKED_UPLOAD_PROCESSING_TIMEOUT_MS) {
-    const statusRes = await authFetch(`/api/projects/${projectSlug}/media/chunked/${uploadId}/status`, {
-      method: "GET",
-      headers: {
-        "x-upload-token": uploadToken,
+    const statusRes = await authFetch(
+      `/api/projects/${projectSlug}/media/chunked/${uploadId}/status`,
+      {
+        method: "GET",
+        headers: {
+          "x-upload-token": uploadToken,
+        },
       },
-    });
+    );
 
     if (!statusRes.ok) {
       throw new Error(await readUploadError(statusRes));
@@ -167,19 +185,26 @@ async function pollChunkedUploadStatus(
       throw new Error(statusData.error || `${file.name} processing failed`);
     }
 
-    await sleep(statusData.pollAfterMs || CHUNKED_UPLOAD_STATUS_POLL_INTERVAL_MS);
+    await sleep(
+      statusData.pollAfterMs || CHUNKED_UPLOAD_STATUS_POLL_INTERVAL_MS,
+    );
   }
 
-  throw new Error(`${file.name} is still processing in Builder. Try again in a moment.`);
+  throw new Error(
+    `${file.name} is still processing in Builder. Try again in a moment.`,
+  );
 }
 
 async function uploadMediaInChunks(
   projectSlug: string,
   file: File,
   builderHeaders: Record<string, string>,
-  options?: UploadOptions
+  options?: UploadOptions,
 ): Promise<UploadResult> {
-  const requestUploadStep = async (stage: string, run: () => Promise<Response>) => {
+  const requestUploadStep = async (
+    stage: string,
+    run: () => Promise<Response>,
+  ) => {
     try {
       return await run();
     } catch (error) {
@@ -188,17 +213,19 @@ async function uploadMediaInChunks(
     }
   };
 
-  const initRes = await requestUploadStep("initialization", () => authFetch(`/api/projects/${projectSlug}/media/chunked/init`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      originalName: file.name,
-      size: file.size,
-      mimeType: file.type || "application/octet-stream",
+  const initRes = await requestUploadStep("initialization", () =>
+    authFetch(`/api/projects/${projectSlug}/media/chunked/init`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        originalName: file.name,
+        size: file.size,
+        mimeType: file.type || "application/octet-stream",
+      }),
     }),
-  }));
+  );
 
   if (!initRes.ok) {
     throw new Error(await readUploadError(initRes));
@@ -230,17 +257,18 @@ async function uploadMediaInChunks(
       try {
         const chunkRes = await requestUploadStep(
           `chunk ${index + 1} of ${totalChunks}`,
-          () => authFetch(
-            `/api/projects/${projectSlug}/media/chunked/${uploadId}/chunk?index=${index}`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/octet-stream",
-                "x-upload-token": uploadToken,
+          () =>
+            authFetch(
+              `/api/projects/${projectSlug}/media/chunked/${uploadId}/chunk?index=${index}`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/octet-stream",
+                  "x-upload-token": uploadToken,
+                },
+                body: chunk,
               },
-              body: chunk,
-            }
-          )
+            ),
         );
 
         if (chunkRes.ok) {
@@ -250,22 +278,27 @@ async function uploadMediaInChunks(
 
         const errorPayload = await readUploadErrorResponse(chunkRes);
         const chunkAcceptedOnPreviousAttempt =
-          chunkRes.status === 409 && errorPayload.expectedChunkIndex === index + 1;
+          chunkRes.status === 409 &&
+          errorPayload.expectedChunkIndex === index + 1;
 
         if (chunkAcceptedOnPreviousAttempt) {
-          console.warn("[upload] Continuing after duplicate chunk acknowledgement", {
-            projectSlug,
-            uploadId,
-            chunkIndex: index,
-            expectedChunkIndex: errorPayload.expectedChunkIndex,
-          });
+          console.warn(
+            "[upload] Continuing after duplicate chunk acknowledgement",
+            {
+              projectSlug,
+              uploadId,
+              chunkIndex: index,
+              expectedChunkIndex: errorPayload.expectedChunkIndex,
+            },
+          );
           uploaded = true;
           break;
         }
 
         const canRetry =
           attempt < CHUNK_UPLOAD_MAX_RETRIES &&
-          (chunkRes.status >= 500 || errorPayload.code === "invalid_upload_chunk");
+          (chunkRes.status >= 500 ||
+            errorPayload.code === "invalid_upload_chunk");
 
         if (!canRetry) {
           throw new Error(errorPayload.message);
@@ -282,7 +315,8 @@ async function uploadMediaInChunks(
         });
         await sleep(CHUNK_UPLOAD_RETRY_DELAY_MS * (attempt + 1));
       } catch (error) {
-        const canRetry = attempt < CHUNK_UPLOAD_MAX_RETRIES && shouldRetryChunkUpload(error);
+        const canRetry =
+          attempt < CHUNK_UPLOAD_MAX_RETRIES && shouldRetryChunkUpload(error);
         if (!canRetry) {
           throw error;
         }
@@ -303,21 +337,27 @@ async function uploadMediaInChunks(
     }
   }
 
-  const completeRes = await requestUploadStep("completion", () => authFetch(`/api/projects/${projectSlug}/media/chunked/${uploadId}/complete`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-upload-token": uploadToken,
-      ...builderHeaders,
-    },
-    body: JSON.stringify({}),
-  }));
+  const completeRes = await requestUploadStep("completion", () =>
+    authFetch(
+      `/api/projects/${projectSlug}/media/chunked/${uploadId}/complete`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-upload-token": uploadToken,
+          ...builderHeaders,
+        },
+        body: JSON.stringify({}),
+      },
+    ),
+  );
 
   if (!completeRes.ok) {
     throw new Error(await readUploadError(completeRes));
   }
 
-  const completionData = (await completeRes.json()) as ChunkedUploadStatusResponse;
+  const completionData =
+    (await completeRes.json()) as ChunkedUploadStatusResponse;
   const completedResult = getUploadResult(completionData);
   if (completedResult) {
     return completedResult;
@@ -328,7 +368,13 @@ async function uploadMediaInChunks(
   }
 
   if (completionData.status === "processing") {
-    return await pollChunkedUploadStatus(projectSlug, uploadId, uploadToken, file, options);
+    return await pollChunkedUploadStatus(
+      projectSlug,
+      uploadId,
+      uploadToken,
+      file,
+      options,
+    );
   }
 
   throw new Error("Upload completion did not return a media URL");
@@ -346,7 +392,10 @@ export function useMediaUpload(projectSlug: string | null) {
   const [isUploading, setIsUploading] = useState(false);
 
   const upload = useCallback(
-    async (file: File, options?: UploadOptions): Promise<UploadResult | null> => {
+    async (
+      file: File,
+      options?: UploadOptions,
+    ): Promise<UploadResult | null> => {
       if (!projectSlug) return null;
 
       if (file.size > MAX_MEDIA_SIZE_BYTES) {
@@ -368,7 +417,12 @@ export function useMediaUpload(projectSlug: string | null) {
         if (privateKey) builderHeaders["x-builder-private-key"] = privateKey;
 
         if (file.size >= CHUNKED_UPLOAD_THRESHOLD_BYTES) {
-          return await uploadMediaInChunks(projectSlug, file, builderHeaders, options);
+          return await uploadMediaInChunks(
+            projectSlug,
+            file,
+            builderHeaders,
+            options,
+          );
         }
 
         const res = await authFetch(`/api/projects/${projectSlug}/media`, {
@@ -390,7 +444,7 @@ export function useMediaUpload(projectSlug: string | null) {
         setIsUploading(false);
       }
     },
-    [projectSlug]
+    [projectSlug],
   );
 
   return { upload, isUploading };
@@ -406,22 +460,39 @@ const IMAGE_TYPES = [
 const VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
 
 export function isMediaFile(file: File): boolean {
-  if (IMAGE_TYPES.includes(file.type) || VIDEO_TYPES.includes(file.type)) return true;
+  if (IMAGE_TYPES.includes(file.type) || VIDEO_TYPES.includes(file.type))
+    return true;
   const name = file.name.toLowerCase();
-  return name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png") ||
-    name.endsWith(".gif") || name.endsWith(".webp") || name.endsWith(".svg") ||
-    name.endsWith(".mp4") || name.endsWith(".webm") || name.endsWith(".mov");
+  return (
+    name.endsWith(".jpg") ||
+    name.endsWith(".jpeg") ||
+    name.endsWith(".png") ||
+    name.endsWith(".gif") ||
+    name.endsWith(".webp") ||
+    name.endsWith(".svg") ||
+    name.endsWith(".mp4") ||
+    name.endsWith(".webm") ||
+    name.endsWith(".mov")
+  );
 }
 
 export function isImageFile(file: File): boolean {
   if (IMAGE_TYPES.includes(file.type)) return true;
   const name = file.name.toLowerCase();
-  return name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png") ||
-    name.endsWith(".gif") || name.endsWith(".webp") || name.endsWith(".svg");
+  return (
+    name.endsWith(".jpg") ||
+    name.endsWith(".jpeg") ||
+    name.endsWith(".png") ||
+    name.endsWith(".gif") ||
+    name.endsWith(".webp") ||
+    name.endsWith(".svg")
+  );
 }
 
 export function isVideoFile(file: File): boolean {
   if (VIDEO_TYPES.includes(file.type)) return true;
   const name = file.name.toLowerCase();
-  return name.endsWith(".mp4") || name.endsWith(".webm") || name.endsWith(".mov");
+  return (
+    name.endsWith(".mp4") || name.endsWith(".webm") || name.endsWith(".mov")
+  );
 }

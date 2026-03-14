@@ -5,7 +5,10 @@ if (!scriptName) {
   process.exit(1);
 }
 
-const scripts: Record<string, () => Promise<{ default: (args: string[]) => Promise<void> }>> = {
+const scripts: Record<
+  string,
+  () => Promise<{ default: (args: string[]) => Promise<void> }>
+> = {
   "analyze-brand": () => import("./analyze-brand.js"),
   "generate-images": () => import("./generate-images.js"),
 };

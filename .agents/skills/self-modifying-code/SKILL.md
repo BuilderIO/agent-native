@@ -14,18 +14,18 @@ The agent can edit the app's own source code — components, routes, styles, scr
 
 ## Why
 
-An agent-native app isn't just an app the agent can *use* — it's an app the agent can *change*. The agent can fix bugs, add features, adjust styles, and restructure code. This makes the agent a true collaborator, not just an operator.
+An agent-native app isn't just an app the agent can _use_ — it's an app the agent can _change_. The agent can fix bugs, add features, adjust styles, and restructure code. This makes the agent a true collaborator, not just an operator.
 
 ## Modification Taxonomy
 
 Not all modifications are equal. Use this to decide what level of care is needed:
 
-| Tier | What | Examples | After modifying |
-|---|---|---|---|
-| 1: Data | Files in `data/` | JSON state, generated content, markdown | Nothing — these are routine |
-| 2: Source | App code | Components, routes, styles, scripts | Run `pnpm typecheck && pnpm lint` |
-| 3: Config | Project config | `package.json`, `tsconfig.json`, `vite.config.*` | Ask for explicit approval first |
-| 4: Off limits | Secrets and framework | `.env`, `@agent-native/core` internals | Never modify these |
+| Tier          | What                  | Examples                                         | After modifying                   |
+| ------------- | --------------------- | ------------------------------------------------ | --------------------------------- |
+| 1: Data       | Files in `data/`      | JSON state, generated content, markdown          | Nothing — these are routine       |
+| 2: Source     | App code              | Components, routes, styles, scripts              | Run `pnpm typecheck && pnpm lint` |
+| 3: Config     | Project config        | `package.json`, `tsconfig.json`, `vite.config.*` | Ask for explicit approval first   |
+| 4: Off limits | Secrets and framework | `.env`, `@agent-native/core` internals           | Never modify these                |
 
 ## Git Checkpoint Pattern
 
@@ -44,6 +44,7 @@ This ensures the agent can experiment without breaking the app.
 Make your app easy for the agent to understand and modify:
 
 **Expose UI state via `data-*` attributes** so the agent knows what's selected:
+
 ```ts
 const el = document.documentElement;
 el.dataset.currentView = view;
@@ -51,6 +52,7 @@ el.dataset.selectedId = selectedItem?.id || "";
 ```
 
 **Expose richer context via `window.__appState`** for complex state:
+
 ```ts
 (window as any).__appState = {
   selectedId: id,

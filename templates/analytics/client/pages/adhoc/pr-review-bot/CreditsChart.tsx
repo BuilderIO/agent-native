@@ -34,12 +34,12 @@ export function CreditsChart({ dateRange }: Props) {
 
   const series = useMetricsQuery(
     ["pr-review-credits-per-day", dateRange],
-    creditsPerDaySql(dateRange)
+    creditsPerDaySql(dateRange),
   );
 
   const prBreakdown = useMetricsQuery(
     ["pr-review-credits-per-pr-by-day", dateRange],
-    creditsPerPrByDaySql(dateRange)
+    creditsPerPrByDaySql(dateRange),
   );
 
   const chartData = useMemo(
@@ -50,7 +50,7 @@ export function CreditsChart({ dateRange }: Props) {
         avg_credits_per_review: Number(r.avg_credits_per_review || 0),
         reviews: Number(r.reviews || 0),
       })),
-    [series.data]
+    [series.data],
   );
 
   const breakdownByDay = useMemo(() => {
@@ -76,7 +76,7 @@ export function CreditsChart({ dateRange }: Props) {
       const rows = breakdownByDay.get(day) ?? [];
       setPopover({ x: e.clientX, y: e.clientY, day, rows });
     },
-    [breakdownByDay]
+    [breakdownByDay],
   );
 
   const closePopover = useCallback(() => setPopover(null), []);
@@ -222,16 +222,8 @@ export function CreditsChart({ dateRange }: Props) {
                       x2="0"
                       y2="1"
                     >
-                      <stop
-                        offset="5%"
-                        stopColor="#a78bfa"
-                        stopOpacity={0.3}
-                      />
-                      <stop
-                        offset="95%"
-                        stopColor="#a78bfa"
-                        stopOpacity={0}
-                      />
+                      <stop offset="5%" stopColor="#a78bfa" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#a78bfa" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <XAxis

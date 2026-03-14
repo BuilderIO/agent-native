@@ -41,7 +41,9 @@ export function MetricValidationForm({
   onClose,
   onSuccess,
 }: MetricValidationFormProps) {
-  const [rating, setRating] = useState<"accurate" | "mostly_accurate" | "needs_review" | "">("");
+  const [rating, setRating] = useState<
+    "accurate" | "mostly_accurate" | "needs_review" | ""
+  >("");
   const [comment, setComment] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -50,7 +52,8 @@ export function MetricValidationForm({
   const [inputMetricName, setInputMetricName] = useState(metricName);
   const [metricDefinition, setMetricDefinition] = useState("");
   const [metricTable, setMetricTable] = useState("");
-  const [shouldAddToDictionary, setShouldAddToDictionary] = useState(!metricName); // Auto-check if empty
+  const [shouldAddToDictionary, setShouldAddToDictionary] =
+    useState(!metricName); // Auto-check if empty
 
   const isNewMetric = !metricId;
   const needsMetricName = !metricName; // User needs to type metric name
@@ -58,7 +61,7 @@ export function MetricValidationForm({
 
   const toggleTag = (tag: string) => {
     setTags((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
     );
   };
 
@@ -81,17 +84,21 @@ export function MetricValidationForm({
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          metricId: metricId || `new_${finalMetricName.toLowerCase().replace(/\s+/g, '_')}`,
+          metricId:
+            metricId ||
+            `new_${finalMetricName.toLowerCase().replace(/\s+/g, "_")}`,
           metricName: finalMetricName,
           rating: isSuggestingNewMetric ? "accurate" : rating, // Default to accurate for suggestions
           comment,
           tags,
           metricValue,
           isNewMetric,
-          ...(isSuggestingNewMetric || (isNewMetric && shouldAddToDictionary) ? {
-            suggestedDefinition: metricDefinition,
-            suggestedTable: metricTable,
-          } : {}),
+          ...(isSuggestingNewMetric || (isNewMetric && shouldAddToDictionary)
+            ? {
+                suggestedDefinition: metricDefinition,
+                suggestedTable: metricTable,
+              }
+            : {}),
         }),
       });
 
@@ -133,7 +140,8 @@ export function MetricValidationForm({
     }
   };
 
-  const expectedPoints = rating === "needs_review" ? 5 : rating === "mostly_accurate" ? 3 : 2;
+  const expectedPoints =
+    rating === "needs_review" ? 5 : rating === "mostly_accurate" ? 3 : 2;
   const bonusPoints = comment.trim() ? 2 : 0;
 
   return (
@@ -146,8 +154,7 @@ export function MetricValidationForm({
           <DialogDescription>
             {needsMetricName
               ? "Help improve the Data Dictionary by adding a new metric definition."
-              : "Review the data and let us know if it looks accurate. Your feedback helps improve data quality."
-            }
+              : "Review the data and let us know if it looks accurate. Your feedback helps improve data quality."}
           </DialogDescription>
         </DialogHeader>
 
@@ -157,7 +164,10 @@ export function MetricValidationForm({
             <>
               {/* Metric Name */}
               <div className="space-y-2">
-                <Label htmlFor="new-metric-name" className="text-sm font-medium">
+                <Label
+                  htmlFor="new-metric-name"
+                  className="text-sm font-medium"
+                >
                   Metric Name *
                 </Label>
                 <Input
@@ -171,7 +181,10 @@ export function MetricValidationForm({
 
               {/* Definition */}
               <div className="space-y-2">
-                <Label htmlFor="metric-definition" className="text-sm font-medium">
+                <Label
+                  htmlFor="metric-definition"
+                  className="text-sm font-medium"
+                >
                   Definition *
                 </Label>
                 <Textarea
@@ -205,7 +218,10 @@ export function MetricValidationForm({
               {/* Metric Name Input (for new suggestions without pre-filled name) */}
               {needsMetricName && (
                 <div className="space-y-2">
-                  <Label htmlFor="new-metric-name" className="text-sm font-medium">
+                  <Label
+                    htmlFor="new-metric-name"
+                    className="text-sm font-medium"
+                  >
                     Metric Name *
                   </Label>
                   <Input
@@ -228,13 +244,18 @@ export function MetricValidationForm({
                         New Metric - Not in Data Dictionary
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        This metric isn't documented yet. You can still validate it and optionally help add it to the dictionary!
+                        This metric isn't documented yet. You can still validate
+                        it and optionally help add it to the dictionary!
                       </p>
                       {metricValue !== null && metricValue !== undefined && (
                         <div className="mt-2 p-2 bg-background/50 rounded border border-border">
-                          <span className="text-xs text-muted-foreground">Current value: </span>
+                          <span className="text-xs text-muted-foreground">
+                            Current value:{" "}
+                          </span>
                           <span className="text-sm font-mono font-bold">
-                            {typeof metricValue === 'number' ? metricValue.toLocaleString() : metricValue}
+                            {typeof metricValue === "number"
+                              ? metricValue.toLocaleString()
+                              : metricValue}
                           </span>
                         </div>
                       )}
@@ -246,11 +267,17 @@ export function MetricValidationForm({
                       type="checkbox"
                       id="add-to-dictionary"
                       checked={shouldAddToDictionary}
-                      onChange={(e) => setShouldAddToDictionary(e.target.checked)}
+                      onChange={(e) =>
+                        setShouldAddToDictionary(e.target.checked)
+                      }
                       className="rounded border-border"
                     />
-                    <Label htmlFor="add-to-dictionary" className="text-sm cursor-pointer">
-                      Help add this metric to the Data Dictionary (+5 bonus points)
+                    <Label
+                      htmlFor="add-to-dictionary"
+                      className="text-sm cursor-pointer"
+                    >
+                      Help add this metric to the Data Dictionary (+5 bonus
+                      points)
                     </Label>
                   </div>
 
@@ -290,21 +317,34 @@ export function MetricValidationForm({
               {/* Rating Selection */}
               <div className="space-y-3">
                 <Label className="text-base">How accurate is this data?</Label>
-                <RadioGroup value={rating} onValueChange={(v) => setRating(v as any)}>
+                <RadioGroup
+                  value={rating}
+                  onValueChange={(v) => setRating(v as any)}
+                >
                   <div className="flex items-center space-x-3 p-3 rounded-lg border border-border hover:bg-muted/50 cursor-pointer">
                     <RadioGroupItem value="accurate" id="accurate" />
-                    <Label htmlFor="accurate" className="flex items-center gap-2 cursor-pointer flex-1">
+                    <Label
+                      htmlFor="accurate"
+                      className="flex items-center gap-2 cursor-pointer flex-1"
+                    >
                       <CheckCircle className="h-4 w-4 text-green-500" />
                       <div>
                         <p className="font-medium">Accurate</p>
-                        <p className="text-xs text-muted-foreground">Data looks correct</p>
+                        <p className="text-xs text-muted-foreground">
+                          Data looks correct
+                        </p>
                       </div>
                     </Label>
-                    <Badge variant="secondary" className="text-xs">+{2 + bonusPoints} pts</Badge>
+                    <Badge variant="secondary" className="text-xs">
+                      +{2 + bonusPoints} pts
+                    </Badge>
                   </div>
 
                   <div className="flex items-center space-x-3 p-3 rounded-lg border border-border hover:bg-muted/50 cursor-pointer">
-                    <RadioGroupItem value="mostly_accurate" id="mostly_accurate" />
+                    <RadioGroupItem
+                      value="mostly_accurate"
+                      id="mostly_accurate"
+                    />
                     <Label
                       htmlFor="mostly_accurate"
                       className="flex items-center gap-2 cursor-pointer flex-1"
@@ -312,22 +352,33 @@ export function MetricValidationForm({
                       <AlertCircle className="h-4 w-4 text-yellow-500" />
                       <div>
                         <p className="font-medium">Mostly Accurate</p>
-                        <p className="text-xs text-muted-foreground">Minor issues</p>
+                        <p className="text-xs text-muted-foreground">
+                          Minor issues
+                        </p>
                       </div>
                     </Label>
-                    <Badge variant="secondary" className="text-xs">+{3 + bonusPoints} pts</Badge>
+                    <Badge variant="secondary" className="text-xs">
+                      +{3 + bonusPoints} pts
+                    </Badge>
                   </div>
 
                   <div className="flex items-center space-x-3 p-3 rounded-lg border border-border hover:bg-muted/50 cursor-pointer">
                     <RadioGroupItem value="needs_review" id="needs_review" />
-                    <Label htmlFor="needs_review" className="flex items-center gap-2 cursor-pointer flex-1">
+                    <Label
+                      htmlFor="needs_review"
+                      className="flex items-center gap-2 cursor-pointer flex-1"
+                    >
                       <XCircle className="h-4 w-4 text-red-500" />
                       <div>
                         <p className="font-medium">Needs Review</p>
-                        <p className="text-xs text-muted-foreground">Data is incorrect</p>
+                        <p className="text-xs text-muted-foreground">
+                          Data is incorrect
+                        </p>
                       </div>
                     </Label>
-                    <Badge variant="secondary" className="text-xs">+{5 + bonusPoints} pts</Badge>
+                    <Badge variant="secondary" className="text-xs">
+                      +{5 + bonusPoints} pts
+                    </Badge>
                   </div>
                 </RadioGroup>
               </div>
@@ -343,7 +394,9 @@ export function MetricValidationForm({
                     {issueTagsOptions.map((tag) => (
                       <Badge
                         key={tag.value}
-                        variant={tags.includes(tag.value) ? "default" : "outline"}
+                        variant={
+                          tags.includes(tag.value) ? "default" : "outline"
+                        }
                         className="cursor-pointer"
                         onClick={() => toggleTag(tag.value)}
                       >
@@ -359,7 +412,9 @@ export function MetricValidationForm({
                 <div className="flex items-center justify-between">
                   <Label htmlFor="comment">Additional details (optional)</Label>
                   {comment.trim() && (
-                    <Badge variant="secondary" className="text-xs">+2 pts for comment</Badge>
+                    <Badge variant="secondary" className="text-xs">
+                      +2 pts for comment
+                    </Badge>
                   )}
                 </div>
                 <Textarea
@@ -395,11 +450,16 @@ export function MetricValidationForm({
               isSubmitting ||
               (isSuggestingNewMetric
                 ? !inputMetricName.trim() || !metricDefinition.trim()
-                : !rating || (needsMetricName && !inputMetricName.trim()) || (shouldAddToDictionary && !metricDefinition.trim())
-              )
+                : !rating ||
+                  (needsMetricName && !inputMetricName.trim()) ||
+                  (shouldAddToDictionary && !metricDefinition.trim()))
             }
           >
-            {isSubmitting ? "Submitting..." : isSuggestingNewMetric ? "Submit Suggestion" : "Submit Validation"}
+            {isSubmitting
+              ? "Submitting..."
+              : isSuggestingNewMetric
+                ? "Submit Suggestion"
+                : "Submit Validation"}
           </Button>
         </DialogFooter>
       </DialogContent>

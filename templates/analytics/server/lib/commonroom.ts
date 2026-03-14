@@ -43,7 +43,11 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
   return data as T;
 }
 
-async function apiPost<T>(path: string, body: unknown, cacheKey?: string): Promise<T> {
+async function apiPost<T>(
+  path: string,
+  body: unknown,
+  cacheKey?: string,
+): Promise<T> {
   const key = cacheKey ?? `POST:${path}:${JSON.stringify(body)}`;
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
@@ -89,12 +93,14 @@ export async function getTokenStatus(): Promise<unknown> {
   return apiGet("/status");
 }
 
-export async function getMemberByEmail(email: string): Promise<CommunityMember | null> {
+export async function getMemberByEmail(
+  email: string,
+): Promise<CommunityMember | null> {
   try {
     const data = await apiPost<CommunityMember>(
       "/members/search",
       { email },
-      `member:${email}`
+      `member:${email}`,
     );
     return data;
   } catch {
@@ -115,8 +121,12 @@ export async function getMembers(params?: {
   return apiPost("/members/search", body);
 }
 
-export async function getActivityForMember(memberId: string): Promise<unknown[]> {
-  const data = await apiGet<{ items?: unknown[] }>(`/members/${memberId}/activities`);
+export async function getActivityForMember(
+  memberId: string,
+): Promise<unknown[]> {
+  const data = await apiGet<{ items?: unknown[] }>(
+    `/members/${memberId}/activities`,
+  );
   return data.items ?? (data as any);
 }
 

@@ -1,5 +1,16 @@
-import { useState, useEffect, useCallback, useRef, type RefObject } from "react";
-import { IconStar, IconStarFilled, IconX, IconRefresh } from "@tabler/icons-react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type RefObject,
+} from "react";
+import {
+  IconStar,
+  IconStarFilled,
+  IconX,
+  IconRefresh,
+} from "@tabler/icons-react";
 import { type LaunchSettings } from "../lib/settings";
 import { useHarnessConfig, type HarnessConfig } from "../lib/config";
 
@@ -8,15 +19,21 @@ const URL_STARRED_KEY = "harness:urlStarred";
 const MAX_HISTORY = 20;
 
 function loadUrlHistory(): string[] {
-  try { return JSON.parse(localStorage.getItem(URL_HISTORY_KEY) || "[]"); }
-  catch { return []; }
+  try {
+    return JSON.parse(localStorage.getItem(URL_HISTORY_KEY) || "[]");
+  } catch {
+    return [];
+  }
 }
 function saveUrlHistory(h: string[]) {
   localStorage.setItem(URL_HISTORY_KEY, JSON.stringify(h));
 }
 function loadStarred(): Set<string> {
-  try { return new Set(JSON.parse(localStorage.getItem(URL_STARRED_KEY) || "[]")); }
-  catch { return new Set(); }
+  try {
+    return new Set(JSON.parse(localStorage.getItem(URL_STARRED_KEY) || "[]"));
+  } catch {
+    return new Set();
+  }
 }
 function saveStarred(s: Set<string>) {
   localStorage.setItem(URL_STARRED_KEY, JSON.stringify([...s]));
@@ -72,7 +89,9 @@ export function SettingsPanel({
         const path = url.pathname + url.search + url.hash;
         setUrlInput(path);
         addToHistory(path);
-      } catch { /* cross-origin */ }
+      } catch {
+        /* cross-origin */
+      }
     };
     update();
     iframe.addEventListener("load", update);
@@ -82,27 +101,34 @@ export function SettingsPanel({
   const addToHistory = (path: string) => {
     if (!path || path === "/") return;
     setHistory((prev) => {
-      const next = [path, ...prev.filter((p) => p !== path)].slice(0, MAX_HISTORY);
+      const next = [path, ...prev.filter((p) => p !== path)].slice(
+        0,
+        MAX_HISTORY,
+      );
       saveUrlHistory(next);
       return next;
     });
   };
 
-  const navigate = useCallback((path: string) => {
-    const trimmed = path.trim();
-    if (!trimmed) return;
-    const normalized = trimmed.startsWith("/") ? trimmed : "/" + trimmed;
-    if (iframeRef.current) {
-      iframeRef.current.src = `${appUrl}${normalized.slice(1)}`;
-    }
-    setUrlInput(normalized);
-    addToHistory(normalized);
-  }, [iframeRef, appUrl]);
+  const navigate = useCallback(
+    (path: string) => {
+      const trimmed = path.trim();
+      if (!trimmed) return;
+      const normalized = trimmed.startsWith("/") ? trimmed : "/" + trimmed;
+      if (iframeRef.current) {
+        iframeRef.current.src = `${appUrl}${normalized.slice(1)}`;
+      }
+      setUrlInput(normalized);
+      addToHistory(normalized);
+    },
+    [iframeRef, appUrl],
+  );
 
   const toggleStar = (path: string) => {
     setStarred((prev) => {
       const next = new Set(prev);
-      if (next.has(path)) next.delete(path); else next.add(path);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
       saveStarred(next);
       return next;
     });
@@ -167,7 +193,9 @@ export function SettingsPanel({
           type="text"
           value={urlInput}
           onChange={(e) => setUrlInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") navigate(urlInput); }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") navigate(urlInput);
+          }}
           placeholder="/path"
           className="flex-1 bg-[#1e1e1e] border border-white/10 rounded px-2 py-1 text-xs text-white/80 font-mono focus:outline-none focus:border-blue-500 min-w-0"
           spellCheck={false}
@@ -188,7 +216,10 @@ export function SettingsPanel({
               className="flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer hover:bg-white/5 transition-colors group mx-1"
             >
               <button
-                onClick={(e) => { e.stopPropagation(); toggleStar(path); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleStar(path);
+                }}
                 className="shrink-0 text-white/20 hover:text-amber-400 transition-colors"
               >
                 {starred.has(path) ? (
@@ -201,7 +232,10 @@ export function SettingsPanel({
                 {path}
               </span>
               <button
-                onClick={(e) => { e.stopPropagation(); removeUrl(path); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeUrl(path);
+                }}
                 className="shrink-0 opacity-0 group-hover:opacity-100 text-white/20 hover:text-white/60 transition-all"
               >
                 <IconX size={11} />
@@ -233,12 +267,18 @@ export function SettingsPanel({
         </div>
       ) : (
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-[12px] font-medium text-white/80">{config.name}</span>
+          <span className="text-[12px] font-medium text-white/80">
+            {config.name}
+          </span>
         </div>
       )}
       <div className="flex items-center gap-2 mt-1">
-        <span className={`flex items-center gap-1 text-[10px] ${connected ? "text-green-400" : "text-red-400"}`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`} />
+        <span
+          className={`flex items-center gap-1 text-[10px] ${connected ? "text-green-400" : "text-red-400"}`}
+        >
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`}
+          />
           {connected ? "Connected" : "Disconnected"}
         </span>
       </div>

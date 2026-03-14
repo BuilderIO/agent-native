@@ -4,7 +4,10 @@ import { AgentChatUsersTable } from "./FusionUsersTable";
 import { ActivityCharts } from "./ActivityCharts";
 import { SalesRecommendations } from "./SalesRecommendations";
 
-function useUrlParam(key: string, defaultValue: string): [string, (v: string) => void] {
+function useUrlParam(
+  key: string,
+  defaultValue: string,
+): [string, (v: string) => void] {
   const [value, setValue] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get(key) || defaultValue;
@@ -15,7 +18,11 @@ function useUrlParam(key: string, defaultValue: string): [string, (v: string) =>
     if (value === defaultValue) params.delete(key);
     else params.set(key, value);
     const s = params.toString();
-    window.history.replaceState(null, "", `${window.location.pathname}${s ? `?${s}` : ""}`);
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${s ? `?${s}` : ""}`,
+    );
   }, [value, key, defaultValue]);
 
   return [value, setValue];
@@ -38,7 +45,9 @@ export default function DeloitteDashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Deloitte Account Dashboard</h1>
+        <h1 className="text-2xl font-bold tracking-tight">
+          Deloitte Account Dashboard
+        </h1>
         <p className="text-sm text-muted-foreground mt-1">
           Fusion usage and Builder activity for Deloitte users
         </p>
@@ -47,11 +56,15 @@ export default function DeloitteDashboard() {
       <div className="rounded-lg border border-border p-3">
         <div className="flex flex-wrap gap-3 items-end">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground font-medium">From</label>
+            <label className="text-xs text-muted-foreground font-medium">
+              From
+            </label>
             <DatePicker value={dateStart} onChange={setDateStart} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground font-medium">To</label>
+            <label className="text-xs text-muted-foreground font-medium">
+              To
+            </label>
             <DatePicker value={dateEnd} onChange={setDateEnd} />
           </div>
         </div>

@@ -46,7 +46,10 @@ function compareText(a?: string, b?: string) {
   if (!left) return 1;
   if (!right) return -1;
 
-  return left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
+  return left.localeCompare(right, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
 }
 
 function compareDate(a?: string, b?: string) {
@@ -76,7 +79,9 @@ function matchesSelectedTags(rowTags: string[], selectedTags: string[]) {
 
   const normalizedRowTags = rowTags.map(normalizeTag);
 
-  return selectedTags.some((tag) => normalizedRowTags.includes(normalizeTag(tag)));
+  return selectedTags.some((tag) =>
+    normalizedRowTags.includes(normalizeTag(tag)),
+  );
 }
 
 function getUniqueValues(values: Array<string | undefined>) {
@@ -110,11 +115,19 @@ function renderEmptyState({
 }) {
   return (
     <TableRow>
-      <TableCell colSpan={columnCount} className="h-24 text-center text-muted-foreground">
+      <TableCell
+        colSpan={columnCount}
+        className="h-24 text-center text-muted-foreground"
+      >
         <div className="flex flex-col items-center gap-2">
           <span>{message}</span>
           {showReset && (
-            <Button type="button" variant="link" className="h-auto p-0" onClick={onReset}>
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0"
+              onClick={onReset}
+            >
               Clear filters
             </Button>
           )}
@@ -132,11 +145,15 @@ export function ContentTable({ filter }: ContentTableProps) {
   const createFromBuilder = useCreateProjectFromBuilder();
   const createFromDocs = useCreateProjectFromDocs();
 
-  const [pendingBlogArticle, setPendingBlogArticle] = useState<BuilderBlogIndexItem | null>(null);
-  const [pendingDocsEntry, setPendingDocsEntry] = useState<BuilderDocsIndexItem | null>(null);
+  const [pendingBlogArticle, setPendingBlogArticle] =
+    useState<BuilderBlogIndexItem | null>(null);
+  const [pendingDocsEntry, setPendingDocsEntry] =
+    useState<BuilderDocsIndexItem | null>(null);
   const [creatingId, setCreatingId] = useState<string | null>(null);
   const [sortColumn, setSortColumn] = useState<ContentSortColumn | null>(null);
-  const [sortDirection, setSortDirection] = useState<SortDirection | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection | null>(
+    null,
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedAuthors, setSelectedAuthors] = useState<string[]>([]);
@@ -174,7 +191,8 @@ export function ContentTable({ filter }: ContentTableProps) {
     [blogArticles],
   );
   const blogAuthorOptions = useMemo(
-    () => getUniqueValues(blogArticles.flatMap((article) => article.authorNames)),
+    () =>
+      getUniqueValues(blogArticles.flatMap((article) => article.authorNames)),
     [blogArticles],
   );
   const blogTagOptions = useMemo(
@@ -193,12 +211,17 @@ export function ContentTable({ filter }: ContentTableProps) {
       if (
         normalizedQuery &&
         !matchesSearch(article.title, normalizedQuery) &&
-        !article.authorNames.some((author) => matchesSearch(author, normalizedQuery))
+        !article.authorNames.some((author) =>
+          matchesSearch(author, normalizedQuery),
+        )
       ) {
         return false;
       }
 
-      if (selectedCategories.length > 0 && !selectedCategories.includes(article.topic || "")) {
+      if (
+        selectedCategories.length > 0 &&
+        !selectedCategories.includes(article.topic || "")
+      ) {
         return false;
       }
 
@@ -223,7 +246,10 @@ export function ContentTable({ filter }: ContentTableProps) {
     return [...filteredArticles].sort((left, right) => {
       switch (sortColumn) {
         case "title":
-          return applySortDirection(compareText(left.title, right.title), sortDirection);
+          return applySortDirection(
+            compareText(left.title, right.title),
+            sortDirection,
+          );
         case "author":
           return applySortDirection(
             compareText(left.authorNames[0], right.authorNames[0]),
@@ -235,17 +261,37 @@ export function ContentTable({ filter }: ContentTableProps) {
             sortDirection,
           );
         case "topic":
-          return applySortDirection(compareText(left.topic, right.topic), sortDirection);
+          return applySortDirection(
+            compareText(left.topic, right.topic),
+            sortDirection,
+          );
         default:
           return 0;
       }
     });
-  }, [blogArticles, searchQuery, selectedCategories, selectedAuthors, selectedTags, sortColumn, sortDirection]);
+  }, [
+    blogArticles,
+    searchQuery,
+    selectedCategories,
+    selectedAuthors,
+    selectedTags,
+    sortColumn,
+    sortDirection,
+  ]);
 
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedCategories, selectedAuthors, selectedTags, showRedirectOnly, showNoIndexOnly, sortColumn, sortDirection]);
+  }, [
+    searchQuery,
+    selectedCategories,
+    selectedAuthors,
+    selectedTags,
+    showRedirectOnly,
+    showNoIndexOnly,
+    sortColumn,
+    sortDirection,
+  ]);
 
   const visibleDocsEntries = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -277,7 +323,10 @@ export function ContentTable({ filter }: ContentTableProps) {
     return [...filteredEntries].sort((left, right) => {
       switch (sortColumn) {
         case "title":
-          return applySortDirection(compareText(left.title, right.title), sortDirection);
+          return applySortDirection(
+            compareText(left.title, right.title),
+            sortDirection,
+          );
         case "referenceNumber":
           return applySortDirection(
             compareText(left.referenceNumber, right.referenceNumber),
@@ -287,7 +336,15 @@ export function ContentTable({ filter }: ContentTableProps) {
           return 0;
       }
     });
-  }, [docsEntries, searchQuery, selectedTags, showRedirectOnly, showNoIndexOnly, sortColumn, sortDirection]);
+  }, [
+    docsEntries,
+    searchQuery,
+    selectedTags,
+    showRedirectOnly,
+    showNoIndexOnly,
+    sortColumn,
+    sortDirection,
+  ]);
 
   const hasActiveFilters =
     searchQuery.trim().length > 0 ||
@@ -341,7 +398,9 @@ export function ContentTable({ filter }: ContentTableProps) {
       toast({
         title: "Failed to create project",
         description:
-          createError instanceof Error ? createError.message : "Please try again.",
+          createError instanceof Error
+            ? createError.message
+            : "Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -376,7 +435,9 @@ export function ContentTable({ filter }: ContentTableProps) {
       toast({
         title: "Failed to create project",
         description:
-          createError instanceof Error ? createError.message : "Please try again.",
+          createError instanceof Error
+            ? createError.message
+            : "Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -387,7 +448,9 @@ export function ContentTable({ filter }: ContentTableProps) {
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center p-8">
-        <div className="animate-pulse text-muted-foreground">Loading content...</div>
+        <div className="animate-pulse text-muted-foreground">
+          Loading content...
+        </div>
       </div>
     );
   }
@@ -417,7 +480,9 @@ export function ContentTable({ filter }: ContentTableProps) {
             </div>
             <Tabs
               value={filter}
-              onValueChange={(value) => navigate(value === "docs" ? "/docs" : "/blog")}
+              onValueChange={(value) =>
+                navigate(value === "docs" ? "/docs" : "/blog")
+              }
             >
               <TabsList>
                 <TabsTrigger value="blog">Blog</TabsTrigger>
@@ -530,163 +595,210 @@ export function ContentTable({ filter }: ContentTableProps) {
                 )}
               </TableHeader>
               <TableBody>
-                {isBlogView ? (
-                  blogArticles.length === 0 ? (
-                    renderEmptyState({
-                      columnCount: 5,
-                      message: "No Builder blog content found.",
-                      showReset: false,
-                      onReset: resetFilters,
-                    })
-                  ) : visibleBlogArticles.length === 0 ? (
-                    renderEmptyState({
-                      columnCount: 5,
-                      message: "No results match your filters.",
-                      showReset: hasActiveFilters,
-                      onReset: resetFilters,
-                    })
-                  ) : (
-                    visibleBlogArticles
-                      .slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-                      .map((article) => {
-                      const isCreating = creatingId === article.handle;
-                      const authorLabel = article.authorNames.length
-                        ? article.authorNames.join(", ")
-                        : "—";
+                {isBlogView
+                  ? blogArticles.length === 0
+                    ? renderEmptyState({
+                        columnCount: 5,
+                        message: "No Builder blog content found.",
+                        showReset: false,
+                        onReset: resetFilters,
+                      })
+                    : visibleBlogArticles.length === 0
+                      ? renderEmptyState({
+                          columnCount: 5,
+                          message: "No results match your filters.",
+                          showReset: hasActiveFilters,
+                          onReset: resetFilters,
+                        })
+                      : visibleBlogArticles
+                          .slice(
+                            (currentPage - 1) * PAGE_SIZE,
+                            currentPage * PAGE_SIZE,
+                          )
+                          .map((article) => {
+                            const isCreating = creatingId === article.handle;
+                            const authorLabel = article.authorNames.length
+                              ? article.authorNames.join(", ")
+                              : "—";
 
-                      return (
-                        <TableRow key={article.id} className="hover:bg-muted/50">
-                          <TableCell className="max-w-[340px]">
-                            <button
-                              type="button"
-                              className="max-w-full truncate text-left font-medium text-foreground hover:underline disabled:cursor-wait disabled:opacity-60"
-                              title={article.title}
-                              disabled={isCreating}
-                              onClick={() => void handleBlogArticleSelect(article)}
-                            >
-                              {isCreating ? "Creating project..." : article.title}
-                            </button>
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap text-muted-foreground">{authorLabel}</TableCell>
-                          <TableCell className="whitespace-nowrap text-muted-foreground">
-                            {article.publishedAt
-                              ? format(new Date(article.publishedAt), "MMM d, yyyy")
-                              : "—"}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap capitalize text-muted-foreground">
-                            {article.topic || "—"}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-1 whitespace-nowrap">
-                              {article.tags.slice(0, 3).map((tag) => (
-                                <Badge key={tag} variant="outline" className="text-xs">
-                                  {tag}
-                                </Badge>
-                              ))}
-                              {article.tags.length > 3 && (
-                                <span className="pl-1 text-xs text-muted-foreground">
-                                  +{article.tags.length - 3}
-                                </span>
-                              )}
-                              {article.tags.length === 0 && (
-                                <span className="text-muted-foreground">—</span>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )
-                ) : docsEntries.length === 0 ? (
-                  renderEmptyState({
-                    columnCount: 5,
-                    message: "No Builder docs content found.",
-                    showReset: false,
-                    onReset: resetFilters,
-                  })
-                ) : visibleDocsEntries.length === 0 ? (
-                  renderEmptyState({
-                    columnCount: 5,
-                    message: "No results match your filters.",
-                    showReset: hasActiveFilters,
-                    onReset: resetFilters,
-                  })
-                ) : (
-                  visibleDocsEntries
-                    .slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-                    .map((entry) => {
-                    const isCreating = creatingId === entry.id;
+                            return (
+                              <TableRow
+                                key={article.id}
+                                className="hover:bg-muted/50"
+                              >
+                                <TableCell className="max-w-[340px]">
+                                  <button
+                                    type="button"
+                                    className="max-w-full truncate text-left font-medium text-foreground hover:underline disabled:cursor-wait disabled:opacity-60"
+                                    title={article.title}
+                                    disabled={isCreating}
+                                    onClick={() =>
+                                      void handleBlogArticleSelect(article)
+                                    }
+                                  >
+                                    {isCreating
+                                      ? "Creating project..."
+                                      : article.title}
+                                  </button>
+                                </TableCell>
+                                <TableCell className="whitespace-nowrap text-muted-foreground">
+                                  {authorLabel}
+                                </TableCell>
+                                <TableCell className="whitespace-nowrap text-muted-foreground">
+                                  {article.publishedAt
+                                    ? format(
+                                        new Date(article.publishedAt),
+                                        "MMM d, yyyy",
+                                      )
+                                    : "—"}
+                                </TableCell>
+                                <TableCell className="whitespace-nowrap capitalize text-muted-foreground">
+                                  {article.topic || "—"}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex gap-1 whitespace-nowrap">
+                                    {article.tags.slice(0, 3).map((tag) => (
+                                      <Badge
+                                        key={tag}
+                                        variant="outline"
+                                        className="text-xs"
+                                      >
+                                        {tag}
+                                      </Badge>
+                                    ))}
+                                    {article.tags.length > 3 && (
+                                      <span className="pl-1 text-xs text-muted-foreground">
+                                        +{article.tags.length - 3}
+                                      </span>
+                                    )}
+                                    {article.tags.length === 0 && (
+                                      <span className="text-muted-foreground">
+                                        —
+                                      </span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })
+                  : docsEntries.length === 0
+                    ? renderEmptyState({
+                        columnCount: 5,
+                        message: "No Builder docs content found.",
+                        showReset: false,
+                        onReset: resetFilters,
+                      })
+                    : visibleDocsEntries.length === 0
+                      ? renderEmptyState({
+                          columnCount: 5,
+                          message: "No results match your filters.",
+                          showReset: hasActiveFilters,
+                          onReset: resetFilters,
+                        })
+                      : visibleDocsEntries
+                          .slice(
+                            (currentPage - 1) * PAGE_SIZE,
+                            currentPage * PAGE_SIZE,
+                          )
+                          .map((entry) => {
+                            const isCreating = creatingId === entry.id;
 
-                    return (
-                      <TableRow key={entry.id} className="hover:bg-muted/50">
-                        <TableCell className="max-w-[380px]">
-                          <button
-                            type="button"
-                            className="max-w-full truncate text-left font-medium text-foreground hover:underline disabled:cursor-wait disabled:opacity-60"
-                            title={entry.title}
-                            disabled={isCreating}
-                            onClick={() => void handleDocsEntrySelect(entry)}
-                          >
-                            {isCreating ? "Creating project..." : entry.title}
-                          </button>
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
-                          {entry.referenceNumber || "—"}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1 whitespace-nowrap">
-                            {entry.tags.slice(0, 3).map((tag) => (
-                              <Badge key={tag} variant="outline" className="text-xs">
-                                {tag}
-                              </Badge>
-                            ))}
-                            {entry.tags.length > 3 && (
-                              <span className="pl-1 text-xs text-muted-foreground">
-                                +{entry.tags.length - 3}
-                              </span>
-                            )}
-                            {entry.tags.length === 0 && (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {entry.redirectToUrl ? (
-                            <Badge variant="destructive" className="text-xs">
-                              Redirect
-                            </Badge>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {entry.addNoIndex ? (
-                            <Badge variant="secondary" className="text-xs">
-                              No index
-                            </Badge>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
+                            return (
+                              <TableRow
+                                key={entry.id}
+                                className="hover:bg-muted/50"
+                              >
+                                <TableCell className="max-w-[380px]">
+                                  <button
+                                    type="button"
+                                    className="max-w-full truncate text-left font-medium text-foreground hover:underline disabled:cursor-wait disabled:opacity-60"
+                                    title={entry.title}
+                                    disabled={isCreating}
+                                    onClick={() =>
+                                      void handleDocsEntrySelect(entry)
+                                    }
+                                  >
+                                    {isCreating
+                                      ? "Creating project..."
+                                      : entry.title}
+                                  </button>
+                                </TableCell>
+                                <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
+                                  {entry.referenceNumber || "—"}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex gap-1 whitespace-nowrap">
+                                    {entry.tags.slice(0, 3).map((tag) => (
+                                      <Badge
+                                        key={tag}
+                                        variant="outline"
+                                        className="text-xs"
+                                      >
+                                        {tag}
+                                      </Badge>
+                                    ))}
+                                    {entry.tags.length > 3 && (
+                                      <span className="pl-1 text-xs text-muted-foreground">
+                                        +{entry.tags.length - 3}
+                                      </span>
+                                    )}
+                                    {entry.tags.length === 0 && (
+                                      <span className="text-muted-foreground">
+                                        —
+                                      </span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  {entry.redirectToUrl ? (
+                                    <Badge
+                                      variant="destructive"
+                                      className="text-xs"
+                                    >
+                                      Redirect
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-muted-foreground">
+                                      —
+                                    </span>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  {entry.addNoIndex ? (
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-xs"
+                                    >
+                                      No index
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-muted-foreground">
+                                      —
+                                    </span>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
               </TableBody>
             </Table>
           </div>
 
           {/* Pagination footer */}
           {(() => {
-            const totalItems = isBlogView ? visibleBlogArticles.length : visibleDocsEntries.length;
+            const totalItems = isBlogView
+              ? visibleBlogArticles.length
+              : visibleDocsEntries.length;
             const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
-            const startItem = totalItems === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+            const startItem =
+              totalItems === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
             const endItem = Math.min(currentPage * PAGE_SIZE, totalItems);
 
             return totalItems > 0 ? (
               <div className="flex items-center justify-between pt-4">
                 <div className="text-sm text-muted-foreground">
-                  Showing {startItem}–{endItem} of {totalItems} result{totalItems === 1 ? "" : "s"}
+                  Showing {startItem}–{endItem} of {totalItems} result
+                  {totalItems === 1 ? "" : "s"}
                 </div>
                 {totalPages > 1 && (
                   <div className="flex items-center gap-2">

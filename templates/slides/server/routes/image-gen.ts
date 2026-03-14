@@ -14,7 +14,9 @@ interface ReferenceImage {
 /**
  * Download an image URL and convert to base64 reference image
  */
-async function urlToReferenceImage(url: string): Promise<ReferenceImage | null> {
+async function urlToReferenceImage(
+  url: string,
+): Promise<ReferenceImage | null> {
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
@@ -42,7 +44,7 @@ function dataUrlToReferenceImage(dataUrl: string): ReferenceImage | null {
 export async function generateWithGemini(
   prompt: string,
   referenceImages: ReferenceImage[] = [],
-  context?: { slideContent?: string; deckText?: string }
+  context?: { slideContent?: string; deckText?: string },
 ): Promise<{ imageData: Buffer; mimeType: string }> {
   const { GoogleGenAI } = await import("@google/genai");
   const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -50,7 +52,9 @@ export async function generateWithGemini(
   // Randomly select 4 reference images for better style matching per generation
   const shuffled = [...referenceImages].sort(() => Math.random() - 0.5);
   const selectedRefs = shuffled.slice(0, 4);
-  console.log(`[Gemini] Using ${selectedRefs.length} of ${referenceImages.length} reference images (randomly selected)`);
+  console.log(
+    `[Gemini] Using ${selectedRefs.length} of ${referenceImages.length} reference images (randomly selected)`,
+  );
 
   // Build contents with reference images + text prompt
   const contents: any[] = [];
@@ -80,7 +84,7 @@ OUTPUT FORMAT: Generate ONLY the illustration/graphic itself — NOT a slide moc
 
 STYLE MATCH IS THE #1 PRIORITY. If depicting the subject conflicts with matching the style, ALWAYS choose style over subject accuracy.
 
-Subject to depict: ${prompt}${context?.slideContent ? `\n\n**Current slide content (primary context):**\n${context.slideContent}` : ''}${context?.deckText ? `\n\n**Full deck text (secondary context for overall theme/topic):**\n${context.deckText}` : ''}`,
+Subject to depict: ${prompt}${context?.slideContent ? `\n\n**Current slide content (primary context):**\n${context.slideContent}` : ""}${context?.deckText ? `\n\n**Full deck text (secondary context for overall theme/topic):**\n${context.deckText}` : ""}`,
     });
   } else {
     contents.push({ text: prompt });
@@ -90,20 +94,28 @@ Subject to depict: ${prompt}${context?.slideContent ? `\n\n**Current slide conte
   let lastError: Error | null = null;
 
   const isOverloadError = (e: any) =>
-    e.status === 429 || e.status === 503 ||
-    e.message?.includes("overloaded") || e.message?.includes("503") ||
-    e.message?.includes("429") || e.message?.includes("high demand") ||
-    e.message?.includes("RESOURCE_EXHAUSTED") || e.message?.includes("UNAVAILABLE");
+    e.status === 429 ||
+    e.status === 503 ||
+    e.message?.includes("overloaded") ||
+    e.message?.includes("503") ||
+    e.message?.includes("429") ||
+    e.message?.includes("high demand") ||
+    e.message?.includes("RESOURCE_EXHAUSTED") ||
+    e.message?.includes("UNAVAILABLE");
 
   for (const modelName of geminiModels) {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         if (attempt > 0) {
           const delay = attempt * 3000;
-          console.log(`[Gemini] Retry ${attempt} for ${modelName} after ${delay}ms`);
+          console.log(
+            `[Gemini] Retry ${attempt} for ${modelName} after ${delay}ms`,
+          );
           await new Promise((r) => setTimeout(r, delay));
         }
-        console.log(`[Gemini] Trying model: ${modelName} (attempt ${attempt + 1})`);
+        console.log(
+          `[Gemini] Trying model: ${modelName} (attempt ${attempt + 1})`,
+        );
         const response = await client.models.generateContent({
           model: modelName,
           contents,
@@ -116,7 +128,9 @@ Subject to depict: ${prompt}${context?.slideContent ? `\n\n**Current slide conte
         for (const part of parts) {
           if (part.inlineData) {
             const buffer = Buffer.from(part.inlineData.data!, "base64");
-            console.log(`[Gemini] Success with ${modelName} on attempt ${attempt + 1}`);
+            console.log(
+              `[Gemini] Success with ${modelName} on attempt ${attempt + 1}`,
+            );
             return {
               imageData: buffer,
               mimeType: part.inlineData.mimeType || "image/png",
@@ -126,13 +140,17 @@ Subject to depict: ${prompt}${context?.slideContent ? `\n\n**Current slide conte
         lastError = new Error(`No image returned from ${modelName}`);
         break;
       } catch (e: any) {
-        console.warn(`[Gemini] ${modelName} attempt ${attempt + 1} failed: ${e.message}`);
+        console.warn(
+          `[Gemini] ${modelName} attempt ${attempt + 1} failed: ${e.message}`,
+        );
         lastError = e;
         if (isOverloadError(e)) continue;
         break;
       }
     }
-    console.log(`[Gemini] All retries exhausted for ${modelName}, trying fallback...`);
+    console.log(
+      `[Gemini] All retries exhausted for ${modelName}, trying fallback...`,
+    );
   }
 
   throw lastError || new Error("No image returned from Gemini");
@@ -151,7 +169,10 @@ export const generateImage: RequestHandler = async (req, res) => {
   }
 
   if (!process.env.GEMINI_API_KEY) {
-    res.status(400).json({ error: "Gemini API key not configured. Set GEMINI_API_KEY environment variable." });
+    res.status(400).json({
+      error:
+        "Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
+    });
     return;
   }
 
@@ -159,8 +180,12 @@ export const generateImage: RequestHandler = async (req, res) => {
     const refImages: ReferenceImage[] = [];
 
     // If no reference URLs provided, use defaults
-    const urlsToLoad = referenceImageUrls?.length ? referenceImageUrls : DEFAULT_STYLE_REFERENCE_URLS;
-    console.log(`[ImageGen] Loading ${urlsToLoad.length} reference image(s)...`);
+    const urlsToLoad = referenceImageUrls?.length
+      ? referenceImageUrls
+      : DEFAULT_STYLE_REFERENCE_URLS;
+    console.log(
+      `[ImageGen] Loading ${urlsToLoad.length} reference image(s)...`,
+    );
     const results = await Promise.all(urlsToLoad.map(urlToReferenceImage));
     for (const r of results) {
       if (r) refImages.push(r);

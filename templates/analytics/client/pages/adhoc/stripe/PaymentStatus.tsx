@@ -30,8 +30,7 @@ function formatDate(ts: number) {
 function chargeStatusIcon(status: string, paid: boolean) {
   if (paid || status === "succeeded")
     return <CheckCircle2 className="h-4 w-4 text-emerald-400" />;
-  if (status === "failed")
-    return <XCircle className="h-4 w-4 text-red-400" />;
+  if (status === "failed") return <XCircle className="h-4 w-4 text-red-400" />;
   if (status === "pending")
     return <Clock className="h-4 w-4 text-yellow-400" />;
   return <AlertTriangle className="h-4 w-4 text-zinc-400" />;
@@ -83,7 +82,7 @@ export function PaymentStatus({
 
   // Show failed payment intents prominently at the top
   const failedIntents = paymentIntents.filter(
-    (pi) => pi.last_payment_error || pi.status === "requires_payment_method"
+    (pi) => pi.last_payment_error || pi.status === "requires_payment_method",
   );
 
   return (
@@ -94,10 +93,7 @@ export function PaymentStatus({
             Failed / Action Required
           </h4>
           {failedIntents.map((pi) => (
-            <Card
-              key={pi.id}
-              className="border-red-500/30 bg-red-500/5"
-            >
+            <Card key={pi.id} className="border-red-500/30 bg-red-500/5">
               <CardContent className="py-3 px-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3">

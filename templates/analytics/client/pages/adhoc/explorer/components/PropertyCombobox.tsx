@@ -2,8 +2,19 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { KNOWN_PROPERTIES, ENRICHED_PROPERTY_MAP } from "../types";
 import { useDynamicProperties } from "../use-dynamic-schema";
 
@@ -15,7 +26,12 @@ interface PropertyComboboxProps {
   autoOpen?: boolean;
 }
 
-export function PropertyCombobox({ value, onChange, triggerLabel, autoOpen }: PropertyComboboxProps) {
+export function PropertyCombobox({
+  value,
+  onChange,
+  triggerLabel,
+  autoOpen,
+}: PropertyComboboxProps) {
   const [open, setOpen] = useState(autoOpen ?? false);
   const { properties: dynamicProps, isLoading } = useDynamicProperties();
   const [search, setSearch] = useState("");
@@ -30,7 +46,7 @@ export function PropertyCombobox({ value, onChange, triggerLabel, autoOpen }: Pr
 
   const extraProps = useMemo(
     () => dynamicProps.filter((p) => !knownSet.has(p.name)),
-    [dynamicProps, knownSet]
+    [dynamicProps, knownSet],
   );
 
   // Allow selecting a custom typed value not in the list
@@ -55,7 +71,9 @@ export function PropertyCombobox({ value, onChange, triggerLabel, autoOpen }: Pr
           className="justify-between font-normal text-sm h-7 px-2"
           size="sm"
         >
-          <span className="truncate">{value || triggerLabel || "Select property..."}</span>
+          <span className="truncate">
+            {value || triggerLabel || "Select property..."}
+          </span>
           <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -106,7 +124,12 @@ export function PropertyCombobox({ value, onChange, triggerLabel, autoOpen }: Pr
                       value={prop}
                       onSelect={handleSelect}
                     >
-                      <Check className={cn("mr-2 h-3 w-3 shrink-0", value === prop ? "opacity-100" : "opacity-0")} />
+                      <Check
+                        className={cn(
+                          "mr-2 h-3 w-3 shrink-0",
+                          value === prop ? "opacity-100" : "opacity-0",
+                        )}
+                      />
                       {enriched?.label ?? prop}
                       {enriched && (
                         <span className="ml-auto text-[9px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">
@@ -126,9 +149,16 @@ export function PropertyCombobox({ value, onChange, triggerLabel, autoOpen }: Pr
                     value={p.name}
                     onSelect={handleSelect}
                   >
-                    <Check className={cn("mr-2 h-3 w-3 shrink-0", value === p.name ? "opacity-100" : "opacity-0")} />
+                    <Check
+                      className={cn(
+                        "mr-2 h-3 w-3 shrink-0",
+                        value === p.name ? "opacity-100" : "opacity-0",
+                      )}
+                    />
                     <span className="truncate">{p.name}</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground">{p.count.toLocaleString()}</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      {p.count.toLocaleString()}
+                    </span>
                   </CommandItem>
                 ))}
               </CommandGroup>
@@ -136,7 +166,8 @@ export function PropertyCombobox({ value, onChange, triggerLabel, autoOpen }: Pr
             {isLoading && extraProps.length === 0 && (
               <CommandGroup>
                 <div className="flex items-center justify-center py-4 text-muted-foreground text-xs gap-2">
-                  <Loader2 className="h-3 w-3 animate-spin" /> Loading from BigQuery...
+                  <Loader2 className="h-3 w-3 animate-spin" /> Loading from
+                  BigQuery...
                 </div>
               </CommandGroup>
             )}

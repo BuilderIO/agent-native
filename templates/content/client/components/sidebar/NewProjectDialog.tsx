@@ -22,8 +22,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -58,13 +69,16 @@ export function NewProjectDialog({
   const [builderHandle, setBuilderHandle] = useState<string>("");
   const [builderComboboxOpen, setBuilderComboboxOpen] = useState(false);
   const [isFetchingArticle, setIsFetchingArticle] = useState(false);
-  const [contentType, setContentType] = useState<"articles" | "docs">("articles");
+  const [contentType, setContentType] = useState<"articles" | "docs">(
+    "articles",
+  );
 
   const { data } = useProjects();
   const createMutation = useCreateProject();
 
   const { isConnected, auth } = useBuilderAuth();
-  const { data: builderArticles, isLoading: isLoadingArticles } = useBuilderArticles();
+  const { data: builderArticles, isLoading: isLoadingArticles } =
+    useBuilderArticles();
   const { data: builderDocs, isLoading: isLoadingDocs } = useBuilderDocs();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -119,8 +133,12 @@ export function NewProjectDialog({
     if (mode === "builder" && builderHandle) {
       try {
         setIsFetchingArticle(true);
-        const model = contentType === "articles" ? "blog-article" : "docs-content";
-        console.log(`[NewProject] Fetching ${model} with handle:`, builderHandle);
+        const model =
+          contentType === "articles" ? "blog-article" : "docs-content";
+        console.log(
+          `[NewProject] Fetching ${model} with handle:`,
+          builderHandle,
+        );
 
         const res = await authFetch("/api/builder/fetch-article", {
           method: "POST",
@@ -128,14 +146,16 @@ export function NewProjectDialog({
           body: JSON.stringify({
             apiKey: auth?.apiKey,
             handle: builderHandle,
-            model
-          })
+            model,
+          }),
         });
 
         if (!res.ok) {
           const errorData = await res.json();
           console.error(`[NewProject] Fetch failed:`, errorData);
-          throw new Error(`Failed to fetch ${contentType === "articles" ? "article" : "doc"} from Builder: ${errorData.error || res.statusText}`);
+          throw new Error(
+            `Failed to fetch ${contentType === "articles" ? "article" : "doc"} from Builder: ${errorData.error || res.statusText}`,
+          );
         }
 
         const articleData = await res.json();
@@ -143,16 +163,26 @@ export function NewProjectDialog({
         // Merge the root-level url into fullData for server use
         fullData = {
           ...articleData.fullData,
-          url: articleData.url || articleData.fullData?.url
+          url: articleData.url || articleData.fullData?.url,
         };
         if (articleData.blocks && Array.isArray(articleData.blocks)) {
-          console.log(`[NewProject] Converting ${articleData.blocks.length} blocks to markdown`);
+          console.log(
+            `[NewProject] Converting ${articleData.blocks.length} blocks to markdown`,
+          );
           blocksString = builderToMarkdown(articleData.blocks);
-          console.log(`[NewProject] Markdown length:`, blocksString?.length || 0);
+          console.log(
+            `[NewProject] Markdown length:`,
+            blocksString?.length || 0,
+          );
         } else if (fullData?.blocks && Array.isArray(fullData.blocks)) {
-          console.log(`[NewProject] Converting ${fullData.blocks.length} blocks from fullData to markdown`);
+          console.log(
+            `[NewProject] Converting ${fullData.blocks.length} blocks from fullData to markdown`,
+          );
           blocksString = builderToMarkdown(fullData.blocks);
-          console.log(`[NewProject] Markdown length:`, blocksString?.length || 0);
+          console.log(
+            `[NewProject] Markdown length:`,
+            blocksString?.length || 0,
+          );
         } else {
           console.warn(`[NewProject] No blocks found in response`);
         }
@@ -167,8 +197,14 @@ export function NewProjectDialog({
     const result = await createMutation.mutateAsync({
       name: name.trim(),
       group,
-      builderHandle: mode === "builder" && builderHandle ? builderHandle : undefined,
-      builderModel: mode === "builder" ? (contentType === "articles" ? "blog-article" : "docs-content") : undefined,
+      builderHandle:
+        mode === "builder" && builderHandle ? builderHandle : undefined,
+      builderModel:
+        mode === "builder"
+          ? contentType === "articles"
+            ? "blog-article"
+            : "docs-content"
+          : undefined,
       fullData,
       blocksString,
     });
@@ -185,7 +221,8 @@ export function NewProjectDialog({
     return builderDocs?.find((d) => d.id === builderHandle);
   }, [builderDocs, builderHandle]);
 
-  const selectedContent = contentType === "articles" ? selectedArticle : selectedDoc;
+  const selectedContent =
+    contentType === "articles" ? selectedArticle : selectedDoc;
 
   // Sort docs by most recently edited (lastUpdated)
   const sortedContentList = useMemo(() => {
@@ -200,7 +237,8 @@ export function NewProjectDialog({
   }, [contentType, builderArticles, builderDocs]);
 
   const contentList = sortedContentList;
-  const isLoadingContent = contentType === "articles" ? isLoadingArticles : isLoadingDocs;
+  const isLoadingContent =
+    contentType === "articles" ? isLoadingArticles : isLoadingDocs;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -215,7 +253,11 @@ export function NewProjectDialog({
           </DialogHeader>
 
           {isConnected && (
-            <Tabs value={mode} onValueChange={(v) => setMode(v as "new" | "builder")} className="mt-4">
+            <Tabs
+              value={mode}
+              onValueChange={(v) => setMode(v as "new" | "builder")}
+              className="mt-4"
+            >
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="new">Blank Project</TabsTrigger>
                 <TabsTrigger value="builder">From Builder Content</TabsTrigger>
@@ -229,7 +271,10 @@ export function NewProjectDialog({
                 <label className="text-xs font-medium text-muted-foreground">
                   Workspace
                 </label>
-                <Select value={group?.split("/")[0] || ""} onValueChange={(ws) => setGroup(ws)}>
+                <Select
+                  value={group?.split("/")[0] || ""}
+                  onValueChange={(ws) => setGroup(ws)}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select workspace" />
                   </SelectTrigger>
@@ -264,9 +309,17 @@ export function NewProjectDialog({
                     <SelectItem value="__root__">Root</SelectItem>
                     {data.folders[group.split("/")[0]].map((folderPath) => (
                       <SelectItem key={folderPath} value={folderPath}>
-                        {folderPath.split("/").map(s =>
-                          s.split("-").map(w => w ? w[0].toUpperCase() + w.slice(1) : w).join(" ")
-                        ).join(" / ")}
+                        {folderPath
+                          .split("/")
+                          .map((s) =>
+                            s
+                              .split("-")
+                              .map((w) =>
+                                w ? w[0].toUpperCase() + w.slice(1) : w,
+                              )
+                              .join(" "),
+                          )
+                          .join(" / ")}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -280,11 +333,14 @@ export function NewProjectDialog({
                   <label className="text-xs font-medium text-muted-foreground">
                     Content Type
                   </label>
-                  <Select value={contentType} onValueChange={(v: "articles" | "docs") => {
-                    setContentType(v);
-                    setBuilderHandle("");
-                    setName("");
-                  }}>
+                  <Select
+                    value={contentType}
+                    onValueChange={(v: "articles" | "docs") => {
+                      setContentType(v);
+                      setBuilderHandle("");
+                      setName("");
+                    }}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -299,7 +355,10 @@ export function NewProjectDialog({
                   <label className="text-xs font-medium text-muted-foreground">
                     Select {contentType === "articles" ? "Article" : "Doc"}
                   </label>
-                  <Popover open={builderComboboxOpen} onOpenChange={setBuilderComboboxOpen}>
+                  <Popover
+                    open={builderComboboxOpen}
+                    onOpenChange={setBuilderComboboxOpen}
+                  >
                     <PopoverTrigger asChild>
                       <Button
                         variant="outline"
@@ -311,8 +370,9 @@ export function NewProjectDialog({
                         {isLoadingContent
                           ? `Loading ${contentType}...`
                           : selectedContent
-                          ? selectedContent.data?.title || selectedContent.name
-                          : `Select ${contentType === "articles" ? "article" : "doc"}...`}
+                            ? selectedContent.data?.title ||
+                              selectedContent.name
+                            : `Select ${contentType === "articles" ? "article" : "doc"}...`}
                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
@@ -328,9 +388,10 @@ export function NewProjectDialog({
                           <CommandGroup>
                             {contentList?.map((item: any) => {
                               // For articles, use handle; for docs, always use ID for reliable fetching
-                              const identifier = contentType === "articles"
-                                ? (item.data?.handle || item.id)
-                                : item.id;
+                              const identifier =
+                                contentType === "articles"
+                                  ? item.data?.handle || item.id
+                                  : item.id;
                               if (!identifier) return null;
                               return (
                                 <CommandItem
@@ -338,14 +399,20 @@ export function NewProjectDialog({
                                   value={item.data?.title || item.name}
                                   onSelect={() => {
                                     setBuilderHandle(identifier);
-                                    setName(item.data?.title || item.name || "Untitled");
+                                    setName(
+                                      item.data?.title ||
+                                        item.name ||
+                                        "Untitled",
+                                    );
                                     setBuilderComboboxOpen(false);
                                   }}
                                 >
                                   <Check
                                     className={cn(
                                       "mr-2 h-4 w-4",
-                                      builderHandle === identifier ? "opacity-100" : "opacity-0"
+                                      builderHandle === identifier
+                                        ? "opacity-100"
+                                        : "opacity-0",
                                     )}
                                   />
                                   {item.data?.title || item.name}
@@ -401,7 +468,9 @@ export function NewProjectDialog({
                 (mode === "builder" && !builderHandle)
               }
             >
-              {createMutation.isPending || isFetchingArticle ? "Creating..." : "Create"}
+              {createMutation.isPending || isFetchingArticle
+                ? "Creating..."
+                : "Create"}
             </Button>
           </DialogFooter>
         </form>

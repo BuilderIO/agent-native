@@ -32,12 +32,12 @@ export function ReposPerDayChart({ dateRange }: Props) {
 
   const series = useMetricsQuery(
     ["pr-review-repos-per-day", dateRange],
-    reposPerDaySql(dateRange)
+    reposPerDaySql(dateRange),
   );
 
   const breakdown = useMetricsQuery(
     ["pr-review-repo-breakdown-by-day", dateRange],
-    repoBreakdownByDaySql(dateRange)
+    repoBreakdownByDaySql(dateRange),
   );
 
   const chartData = useMemo(
@@ -46,7 +46,7 @@ export function ReposPerDayChart({ dateRange }: Props) {
         day: r.day as string,
         repos_reviewed: Number(r.repos_reviewed || 0),
       })),
-    [series.data]
+    [series.data],
   );
 
   const breakdownByDay = useMemo(() => {
@@ -68,7 +68,7 @@ export function ReposPerDayChart({ dateRange }: Props) {
       const rows = breakdownByDay.get(day) ?? [];
       setPopover({ x: e.clientX, y: e.clientY, day, rows });
     },
-    [breakdownByDay]
+    [breakdownByDay],
   );
 
   const closePopover = useCallback(() => setPopover(null), []);

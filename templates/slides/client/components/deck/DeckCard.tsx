@@ -31,7 +31,9 @@ export default function DeckCard({ deck, onDelete }: DeckCardProps) {
 
         {/* Info */}
         <div className="p-4">
-          <h3 className="font-medium text-sm text-white/90 truncate">{deck.title}</h3>
+          <h3 className="font-medium text-sm text-white/90 truncate">
+            {deck.title}
+          </h3>
           <div className="text-xs text-white/40 mt-1">
             {deck.slides.length} slide{deck.slides.length !== 1 ? "s" : ""}
           </div>
@@ -53,7 +55,10 @@ export default function DeckCard({ deck, onDelete }: DeckCardProps) {
 
         {showMenu && (
           <>
-            <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setShowMenu(false)}
+            />
             <div className="absolute right-0 top-9 z-50 w-36 rounded-lg border border-white/[0.08] bg-[hsl(240,5%,10%)] shadow-xl py-1">
               <button
                 onClick={(e) => {

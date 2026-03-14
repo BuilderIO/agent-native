@@ -11,9 +11,7 @@ const UI_PORT = 3334;
 // Discover templates
 const templates = fs
   .readdirSync(TEMPLATES_DIR)
-  .filter((d) =>
-    fs.existsSync(path.join(TEMPLATES_DIR, d, "package.json"))
-  )
+  .filter((d) => fs.existsSync(path.join(TEMPLATES_DIR, d, "package.json")))
   .sort();
 
 // Kill any stale processes on our ports
@@ -46,7 +44,9 @@ if (killPortProcesses()) {
   console.log(`\x1b[33m[dev-all]\x1b[0m Killed stale processes`);
 }
 
-console.log(`\x1b[36m[dev-all]\x1b[0m Found templates: ${templates.join(", ")}`);
+console.log(
+  `\x1b[36m[dev-all]\x1b[0m Found templates: ${templates.join(", ")}`,
+);
 console.log(`\x1b[36m[dev-all]\x1b[0m Harness UI: http://localhost:${UI_PORT}`);
 
 const names = [];
@@ -57,7 +57,9 @@ templates.forEach((name, i) => {
   const wsPort = WS_BASE_PORT + i;
   const templateDir = path.resolve(TEMPLATES_DIR, name);
 
-  console.log(`\x1b[36m[dev-all]\x1b[0m ${name}: app=:${appPort} ws=:${wsPort}`);
+  console.log(
+    `\x1b[36m[dev-all]\x1b[0m ${name}: app=:${appPort} ws=:${wsPort}`,
+  );
 
   // App dev server
   names.push(name);
@@ -66,7 +68,7 @@ templates.forEach((name, i) => {
   // Harness WS server for this app
   names.push(`ws:${name}`);
   commands.push(
-    `pnpm --filter @agent-native/harness-cli dev:server -- --app-dir ${templateDir} --port ${wsPort}`
+    `pnpm --filter @agent-native/harness-cli dev:server -- --app-dir ${templateDir} --port ${wsPort}`,
   );
 });
 
@@ -80,18 +82,24 @@ const appConfig = templates.map((name, i) => ({
 // Harness UI
 names.push("ui");
 commands.push(
-  `VITE_APP_CONFIG='${JSON.stringify(appConfig)}' PORT=${UI_PORT} pnpm --filter @agent-native/harness-cli dev:client`
+  `VITE_APP_CONFIG='${JSON.stringify(appConfig)}' PORT=${UI_PORT} pnpm --filter @agent-native/harness-cli dev:client`,
 );
 
 // Use concurrently directly (no shell: true) — pass each command as a separate arg
-const proc = spawn("npx", [
-  "concurrently",
-  "-n", names.join(","),
-  "-c", "yellow,blue,yellow,blue,yellow,blue,yellow,blue,green",
-  ...commands,
-], {
-  stdio: "inherit",
-  cwd: process.cwd(),
-});
+const proc = spawn(
+  "npx",
+  [
+    "concurrently",
+    "-n",
+    names.join(","),
+    "-c",
+    "yellow,blue,yellow,blue,yellow,blue,yellow,blue,green",
+    ...commands,
+  ],
+  {
+    stdio: "inherit",
+    cwd: process.cwd(),
+  },
+);
 
 proc.on("exit", (code) => process.exit(code ?? 0));

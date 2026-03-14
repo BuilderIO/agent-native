@@ -44,15 +44,24 @@ export default function Index() {
 
   if (!isTopLevel && urlWorkspace) {
     const remainder = segments.slice(offset + 1);
-    if (remainder.length > 0 && KNOWN_SUBVIEWS.includes(remainder[remainder.length - 1])) {
+    if (
+      remainder.length > 0 &&
+      KNOWN_SUBVIEWS.includes(remainder[remainder.length - 1])
+    ) {
       urlSubView = remainder.pop()!;
     }
-    routeProjectSlug = remainder.length > 0 ? `${urlWorkspace}/${remainder.join("/")}` : null;
+    routeProjectSlug =
+      remainder.length > 0 ? `${urlWorkspace}/${remainder.join("/")}` : null;
   }
 
-  const activeProject = findProjectByRouteSlug(projectsData?.projects, routeProjectSlug);
+  const activeProject = findProjectByRouteSlug(
+    projectsData?.projects,
+    routeProjectSlug,
+  );
   const activeProjectSlug = activeProject?.slug || null;
-  const activeProjectRouteSlug = activeProject ? getProjectRouteSlug(activeProject) : routeProjectSlug;
+  const activeProjectRouteSlug = activeProject
+    ? getProjectRouteSlug(activeProject)
+    : routeProjectSlug;
 
   const isProjectMediaRoute = urlSubView === "media";
   const isProjectHistoryRoute = urlSubView === "history";
@@ -74,7 +83,10 @@ export default function Index() {
 
   // --- Redirect / workspace validation ---
   useEffect(() => {
-    if (location.pathname.startsWith('/test/') || location.pathname.startsWith('/builder-')) {
+    if (
+      location.pathname.startsWith("/test/") ||
+      location.pathname.startsWith("/builder-")
+    ) {
       return;
     }
 
@@ -143,7 +155,10 @@ export default function Index() {
     urlWorkspace,
   ]);
 
-  if (location.pathname.startsWith('/test') || location.pathname.startsWith('/builder-')) {
+  if (
+    location.pathname.startsWith("/test") ||
+    location.pathname.startsWith("/builder-")
+  ) {
     return null;
   }
 
@@ -153,7 +168,9 @@ export default function Index() {
         <ProjectMediaGrid
           projectSlug={activeProjectSlug}
           onBack={() => {
-            const routeSlug = activeProject ? getProjectRouteSlug(activeProject) : activeProjectSlug;
+            const routeSlug = activeProject
+              ? getProjectRouteSlug(activeProject)
+              : activeProjectSlug;
             const ws = routeSlug.split("/")[0];
             const prefixed = !!projectsData?.groupMeta?.[ws]?.prefixed;
             navigate(workspaceUrl(routeSlug, prefixed));

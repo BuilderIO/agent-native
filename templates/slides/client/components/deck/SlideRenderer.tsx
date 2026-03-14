@@ -23,7 +23,11 @@ export const layoutClasses: Record<string, string> = {
 };
 
 /** Custom image component that shows skeleton while loading */
-function LazyImage({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
+function LazyImage({
+  src,
+  alt,
+  ...props
+}: React.ImgHTMLAttributes<HTMLImageElement>) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
 
@@ -65,10 +69,13 @@ function BlankSlideContent({ content }: { content: string }) {
     /(<img\s+(?=[^>]*src="[^"]*(?:brandfetch|logo\.dev)[^"]*")[^>]*)(\/?>)/gi,
     (match, before, close) => {
       if (before.includes('style="')) {
-        return before.replace('style="', 'style="filter:brightness(0) invert(1);') + close;
+        return (
+          before.replace('style="', 'style="filter:brightness(0) invert(1);') +
+          close
+        );
       }
       return before + ' style="filter:brightness(0) invert(1);"' + close;
-    }
+    },
   );
 
   return (
@@ -93,13 +100,17 @@ export function SlideInner({ slide }: { slide: Slide }) {
         <div className="w-48 h-32 rounded-lg overflow-hidden">
           <Skeleton className="w-full h-full bg-white/[0.06]" />
         </div>
-        <span className="text-xs text-white/40 animate-pulse">Generating image...</span>
+        <span className="text-xs text-white/40 animate-pulse">
+          Generating image...
+        </span>
       </div>
     </div>
   );
 
   // Slides with fmd-slide class use inline styles — render as raw HTML to avoid layout conflicts
-  const isRawHtml = slide.content.includes('class="fmd-slide"') || ["blank", "section", "statement", "full-image"].includes(slide.layout);
+  const isRawHtml =
+    slide.content.includes('class="fmd-slide"') ||
+    ["blank", "section", "statement", "full-image"].includes(slide.layout);
 
   if (!isRawHtml && slide.layout === "two-column") {
     const parts = slide.content.split("---");
@@ -109,14 +120,24 @@ export function SlideInner({ slide }: { slide: Slide }) {
     return (
       <div
         className={`w-[960px] h-[540px] relative ${bgClass} ${layoutClasses[slide.layout]}`}
-        style={{ ...bgStyle, textAlign: 'left' }}
+        style={{ ...bgStyle, textAlign: "left" }}
       >
         {imageLoadingOverlay}
         <div className="slide-content text-white/90">
-          <ReactMarkdown rehypePlugins={[rehypeRaw]} components={markdownComponents}>{left.trim()}</ReactMarkdown>
+          <ReactMarkdown
+            rehypePlugins={[rehypeRaw]}
+            components={markdownComponents}
+          >
+            {left.trim()}
+          </ReactMarkdown>
         </div>
         <div className="slide-content text-white/90">
-          <ReactMarkdown rehypePlugins={[rehypeRaw]} components={markdownComponents}>{right.trim()}</ReactMarkdown>
+          <ReactMarkdown
+            rehypePlugins={[rehypeRaw]}
+            components={markdownComponents}
+          >
+            {right.trim()}
+          </ReactMarkdown>
         </div>
       </div>
     );
@@ -136,17 +157,26 @@ export function SlideInner({ slide }: { slide: Slide }) {
   return (
     <div
       className={`w-[960px] h-[540px] relative ${bgClass} ${layoutClasses[slide.layout] || layoutClasses.content}`}
-      style={{ ...bgStyle, textAlign: isCentered ? 'center' : 'left' }}
+      style={{ ...bgStyle, textAlign: isCentered ? "center" : "left" }}
     >
       {imageLoadingOverlay}
       <div className="slide-content text-white/90 w-full">
-        <ReactMarkdown rehypePlugins={[rehypeRaw]} components={markdownComponents}>{slide.content}</ReactMarkdown>
+        <ReactMarkdown
+          rehypePlugins={[rehypeRaw]}
+          components={markdownComponents}
+        >
+          {slide.content}
+        </ReactMarkdown>
       </div>
     </div>
   );
 }
 
-export default function SlideRenderer({ slide, className = "", thumbnail = true }: SlideRendererProps) {
+export default function SlideRenderer({
+  slide,
+  className = "",
+  thumbnail = true,
+}: SlideRendererProps) {
   if (!thumbnail) {
     // Full-size rendering (for presentation mode) - same 960x540 canvas scaled to fill
     return (
@@ -168,7 +198,9 @@ export default function SlideRenderer({ slide, className = "", thumbnail = true 
 
   // Thumbnail mode: render at 960x540 and scale down to fit
   return (
-    <div className={`w-full aspect-video rounded-lg overflow-hidden relative ${className}`}>
+    <div
+      className={`w-full aspect-video rounded-lg overflow-hidden relative ${className}`}
+    >
       <div
         className="absolute top-0 left-0 origin-top-left"
         style={{
@@ -185,7 +217,11 @@ export default function SlideRenderer({ slide, className = "", thumbnail = true 
 }
 
 /** Sets --slide-scale CSS variable on the parent based on container size */
-function ScaleHelper({ targetWidth = 960, targetHeight, mode }: {
+function ScaleHelper({
+  targetWidth = 960,
+  targetHeight,
+  mode,
+}: {
   targetWidth?: number;
   targetHeight?: number;
   mode?: "fill";

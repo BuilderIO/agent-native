@@ -1,4 +1,9 @@
-import type { ExplorerConfig, ExplorerEvent, ExplorerFilter, EnrichedProperty } from "./types";
+import type {
+  ExplorerConfig,
+  ExplorerEvent,
+  ExplorerFilter,
+  EnrichedProperty,
+} from "./types";
 import { TOP_LEVEL_COLUMN_SET, ENRICHED_PROPERTY_MAP } from "./types";
 
 const APP_EVENTS = "`builder-3b0a2.analytics.events_partitioned`";
@@ -14,7 +19,9 @@ function columnRef(property: string, tableAlias?: string): string {
 }
 
 /** Collect all enriched properties used in an event's filters + groupBy */
-function collectEnrichedJoins(ev: ExplorerEvent): Map<string, EnrichedProperty> {
+function collectEnrichedJoins(
+  ev: ExplorerEvent,
+): Map<string, EnrichedProperty> {
   const joins = new Map<string, EnrichedProperty>();
   for (const f of ev.filters) {
     const ep = ENRICHED_PROPERTY_MAP.get(f.property);
@@ -27,7 +34,9 @@ function collectEnrichedJoins(ev: ExplorerEvent): Map<string, EnrichedProperty> 
   return joins;
 }
 
-function collectAllEnrichedJoins(events: ExplorerEvent[]): Map<string, EnrichedProperty> {
+function collectAllEnrichedJoins(
+  events: ExplorerEvent[],
+): Map<string, EnrichedProperty> {
   const joins = new Map<string, EnrichedProperty>();
   for (const ev of events) {
     for (const [k, v] of collectEnrichedJoins(ev)) joins.set(k, v);
@@ -59,11 +68,16 @@ function escapeSql(s: string): string {
 
 function dateRangeToDays(range: string): number {
   switch (range) {
-    case "7d": return 7;
-    case "14d": return 14;
-    case "30d": return 30;
-    case "90d": return 90;
-    default: return 30;
+    case "7d":
+      return 7;
+    case "14d":
+      return 14;
+    case "30d":
+      return 30;
+    case "90d":
+      return 90;
+    default:
+      return 30;
   }
 }
 
@@ -79,12 +93,17 @@ function buildEventWhere(ev: ExplorerEvent, tableAlias?: string): string {
 export function buildSql(config: ExplorerConfig): string {
   if (config.events.length === 0) return "";
 
-  const isTimeSeries = config.chartType === "line" || config.chartType === "bar";
+  const isTimeSeries =
+    config.chartType === "line" || config.chartType === "bar";
   const isMetric = config.chartType === "metric";
 
   // Date range clause
   let dateClause: string;
-  if (config.dateRange === "custom" && config.customDateStart && config.customDateEnd) {
+  if (
+    config.dateRange === "custom" &&
+    config.customDateStart &&
+    config.customDateEnd
+  ) {
     dateClause = `createdDate >= TIMESTAMP('${config.customDateStart}') AND createdDate <= TIMESTAMP('${config.customDateEnd}')`;
   } else {
     const days = dateRangeToDays(config.dateRange);
@@ -99,7 +118,12 @@ export function buildSql(config: ExplorerConfig): string {
   // Single event case (most common)
   if (config.events.length === 1) {
     const ev = config.events[0];
-    return buildSingleEventSql(ev, dateClause, config.chartType, needsJoin ? collectEnrichedJoins(ev) : undefined);
+    return buildSingleEventSql(
+      ev,
+      dateClause,
+      config.chartType,
+      needsJoin ? collectEnrichedJoins(ev) : undefined,
+    );
   }
 
   // Multiple events — union or side-by-side
@@ -114,7 +138,7 @@ function buildSingleEventSql(
   ev: ExplorerEvent,
   dateClause: string,
   chartType: string,
-  joins?: Map<string, EnrichedProperty>
+  joins?: Map<string, EnrichedProperty>,
 ): string {
   const isTimeSeries = chartType === "line" || chartType === "bar";
   const isMetric = chartType === "metric";
@@ -141,8 +165,7 @@ function buildSingleEventSql(
   selectParts.push("COUNT(*) AS count");
 
   const dateCol = alias ? `${alias}.createdDate` : "createdDate";
-  const qualifiedDateClause = dateClause
-    .replace(/createdDate/g, dateCol);
+  const qualifiedDateClause = dateClause.replace(/createdDate/g, dateCol);
   const whereParts = [qualifiedDateClause, buildEventWhere(ev, alias)];
 
   const sql = [
@@ -175,7 +198,10 @@ function buildSingleEventSql(
   return sql.join("\n");
 }
 
-function buildMultiMetricSql(events: ExplorerEvent[], dateClause: string): string {
+function buildMultiMetricSql(
+  events: ExplorerEvent[],
+  dateClause: string,
+): string {
   const parts = events.map((ev) => {
     const label = ev.label || ev.event;
     const joins = collectEnrichedJoins(ev);
@@ -183,7 +209,9 @@ function buildMultiMetricSql(events: ExplorerEvent[], dateClause: string): strin
     const alias = hasJoins ? "e" : undefined;
     const dateCol = alias ? `${alias}.createdDate` : "createdDate";
     const qualifiedDateClause = dateClause.replace(/createdDate/g, dateCol);
-    const where = [qualifiedDateClause, buildEventWhere(ev, alias)].join(" AND ");
+    const where = [qualifiedDateClause, buildEventWhere(ev, alias)].join(
+      " AND ",
+    );
     let from = `${APP_EVENTS}${alias ? ` ${alias}` : ""}`;
     if (hasJoins) {
       for (const [, ep] of joins) {
@@ -198,7 +226,7 @@ function buildMultiMetricSql(events: ExplorerEvent[], dateClause: string): strin
 function buildMultiEventSql(
   events: ExplorerEvent[],
   dateClause: string,
-  isTimeSeries: boolean
+  isTimeSeries: boolean,
 ): string {
   const parts = events.map((ev) => {
     const label = ev.label || ev.event;
@@ -223,8 +251,13 @@ function buildMultiEventSql(
 
     const dateCol = alias ? `${alias}.createdDate` : "createdDate";
     const qualifiedDateClause = dateClause.replace(/createdDate/g, dateCol);
-    const where = [qualifiedDateClause, buildEventWhere(ev, alias)].join(" AND ");
-    const sql = [`SELECT ${selectParts.join(", ")}`, `FROM ${APP_EVENTS}${alias ? ` ${alias}` : ""}`];
+    const where = [qualifiedDateClause, buildEventWhere(ev, alias)].join(
+      " AND ",
+    );
+    const sql = [
+      `SELECT ${selectParts.join(", ")}`,
+      `FROM ${APP_EVENTS}${alias ? ` ${alias}` : ""}`,
+    ];
     if (hasJoins) {
       for (const [, ep] of joins) {
         sql.push(`LEFT JOIN ${ep.joinTable} ${ep.joinAlias} ON ${ep.joinOn}`);

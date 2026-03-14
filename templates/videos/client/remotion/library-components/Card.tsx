@@ -14,7 +14,7 @@
  *
  * Usage:
  *   import { Card } from "@/remotion/library-components";
- *   
+ *
  *   <Card
  *     title="My Card"
  *     description="Card description"
@@ -53,21 +53,21 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
   const cx = String(1920 / 2 - 16);
   const cy = String(1080 / 2 - 16);
 
-  cursor.animatedProps.find(p => p.property === "x")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "x")!.keyframes = [
     { frame: 0, value: "200" },
     { frame: 15, value: cx },
     { frame: 90, value: cx },
     { frame: 120, value: "1720" },
     { frame: 150, value: "1720" },
   ];
-  cursor.animatedProps.find(p => p.property === "y")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "y")!.keyframes = [
     { frame: 0, value: "200" },
     { frame: 15, value: cy },
     { frame: 90, value: cy },
     { frame: 120, value: "200" },
     { frame: 150, value: "200" },
   ];
-  cursor.animatedProps.find(p => p.property === "isClicking")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "isClicking")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: 59, value: "0" },
     { frame: 60, value: "1" }, // Click at 2s
@@ -123,9 +123,7 @@ export const Card = createInteractiveComposition<CardProps>({
       clickAnimation: {
         duration: 10,
         easing: "back.out",
-        properties: [
-          { property: "scale", from: 1, to: 0.9, unit: "" },
-        ],
+        properties: [{ property: "scale", from: 1, to: 0.9, unit: "" }],
       },
     });
 
@@ -180,7 +178,9 @@ export const Card = createInteractiveComposition<CardProps>({
                 boxShadow: card.hover.isHovering ? "0 0 8px #22c55e" : "none",
               }}
             />
-            <span style={{ color: card.hover.isHovering ? "#22c55e" : "#94a3b8" }}>
+            <span
+              style={{ color: card.hover.isHovering ? "#22c55e" : "#94a3b8" }}
+            >
               HOVER
             </span>
           </div>
@@ -209,7 +209,9 @@ export const Card = createInteractiveComposition<CardProps>({
                 boxShadow: card.click.isClicking ? "0 0 8px #3b82f6" : "none",
               }}
             />
-            <span style={{ color: card.click.isClicking ? "#3b82f6" : "#94a3b8" }}>
+            <span
+              style={{ color: card.click.isClicking ? "#3b82f6" : "#94a3b8" }}
+            >
               CLICK
             </span>
           </div>

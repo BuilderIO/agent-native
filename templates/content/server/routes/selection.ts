@@ -2,10 +2,24 @@ import { RequestHandler } from "express";
 import fs from "fs";
 import path from "path";
 
-const SELECTION_FILE = path.join(process.cwd(), "content", ".editor-selection.json");
+const SELECTION_FILE = path.join(
+  process.cwd(),
+  "content",
+  ".editor-selection.json",
+);
 
 export const saveSelection: RequestHandler = (req, res) => {
-  const { projectSlug, filePath, text, from, to, type, imageSrc, imageAlt, videoSrc } = req.body;
+  const {
+    projectSlug,
+    filePath,
+    text,
+    from,
+    to,
+    type,
+    imageSrc,
+    imageAlt,
+    videoSrc,
+  } = req.body;
 
   if (!text || !filePath) {
     // Clear selection when no text is selected

@@ -46,7 +46,12 @@ async function fetchTweetsPage(
   url.searchParams.set("userName", userName);
   if (cursor) url.searchParams.set("cursor", cursor);
 
-  console.log("[Twitter] Fetching page for", userName, "cursor:", cursor || "none");
+  console.log(
+    "[Twitter] Fetching page for",
+    userName,
+    "cursor:",
+    cursor || "none",
+  );
 
   const resp = await fetch(url.toString(), {
     headers: { "X-API-Key": apiKey },
@@ -114,7 +119,14 @@ export const handleTwitterTweets: RequestHandler = async (req, res) => {
   const maxPages = Math.min(Number(req.query.pages) || 5, 10);
 
   const apiKey = process.env.TWITTER_API_KEY;
-  console.log("[Twitter] API key present:", !!apiKey, "userName:", userName, "pages:", maxPages);
+  console.log(
+    "[Twitter] API key present:",
+    !!apiKey,
+    "userName:",
+    userName,
+    "pages:",
+    maxPages,
+  );
   if (!apiKey) {
     console.error("[Twitter] TWITTER_API_KEY not configured");
     res.status(500).json({ error: "TWITTER_API_KEY not configured" });
@@ -123,7 +135,12 @@ export const handleTwitterTweets: RequestHandler = async (req, res) => {
 
   try {
     const tweets = await fetchAllTweetsForUser(apiKey, userName, maxPages);
-    console.log("[Twitter] Successfully fetched", tweets.length, "tweets for", userName);
+    console.log(
+      "[Twitter] Successfully fetched",
+      tweets.length,
+      "tweets for",
+      userName,
+    );
     res.json({ tweets, count: tweets.length });
   } catch (error: any) {
     const message = error?.message || String(error);
@@ -136,10 +153,18 @@ export const handleTwitterTweets: RequestHandler = async (req, res) => {
 export const handleTwitterMulti: RequestHandler = async (req, res) => {
   if (requireEnvKey(res, "TWITTER_BEARER_TOKEN", "Twitter")) return;
   const userNamesParam = (req.query.userNames as string) || "";
-  const userNames = userNamesParam.split(",").map((s) => s.trim()).filter(Boolean);
+  const userNames = userNamesParam
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   const maxPages = Math.min(Number(req.query.pages) || 5, 10);
 
-  console.log("[Twitter Multi] Request for users:", userNames, "pages:", maxPages);
+  console.log(
+    "[Twitter Multi] Request for users:",
+    userNames,
+    "pages:",
+    maxPages,
+  );
 
   if (userNames.length === 0) {
     res.status(400).json({ error: "Missing userNames parameter" });
@@ -172,11 +197,19 @@ export const handleTwitterMulti: RequestHandler = async (req, res) => {
     // Fetch sequentially to avoid rate limits
     for (const userName of userNames) {
       console.log("[Twitter Multi] Fetching for user:", userName);
-      result[userName] = await fetchAllTweetsForUser(apiKey, userName, maxPages);
+      result[userName] = await fetchAllTweetsForUser(
+        apiKey,
+        userName,
+        maxPages,
+      );
     }
     const payload = { users: result };
     setCache(multiKey, payload);
-    console.log("[Twitter Multi] Successfully fetched all users, returning", Object.keys(result).length, "users");
+    console.log(
+      "[Twitter Multi] Successfully fetched all users, returning",
+      Object.keys(result).length,
+      "users",
+    );
     res.json({ cached: false, ...payload });
   } catch (error: any) {
     const message = error?.message || String(error);

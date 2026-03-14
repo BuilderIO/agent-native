@@ -250,7 +250,7 @@ export const ENRICHED_PROPERTIES: EnrichedProperty[] = [
 ];
 
 export const ENRICHED_PROPERTY_MAP = new Map(
-  ENRICHED_PROPERTIES.map((p) => [p.name, p])
+  ENRICHED_PROPERTIES.map((p) => [p.name, p]),
 );
 
 /** Top-level columns that can be used directly in WHERE/GROUP BY */
@@ -277,13 +277,25 @@ export const KNOWN_EVENTS = [
   { value: "signup", label: "Signup", category: "Acquisition" },
   { value: "login", label: "Login", category: "Acquisition" },
   { value: "pageView", label: "Page View", category: "Acquisition" },
-  { value: "self reported attribution option selected", label: "Self-Reported Attribution", category: "Acquisition" },
+  {
+    value: "self reported attribution option selected",
+    label: "Self-Reported Attribution",
+    category: "Acquisition",
+  },
   { value: "click", label: "Click", category: "Acquisition" },
 
   // Content
   { value: "content saved", label: "Content Saved", category: "Content" },
-  { value: "content published", label: "Content Published", category: "Content" },
-  { value: "insert content-api call", label: "Content API Call", category: "Content" },
+  {
+    value: "content published",
+    label: "Content Published",
+    category: "Content",
+  },
+  {
+    value: "insert content-api call",
+    label: "Content API Call",
+    category: "Content",
+  },
   { value: "publish", label: "Publish", category: "Content" },
   { value: "model created", label: "Model Created", category: "Content" },
   { value: "space created", label: "Space Created", category: "Content" },
@@ -291,34 +303,78 @@ export const KNOWN_EVENTS = [
   { value: "content deleted", label: "Content Deleted", category: "Content" },
 
   // Fusion / AI
-  { value: "fusion chat message submitted", label: "Fusion Chat Message", category: "Fusion" },
-  { value: "fusion chat accepted", label: "Fusion Chat Accepted", category: "Fusion" },
-  { value: "fusion chat rejected", label: "Fusion Chat Rejected", category: "Fusion" },
-  { value: "fusion chat started", label: "Fusion Chat Started", category: "Fusion" },
+  {
+    value: "fusion chat message submitted",
+    label: "Fusion Chat Message",
+    category: "Fusion",
+  },
+  {
+    value: "fusion chat accepted",
+    label: "Fusion Chat Accepted",
+    category: "Fusion",
+  },
+  {
+    value: "fusion chat rejected",
+    label: "Fusion Chat Rejected",
+    category: "Fusion",
+  },
+  {
+    value: "fusion chat started",
+    label: "Fusion Chat Started",
+    category: "Fusion",
+  },
   { value: "generate", label: "Generate", category: "Fusion" },
 
   // Visual Editor
   { value: "import figma", label: "Import Figma", category: "Visual Editor" },
   { value: "import code", label: "Import Code", category: "Visual Editor" },
   { value: "drag and drop", label: "Drag and Drop", category: "Visual Editor" },
-  { value: "open visual editor", label: "Open Visual Editor", category: "Visual Editor" },
+  {
+    value: "open visual editor",
+    label: "Open Visual Editor",
+    category: "Visual Editor",
+  },
   { value: "preview", label: "Preview", category: "Visual Editor" },
 
   // Integrations
-  { value: "integration installed", label: "Integration Installed", category: "Integrations" },
-  { value: "integration removed", label: "Integration Removed", category: "Integrations" },
+  {
+    value: "integration installed",
+    label: "Integration Installed",
+    category: "Integrations",
+  },
+  {
+    value: "integration removed",
+    label: "Integration Removed",
+    category: "Integrations",
+  },
   { value: "sdk download", label: "SDK Download", category: "Integrations" },
 
   // Billing
-  { value: "subscription created", label: "Subscription Created", category: "Billing" },
-  { value: "subscription updated", label: "Subscription Updated", category: "Billing" },
-  { value: "subscription cancelled", label: "Subscription Cancelled", category: "Billing" },
+  {
+    value: "subscription created",
+    label: "Subscription Created",
+    category: "Billing",
+  },
+  {
+    value: "subscription updated",
+    label: "Subscription Updated",
+    category: "Billing",
+  },
+  {
+    value: "subscription cancelled",
+    label: "Subscription Cancelled",
+    category: "Billing",
+  },
   { value: "checkout started", label: "Checkout Started", category: "Billing" },
   { value: "plan selected", label: "Plan Selected", category: "Billing" },
 
   // Collaboration
   { value: "invite sent", label: "Invite Sent", category: "Collaboration" },
-  { value: "invite accepted", label: "Invite Accepted", category: "Collaboration" },
+  {
+    value: "invite accepted",
+    label: "Invite Accepted",
+    category: "Collaboration",
+  },
   { value: "comment added", label: "Comment Added", category: "Collaboration" },
 ];
 
@@ -330,51 +386,126 @@ export const KNOWN_PROPERTIES = [
   },
   {
     category: "Event Info",
-    properties: ["event", "name", "type", "kind", "message", "action", "category", "label"],
+    properties: [
+      "event",
+      "name",
+      "type",
+      "kind",
+      "message",
+      "action",
+      "category",
+      "label",
+    ],
   },
   {
     category: "Technical",
-    properties: ["browser", "url", "device", "os", "platform", "userAgent", "screenResolution", "language"],
+    properties: [
+      "browser",
+      "url",
+      "device",
+      "os",
+      "platform",
+      "userAgent",
+      "screenResolution",
+      "language",
+    ],
   },
   {
     category: "Content",
-    properties: ["modelName", "modelId", "contentId", "contentName", "contentType"],
+    properties: [
+      "modelName",
+      "modelId",
+      "contentId",
+      "contentName",
+      "contentType",
+    ],
   },
   {
     category: "Attribution",
     properties: [
-      "utmSource", "utmMedium", "utmCampaign", "utmTerm", "utmContent",
-      "referrer", "referrerDomain", "landingPage", "gclid", "fbclid",
+      "utmSource",
+      "utmMedium",
+      "utmCampaign",
+      "utmTerm",
+      "utmContent",
+      "referrer",
+      "referrerDomain",
+      "landingPage",
+      "gclid",
+      "fbclid",
     ],
   },
   {
     category: "Product",
     properties: [
-      "option", "plan", "tier", "source", "target", "value",
-      "framework", "sdk", "sdkVersion", "integration", "feature",
+      "option",
+      "plan",
+      "tier",
+      "source",
+      "target",
+      "value",
+      "framework",
+      "sdk",
+      "sdkVersion",
+      "integration",
+      "feature",
     ],
   },
   {
     category: "Fusion / AI",
     properties: [
-      "model", "provider", "prompt", "response", "tokensUsed",
-      "chatId", "messageId", "accepted", "rejected",
+      "model",
+      "provider",
+      "prompt",
+      "response",
+      "tokensUsed",
+      "chatId",
+      "messageId",
+      "accepted",
+      "rejected",
     ],
   },
   {
     category: "Subscription",
-    properties: ["subscription_plan", "subscription_status", "org_subscription"],
+    properties: [
+      "subscription_plan",
+      "subscription_status",
+      "org_subscription",
+    ],
   },
   {
     category: "Organization",
-    properties: ["org_name", "org_kind", "org_company_size", "org_is_trial", "org_trial_type", "org_is_enterprise_trial"],
+    properties: [
+      "org_name",
+      "org_kind",
+      "org_company_size",
+      "org_is_trial",
+      "org_trial_type",
+      "org_is_enterprise_trial",
+    ],
   },
   {
     category: "User",
-    properties: ["user_email_domain", "user_intent", "user_use_case", "user_auth_provider", "user_has_enterprise", "user_industry", "user_revenue_range", "user_job_function"],
+    properties: [
+      "user_email_domain",
+      "user_intent",
+      "user_use_case",
+      "user_auth_provider",
+      "user_has_enterprise",
+      "user_industry",
+      "user_revenue_range",
+      "user_job_function",
+    ],
   },
   {
     category: "Billing",
-    properties: ["planName", "planId", "amount", "currency", "interval", "coupon"],
+    properties: [
+      "planName",
+      "planId",
+      "amount",
+      "currency",
+      "interval",
+      "coupon",
+    ],
   },
 ];

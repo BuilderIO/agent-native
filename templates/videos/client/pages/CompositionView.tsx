@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import NewComposition from "@/pages/NewComposition";
 
 type CompositionViewProps = {
-  onCameraKeyframeClick?: (trackType: 'camera' | 'cursor') => void;
+  onCameraKeyframeClick?: (trackType: "camera" | "cursor") => void;
   onCompSettingsClick?: () => void;
   isGenerating?: boolean;
 };
@@ -30,7 +30,12 @@ export default function CompositionView({
 
   // Debug log
   useEffect(() => {
-    console.log("CompositionView - initialFrame from URL:", initialFrame, "frameFromUrl:", frameFromUrl);
+    console.log(
+      "CompositionView - initialFrame from URL:",
+      initialFrame,
+      "frameFromUrl:",
+      frameFromUrl,
+    );
   }, [initialFrame, frameFromUrl]);
 
   // Get state from contexts
@@ -70,7 +75,7 @@ export default function CompositionView({
 
   // ── View window (shared between Timeline and VideoPlayer) ─────────────────
   const [viewStart, setViewStart] = useState(0);
-  const [viewEnd,   setViewEnd]   = useState(composition.durationInFrames);
+  const [viewEnd, setViewEnd] = useState(composition.durationInFrames);
 
   // Reset to full view when composition (or its duration) changes
   useEffect(() => {
@@ -96,10 +101,13 @@ export default function CompositionView({
     playerRef.current?.seekTo(frame);
   }, []);
 
-  const handleFrameUpdate = useCallback((frame: number) => {
-    setCurrentFrameLocal(frame);
-    setCurrentFrame(frame);
-  }, [setCurrentFrame]);
+  const handleFrameUpdate = useCallback(
+    (frame: number) => {
+      setCurrentFrameLocal(frame);
+      setCurrentFrame(frame);
+    },
+    [setCurrentFrame],
+  );
 
   // Register the seek function with parent component
   useEffect(() => {
@@ -108,137 +116,152 @@ export default function CompositionView({
 
   // Save as default handler - uses both composition and timeline contexts
   // Core save logic (reusable for both manual and auto-save)
-  const performSave = useCallback(async (silent = false) => {
-    if (!composition) return;
+  const performSave = useCallback(
+    async (silent = false) => {
+      if (!composition) return;
 
-    try {
-      // Deduplicate tracks by id (keep first occurrence) to prevent duplicate keys
-      const seenIds = new Set<string>();
-      const dedupedTracks = tracks.filter(track => {
-        if (seenIds.has(track.id)) return false;
-        seenIds.add(track.id);
-        return true;
-      });
+      try {
+        // Deduplicate tracks by id (keep first occurrence) to prevent duplicate keys
+        const seenIds = new Set<string>();
+        const dedupedTracks = tracks.filter((track) => {
+          if (seenIds.has(track.id)) return false;
+          seenIds.add(track.id);
+          return true;
+        });
 
-      // Format the tracks for the registry
-      const formattedTracks = dedupedTracks.map(track => {
-        const formatted: any = {
-          id: track.id,
-          label: track.label,
-          startFrame: track.startFrame,
-          endFrame: track.endFrame,
-          easing: track.easing,
+        // Format the tracks for the registry
+        const formattedTracks = dedupedTracks.map((track) => {
+          const formatted: any = {
+            id: track.id,
+            label: track.label,
+            startFrame: track.startFrame,
+            endFrame: track.endFrame,
+            easing: track.easing,
+          };
+
+          if (track.animatedProps && track.animatedProps.length > 0) {
+            formatted.animatedProps = track.animatedProps;
+          }
+
+          return formatted;
+        });
+
+        // Prepare the update payload
+        const update = {
+          compositionId: composition.id,
+          tracks: formattedTracks,
+          defaultProps: currentProps,
+          durationInFrames: composition.durationInFrames,
+          fps: composition.fps,
+          width: composition.width,
+          height: composition.height,
         };
 
-        if (track.animatedProps && track.animatedProps.length > 0) {
-          formatted.animatedProps = track.animatedProps;
-        }
+        console.log("Saving as default:", update);
 
-        return formatted;
-      });
+        // Save via API endpoint with retry logic
+        const maxRetries = 3;
+        let lastError: Error | null = null;
+        let saveSucceeded = false;
 
-      // Prepare the update payload
-      const update = {
-        compositionId: composition.id,
-        tracks: formattedTracks,
-        defaultProps: currentProps,
-        durationInFrames: composition.durationInFrames,
-        fps: composition.fps,
-        width: composition.width,
-        height: composition.height,
-      };
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          try {
+            // Add timeout to fetch request
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-      console.log('Saving as default:', update);
+            const response = await fetch("/api/save-composition-defaults", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(update),
+              signal: controller.signal,
+            });
 
-      // Save via API endpoint with retry logic
-      const maxRetries = 3;
-      let lastError: Error | null = null;
-      let saveSucceeded = false;
+            clearTimeout(timeoutId);
 
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-          // Add timeout to fetch request
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(
+                `Server error: ${response.status} - ${errorText}`,
+              );
+            }
 
-          const response = await fetch('/api/save-composition-defaults', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(update),
-            signal: controller.signal,
-          });
-
-          clearTimeout(timeoutId);
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Server error: ${response.status} - ${errorText}`);
-          }
-
-          // Success!
-          saveSucceeded = true;
-          lastError = null;
-          break;
-        } catch (fetchError) {
-          lastError = fetchError instanceof Error ? fetchError : new Error(String(fetchError));
-
-          // If this is the last attempt, don't retry
-          if (attempt === maxRetries - 1) {
+            // Success!
+            saveSucceeded = true;
+            lastError = null;
             break;
+          } catch (fetchError) {
+            lastError =
+              fetchError instanceof Error
+                ? fetchError
+                : new Error(String(fetchError));
+
+            // If this is the last attempt, don't retry
+            if (attempt === maxRetries - 1) {
+              break;
+            }
+
+            // Wait before retrying (exponential backoff: 500ms, 1000ms, 2000ms)
+            const delay = 500 * Math.pow(2, attempt);
+            console.log(
+              `[Save] Retry ${attempt + 1}/${maxRetries} after ${delay}ms...`,
+            );
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+        }
+
+        // Handle the result
+        if (saveSucceeded) {
+          // Clear localStorage since registry now has these values
+          localStorage.removeItem(`videos-tracks:${composition.id}`);
+          localStorage.removeItem(`videos-props:${composition.id}`);
+          localStorage.removeItem(`videos-comp-settings:${composition.id}`);
+          localStorage.removeItem(`videos-tracks-version:${composition.id}`);
+
+          console.log(`[Save] ✅ Saved "${composition.title}" to registry`);
+
+          if (!silent) {
+            alert(
+              `✅ Saved "${composition.title}" to registry!\n\nThe page will reload to pick up the changes.`,
+            );
           }
 
-          // Wait before retrying (exponential backoff: 500ms, 1000ms, 2000ms)
-          const delay = 500 * Math.pow(2, attempt);
-          console.log(`[Save] Retry ${attempt + 1}/${maxRetries} after ${delay}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
-
-      // Handle the result
-      if (saveSucceeded) {
-        // Clear localStorage since registry now has these values
-        localStorage.removeItem(`videos-tracks:${composition.id}`);
-        localStorage.removeItem(`videos-props:${composition.id}`);
-        localStorage.removeItem(`videos-comp-settings:${composition.id}`);
-        localStorage.removeItem(`videos-tracks-version:${composition.id}`);
-
-        console.log(`[Save] ✅ Saved "${composition.title}" to registry`);
-
-        if (!silent) {
-          alert(`✅ Saved "${composition.title}" to registry!\n\nThe page will reload to pick up the changes.`);
-        }
-
-        // Reload to pick up fresh registry data
-        window.location.reload();
-      } else if (lastError) {
-        // Network error or server not available after all retries
-        const errorMessage = lastError.message;
-        console.error('[Save] ❌ Failed to save after retries:', errorMessage);
-
-        if (!silent) {
-          alert(
-            `❌ Failed to save to registry:\n\n${errorMessage}\n\n` +
-            `This usually means:\n` +
-            `• The dev server needs to be restarted\n` +
-            `• The API endpoint is not available\n\n` +
-            `Your changes are still saved in browser storage and will persist until you reload the page.`
+          // Reload to pick up fresh registry data
+          window.location.reload();
+        } else if (lastError) {
+          // Network error or server not available after all retries
+          const errorMessage = lastError.message;
+          console.error(
+            "[Save] ❌ Failed to save after retries:",
+            errorMessage,
           );
-        }
 
-        throw lastError; // Re-throw to be caught by outer catch
+          if (!silent) {
+            alert(
+              `❌ Failed to save to registry:\n\n${errorMessage}\n\n` +
+                `This usually means:\n` +
+                `• The dev server needs to be restarted\n` +
+                `• The API endpoint is not available\n\n` +
+                `Your changes are still saved in browser storage and will persist until you reload the page.`,
+            );
+          }
+
+          throw lastError; // Re-throw to be caught by outer catch
+        }
+      } catch (error) {
+        console.error("[Save] ❌ Failed to save:", error);
+        // Error already handled above, just log it
       }
-    } catch (error) {
-      console.error('[Save] ❌ Failed to save:', error);
-      // Error already handled above, just log it
-    }
-  }, [composition, tracks, currentProps]);
+    },
+    [composition, tracks, currentProps],
+  );
 
   // Manual save handler (shows confirmation)
   const handleSaveAsDefault = useCallback(async () => {
     if (!composition) return;
 
     const confirmed = window.confirm(
-      `Save current settings as default for "${composition.title}"?\n\nThis will update the registry file with:\n- Current tracks and animations\n- Current properties\n- Current composition settings`
+      `Save current settings as default for "${composition.title}"?\n\nThis will update the registry file with:\n- Current tracks and animations\n- Current properties\n- Current composition settings`,
     );
 
     if (!confirmed) return;
@@ -251,13 +274,13 @@ export default function CompositionView({
     const handleAutoSave = async (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail && detail.compositionId === composition?.id) {
-        console.log('[Auto-Save] Triggered for:', composition.id);
+        console.log("[Auto-Save] Triggered for:", composition.id);
         await performSave(true); // Silent mode - no alerts
       }
     };
 
-    window.addEventListener('videos.auto-save', handleAutoSave);
-    return () => window.removeEventListener('videos.auto-save', handleAutoSave);
+    window.addEventListener("videos.auto-save", handleAutoSave);
+    return () => window.removeEventListener("videos.auto-save", handleAutoSave);
   }, [composition?.id, performSave]);
 
   // Spacebar to play/pause (doesn't trigger when typing in input fields)
@@ -265,18 +288,22 @@ export default function CompositionView({
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't trigger if user is typing in an input/textarea
       const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
         return;
       }
 
-      if (e.code === 'Space') {
+      if (e.code === "Space") {
         e.preventDefault();
         playerRef.current?.toggle();
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   return (
@@ -333,7 +360,7 @@ export default function CompositionView({
                 "flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors text-xs font-medium",
                 hasUnsavedChanges
                   ? "bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/30"
-                  : "bg-secondary/50 hover:bg-secondary text-muted-foreground border border-border/50"
+                  : "bg-secondary/50 hover:bg-secondary text-muted-foreground border border-border/50",
               )}
               title={
                 hasUnsavedChanges

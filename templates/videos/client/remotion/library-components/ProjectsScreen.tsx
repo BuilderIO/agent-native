@@ -86,7 +86,10 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = (props) => {
   } = props;
 
   // Generate unique ID for scrollbar styles
-  const scrollbarId = React.useMemo(() => `scrollbar-${Math.random().toString(36).substr(2, 9)}`, []);
+  const scrollbarId = React.useMemo(
+    () => `scrollbar-${Math.random().toString(36).substr(2, 9)}`,
+    [],
+  );
 
   // Project data
   const projects = [
@@ -239,80 +242,80 @@ export const ProjectsScreen: React.FC<ProjectsScreenProps> = (props) => {
           overflow: "auto",
         }}
       >
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignSelf: "center",
-          width: "100%",
-          maxWidth: 1372,
-        }}
-      >
-        {/* What should we build? Section - using composed component with x=0, y=0 for relative positioning */}
         <div
           style={{
+            display: "flex",
+            flexDirection: "column",
             alignSelf: "center",
+            width: "100%",
+            maxWidth: 1372,
           }}
         >
-          <CreateProjectPrompt
-            x={0}
-            y={0}
-            hasText={promptHasText}
-            value={promptValue}
-            isFocused={promptIsFocused}
-            showTypingCursor={showTypingCursor}
-            typingCursorBlink={typingCursorBlink}
-            cogButtonIsHovered={cogButtonIsHovered}
-            reactViteIsHovered={reactViteIsHovered}
-            oneXIsHovered={oneXIsHovered}
-            buildButtonIsHovered={buildButtonIsHovered}
-            isHovered={sendButtonIsHovered}
-            hoverProgress={sendButtonHoverProgress}
-            isClicking={sendButtonIsClicking}
-            connectRepoIsHovered={connectRepoIsHovered}
-            template1IsHovered={template1IsHovered}
-            template2IsHovered={template2IsHovered}
-            moreButtonIsHovered={moreButtonIsHovered}
-            showDropdown={showDropdown}
-            dropdownX={dropdownX}
-            dropdownY={dropdownY}
-            githubProviderIsHovered={githubProviderIsHovered}
-            azureProviderIsHovered={azureProviderIsHovered}
-            gitlabProviderIsHovered={gitlabProviderIsHovered}
-            bitbucketProviderIsHovered={bitbucketProviderIsHovered}
-          />
-        </div>
-
-        {/* Projects View Section */}
-        <div style={{ marginTop: 62 }}>
-          <ProjectsView x={0} y={0} width={1372} activeTab="Projects" />
-
-          {/* Projects Grid - using composed components with x=0, y=0 for relative positioning */}
+          {/* What should we build? Section - using composed component with x=0, y=0 for relative positioning */}
           <div
             style={{
-              display: "flex",
-              marginTop: 42,
-              gap: 24,
-              flexWrap: "wrap",
-              justifyContent: "space-between",
+              alignSelf: "center",
             }}
           >
-            {projects.map((project, index) => (
-              <ProjectCard
-                key={index}
-                x={0}
-                y={0}
-                projectName={project.projectName}
-                lastEdited={project.lastEdited}
-                previewImage={project.previewImage}
-                avatarImage={project.avatarImage}
-                branches={project.branches}
-              />
-            ))}
+            <CreateProjectPrompt
+              x={0}
+              y={0}
+              hasText={promptHasText}
+              value={promptValue}
+              isFocused={promptIsFocused}
+              showTypingCursor={showTypingCursor}
+              typingCursorBlink={typingCursorBlink}
+              cogButtonIsHovered={cogButtonIsHovered}
+              reactViteIsHovered={reactViteIsHovered}
+              oneXIsHovered={oneXIsHovered}
+              buildButtonIsHovered={buildButtonIsHovered}
+              isHovered={sendButtonIsHovered}
+              hoverProgress={sendButtonHoverProgress}
+              isClicking={sendButtonIsClicking}
+              connectRepoIsHovered={connectRepoIsHovered}
+              template1IsHovered={template1IsHovered}
+              template2IsHovered={template2IsHovered}
+              moreButtonIsHovered={moreButtonIsHovered}
+              showDropdown={showDropdown}
+              dropdownX={dropdownX}
+              dropdownY={dropdownY}
+              githubProviderIsHovered={githubProviderIsHovered}
+              azureProviderIsHovered={azureProviderIsHovered}
+              gitlabProviderIsHovered={gitlabProviderIsHovered}
+              bitbucketProviderIsHovered={bitbucketProviderIsHovered}
+            />
+          </div>
+
+          {/* Projects View Section */}
+          <div style={{ marginTop: 62 }}>
+            <ProjectsView x={0} y={0} width={1372} activeTab="Projects" />
+
+            {/* Projects Grid - using composed components with x=0, y=0 for relative positioning */}
+            <div
+              style={{
+                display: "flex",
+                marginTop: 42,
+                gap: 24,
+                flexWrap: "wrap",
+                justifyContent: "space-between",
+              }}
+            >
+              {projects.map((project, index) => (
+                <ProjectCard
+                  key={index}
+                  x={0}
+                  y={0}
+                  projectName={project.projectName}
+                  lastEdited={project.lastEdited}
+                  previewImage={project.previewImage}
+                  avatarImage={project.avatarImage}
+                  branches={project.branches}
+                />
+              ))}
+            </div>
           </div>
         </div>
       </div>
-    </div>
     </>
   );
 };

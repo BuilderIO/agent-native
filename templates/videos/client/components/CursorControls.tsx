@@ -1,11 +1,22 @@
 import { useEffect, useState, useMemo } from "react";
 import type { AnimationTrack, EasingKey } from "@/types";
 import { getPropValueKeyframed } from "@/remotion/trackAnimation";
-import { Mouse, Plus, Eye, EyeOff, MousePointerClick, AlertCircle } from "lucide-react";
+import {
+  Mouse,
+  Plus,
+  Eye,
+  EyeOff,
+  MousePointerClick,
+  AlertCircle,
+} from "lucide-react";
 import { Button } from "./ui/button";
 import { Label } from "./ui/label";
 import { Input } from "./ui/input";
-import { DefaultCursor, PointerCursor, TextCursor } from "@/remotion/ui-components/Cursor";
+import {
+  DefaultCursor,
+  PointerCursor,
+  TextCursor,
+} from "@/remotion/ui-components/Cursor";
 import { MotionCurveSelect } from "./MotionCurveSelect";
 import { KeyframeNavigation } from "./keyframes/KeyframeNavigation";
 import { KeyframeActionButtons } from "./keyframes/KeyframeActionButtons";
@@ -84,7 +95,9 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
     }
 
     // Get cursor type (stepped, not interpolated)
-    const typeProp = cursorTrack.animatedProps?.find((p) => p.property === "type");
+    const typeProp = cursorTrack.animatedProps?.find(
+      (p) => p.property === "type",
+    );
     let cursorType = "default";
     if (typeProp?.keyframes && typeProp.keyframes.length > 0) {
       const sorted = [...typeProp.keyframes].sort((a, b) => a.frame - b.frame);
@@ -102,12 +115,18 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
     const newState: CursorState = {
       x: getPropValueKeyframed(currentFrame, fps, cursorTrack, "x", 960),
       y: getPropValueKeyframed(currentFrame, fps, cursorTrack, "y", 540),
-      opacity: getPropValueKeyframed(currentFrame, fps, cursorTrack, "opacity", 1),
+      opacity: getPropValueKeyframed(
+        currentFrame,
+        fps,
+        cursorTrack,
+        "opacity",
+        1,
+      ),
       scale: getPropValueKeyframed(currentFrame, fps, cursorTrack, "scale", 1),
       type: cursorType,
     };
 
-    const allValuesValid = 
+    const allValuesValid =
       Number.isFinite(newState.x) &&
       Number.isFinite(newState.y) &&
       Number.isFinite(newState.opacity) &&
@@ -139,28 +158,44 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
           from: centerX.toString(),
           to: centerX.toString(),
           unit: "px",
-          keyframes: [{ frame: currentFrame, value: centerX.toString(), easing: "expo.inOut" }],
+          keyframes: [
+            {
+              frame: currentFrame,
+              value: centerX.toString(),
+              easing: "expo.inOut",
+            },
+          ],
         },
         {
           property: "y",
           from: centerY.toString(),
           to: centerY.toString(),
           unit: "px",
-          keyframes: [{ frame: currentFrame, value: centerY.toString(), easing: "expo.inOut" }],
+          keyframes: [
+            {
+              frame: currentFrame,
+              value: centerY.toString(),
+              easing: "expo.inOut",
+            },
+          ],
         },
         {
           property: "opacity",
           from: "1",
           to: "1",
           unit: "",
-          keyframes: [{ frame: currentFrame, value: "1", easing: "expo.inOut" }],
+          keyframes: [
+            { frame: currentFrame, value: "1", easing: "expo.inOut" },
+          ],
         },
         {
           property: "scale",
           from: "1",
           to: "1",
           unit: "",
-          keyframes: [{ frame: currentFrame, value: "1", easing: "expo.inOut" }],
+          keyframes: [
+            { frame: currentFrame, value: "1", easing: "expo.inOut" },
+          ],
         },
         {
           property: "type",
@@ -192,17 +227,22 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
         if (prop.property !== property) return prop;
 
         const keyframes = prop.keyframes || [];
-        const existingIdx = keyframes.findIndex((kf) => kf.frame === currentFrame);
+        const existingIdx = keyframes.findIndex(
+          (kf) => kf.frame === currentFrame,
+        );
 
         let newKeyframes;
         if (existingIdx >= 0) {
           // Update existing keyframe
           newKeyframes = keyframes.map((kf, i) =>
-            i === existingIdx ? { ...kf, value } : kf
+            i === existingIdx ? { ...kf, value } : kf,
           );
         } else {
           // Add new keyframe
-          newKeyframes = [...keyframes, { frame: currentFrame, value, easing: "expo.inOut" }];
+          newKeyframes = [
+            ...keyframes,
+            { frame: currentFrame, value, easing: "expo.inOut" },
+          ];
           newKeyframes.sort((a, b) => a.frame - b.frame);
         }
 
@@ -212,7 +252,12 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
     } else {
       // For numeric properties, use the existing utility
       const numericValue = parseFloat(value);
-      const updatedProps = setOrUpdateKeyframeUtil(cursorTrack, property, currentFrame, numericValue);
+      const updatedProps = setOrUpdateKeyframeUtil(
+        cursorTrack,
+        property,
+        currentFrame,
+        numericValue,
+      );
       onUpdateTrack("cursor", { animatedProps: updatedProps });
     }
   };
@@ -220,7 +265,11 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
   const removeKeyframe = () => {
     if (!cursorTrack) return;
 
-    const updatedProps = removeKeyframeForTrack(cursorTrack, currentFrame, true);
+    const updatedProps = removeKeyframeForTrack(
+      cursorTrack,
+      currentFrame,
+      true,
+    );
     onUpdateTrack("cursor", { animatedProps: updatedProps });
   };
 
@@ -238,7 +287,9 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
   const toggleClick = () => {
     if (!cursorTrack) return;
 
-    const clickProp = cursorTrack.animatedProps?.find((p) => p.property === "isClicking");
+    const clickProp = cursorTrack.animatedProps?.find(
+      (p) => p.property === "isClicking",
+    );
     if (!clickProp) return;
 
     const keyframes = clickProp.keyframes || [];
@@ -247,13 +298,15 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
     let newKeyframes;
     if (existingIdx >= 0) {
       // Remove this click keyframe
-      newKeyframes = keyframes.filter(kf => kf.frame !== currentFrame);
+      newKeyframes = keyframes.filter((kf) => kf.frame !== currentFrame);
     } else {
       // Add a single click keyframe at current frame
       // Value "1" marks "click happens here"
       const clickKeyframe = { frame: currentFrame, value: "1" };
-      newKeyframes = [...keyframes, clickKeyframe].sort((a, b) => a.frame - b.frame);
-      
+      newKeyframes = [...keyframes, clickKeyframe].sort(
+        (a, b) => a.frame - b.frame,
+      );
+
       // IMPORTANT: Also ensure cursor position is keyframed at this frame
       // so the click happens at the exact position shown in the UI
       setOrUpdateKeyframe("x", localState.x.toString());
@@ -261,7 +314,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
     }
 
     const updatedProps = cursorTrack.animatedProps?.map((p) =>
-      p.property === "isClicking" ? { ...p, keyframes: newKeyframes } : p
+      p.property === "isClicking" ? { ...p, keyframes: newKeyframes } : p,
     );
 
     onUpdateTrack("cursor", { animatedProps: updatedProps });
@@ -269,16 +322,23 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
 
   const isClickingAtFrame = () => {
     if (!cursorTrack) return false;
-    const clickProp = cursorTrack.animatedProps?.find((p) => p.property === "isClicking");
-    return clickProp?.keyframes?.some((kf) => kf.frame === currentFrame) || false;
+    const clickProp = cursorTrack.animatedProps?.find(
+      (p) => p.property === "isClicking",
+    );
+    return (
+      clickProp?.keyframes?.some((kf) => kf.frame === currentFrame) || false
+    );
   };
-
 
   const handleDuplicateKeyframe = () => {
     if (!cursorTrack || !isOnKeyframe) return;
 
     const targetFrame = currentFrame + 30;
-    const updatedProps = duplicateKeyframeForTrack(cursorTrack, currentFrame, 30);
+    const updatedProps = duplicateKeyframeForTrack(
+      cursorTrack,
+      currentFrame,
+      30,
+    );
     onUpdateTrack("cursor", { animatedProps: updatedProps });
 
     // Seek to the newly created/updated keyframe
@@ -290,13 +350,21 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
   const handleUpdateKeyframeEasing = (easing: EasingKey) => {
     if (!cursorTrack || !isOnKeyframe) return;
 
-    const updatedProps = updateKeyframeEasingUtil(cursorTrack, currentFrame, easing);
+    const updatedProps = updateKeyframeEasingUtil(
+      cursorTrack,
+      currentFrame,
+      easing,
+    );
     onUpdateTrack("cursor", { animatedProps: updatedProps });
   };
 
   const handleGetCurrentKeyframeEasing = (): EasingKey => {
     if (!cursorTrack) return "expo.inOut";
-    return getCurrentKeyframeEasingUtil(cursorTrack, currentFrame, "expo.inOut");
+    return getCurrentKeyframeEasingUtil(
+      cursorTrack,
+      currentFrame,
+      "expo.inOut",
+    );
   };
 
   if (!cursorTrack) {
@@ -304,7 +372,9 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
       <div className="space-y-3 p-4 text-center">
         <Mouse className="h-8 w-8 mx-auto opacity-50 text-purple-400" />
         <div className="space-y-1">
-          <p className="text-xs font-medium text-foreground/80">Add animated cursor</p>
+          <p className="text-xs font-medium text-foreground/80">
+            Add animated cursor
+          </p>
           <p className="text-[10px] text-muted-foreground leading-relaxed">
             Animate a cursor overlay for tutorials, demos, and screen recordings
           </p>
@@ -402,7 +472,9 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
               }`}
               title="Arrow (Default)"
             >
-              <div style={{ transform: 'scale(0.5)', transformOrigin: 'center' }}>
+              <div
+                style={{ transform: "scale(0.5)", transformOrigin: "center" }}
+              >
                 <DefaultCursor />
               </div>
             </button>
@@ -420,7 +492,9 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
               }`}
               title="Pointer (Hand)"
             >
-              <div style={{ transform: 'scale(0.5)', transformOrigin: 'center' }}>
+              <div
+                style={{ transform: "scale(0.5)", transformOrigin: "center" }}
+              >
                 <PointerCursor />
               </div>
             </button>
@@ -438,7 +512,9 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
               }`}
               title="Text (I-beam)"
             >
-              <div style={{ transform: 'scale(0.5)', transformOrigin: 'center' }}>
+              <div
+                style={{ transform: "scale(0.5)", transformOrigin: "center" }}
+              >
                 <TextCursor />
               </div>
             </button>
@@ -454,7 +530,8 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
                 Interactive Composition
               </p>
               <p className="text-[9px] text-blue-200/70 mt-0.5">
-                Cursor type should be "default" - it will auto-change to "pointer" when hovering over interactive elements
+                Cursor type should be "default" - it will auto-change to
+                "pointer" when hovering over interactive elements
               </p>
             </div>
           </div>

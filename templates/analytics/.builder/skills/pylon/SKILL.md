@@ -20,19 +20,19 @@ description: >
 
 ### Exported Functions
 
-| Function | Description |
-|---|---|
-| `getAccounts(query?)` | List/search accounts |
-| `getAccount(id)` | Get single account |
-| `getIssues(params?)` | List issues (30-day window enforced) |
-| `getContacts(query?)` | Search contacts |
+| Function              | Description                          |
+| --------------------- | ------------------------------------ |
+| `getAccounts(query?)` | List/search accounts                 |
+| `getAccount(id)`      | Get single account                   |
+| `getIssues(params?)`  | List issues (30-day window enforced) |
+| `getContacts(query?)` | Search contacts                      |
 
 ### API Routes
 
-| Route | Description |
-|---|---|
-| `GET /api/pylon/issues` | List support tickets |
-| `GET /api/pylon/accounts` | List accounts |
+| Route                     | Description          |
+| ------------------------- | -------------------- |
+| `GET /api/pylon/issues`   | List support tickets |
+| `GET /api/pylon/accounts` | List accounts        |
 
 ## Script Usage
 

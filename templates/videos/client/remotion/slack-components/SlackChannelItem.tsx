@@ -19,7 +19,7 @@ export const SlackChannelItem: React.FC<SlackChannelItemProps> = ({
   clickProgress = 0,
 }) => {
   const bgOpacity = isActive ? 0.15 : hoverProgress * 0.1;
-  const scale = 1 + (hoverProgress * 0.02) - (clickProgress * 0.01);
+  const scale = 1 + hoverProgress * 0.02 - clickProgress * 0.01;
 
   return (
     <div
@@ -42,7 +42,9 @@ export const SlackChannelItem: React.FC<SlackChannelItemProps> = ({
         <img src={icon} alt="" style={{ width: 21, height: 21 }} />
         <div
           style={{
-            color: isActive ? "rgba(248, 248, 248, 1)" : "rgba(248, 248, 248, 1)",
+            color: isActive
+              ? "rgba(248, 248, 248, 1)"
+              : "rgba(248, 248, 248, 1)",
             fontSize: 19,
             fontFamily: "Inter, -apple-system, Roboto, Helvetica, sans-serif",
             fontWeight: 400,

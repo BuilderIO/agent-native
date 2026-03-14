@@ -6,7 +6,10 @@ interface TweetMasonryGridProps {
   onLinkClick?: (url: string, tweet: TwitterTweet) => void;
 }
 
-export function TweetMasonryGrid({ tweets, onLinkClick }: TweetMasonryGridProps) {
+export function TweetMasonryGrid({
+  tweets,
+  onLinkClick,
+}: TweetMasonryGridProps) {
   if (!tweets.length) return null;
 
   // Round-robin distribute tweets across columns to preserve sort order visually

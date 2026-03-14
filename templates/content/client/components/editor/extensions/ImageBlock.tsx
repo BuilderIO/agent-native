@@ -1,7 +1,19 @@
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { useState, useRef, useCallback, useEffect } from "react";
-import { ImageIcon, Replace, Trash2, AlertCircle, Sparkles, Loader2, Download } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  ImageIcon,
+  Replace,
+  Trash2,
+  AlertCircle,
+  Sparkles,
+  Loader2,
+  Download,
+} from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { RegeneratePanel } from "@/components/media/RegeneratePanel";
@@ -66,7 +78,7 @@ export function ImageBlock({
       // Reset input so re-selecting same file works
       e.target.value = "";
     },
-    [onUpload, updateAttributes]
+    [onUpload, updateAttributes],
   );
 
   const handleSaveAlt = () => {
@@ -110,10 +122,7 @@ export function ImageBlock({
   if (!src) {
     return (
       <NodeViewWrapper className="media-block-wrapper" data-drag-handle>
-        <div
-          className="media-placeholder"
-          onClick={handleReplace}
-        >
+        <div className="media-placeholder" onClick={handleReplace}>
           <ImageIcon size={24} />
           <span>Click to add an image</span>
           <input
@@ -193,15 +202,13 @@ export function ImageBlock({
                     className={`media-block__btn ${!alt ? "text-destructive" : ""}`}
                     title="Edit Alt Text"
                   >
-                    {!alt && <AlertCircle size={14} className="text-destructive" />}
+                    {!alt && (
+                      <AlertCircle size={14} className="text-destructive" />
+                    )}
                     <span>Alt</span>
                   </button>
                 </PopoverTrigger>
-                <PopoverContent
-                  className="w-80 p-3"
-                  align="end"
-                  sideOffset={8}
-                >
+                <PopoverContent className="w-80 p-3" align="end" sideOffset={8}>
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
                       <h4 className="font-medium text-sm">Alt Text</h4>
@@ -266,7 +273,11 @@ export function ImageBlock({
             projectSlug={projectSlug}
             currentImageUrl={src}
             preset="Daigrams"
-            context={articleContent ? `Full article content (use for context on what the image should represent):\n${articleContent}` : undefined}
+            context={
+              articleContent
+                ? `Full article content (use for context on what the image should represent):\n${articleContent}`
+                : undefined
+            }
             onRegenerated={() => setShowRegenerate(false)}
             onCancel={() => setShowRegenerate(false)}
           />

@@ -41,11 +41,11 @@ export function ProductBreakdown({ fiscalYear }: ProductBreakdownProps) {
 
   const groupQuery = useMetricsQuery(
     ["arr-product-group", String(fiscalYear)],
-    groupSql
+    groupSql,
   );
   const detailQuery = useMetricsQuery(
     ["arr-product-detail", String(fiscalYear)],
-    detailSql
+    detailSql,
   );
 
   const groupRows = useMemo(() => {
@@ -78,7 +78,7 @@ export function ProductBreakdown({ fiscalYear }: ProductBreakdownProps) {
         revenue_in: r.revenue_in,
         churn_out: -r.churn_out,
       })),
-    [groupRows]
+    [groupRows],
   );
 
   const isLoading = groupQuery.isLoading || detailQuery.isLoading;
@@ -201,7 +201,7 @@ export function ProductBreakdown({ fiscalYear }: ProductBreakdownProps) {
                         <td
                           className={cn(
                             "py-2 px-3 text-right font-medium",
-                            isPos ? "text-emerald-500" : "text-red-500"
+                            isPos ? "text-emerald-500" : "text-red-500",
                           )}
                         >
                           {isPos ? "+" : ""}

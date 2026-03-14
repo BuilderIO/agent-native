@@ -15,7 +15,8 @@ export const handleGitHubSearch: RequestHandler = async (req, res) => {
   if (requireEnvKey(res, "GITHUB_TOKEN", "GitHub")) return;
   try {
     const q = req.query.q as string;
-    if (!q) return void res.status(400).json({ error: "q parameter is required" });
+    if (!q)
+      return void res.status(400).json({ error: "q parameter is required" });
 
     const type = (req.query.type as string) === "issue" ? "issue" : "pr";
     const limit = req.query.limit ? parseInt(req.query.limit as string) : 30;
@@ -42,7 +43,9 @@ export const handleGitHubPR: RequestHandler = async (req, res) => {
     const number = parseInt(req.query.number as string);
 
     if (!owner || !repo || isNaN(number)) {
-      return void res.status(400).json({ error: "owner, repo, and number are required" });
+      return void res
+        .status(400)
+        .json({ error: "owner, repo, and number are required" });
     }
 
     const pr = await getPR(owner, repo, number);
@@ -62,7 +65,9 @@ export const handleGitHubIssue: RequestHandler = async (req, res) => {
     const number = parseInt(req.query.number as string);
 
     if (!owner || !repo || isNaN(number)) {
-      return void res.status(400).json({ error: "owner, repo, and number are required" });
+      return void res
+        .status(400)
+        .json({ error: "owner, repo, and number are required" });
     }
 
     const issue = await getIssue(owner, repo, number);
@@ -81,7 +86,9 @@ export const handleGitHubPRList: RequestHandler = async (req, res) => {
     const repo = req.query.repo as string;
 
     if (!owner || !repo) {
-      return void res.status(400).json({ error: "owner and repo are required" });
+      return void res
+        .status(400)
+        .json({ error: "owner and repo are required" });
     }
 
     const state = (req.query.state as "open" | "closed" | "all") ?? "open";
@@ -117,7 +124,8 @@ export const handleGitHubGraphQL: RequestHandler = async (req, res) => {
   if (requireEnvKey(res, "GITHUB_TOKEN", "GitHub")) return;
   try {
     const { query, variables } = req.body;
-    if (!query) return void res.status(400).json({ error: "query is required" });
+    if (!query)
+      return void res.status(400).json({ error: "query is required" });
 
     const data = await runGraphQL(query, variables);
     res.json({ data });

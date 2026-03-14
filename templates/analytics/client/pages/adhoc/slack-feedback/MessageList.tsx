@@ -79,7 +79,13 @@ export function MessageList({
         <MessageCard
           key={msg.ts}
           message={msg}
-          user={msg.user ? users?.[msg.user] : msg.bot_id ? users?.[msg.bot_id] : undefined}
+          user={
+            msg.user
+              ? users?.[msg.user]
+              : msg.bot_id
+                ? users?.[msg.bot_id]
+                : undefined
+          }
         />
       ))}
 
@@ -94,9 +100,7 @@ export function MessageList({
             <ChevronLeft className="h-3.5 w-3.5" />
             Previous
           </button>
-          <span className="text-xs text-muted-foreground">
-            Page {page + 1}
-          </span>
+          <span className="text-xs text-muted-foreground">Page {page + 1}</span>
           <button
             onClick={onNextPage}
             disabled={!hasNextPage}

@@ -17,28 +17,31 @@ async function hubspotGet(path: string) {
 
 // We need to search for KPMG deal specifically
 // First search HubSpot for KPMG deals
-const searchRes = await fetch("https://api.hubapi.com/crm/v3/objects/deals/search", {
-  method: "POST",
-  headers: {
-    Authorization: `Bearer ${HUBSPOT_TOKEN}`,
-    "Content-Type": "application/json",
+const searchRes = await fetch(
+  "https://api.hubapi.com/crm/v3/objects/deals/search",
+  {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${HUBSPOT_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      filterGroups: [
+        {
+          filters: [
+            {
+              propertyName: "dealname",
+              operator: "CONTAINS_TOKEN",
+              value: "KPMG",
+            },
+          ],
+        },
+      ],
+      properties: ["dealname", "dealstage", "amount"],
+      limit: 10,
+    }),
   },
-  body: JSON.stringify({
-    filterGroups: [
-      {
-        filters: [
-          {
-            propertyName: "dealname",
-            operator: "CONTAINS_TOKEN",
-            value: "KPMG",
-          },
-        ],
-      },
-    ],
-    properties: ["dealname", "dealstage", "amount"],
-    limit: 10,
-  }),
-});
+);
 const searchData = await searchRes.json();
 const kpmgDeals = searchData.results || [];
 console.error(`Found ${kpmgDeals.length} KPMG deals`);
@@ -49,7 +52,9 @@ console.error(`Deal IDs: ${kpmgDealIds.join(", ")}`);
 const allCompanyIds: string[] = [];
 for (const dealId of kpmgDealIds) {
   try {
-    const companyAssoc = await hubspotGet(`/crm/v3/objects/deals/${dealId}/associations/companies`);
+    const companyAssoc = await hubspotGet(
+      `/crm/v3/objects/deals/${dealId}/associations/companies`,
+    );
     const ids = companyAssoc.results?.map((r: any) => r.id) ?? [];
     allCompanyIds.push(...ids);
   } catch {}
@@ -61,13 +66,17 @@ console.error(`Company IDs: ${uniqueCompanyIds.join(", ")}`);
 const allContactIds: string[] = [];
 for (const companyId of uniqueCompanyIds) {
   try {
-    const contactAssoc = await hubspotGet(`/crm/v3/objects/companies/${companyId}/associations/contacts`);
+    const contactAssoc = await hubspotGet(
+      `/crm/v3/objects/companies/${companyId}/associations/contacts`,
+    );
     const ids = contactAssoc.results?.map((r: any) => r.id) ?? [];
     allContactIds.push(...ids);
   } catch {}
 }
 const uniqueContactIds = [...new Set(allContactIds)];
-console.error(`Contact IDs (${uniqueContactIds.length}): ${uniqueContactIds.slice(0, 10).join(", ")}...`);
+console.error(
+  `Contact IDs (${uniqueContactIds.length}): ${uniqueContactIds.slice(0, 10).join(", ")}...`,
+);
 
 // Contacts -> builder_user_id
 const contactIdList = uniqueContactIds.join(",");
@@ -79,7 +88,9 @@ const contactResult = await runQuery(`
     AND builder_user_id != ''
 `);
 const builderUserIds = contactResult.rows.map((r: any) => r.builder_user_id);
-console.error(`Builder user IDs (${builderUserIds.length}): ${builderUserIds.join(", ")}`);
+console.error(
+  `Builder user IDs (${builderUserIds.length}): ${builderUserIds.join(", ")}`,
+);
 
 // builder_user_id -> root_organization_id
 let orgIds: string[] = [];
@@ -130,7 +141,10 @@ const topUsers = Object.entries(userTotals)
   .sort((a, b) => b[1] - a[1])
   .map(([email, count]) => ({ email, total_messages: count }));
 
-const totalMessages = userDaily.reduce((sum: number, r: any) => sum + parseInt(r.message_count), 0);
+const totalMessages = userDaily.reduce(
+  (sum: number, r: any) => sum + parseInt(r.message_count),
+  0,
+);
 
 output({
   orgIds,

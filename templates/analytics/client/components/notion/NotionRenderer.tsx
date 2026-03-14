@@ -76,7 +76,7 @@ function RichTextSpan({ texts }: { texts: RichText[] }) {
               rel="noopener noreferrer"
               className={cn(
                 "text-primary underline underline-offset-2 hover:text-primary/80",
-                cc
+                cc,
               )}
             >
               {el}
@@ -107,7 +107,13 @@ function ParagraphBlock({ block }: { block: NotionBlock }) {
   );
 }
 
-function HeadingBlock({ block, level }: { block: NotionBlock; level: 1 | 2 | 3 }) {
+function HeadingBlock({
+  block,
+  level,
+}: {
+  block: NotionBlock;
+  level: 1 | 2 | 3;
+}) {
   const key = `heading_${level}`;
   const rt = block[key]?.rich_text;
   const Tag = `h${level}` as const;
@@ -184,18 +190,31 @@ function TodoBlock({ block }: { block: NotionBlock }) {
       <div
         className={cn(
           "mt-1 h-4 w-4 shrink-0 rounded border",
-          checked
-            ? "bg-primary border-primary"
-            : "border-muted-foreground/40"
+          checked ? "bg-primary border-primary" : "border-muted-foreground/40",
         )}
       >
         {checked && (
-          <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4 text-primary-foreground">
-            <path d="M4 8l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            className="h-4 w-4 text-primary-foreground"
+          >
+            <path
+              d="M4 8l3 3 5-5"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         )}
       </div>
-      <span className={cn("text-foreground/90 leading-relaxed", checked && "line-through opacity-60")}>
+      <span
+        className={cn(
+          "text-foreground/90 leading-relaxed",
+          checked && "line-through opacity-60",
+        )}
+      >
         <RichTextSpan texts={rt} />
       </span>
     </div>
@@ -224,7 +243,7 @@ function TableBlock({ block }: { block: NotionBlock }) {
               key={row.id}
               className={cn(
                 rowIdx !== rows.length - 1 && "border-b border-border",
-                !isHeader && rowIdx % 2 === 0 && "bg-muted/20"
+                !isHeader && rowIdx % 2 === 0 && "bg-muted/20",
               )}
             >
               {cells.map((cell: RichText[], cellIdx: number) => (
@@ -234,7 +253,7 @@ function TableBlock({ block }: { block: NotionBlock }) {
                     "px-4 py-2.5 text-left",
                     isHeader
                       ? "font-semibold text-foreground bg-muted/40"
-                      : "text-foreground/90"
+                      : "text-foreground/90",
                   )}
                 >
                   <RichTextSpan texts={cell} />
@@ -255,12 +274,16 @@ function TableBlock({ block }: { block: NotionBlock }) {
                     <tr
                       key={bRow.id}
                       className={cn(
-                        bIdx !== bodyRows.length - 1 && "border-b border-border",
-                        bIdx % 2 === 0 && "bg-muted/20"
+                        bIdx !== bodyRows.length - 1 &&
+                          "border-b border-border",
+                        bIdx % 2 === 0 && "bg-muted/20",
                       )}
                     >
                       {bCells.map((cell: RichText[], cellIdx: number) => (
-                        <td key={cellIdx} className="px-4 py-2.5 text-left text-foreground/90">
+                        <td
+                          key={cellIdx}
+                          className="px-4 py-2.5 text-left text-foreground/90"
+                        >
                           <RichTextSpan texts={cell} />
                         </td>
                       ))}
@@ -354,7 +377,7 @@ function NotionBlocks({ blocks }: { blocks: NotionBlock[] }) {
           {items.map((item) => (
             <BulletedListItem key={item.id} block={item} />
           ))}
-        </ul>
+        </ul>,
       );
     } else if (block.type === "numbered_list_item") {
       const items: NotionBlock[] = [];
@@ -367,7 +390,7 @@ function NotionBlocks({ blocks }: { blocks: NotionBlock[] }) {
           {items.map((item) => (
             <NumberedListItem key={item.id} block={item} />
           ))}
-        </ol>
+        </ol>,
       );
     } else if (block.type === "to_do") {
       const items: NotionBlock[] = [];
@@ -380,7 +403,7 @@ function NotionBlocks({ blocks }: { blocks: NotionBlock[] }) {
           {items.map((item) => (
             <TodoBlock key={item.id} block={item} />
           ))}
-        </div>
+        </div>,
       );
     } else {
       grouped.push(<NotionBlockRenderer key={block.id} block={block} />);

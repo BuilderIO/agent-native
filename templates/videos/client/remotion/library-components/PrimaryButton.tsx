@@ -27,9 +27,7 @@ import type { AnimationTrack, AnimationShorthand } from "@/types";
 const brightnessHover = (amount: number): AnimationShorthand => ({
   duration: 6,
   easing: "expo.out",
-  properties: [
-    { property: "brightness", from: 1, to: 1 + amount, unit: "" },
-  ],
+  properties: [{ property: "brightness", from: 1, to: 1 + amount, unit: "" }],
 });
 
 export type PrimaryButtonProps = {
@@ -54,28 +52,28 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
   const cx = String(1920 / 2 - 16);
   const cy = String(1080 / 2 - 16);
 
-  cursor.animatedProps.find(p => p.property === "x")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "x")!.keyframes = [
     { frame: 0, value: "200" },
     { frame: 15, value: cx },
     { frame: 90, value: cx },
     { frame: 120, value: "1720" },
     { frame: 150, value: "1720" },
   ];
-  cursor.animatedProps.find(p => p.property === "y")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "y")!.keyframes = [
     { frame: 0, value: "200" },
     { frame: 15, value: cy },
     { frame: 90, value: cy },
     { frame: 120, value: "200" },
     { frame: 150, value: "200" },
   ];
-  cursor.animatedProps.find(p => p.property === "isClicking")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "isClicking")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: 59, value: "0" },
     { frame: 60, value: "1" },
     { frame: 70, value: "0" },
     { frame: 150, value: "0" },
   ];
-  cursor.animatedProps.find(p => p.property === "opacity")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "opacity")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: 5, value: "0" },
     { frame: 15, value: "1" },
@@ -106,14 +104,20 @@ export const PrimaryButton = createInteractiveComposition<PrimaryButtonProps>({
     const buttonWidth = width;
     const buttonHeight = height;
     const buttonX = typeof x === "number" ? x : (videoWidth - buttonWidth) / 2;
-    const buttonY = typeof y === "number" ? y : (videoHeight - buttonHeight) / 2;
+    const buttonY =
+      typeof y === "number" ? y : (videoHeight - buttonHeight) / 2;
 
     const button = useInteractiveComponent({
       id: "primary-button",
       elementType: "Button",
       label,
       compositionId: "primary-button",
-      zone: { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight },
+      zone: {
+        x: buttonX,
+        y: buttonY,
+        width: buttonWidth,
+        height: buttonHeight,
+      },
       cursorHistory,
       interactiveElementType: "button",
       hoverAnimation: brightnessHover(0.3),

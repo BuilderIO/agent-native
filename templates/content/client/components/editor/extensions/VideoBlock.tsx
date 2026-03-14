@@ -17,11 +17,17 @@ export function VideoBlock({
   const src = node.attrs.src as string;
   const title = node.attrs.title as string;
   const uploading = node.attrs.uploading as boolean;
-  const uploadStatus = (node.attrs.uploadStatus as "uploading" | "processing" | null) ?? null;
+  const uploadStatus =
+    (node.attrs.uploadStatus as "uploading" | "processing" | null) ?? null;
   const isTransientSrc = typeof src === "string" && src.startsWith("blob:");
 
   const onUpload = extension.options.onUpload as
-    | ((file: File, options?: { onStatusChange?: (status: "uploading" | "processing") => void }) => Promise<{ url: string } | null>)
+    | ((
+        file: File,
+        options?: {
+          onStatusChange?: (status: "uploading" | "processing") => void;
+        },
+      ) => Promise<{ url: string } | null>)
     | undefined;
 
   const handleReplace = useCallback(() => {
@@ -35,7 +41,11 @@ export function VideoBlock({
 
       const previousSrc = src;
       const tempUrl = URL.createObjectURL(file);
-      updateAttributes({ src: tempUrl, uploading: true, uploadStatus: "uploading" });
+      updateAttributes({
+        src: tempUrl,
+        uploading: true,
+        uploadStatus: "uploading",
+      });
 
       try {
         const result = await onUpload(file, {
@@ -44,19 +54,34 @@ export function VideoBlock({
           },
         });
         if (result) {
-          updateAttributes({ src: result.url, uploading: false, uploadId: null, uploadStatus: null });
+          updateAttributes({
+            src: result.url,
+            uploading: false,
+            uploadId: null,
+            uploadStatus: null,
+          });
           return;
         }
 
-        updateAttributes({ src: previousSrc, uploading: false, uploadId: null, uploadStatus: null });
+        updateAttributes({
+          src: previousSrc,
+          uploading: false,
+          uploadId: null,
+          uploadStatus: null,
+        });
       } catch {
-        updateAttributes({ src: previousSrc, uploading: false, uploadId: null, uploadStatus: null });
+        updateAttributes({
+          src: previousSrc,
+          uploading: false,
+          uploadId: null,
+          uploadStatus: null,
+        });
       } finally {
         URL.revokeObjectURL(tempUrl);
         e.target.value = "";
       }
     },
-    [onUpload, src, updateAttributes]
+    [onUpload, src, updateAttributes],
   );
 
   useEffect(() => {
@@ -162,7 +187,9 @@ export function VideoBlock({
             <div className="flex flex-col items-center gap-2 text-white">
               <Loader2 className="animate-spin w-8 h-8" />
               <span className="text-xs font-medium">
-                {uploadStatus === "processing" ? "Processing in Builder..." : "Uploading video..."}
+                {uploadStatus === "processing"
+                  ? "Processing in Builder..."
+                  : "Uploading video..."}
               </span>
             </div>
           </div>

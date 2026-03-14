@@ -30,7 +30,7 @@ function cadenceToTrunc(cadence: DateCadence): string {
 export function qlsQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `SELECT
@@ -47,7 +47,7 @@ ORDER BY period`;
 export function s1sQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `SELECT
@@ -63,7 +63,7 @@ ORDER BY period`;
 export function s1sNamedAccountsQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `SELECT
@@ -85,7 +85,7 @@ ORDER BY period`;
 export function landingAcvQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `SELECT
@@ -104,7 +104,7 @@ ORDER BY period`;
 export function povWinRateQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `SELECT
@@ -126,7 +126,7 @@ ORDER BY period`;
 export function aeCapacityQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `SELECT
@@ -148,7 +148,7 @@ ORDER BY period`;
 export function expansionPipelineQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `SELECT
@@ -167,7 +167,7 @@ ORDER BY period`;
 export function ndrQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `SELECT
@@ -191,7 +191,7 @@ ORDER BY period`;
 export function seatUtilizationQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `SELECT
@@ -213,7 +213,7 @@ ORDER BY period`;
 export function selfServeConversionQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `SELECT
@@ -238,7 +238,7 @@ ORDER BY period`;
 export function selfServeRetentionQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `WITH signup_cohort AS (
@@ -270,7 +270,7 @@ ORDER BY period`;
 export function selfServeWauQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `SELECT
@@ -286,7 +286,7 @@ ORDER BY period`;
 export function selfServeArpaQuery(
   cadence: DateCadence,
   dateStart: string,
-  dateEnd: string
+  dateEnd: string,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `SELECT

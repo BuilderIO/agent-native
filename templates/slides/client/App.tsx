@@ -24,7 +24,10 @@ import {
 let weEnteredSelectionMode = false;
 
 /** Helper to send selection mode messages and track state */
-export function enterSelectionMode(type: "builder.enterStyleEditing" | "builder.enterTextEditing", data: { selector: string }) {
+export function enterSelectionMode(
+  type: "builder.enterStyleEditing" | "builder.enterTextEditing",
+  data: { selector: string },
+) {
   weEnteredSelectionMode = true;
   if (type === "builder.enterStyleEditing") {
     coreEnterStyleEditing(data.selector);
@@ -46,34 +49,41 @@ function useExitSelectionOnOutsideClick() {
 
       const target = e.target as HTMLElement;
       // If the click is inside a slide, don't exit — SlideEditor handles those
-      if (target.closest(".slide-content") || target.closest(".slide-image-clickable")) {
+      if (
+        target.closest(".slide-content") ||
+        target.closest(".slide-image-clickable")
+      ) {
         return;
       }
-      console.log("[App] exitSelectionMode — clicked outside slide", target.tagName, target.className);
+      console.log(
+        "[App] exitSelectionMode — clicked outside slide",
+        target.tagName,
+        target.className,
+      );
       exitSelectionMode();
     };
     window.addEventListener("pointerdown", handler, { capture: true });
-    return () => window.removeEventListener("pointerdown", handler, { capture: true });
+    return () =>
+      window.removeEventListener("pointerdown", handler, { capture: true });
   }, []);
 }
-
 
 const App = () => {
   useExitSelectionOnOutsideClick();
   return (
-  <DeckProvider key={DECK_KEY}>
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Index />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/deck/:id" element={<DeckEditor />} />
-        <Route path="/deck/:id/present" element={<Presentation />} />
-        <Route path="/share/:token" element={<SharedPresentation />} />
-        {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </BrowserRouter>
-  </DeckProvider>
+    <DeckProvider key={DECK_KEY}>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Index />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/deck/:id" element={<DeckEditor />} />
+          <Route path="/deck/:id/present" element={<Presentation />} />
+          <Route path="/share/:token" element={<SharedPresentation />} />
+          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </BrowserRouter>
+    </DeckProvider>
   );
 };
 

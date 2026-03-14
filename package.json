@@ -7,10 +7,15 @@
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",
     "typecheck": "pnpm -r typecheck",
+    "fmt": "prettier --write .",
+    "fmt:check": "prettier --check .",
+    "test": "pnpm --filter @agent-native/core test && pnpm --filter @agent-native/docs test",
+    "lint": "pnpm fmt:check && pnpm typecheck",
     "dev:all": "pnpm --filter @agent-native/core build && node scripts/dev-all.mjs",
     "dev:docs": "pnpm --filter @agent-native/docs dev"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.1.0",
+    "prettier": "^3.6.2"
   }
 }

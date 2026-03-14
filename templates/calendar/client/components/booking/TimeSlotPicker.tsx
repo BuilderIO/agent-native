@@ -9,7 +9,12 @@ interface TimeSlotPickerProps {
   loading?: boolean;
 }
 
-export function TimeSlotPicker({ slots, selectedSlot, onSelect, loading }: TimeSlotPickerProps) {
+export function TimeSlotPicker({
+  slots,
+  selectedSlot,
+  onSelect,
+  loading,
+}: TimeSlotPickerProps) {
   if (loading) {
     return (
       <div className="grid grid-cols-3 gap-2">
@@ -40,7 +45,7 @@ export function TimeSlotPicker({ slots, selectedSlot, onSelect, loading }: TimeS
               "rounded-md border px-3 py-2 text-sm transition-colors",
               isSelected
                 ? "border-primary bg-primary text-primary-foreground"
-                : "border-border hover:border-primary/50 hover:bg-accent"
+                : "border-border hover:border-primary/50 hover:bg-accent",
             )}
           >
             {format(parseISO(slot.start), "h:mm a")}

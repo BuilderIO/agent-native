@@ -18,7 +18,7 @@ export function BuilderSettings() {
             size={10}
             className={cn(
               "transition-transform duration-150",
-              !expanded && "-rotate-90"
+              !expanded && "-rotate-90",
             )}
           />
           Builder.io
@@ -26,7 +26,7 @@ export function BuilderSettings() {
         <div
           className={cn(
             "w-1.5 h-1.5 rounded-full",
-            isConnected ? "bg-green-500" : "bg-muted-foreground/30"
+            isConnected ? "bg-green-500" : "bg-muted-foreground/30",
           )}
         />
       </div>

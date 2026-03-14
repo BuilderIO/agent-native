@@ -30,7 +30,7 @@ export function ChannelSelector({
       (c) =>
         c.name.toLowerCase().includes(q) ||
         c.purpose?.value?.toLowerCase().includes(q) ||
-        c.topic?.value?.toLowerCase().includes(q)
+        c.topic?.value?.toLowerCase().includes(q),
     );
   }, [channels, search]);
 
@@ -71,7 +71,7 @@ export function ChannelSelector({
       }
       onChange(next);
     },
-    [selected, onChange]
+    [selected, onChange],
   );
 
   const removeChannel = useCallback(
@@ -80,7 +80,7 @@ export function ChannelSelector({
       next.delete(id);
       onChange(next);
     },
-    [selected, onChange]
+    [selected, onChange],
   );
 
   const handleKeyDown = useCallback(
@@ -115,7 +115,7 @@ export function ChannelSelector({
           break;
       }
     },
-    [open, filtered, highlightIdx, toggleChannel]
+    [open, filtered, highlightIdx, toggleChannel],
   );
 
   if (isLoading) {

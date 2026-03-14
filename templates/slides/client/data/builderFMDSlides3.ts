@@ -1,6 +1,5 @@
 import type { Slide } from "@/context/DeckContext";
 
-
 // Slide 15: How teams scale with Builder
 export const slide15: Slide = {
   id: "fmd-15",

@@ -16,10 +16,10 @@ const myButton = useInteractiveComponent({
   compositionId: "my-comp",
   zone: { x: 100, y: 100, width: 200, height: 50 },
   cursorHistory,
-  
+
   // ✨ Smart cursor inference
   interactiveElementType: "button", // → cursor: "pointer"
-  
+
   hoverAnimation: AnimationPresets.scaleHover(0.1),
 });
 ```
@@ -33,15 +33,15 @@ const myButton = useInteractiveComponent({
 Use `interactiveElementType` for smart defaults:
 
 | Element Type | Cursor Type |
-|--------------|-------------|
-| `"button"` | `"pointer"` |
-| `"card"` | `"pointer"` |
-| `"link"` | `"pointer"` |
-| `"toggle"` | `"pointer"` |
-| `"icon"` | `"pointer"` |
-| `"image"` | `"pointer"` |
-| `"input"` | `"text"` ✏️ |
-| `"custom"` | `"default"` |
+| ------------ | ----------- |
+| `"button"`   | `"pointer"` |
+| `"card"`     | `"pointer"` |
+| `"link"`     | `"pointer"` |
+| `"toggle"`   | `"pointer"` |
+| `"icon"`     | `"pointer"` |
+| `"image"`    | `"pointer"` |
+| `"input"`    | `"text"` ✏️ |
+| `"custom"`   | `"default"` |
 
 ### Manual Override
 
@@ -49,7 +49,7 @@ Use `interactiveElementType` for smart defaults:
 useInteractiveComponent({
   // ... other options
   cursorType: "text", // Explicit override
-})
+});
 ```
 
 ---
@@ -71,9 +71,7 @@ const autoCursorType = useCursorTypeFromHover([
 
 ```tsx
 // One line - automatic!
-const autoCursorType = useInteractiveComponentsCursor([
-  card1, card2, input
-]);
+const autoCursorType = useInteractiveComponentsCursor([card1, card2, input]);
 ```
 
 ---
@@ -81,15 +79,15 @@ const autoCursorType = useInteractiveComponentsCursor([
 ## Complete Example
 
 ```tsx
-import { 
-  useInteractiveComponent, 
+import {
+  useInteractiveComponent,
   useInteractiveComponentsCursor,
-  AnimationPresets 
+  AnimationPresets,
 } from "@/remotion/hooks/useInteractiveComponent";
 
 export const MyComp = ({ tracks }) => {
   const cursorHistory = useCursorHistory(cursorTrack, 6);
-  
+
   // Create interactive elements
   const submitBtn = useInteractiveComponent({
     id: "submit",
@@ -102,7 +100,7 @@ export const MyComp = ({ tracks }) => {
     hoverAnimation: AnimationPresets.scaleHover(0.1),
     clickAnimation: AnimationPresets.pressClick(0.95),
   });
-  
+
   const emailInput = useInteractiveComponent({
     id: "email",
     elementType: "EmailInput",
@@ -113,12 +111,13 @@ export const MyComp = ({ tracks }) => {
     interactiveElementType: "input", // → "text"
     hoverAnimation: AnimationPresets.glowHover(20),
   });
-  
+
   // Aggregate cursor types
   const autoCursorType = useInteractiveComponentsCursor([
-    submitBtn, emailInput
+    submitBtn,
+    emailInput,
   ]);
-  
+
   return (
     <CameraHost tracks={tracks} autoCursorType={autoCursorType}>
       {/* Your UI */}

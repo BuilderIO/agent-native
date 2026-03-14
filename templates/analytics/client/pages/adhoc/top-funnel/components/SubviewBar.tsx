@@ -33,7 +33,8 @@ interface SubviewBarProps {
 export function SubviewBar({ builtIn, basePath }: SubviewBarProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const [userSubviews, setUserSubviews] = useState<SavedSubview[]>(loadUserSubviews);
+  const [userSubviews, setUserSubviews] =
+    useState<SavedSubview[]>(loadUserSubviews);
   const [naming, setNaming] = useState(false);
   const [newName, setNewName] = useState("");
 
@@ -42,7 +43,7 @@ export function SubviewBar({ builtIn, basePath }: SubviewBarProps) {
       ...builtIn.map((sv) => ({ ...sv, isBuiltIn: true })),
       ...userSubviews.map((sv) => ({ ...sv, isBuiltIn: false })),
     ],
-    [builtIn, userSubviews]
+    [builtIn, userSubviews],
   );
 
   // Check if a subview matches the current URL params
@@ -50,7 +51,7 @@ export function SubviewBar({ builtIn, basePath }: SubviewBarProps) {
     const current = new URLSearchParams(location.search);
     for (const sv of allSubviews) {
       const matches = Object.entries(sv.params).every(
-        ([k, v]) => current.get(k) === v
+        ([k, v]) => current.get(k) === v,
       );
       if (matches && Object.keys(sv.params).length > 0) return sv.id;
     }
@@ -62,7 +63,7 @@ export function SubviewBar({ builtIn, basePath }: SubviewBarProps) {
       const search = new URLSearchParams(params).toString();
       navigate(`${basePath}${search ? `?${search}` : ""}`);
     },
-    [navigate, basePath]
+    [navigate, basePath],
   );
 
   const clearSubview = useCallback(() => {
@@ -94,7 +95,7 @@ export function SubviewBar({ builtIn, basePath }: SubviewBarProps) {
       setUserSubviews(next);
       saveUserSubviews(next);
     },
-    [userSubviews]
+    [userSubviews],
   );
 
   if (allSubviews.length === 0 && !naming) {

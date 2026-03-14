@@ -57,7 +57,7 @@ You're talking to this persona when:
 - "What's your executive team saying about product delivery speed right now?"
 - "How are you currently managing with resource constraints - attrition, backfills, doing more with less?"
 
-*Listen for:*
+_Listen for:_
 
 - **Executive pressure:** CPO/CTO mandates to accelerate delivery, do more with less language
 - **Failed attempts:** Recent tool evaluations that didn't work out
@@ -71,7 +71,7 @@ You're talking to this persona when:
 - "If you could free up significant frontend engineering time, what would that mean for your roadmap?"
 - "How many product teams are you supporting with your current engineering headcount?"
 
-*Listen for:*
+_Listen for:_
 
 - **Metrics:** Timelines in months not weeks, significant capacity on UI work
 - **Scale indicators:** Supporting many product teams, resource ratios showing understaffing
@@ -84,7 +84,7 @@ You're talking to this persona when:
 - "Who else is pushing for a solution - your CPO, CTO, Board?"
 - "What's your timeline for evaluating solutions and making a decision?"
 
-*Listen for:*
+_Listen for:_
 
 - **Urgency drivers:** Named executives pushing for change (CPO, CTO, Board), aggressive adoption timelines
 - **External pressure:** Competitive threats from faster-moving companies

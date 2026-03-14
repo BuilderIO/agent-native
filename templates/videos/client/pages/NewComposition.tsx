@@ -27,7 +27,11 @@ export default function NewComposition({ isGenerating }: NewCompositionProps) {
             Create a New Composition
           </h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Use the <span className="font-medium text-foreground/70">+ New Composition</span> button in the sidebar to describe the video you want to create.
+            Use the{" "}
+            <span className="font-medium text-foreground/70">
+              + New Composition
+            </span>{" "}
+            button in the sidebar to describe the video you want to create.
           </p>
         </div>
       </div>

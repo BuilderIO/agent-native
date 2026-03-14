@@ -2,10 +2,12 @@
 @plugin "@tailwindcss/typography";
 
 @theme {
-  --font-sans: -apple-system, "system-ui", "Segoe UI", Roboto, Oxygen, Ubuntu,
-    Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
+  --font-sans:
+    -apple-system, "system-ui", "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell,
+    "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
+    monospace;
 }
 
 :root {
@@ -206,7 +208,9 @@ h4 {
   border-radius: 6px;
   color: var(--fg-secondary);
   text-decoration: none;
-  transition: color 120ms, background-color 120ms;
+  transition:
+    color 120ms,
+    background-color 120ms;
 }
 
 .sidebar-link:hover {
@@ -312,9 +316,10 @@ html.dark .shiki span {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 24px;
-  transition: border-color 200ms ease, background-color 200ms ease;
+  transition:
+    border-color 200ms ease,
+    background-color 200ms ease;
 }
-
 
 /* Home hero */
 .hero-section {
@@ -504,6 +509,8 @@ html.dark .shiki span {
 /* Transitions */
 button,
 a {
-  transition: color 150ms ease, background-color 150ms ease,
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
     border-color 150ms ease;
 }

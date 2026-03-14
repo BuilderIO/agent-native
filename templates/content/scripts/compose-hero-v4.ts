@@ -42,7 +42,12 @@ function createClaudeLogoSvg(size: number): string {
   </svg>`;
 }
 
-function createTextSvg(text: string, width: number, height: number, fontSize: number): string {
+function createTextSvg(
+  text: string,
+  width: number,
+  height: number,
+  fontSize: number,
+): string {
   let fontFace = "";
   let fontFamily = "DejaVu Serif";
 
@@ -77,10 +82,15 @@ export default async function main() {
   }
 
   console.log("Compositing hero image...");
-  console.log(`Font: ${fs.existsSync(FONT_PATH) ? "Caveat (embedded)" : "DejaVu Serif (fallback)"}`);
+  console.log(
+    `Font: ${fs.existsSync(FONT_PATH) ? "Caveat (embedded)" : "DejaVu Serif (fallback)"}`,
+  );
 
   // Resize AI-generated background to 16:9
-  const bg = await sharp(bgPath).resize(W, H, { fit: "cover" }).png().toBuffer();
+  const bg = await sharp(bgPath)
+    .resize(W, H, { fit: "cover" })
+    .png()
+    .toBuffer();
   console.log("Background resized to 2000x1125");
 
   // Render logo
@@ -93,7 +103,12 @@ export default async function main() {
   const textWidth = 1100;
   const textHeight = 220;
   const fontSize = 130;
-  const textSvg = createTextSvg("for designers", textWidth, textHeight, fontSize);
+  const textSvg = createTextSvg(
+    "for designers",
+    textWidth,
+    textHeight,
+    fontSize,
+  );
   const textBuffer = await sharp(Buffer.from(textSvg)).png().toBuffer();
   console.log("Text rendered");
 
@@ -115,7 +130,11 @@ export default async function main() {
   // Save
   if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 
-  const cdnUrl = await uploadBufferToBuilderCDN("hero-v4-composite.png", result, "image/png");
+  const cdnUrl = await uploadBufferToBuilderCDN(
+    "hero-v4-composite.png",
+    result,
+    "image/png",
+  );
 
   const metadataPath = path.join(outDir, `hero-v4-composite.png.json`);
   const metadata = {

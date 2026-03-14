@@ -62,6 +62,7 @@ output/posts/YYYY-MM-DD-<topic-slug>/
 ```
 
 **Topic slug rules:**
+
 - Lowercase, replace spaces with hyphens, remove special characters
 - Max 50 characters
 - Same-day slug collision: append `-2`, `-3`, etc.
@@ -99,6 +100,7 @@ The hub mode behavior for Phase 1, Gate 1, and Phase 2 follows the same pattern 
 Check for a `--resume` flag in the arguments.
 
 **If `--resume` is present:**
+
 1. Look for an existing output folder matching the topic slug (or the most recent folder if slug is ambiguous)
 2. Read `metadata.yaml` or scan `phases/` to find the last completed phase
 3. Skip to the next incomplete phase
@@ -111,6 +113,7 @@ Check for a `--resume` flag in the arguments.
 After the output folder is set up (or selected via `--resume`), check for a `seed/` subfolder:
 
 **If `seed/` exists and contains files:**
+
 - Announce: "Seed folder detected. User-provided research will be merged with automated research."
 - The Content Strategist agent will validate and summarize seed content during Phase 1 (Step 0.5)
 - The SEO Researcher agent will merge seed keywords during Phase 2
@@ -213,16 +216,17 @@ Present the strategist's findings using **AskUserQuestion**:
 
 **File to review:** Tell the user: "Review `phases/01-topic-validation.yaml` in the output folder for full classification details."
 
-| Show the user | Value |
-|--------------|-------|
-| Topic | From validation |
-| Content Goal | awareness / acquisition / hybrid |
-| Content Timing | evergreen / trending |
-| Recommendation | go / pivot / stop |
-| Priority Score | From validation |
-| Pivot Suggestion | If recommendation is "pivot" |
+| Show the user    | Value                            |
+| ---------------- | -------------------------------- |
+| Topic            | From validation                  |
+| Content Goal     | awareness / acquisition / hybrid |
+| Content Timing   | evergreen / trending             |
+| Recommendation   | go / pivot / stop                |
+| Priority Score   | From validation                  |
+| Pivot Suggestion | If recommendation is "pivot"     |
 
 **Options:**
+
 1. **Proceed** -- Accept the topic and classification as-is
 2. **Pivot** -- Use the suggested pivot topic (re-runs Phase 1 with the pivot)
 3. **Override** -- Accept the topic but change the content goal or timing classification
@@ -240,15 +244,16 @@ Present a simplified confirmation using **AskUserQuestion**:
 
 **Question:** "Hub page topic validated. How do you want to proceed?"
 
-| Show the user | Value |
-|--------------|-------|
-| Hub | hub_slug |
-| Page Type | pillar / cluster |
-| Topic | From hub-context.yaml |
+| Show the user   | Value                 |
+| --------------- | --------------------- |
+| Hub             | hub_slug              |
+| Page Type       | pillar / cluster      |
+| Topic           | From hub-context.yaml |
 | Primary Keyword | From hub-context.yaml |
-| Content Goal | From hub-context.yaml |
+| Content Goal    | From hub-context.yaml |
 
 **Options:**
+
 1. **Proceed** (default) -- Accept the pre-assigned topic and classification
 2. **Override content goal** -- Change the content goal for this page
 3. **Stop** -- Abandon this page
@@ -276,20 +281,21 @@ ELSE (awareness):
 
 This table drives how each downstream phase behaves based on the content goal:
 
-| Phase | Awareness | Acquisition | Hybrid |
-|-------|-----------|-------------|--------|
-| **5. Outline** | No Builder.io section | Dedicated section or integrated (per integration pattern) | End-of-article section only |
-| **6. Drafting** | Zero Builder.io mentions. Do NOT load builder-product-knowledge. | Load builder-product-knowledge. Select capability + integration pattern. Draft product mention. | Load builder-product-knowledge. Light CTA Only pattern only. |
-| **7. Editing** | Flag any gratuitous Builder.io mention as forced. | Verify product mention follows 80/20 rule. Flag if >20% is product-focused. | Verify CTA is specific (not generic). Flag if product mention creeps beyond CTA. |
-| **8. SEO** | No change | 1-2 internal links to Builder.io product pages or docs | 1 internal link to Builder.io |
-| **9. AEO** | No change | Include Builder.io in answer-first blocks where naturally relevant | No change |
-| **10. Checklist** | Verify zero forced product mentions | Verify product mention exists and is natural | Verify CTA exists and is topic-specific |
+| Phase             | Awareness                                                        | Acquisition                                                                                     | Hybrid                                                                           |
+| ----------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| **5. Outline**    | No Builder.io section                                            | Dedicated section or integrated (per integration pattern)                                       | End-of-article section only                                                      |
+| **6. Drafting**   | Zero Builder.io mentions. Do NOT load builder-product-knowledge. | Load builder-product-knowledge. Select capability + integration pattern. Draft product mention. | Load builder-product-knowledge. Light CTA Only pattern only.                     |
+| **7. Editing**    | Flag any gratuitous Builder.io mention as forced.                | Verify product mention follows 80/20 rule. Flag if >20% is product-focused.                     | Verify CTA is specific (not generic). Flag if product mention creeps beyond CTA. |
+| **8. SEO**        | No change                                                        | 1-2 internal links to Builder.io product pages or docs                                          | 1 internal link to Builder.io                                                    |
+| **9. AEO**        | No change                                                        | Include Builder.io in answer-first blocks where naturally relevant                              | No change                                                                        |
+| **10. Checklist** | Verify zero forced product mentions                              | Verify product mention exists and is natural                                                    | Verify CTA exists and is topic-specific                                          |
 
 **When the topic doesn't map to a Builder.io capability (acquisition/hybrid only):**
 
 Ask the user: "This topic doesn't have an obvious Builder.io connection. How would you like to position Builder.io?"
 
 Options:
+
 1. Suggest a capability to highlight
 2. Use Light CTA Only (downgrade to hybrid behavior)
 3. Switch to awareness (no product mention)
@@ -329,6 +335,7 @@ Run SERP analysis using the SERP Analysis skill:
 4. Check for AI Overview and Featured Snippet presence
 
 **Trending mode:** Skip entirely. Write a stub file:
+
 ```yaml
 skipped: true
 reason: "Trending topic -- no established SERP to analyze"
@@ -352,6 +359,7 @@ See the content-researcher agent for full parallel architecture details.
 **Output:** `phases/04-research-group-{a-f}.yaml` (per-group) + `phases/04-content-research.yaml` (unified) + `research-notes.md`
 
 **Dependencies:**
+
 - Evergreen: Depends on Phase 2 AND Phase 3
 - Trending: Depends on Phase 2 only
 
@@ -380,6 +388,7 @@ Present the outline using **AskUserQuestion**:
 **File to review:** Tell the user: "Read `outline.md` in the output folder for the full outline with headings, key points, and word count budgets."
 
 **Show the user:**
+
 - 3-5 title options with scores
 - Selected hook type
 - Full outline structure (sections, headings, key points)
@@ -389,6 +398,7 @@ Present the outline using **AskUserQuestion**:
 **Question:** "Outline ready. How do you want to proceed?"
 
 **Options:**
+
 1. **Approve** -- Proceed to drafting with this outline
 2. **Modify** -- Describe specific changes (re-runs Phase 5 with modifications, re-presents Gate 2)
 3. **Regenerate** -- Discard and regenerate from scratch (re-runs Phase 5, re-presents Gate 2)
@@ -414,11 +424,11 @@ Validate the approved outline before committing to a full draft. The spec analyz
 
 This is a **conditional gate** -- it only pauses when there are problems. Green confidence auto-proceeds without user input.
 
-| Confidence | Condition | Behavior |
-|------------|-----------|----------|
-| **Green** | No critical issues AND (`important_count < 3` AND `cross_cutting_count == 0`) | Auto-proceed to Phase 6 |
-| **Yellow** | No critical issues AND (`important_count >= 3` OR `cross_cutting_count >= 1`) | Present report, offer options |
-| **Red** | 1+ critical issues | Block drafting, present issues, offer options |
+| Confidence | Condition                                                                     | Behavior                                      |
+| ---------- | ----------------------------------------------------------------------------- | --------------------------------------------- |
+| **Green**  | No critical issues AND (`important_count < 3` AND `cross_cutting_count == 0`) | Auto-proceed to Phase 6                       |
+| **Yellow** | No critical issues AND (`important_count >= 3` OR `cross_cutting_count >= 1`) | Present report, offer options                 |
+| **Red**    | 1+ critical issues                                                            | Block drafting, present issues, offer options |
 
 **Yellow options** (use **AskUserQuestion**):
 
@@ -465,6 +475,7 @@ Present a draft summary using **AskUserQuestion**:
 **File to review:** Tell the user: "Read `draft.md` in the output folder for the full draft text."
 
 **Show the user:**
+
 - Title used
 - Word count
 - Hook type and opening line
@@ -474,6 +485,7 @@ Present a draft summary using **AskUserQuestion**:
 **Question:** "First draft complete. How do you want to proceed?"
 
 **Options:**
+
 1. **Proceed** -- Move to editing
 2. **Request changes** -- Describe specific changes (re-runs Phase 6 with feedback, re-presents Gate 3)
 3. **Stop** -- Abandon the pipeline
@@ -492,6 +504,7 @@ Run 4-pass editing using the Content Editing skill:
 4. **Engagement pass** -- Strengthen hooks, add specificity, improve examples
 
 **Content goal checks during editing:**
+
 - **Awareness:** Flag any gratuitous Builder.io mention as forced
 - **Acquisition:** Verify product mention follows 80/20 rule (flag if >20% product-focused)
 - **Hybrid:** Verify CTA is specific, flag if product mention creeps beyond CTA section
@@ -609,6 +622,7 @@ Use **AskUserQuestion** to present options:
 **Question:** "What would you like to do next?"
 
 **Options:**
+
 1. **Polish the post** -- Run `/content-polish` for section-by-section editorial review
 2. **Resolve teammate feedback** -- Run `/content-revise` to address teammate comments
 3. **Capture learnings** -- Run `/content-compound` on this post to document what worked and what didn't
@@ -619,20 +633,26 @@ Use **AskUserQuestion** to present options:
 ## Error Handling
 
 ### Ahrefs MCP Unavailable
+
 If any Ahrefs MCP call fails during the pipeline:
+
 1. Log the failure in the current phase's YAML output
 2. Fall back to WebSearch-based research for that specific call
 3. Note reduced data quality in the phase output
 4. Continue the pipeline -- do not stop
 
 ### Phase Failure
+
 If a phase produces an error or incomplete output:
+
 1. Announce the failure to the user
 2. Ask whether to retry the phase, skip it, or stop the pipeline
 3. If skipped, write a stub YAML with `skipped: true` and `reason`
 
 ### Word Count Overflow
+
 If the post exceeds the competitive median by 50%+ (or the guidance soft max if no SERP data) after Phase 9:
+
 1. The Post-Publish Checklist flags it
 2. Suggest trimming specific sections (identify the longest non-essential sections)
 3. Do not auto-trim without user approval

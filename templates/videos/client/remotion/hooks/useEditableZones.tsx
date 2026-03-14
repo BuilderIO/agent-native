@@ -33,7 +33,7 @@
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from "react";
 
 export type Zone = {
   x: number;
@@ -50,7 +50,7 @@ export type UseEditableZonesConfig = {
   enabled?: boolean;
 };
 
-type DragMode = 'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se';
+type DragMode = "move" | "resize-nw" | "resize-ne" | "resize-sw" | "resize-se";
 
 type DragState = {
   zoneLabel: string;
@@ -66,8 +66,8 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
 
   // Load zones from localStorage or use defaults
   const [zones, setZones] = useState<ZoneMap>(() => {
-    if (typeof window === 'undefined') return defaultZones;
-    
+    if (typeof window === "undefined") return defaultZones;
+
     const stored = localStorage.getItem(storageKey);
     if (stored) {
       try {
@@ -84,7 +84,7 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
 
   // Save zones to localStorage whenever they change
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== "undefined") {
       localStorage.setItem(storageKey, JSON.stringify(zones));
     }
   }, [zones, storageKey]);
@@ -93,7 +93,7 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
   const handleMouseDown = useCallback(
     (e: React.MouseEvent, zoneLabel: string, mode: DragMode) => {
       if (!enabled) return;
-      
+
       e.stopPropagation();
       e.preventDefault();
 
@@ -105,7 +105,7 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
         startZone: zones[zoneLabel],
       });
     },
-    [enabled, zones]
+    [enabled, zones],
   );
 
   // Handle mouse move during drag
@@ -121,7 +121,7 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
         let newZone: Zone;
 
         switch (dragState.mode) {
-          case 'move':
+          case "move":
             newZone = {
               ...oldZone,
               x: oldZone.x + dx,
@@ -129,7 +129,7 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
             };
             break;
 
-          case 'resize-nw':
+          case "resize-nw":
             newZone = {
               x: oldZone.x + dx,
               y: oldZone.y + dy,
@@ -138,7 +138,7 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
             };
             break;
 
-          case 'resize-ne':
+          case "resize-ne":
             newZone = {
               ...oldZone,
               y: oldZone.y + dy,
@@ -147,7 +147,7 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
             };
             break;
 
-          case 'resize-sw':
+          case "resize-sw":
             newZone = {
               ...oldZone,
               x: oldZone.x + dx,
@@ -156,7 +156,7 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
             };
             break;
 
-          case 'resize-se':
+          case "resize-se":
             newZone = {
               ...oldZone,
               width: oldZone.width + dx,
@@ -180,17 +180,19 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
       if (dragState) {
         const finalZone = zones[dragState.zoneLabel];
         console.log(`Zone "${dragState.zoneLabel}" updated:`, finalZone);
-        console.log(`  x: ${finalZone.x}, y: ${finalZone.y}, width: ${finalZone.width}, height: ${finalZone.height}`);
+        console.log(
+          `  x: ${finalZone.x}, y: ${finalZone.y}, width: ${finalZone.width}, height: ${finalZone.height}`,
+        );
         setDragState(null);
       }
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
 
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [dragState, zones]);
 
@@ -207,35 +209,39 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
             <div key={label}>
               {/* Zone overlay */}
               <div
-                onMouseDown={(e) => handleMouseDown(e, label, 'move')}
+                onMouseDown={(e) => handleMouseDown(e, label, "move")}
                 style={{
-                  position: 'absolute',
+                  position: "absolute",
                   left: zone.x,
                   top: zone.y,
                   width: zone.width,
                   height: zone.height,
-                  border: isActive ? '2px solid #ff6600' : '2px dashed rgba(255, 100, 0, 0.6)',
-                  backgroundColor: isActive ? 'rgba(255, 100, 0, 0.15)' : 'rgba(255, 100, 0, 0.1)',
-                  cursor: 'move',
-                  pointerEvents: 'auto',
+                  border: isActive
+                    ? "2px solid #ff6600"
+                    : "2px dashed rgba(255, 100, 0, 0.6)",
+                  backgroundColor: isActive
+                    ? "rgba(255, 100, 0, 0.15)"
+                    : "rgba(255, 100, 0, 0.1)",
+                  cursor: "move",
+                  pointerEvents: "auto",
                   zIndex: 1000,
-                  transition: isActive ? 'none' : 'all 0.15s ease',
+                  transition: isActive ? "none" : "all 0.15s ease",
                 }}
               >
                 {/* Label */}
                 <div
                   style={{
-                    position: 'absolute',
+                    position: "absolute",
                     top: -20,
                     left: 0,
                     fontSize: 11,
-                    fontFamily: 'monospace',
-                    color: '#ff6600',
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    padding: '2px 6px',
+                    fontFamily: "monospace",
+                    color: "#ff6600",
+                    backgroundColor: "rgba(0, 0, 0, 0.8)",
+                    padding: "2px 6px",
                     borderRadius: 3,
-                    whiteSpace: 'nowrap',
-                    pointerEvents: 'none',
+                    whiteSpace: "nowrap",
+                    pointerEvents: "none",
                   }}
                 >
                   {label}
@@ -244,44 +250,51 @@ export const useEditableZones = (config: UseEditableZonesConfig) => {
                 {/* Coordinates display */}
                 <div
                   style={{
-                    position: 'absolute',
+                    position: "absolute",
                     bottom: -20,
                     left: 0,
                     fontSize: 10,
-                    fontFamily: 'monospace',
-                    color: '#999',
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    padding: '2px 6px',
+                    fontFamily: "monospace",
+                    color: "#999",
+                    backgroundColor: "rgba(0, 0, 0, 0.8)",
+                    padding: "2px 6px",
                     borderRadius: 3,
-                    whiteSpace: 'nowrap',
-                    pointerEvents: 'none',
+                    whiteSpace: "nowrap",
+                    pointerEvents: "none",
                   }}
                 >
-                  {Math.round(zone.x)}, {Math.round(zone.y)} / {Math.round(zone.width)}×{Math.round(zone.height)}
+                  {Math.round(zone.x)}, {Math.round(zone.y)} /{" "}
+                  {Math.round(zone.width)}×{Math.round(zone.height)}
                 </div>
 
                 {/* Corner handles */}
-                {['nw', 'ne', 'sw', 'se'].map((corner) => {
+                {["nw", "ne", "sw", "se"].map((corner) => {
                   const positions: Record<string, React.CSSProperties> = {
-                    nw: { top: -6, left: -6, cursor: 'nw-resize' },
-                    ne: { top: -6, right: -6, cursor: 'ne-resize' },
-                    sw: { bottom: -6, left: -6, cursor: 'sw-resize' },
-                    se: { bottom: -6, right: -6, cursor: 'se-resize' },
+                    nw: { top: -6, left: -6, cursor: "nw-resize" },
+                    ne: { top: -6, right: -6, cursor: "ne-resize" },
+                    sw: { bottom: -6, left: -6, cursor: "sw-resize" },
+                    se: { bottom: -6, right: -6, cursor: "se-resize" },
                   };
 
                   return (
                     <div
                       key={corner}
-                      onMouseDown={(e) => handleMouseDown(e, label, `resize-${corner}` as DragMode)}
+                      onMouseDown={(e) =>
+                        handleMouseDown(
+                          e,
+                          label,
+                          `resize-${corner}` as DragMode,
+                        )
+                      }
                       style={{
-                        position: 'absolute',
+                        position: "absolute",
                         ...positions[corner],
                         width: 12,
                         height: 12,
-                        backgroundColor: '#ff6600',
-                        border: '2px solid white',
-                        borderRadius: '50%',
-                        pointerEvents: 'auto',
+                        backgroundColor: "#ff6600",
+                        border: "2px solid white",
+                        borderRadius: "50%",
+                        pointerEvents: "auto",
                         zIndex: 1001,
                       }}
                     />

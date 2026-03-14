@@ -6,7 +6,9 @@ function computeLCSOps(oldBlocks: any[], newBlocks: any[]) {
 
   const m = oldBlocks.length;
   const n = newBlocks.length;
-  const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+  const dp = Array(m + 1)
+    .fill(null)
+    .map(() => Array(n + 1).fill(0));
 
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
@@ -44,20 +46,32 @@ function computeLCSOps(oldBlocks: any[], newBlocks: any[]) {
     ops.push({ type: "insert", newIndex: j - 1 });
     j--;
   }
-  
+
   ops.reverse();
 
   // Optimize adjacent delete + insert of same type into update
   for (let k = 0; k < ops.length - 1; k++) {
-    if (ops[k].type === "delete" && ops[k+1].type === "insert") {
-      if (oldBlocks[ops[k].oldIndex].type === newBlocks[ops[k+1].newIndex].type) {
-        ops[k] = { type: "update", oldIndex: ops[k].oldIndex, newIndex: ops[k+1].newIndex };
-        ops.splice(k+1, 1);
+    if (ops[k].type === "delete" && ops[k + 1].type === "insert") {
+      if (
+        oldBlocks[ops[k].oldIndex].type === newBlocks[ops[k + 1].newIndex].type
+      ) {
+        ops[k] = {
+          type: "update",
+          oldIndex: ops[k].oldIndex,
+          newIndex: ops[k + 1].newIndex,
+        };
+        ops.splice(k + 1, 1);
       }
-    } else if (ops[k].type === "insert" && ops[k+1].type === "delete") {
-      if (newBlocks[ops[k].newIndex].type === oldBlocks[ops[k+1].oldIndex].type) {
-        ops[k] = { type: "update", oldIndex: ops[k+1].oldIndex, newIndex: ops[k].newIndex };
-        ops.splice(k+1, 1);
+    } else if (ops[k].type === "insert" && ops[k + 1].type === "delete") {
+      if (
+        newBlocks[ops[k].newIndex].type === oldBlocks[ops[k + 1].oldIndex].type
+      ) {
+        ops[k] = {
+          type: "update",
+          oldIndex: ops[k + 1].oldIndex,
+          newIndex: ops[k].newIndex,
+        };
+        ops.splice(k + 1, 1);
       }
     }
   }
@@ -68,13 +82,13 @@ function computeLCSOps(oldBlocks: any[], newBlocks: any[]) {
 const old = [
   { type: "p", p: "A" },
   { type: "p", p: "B" },
-  { type: "p", p: "C" }
+  { type: "p", p: "C" },
 ];
 const newB = [
   { type: "p", p: "A" },
   { type: "p", p: "B2" },
   { type: "p", p: "C" },
-  { type: "p", p: "D" }
+  { type: "p", p: "D" },
 ];
 
 console.log(computeLCSOps(old, newB));

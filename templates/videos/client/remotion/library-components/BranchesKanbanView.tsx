@@ -25,7 +25,9 @@ export type BranchesKanbanViewProps = {
   tracks?: AnimationTrack[];
 };
 
-export const BranchesKanbanView: React.FC<BranchesKanbanViewProps> = (props) => {
+export const BranchesKanbanView: React.FC<BranchesKanbanViewProps> = (
+  props,
+) => {
   const { x = 0, y = 0, width = 1920 } = props;
 
   const useAbsolutePosition = x !== 0 || y !== 0;

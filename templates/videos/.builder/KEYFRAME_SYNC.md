@@ -7,18 +7,21 @@ When a composition is first loaded, it saves track data (including `keyframes: [
 ## Safeguards Now in Place
 
 ### 1. **Smart Merge Logic** ✅
+
 `client/contexts/TimelineContext.tsx` now intelligently merges keyframes:
 
 ```typescript
 // If localStorage has empty keyframes but registry has keyframes, use registry
-const useRegistryKeyframes = (!storedProp.keyframes || storedProp.keyframes.length === 0) && 
-                              defProp.keyframes && 
-                              defProp.keyframes.length > 0;
+const useRegistryKeyframes =
+  (!storedProp.keyframes || storedProp.keyframes.length === 0) &&
+  defProp.keyframes &&
+  defProp.keyframes.length > 0;
 ```
 
 **Result**: Adding keyframes to the registry will automatically work on next reload.
 
 ### 2. **Console Validation Warnings** ✅
+
 When keyframes are defined in registry but not showing in timeline, you'll see:
 
 ```
@@ -28,6 +31,7 @@ Fix: Run in console: localStorage.removeItem('videos-tracks:ui-showcase'); locat
 ```
 
 ### 3. **Developer Reset Utilities** ✅
+
 Available in browser console:
 
 ```javascript
@@ -35,15 +39,16 @@ Available in browser console:
 resetCurrent();
 
 // Reset just keyframes/tracks for a specific composition
-resetTracks('ui-showcase');
+resetTracks("ui-showcase");
 
 // Reset everything (tracks, props, settings)
-resetCompositionSettings('ui-showcase');
+resetCompositionSettings("ui-showcase");
 ```
 
 **Pro tip**: These are automatically loaded and available in `window`.
 
 ### 4. **Detailed Logging** ✅
+
 When keyframes are loaded from registry, you'll see:
 
 ```
@@ -53,6 +58,7 @@ When keyframes are loaded from registry, you'll see:
 This confirms the merge is working correctly.
 
 ### 5. **Comprehensive Documentation** ✅
+
 - Registry file (`client/remotion/registry.ts`) has detailed header docs
 - Reset utility (`client/utils/resetComposition.ts`) explains usage
 - This guide! 📖
@@ -60,32 +66,37 @@ This confirms the merge is working correctly.
 ## Best Practices
 
 ### ✅ DO:
+
 - **Define keyframes in registry from the start** when creating new compositions
 - **Use resetTracks() during development** when testing new keyframes
 - **Check browser console** for validation warnings
 - **Save button preserves keyframes** - using the Save button writes current keyframes to registry
 
 ### ❌ DON'T:
+
 - Don't manually edit localStorage (use reset utilities instead)
-- Don't assume keyframes will auto-update without a reset (they will on *next* fresh load, but existing localStorage needs clearing)
+- Don't assume keyframes will auto-update without a reset (they will on _next_ fresh load, but existing localStorage needs clearing)
 
 ## Quick Fixes
 
 ### "I added keyframes but don't see them"
 
 **Option 1**: Console reset (instant)
+
 ```javascript
-resetTracks('your-composition-id');
+resetTracks("your-composition-id");
 // then refresh page
 ```
 
 **Option 2**: Manual localStorage clear
+
 ```javascript
-localStorage.removeItem('videos-tracks:your-composition-id');
+localStorage.removeItem("videos-tracks:your-composition-id");
 location.reload();
 ```
 
 **Option 3**: Hard refresh
+
 - Close all tabs with the app open
 - Open in new tab/window
 - Should auto-sync on first load
@@ -93,13 +104,15 @@ location.reload();
 ### "I want to test keyframes without affecting users"
 
 1. Use a different composition ID during development:
+
    ```typescript
-   id: "ui-showcase-dev"  // Test version
+   id: "ui-showcase-dev"; // Test version
    ```
 
 2. Once finalized, rename back to production ID:
+
    ```typescript
-   id: "ui-showcase"  // Production version
+   id: "ui-showcase"; // Production version
    ```
 
 3. Users will get fresh keyframes on first load of the new ID
@@ -146,7 +159,8 @@ Potential enhancements to consider:
 ---
 
 **Last Updated**: March 2, 2026  
-**Related Files**: 
+**Related Files**:
+
 - `client/contexts/TimelineContext.tsx` (merge logic)
 - `client/utils/resetComposition.ts` (reset utilities)
 - `client/remotion/registry.ts` (composition definitions)

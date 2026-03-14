@@ -2,7 +2,11 @@ import type { EnvKeyConfig } from "@agent-native/core/server";
 
 export const envKeys: EnvKeyConfig[] = [
   { key: "BIGQUERY_PROJECT_ID", label: "BigQuery", required: false },
-  { key: "GOOGLE_APPLICATION_CREDENTIALS_JSON", label: "Google Cloud", required: false },
+  {
+    key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+    label: "Google Cloud",
+    required: false,
+  },
   { key: "HUBSPOT_ACCESS_TOKEN", label: "HubSpot", required: false },
   { key: "DATAFORSEO_LOGIN", label: "DataForSEO", required: false },
   { key: "DATAFORSEO_PASSWORD", label: "DataForSEO Password", required: false },

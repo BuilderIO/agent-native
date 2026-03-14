@@ -34,7 +34,11 @@ function getDateTrunc(field: string, cadence: string): string {
 // ─── Chart 1: Site Traffic (Stacked Area) ───────────────────────────────
 // Uses exact same pattern as overview dashboard
 
-export function siteTrafficQuery(dateStart: string, dateEnd: string, cadence: string = "daily"): string {
+export function siteTrafficQuery(
+  dateStart: string,
+  dateEnd: string,
+  cadence: string = "daily",
+): string {
   const dateTrunc = getDateTrunc("created_date", cadence);
   return `SELECT
   ${dateTrunc} AS period,
@@ -49,7 +53,11 @@ ORDER BY period`;
 // ─── Chart 1b: Site Traffic from Amplitude (Comparison) ─────────────────
 // Uses analytics.events_partitioned to compare with all_pageviews data
 
-export function siteTrafficAmplitudeQuery(dateStart: string, dateEnd: string, cadence: string = "daily"): string {
+export function siteTrafficAmplitudeQuery(
+  dateStart: string,
+  dateEnd: string,
+  cadence: string = "daily",
+): string {
   const dateTrunc = getDateTrunc("createddate", cadence);
   return `SELECT
   ${dateTrunc} AS period,
@@ -66,7 +74,11 @@ ORDER BY period`;
 // ─── Chart 2: Daily Signups (Line) ──────────────────────────────────────
 // Uses exact same pattern as overview dashboard
 
-export function dailySignupsQuery(dateStart: string, dateEnd: string, cadence: string = "daily"): string {
+export function dailySignupsQuery(
+  dateStart: string,
+  dateEnd: string,
+  cadence: string = "daily",
+): string {
   const dateTrunc = getDateTrunc("user_create_d", cadence);
   return `SELECT
   ${dateTrunc} AS period,
@@ -94,7 +106,11 @@ ORDER BY period`;
 // Two series: subscription plan cancelled + new subscription payment success
 // Time range: Last 90 days
 
-export function newVsCancelledSubsQuery(dateStart: string, dateEnd: string, cadence: string = "daily"): string {
+export function newVsCancelledSubsQuery(
+  dateStart: string,
+  dateEnd: string,
+  cadence: string = "daily",
+): string {
   const dateTrunc = getDateTrunc("event_time", cadence);
   return `SELECT
   ${dateTrunc} AS period,

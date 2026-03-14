@@ -38,7 +38,10 @@ Files are the shared interface between the AI agent and the UI. The agent reads 
 import fs from "fs";
 
 // Writing state (agent or script)
-fs.writeFileSync("data/projects/my-project.json", JSON.stringify(project, null, 2));
+fs.writeFileSync(
+  "data/projects/my-project.json",
+  JSON.stringify(project, null, 2),
+);
 
 // Reading state (server route) — note the path sanitization
 app.get("/api/projects/:id", (req, res) => {
@@ -59,20 +62,20 @@ When adding a new data entity (e.g., projects, tasks, settings):
 
 ## Judgment Criteria
 
-| Question | Single file | Directory of files |
-|---|---|---|
-| Are items independently addressable? | No — use one file | Yes — one file per item |
-| Will there be >50 items? | Probably fine | Definitely split |
-| Do items need individual URLs? | No | Yes |
-| Do items change independently? | No | Yes — avoids write conflicts |
+| Question                             | Single file       | Directory of files           |
+| ------------------------------------ | ----------------- | ---------------------------- |
+| Are items independently addressable? | No — use one file | Yes — one file per item      |
+| Will there be >50 items?             | Probably fine     | Definitely split             |
+| Do items need individual URLs?       | No                | Yes                          |
+| Do items change independently?       | No                | Yes — avoids write conflicts |
 
 ## Scaling Guidance
 
-| File Count | Recommendation |
-|---|---|
-| Under 50 | Read-all with `readdirSync` + `readFileSync` is fine |
-| 50–200 | Add an index file (`data/<model>/_index.json`) with IDs and summaries |
-| 200+ | Partition into subdirectories |
+| File Count | Recommendation                                                        |
+| ---------- | --------------------------------------------------------------------- |
+| Under 50   | Read-all with `readdirSync` + `readFileSync` is fine                  |
+| 50–200     | Add an index file (`data/<model>/_index.json`) with IDs and summaries |
+| 200+       | Partition into subdirectories                                         |
 
 For list endpoints serving many files, use `fs.promises.readFile` instead of `readFileSync` to avoid blocking the event loop.
 

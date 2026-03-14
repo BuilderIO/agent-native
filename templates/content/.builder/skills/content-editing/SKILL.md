@@ -27,10 +27,12 @@ Edit a first draft (`post.md`) through 4 sequential passes, each with specific c
 Read `content_timing` and `content_goal` from `phases/01-topic-validation.yaml`.
 
 **Content timing:**
+
 - If `content_timing: trending`: The draft may have thinner supporting evidence. During Pass 1 (Clarity), do not flag sections as "unsupported" if the topic is too new for extensive sourcing. During Pass 4 (Engagement), accept community signal (HN, X) as sufficient evidence.
 - If `content_timing: evergreen`: Apply all passes at full rigor.
 
 **Content goal** (drives Pass 4 checks):
+
 - `awareness`: Verify no promotional Builder.io mentions (product pitches, dedicated sections, CTAs). Internal links to related Builder.io blog posts are fine. If a promotional mention is found, flag as critical issue and remove.
 - `acquisition`: Verify the Builder.io section follows the 80/20 rule (at most 20% of post). Verify the integration feels natural, not forced. If forced, flag as important issue and recommend downgrading to `light-cta-only`.
 - `hybrid`: Verify Builder.io appears only in the conclusion CTA, not in body sections. If found in body, flag as important issue and relocate to conclusion.
@@ -49,6 +51,7 @@ Load from the post output folder:
 Focus: simplify complex sentences, remove jargon, one idea per paragraph.
 
 **Criteria:**
+
 1. Every paragraph passes the "could a junior dev understand this?" test. If a concept requires context the post hasn't provided, add a one-sentence explanation or link.
 2. One idea per paragraph. If a paragraph covers two concepts, split it.
 3. Jargon check: any term not defined in the post and not universally known to the target audience needs a brief inline definition or removal.
@@ -64,6 +67,7 @@ Focus: simplify complex sentences, remove jargon, one idea per paragraph.
 Focus: transitions between sections, logical progression, no abrupt topic changes.
 
 **Criteria:**
+
 1. Heading story test: read only the H2 headings in order. Do they tell a complete, logical story? If a heading feels out of place, flag it.
 2. Transitions: the last sentence of each section should connect to the next section's topic. Flag sections that end abruptly. Do not add formulaic transitions ("Now let's look at..."). Use content bridges -- end with a question the next section answers, or a limitation the next section addresses.
 3. Opening sentence of each section: should not repeat the heading. The answer-first block serves as the opening -- verify it directly answers the heading's implicit question.
@@ -90,20 +94,20 @@ After the AI-voice passes, run a targeted check for mechanical style guide viola
 
 **Checks:**
 
-| Rule | Search Pattern | Action |
-|------|---------------|--------|
-| Rule 2 (overclaim superlatives) | "most [adjective]", "highest-leverage", "best in class", "every team", "every [role]", "always" (as unsupported claim) | Replace with comparative framing ("have an edge", "faster than") |
-| Rule 3 (hedging) | "may prefer", "might work", "depends on your comfort level", "it varies", "strictly speaking" | Recommend directly ("start with X") or state the specific tradeoff |
-| Rule 5 (em dashes) | `—`, `---` in prose (not code blocks) | Replace with period, comma, or restructure |
-| Rule 6 (mass-addressing) | "most developers", "many teams", "people often", "everyone", "experienced [role]s often", "one [role]" (anonymous attribution) | Rewrite to first-person ("I connected") or direct second-person ("your first command") |
-| Rule 7 (quote framing) | "put it this way:", "stated that:", "noted:" before quotes | Use parenthetical credentials and period instead of colon |
-| Rule 9 (filler adverbs) | "very", "really", "actually", "basically", "essentially", "genuinely", "truly" | Cut or replace with specific detail |
-| Rule 11 (contrastive) | Sentences containing "but ", "not ", "no ", "lack", "without ", "instead of", "rather than" in a contrastive frame | Rewrite affirmatively |
-| Rule 12 (rhetorical questions) | Sentences ending with "?" that are not H2/H3 AEO headings | Rewrite as statements |
-| Rule 13 (colon-as-em-dash) | Colons in prose (not code, not lists) where the colon introduces a restatement | Restructure to flow naturally |
-| Rule 15 (product name caps) | Lowercase product names placed for keyword density | Capitalize proper nouns while preserving keyword presence |
-| Rule 16 (link text) | "click here", "read more", "this article", "this post", bare URLs as anchor text, link text >10 words | Rewrite with descriptive anchor: page title, tool name, or specific phrase per [link-text-rules.md](../style-guide/references/link-text-rules.md) |
-| Rule 8 (absolute URLs) | Builder.io blog links using relative paths (`/blog/<slug>`) | Replace with full absolute URL (`https://www.builder.io/blog/<slug>`) |
+| Rule                            | Search Pattern                                                                                                                 | Action                                                                                                                                            |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rule 2 (overclaim superlatives) | "most [adjective]", "highest-leverage", "best in class", "every team", "every [role]", "always" (as unsupported claim)         | Replace with comparative framing ("have an edge", "faster than")                                                                                  |
+| Rule 3 (hedging)                | "may prefer", "might work", "depends on your comfort level", "it varies", "strictly speaking"                                  | Recommend directly ("start with X") or state the specific tradeoff                                                                                |
+| Rule 5 (em dashes)              | `—`, `---` in prose (not code blocks)                                                                                          | Replace with period, comma, or restructure                                                                                                        |
+| Rule 6 (mass-addressing)        | "most developers", "many teams", "people often", "everyone", "experienced [role]s often", "one [role]" (anonymous attribution) | Rewrite to first-person ("I connected") or direct second-person ("your first command")                                                            |
+| Rule 7 (quote framing)          | "put it this way:", "stated that:", "noted:" before quotes                                                                     | Use parenthetical credentials and period instead of colon                                                                                         |
+| Rule 9 (filler adverbs)         | "very", "really", "actually", "basically", "essentially", "genuinely", "truly"                                                 | Cut or replace with specific detail                                                                                                               |
+| Rule 11 (contrastive)           | Sentences containing "but ", "not ", "no ", "lack", "without ", "instead of", "rather than" in a contrastive frame             | Rewrite affirmatively                                                                                                                             |
+| Rule 12 (rhetorical questions)  | Sentences ending with "?" that are not H2/H3 AEO headings                                                                      | Rewrite as statements                                                                                                                             |
+| Rule 13 (colon-as-em-dash)      | Colons in prose (not code, not lists) where the colon introduces a restatement                                                 | Restructure to flow naturally                                                                                                                     |
+| Rule 15 (product name caps)     | Lowercase product names placed for keyword density                                                                             | Capitalize proper nouns while preserving keyword presence                                                                                         |
+| Rule 16 (link text)             | "click here", "read more", "this article", "this post", bare URLs as anchor text, link text >10 words                          | Rewrite with descriptive anchor: page title, tool name, or specific phrase per [link-text-rules.md](../style-guide/references/link-text-rules.md) |
+| Rule 8 (absolute URLs)          | Builder.io blog links using relative paths (`/blog/<slug>`)                                                                    | Replace with full absolute URL (`https://www.builder.io/blog/<slug>`)                                                                             |
 
 **Comparison post note:** Comparison posts ("X vs Y") naturally produce more contrastive patterns than tutorials or explainers. Flag Rule 11 at outline time and apply extra vigilance during this sweep.
 
@@ -114,6 +118,7 @@ Record the count of micro-rule fixes in the editing report under a new "Micro-Ru
 Focus: strengthen the hook, add relatable examples, verify CTA is specific.
 
 **Criteria:**
+
 1. Hook check: does the opening still match the hook type from the outline? Is it specific to this post (not a generic opener that could apply to any article on the topic)? If weak, rewrite.
 2. Example check: does each body section have at least one concrete example (code, screenshot description, real-world scenario, benchmark)? Flag sections with only abstract explanation.
 3. CTA specificity: the conclusion's CTA must reference something specific from the post. "Try it out" is not specific. "Clone the starter repo and swap your UserList component" is specific.
@@ -124,6 +129,7 @@ Focus: strengthen the hook, add relatable examples, verify CTA is specific.
 **"Prove It's Real" E-E-A-T sub-check:** Flag first-person anecdotes that follow common AI fabrication templates: "I got this wrong the first time", "I spent [time] debugging", "I made this mistake and..." followed by a clean resolution. These are plausible-sounding but often fabricated. Mark with `<!-- VERIFY: personal anecdote -->` for author review. Do not auto-remove -- the author decides what's authentic.
 
 **Content goal checks:**
+
 - `awareness`: No promotional Builder.io mentions (product pitches, dedicated sections, CTAs). Internal links to Builder.io blog posts are fine. Flag promotional mentions if found.
 - `acquisition`: Builder.io section follows 80/20 rule. Integration feels earned, not forced. The product mention solves a real problem established earlier in the post.
 - `hybrid`: Builder.io CTA is in conclusion only. CTA connects the post's topic to a specific Builder.io capability. **Flag competitor-validation hedging:** cut any paragraph that validates when the competitor's approach works ("earns its keep when...", "right tool depends on team size", "no single right answer"). The post's analysis already covers limitations honestly -- don't undermine the Builder.io positioning with "but it works too" hedging.
@@ -169,6 +175,7 @@ Write a structured report summarizing all changes. This report is included in th
 ```
 
 **Scoring guide:**
+
 - **9-10:** Publish-ready after SEO/AEO passes. No critical issues.
 - **7-8:** Strong draft. A few important issues resolved. Minor polish applied.
 - **5-6:** Significant editing needed. Multiple important issues or several AI-voice patterns.
@@ -233,9 +240,11 @@ When `content_timing: trending`, the editing process stays the same with these a
 ### Example 1: Clarity Pass Fix
 
 **Before:**
+
 > It's important to note that React Server Components can significantly reduce bundle size, which is particularly beneficial for applications that need to render large amounts of data on the server side, thus improving the overall user experience.
 
 **After:**
+
 > Server Components cut your JavaScript bundle. In our test app, the client-side JS dropped from 245KB to 89KB -- a 64% reduction. Pages load faster because the browser downloads and parses less code.
 
 **Issues fixed:** Category C hedge ("It's important to note"), vague claim ("significantly reduce"), no specific numbers, passive construction, sentence over 30 words.
@@ -243,9 +252,11 @@ When `content_timing: trending`, the editing process stays the same with these a
 ### Example 2: AI-Voice Detection Pass
 
 **Before:**
+
 > Let's dive into how Server Components handle data fetching. The framework provides a robust and seamless approach to server-side rendering, leveraging the latest advancements in React's architecture. This comprehensive solution offers three key benefits: reduced bundle size, improved performance, and better developer experience.
 
 **After:**
+
 > Server Components fetch data directly on the server. No `useEffect`, no loading states, no client-server waterfalls.
 >
 > The performance gain comes from skipping the browser entirely for data that doesn't need interactivity. I measured a 340ms improvement on our dashboard page after converting two components.
@@ -255,9 +266,11 @@ When `content_timing: trending`, the editing process stays the same with these a
 ### Example 3: Engagement Pass Fix
 
 **Before (CTA):**
+
 > In conclusion, Server Components are a powerful tool for modern React development. Try them out in your next project and see the difference they can make!
 
 **After (CTA):**
+
 > Pick one data-fetching component in your app -- the one with the most `useEffect` calls. Convert it to a Server Component and measure the bundle size difference. The Network tab tells the story.
 
 **Issues fixed:** Category D closer ("In conclusion"), generic CTA ("try them out"), no specific action, "Happy coding"-style sign-off.

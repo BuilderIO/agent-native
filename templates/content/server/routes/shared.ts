@@ -2,7 +2,13 @@ import { RequestHandler } from "express";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
-import type { FileTreeResponse, FileContentResponse, FileNode, ImageFolder, ImageFoldersResponse } from "../../shared/api";
+import type {
+  FileTreeResponse,
+  FileContentResponse,
+  FileNode,
+  ImageFolder,
+  ImageFoldersResponse,
+} from "../../shared/api";
 
 const SHARED_DIR = path.join(process.cwd(), "content", "shared-resources");
 
@@ -23,7 +29,11 @@ function slugify(title: string): string {
 
 function isValidPath(p: string): boolean {
   const normalized = path.normalize(p);
-  return !normalized.startsWith("..") && !path.isAbsolute(normalized) && !p.includes("\0");
+  return (
+    !normalized.startsWith("..") &&
+    !path.isAbsolute(normalized) &&
+    !p.includes("\0")
+  );
 }
 
 function extractTitle(content: string, filename: string): string {
@@ -32,7 +42,14 @@ function extractTitle(content: string, filename: string): string {
   return filename.replace(/\.md$/, "").replace(/-/g, " ");
 }
 
-const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]);
+const IMAGE_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".gif",
+  ".svg",
+]);
 
 function isImageFile(name: string): boolean {
   return IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase());
@@ -242,7 +259,11 @@ export const getImageFolders: RequestHandler = (_req, res) => {
     const folderPath = path.join(baseDir, entry.name);
     const files = fs.readdirSync(folderPath, { withFileTypes: true });
     const images = files
-      .filter((f) => f.isFile() && IMAGE_EXTENSIONS.has(path.extname(f.name).toLowerCase()))
+      .filter(
+        (f) =>
+          f.isFile() &&
+          IMAGE_EXTENSIONS.has(path.extname(f.name).toLowerCase()),
+      )
       .map((f) => ({
         name: f.name,
         path: `image-references/${entry.name}/${f.name}`,
@@ -280,7 +301,13 @@ const sharedUpload = multer({
   storage: sharedUploadStorage,
   limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const allowed = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml"];
+    const allowed = [
+      "image/jpeg",
+      "image/png",
+      "image/gif",
+      "image/webp",
+      "image/svg+xml",
+    ];
     cb(null, allowed.includes(file.mimetype));
   },
 });

@@ -11,7 +11,11 @@ type ComponentLibraryViewProps = {
   propValues?: Record<string, any>;
 };
 
-export function ComponentLibraryView({ component, initialFrame, propValues }: ComponentLibraryViewProps) {
+export function ComponentLibraryView({
+  component,
+  initialFrame,
+  propValues,
+}: ComponentLibraryViewProps) {
   const playerRef = useRef<PlayerRef>(null);
   const [playing, setPlaying] = useState(false);
   const [currentFrame, setCurrentFrame] = useState(initialFrame || 0);
@@ -21,16 +25,18 @@ export function ComponentLibraryView({ component, initialFrame, propValues }: Co
   // Keyboard shortcut to toggle debug mode
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      if (e.key === 'd' || e.key === 'D') {
+      if (e.key === "d" || e.key === "D") {
         setDebugMode((prev) => {
-          console.log(`Component Debug Mode: ${!prev ? 'ON' : 'OFF'} - ${!prev ? 'Zones editable' : 'Normal mode'}`);
+          console.log(
+            `Component Debug Mode: ${!prev ? "ON" : "OFF"} - ${!prev ? "Zones editable" : "Normal mode"}`,
+          );
           return !prev;
         });
       }
     };
 
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
+    window.addEventListener("keydown", handleKeyPress);
+    return () => window.removeEventListener("keydown", handleKeyPress);
   }, []);
 
   const handleTextChange = useCallback((value: string) => {
@@ -88,9 +94,13 @@ export function ComponentLibraryView({ component, initialFrame, propValues }: Co
 
   const handleSaveZones = useCallback(() => {
     // Read zones from localStorage
-    const storedZones = localStorage.getItem('videos-zones:create-project-prompt');
+    const storedZones = localStorage.getItem(
+      "videos-zones:create-project-prompt",
+    );
     if (!storedZones) {
-      alert('No zones found. Press D to enable debug mode and adjust zones first.');
+      alert(
+        "No zones found. Press D to enable debug mode and adjust zones first.",
+      );
       return;
     }
 
@@ -101,9 +111,11 @@ export function ComponentLibraryView({ component, initialFrame, propValues }: Co
     const sidebarWidth = 73;
     const screenPadding = 83;
     const promptWidth = 790;
-    const contentWidth = (component.width - outerPadding * 2) - sidebarWidth - screenPadding * 2;
+    const contentWidth =
+      component.width - outerPadding * 2 - sidebarWidth - screenPadding * 2;
     const promptXInContent = (contentWidth - promptWidth) / 2;
-    const promptX = outerPadding + sidebarWidth + screenPadding + promptXInContent;
+    const promptX =
+      outerPadding + sidebarWidth + screenPadding + promptXInContent;
     const promptY = outerPadding + 67;
 
     const absoluteZones: Record<string, Zone> = {};
@@ -117,15 +129,21 @@ export function ComponentLibraryView({ component, initialFrame, propValues }: Co
     });
 
     // Log coordinates
-    console.log('=== ZONE COORDINATES TO UPDATE ===');
-    console.log('Copy these values and let me know - I\'ll update ProjectsInteractive.tsx:');
-    console.log('');
+    console.log("=== ZONE COORDINATES TO UPDATE ===");
+    console.log(
+      "Copy these values and let me know - I'll update ProjectsInteractive.tsx:",
+    );
+    console.log("");
     Object.entries(absoluteZones).forEach(([key, zone]) => {
-      console.log(`  ${key}: { x: ${Math.round(zone.x)}, y: ${Math.round(zone.y)}, width: ${Math.round(zone.width)}, height: ${Math.round(zone.height)} },`);
+      console.log(
+        `  ${key}: { x: ${Math.round(zone.x)}, y: ${Math.round(zone.y)}, width: ${Math.round(zone.width)}, height: ${Math.round(zone.height)} },`,
+      );
     });
-    console.log('===================================');
+    console.log("===================================");
 
-    alert(`✅ Zone coordinates logged to console!\n\nShare them with me and I'll update ProjectsInteractive.tsx automatically.`);
+    alert(
+      `✅ Zone coordinates logged to console!\n\nShare them with me and I'll update ProjectsInteractive.tsx automatically.`,
+    );
   }, [component.width]);
 
   const fmtSec = (frames: number) => {
@@ -150,7 +168,8 @@ export function ComponentLibraryView({ component, initialFrame, propValues }: Co
           <div className="mb-4 w-full max-w-4xl">
             <div className="bg-orange-500/90 text-white px-6 py-3 rounded-lg shadow-lg flex items-center justify-between">
               <div className="font-bold text-sm">
-                🔧 DEBUG MODE - Press 'D' to toggle | Drag zones to reposition | Drag corners to resize
+                🔧 DEBUG MODE - Press 'D' to toggle | Drag zones to reposition |
+                Drag corners to resize
               </div>
               <button
                 onClick={handleSaveZones}
@@ -249,19 +268,34 @@ export function ComponentLibraryView({ component, initialFrame, propValues }: Co
             <div>
               <h3 className="text-sm font-semibold mb-2">Preview Timeline</h3>
               <p className="text-xs text-muted-foreground mb-3">
-                Press <strong>Play</strong> to see the cursor demonstrate hover and click interactions:
+                Press <strong>Play</strong> to see the cursor demonstrate hover
+                and click interactions:
               </p>
               <ul className="text-xs text-muted-foreground space-y-1 ml-4 list-disc">
-                <li><strong>0.0s - 1.3s</strong> (frames 0-40): Cursor approaches</li>
-                <li><strong>1.3s - 2.7s</strong> (frames 40-80): Hovers over component</li>
-                <li><strong>2.7s</strong> (frame 80): Clicks component</li>
-                <li><strong>3.0s - 3.7s</strong> (frames 90-110): Continues hovering</li>
-                <li><strong>3.7s - 5.0s</strong> (frames 110-150): Cursor exits</li>
+                <li>
+                  <strong>0.0s - 1.3s</strong> (frames 0-40): Cursor approaches
+                </li>
+                <li>
+                  <strong>1.3s - 2.7s</strong> (frames 40-80): Hovers over
+                  component
+                </li>
+                <li>
+                  <strong>2.7s</strong> (frame 80): Clicks component
+                </li>
+                <li>
+                  <strong>3.0s - 3.7s</strong> (frames 90-110): Continues
+                  hovering
+                </li>
+                <li>
+                  <strong>3.7s - 5.0s</strong> (frames 110-150): Cursor exits
+                </li>
               </ul>
             </div>
 
             <div className="pt-3 border-t border-border">
-              <p className="text-xs font-medium text-foreground mb-1">💡 Quick Debug</p>
+              <p className="text-xs font-medium text-foreground mb-1">
+                💡 Quick Debug
+              </p>
               <p className="text-xs text-muted-foreground">
                 Jump to specific frames using URL params:
               </p>

@@ -56,6 +56,7 @@ The routing system is powered by React Router 6:
 - **Utility**: `cn()` combines `clsx` + `tailwind-merge` for conditional classes
 
 ### Path Aliases
+
 - `@shared/*` — Shared folder
 - `@/*` — Client folder
 
@@ -77,58 +78,60 @@ This project is a **Remotion-based animation studio** — a web UI for composing
 
 ### Key Files
 
-| File | Role |
-|------|------|
-| `client/remotion/registry.ts` | Single source of truth for all compositions and their default track data |
-| `client/remotion/trackAnimation.ts` | Pure helpers: `trackProgress()`, `getPropValue()`, `findTrack()` |
-| `client/remotion/compositions/*.tsx` | Individual Remotion composition components |
-| `client/types.ts` | `AnimationTrack`, `AnimatedProp`, `EasingKey`, `COMMON_PROP_TEMPLATES` |
-| `client/components/Timeline.tsx` | Timeline UI — controlled by `viewStart`/`viewEnd` from parent |
-| `client/components/VideoPlayer.tsx` | Remotion `<Player>` wrapper with range-constrained playback |
-| `client/components/TrackPropertiesPanel.tsx` | Sidebar panel for editing selected track properties |
-| `client/components/CompSettingsEditor.tsx` | Sidebar panel for duration, fps, and size overrides (Square/Wide presets) |
-| `client/components/PropsEditor.tsx` | Sidebar panel for composition-level user props |
-| `client/pages/CompositionView.tsx` | Owns `viewStart`/`viewEnd` state; connects Timeline ↔ VideoPlayer |
-| `client/pages/Index.tsx` | Studio shell — owns all state (tracks, props, compSettings), persists to localStorage |
+| File                                         | Role                                                                                  |
+| -------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `client/remotion/registry.ts`                | Single source of truth for all compositions and their default track data              |
+| `client/remotion/trackAnimation.ts`          | Pure helpers: `trackProgress()`, `getPropValue()`, `findTrack()`                      |
+| `client/remotion/compositions/*.tsx`         | Individual Remotion composition components                                            |
+| `client/types.ts`                            | `AnimationTrack`, `AnimatedProp`, `EasingKey`, `COMMON_PROP_TEMPLATES`                |
+| `client/components/Timeline.tsx`             | Timeline UI — controlled by `viewStart`/`viewEnd` from parent                         |
+| `client/components/VideoPlayer.tsx`          | Remotion `<Player>` wrapper with range-constrained playback                           |
+| `client/components/TrackPropertiesPanel.tsx` | Sidebar panel for editing selected track properties                                   |
+| `client/components/CompSettingsEditor.tsx`   | Sidebar panel for duration, fps, and size overrides (Square/Wide presets)             |
+| `client/components/PropsEditor.tsx`          | Sidebar panel for composition-level user props                                        |
+| `client/pages/CompositionView.tsx`           | Owns `viewStart`/`viewEnd` state; connects Timeline ↔ VideoPlayer                     |
+| `client/pages/Index.tsx`                     | Studio shell — owns all state (tracks, props, compSettings), persists to localStorage |
 
 ---
 
 ### Core Data Types (`client/types.ts`)
 
 #### `AnimationTrack`
+
 ```typescript
 interface AnimationTrack {
-  id: string;           // Unique, stable — e.g. "lr-ring". Used by findTrack().
-  label: string;        // Display name in the timeline
+  id: string; // Unique, stable — e.g. "lr-ring". Used by findTrack().
+  label: string; // Display name in the timeline
   startFrame: number;
   endFrame: number;
-  easing: EasingKey;    // "linear" | "ease-in" | "ease-out" | "ease-in-out" | "spring"
+  easing: EasingKey; // "linear" | "ease-in" | "ease-out" | "ease-in-out" | "spring"
   animatedProps?: AnimatedProp[];
 }
 ```
 
 #### `AnimatedProp`
+
 ```typescript
 interface AnimatedProp {
-  property: string;       // Property name — e.g. "opacity", "translateY", "radius"
-  from: string;           // Numeric start value as string — e.g. "0"
-  to: string;             // Numeric end value as string — e.g. "1"
-  unit: string;           // CSS unit appended on output — e.g. "px", "deg", "" (none)
+  property: string; // Property name — e.g. "opacity", "translateY", "radius"
+  from: string; // Numeric start value as string — e.g. "0"
+  to: string; // Numeric end value as string — e.g. "1"
+  unit: string; // CSS unit appended on output — e.g. "px", "deg", "" (none)
 
   // Optional transparency / documentation fields:
-  description?: string;   // Plain-English explanation shown in the Properties panel
-  codeSnippet?: string;   // Read-only source shown in the Properties panel code viewer
+  description?: string; // Plain-English explanation shown in the Properties panel
+  codeSnippet?: string; // Read-only source shown in the Properties panel code viewer
   programmatic?: boolean; // true → no editable from/to; only description + code shown
-  isCustom?: boolean;     // true → from/to are raw CSS value strings, not plain numbers
+  isCustom?: boolean; // true → from/to are raw CSS value strings, not plain numbers
 
   // Adjustable parameters for programmatic animations:
   parameters?: Array<{
-    name: string;         // Key for accessing value (e.g., "avgCharWidth")
-    label: string;        // UI label (e.g., "Character Width")
-    default: number;      // Default value
-    min?: number;         // Minimum allowed value
-    max?: number;         // Maximum allowed value
-    step?: number;        // Increment step (e.g., 0.05)
+    name: string; // Key for accessing value (e.g., "avgCharWidth")
+    label: string; // UI label (e.g., "Character Width")
+    default: number; // Default value
+    min?: number; // Minimum allowed value
+    max?: number; // Maximum allowed value
+    step?: number; // Increment step (e.g., 0.05)
   }>;
   parameterValues?: Record<string, number>; // User-adjusted parameter values
 }
@@ -146,12 +149,12 @@ interface AnimatedProp {
 
 ```typescript
 type CompositionEntry = {
-  id: string;               // URL slug — e.g. "logo-reveal" → /c/logo-reveal
+  id: string; // URL slug — e.g. "logo-reveal" → /c/logo-reveal
   title: string;
   description: string;
   component: React.FC<any>; // The Remotion composition component
   durationInFrames: number; // Default duration (overrideable per-user in localStorage)
-  fps: number;              // Default fps (overrideable per-user in localStorage)
+  fps: number; // Default fps (overrideable per-user in localStorage)
   width: number;
   height: number;
   defaultProps: Record<string, any>; // Passed as inputProps to <Player>
@@ -173,6 +176,7 @@ type CompositionEntry = {
 ### Composition Components (`client/remotion/compositions/*.tsx`)
 
 Each composition:
+
 - Receives `tracks?: AnimationTrack[]` as a prop alongside its own visual props
 - Declares `FALLBACK_TRACKS` — a local copy of the default tracks used when the prop is absent (prevents crashes during development or if the registry changes)
 - Uses `findTrack(tracks, "track-id", FALLBACK_TRACKS[n])` to locate each track
@@ -194,22 +198,29 @@ export type MyCompProps = {
 
 const FALLBACK_TRACKS: AnimationTrack[] = [
   {
-    id: "mc-intro", label: "Intro", startFrame: 0, endFrame: 30, easing: "spring",
+    id: "mc-intro",
+    label: "Intro",
+    startFrame: 0,
+    endFrame: 30,
+    easing: "spring",
     animatedProps: [
-      { property: "opacity",    from: "0", to: "1", unit: "" },
+      { property: "opacity", from: "0", to: "1", unit: "" },
       { property: "translateY", from: "40", to: "0", unit: "px" },
     ],
   },
 ];
 
-export const MyComp: React.FC<MyCompProps> = ({ title, tracks = FALLBACK_TRACKS }) => {
+export const MyComp: React.FC<MyCompProps> = ({
+  title,
+  tracks = FALLBACK_TRACKS,
+}) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
   const introTrack = findTrack(tracks, "mc-intro", FALLBACK_TRACKS[0]);
-  const p       = trackProgress(frame, fps, introTrack);
-  const opacity = getPropValue(p, introTrack, "opacity",    0, 1);
-  const transY  = getPropValue(p, introTrack, "translateY", 40, 0);
+  const p = trackProgress(frame, fps, introTrack);
+  const opacity = getPropValue(p, introTrack, "opacity", 0, 1);
+  const transY = getPropValue(p, introTrack, "translateY", 40, 0);
 
   return (
     <AbsoluteFill>
@@ -247,6 +258,7 @@ findTrack(tracks, id, fallback): AnimationTrack
 **Every single animation or timing-dependent behavior MUST be registered as a track.** No hardcoded frame checks allowed.
 
 #### ❌ NEVER do this:
+
 ```typescript
 // BAD: Hardcoded frame check - user can't adjust timing in UI
 const activeTab = frame < 60 ? "compositions" : "properties";
@@ -255,13 +267,23 @@ const toolActive = frame >= 240 && frame < 300 ? "pan" : null;
 ```
 
 #### ✅ ALWAYS do this:
+
 ```typescript
 // GOOD: Read from tracks - user can adjust timing via timeline
-const tabSwitchTrack = findTrack(tracks, "switch-to-properties", FALLBACK_TRACKS[2]);
-const cameraPanelTrack = findTrack(tracks, "camera-panel-open", FALLBACK_TRACKS[3]);
+const tabSwitchTrack = findTrack(
+  tracks,
+  "switch-to-properties",
+  FALLBACK_TRACKS[2],
+);
+const cameraPanelTrack = findTrack(
+  tracks,
+  "camera-panel-open",
+  FALLBACK_TRACKS[3],
+);
 const panToolTrack = findTrack(tracks, "pan-tool-active", FALLBACK_TRACKS[4]);
 
-const activeTab = frame >= tabSwitchTrack.startFrame ? "properties" : "compositions";
+const activeTab =
+  frame >= tabSwitchTrack.startFrame ? "properties" : "compositions";
 const cameraPanelP = trackProgress(frame, fps, cameraPanelTrack);
 const panelOpen = cameraPanelP > 0;
 const panToolP = trackProgress(frame, fps, panToolTrack);
@@ -271,6 +293,7 @@ const toolActive = panToolP > 0 && panToolP < 1 ? "pan" : null;
 #### Track Types by Animation Complexity
 
 **1. Resizable Tracks** — For animations with clear start/end durations:
+
 - Camera panel opening (spring animation over time)
 - Tool activation states (active during track range)
 - Timeline playback progress (continuous interpolation)
@@ -290,11 +313,13 @@ const toolActive = panToolP > 0 && panToolP < 1 ? "pan" : null;
 ```
 
 **2. Keyframe-Style Tracks** — For instant state changes or complex multi-element behaviors:
+
 - Tab switches (instant state change at specific frame)
 - Modal opens/closes (single trigger point)
 - Complex sequences where multiple elements animate together
 
 **Visual Appearance:**
+
 - Shows as a **diamond marker** (◆) in the timeline instead of a duration bar
 - Has a **diamond indicator** in the label column instead of a circle dot
 - Can be **dragged** to adjust timing (maintains startFrame === endFrame)
@@ -325,6 +350,7 @@ const toolActive = panToolP > 0 && panToolP < 1 ? "pan" : null;
 **Timeline Implementation Note:**
 
 In `Timeline.tsx`, keyframe-style tracks (where `startFrame === endFrame`) are automatically rendered differently:
+
 - Detection: `const isKeyframeTrack = track.startFrame === track.endFrame;`
 - Renders as diamond marker instead of duration bar
 - Supports box selection and click-to-deselect (same as camera/cursor tracks)
@@ -349,23 +375,26 @@ This is **automatic** - no special code needed in compositions. Just set `startF
 When implementing CSS filter properties in `AnimatedElement.tsx`, use the correct units:
 
 **❌ WRONG - These filters do NOT use percentage units:**
+
 ```typescript
-filters.push(`brightness(${value}%)`);  // WRONG - makes value 1 = 1% brightness (almost black!)
-filters.push(`contrast(${value}%)`);    // WRONG
-filters.push(`saturate(${value}%)`);    // WRONG
+filters.push(`brightness(${value}%)`); // WRONG - makes value 1 = 1% brightness (almost black!)
+filters.push(`contrast(${value}%)`); // WRONG
+filters.push(`saturate(${value}%)`); // WRONG
 ```
 
 **✅ CORRECT - Unitless multipliers:**
+
 ```typescript
-filters.push(`brightness(${value})`);  // CORRECT - value 1 = normal, 1.5 = 50% brighter
-filters.push(`contrast(${value})`);    // CORRECT - value 1 = normal, 2 = 2x contrast
-filters.push(`saturate(${value})`);    // CORRECT - value 1 = normal, 0.5 = 50% saturation
+filters.push(`brightness(${value})`); // CORRECT - value 1 = normal, 1.5 = 50% brighter
+filters.push(`contrast(${value})`); // CORRECT - value 1 = normal, 2 = 2x contrast
+filters.push(`saturate(${value})`); // CORRECT - value 1 = normal, 0.5 = 50% saturation
 ```
 
 **Only `blur()` and `hue-rotate()` use units:**
+
 ```typescript
-filters.push(`blur(${value}px)`);           // ✅ Correct - blur uses pixels
-filters.push(`hue-rotate(${value}deg)`);    // ✅ Correct - hue-rotate uses degrees
+filters.push(`blur(${value}px)`); // ✅ Correct - blur uses pixels
+filters.push(`hue-rotate(${value}deg)`); // ✅ Correct - hue-rotate uses degrees
 ```
 
 ---
@@ -375,6 +404,7 @@ filters.push(`hue-rotate(${value}deg)`);    // ✅ Correct - hue-rotate uses deg
 In `useHoverAnimationSmooth.ts`, cursor hover and click detection must use the **cursor tip only**, not the full cursor visual size.
 
 **Problem:** The cursor graphic is 32×32px, but the actual pointer is at the top-left corner. Using the full cursor size causes:
+
 - Accidental hovers when cursor is near but not pointing at element
 - Accidental clicks from the cursor's bottom-right area
 - Elements reacting when cursor is visually over them but the pointer tip is elsewhere
@@ -384,13 +414,13 @@ In `useHoverAnimationSmooth.ts`, cursor hover and click detection must use the *
 ```typescript
 // ❌ WRONG - Uses full 32px cursor size
 const wasHovering =
-  x + cursorSize > hoverZone.x - padding &&  // cursorSize = 32
+  x + cursorSize > hoverZone.x - padding && // cursorSize = 32
   x < hoverZone.x + hoverZone.width + padding &&
   y + cursorSize > hoverZone.y - padding &&
   y < hoverZone.y + hoverZone.height + padding;
 
 // ✅ CORRECT - Uses 4px tip area
-const tipSize = 4;  // Small 4px area around cursor tip
+const tipSize = 4; // Small 4px area around cursor tip
 const wasHovering =
   x + tipSize > hoverZone.x - padding &&
   x < hoverZone.x + hoverZone.width + padding &&
@@ -407,6 +437,7 @@ Apply this to **both hover and click detection** in `useHoverAnimationSmooth.ts`
 **All interactive UI elements in showcase compositions must be registered** using `useInteractiveComponent()`:
 
 **Examples of elements that MUST be registered:**
+
 - ✅ Buttons (toolbar buttons, play button, keyframe markers)
 - ✅ Tabs (Compositions, Properties)
 - ✅ Accordions (Camera, Cursor, Animation Track headers)
@@ -414,6 +445,7 @@ Apply this to **both hover and click detection** in `useHoverAnimationSmooth.ts`
 - ✅ Cards, panels, modals
 
 **Registration pattern:**
+
 ```typescript
 const element = useInteractiveComponent({
   id: "unique-id",
@@ -435,6 +467,7 @@ registerForCursor(element);  // Don't forget to aggregate for cursor
 ```
 
 **Why this matters:**
+
 - Shows in Properties panel when cursor hovers
 - Cursor automatically changes type (pointer, text, etc.)
 - Hover/click animations work correctly
@@ -447,17 +480,20 @@ registerForCursor(element);  // Don't forget to aggregate for cursor
 When building UI mockups in showcase compositions:
 
 **Toolbar/Button Groups:**
+
 - Gap between elements: `gap-3` (12px) minimum
 - Button padding: `px-3 py-1.5` minimum for comfortable touch targets
 - Icon-to-text gap: `gap-2` (8px)
 - Divider height: Match button height (`h-5` for 20px buttons)
 
 **Panels/Accordions:**
+
 - Content padding: `px-4 py-3` for panels
 - Vertical spacing between sections: `space-y-3` (12px)
 - Border radius: `rounded-lg` (8px) for panels
 
 **Alignment:**
+
 - Toolbars should align to content edge (not centered over content)
 - Ensure spacing between overlapping elements (toolbar vs video: 12px minimum)
 
@@ -470,6 +506,7 @@ When building UI mockups in showcase compositions:
 **⚠️ RULE: ALL animations MUST be registered to a track (continuation from above).**
 
 Every animation effect in a composition — whether simple from→to, keyframed, or programmatic — must be documented in the track's `animatedProps`. This includes:
+
 - Visual effects (typing reveals, particle systems, stagger effects)
 - Transform animations (drift, rotation, scaling)
 - Opacity fades, color shifts, layout changes
@@ -491,6 +528,7 @@ Some animations can't be expressed as a simple from→to pair — e.g. staggered
 Examples of correctly documented expression props in the registry:
 
 **Example 1: Particle Burst**
+
 ```typescript
 {
   property: "burst layout",
@@ -509,6 +547,7 @@ Examples of correctly documented expression props in the registry:
 ```
 
 **Example 2: Typing Reveal with Drift**
+
 ```typescript
 {
   property: "typing reveal",
@@ -530,12 +569,14 @@ transform: \`translateX(\${driftX}px)\``,
 Even when an element has custom/programmatic animation logic, **always read and apply common animated properties** from the track. This lets users layer standard animations on top of custom effects.
 
 **Common properties to support:**
+
 - `scale` — uniform scaling
 - `opacity` — fade in/out
 - `translateX` / `translateY` — positional offsets
 - `rotation` — 2D rotation in degrees
 
 **Implementation pattern:**
+
 ```typescript
 // Always read common properties (even for scripted elements)
 const scale = getPropValue(progress, track, "scale", 1, 1);
@@ -556,6 +597,7 @@ style={{
 ```
 
 **Why this matters:**
+
 - Users can add scale, fade, or movement to ANY element without editing source code
 - Programmatic animations become more flexible and composable
 - UI remains consistent — all tracks support the same property set
@@ -577,12 +619,12 @@ interface AnimatedProp {
   description?: string;
   codeSnippet?: string;
   parameters?: Array<{
-    name: string;        // Key used to access value (e.g., "avgCharWidth")
-    label: string;       // Display label in UI (e.g., "Character Width")
-    default: number;     // Default value
-    min?: number;        // Minimum value (for validation)
-    max?: number;        // Maximum value (for validation)
-    step?: number;       // Step increment (e.g., 0.05)
+    name: string; // Key used to access value (e.g., "avgCharWidth")
+    label: string; // Display label in UI (e.g., "Character Width")
+    default: number; // Default value
+    min?: number; // Minimum value (for validation)
+    max?: number; // Maximum value (for validation)
+    step?: number; // Step increment (e.g., 0.05)
   }>;
   parameterValues?: Record<string, number>; // User-adjusted values
   // ... other fields
@@ -651,7 +693,7 @@ transform: \\\`translateX(\${driftX}px)\\\``
 ```typescript
 // Find the programmatic property by name
 const typingProp = titleTrack?.animatedProps?.find(
-  p => p.property === "typing reveal"
+  (p) => p.property === "typing reveal",
 );
 
 // Read parameter values with fallback to defaults
@@ -670,6 +712,7 @@ const driftX = startOffset * (1 - easedProgress);
 #### UI Behavior
 
 **In the Properties Panel (TrackPropertiesPanel):**
+
 - **Parameters section is always visible** — immediately accessible without expanding
 - **Description and code are collapsed by default** — click "CODE" button to expand
 - Expression code is **greyed out and marked read-only** to indicate it can't be edited
@@ -679,6 +722,7 @@ const driftX = startOffset * (1 - easedProgress);
 - Click **Save button** to persist to the registry file
 
 **Visual hierarchy:**
+
 ```
 ┌─────────────────────────────────────┐
 │ fx  typing reveal         [CODE] [X]│
@@ -690,6 +734,7 @@ const driftX = startOffset * (1 - easedProgress);
 ```
 
 Expanded (after clicking CODE):
+
 ```
 ┌─────────────────────────────────────┐
 │ fx  typing reveal         [HIDE] [X]│
@@ -712,6 +757,7 @@ Expanded (after clicking CODE):
 #### Best Practices
 
 **When to expose parameters:**
+
 - ✅ Values that significantly affect visual behavior (speeds, distances, scales, counts)
 - ✅ "Magic numbers" that users might want to tweak (timing offsets, easing powers, physics constants)
 - ✅ Values that change the "feel" of the animation (drift distances, bounce strength, particle spread)
@@ -719,6 +765,7 @@ Expanded (after clicking CODE):
 - ❌ Computed values that don't make sense to adjust independently
 
 **Parameter design:**
+
 - Keep it focused: **2-5 parameters is ideal** — too many becomes overwhelming
 - Use **clear, non-technical labels**: "Character Width" not "avgCharWidth"
 - Set **sensible min/max bounds** to prevent breaking the animation
@@ -726,6 +773,7 @@ Expanded (after clicking CODE):
 - **Update codeSnippet** to reference parameter names for transparency
 
 **codeSnippet tips:**
+
 - Reference parameters as `params.paramName` or show them being read from the prop
 - Include comments explaining what each parameter controls
 - Show the actual calculation logic using the parameters
@@ -759,6 +807,7 @@ const position = interpolate(progress, [0, 1], [0, distance * speed]);
 The timeline (`client/components/Timeline.tsx`) is **fully controlled** — it owns no state itself.
 
 #### Props it requires
+
 ```typescript
 {
   currentFrame: number;
@@ -777,6 +826,7 @@ The timeline (`client/components/Timeline.tsx`) is **fully controlled** — it o
 ```
 
 #### View window (`viewStart` / `viewEnd`)
+
 - State lives in `CompositionView` and is shared with both `Timeline` and `VideoPlayer`
 - Drives the **range navigator bar** at the bottom of the timeline (AE/C4D-style triangular handles)
 - Dragging the handles or panning the highlighted region zooms/pans the visible time window
@@ -788,23 +838,27 @@ The timeline (`client/components/Timeline.tsx`) is **fully controlled** — it o
 #### UI Conventions & Polish
 
 **Time formatting:**
+
 - Use `fmtSec()` helper for consistent 1-decimal formatting: `0.0s`, `1.2s`, `3.0s`
 - Track bar labels: `0.3s–1.8s` (seconds, not frames)
 - Timeline bottom bar: `0.00s / 3.0s` (current / total)
 - When zoomed, show range pill: `0.50s–2.0s` in muted text
 
 **Expression (programmatic) track styling:**
+
 - Purple `fx` badge replaces easing color dot in timeline label column
 - Track bars use purple border (`border-purple-400`) and purple highlight on hover
 - Properties panel shows expression props in purple cards with collapsible code viewer
 - This styling is **automatic** when `animatedProps` contains any prop with `codeSnippet` or `programmatic: true`
 
 **Range navigator visual states:**
+
 - Default: Gray handles and border
 - Zoomed (viewStart > 0 or viewEnd < durationInFrames): Purple handles and "zoom" indicator text
 - Only the playhead within the view window is rendered; outside the window it's hidden
 
 **Frame labels:**
+
 - In Properties panel, Start/End inputs show unit suffix: `Start (f)` and `End (f)` for clarity
 - Timing summary shows both frames and seconds: `0.8s → 2.1s · 1.3s (39f)`
 
@@ -824,16 +878,19 @@ Wraps Remotion `<Player>` with:
 #### Implementation Details
 
 **Refs to avoid stale closures:**
+
 - `rangeRef` — always holds latest `{ start: viewStart, end: viewEnd }`
 - `repeatRef` — always holds latest `repeat` boolean state
 - These prevent re-registering the `frameupdate` event listener on every prop change
 
 **Repeat button styling:**
+
 - Uses `cn()` for conditional classes
 - Active state: `text-primary` (purple text when repeat is on)
 - Hover: `hover:bg-secondary` (consistent with other controls)
 
 **Range pill badge:**
+
 - Only shown when `viewStart > 0 || viewEnd < durationInFrames`
 - Format: `0.50s–2.0s` in muted text
 - Positioned next to the time display in the bottom control bar
@@ -862,13 +919,14 @@ Users can override duration, fps, dimensions, and render quality per composition
 
 All studio state lives in `Index.tsx` and is persisted to `localStorage`:
 
-| Key | Stores |
-|-----|--------|
-| `videos-tracks:<id>` | User-edited `AnimationTrack[]` for that composition (includes `parameterValues`) |
-| `videos-props:<id>` | User-edited `defaultProps` overrides |
-| `videos-comp-settings:<id>` | `{ durationInFrames, fps, width, height }` overrides |
+| Key                         | Stores                                                                           |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| `videos-tracks:<id>`        | User-edited `AnimationTrack[]` for that composition (includes `parameterValues`) |
+| `videos-props:<id>`         | User-edited `defaultProps` overrides                                             |
+| `videos-comp-settings:<id>` | `{ durationInFrames, fps, width, height }` overrides                             |
 
 When a composition changes, tracks are loaded with `loadTracks()` which **deep-merges** stored user edits onto the current registry defaults. This means:
+
 - New tracks added to the registry appear automatically
 - Registry metadata on `animatedProps` (`codeSnippet`, `description`, `programmatic`, `parameters`) always reflects the latest code
 - User `from`/`to` values and `parameterValues` are preserved across registry updates
@@ -880,11 +938,13 @@ When a composition changes, tracks are loaded with `loadTracks()` which **deep-m
 The **Save** button in the top-right of `CompositionView` persists current studio state back to the registry file (`client/remotion/registry.ts`):
 
 **What it saves:**
+
 - Current track structure (including parameter values)
 - Current composition settings (duration, fps, dimensions)
 - Current defaultProps
 
 **How it works:**
+
 1. Gathers current tracks, props, and settings from state
 2. Shows confirmation dialog with summary
 3. POSTs to `/api/save-composition-defaults` endpoint
@@ -893,6 +953,7 @@ The **Save** button in the top-right of `CompositionView` persists current studi
 6. Writes back to file
 
 **Important:**
+
 - Parameter values (`parameterValues`) are saved with the track
 - Duplicates are automatically filtered before saving
 - Server properly escapes backticks and dollar signs in `codeSnippet`
@@ -935,12 +996,14 @@ The camera system provides global transform controls (zoom, pan, 3D tilt) that a
 ### Architecture
 
 **CameraHost Component** (`client/remotion/CameraHost.tsx`)
+
 - Wraps composition content with CSS 3D transforms
 - Reads camera track using `getPropValueKeyframed()` for smooth interpolation
 - Transform chain: `perspective(N) → translate3d(x,y,0) → rotateX(deg) → rotateY(deg) → scale(s)`
 - Properties: `translateX`, `translateY`, `scale`, `rotateX`, `rotateY`, `perspective`
 
 **Camera Track Structure**
+
 ```typescript
 {
   id: "camera",
@@ -960,6 +1023,7 @@ The camera system provides global transform controls (zoom, pan, 3D tilt) that a
 ```
 
 **Camera Toolbar** (`client/components/CameraToolbar.tsx`)
+
 - **Primary UI**: Interactive toolbar above video player with click-and-drag tools
 - **Pan Tool** (Move icon): Click and drag to move camera — cursor position directly controls camera X/Y
 - **Zoom Tool** (ZoomIn icon): Click and drag up/down to zoom in/out — vertical movement controls scale
@@ -969,12 +1033,14 @@ The camera system provides global transform controls (zoom, pan, 3D tilt) that a
 - **Professional workflow**: Similar to After Effects camera tools
 
 **Advanced Camera Controls** (`client/components/CameraControls.tsx`)
+
 - Located in Properties panel under collapsible "Advanced Camera Controls" section
 - Numeric sliders for precise value input when needed
 - Keyframe management: Remove keyframe, Prev/Next navigation, Reset
 - Secondary to toolbar — most users will use toolbar for intuitive interaction
 
 **Timeline Integration**
+
 - Camera track appears first (top) in timeline
 - Blue camera icon (🎥) instead of easing color dot
 - Blue accent color for track bar, labels, and borders
@@ -988,23 +1054,25 @@ Extends `AnimatedProp` with optional multi-keyframe support:
 ```typescript
 interface AnimatedProp {
   property: string;
-  from: string;      // Used when no keyframes
-  to: string;        // Used when no keyframes
+  from: string; // Used when no keyframes
+  to: string; // Used when no keyframes
   unit: string;
   keyframes?: Array<{
-    frame: number;   // Absolute frame number
-    value: string;   // Numeric value as string
+    frame: number; // Absolute frame number
+    value: string; // Numeric value as string
   }>;
 }
 ```
 
 **Interpolation Behavior** (`getPropValueKeyframed()` in `trackAnimation.ts`):
+
 - Before first keyframe → hold first value
 - Between keyframes → linear interpolation
 - After last keyframe → hold last value
 - No keyframes → fall back to `from`/`to` with `trackProgress()`
 
 **User Workflow:**
+
 1. **Scrub playhead** to desired frame (e.g., frame 0)
 2. **Click a camera tool** above the video (Pan, Zoom, or Tilt)
 3. **Drag the mouse** — camera adjusts in real-time:
@@ -1018,11 +1086,13 @@ interface AnimatedProp {
 8. **Optional**: Expand "Advanced Camera Controls" in Properties panel for precise numeric input
 
 **Backward Compatibility:**
+
 - Existing tracks with `from`/`to` continue to work
 - Keyframes only activate when the `keyframes` array exists and has entries
 - Track data persists to localStorage like other tracks
 
 **Render Quality & Camera Zoom:**
+
 - To prevent pixelation when zooming, increase **Render Quality** in Composition settings
 - **2× quality** renders composition at double resolution → clean zoom up to 2×
 - **3× quality** renders at triple resolution → clean zoom up to 3×
@@ -1032,11 +1102,13 @@ interface AnimatedProp {
 ### Integration Checklist
 
 **To add camera to a composition:**
+
 - [ ] Wrap composition content with `<CameraHost tracks={tracks}>`
 - [ ] Add camera track to registry `tracks` array (at index 0 for top position)
 - [ ] Camera controls automatically appear in Properties panel
 
 **Camera track is already integrated in:**
+
 - ✅ KineticText
 - ✅ LogoReveal
 - ✅ Slideshow
@@ -1050,18 +1122,21 @@ The cursor system enables hover detection, cursor type changes, and click animat
 ### 🎯 Recommended Patterns (Choose Best Fit)
 
 **1. Ultimate Pattern: `createInteractiveComposition()` + `InteractiveCard`** ⭐ **BEST**
+
 - **80% code reduction** vs manual pattern (145 lines vs 729 lines)
 - Zero boilerplate - automatic cursor history, track setup, CameraHost wrapping
 - Pre-built card components with animation variants
 - See: `ModernPlayground.tsx`
 
 **2. Helper Hook Pattern: `useInteractiveComponent()` + `InteractiveCard`**
+
 - **76% code reduction** vs manual pattern (177 lines vs 729 lines)
 - Automatic cursor type management with reactivity
 - Pre-built card components
 - See: `SimplifiedPlayground.tsx`
 
 **3. Manual Registration Pattern** — ⚠️ **REMOVED**
+
 - Legacy manual pattern (729 lines) has been removed from codebase
 - Was verbose, error-prone, and required deep knowledge of system internals
 - Use modern patterns (#1 or #2) instead for all new code
@@ -1072,25 +1147,38 @@ The cursor system enables hover detection, cursor type changes, and click animat
 
 ```tsx
 import { createInteractiveComposition } from "@/remotion/hooks/createInteractiveComposition";
-import { useInteractiveComponent, AnimationPresets } from "@/remotion/hooks/useInteractiveComponent";
+import {
+  useInteractiveComponent,
+  AnimationPresets,
+} from "@/remotion/hooks/useInteractiveComponent";
 import { InteractiveCardVariants } from "@/remotion/ui-components/InteractiveCard";
 
 export const MyComp = createInteractiveComposition<MyCompProps>({
   fallbackTracks: FALLBACK_TRACKS,
-  
+
   render: ({ cursorHistory, registerForCursor }, props) => {
     // One line per interactive element!
     const card = useInteractiveComponent({
-      id: "card", elementType: "Card", label: "My Card",
-      compositionId: "my-comp", zone: { x: 100, y: 100, width: 200, height: 150 },
-      cursorHistory, interactiveElementType: "card",
+      id: "card",
+      elementType: "Card",
+      label: "My Card",
+      compositionId: "my-comp",
+      zone: { x: 100, y: 100, width: 200, height: 150 },
+      cursorHistory,
+      interactiveElementType: "card",
       hoverAnimation: AnimationPresets.scaleHover(0.15),
     });
-    
+
     registerForCursor(card); // Automatic cursor aggregation
-    
+
     // One line to render!
-    return InteractiveCardVariants.scale(card, "📐", "Card Title", "Description", "99, 102, 241");
+    return InteractiveCardVariants.scale(
+      card,
+      "📐",
+      "Card Title",
+      "Description",
+      "99, 102, 241",
+    );
   },
 });
 ```
@@ -1100,22 +1188,26 @@ export const MyComp = createInteractiveComposition<MyCompProps>({
 ### Component APIs
 
 **`createInteractiveComposition(config)`** - Composition wrapper
+
 - Automatically sets up: cursor history, track finding, cursor aggregation, CameraHost
 - Config: `{ fallbackTracks, render, cursorHistorySize? }`
 - Render receives: `{ cursorHistory, tracks, registerForCursor }`
 - Returns: React component ready to export
 
 **`useInteractiveComponent(options)`** - One-line element registration
+
 - Handles: hover detection, cursor types, animation storage, sidebar registration
 - Fully reactive to cursor type changes in UI
 - Returns: `{ hover, click, combinedProgress, zone, cursorType }`
 
 **`InteractiveCard`** - Reusable animated card component
+
 - Props: `state, icon, title, description, accentColor`
 - Optional: `customTransform, customBoxShadow, customFilter, customBackground`
 - Eliminates 20-30 lines of styling per card
 
 **`InteractiveCardVariants`** - Pre-built animation patterns
+
 - `.scale(state, icon, title, desc, color)` - Scale on hover
 - `.rotate(state, icon, title, desc, color)` - 3D rotate on click
 - `.lift(state, icon, title, desc, color)` - Lift with shadow
@@ -1128,18 +1220,21 @@ export const MyComp = createInteractiveComposition<MyCompProps>({
 ### Architecture
 
 **Storage** (`CurrentElementContext`)
+
 - `getCursorType(compositionId, elementType)` — Reads from localStorage
 - `setCursorType(compositionId, elementType, cursorType)` — Saves override
 - `deleteCursorType(compositionId, elementType)` — Resets to inferred
 - Storage key: `"videos-element-cursor-types"` (JSON map)
 
 **Priority System** (highest to lowest):
+
 1. **Stored cursor type** — User override from Properties panel
 2. **Explicit cursorType** — Passed to hook/component
 3. **Inferred from element type** — `getCursorTypeForElement(type)`
 4. **Default** — `"pointer"`
 
 **Cursor Rendering** (`CameraHost` + `Cursor`)
+
 - `CameraHost` renders `<Cursor>` component from cursor track
 - `autoCursorType` prop overrides cursor appearance based on hover zones
 - `useCursorTypeFromHover()` aggregates hover states (last hovered wins)
@@ -1149,9 +1244,10 @@ export const MyComp = createInteractiveComposition<MyCompProps>({
 **⚠️ The legacy manual pattern has been completely removed from the codebase.**
 
 The old manual registration pattern required:
+
 - 6-8 imports per composition
 - Manual `getCursorType()` calls for reactive cursor types
-- Manual `useHoverAnimationSmooth()` + `useRegisterInteractiveElement()` for each element  
+- Manual `useHoverAnimationSmooth()` + `useRegisterInteractiveElement()` for each element
 - Manual cursor type aggregation with `useCursorTypeFromHover()`
 - Manual `<CameraHost>` wrapper
 
@@ -1178,13 +1274,13 @@ interface HoverZone {
   width: number;
   height: number;
   padding?: number;
-  cursorType?: CursorType;  // ← Pass here for reactive cursor
+  cursorType?: CursorType; // ← Pass here for reactive cursor
 }
 
 interface HoverAnimationResult {
   isHovering: boolean;
   hoverProgress: number;
-  desiredCursorType?: CursorType;  // ← Read by useCursorTypeFromHover
+  desiredCursorType?: CursorType; // ← Read by useCursorTypeFromHover
   // ... other fields
 }
 ```
@@ -1192,6 +1288,7 @@ interface HoverAnimationResult {
 ### Integration Checklist
 
 **When adding interactive elements:**
+
 - [ ] **Preferred:** Use `createInteractiveComposition()` + `useInteractiveComponent()` + `InteractiveCard`
 - [ ] Create cards with `InteractiveCardVariants` for standard patterns
 - [ ] Register components with `registerForCursor()` (automatic aggregation)
@@ -1199,6 +1296,7 @@ interface HoverAnimationResult {
 - [ ] Test: hover element → change cursor type in UI → verify preview updates
 
 **Only if you need custom rendering:**
+
 - [ ] Use `useInteractiveComponent()` directly with custom JSX
 - [ ] Aggregate with `useInteractiveComponentsCursor()`
 - [ ] Pass `autoCursorType` to `<CameraHost>`
@@ -1206,6 +1304,7 @@ interface HoverAnimationResult {
 **Avoid manual pattern unless maintaining legacy code.**
 
 **See also:**
+
 - `ModernPlayground.tsx` — Ultimate pattern example (145 lines, 80% reduction)
 - `SimplifiedPlayground.tsx` — Helper hook pattern example (177 lines, 76% reduction)
 
@@ -1216,31 +1315,37 @@ interface HoverAnimationResult {
 **Before committing any composition or UI component, verify:**
 
 ### Animation System
+
 - [ ] **No hardcoded frame checks** - all timing uses track-based animation (`findTrack` / `trackProgress`)
 - [ ] **Keyframe tracks** use `startFrame === endFrame` for instant state changes
 - [ ] **All animations registered** - every visual change appears in timeline
 
 ### Interactive Components
+
 - [ ] **All clickable elements registered** with `useInteractiveComponent()`
 - [ ] **Zones accurately positioned** - test hover detection in preview
 - [ ] **Elements aggregated** with `registerForCursor()` for cursor type changes
 
 ### Cursor Detection
+
 - [ ] **Cursor tip detection** - `useHoverAnimationSmooth` uses `tipSize = 4` (not full cursor size)
 - [ ] **Applied to both** hover AND click detection
 
 ### CSS Filters
+
 - [ ] **Brightness/contrast/saturate** are unitless: `brightness(${value})` NOT `brightness(${value}%)`
 - [ ] **Blur** uses pixels: `blur(${value}px)`
 - [ ] **Hue-rotate** uses degrees: `hue-rotate(${value}deg)`
 
 ### UI Spacing & Layout
+
 - [ ] **Toolbar gaps**: `gap-3` minimum (12px) for breathing room
 - [ ] **Button padding**: `px-3 py-1.5` minimum for comfortable targets
 - [ ] **Toolbars aligned** to content edges (not floating centered)
 - [ ] **No overlapping elements** - 12px minimum clearance between stacked UI
 
 ### Accordion Animations
+
 - [ ] **Fast chevron rotation** - Use CSS `transition: transform 0.3s` not spring progress
 - [ ] **Content uses spring** - Panel expansion can use spring animation
 - [ ] **Decouple visual states** - Chevron rotation (instant boolean) vs panel height (animated progress)
@@ -1266,6 +1371,7 @@ interface HoverAnimationResult {
 ## Learnings
 
 ### Icons
+
 - **Never use the Sparkles icon** — it is reserved and must not be used anywhere in the UI.
 
 ### Agent Chat Integration
@@ -1273,7 +1379,10 @@ interface HoverAnimationResult {
 To submit a prompt to the agent for code generation, use `@agent-native/core`:
 
 ```typescript
-import { sendToAgentChat, useAgentChatGenerating } from "@agent-native/core/client";
+import {
+  sendToAgentChat,
+  useAgentChatGenerating,
+} from "@agent-native/core/client";
 
 // Auto-submit to the agent
 sendToAgentChat({
@@ -1289,6 +1398,7 @@ const [isGenerating, send] = useAgentChatGenerating();
 ```
 
 From scripts (Node.js context):
+
 ```typescript
 import { agentChat } from "@agent-native/core";
 agentChat.submit("Processing complete", "Optional context...");
@@ -1296,6 +1406,6 @@ agentChat.submit("Processing complete", "Optional context...");
 
 ### Brand Assets
 
-| Asset | Path | Notes |
-|-------|------|-------|
+| Asset                                   | Path                       | Notes                                             |
+| --------------------------------------- | -------------------------- | ------------------------------------------------- |
 | Builder.io logo (white, on transparent) | `/builder-logo-white.webp` | Use when users request Builder.io logo animations |

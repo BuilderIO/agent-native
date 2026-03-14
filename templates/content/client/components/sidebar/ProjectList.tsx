@@ -56,7 +56,7 @@ interface FolderNode {
 function buildFolderTree(
   folders: string[],
   projects: Project[],
-  sortMode: "recent" | "alpha"
+  sortMode: "recent" | "alpha",
 ): { rootProjects: Project[]; folderNodes: FolderNode[] } {
   // Projects without a folder go at root
   const rootProjects = projects.filter((p) => !p.folder);
@@ -97,7 +97,10 @@ function buildFolderTree(
   const sortProjects = (list: Project[]) =>
     [...list].sort((a, b) => {
       if (sortMode === "alpha") return a.name.localeCompare(b.name);
-      return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+      return (
+        new Date(b.updatedAt || 0).getTime() -
+        new Date(a.updatedAt || 0).getTime()
+      );
     });
 
   for (const node of nodeMap.values()) {
@@ -107,7 +110,7 @@ function buildFolderTree(
 
   // Get top-level folder nodes (no "/" in path)
   const topLevelFolders = Array.from(nodeMap.values()).filter(
-    (n) => !n.path.includes("/")
+    (n) => !n.path.includes("/"),
   );
   topLevelFolders.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -139,7 +142,10 @@ export function ProjectList({
       // No folders - just sort and return all as root
       const sorted = [...filtered].sort((a, b) => {
         if (sortMode === "alpha") return a.name.localeCompare(b.name);
-        return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+        return (
+          new Date(b.updatedAt || 0).getTime() -
+          new Date(a.updatedAt || 0).getTime()
+        );
       });
       return { rootProjects: sorted, folderNodes: [] };
     }
@@ -236,7 +242,7 @@ function FolderTreeNode({
           size={12}
           className={cn(
             "shrink-0 transition-transform duration-150",
-            !expanded && "-rotate-90"
+            !expanded && "-rotate-90",
           )}
         />
         {expanded ? (
@@ -332,7 +338,7 @@ function ProjectItem({
         "w-full flex items-center justify-between py-1 rounded-[4px] text-left group transition-colors cursor-pointer pr-2",
         isActive
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+          : "text-sidebar-foreground hover:bg-sidebar-accent/60",
       )}
       style={{ paddingLeft: paddingLeft + 14 }}
     >
@@ -340,7 +346,9 @@ function ProjectItem({
         <FileText size={14} className="text-sidebar-muted shrink-0" />
         <span className="text-[13px] truncate">{project.name}</span>
         {project.isPrivate && (
-          <span title="Private project"><Lock size={11} className="text-sidebar-muted shrink-0" /></span>
+          <span title="Private project">
+            <Lock size={11} className="text-sidebar-muted shrink-0" />
+          </span>
         )}
       </div>
 
@@ -351,16 +359,27 @@ function ProjectItem({
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <button
-              onClick={(e) => { e.stopPropagation(); setMenuOpen(true); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuOpen(true);
+              }}
               className="p-0.5 rounded text-sidebar-muted hover:text-sidebar-accent-foreground hover:bg-sidebar-accent transition-colors"
               title="Project options"
             >
               <MoreHorizontal size={13} />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44" onClick={(e) => e.stopPropagation()}>
+          <DropdownMenuContent
+            align="end"
+            className="w-44"
+            onClick={(e) => e.stopPropagation()}
+          >
             <DropdownMenuItem
-              onClick={(e) => { e.stopPropagation(); setMenuOpen(false); setMoveOpen(true); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuOpen(false);
+                setMoveOpen(true);
+              }}
               className="gap-2"
             >
               <ArrowRightLeft size={13} className="shrink-0" />
@@ -407,7 +426,8 @@ function ProjectItem({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete project?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete "{project.name}" and all its contents.
+              This will permanently delete "{project.name}" and all its
+              contents.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

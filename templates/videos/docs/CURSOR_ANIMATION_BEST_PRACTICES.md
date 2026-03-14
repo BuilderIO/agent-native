@@ -12,15 +12,18 @@ Every visual change MUST be visible in one of these ways:
 ### Important Distinction: Tracks vs. Cursor-Driven Changes
 
 **Use Animation Tracks for:**
+
 - Continuous animations over multiple frames (camera zoom, cursor movement, fade in/out)
 - Animations that happen at specific times regardless of cursor
 
 **Use Cursor Interactions for:**
+
 - State changes triggered by cursor position (hover effects)
 - State changes triggered by cursor clicks (button press, form submit)
 - Visual responses to user interaction
 
 ### ❌ BAD: Hardcoded State Change
+
 ```typescript
 // Hidden logic - user can't see when/why button changes!
 const isSending = frame >= 276;
@@ -28,15 +31,18 @@ const buttonShape = isSending ? "square" : "circle";
 ```
 
 ### ✅ GOOD: Cursor-Driven State Change
+
 ```typescript
 // Button morphs when cursor clicks it (visible in cursor track keyframes)
-const sendButtonClickFrame = clickProp?.keyframes?.find(kf =>
-  kf.frame >= 270 && kf.frame <= 275 && kf.value === "1"
-)?.frame || 0;
+const sendButtonClickFrame =
+  clickProp?.keyframes?.find(
+    (kf) => kf.frame >= 270 && kf.frame <= 275 && kf.value === "1",
+  )?.frame || 0;
 
-const morphProgress = sendButtonClickFrame > 0 && frame >= sendButtonClickFrame
-  ? Math.min(1, (frame - sendButtonClickFrame) / 12)
-  : 0;
+const morphProgress =
+  sendButtonClickFrame > 0 && frame >= sendButtonClickFrame
+    ? Math.min(1, (frame - sendButtonClickFrame) / 12)
+    : 0;
 ```
 
 **Why this is better:** The state change is driven by the cursor click keyframe (visible in timeline), not a hardcoded frame number or separate track.
@@ -46,10 +52,13 @@ const morphProgress = sendButtonClickFrame > 0 && frame >= sendButtonClickFrame
 ## 🎯 The Three Critical Cursor Rules
 
 ### 1. Cursor Position/Movement = Tracks (Registry)
+
 ### 2. Cursor Type Changes = Hover Zones (Component)
+
 ### 3. All Interactive UI Elements = Registered for Cursor Interactions
 
 **Every button, input, link, card, or clickable element should be registered as interactive**, even if not immediately animated. This:
+
 - Makes elements discoverable in timeline
 - Enables adding animations later without code changes
 - Provides consistent interaction patterns
@@ -62,6 +71,7 @@ See: [Interactive Elements Guide](./INTERACTIVE_ELEMENTS_GUIDE.md) for complete 
 ## Rule 1: Cursor Position Must Be Defined as Tracks
 
 **❌ NEVER DO THIS:**
+
 ```typescript
 // DON'T hardcode cursor position in component
 const cursorX = interpolate(frame, [0, 100], [0, 1920]);
@@ -75,6 +85,7 @@ return (
 ```
 
 **✅ ALWAYS DO THIS:**
+
 ```typescript
 // In registry.ts - define cursor track
 {
@@ -108,6 +119,7 @@ return (
 ```
 
 **Why tracks?**
+
 - ✅ Editable in timeline UI
 - ✅ Visual representation of movement
 - ✅ Copy/paste between compositions
@@ -118,6 +130,7 @@ return (
 ## Rule 2: Cursor Type Must Be Determined by Hover Zones
 
 **❌ NEVER DO THIS:**
+
 ```typescript
 // DON'T manually keyframe cursor type changes
 {
@@ -131,6 +144,7 @@ return (
 ```
 
 **✅ ALWAYS DO THIS:**
+
 ```typescript
 // In component.tsx - define hover zones
 const cursorHistory = useCursorHistory(cursorTrack, 6);
@@ -162,6 +176,7 @@ const autoCursorType = useCursorTypeFromHover([
 ```
 
 **Why hover zones?**
+
 - ✅ Cursor automatically changes when hovering buttons/inputs
 - ✅ Works even if you change cursor path
 - ✅ Realistic browser behavior
@@ -283,7 +298,7 @@ export const FusionInputBox: React.FC = ({ tracks = [] }) => {
 
 **STEP 6: Remove old cursor imports**
 
-```typescript
+````typescript
 // Remove manual Cursor rendering:
 // import { Cursor } from "@/remotion/ui-components/Cursor";
 
@@ -292,3 +307,4 @@ import { useCursorHistory } from "@/remotion/hooks/useCursorHistory";
 import { useHoverAnimationSmooth } from "@/remotion/hooks/useHoverAnimationSmooth";
 import { useCursorTypeFromHover } from "@/remotion/hooks/useCursorTypeFromHover";
 ```"}
+````

@@ -6,11 +6,16 @@
 const scriptName = process.argv[2];
 if (!scriptName) {
   console.error("Usage: pnpm script <script-name> [--args]");
-  console.error("Available scripts: sync-google-calendar, create-event, list-events, check-availability");
+  console.error(
+    "Available scripts: sync-google-calendar, create-event, list-events, check-availability",
+  );
   process.exit(1);
 }
 
-const scripts: Record<string, () => Promise<{ default: (args: string[]) => Promise<void> }>> = {
+const scripts: Record<
+  string,
+  () => Promise<{ default: (args: string[]) => Promise<void> }>
+> = {
   "sync-google-calendar": () => import("./sync-google-calendar.js"),
   "create-event": () => import("./create-event.js"),
   "list-events": () => import("./list-events.js"),

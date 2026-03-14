@@ -15,7 +15,16 @@ import { AppLayout } from "@/components/layout/AppLayout";
 const queryClient = new QueryClient();
 
 function FileWatcherSetup() {
-  useFileWatcher({ queryClient, queryKeys: ["events", "bookings", "availability", "settings", "google-status"] });
+  useFileWatcher({
+    queryClient,
+    queryKeys: [
+      "events",
+      "bookings",
+      "availability",
+      "settings",
+      "google-status",
+    ],
+  });
   return null;
 }
 
@@ -28,10 +37,38 @@ const App = () => (
         {/* Public booking page - no app layout */}
         <Route path="/book/:slug" element={<BookingPage />} />
         {/* App routes with layout */}
-        <Route path="/" element={<AppLayout><CalendarView /></AppLayout>} />
-        <Route path="/settings" element={<AppLayout><Settings /></AppLayout>} />
-        <Route path="/availability" element={<AppLayout><AvailabilitySettings /></AppLayout>} />
-        <Route path="/bookings" element={<AppLayout><BookingsList /></AppLayout>} />
+        <Route
+          path="/"
+          element={
+            <AppLayout>
+              <CalendarView />
+            </AppLayout>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <AppLayout>
+              <Settings />
+            </AppLayout>
+          }
+        />
+        <Route
+          path="/availability"
+          element={
+            <AppLayout>
+              <AvailabilitySettings />
+            </AppLayout>
+          }
+        />
+        <Route
+          path="/bookings"
+          element={
+            <AppLayout>
+              <BookingsList />
+            </AppLayout>
+          }
+        />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>

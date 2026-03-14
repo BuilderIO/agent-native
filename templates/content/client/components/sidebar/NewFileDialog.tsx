@@ -113,10 +113,7 @@ export function NewFileDialog({
             >
               Cancel
             </Button>
-            <Button
-              type="submit"
-              disabled={!name.trim() || isCreating}
-            >
+            <Button type="submit" disabled={!name.trim() || isCreating}>
               {isCreating ? "Creating..." : "Create"}
             </Button>
           </DialogFooter>

@@ -2,7 +2,10 @@ import { RequestHandler } from "express";
 import fs from "fs";
 import path from "path";
 
-const CONFIG_DIR = path.join(import.meta.dirname, "../../data/explorer-configs");
+const CONFIG_DIR = path.join(
+  import.meta.dirname,
+  "../../data/explorer-configs",
+);
 
 function ensureDir() {
   if (!fs.existsSync(CONFIG_DIR)) {
@@ -17,7 +20,11 @@ export const listExplorerConfigs: RequestHandler = (_req, res) => {
     const configs = files.map((f) => {
       const raw = fs.readFileSync(path.join(CONFIG_DIR, f), "utf8");
       const data = JSON.parse(raw);
-      return { id: f.replace(".json", ""), name: data.name ?? f.replace(".json", ""), ...data };
+      return {
+        id: f.replace(".json", ""),
+        name: data.name ?? f.replace(".json", ""),
+        ...data,
+      };
     });
     res.json({ configs });
   } catch (err: any) {

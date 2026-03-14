@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Save, 
-  X, 
+import {
+  Save,
+  X,
   CheckCircle2,
   AlertCircle,
   Plus,
@@ -15,7 +15,7 @@ import {
   Code,
   FileText,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
 } from "lucide-react";
 import { getIdToken } from "@/lib/auth";
 import { toast } from "sonner";
@@ -37,8 +37,12 @@ interface TableMapping {
   notes: string;
 }
 
-async function fetchInstructionContent(path: string): Promise<InstructionContent> {
-  const response = await fetch(`/api/ai-instructions/get?path=${encodeURIComponent(path)}`);
+async function fetchInstructionContent(
+  path: string,
+): Promise<InstructionContent> {
+  const response = await fetch(
+    `/api/ai-instructions/get?path=${encodeURIComponent(path)}`,
+  );
 
   if (!response.ok) {
     throw new Error("Failed to fetch instruction content");
@@ -47,7 +51,10 @@ async function fetchInstructionContent(path: string): Promise<InstructionContent
   return response.json();
 }
 
-async function saveInstructionContent(path: string, content: string): Promise<void> {
+async function saveInstructionContent(
+  path: string,
+  content: string,
+): Promise<void> {
   const token = await getIdToken();
   const response = await fetch("/api/ai-instructions/save", {
     method: "POST",
@@ -81,17 +88,27 @@ async function checkCanEdit(): Promise<{ canEdit: boolean; email: string }> {
 
 function parseTableMappings(content: string): TableMapping[] {
   const mappings: TableMapping[] = [];
-  
+
   // Find the General Table Usage Guidelines section
-  const guidelineMatch = content.match(/## General Table Usage Guidelines\n\n\*\*Always use these canonical tables.*?\n\n([\s\S]*?)(?=\n\*\*Schema preferences|\n##|$)/);
-  
+  const guidelineMatch = content.match(
+    /## General Table Usage Guidelines\n\n\*\*Always use these canonical tables.*?\n\n([\s\S]*?)(?=\n\*\*Schema preferences|\n##|$)/,
+  );
+
   if (!guidelineMatch) return mappings;
-  
+
   const tableSection = guidelineMatch[1];
-  const rows = tableSection.split('\n').filter(row => row.trim() && !row.includes('|---|') && !row.includes('Use Case |'));
-  
+  const rows = tableSection
+    .split("\n")
+    .filter(
+      (row) =>
+        row.trim() && !row.includes("|---|") && !row.includes("Use Case |"),
+    );
+
   for (const row of rows) {
-    const parts = row.split('|').map(p => p.trim()).filter(p => p);
+    const parts = row
+      .split("|")
+      .map((p) => p.trim())
+      .filter((p) => p);
     if (parts.length === 4) {
       mappings.push({
         useCase: parts[0],
@@ -101,27 +118,31 @@ function parseTableMappings(content: string): TableMapping[] {
       });
     }
   }
-  
+
   return mappings;
 }
 
 function generateTableMappingsMarkdown(mappings: TableMapping[]): string {
-  if (mappings.length === 0) return '';
-  
-  let markdown = '## General Table Usage Guidelines\n\n**Always use these canonical tables for specific use cases:**\n\n';
-  markdown += '| Use Case | Table to Use | Key Columns | Notes |\n';
-  markdown += '|---|---|---|---|\n';
-  
+  if (mappings.length === 0) return "";
+
+  let markdown =
+    "## General Table Usage Guidelines\n\n**Always use these canonical tables for specific use cases:**\n\n";
+  markdown += "| Use Case | Table to Use | Key Columns | Notes |\n";
+  markdown += "|---|---|---|---|\n";
+
   for (const mapping of mappings) {
     markdown += `| ${mapping.useCase} | \`${mapping.table}\` | ${mapping.keyColumns} | ${mapping.notes} |\n`;
   }
-  
-  markdown += '\n**Schema preferences:**\n';
-  markdown += '- Use `dbt_mart.*` for business-level queries (deals, contracts, subscriptions, customers)\n';
-  markdown += '- Use `dbt_staging_bigquery.*` for raw event data (pageviews, signups)\n';
-  markdown += '- Use `dbt_analytics.*` for reporting views\n';
-  markdown += '- **Avoid `dbt_dev.*`** - development schema excluded globally\n\n';
-  
+
+  markdown += "\n**Schema preferences:**\n";
+  markdown +=
+    "- Use `dbt_mart.*` for business-level queries (deals, contracts, subscriptions, customers)\n";
+  markdown +=
+    "- Use `dbt_staging_bigquery.*` for raw event data (pageviews, signups)\n";
+  markdown += "- Use `dbt_analytics.*` for reporting views\n";
+  markdown +=
+    "- **Avoid `dbt_dev.*`** - development schema excluded globally\n\n";
+
   return markdown;
 }
 
@@ -144,10 +165,11 @@ export function AIInstructionsEditor() {
 
   const canEdit = permissionData?.canEdit ?? false;
 
-  const { data: contentData, isLoading: isLoadingContent } = useQuery<InstructionContent>({
-    queryKey: ["ai-instruction-content", bigqueryPath],
-    queryFn: () => fetchInstructionContent(bigqueryPath),
-  });
+  const { data: contentData, isLoading: isLoadingContent } =
+    useQuery<InstructionContent>({
+      queryKey: ["ai-instruction-content", bigqueryPath],
+      queryFn: () => fetchInstructionContent(bigqueryPath),
+    });
 
   useEffect(() => {
     if (contentData) {
@@ -163,7 +185,9 @@ export function AIInstructionsEditor() {
     onSuccess: () => {
       toast.success("BigQuery instructions saved successfully");
       setHasChanges(false);
-      queryClient.invalidateQueries({ queryKey: ["ai-instruction-content", bigqueryPath] });
+      queryClient.invalidateQueries({
+        queryKey: ["ai-instruction-content", bigqueryPath],
+      });
     },
     onError: (error: Error) => {
       toast.error(`Failed to save: ${error.message}`);
@@ -179,14 +203,17 @@ export function AIInstructionsEditor() {
     if (viewMode === "structured") {
       // Rebuild content with updated table mappings
       const newGuidelines = generateTableMappingsMarkdown(tableMappings);
-      
+
       // Replace the guidelines section in the content
       const contentWithoutGuidelines = editedContent.replace(
         /## General Table Usage Guidelines[\s\S]*?(?=\n## Table Map|$)/,
-        newGuidelines
+        newGuidelines,
       );
-      
-      saveMutation.mutate({ path: bigqueryPath, content: contentWithoutGuidelines });
+
+      saveMutation.mutate({
+        path: bigqueryPath,
+        content: contentWithoutGuidelines,
+      });
     } else {
       saveMutation.mutate({ path: bigqueryPath, content: editedContent });
     }
@@ -201,11 +228,18 @@ export function AIInstructionsEditor() {
   };
 
   const handleAddMapping = () => {
-    setTableMappings([...tableMappings, { useCase: "", table: "", keyColumns: "", notes: "" }]);
+    setTableMappings([
+      ...tableMappings,
+      { useCase: "", table: "", keyColumns: "", notes: "" },
+    ]);
     setHasChanges(true);
   };
 
-  const handleUpdateMapping = (index: number, field: keyof TableMapping, value: string) => {
+  const handleUpdateMapping = (
+    index: number,
+    field: keyof TableMapping,
+    value: string,
+  ) => {
     const updated = [...tableMappings];
     updated[index][field] = value;
     setTableMappings(updated);
@@ -271,12 +305,17 @@ export function AIInstructionsEditor() {
       {viewMode === "structured" ? (
         <div className="space-y-4">
           {/* Table Usage Guidelines Section */}
-          <Collapsible open={isGuidelinesOpen} onOpenChange={setIsGuidelinesOpen}>
+          <Collapsible
+            open={isGuidelinesOpen}
+            onOpenChange={setIsGuidelinesOpen}
+          >
             <Card>
               <CollapsibleTrigger className="w-full">
                 <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">Table Usage Guidelines</CardTitle>
+                    <CardTitle className="text-base">
+                      Table Usage Guidelines
+                    </CardTitle>
                     {isGuidelinesOpen ? (
                       <ChevronDown className="h-4 w-4 text-muted-foreground" />
                     ) : (
@@ -292,7 +331,11 @@ export function AIInstructionsEditor() {
                       Define which tables to use for specific use cases
                     </p>
                     {canEdit && (
-                      <Button size="sm" variant="outline" onClick={handleAddMapping}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleAddMapping}
+                      >
                         <Plus className="h-3.5 w-3.5 mr-1.5" />
                         Add Mapping
                       </Button>
@@ -310,7 +353,13 @@ export function AIInstructionsEditor() {
                               </label>
                               <Input
                                 value={mapping.useCase}
-                                onChange={(e) => handleUpdateMapping(index, "useCase", e.target.value)}
+                                onChange={(e) =>
+                                  handleUpdateMapping(
+                                    index,
+                                    "useCase",
+                                    e.target.value,
+                                  )
+                                }
                                 placeholder="e.g., Customer contracts"
                                 className="h-9 text-sm"
                                 disabled={!canEdit}
@@ -322,7 +371,13 @@ export function AIInstructionsEditor() {
                               </label>
                               <Input
                                 value={mapping.table}
-                                onChange={(e) => handleUpdateMapping(index, "table", e.target.value)}
+                                onChange={(e) =>
+                                  handleUpdateMapping(
+                                    index,
+                                    "table",
+                                    e.target.value,
+                                  )
+                                }
                                 placeholder="e.g., dbt_mart.dim_contracts"
                                 className="h-9 text-sm font-mono"
                                 disabled={!canEdit}
@@ -336,7 +391,13 @@ export function AIInstructionsEditor() {
                               </label>
                               <Input
                                 value={mapping.keyColumns}
-                                onChange={(e) => handleUpdateMapping(index, "keyColumns", e.target.value)}
+                                onChange={(e) =>
+                                  handleUpdateMapping(
+                                    index,
+                                    "keyColumns",
+                                    e.target.value,
+                                  )
+                                }
                                 placeholder="e.g., contract_id, company_id, start_date"
                                 className="h-9 text-sm"
                                 disabled={!canEdit}
@@ -349,7 +410,13 @@ export function AIInstructionsEditor() {
                                 </label>
                                 <Input
                                   value={mapping.notes}
-                                  onChange={(e) => handleUpdateMapping(index, "notes", e.target.value)}
+                                  onChange={(e) =>
+                                    handleUpdateMapping(
+                                      index,
+                                      "notes",
+                                      e.target.value,
+                                    )
+                                  }
                                   placeholder="e.g., Canonical source for all contract data"
                                   className="h-9 text-sm"
                                   disabled={!canEdit}
@@ -375,7 +442,8 @@ export function AIInstructionsEditor() {
 
                     {tableMappings.length === 0 && (
                       <div className="text-center py-8 text-muted-foreground text-sm">
-                        No table mappings defined yet. Click "Add Mapping" to create one.
+                        No table mappings defined yet. Click "Add Mapping" to
+                        create one.
                       </div>
                     )}
                   </div>
@@ -391,9 +459,12 @@ export function AIInstructionsEditor() {
                 <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle className="text-base">Complete Documentation</CardTitle>
+                      <CardTitle className="text-base">
+                        Complete Documentation
+                      </CardTitle>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Full SKILL.md content including table map, SQL patterns, and gotchas
+                        Full SKILL.md content including table map, SQL patterns,
+                        and gotchas
                       </p>
                     </div>
                     {isTableMapOpen ? (
@@ -437,7 +508,10 @@ export function AIInstructionsEditor() {
       {canEdit && (
         <div className="border-t pt-4 flex items-center justify-between gap-3 sticky bottom-0 bg-background pb-4">
           <p className="text-xs text-muted-foreground">
-            Changes are saved to <code className="bg-muted px-1.5 py-0.5 rounded">{bigqueryPath}</code>
+            Changes are saved to{" "}
+            <code className="bg-muted px-1.5 py-0.5 rounded">
+              {bigqueryPath}
+            </code>
           </p>
           <div className="flex items-center gap-2">
             {hasChanges && (
@@ -476,7 +550,8 @@ export function AIInstructionsEditor() {
       {!canEdit && (
         <div className="border-t pt-4 bg-background pb-4">
           <p className="text-xs text-muted-foreground text-center">
-            You don't have permission to edit AI instructions. Contact an admin or analytics team member for access.
+            You don't have permission to edit AI instructions. Contact an admin
+            or analytics team member for access.
           </p>
         </div>
       )}

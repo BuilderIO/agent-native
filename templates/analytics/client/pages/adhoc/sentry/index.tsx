@@ -136,11 +136,7 @@ export default function SentryDashboard() {
         />
         <StatCard
           label="Accepted Errors"
-          value={
-            rateTotal
-              ? formatLargeNumber(rateTotal.accepted)
-              : "-"
-          }
+          value={rateTotal ? formatLargeNumber(rateTotal.accepted) : "-"}
           loading={statsLoading}
         />
       </div>

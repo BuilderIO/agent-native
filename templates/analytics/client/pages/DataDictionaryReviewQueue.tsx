@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Layout } from "@/components/layout/Layout";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +16,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getIdToken } from "@/lib/auth";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CheckCircle, XCircle, Edit, User, Calendar, TrendingUp, Database, MessageSquare, ExternalLink, FileText } from "lucide-react";
+import {
+  CheckCircle,
+  XCircle,
+  Edit,
+  User,
+  Calendar,
+  TrendingUp,
+  Database,
+  MessageSquare,
+  ExternalLink,
+  FileText,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface MetricSuggestion {
@@ -42,9 +59,13 @@ async function fetchNewMetrics(): Promise<ReviewQueueResponse> {
 }
 
 export default function DataDictionaryReviewQueue() {
-  const [activeTab, setActiveTab] = useState<"pending" | "approved" | "rejected">("pending");
+  const [activeTab, setActiveTab] = useState<
+    "pending" | "approved" | "rejected"
+  >("pending");
   const [editingMetric, setEditingMetric] = useState<string | null>(null);
-  const [editedValues, setEditedValues] = useState<Record<string, { definition: string; table: string }>>({});
+  const [editedValues, setEditedValues] = useState<
+    Record<string, { definition: string; table: string }>
+  >({});
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -55,7 +76,15 @@ export default function DataDictionaryReviewQueue() {
   });
 
   const approveMutation = useMutation({
-    mutationFn: async ({ metricName, definition, table }: { metricName: string; definition: string; table: string }) => {
+    mutationFn: async ({
+      metricName,
+      definition,
+      table,
+    }: {
+      metricName: string;
+      definition: string;
+      table: string;
+    }) => {
       const token = await getIdToken();
       const response = await fetch("/api/data-dictionary/approve-suggestion", {
         method: "POST",
@@ -67,7 +96,9 @@ export default function DataDictionaryReviewQueue() {
       });
 
       if (!response.ok) {
-        const body = await response.json().catch(() => ({ error: "Unknown error" }));
+        const body = await response
+          .json()
+          .catch(() => ({ error: "Unknown error" }));
         throw new Error(body.error || "Failed to approve metric");
       }
 
@@ -207,7 +238,10 @@ export default function DataDictionaryReviewQueue() {
                 const editedData = editedValues[suggestion.metricName];
 
                 return (
-                  <Card key={suggestion.metricName} className="border-orange-500/30">
+                  <Card
+                    key={suggestion.metricName}
+                    className="border-orange-500/30"
+                  >
                     <CardHeader>
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1">
@@ -238,8 +272,8 @@ export default function DataDictionaryReviewQueue() {
                             suggestion.validationRating === "accurate"
                               ? "border-green-500 text-green-600 dark:text-green-400"
                               : suggestion.validationRating === "needs_review"
-                              ? "border-red-500 text-red-600 dark:text-red-400"
-                              : "border-yellow-500 text-yellow-600 dark:text-yellow-400"
+                                ? "border-red-500 text-red-600 dark:text-red-400"
+                                : "border-yellow-500 text-yellow-600 dark:text-yellow-400"
                           }
                         >
                           {suggestion.validationRating.replace("_", " ")}
@@ -327,7 +361,11 @@ export default function DataDictionaryReviewQueue() {
                               <CheckCircle className="h-4 w-4 mr-1.5" />
                               Save & Approve
                             </Button>
-                            <Button size="sm" variant="outline" onClick={handleCancelEdit}>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={handleCancelEdit}
+                            >
                               Cancel
                             </Button>
                           </>
@@ -342,11 +380,19 @@ export default function DataDictionaryReviewQueue() {
                               <CheckCircle className="h-4 w-4 mr-1.5" />
                               Approve & Add to Notion
                             </Button>
-                            <Button size="sm" variant="outline" onClick={() => handleEdit(suggestion)}>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleEdit(suggestion)}
+                            >
                               <Edit className="h-4 w-4 mr-1.5" />
                               Edit Definition
                             </Button>
-                            <Button size="sm" variant="outline" className="text-destructive hover:text-destructive">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-destructive hover:text-destructive"
+                            >
                               <XCircle className="h-4 w-4 mr-1.5" />
                               Reject
                             </Button>

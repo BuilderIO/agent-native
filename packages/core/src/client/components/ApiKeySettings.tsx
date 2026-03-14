@@ -17,13 +17,18 @@ interface ApiKeySettingsProps {
  * and lets users enter missing ones. Fetches from /api/env-status
  * and saves via POST /api/env-vars.
  */
-export function ApiKeySettings({ settingsPath: _settingsPath = "/settings" }: ApiKeySettingsProps) {
+export function ApiKeySettings({
+  settingsPath: _settingsPath = "/settings",
+}: ApiKeySettingsProps) {
   const [keys, setKeys] = useState<EnvKeyStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [saveResult, setSaveResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [saveResult, setSaveResult] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -36,7 +41,9 @@ export function ApiKeySettings({ settingsPath: _settingsPath = "/settings" }: Ap
       const data: EnvKeyStatus[] = await res.json();
       setKeys(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load API key status");
+      setError(
+        err instanceof Error ? err.message : "Failed to load API key status",
+      );
     } finally {
       setLoading(false);
     }
@@ -74,7 +81,10 @@ export function ApiKeySettings({ settingsPath: _settingsPath = "/settings" }: Ap
       }
 
       const data = await res.json();
-      setSaveResult({ ok: true, message: `Saved ${data.saved?.length ?? 0} key(s)` });
+      setSaveResult({
+        ok: true,
+        message: `Saved ${data.saved?.length ?? 0} key(s)`,
+      });
       setValues({});
       // Refresh status
       await fetchStatus();
@@ -88,7 +98,9 @@ export function ApiKeySettings({ settingsPath: _settingsPath = "/settings" }: Ap
     }
   };
 
-  const pendingCount = Object.values(values).filter((v) => v.trim() !== "").length;
+  const pendingCount = Object.values(values).filter(
+    (v) => v.trim() !== "",
+  ).length;
 
   if (loading) {
     return (
@@ -134,7 +146,9 @@ export function ApiKeySettings({ settingsPath: _settingsPath = "/settings" }: Ap
                   <span style={styles.unconfiguredDot}>&#9679;</span>
                 )}
                 {k.label}
-                {k.required && <span style={styles.requiredBadge}>required</span>}
+                {k.required && (
+                  <span style={styles.requiredBadge}>required</span>
+                )}
               </span>
               <span style={styles.keyName}>{k.key}</span>
             </div>
@@ -164,7 +178,9 @@ export function ApiKeySettings({ settingsPath: _settingsPath = "/settings" }: Ap
               cursor: saving || pendingCount === 0 ? "default" : "pointer",
             }}
           >
-            {saving ? "Saving..." : `Save ${pendingCount > 0 ? `(${pendingCount})` : ""}`}
+            {saving
+              ? "Saving..."
+              : `Save ${pendingCount > 0 ? `(${pendingCount})` : ""}`}
           </button>
         </div>
       )}

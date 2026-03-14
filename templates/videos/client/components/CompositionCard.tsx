@@ -20,7 +20,7 @@ export function CompositionCard({
         "flex items-center gap-3 px-2 py-1.5 rounded-lg transition-all group cursor-pointer relative",
         isSelected
           ? "bg-accent/60 ring-1 ring-primary/25"
-          : "bg-transparent hover:bg-secondary/60"
+          : "bg-transparent hover:bg-secondary/60",
       )}
     >
       {/* Thumbnail */}
@@ -43,18 +43,16 @@ export function CompositionCard({
         <h3
           className={cn(
             "text-xs font-medium truncate",
-            isSelected ? "text-accent-foreground" : "text-foreground/80"
+            isSelected ? "text-accent-foreground" : "text-foreground/80",
           )}
         >
           {composition.title}
         </h3>
         <span className="text-[10px] text-muted-foreground font-mono">
-          {(composition.durationInFrames / composition.fps).toFixed(1)}s
-          {" · "}
+          {(composition.durationInFrames / composition.fps).toFixed(1)}s{" · "}
           {composition.width}×{composition.height}
         </span>
       </div>
-
     </div>
   );
 }

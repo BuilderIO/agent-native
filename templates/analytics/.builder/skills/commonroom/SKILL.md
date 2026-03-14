@@ -20,18 +20,18 @@ description: >
 
 ### Exported Functions
 
-| Function | Description |
-|---|---|
-| `getTokenStatus()` | Check API token validity |
-| `getMemberByEmail(email)` | Look up a member by email (returns null on failure) |
-| `getMembers(params?)` | Search members (POST with query, cursor, limit) |
-| `getActivityForMember(memberId)` | Get activity feed for a member |
-| `getSegments()` | List community segments |
+| Function                         | Description                                         |
+| -------------------------------- | --------------------------------------------------- |
+| `getTokenStatus()`               | Check API token validity                            |
+| `getMemberByEmail(email)`        | Look up a member by email (returns null on failure) |
+| `getMembers(params?)`            | Search members (POST with query, cursor, limit)     |
+| `getActivityForMember(memberId)` | Get activity feed for a member                      |
+| `getSegments()`                  | List community segments                             |
 
 ### API Routes
 
-| Route | Description |
-|---|---|
+| Route                         | Description              |
+| ----------------------------- | ------------------------ |
 | `GET /api/commonroom/members` | Search community members |
 
 ## Script Usage

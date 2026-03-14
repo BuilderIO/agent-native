@@ -19,6 +19,7 @@ The agent modifies files on disk, but the UI runs in the browser. SSE bridges th
 ## How It Works
 
 1. **Server** watches the data directory with chokidar:
+
    ```ts
    import { createFileWatcher, createSSEHandler } from "@agent-native/core";
    const watcher = createFileWatcher("./data");
@@ -26,6 +27,7 @@ The agent modifies files on disk, but the UI runs in the browser. SSE bridges th
    ```
 
 2. **Client** listens for changes and invalidates React Query caches:
+
    ```ts
    import { useFileWatcher } from "@agent-native/core";
    useFileWatcher({ queryClient, queryKeys: ["files", "projects"] });
@@ -72,18 +74,19 @@ useQuery({
 When the agent writes many files rapidly (e.g., during self-modification), each write fires a chokidar event → SSE broadcast → React Query invalidation. This can cause excessive refetching.
 
 Mitigations:
+
 - Use `staleTime: 2000` on React Query to debounce refetches
 - Use path-based filtering (see Query Key Mapping) to limit which queries invalidate
 
 ## Troubleshooting
 
-| Symptom | Check |
-|---|---|
-| UI not updating after agent writes | Is `useFileWatcher` called with the correct `queryClient`? Are the `queryKeys` matching your `useQuery` keys? |
-| SSE not firing | Open browser devtools → Network tab → filter by EventStream. Is `/api/events` connected? Is the server running? |
-| Watcher not detecting changes | Is the path correct? `createFileWatcher("./data")` is relative to CWD. Check the server's working directory. |
-| Constant reconnections | Check for server crashes in terminal output. |
-| High CPU / event storms | The agent is writing many files rapidly. Add `staleTime` to queries and use path-based filtering. |
+| Symptom                            | Check                                                                                                           |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| UI not updating after agent writes | Is `useFileWatcher` called with the correct `queryClient`? Are the `queryKeys` matching your `useQuery` keys?   |
+| SSE not firing                     | Open browser devtools → Network tab → filter by EventStream. Is `/api/events` connected? Is the server running? |
+| Watcher not detecting changes      | Is the path correct? `createFileWatcher("./data")` is relative to CWD. Check the server's working directory.    |
+| Constant reconnections             | Check for server crashes in terminal output.                                                                    |
+| High CPU / event storms            | The agent is writing many files rapidly. Add `staleTime` to queries and use path-based filtering.               |
 
 ## Related Skills
 

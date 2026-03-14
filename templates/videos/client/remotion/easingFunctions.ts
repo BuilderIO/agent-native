@@ -5,16 +5,36 @@
 
 export type EasingKey =
   | "linear"
-  | "power1.in" | "power1.out" | "power1.inOut"
-  | "power2.in" | "power2.out" | "power2.inOut"
-  | "power3.in" | "power3.out" | "power3.inOut"
-  | "power4.in" | "power4.out" | "power4.inOut"
-  | "back.in" | "back.out" | "back.inOut"
-  | "bounce.in" | "bounce.out" | "bounce.inOut"
-  | "circ.in" | "circ.out" | "circ.inOut"
-  | "elastic.in" | "elastic.out" | "elastic.inOut"
-  | "expo.in" | "expo.out" | "expo.inOut"
-  | "sine.in" | "sine.out" | "sine.inOut"
+  | "power1.in"
+  | "power1.out"
+  | "power1.inOut"
+  | "power2.in"
+  | "power2.out"
+  | "power2.inOut"
+  | "power3.in"
+  | "power3.out"
+  | "power3.inOut"
+  | "power4.in"
+  | "power4.out"
+  | "power4.inOut"
+  | "back.in"
+  | "back.out"
+  | "back.inOut"
+  | "bounce.in"
+  | "bounce.out"
+  | "bounce.inOut"
+  | "circ.in"
+  | "circ.out"
+  | "circ.inOut"
+  | "elastic.in"
+  | "elastic.out"
+  | "elastic.inOut"
+  | "expo.in"
+  | "expo.out"
+  | "expo.inOut"
+  | "sine.in"
+  | "sine.out"
+  | "sine.inOut"
   | "spring";
 
 export type EasingFunction = (t: number) => number;
@@ -25,22 +45,26 @@ const linear: EasingFunction = (t) => t;
 // Power1 (Quad)
 const power1In: EasingFunction = (t) => t * t;
 const power1Out: EasingFunction = (t) => t * (2 - t);
-const power1InOut: EasingFunction = (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+const power1InOut: EasingFunction = (t) =>
+  t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
 
 // Power2 (Cubic)
 const power2In: EasingFunction = (t) => t * t * t;
-const power2Out: EasingFunction = (t) => (--t) * t * t + 1;
-const power2InOut: EasingFunction = (t) => t < 0.5 ? 4 * t * t * t : (t - 1) * (2 * t - 2) * (2 * t - 2) + 1;
+const power2Out: EasingFunction = (t) => --t * t * t + 1;
+const power2InOut: EasingFunction = (t) =>
+  t < 0.5 ? 4 * t * t * t : (t - 1) * (2 * t - 2) * (2 * t - 2) + 1;
 
 // Power3 (Quart)
 const power3In: EasingFunction = (t) => t * t * t * t;
-const power3Out: EasingFunction = (t) => 1 - (--t) * t * t * t;
-const power3InOut: EasingFunction = (t) => t < 0.5 ? 8 * t * t * t * t : 1 - 8 * (--t) * t * t * t;
+const power3Out: EasingFunction = (t) => 1 - --t * t * t * t;
+const power3InOut: EasingFunction = (t) =>
+  t < 0.5 ? 8 * t * t * t * t : 1 - 8 * --t * t * t * t;
 
 // Power4 (Quint)
 const power4In: EasingFunction = (t) => t * t * t * t * t;
-const power4Out: EasingFunction = (t) => 1 + (--t) * t * t * t * t;
-const power4InOut: EasingFunction = (t) => t < 0.5 ? 16 * t * t * t * t * t : 1 + 16 * (--t) * t * t * t * t;
+const power4Out: EasingFunction = (t) => 1 + --t * t * t * t * t;
+const power4InOut: EasingFunction = (t) =>
+  t < 0.5 ? 16 * t * t * t * t * t : 1 + 16 * --t * t * t * t * t;
 
 // Back
 const backIn: EasingFunction = (t) => {
@@ -90,21 +114,30 @@ const circInOut: EasingFunction = (t) =>
 // Elastic
 const elasticIn: EasingFunction = (t) => {
   const c4 = (2 * Math.PI) / 3;
-  return t === 0 ? 0 : t === 1 ? 1 : -Math.pow(2, 10 * t - 10) * Math.sin((t * 10 - 10.75) * c4);
+  return t === 0
+    ? 0
+    : t === 1
+      ? 1
+      : -Math.pow(2, 10 * t - 10) * Math.sin((t * 10 - 10.75) * c4);
 };
 const elasticOut: EasingFunction = (t) => {
   const c4 = (2 * Math.PI) / 3;
-  return t === 0 ? 0 : t === 1 ? 1 : Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c4) + 1;
+  return t === 0
+    ? 0
+    : t === 1
+      ? 1
+      : Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c4) + 1;
 };
 const elasticInOut: EasingFunction = (t) => {
   const c5 = (2 * Math.PI) / 4.5;
   return t === 0
     ? 0
     : t === 1
-    ? 1
-    : t < 0.5
-    ? -(Math.pow(2, 20 * t - 10) * Math.sin((20 * t - 11.125) * c5)) / 2
-    : (Math.pow(2, -20 * t + 10) * Math.sin((20 * t - 11.125) * c5)) / 2 + 1;
+      ? 1
+      : t < 0.5
+        ? -(Math.pow(2, 20 * t - 10) * Math.sin((20 * t - 11.125) * c5)) / 2
+        : (Math.pow(2, -20 * t + 10) * Math.sin((20 * t - 11.125) * c5)) / 2 +
+          1;
 };
 
 // Expo
@@ -114,10 +147,10 @@ const expoInOut: EasingFunction = (t) =>
   t === 0
     ? 0
     : t === 1
-    ? 1
-    : t < 0.5
-    ? Math.pow(2, 20 * t - 10) / 2
-    : (2 - Math.pow(2, -20 * t + 10)) / 2;
+      ? 1
+      : t < 0.5
+        ? Math.pow(2, 20 * t - 10) / 2
+        : (2 - Math.pow(2, -20 * t + 10)) / 2;
 
 // Sine
 const sineIn: EasingFunction = (t) => 1 - Math.cos((t * Math.PI) / 2);

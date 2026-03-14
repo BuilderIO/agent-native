@@ -1,19 +1,19 @@
-import type { ReactNode } from 'react'
-import DocsSidebar from './DocsSidebar'
-import TableOfContents from './TableOfContents'
+import type { ReactNode } from "react";
+import DocsSidebar from "./DocsSidebar";
+import TableOfContents from "./TableOfContents";
 
 interface TocItem {
-  id: string
-  label: string
-  indent?: boolean
+  id: string;
+  label: string;
+  indent?: boolean;
 }
 
 export default function DocsLayout({
   children,
   toc,
 }: {
-  children: ReactNode
-  toc?: TocItem[]
+  children: ReactNode;
+  toc?: TocItem[];
 }) {
   return (
     <div className="mx-auto flex max-w-[1440px] px-6">
@@ -29,5 +29,5 @@ export default function DocsLayout({
         <div className="hidden w-[200px] shrink-0 xl:block" />
       )}
     </div>
-  )
+  );
 }

@@ -1,7 +1,11 @@
 import { RequestHandler } from "express";
 import fs from "fs";
 import path from "path";
-import type { FileTreeResponse, FileContentResponse, FileNode } from "../../shared/api";
+import type {
+  FileTreeResponse,
+  FileContentResponse,
+  FileNode,
+} from "../../shared/api";
 
 const PROJECTS_DIR = path.join(process.cwd(), "content", "projects");
 
@@ -26,7 +30,11 @@ function slugify(title: string): string {
 
 function isValidPath(p: string): boolean {
   const normalized = path.normalize(p);
-  return !normalized.startsWith("..") && !path.isAbsolute(normalized) && !p.includes("\0");
+  return (
+    !normalized.startsWith("..") &&
+    !path.isAbsolute(normalized) &&
+    !p.includes("\0")
+  );
 }
 
 function isValidWorkspace(w: string): boolean {
@@ -39,7 +47,14 @@ function extractTitle(content: string, filename: string): string {
   return filename.replace(/\.md$/, "").replace(/-/g, " ");
 }
 
-const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]);
+const IMAGE_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".gif",
+  ".svg",
+]);
 
 function isImageFile(name: string): boolean {
   return IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase());

@@ -8,7 +8,7 @@ import { BlockObjectRequest } from "@notionhq/client/build/src/api-endpoints";
 // Convert inline mdast nodes to Notion Rich Text array
 function inlineToRichText(nodes: PhrasingContent[]): any[] {
   let richText: any[] = [];
-  
+
   for (const node of nodes) {
     if (node.type === "text") {
       richText.push({
@@ -17,21 +17,21 @@ function inlineToRichText(nodes: PhrasingContent[]): any[] {
       });
     } else if (node.type === "strong") {
       const children = inlineToRichText(node.children);
-      children.forEach(c => {
+      children.forEach((c) => {
         if (c.annotations) c.annotations.bold = true;
         else c.annotations = { bold: true };
       });
       richText.push(...children);
     } else if (node.type === "emphasis") {
       const children = inlineToRichText(node.children);
-      children.forEach(c => {
+      children.forEach((c) => {
         if (c.annotations) c.annotations.italic = true;
         else c.annotations = { italic: true };
       });
       richText.push(...children);
     } else if (node.type === "delete") {
       const children = inlineToRichText(node.children);
-      children.forEach(c => {
+      children.forEach((c) => {
         if (c.annotations) c.annotations.strikethrough = true;
         else c.annotations = { strikethrough: true };
       });
@@ -40,11 +40,11 @@ function inlineToRichText(nodes: PhrasingContent[]): any[] {
       richText.push({
         type: "text",
         text: { content: node.value },
-        annotations: { code: true }
+        annotations: { code: true },
       });
     } else if (node.type === "link") {
       const children = inlineToRichText(node.children);
-      children.forEach(c => {
+      children.forEach((c) => {
         c.text.link = { url: node.url };
       });
       richText.push(...children);
@@ -59,7 +59,7 @@ function inlineToRichText(nodes: PhrasingContent[]): any[] {
 
   // Combine consecutive text nodes if they have the same annotations/links
   // (Simplified version: Notion API usually accepts un-merged, but sometimes it's cleaner)
-  
+
   return richText.length ? richText : [{ type: "text", text: { content: "" } }];
 }
 
@@ -127,14 +127,18 @@ function nodeToBlocks(node: Content): BlockObjectRequest[] {
 
     case "blockquote": {
       // Collect all text from paragraphs within blockquote
-      const richText = node.children.flatMap(child => {
+      const richText = node.children.flatMap((child) => {
         if (child.type === "paragraph") return inlineToRichText(child.children);
         return [];
       });
       return [
         {
           type: "quote",
-          quote: { rich_text: richText.length ? richText : [{ type: "text", text: { content: "" } }] },
+          quote: {
+            rich_text: richText.length
+              ? richText
+              : [{ type: "text", text: { content: "" } }],
+          },
         } as any as BlockObjectRequest,
       ];
     }
@@ -155,8 +159,9 @@ function nodeToBlocks(node: Content): BlockObjectRequest[] {
       const isOrdered = node.ordered;
       return node.children.flatMap((li: ListItem) => {
         // We only support simple lists for now
-        const richText = li.children.flatMap(child => {
-          if (child.type === "paragraph") return inlineToRichText(child.children);
+        const richText = li.children.flatMap((child) => {
+          if (child.type === "paragraph")
+            return inlineToRichText(child.children);
           return [];
         });
 
@@ -164,7 +169,11 @@ function nodeToBlocks(node: Content): BlockObjectRequest[] {
         return [
           {
             type: type,
-            [type]: { rich_text: richText.length ? richText : [{ type: "text", text: { content: "" } }] },
+            [type]: {
+              rich_text: richText.length
+                ? richText
+                : [{ type: "text", text: { content: "" } }],
+            },
           } as any as BlockObjectRequest,
         ];
       });
@@ -188,10 +197,13 @@ function nodeToBlocks(node: Content): BlockObjectRequest[] {
           // Flatten: tableCell children are inline phrasing nodes
           const richText = cellContent.flatMap((child: any) => {
             if (child.children) return inlineToRichText(child.children);
-            if (child.type === "text") return [{ type: "text", text: { content: child.value } }];
+            if (child.type === "text")
+              return [{ type: "text", text: { content: child.value } }];
             return [];
           });
-          return richText.length ? richText : [{ type: "text", text: { content: "" } }];
+          return richText.length
+            ? richText
+            : [{ type: "text", text: { content: "" } }];
         });
 
         // Pad cells if fewer than colCount

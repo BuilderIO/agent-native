@@ -18,7 +18,9 @@ interface SlackMentionAutocompleteProps {
   translateY?: number;
 }
 
-export const SlackMentionAutocomplete: React.FC<SlackMentionAutocompleteProps> = ({
+export const SlackMentionAutocomplete: React.FC<
+  SlackMentionAutocompleteProps
+> = ({
   options,
   selectedIndex = 0,
   searchTerm = "",
@@ -52,7 +54,10 @@ export const SlackMentionAutocomplete: React.FC<SlackMentionAutocompleteProps> =
               alignItems: "center",
               gap: 14,
               padding: "10px 16px",
-              background: index === selectedIndex ? "rgba(29, 155, 209, 1)" : "transparent",
+              background:
+                index === selectedIndex
+                  ? "rgba(29, 155, 209, 1)"
+                  : "transparent",
               cursor: "pointer",
             }}
           >
@@ -72,9 +77,13 @@ export const SlackMentionAutocomplete: React.FC<SlackMentionAutocompleteProps> =
             <div style={{ flex: 1 }}>
               <div
                 style={{
-                  color: index === selectedIndex ? "rgba(255, 255, 255, 1)" : "rgba(248, 248, 248, 1)",
+                  color:
+                    index === selectedIndex
+                      ? "rgba(255, 255, 255, 1)"
+                      : "rgba(248, 248, 248, 1)",
                   fontSize: 17,
-                  fontFamily: "Inter, -apple-system, Roboto, Helvetica, sans-serif",
+                  fontFamily:
+                    "Inter, -apple-system, Roboto, Helvetica, sans-serif",
                   fontWeight: 600,
                 }}
               >
@@ -83,9 +92,13 @@ export const SlackMentionAutocomplete: React.FC<SlackMentionAutocompleteProps> =
               {option.status && (
                 <div
                   style={{
-                    color: index === selectedIndex ? "rgba(255, 255, 255, 0.8)" : "rgba(185, 186, 189, 1)",
+                    color:
+                      index === selectedIndex
+                        ? "rgba(255, 255, 255, 0.8)"
+                        : "rgba(185, 186, 189, 1)",
                     fontSize: 15,
-                    fontFamily: "Inter, -apple-system, Roboto, Helvetica, sans-serif",
+                    fontFamily:
+                      "Inter, -apple-system, Roboto, Helvetica, sans-serif",
                   }}
                 >
                   {option.status}
@@ -98,11 +111,18 @@ export const SlackMentionAutocomplete: React.FC<SlackMentionAutocompleteProps> =
               <div
                 style={{
                   borderRadius: 3,
-                  background: index === selectedIndex ? "rgba(255, 255, 255, 0.2)" : "rgba(248, 248, 248, 0.06)",
+                  background:
+                    index === selectedIndex
+                      ? "rgba(255, 255, 255, 0.2)"
+                      : "rgba(248, 248, 248, 0.06)",
                   padding: "3px 8px",
                   fontSize: 12,
-                  color: index === selectedIndex ? "rgba(255, 255, 255, 1)" : "rgba(185, 186, 189, 1)",
-                  fontFamily: "Inter, -apple-system, Roboto, Helvetica, sans-serif",
+                  color:
+                    index === selectedIndex
+                      ? "rgba(255, 255, 255, 1)"
+                      : "rgba(185, 186, 189, 1)",
+                  fontFamily:
+                    "Inter, -apple-system, Roboto, Helvetica, sans-serif",
                   fontWeight: 600,
                 }}
               >

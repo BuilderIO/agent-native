@@ -51,6 +51,7 @@ output/posts/YYYY-MM-DD-<topic-slug>/
 ```
 
 **Topic slug rules:**
+
 - Lowercase, replace spaces with hyphens, remove special characters
 - Max 50 characters
 - Same-day slug collision: append `-2`, `-3`, etc.
@@ -77,6 +78,7 @@ Read hub context and pre-populate the pipeline:
    - Extract link graph (for internal linking awareness in Phase 5)
 
 3. **Write Phase 1 stub** to `phases/01-topic-validation.yaml` BEFORE invoking the content-strategist agent:
+
    ```yaml
    # Pre-populated from hub-context.yaml -- content strategist validates but does not pivot
    hub_slug: <hub_slug>
@@ -85,7 +87,7 @@ Read hub context and pre-populate the pipeline:
    topic: "<topic>"
    primary_keyword: "<primary_keyword>"
    content_goal: <content_goal>
-   hub_pre_populated: true  # Signal to content-strategist to skip go/no-go and pivot
+   hub_pre_populated: true # Signal to content-strategist to skip go/no-go and pivot
    ```
 
 4. **Update hub.yaml** -- set this page's status from `planned` to `in-progress`:
@@ -102,6 +104,7 @@ The topic for display and pipeline use comes from `hub-context.yaml`, not from t
 After the output folder is set up, check for a `seed/` subfolder:
 
 **If `seed/` exists and contains files:**
+
 - Announce: "Seed folder detected. User-provided research will be merged with automated research."
 - The Content Strategist agent will validate and summarize seed content during Phase 1 (Step 0.5)
 - The SEO Researcher agent will merge seed keywords during Phase 2
@@ -192,16 +195,17 @@ Present the strategist's findings using **AskUserQuestion**:
 
 **File to review:** Tell the user: "Review `phases/01-topic-validation.yaml` in the output folder for full classification details."
 
-| Show the user | Value |
-|--------------|-------|
-| Topic | From validation |
-| Content Goal | awareness / acquisition / hybrid |
-| Content Timing | evergreen / trending |
-| Recommendation | go / pivot / stop |
-| Priority Score | From validation |
-| Pivot Suggestion | If recommendation is "pivot" |
+| Show the user    | Value                            |
+| ---------------- | -------------------------------- |
+| Topic            | From validation                  |
+| Content Goal     | awareness / acquisition / hybrid |
+| Content Timing   | evergreen / trending             |
+| Recommendation   | go / pivot / stop                |
+| Priority Score   | From validation                  |
+| Pivot Suggestion | If recommendation is "pivot"     |
 
 **Options:**
+
 1. **Proceed** -- Accept the topic and classification as-is
 2. **Pivot** -- Use the suggested pivot topic (re-runs Phase 1 with the pivot)
 3. **Override** -- Accept the topic but change the content goal or timing classification
@@ -219,16 +223,17 @@ Present a simplified confirmation using **AskUserQuestion**:
 
 **Question:** "Hub page topic validated. How do you want to proceed?"
 
-| Show the user | Value |
-|--------------|-------|
-| Hub | hub_slug |
-| Page Type | pillar / cluster |
-| Topic | From hub-context.yaml |
-| Primary Keyword | From hub-context.yaml |
-| Content Goal | From hub-context.yaml |
-| Content Timing | From classification (should be evergreen) |
+| Show the user   | Value                                     |
+| --------------- | ----------------------------------------- |
+| Hub             | hub_slug                                  |
+| Page Type       | pillar / cluster                          |
+| Topic           | From hub-context.yaml                     |
+| Primary Keyword | From hub-context.yaml                     |
+| Content Goal    | From hub-context.yaml                     |
+| Content Timing  | From classification (should be evergreen) |
 
 **Options:**
+
 1. **Proceed** (default) -- Accept the pre-assigned topic and classification
 2. **Override content goal** -- Change the content goal for this page (updates hub-context.yaml and Phase 1 artifact)
 3. **Stop** -- Abandon this page
@@ -272,6 +277,7 @@ Run SERP analysis using the SERP Analysis skill:
 4. Check for AI Overview and Featured Snippet presence
 
 **Trending mode:** Skip entirely. Write a stub file:
+
 ```yaml
 skipped: true
 reason: "Trending topic -- no established SERP to analyze"
@@ -295,6 +301,7 @@ See the content-researcher agent for full parallel architecture details.
 **Output:** `phases/04-research-group-{a-f}.yaml` (per-group) + `phases/04-content-research.yaml` (unified) + `research-notes.md`
 
 **Dependencies:**
+
 - Evergreen: Depends on Phase 2 AND Phase 3
 - Trending: Depends on Phase 2 only
 
@@ -396,6 +403,7 @@ Use **AskUserQuestion** to present options:
 **Question:** "Research is complete. What would you like to do next?"
 
 **Options:**
+
 1. **Write the post** -- Run `/content-write <folder>` after `/clear` for a fresh context (recommended)
 2. **Write in same session** -- Continue to drafting with `/content-blog --resume` (single-session fallback)
 3. **Review artifacts** -- Read the research notes or individual phase files
@@ -406,14 +414,18 @@ Use **AskUserQuestion** to present options:
 ## Error Handling
 
 ### Ahrefs MCP Unavailable
+
 If any Ahrefs MCP call fails during the pipeline:
+
 1. Log the failure in the current phase's YAML output
 2. Fall back to WebSearch-based research for that specific call
 3. Note reduced data quality in the phase output
 4. Continue the pipeline -- do not stop
 
 ### Phase Failure
+
 If a phase produces an error or incomplete output:
+
 1. Announce the failure to the user
 2. Ask whether to retry the phase, skip it, or stop the pipeline
 3. If skipped, write a stub YAML with `skipped: true` and `reason`

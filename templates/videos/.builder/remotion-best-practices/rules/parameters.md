@@ -12,13 +12,15 @@ First, `zod` must be installed - it must be exactly version `3.22.3`.
 Then, a Zod schema can be defined alongside the component:
 
 ```tsx
-import {z} from 'zod';
+import { z } from "zod";
 
 export const MyCompositionSchema = z.object({
   title: z.string(),
 });
 
-const MyComponent: React.FC<z.infer<typeof MyCompositionSchema>> = ({title}) => {
+const MyComponent: React.FC<z.infer<typeof MyCompositionSchema>> = ({
+  title,
+}) => {
   return (
     <div>
       <h1>{title}</h1>
@@ -30,8 +32,8 @@ const MyComponent: React.FC<z.infer<typeof MyCompositionSchema>> = ({title}) => 
 In the root file, the schema can be passed to the composition:
 
 ```tsx
-import {Composition} from 'remotion';
-import {MyComponent, MyCompositionSchema} from './MyComposition';
+import { Composition } from "remotion";
+import { MyComponent, MyCompositionSchema } from "./MyComposition";
 
 export const RemotionRoot = () => {
   return (
@@ -42,7 +44,7 @@ export const RemotionRoot = () => {
       fps={30}
       width={1080}
       height={1080}
-      defaultProps={{title: 'Hello World'}}
+      defaultProps={{ title: "Hello World" }}
       schema={MyCompositionSchema}
     />
   );
@@ -54,7 +56,7 @@ export const RemotionRoot = () => {
 For adding a color picker, use `zColor()` from `@remotion/zod-types`.
 
 ```tsx
-import {zColor} from '@remotion/zod-types';
+import { zColor } from "@remotion/zod-types";
 
 export const MyCompositionSchema = z.object({
   color: zColor(),

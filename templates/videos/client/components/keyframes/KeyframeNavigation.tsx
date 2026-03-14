@@ -7,7 +7,12 @@ interface KeyframeNavigationProps {
   disabled?: boolean;
 }
 
-export function KeyframeNavigation({ currentFrame, allKeyframes, onSeek, disabled = false }: KeyframeNavigationProps) {
+export function KeyframeNavigation({
+  currentFrame,
+  allKeyframes,
+  onSeek,
+  disabled = false,
+}: KeyframeNavigationProps) {
   const prevFrames = allKeyframes.filter((f) => f < currentFrame);
   const nextFrames = allKeyframes.filter((f) => f > currentFrame);
 

@@ -13,14 +13,15 @@ defaultMarkdownSerializer.nodes.image = function (state: any, node: any) {
 
   const escapedTitle = title ? ` "${title.replace(/"/g, '\\"')}"` : "";
 
-  state.write(
-    `![${state.esc(alt)}](${state.esc(src)}${escapedTitle})`
-  );
+  state.write(`![${state.esc(alt)}](${state.esc(src)}${escapedTitle})`);
   state.closeBlock(node);
 };
 
 export interface ImageNodeOptions extends ImageOptions {
-  onUpload?: (file: File, options?: UploadOptions) => Promise<{ url: string } | null>;
+  onUpload?: (
+    file: File,
+    options?: UploadOptions,
+  ) => Promise<{ url: string } | null>;
   projectSlug?: string;
   articleContent?: string;
 }

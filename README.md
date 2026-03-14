@@ -120,12 +120,12 @@ Agent-native apps follow five rules:
 
 Agent-native apps run inside a **harness** — a host that provides the AI agent alongside your app UI.
 
-| | Local / Open Source | Builder Cloud |
-|---|---|---|
-| **Run** | Claude Code CLI or any local harness | One-click launch from templates |
-| **Collaboration** | Solo | Real-time multiplayer |
-| **Features** | Full permissions, full control | Visual editing, roles & permissions |
-| **Best for** | Solo dev, local testing, OSS | Teams, production |
+|                   | Local / Open Source                  | Builder Cloud                       |
+| ----------------- | ------------------------------------ | ----------------------------------- |
+| **Run**           | Claude Code CLI or any local harness | One-click launch from templates     |
+| **Collaboration** | Solo                                 | Real-time multiplayer               |
+| **Features**      | Full permissions, full control       | Visual editing, roles & permissions |
+| **Best for**      | Solo dev, local testing, OSS         | Teams, production                   |
 
 Your app code is identical regardless of harness. Start local, go to cloud when you need teams.
 

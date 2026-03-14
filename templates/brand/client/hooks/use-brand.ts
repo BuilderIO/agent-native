@@ -32,7 +32,13 @@ export function useBrandAssets(category?: string) {
 export function useUploadAsset() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ file, category }: { file: File; category: string }) => {
+    mutationFn: async ({
+      file,
+      category,
+    }: {
+      file: File;
+      category: string;
+    }) => {
       const formData = new FormData();
       formData.append("file", file);
       const res = await fetch(`/api/brand/upload?category=${category}`, {
@@ -48,8 +54,16 @@ export function useUploadAsset() {
 export function useDeleteAsset() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ category, filename }: { category: string; filename: string }) =>
-      fetch(`/api/brand/assets/${category}/${filename}`, { method: "DELETE" }).then((r) => r.json()),
+    mutationFn: ({
+      category,
+      filename,
+    }: {
+      category: string;
+      filename: string;
+    }) =>
+      fetch(`/api/brand/assets/${category}/${filename}`, {
+        method: "DELETE",
+      }).then((r) => r.json()),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["brand", "assets"] }),
   });
 }

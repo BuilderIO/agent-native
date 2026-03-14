@@ -11,6 +11,7 @@ The Cursor Interactions panel now displays and allows editing of cursor types fo
 **Sidebar → Cursor Interactions Panel**
 
 When you hover over an interactive element, the panel shows:
+
 1. Element name/label
 2. **Cursor Type selector** (NEW!)
 3. Hover/Click animations
@@ -22,6 +23,7 @@ When you hover over an interactive element, the panel shows:
 ### Display
 
 **Default State (Inferred)**
+
 ```
 ┌─────────────────────────────────┐
 │ Submit Button                   │  ← Element label
@@ -36,6 +38,7 @@ When you hover over an interactive element, the panel shows:
 ```
 
 **Custom State (User Modified)**
+
 ```
 ┌─────────────────────────────────┐
 │ Email Input                     │
@@ -58,11 +61,13 @@ When you hover over an interactive element, the panel shows:
 ### States
 
 **Inferred** (default)
+
 - Automatically determined from `interactiveElementType`
 - Shows: "Using inferred cursor type"
 - No trash icon
 
 **Custom** (user-modified)
+
 - Set by selecting a different type
 - Shows: "Custom cursor type (click trash to reset)"
 - Trash icon visible - click to reset to inferred
@@ -143,15 +148,16 @@ const emailInput = useInteractiveComponent({
 
 ```tsx
 const {
-  getCursorType,     // (compositionId, elementType) => "pointer" | "text" | "default"
-  setCursorType,     // (compositionId, elementType, cursorType) => void
-  deleteCursorType,  // (compositionId, elementType) => void
+  getCursorType, // (compositionId, elementType) => "pointer" | "text" | "default"
+  setCursorType, // (compositionId, elementType, cursorType) => void
+  deleteCursorType, // (compositionId, elementType) => void
 } = useCurrentElement();
 ```
 
 ### Component Integration
 
 `useInteractiveComponent` automatically:
+
 1. Checks for stored cursor type (priority 1)
 2. Falls back to explicit `cursorType` option (priority 2)
 3. Infers from `interactiveElementType` (priority 3)
@@ -166,7 +172,7 @@ const {
 ✅ **Flexibility** - Easy to override inferred cursor types  
 ✅ **Persistence** - Settings saved across sessions  
 ✅ **Reset** - Quick restore to default behavior  
-✅ **Consistency** - Same UI pattern as animation editing  
+✅ **Consistency** - Same UI pattern as animation editing
 
 ---
 

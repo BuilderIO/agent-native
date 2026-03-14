@@ -23,11 +23,14 @@ interface StatusBreakdownProps {
   productGroup?: string;
 }
 
-export function StatusBreakdown({ fiscalYear, productGroup }: StatusBreakdownProps) {
+export function StatusBreakdown({
+  fiscalYear,
+  productGroup,
+}: StatusBreakdownProps) {
   const sql = statusBreakdownQuery(fiscalYear, productGroup);
   const { data, isLoading } = useMetricsQuery(
     ["arr-status-breakdown", String(fiscalYear), productGroup ?? ""],
-    sql
+    sql,
   );
 
   const rows = useMemo(() => {
@@ -80,15 +83,12 @@ export function StatusBreakdown({ fiscalYear, productGroup }: StatusBreakdownPro
                 {rows.map((r) => {
                   const isPos = r.arr_change >= 0;
                   return (
-                    <tr
-                      key={r.status}
-                      className="border-b border-border/50"
-                    >
+                    <tr key={r.status} className="border-b border-border/50">
                       <td className="py-2 px-3">
                         <span
                           className={cn(
                             "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
-                            STATUS_COLORS[r.status] ?? FALLBACK_COLOR
+                            STATUS_COLORS[r.status] ?? FALLBACK_COLOR,
                           )}
                         >
                           {r.status}
@@ -100,7 +100,7 @@ export function StatusBreakdown({ fiscalYear, productGroup }: StatusBreakdownPro
                       <td
                         className={cn(
                           "py-2 px-3 text-right font-medium",
-                          isPos ? "text-emerald-500" : "text-red-500"
+                          isPos ? "text-emerald-500" : "text-red-500",
                         )}
                       >
                         {isPos ? "+" : ""}

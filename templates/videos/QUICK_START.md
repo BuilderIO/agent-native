@@ -14,7 +14,7 @@ Every new composition includes:
 ✅ **Playback Speed Control** - 0.25× to 2× speed adjustment  
 ✅ **Track Properties** - Visual easing selector and property editor  
 ✅ **Auto-Save** - Changes persist to localStorage  
-✅ **Save as Default** - Persist to code registry  
+✅ **Save as Default** - Persist to code registry
 
 ---
 
@@ -29,6 +29,7 @@ In the sidebar, click the **"+ New Composition"** button (dashed border with plu
 A popover opens with a textarea. Type what you want to create:
 
 **Examples:**
+
 - `"Animated text that types in character by character"`
 - `"Logo reveal with particle burst effect"`
 - `"Product showcase with smooth camera movements"`
@@ -37,6 +38,7 @@ A popover opens with a textarea. Type what you want to create:
 ### Step 3: Attach References (Optional)
 
 Click **"+ Attach"** to add:
+
 - Logo images (PNG, SVG, JPG)
 - Reference videos
 - Brand assets
@@ -49,6 +51,7 @@ The agent will use these to generate accurate content.
 Press **Enter** (or click the ↑ arrow button).
 
 **What Happens:**
+
 1. A new composition is created at `/c/new`
 2. Loading spinner appears: "Generating..."
 3. The agent analyzes your prompt and attachments
@@ -60,6 +63,7 @@ Press **Enter** (or click the ↑ arrow button).
 ### Step 5: Customize
 
 Once generated:
+
 - **Edit Properties**: Click Properties tab to modify colors, text, etc.
 - **Adjust Timing**: Click tracks in timeline to edit duration and easing
 - **Add Keyframes**: Click camera icon or click on video to add cursor positions
@@ -180,12 +184,42 @@ export const compositions: CompositionEntry[] = [
         endFrame: 240,
         easing: "linear",
         animatedProps: [
-          { property: "translateX", from: "0", to: "0", unit: "px", keyframes: [] },
-          { property: "translateY", from: "0", to: "0", unit: "px", keyframes: [] },
+          {
+            property: "translateX",
+            from: "0",
+            to: "0",
+            unit: "px",
+            keyframes: [],
+          },
+          {
+            property: "translateY",
+            from: "0",
+            to: "0",
+            unit: "px",
+            keyframes: [],
+          },
           { property: "scale", from: "1", to: "1", unit: "", keyframes: [] },
-          { property: "rotateX", from: "0", to: "0", unit: "deg", keyframes: [] },
-          { property: "rotateY", from: "0", to: "0", unit: "deg", keyframes: [] },
-          { property: "perspective", from: "800", to: "800", unit: "px", keyframes: [] },
+          {
+            property: "rotateX",
+            from: "0",
+            to: "0",
+            unit: "deg",
+            keyframes: [],
+          },
+          {
+            property: "rotateY",
+            from: "0",
+            to: "0",
+            unit: "deg",
+            keyframes: [],
+          },
+          {
+            property: "perspective",
+            from: "800",
+            to: "800",
+            unit: "px",
+            keyframes: [],
+          },
         ],
       },
       // Cursor track (REQUIRED for interactions)
@@ -292,11 +326,11 @@ import { useClickAnimation } from "@/remotion/hooks/useClickAnimation";
 
 function MyButton() {
   const bounds = { x: 400, y: 300, width: 200, height: 80 };
-  
+
   // Get cursor data from context
   const { x: cursorX, y: cursorY, isClicking } = useCursorData();
   const clickStartFrames = useClickStartFrames();
-  
+
   // Apply hover animation
   const { isHovered, animation: hoverAnim } = useHoverAnimation(
     "MyButton",
@@ -305,7 +339,7 @@ function MyButton() {
     frame,
     fps
   );
-  
+
   // Apply click animation
   const { animation: clickAnim } = useClickAnimation(
     "MyButton",
@@ -315,11 +349,11 @@ function MyButton() {
     frame,
     fps
   );
-  
+
   // Combine transforms
   const scale = 1 + (hoverAnim?.scale || 0) + (clickAnim?.scale || 0);
   const translateY = (hoverAnim?.translateY || 0) + (clickAnim?.translateY || 0);
-  
+
   return (
     <div
       style={{
@@ -365,8 +399,8 @@ createAnimationTrack(
     { property: "scale", from: "0.8", to: "1", unit: "" },
     { property: "translateY", from: "20", to: "0", unit: "px" },
   ],
-  "spring"
-)
+  "spring",
+);
 ```
 
 ### Pattern 2: Logo Entrance
@@ -382,22 +416,26 @@ createAnimationTrack(
     { property: "opacity", from: "0", to: "1", unit: "" },
     { property: "rotateY", from: "-180", to: "0", unit: "deg" },
   ],
-  "spring"
-)
+  "spring",
+);
 ```
 
 ### Pattern 3: Cursor Movement Path
 
 ```typescript
-import { createCursorPath, createClickEvents, addKeyframes } from "@/utils/compositionHelpers";
+import {
+  createCursorPath,
+  createClickEvents,
+  addKeyframes,
+} from "@/utils/compositionHelpers";
 
 // Define path
 const frames = [0, 60, 120, 180];
 const positions = [
-  { x: 400, y: 300 },  // Start
-  { x: 800, y: 400 },  // Move right
-  { x: 600, y: 600 },  // Move down-left
-  { x: 400, y: 300 },  // Return to start
+  { x: 400, y: 300 }, // Start
+  { x: 800, y: 400 }, // Move right
+  { x: 600, y: 600 }, // Move down-left
+  { x: 400, y: 300 }, // Return to start
 ];
 
 const pathKeyframes = createCursorPath(frames, positions, "expo.inOut");
@@ -406,12 +444,14 @@ const pathKeyframes = createCursorPath(frames, positions, "expo.inOut");
 const clickKeyframes = createClickEvents([70, 130]);
 
 // Apply to cursor track
-const cursorTrack = tracks.find(t => t.id === "cursor");
+const cursorTrack = tracks.find((t) => t.id === "cursor");
 if (cursorTrack) {
-  const xProp = cursorTrack.animatedProps.find(p => p.property === "x");
-  const yProp = cursorTrack.animatedProps.find(p => p.property === "y");
-  const clickProp = cursorTrack.animatedProps.find(p => p.property === "isClicking");
-  
+  const xProp = cursorTrack.animatedProps.find((p) => p.property === "x");
+  const yProp = cursorTrack.animatedProps.find((p) => p.property === "y");
+  const clickProp = cursorTrack.animatedProps.find(
+    (p) => p.property === "isClicking",
+  );
+
   if (xProp) xProp.keyframes = pathKeyframes[0].keyframes;
   if (yProp) yProp.keyframes = pathKeyframes[1].keyframes;
   if (clickProp) clickProp.keyframes = clickKeyframes;
@@ -445,36 +485,40 @@ if (cursorTrack) {
 
 ## Keyboard Shortcuts
 
-| Key | Action |
-|-----|--------|
-| **Space** | Play/pause video |
-| **C** | Add camera keyframe at current frame |
-| **Click Video** | Add cursor position keyframe |
-| **Shift+Click** | Multi-select keyframes |
-| **Drag Timeline** | Box-select keyframes |
-| **Enter** | Submit new composition prompt |
+| Key               | Action                               |
+| ----------------- | ------------------------------------ |
+| **Space**         | Play/pause video                     |
+| **C**             | Add camera keyframe at current frame |
+| **Click Video**   | Add cursor position keyframe         |
+| **Shift+Click**   | Multi-select keyframes               |
+| **Drag Timeline** | Box-select keyframes                 |
+| **Enter**         | Submit new composition prompt        |
 
 ---
 
 ## Troubleshooting
 
 ### "Cursor not showing"
+
 - Check cursor track exists
 - Verify `opacity` is not 0
 - Ensure cursor position is within viewport (0-1920, 0-1080)
 
 ### "Hover animations not working"
+
 - Confirm cursor track exists in composition
 - Add `<Cursor>` component to render tree
 - Check component type matches interaction config
 - Verify cursor keyframes are set
 
 ### "Playback is slow"
+
 - Adjust playback speed dropdown (try 0.5× or 0.75×)
 - Large compositions may render slower than 30fps
 - This is normal - playback speed compensates
 
 ### "Changes not saving"
+
 - Changes auto-save to localStorage per-session
 - Click "Save" button to persist to code registry
 - Check console for save confirmation
@@ -491,6 +535,7 @@ if (cursorTrack) {
 ---
 
 **Need Help?**
+
 - 📚 [Full Documentation](COMPOSITION_GUIDE.md)
 - 💬 [Get Support](#reach-support)
 - 🐛 [Report Issue](#feedback-negative)

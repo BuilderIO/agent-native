@@ -25,15 +25,15 @@ description: >
 
 ## Schema Organization
 
-| Schema | Purpose | Examples |
-|---|---|---|
-| `dbt_staging_bigquery` | Raw staged events from BigQuery | `first_pageviews`, `all_pageviews`, `signups` |
-| `dbt_staging` | Raw staged data from other sources | `hubspot_companies`, `hubspot_contacts` |
-| `dbt_intermediate` | Joins, transforms, denormalization | `hubspot_form_submissions`, `deal_first_contact` |
-| `dbt_mapping` | Join tables, ID mappings | `hs_deals_to_contact_id`, `user_id_to_org_id` |
-| `dbt_mart` | Dimensional models (fact/dim tables) | `dim_hs_deals`, `dim_hs_contacts`, `dim_subscriptions` |
-| `dbt_analytics` | Reporting views, aggregates | `deals_by_motion`, `revenue_funnel`, `active_users` |
-| `dbt_dev` | Development/testing (EXCLUDE from queries) | Auto-filtered by BigQuery lib |
+| Schema                 | Purpose                                    | Examples                                               |
+| ---------------------- | ------------------------------------------ | ------------------------------------------------------ |
+| `dbt_staging_bigquery` | Raw staged events from BigQuery            | `first_pageviews`, `all_pageviews`, `signups`          |
+| `dbt_staging`          | Raw staged data from other sources         | `hubspot_companies`, `hubspot_contacts`                |
+| `dbt_intermediate`     | Joins, transforms, denormalization         | `hubspot_form_submissions`, `deal_first_contact`       |
+| `dbt_mapping`          | Join tables, ID mappings                   | `hs_deals_to_contact_id`, `user_id_to_org_id`          |
+| `dbt_mart`             | Dimensional models (fact/dim tables)       | `dim_hs_deals`, `dim_hs_contacts`, `dim_subscriptions` |
+| `dbt_analytics`        | Reporting views, aggregates                | `deals_by_motion`, `revenue_funnel`, `active_users`    |
+| `dbt_dev`              | Development/testing (EXCLUDE from queries) | Auto-filtered by BigQuery lib                          |
 
 ## Model Configuration Best Practices
 
@@ -61,25 +61,27 @@ description: >
 
 ⚠️ **Common bug source**: Column names differ between spec and actual tables
 
-| Spec Column | Actual Column | Table |
-|---|---|---|
+| Spec Column           | Actual Column              | Table             |
+| --------------------- | -------------------------- | ----------------- |
 | `first_pageview_date` | `created_date` (TIMESTAMP) | `first_pageviews` |
-| `channel` | `first_touch_channel` | `all_pageviews` |
-| `referrer` | `c_referrer` | `all_pageviews` |
-| `user_create_date` | `user_create_d` | `product_signups` |
-| `deal_stage` | `stage_name` | `dim_hs_deals` |
-| `deal_amount` | `amount` | `dim_hs_deals` |
+| `channel`             | `first_touch_channel`      | `all_pageviews`   |
+| `referrer`            | `c_referrer`               | `all_pageviews`   |
+| `user_create_date`    | `user_create_d`            | `product_signups` |
+| `deal_stage`          | `stage_name`               | `dim_hs_deals`    |
+| `deal_amount`         | `amount`                   | `dim_hs_deals`    |
 
 **Always verify column names** by querying `INFORMATION_SCHEMA.COLUMNS` or reading the source dbt model.
 
 ### 2. ARRAY_AGG Syntax
 
 ❌ **WRONG** (DISTINCT + ORDER BY non-argument):
+
 ```sql
 ARRAY_AGG(DISTINCT form_name IGNORE NULLS ORDER BY form_fill_date LIMIT 1)
 ```
 
 ✅ **CORRECT** (remove DISTINCT or order by same column):
+
 ```sql
 -- Option 1: Remove DISTINCT (ORDER BY creates uniqueness)
 ARRAY_AGG(form_name IGNORE NULLS ORDER BY form_fill_date LIMIT 1)[SAFE_OFFSET(0)]
@@ -136,9 +138,9 @@ LEFT JOIN forms f
 
 ```sql
 FROM {{ ref("dim_hs_deals") }} d
-LEFT JOIN {{ ref("hs_deals_to_contact_id") }} dc 
+LEFT JOIN {{ ref("hs_deals_to_contact_id") }} dc
   ON d.deal_id = dc.deal_id
-LEFT JOIN {{ ref("dim_hs_contacts") }} c 
+LEFT JOIN {{ ref("dim_hs_contacts") }} c
   ON dc.contact_id = c.contact_id
 LEFT JOIN {{ ref("hubspot_form_submissions") }} f
   ON LOWER(f.email) = LOWER(c.email)
@@ -146,6 +148,7 @@ LEFT JOIN {{ ref("hubspot_form_submissions") }} f
 ```
 
 **Key points**:
+
 - `hs_deals_to_contact_id` unnests the `associatedcontactids` JSON array
 - Multiple contacts per deal → need aggregation or `QUALIFY` to dedupe
 - Match contacts to forms by email AND/OR `b_visitor_id`
@@ -155,7 +158,7 @@ LEFT JOIN {{ ref("hubspot_form_submissions") }} f
 
 ```sql
 FROM {{ ref("first_pageviews") }} fp
-LEFT JOIN {{ ref("signups") }} s 
+LEFT JOIN {{ ref("signups") }} s
   ON fp.visitor_id = s.visitor_id
 LEFT JOIN {{ ref("dim_subscriptions") }} sub
   ON s.root_organization_id = sub.root_id
@@ -216,6 +219,7 @@ LEFT JOIN {{ ref("product_signups") }} ps
 ```
 
 **Key columns in product_signups**:
+
 - `user_id` - Builder user ID
 - `email` - User email
 - `user_create_d` (TIMESTAMP) - Signup/user creation date
@@ -223,6 +227,7 @@ LEFT JOIN {{ ref("product_signups") }} ps
 **Critical**: Match on **both email AND user_id** with OR logic for complete coverage. `user_create_d` is already TIMESTAMP, no conversion needed.
 
 **Do NOT** use:
+
 - `dbt_staging_bigquery.signups` - incomplete coverage
 - `dim_hs_contacts.sign_up_time_stamp` - DATE type, requires conversion and has gaps
 
@@ -237,11 +242,11 @@ WHERE (
   -- Sales-related forms
   LOWER(form_name) LIKE '%sales%'
   OR LOWER(conversion_details) LIKE '%sales%'
-  
+
   -- Demo forms
   OR LOWER(form_name) LIKE '%demo%'
   OR LOWER(conversion_details) LIKE '%demo%'
-  
+
   -- Specific high-intent forms
   OR form_name = '[Marketing]  | Component Indexing Request'
   OR conversion_details = 'Unlock Ent Trial'
@@ -249,6 +254,7 @@ WHERE (
 ```
 
 **Common form names** (March 2026 data):
+
 - `[Marketing] Sales Demo Form | 7.20.23` - 5,803 submissions
 - `[Marketing] Sales Demo Form - Unlock Enterprise Features` - 3,971 submissions
 - `Demo Library Form` - 1,866 submissions
@@ -280,7 +286,7 @@ Add to `dbt/models/analytics/_models.yml`:
 - **Table size**: `dim_hs_deals` ~3,400 rows, `hubspot_form_submissions` ~20K rows
 - **Caching**: 24-hour cache in `server/lib/bigquery.ts`
 - **Enterprise filter**: Always filter to Enterprise pipelines early in WHERE clause
-- **Avoid**: Unnecessary JOINs, avoid SELECT * from large tables
+- **Avoid**: Unnecessary JOINs, avoid SELECT \* from large tables
 
 ## Useful AI Instructions to Add
 

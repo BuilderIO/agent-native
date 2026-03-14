@@ -42,15 +42,11 @@ These notes will be used as high-priority context during research.
 
 ## Key observations
 
-
 ## Unique angle or perspective
-
 
 ## Target audience pain points
 
-
 ## Things to make sure we cover
-
 ```
 
 ## article.md
@@ -67,7 +63,6 @@ Template for pasting a full article (X thread, blog post, AI-generated draft, et
 ---
 
 [Paste the full article text below this line]
-
 ```
 
 ## serp-intents.txt

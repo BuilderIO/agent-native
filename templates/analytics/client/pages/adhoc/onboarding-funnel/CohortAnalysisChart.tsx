@@ -23,13 +23,17 @@ interface CohortData {
 const dimensionLabels = {
   week: "Week",
   space_kind: "Product Type",
-  plan: "Plan/Tier"
+  plan: "Plan/Tier",
 };
 
-export function CohortAnalysisChart({ dateStart, dateEnd, dimension }: CohortAnalysisChartProps) {
+export function CohortAnalysisChart({
+  dateStart,
+  dateEnd,
+  dimension,
+}: CohortAnalysisChartProps) {
   const { data, isLoading, error } = useMetricsQuery(
     ["cohort-analysis", dateStart, dateEnd, dimension],
-    getCohortAnalysisQuery(dateStart, dateEnd, dimension)
+    getCohortAnalysisQuery(dateStart, dateEnd, dimension),
   );
 
   if (error) {
@@ -39,7 +43,9 @@ export function CohortAnalysisChart({ dateStart, dateEnd, dimension }: CohortAna
           <CardTitle className="text-base">Cohort Analysis</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-sm text-destructive">Error loading data: {data?.error || String(error)}</div>
+          <div className="text-sm text-destructive">
+            Error loading data: {data?.error || String(error)}
+          </div>
         </CardContent>
       </Card>
     );
@@ -64,9 +70,12 @@ export function CohortAnalysisChart({ dateStart, dateEnd, dimension }: CohortAna
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Cohort Analysis by {dimensionLabel}</CardTitle>
+        <CardTitle className="text-base">
+          Cohort Analysis by {dimensionLabel}
+        </CardTitle>
         <p className="text-xs text-muted-foreground mt-1">
-          Conversion rates across different {dimensionLabel.toLowerCase()} cohorts
+          Conversion rates across different {dimensionLabel.toLowerCase()}{" "}
+          cohorts
         </p>
       </CardHeader>
       <CardContent>
@@ -74,7 +83,9 @@ export function CohortAnalysisChart({ dateStart, dateEnd, dimension }: CohortAna
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-border">
-                <th className="text-left py-2 font-semibold sticky left-0 bg-card">{dimensionLabel}</th>
+                <th className="text-left py-2 font-semibold sticky left-0 bg-card">
+                  {dimensionLabel}
+                </th>
                 <th className="text-right py-2 font-semibold">Signups</th>
                 <th className="text-right py-2 font-semibold">Shown</th>
                 <th className="text-right py-2 font-semibold">% Shown</th>
@@ -86,24 +97,61 @@ export function CohortAnalysisChart({ dateStart, dateEnd, dimension }: CohortAna
             </thead>
             <tbody>
               {rows.map((row, idx) => (
-                <tr key={idx} className="border-b border-border/50 hover:bg-muted/50">
-                  <td className="py-2 font-medium sticky left-0 bg-card">{row.cohort}</td>
-                  <td className="text-right py-2">{row.total_signups.toLocaleString()}</td>
-                  <td className="text-right py-2">{row.onboarding_shown.toLocaleString()}</td>
+                <tr
+                  key={idx}
+                  className="border-b border-border/50 hover:bg-muted/50"
+                >
+                  <td className="py-2 font-medium sticky left-0 bg-card">
+                    {row.cohort}
+                  </td>
                   <td className="text-right py-2">
-                    <span className={row.pct_shown < 50 ? "text-red-600" : row.pct_shown < 80 ? "text-orange-600" : "text-green-600"}>
+                    {row.total_signups.toLocaleString()}
+                  </td>
+                  <td className="text-right py-2">
+                    {row.onboarding_shown.toLocaleString()}
+                  </td>
+                  <td className="text-right py-2">
+                    <span
+                      className={
+                        row.pct_shown < 50
+                          ? "text-red-600"
+                          : row.pct_shown < 80
+                            ? "text-orange-600"
+                            : "text-green-600"
+                      }
+                    >
                       {row.pct_shown}%
                     </span>
                   </td>
-                  <td className="text-right py-2">{row.viewed_steps.toLocaleString()}</td>
                   <td className="text-right py-2">
-                    <span className={row.pct_steps < 40 ? "text-red-600" : row.pct_steps < 70 ? "text-orange-600" : "text-green-600"}>
+                    {row.viewed_steps.toLocaleString()}
+                  </td>
+                  <td className="text-right py-2">
+                    <span
+                      className={
+                        row.pct_steps < 40
+                          ? "text-red-600"
+                          : row.pct_steps < 70
+                            ? "text-orange-600"
+                            : "text-green-600"
+                      }
+                    >
                       {row.pct_steps}%
                     </span>
                   </td>
-                  <td className="text-right py-2 font-semibold">{row.completed_onboarding.toLocaleString()}</td>
                   <td className="text-right py-2 font-semibold">
-                    <span className={row.pct_completed < 30 ? "text-red-600" : row.pct_completed < 60 ? "text-orange-600" : "text-green-600"}>
+                    {row.completed_onboarding.toLocaleString()}
+                  </td>
+                  <td className="text-right py-2 font-semibold">
+                    <span
+                      className={
+                        row.pct_completed < 30
+                          ? "text-red-600"
+                          : row.pct_completed < 60
+                            ? "text-orange-600"
+                            : "text-green-600"
+                      }
+                    >
                       {row.pct_completed}%
                     </span>
                   </td>
@@ -123,19 +171,23 @@ export function CohortAnalysisChart({ dateStart, dateEnd, dimension }: CohortAna
             <div>
               <div className="text-muted-foreground">Avg Completion Rate</div>
               <div className="text-lg font-bold text-blue-600">
-                {(rows.reduce((sum, d) => sum + d.pct_completed, 0) / rows.length).toFixed(1)}%
+                {(
+                  rows.reduce((sum, d) => sum + d.pct_completed, 0) /
+                  rows.length
+                ).toFixed(1)}
+                %
               </div>
             </div>
             <div>
               <div className="text-muted-foreground">Best Cohort</div>
               <div className="text-lg font-bold text-green-600">
-                {Math.max(...rows.map(d => d.pct_completed)).toFixed(1)}%
+                {Math.max(...rows.map((d) => d.pct_completed)).toFixed(1)}%
               </div>
             </div>
             <div>
               <div className="text-muted-foreground">Worst Cohort</div>
               <div className="text-lg font-bold text-red-600">
-                {Math.min(...rows.map(d => d.pct_completed)).toFixed(1)}%
+                {Math.min(...rows.map((d) => d.pct_completed)).toFixed(1)}%
               </div>
             </div>
           </div>

@@ -9,7 +9,11 @@ interface TablePaginationProps {
 
 export const PAGE_SIZE = 10;
 
-export function TablePagination({ page, totalPages, onPageChange }: TablePaginationProps) {
+export function TablePagination({
+  page,
+  totalPages,
+  onPageChange,
+}: TablePaginationProps) {
   if (totalPages <= 1) return null;
 
   return (
@@ -41,7 +45,10 @@ export function usePagination<T>(items: T[]) {
   const [page, setPage] = useState(0);
   const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
-  const pageItems = items.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+  const pageItems = items.slice(
+    safePage * PAGE_SIZE,
+    (safePage + 1) * PAGE_SIZE,
+  );
 
   return { page: safePage, totalPages, pageItems, setPage };
 }

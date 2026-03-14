@@ -10,7 +10,8 @@ import { parseArgs, output, fatal } from "./helpers";
 import { fetchAllTweetsForUser } from "../server/routes/twitter";
 
 const args = parseArgs();
-if (!args.userName) fatal("--userName is required. Example: --userName=builderio");
+if (!args.userName)
+  fatal("--userName is required. Example: --userName=builderio");
 
 const pages = Math.min(Number(args.pages) || 5, 10);
 const apiKey = process.env.TWITTER_API_KEY;

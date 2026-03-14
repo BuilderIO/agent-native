@@ -19,7 +19,7 @@ export class BuilderUploadError extends Error {
 
   constructor(
     message: string,
-    options: { status?: number; code?: string; responseBody?: string } = {}
+    options: { status?: number; code?: string; responseBody?: string } = {},
   ) {
     super(message);
     this.name = "BuilderUploadError";
@@ -56,13 +56,18 @@ function readBuilderAuthFromDisk(): { apiKey?: string; privateKey?: string } {
   const authFile = path.join(process.cwd(), "content", ".builder-auth.json");
 
   if (!fs.existsSync(authFile)) {
-    throw new Error("Builder connection required to upload media. Please connect your Builder.io account in the app settings.");
+    throw new Error(
+      "Builder connection required to upload media. Please connect your Builder.io account in the app settings.",
+    );
   }
 
   return JSON.parse(fs.readFileSync(authFile, "utf-8"));
 }
 
-function resolveBuilderAuth(options?: { apiKey?: string; privateKey?: string }): { apiKey: string; privateKey: string } {
+function resolveBuilderAuth(options?: {
+  apiKey?: string;
+  privateKey?: string;
+}): { apiKey: string; privateKey: string } {
   let apiKey = options?.apiKey;
   let privateKey = options?.privateKey;
 
@@ -76,7 +81,9 @@ function resolveBuilderAuth(options?: { apiKey?: string; privateKey?: string }):
   }
 
   if (!apiKey || !privateKey) {
-    throw new Error("Invalid Builder authentication data. Please reconnect your account.");
+    throw new Error(
+      "Invalid Builder authentication data. Please reconnect your account.",
+    );
   }
 
   return { apiKey, privateKey };
@@ -103,7 +110,9 @@ export function normalizeBuilderAssetUrl(url: string): string {
   return url;
 }
 
-async function parseBuilderUploadResponse(response: Response): Promise<{ url: string; responseBody: string }> {
+async function parseBuilderUploadResponse(
+  response: Response,
+): Promise<{ url: string; responseBody: string }> {
   const text = await response.text();
   let data: any = null;
 
@@ -117,11 +126,14 @@ async function parseBuilderUploadResponse(response: Response): Promise<{ url: st
 
   const url = data?.url || data?.[0]?.url || data?.results?.[0]?.url;
   if (!url) {
-    throw new BuilderUploadError("Builder upload succeeded but no CDN URL was returned", {
-      status: 502,
-      code: "builder_missing_url",
-      responseBody: text,
-    });
+    throw new BuilderUploadError(
+      "Builder upload succeeded but no CDN URL was returned",
+      {
+        status: 502,
+        code: "builder_missing_url",
+        responseBody: text,
+      },
+    );
   }
 
   return {
@@ -133,15 +145,23 @@ async function parseBuilderUploadResponse(response: Response): Promise<{ url: st
 async function executeBuilderUploadRequest(
   uploadUrl: string,
   requestInit: RequestInit,
-  context: { filename: string; mimeType?: string; size?: number; sourceUrl?: string },
-  retries = 0
+  context: {
+    filename: string;
+    mimeType?: string;
+    size?: number;
+    sourceUrl?: string;
+  },
+  retries = 0,
 ): Promise<string> {
   let lastError: BuilderUploadError | null = null;
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     const startedAt = Date.now();
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), BUILDER_UPLOAD_TIMEOUT_MS);
+    const timeout = setTimeout(
+      () => controller.abort(),
+      BUILDER_UPLOAD_TIMEOUT_MS,
+    );
 
     console.info("[builder-upload] Starting upload", {
       ...context,
@@ -157,7 +177,8 @@ async function executeBuilderUploadRequest(
       });
 
       if (response.ok) {
-        const { url, responseBody } = await parseBuilderUploadResponse(response);
+        const { url, responseBody } =
+          await parseBuilderUploadResponse(response);
         console.info("[builder-upload] Upload succeeded", {
           ...context,
           attempt: attempt + 1,
@@ -181,7 +202,7 @@ async function executeBuilderUploadRequest(
           status: response.status,
           code: getBuilderUploadErrorCode(response.status),
           responseBody: text,
-        }
+        },
       );
 
       const shouldRetry = response.status >= 500 && attempt < retries;
@@ -204,22 +225,24 @@ async function executeBuilderUploadRequest(
         throw error;
       }
 
-      const isAbortError = error instanceof Error && error.name === "AbortError";
+      const isAbortError =
+        error instanceof Error && error.name === "AbortError";
       lastError = isAbortError
         ? new BuilderUploadError(
             `Builder upload timed out after ${Math.round(BUILDER_UPLOAD_TIMEOUT_MS / 1000)}s`,
             {
               status: 504,
               code: "builder_upload_timeout",
-            }
+            },
           )
         : new BuilderUploadError(
             `Builder upload request failed: ${error instanceof Error ? error.message : String(error)}`,
             {
               status: 502,
               code: "builder_upload_request_failed",
-              responseBody: error instanceof Error ? error.message : String(error),
-            }
+              responseBody:
+                error instanceof Error ? error.message : String(error),
+            },
           );
 
       const shouldRetry = attempt < retries;
@@ -243,7 +266,9 @@ async function executeBuilderUploadRequest(
 
     const retryDelay =
       BUILDER_UPLOAD_RETRY_DELAYS_MS[attempt] ??
-      BUILDER_UPLOAD_RETRY_DELAYS_MS[BUILDER_UPLOAD_RETRY_DELAYS_MS.length - 1] ??
+      BUILDER_UPLOAD_RETRY_DELAYS_MS[
+        BUILDER_UPLOAD_RETRY_DELAYS_MS.length - 1
+      ] ??
       1500;
     await sleep(retryDelay);
   }
@@ -268,7 +293,10 @@ function getLocalMediaPathname(url: string): string | null {
 
   try {
     const parsed = new URL(url);
-    if (parsed.pathname.startsWith("/api/projects/") && parsed.pathname.includes("/media/")) {
+    if (
+      parsed.pathname.startsWith("/api/projects/") &&
+      parsed.pathname.includes("/media/")
+    ) {
       return parsed.pathname;
     }
   } catch {}
@@ -317,7 +345,9 @@ function filenameFromUrl(url: string): string {
  * Read a local project media file from disk.
  * URL format: /api/projects/<workspace>/<project>/media/<filename>
  */
-function readLocalMediaFile(url: string): { buffer: Buffer; mimeType: string } | null {
+function readLocalMediaFile(
+  url: string,
+): { buffer: Buffer; mimeType: string } | null {
   const pathname = getLocalMediaPathname(url);
   if (!pathname) return null;
 
@@ -362,7 +392,12 @@ function getCdnUrlFromMetadata(localUrl: string): string | null {
 
   const [, projectSlug, filename] = match;
   const safeName = path.basename(filename);
-  const metaPath = path.join(PROJECTS_DIR, projectSlug, "media", `${safeName}.json`);
+  const metaPath = path.join(
+    PROJECTS_DIR,
+    projectSlug,
+    "media",
+    `${safeName}.json`,
+  );
 
   if (!fs.existsSync(metaPath)) return null;
 
@@ -378,7 +413,7 @@ function getCdnUrlFromMetadata(localUrl: string): string | null {
 
 /** Fetch an external image URL and return its buffer */
 async function fetchExternalImage(
-  url: string
+  url: string,
 ): Promise<{ buffer: Buffer; mimeType: string } | null> {
   try {
     const controller = new AbortController();
@@ -392,7 +427,8 @@ async function fetchExternalImage(
 
     if (!response.ok) return null;
 
-    const contentType = response.headers.get("content-type") || guessMimeType(url);
+    const contentType =
+      response.headers.get("content-type") || guessMimeType(url);
     const arrayBuffer = await response.arrayBuffer();
     return {
       buffer: Buffer.from(arrayBuffer),
@@ -406,7 +442,7 @@ async function fetchExternalImage(
 /** Run async tasks with a concurrency limit */
 async function parallelLimit<T>(
   tasks: (() => Promise<T>)[],
-  limit: number
+  limit: number,
 ): Promise<T[]> {
   const results: T[] = [];
   let i = 0;
@@ -419,7 +455,7 @@ async function parallelLimit<T>(
   }
 
   const workers = Array.from({ length: Math.min(limit, tasks.length) }, () =>
-    runNext()
+    runNext(),
   );
   await Promise.all(workers);
   return results;
@@ -442,7 +478,7 @@ export type ReuploadResult = {
 export async function reuploadBlockImages(
   blocks: any[],
   data: Record<string, any>,
-  options: { apiKey: string; privateKey: string }
+  options: { apiKey: string; privateKey: string },
 ): Promise<ReuploadResult> {
   const result: ReuploadResult = {
     reuploaded: 0,
@@ -462,7 +498,10 @@ export async function reuploadBlockImages(
   // 1. Scan Image component blocks
   function scanBlocks(blockList: any[]) {
     for (const block of blockList) {
-      if (block?.component?.name === "Image" && block.component.options?.image) {
+      if (
+        block?.component?.name === "Image" &&
+        block.component.options?.image
+      ) {
         const url = block.component.options.image;
         refs.push({
           url,
@@ -472,7 +511,10 @@ export async function reuploadBlockImages(
         });
       }
 
-      if (block?.component?.name === "Video" && block.component.options?.video) {
+      if (
+        block?.component?.name === "Video" &&
+        block.component.options?.video
+      ) {
         const url = block.component.options.video;
         refs.push({
           url,
@@ -498,10 +540,8 @@ export async function reuploadBlockImages(
           refs.push({
             url: rep.url,
             apply: (cdnUrl) => {
-              block.component.options.text = block.component.options.text.replace(
-                rep.url,
-                cdnUrl
-              );
+              block.component.options.text =
+                block.component.options.text.replace(rep.url, cdnUrl);
             },
           });
         }
@@ -547,10 +587,12 @@ export async function reuploadBlockImages(
     refsByUrl.set(url, [...(refsByUrl.get(url) || []), ref]);
   }
 
-  const toProcess = Array.from(refsByUrl.entries()).map(([url, groupedRefs]) => ({
-    url,
-    refs: groupedRefs,
-  }));
+  const toProcess = Array.from(refsByUrl.entries()).map(
+    ([url, groupedRefs]) => ({
+      url,
+      refs: groupedRefs,
+    }),
+  );
 
   for (const item of toProcess) {
     if (isLocalMediaUrl(item.url)) {
@@ -566,7 +608,7 @@ export async function reuploadBlockImages(
   }
 
   const pending = toProcess.filter(
-    (item) => !(isLocalMediaUrl(item.url) && getCdnUrlFromMetadata(item.url))
+    (item) => !(isLocalMediaUrl(item.url) && getCdnUrlFromMetadata(item.url)),
   );
 
   if (pending.length === 0) {
@@ -574,7 +616,7 @@ export async function reuploadBlockImages(
   }
 
   console.log(
-    `[builder-upload] Reuploading ${pending.length} non-CDN image(s) to Builder CDN…`
+    `[builder-upload] Reuploading ${pending.length} non-CDN image(s) to Builder CDN…`,
   );
 
   // 4. Process each unique image URL once
@@ -603,7 +645,7 @@ export async function reuploadBlockImages(
         filename,
         imageData.buffer,
         imageData.mimeType,
-        options
+        options,
       );
 
       for (const ref of item.refs) {
@@ -618,14 +660,16 @@ export async function reuploadBlockImages(
         original: item.url,
         error: err.message || "Upload failed",
       });
-      console.warn(`[builder-upload] ⚠ Reupload failed for ${item.url}: ${err.message}`);
+      console.warn(
+        `[builder-upload] ⚠ Reupload failed for ${item.url}: ${err.message}`,
+      );
     }
   });
 
   await parallelLimit(tasks, MAX_CONCURRENT_UPLOADS);
 
   console.log(
-    `[builder-upload] Reupload complete: ${result.reuploaded} succeeded, ${result.failed} failed, ${result.skipped} skipped`
+    `[builder-upload] Reupload complete: ${result.reuploaded} succeeded, ${result.failed} failed, ${result.skipped} skipped`,
   );
 
   return result;
@@ -634,7 +678,7 @@ export async function reuploadBlockImages(
 export async function uploadUrlToBuilderCDN(
   filename: string,
   sourceUrl: string,
-  options?: { apiKey?: string; privateKey?: string; retries?: number }
+  options?: { apiKey?: string; privateKey?: string; retries?: number },
 ): Promise<string> {
   const { apiKey, privateKey } = resolveBuilderAuth(options);
   const uploadUrl = `${BUILDER_API}/upload?apiKey=${apiKey}&name=${encodeURIComponent(filename)}&url=${encodeURIComponent(sourceUrl)}`;
@@ -652,7 +696,7 @@ export async function uploadUrlToBuilderCDN(
       filename,
       sourceUrl,
     },
-    options?.retries ?? 0
+    options?.retries ?? 0,
   );
 }
 
@@ -660,11 +704,12 @@ export async function uploadBufferToBuilderCDN(
   filename: string,
   buffer: Buffer | Uint8Array,
   mimeType: string,
-  options?: { apiKey?: string; privateKey?: string; retries?: number }
+  options?: { apiKey?: string; privateKey?: string; retries?: number },
 ): Promise<string> {
   const { apiKey, privateKey } = resolveBuilderAuth(options);
   const uploadUrl = `${BUILDER_API}/upload?apiKey=${apiKey}&name=${encodeURIComponent(filename)}`;
-  const resolvedMimeType = mimeType === "image/svg+xml" ? "image/svg+xml" : mimeType;
+  const resolvedMimeType =
+    mimeType === "image/svg+xml" ? "image/svg+xml" : mimeType;
 
   return executeBuilderUploadRequest(
     uploadUrl,
@@ -683,6 +728,6 @@ export async function uploadBufferToBuilderCDN(
       mimeType: resolvedMimeType,
       size: buffer.length,
     },
-    options?.retries ?? 0
+    options?.retries ?? 0,
   );
 }

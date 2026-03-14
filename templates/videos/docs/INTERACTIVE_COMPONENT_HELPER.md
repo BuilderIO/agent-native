@@ -11,16 +11,24 @@ The `useInteractiveComponent` hook dramatically simplifies creating interactive 
 ```tsx
 // Step 1: Define zone
 const interactiveElements = createInteractiveElements([
-  { id: "my-card", type: "card", label: "My Card", zone: { x: 100, y: 100, width: 200, height: 150 } }
+  {
+    id: "my-card",
+    type: "card",
+    label: "My Card",
+    zone: { x: 100, y: 100, width: 200, height: 150 },
+  },
 ]);
 
 // Step 2: Get hover state
-const myCardHover = useHoverAnimationSmooth(cursorHistory, interactiveElements[0].zone);
+const myCardHover = useHoverAnimationSmooth(
+  cursorHistory,
+  interactiveElements[0].zone,
+);
 
 // Step 3: Register element
 useRegisterInteractiveElement(
   { id: "my-card", type: "MyCard", label: "My Card", compositionId: "my-comp" },
-  myCardHover
+  myCardHover,
 );
 
 // Step 4: Get context
@@ -41,11 +49,11 @@ useEffect(() => {
           property: "scale",
           keyframes: [
             { progress: 0, value: 1 },
-            { progress: 1, value: 1.15 }
+            { progress: 1, value: 1.15 },
           ],
           unit: "",
-        }
-      ]
+        },
+      ],
     });
   }
 }, []);
@@ -53,7 +61,7 @@ useEffect(() => {
 // Step 6: Use the state
 <div style={{ transform: `scale(${1 + myCardHover.hoverProgress * 0.15})` }}>
   My Card
-</div>
+</div>;
 ```
 
 ### After (Recommended with AnimatedElement! ✨):
@@ -76,7 +84,7 @@ registerForCursor(myCard);
 
 <AnimatedElement interactive={myCard} as="div">
   My Card
-</AnimatedElement>
+</AnimatedElement>;
 ```
 
 **Result:** ~50 lines → ~10 lines (**80% reduction**)
@@ -89,6 +97,7 @@ registerForCursor(myCard);
 ### `useInteractiveComponent(options)`
 
 Creates a fully-registered interactive element with automatic:
+
 - Hover/click detection
 - Sidebar registration
 - Animation storage
@@ -108,7 +117,7 @@ Creates a fully-registered interactive element with automatic:
   cursorHistory: CursorFrame[]; // From useCursorHistory()
   hoverAnimation?: Animation;   // Optional hover animation
   clickAnimation?: Animation;   // Optional click animation
-  
+
   // Cursor type handling (auto-managed!)
   cursorType?: "pointer" | "text" | "default";     // Override cursor type
   interactiveElementType?: InteractiveElementType; // Smart cursor inference
@@ -117,6 +126,7 @@ Creates a fully-registered interactive element with automatic:
 ```
 
 **Cursor Type Inference:**
+
 - If `cursorType` is provided → uses that
 - Else if `interactiveElementType` is provided → infers from type:
   - `"button"`, `"card"`, `"link"`, `"toggle"`, `"icon"`, `"image"` → `"pointer"`
@@ -149,68 +159,79 @@ Creates a fully-registered interactive element with automatic:
 Built-in presets for common animation patterns:
 
 ### Scale Hover
+
 ```tsx
-hoverAnimation: AnimationPresets.scaleHover(0.15)
+hoverAnimation: AnimationPresets.scaleHover(0.15);
 // Scale from 1 → 1.15 on hover
 ```
 
 ### Lift Hover
+
 ```tsx
-hoverAnimation: AnimationPresets.liftHover(20)
+hoverAnimation: AnimationPresets.liftHover(20);
 // Lifts up 20px with shadow on hover
 ```
 
 ### 3D Rotate Click
+
 ```tsx
-clickAnimation: AnimationPresets.rotateClick(360)
+clickAnimation: AnimationPresets.rotateClick(360);
 // Rotates 360° on Y-axis when clicked
 ```
 
 ### Glow Hover
+
 ```tsx
-hoverAnimation: AnimationPresets.glowHover(40)
+hoverAnimation: AnimationPresets.glowHover(40);
 // Adds 40px glowing shadow on hover
 ```
 
 ### Blur Click
+
 ```tsx
-clickAnimation: AnimationPresets.blurClick(8)
+clickAnimation: AnimationPresets.blurClick(8);
 // Applies 8px blur on click
 ```
 
 ### Color Shift Hover
+
 ```tsx
-hoverAnimation: AnimationPresets.colorHover("#1e1e28", "#e64673")
+hoverAnimation: AnimationPresets.colorHover("#1e1e28", "#e64673");
 // Shifts background color on hover
 ```
 
 ### Press Click
+
 ```tsx
-clickAnimation: AnimationPresets.pressClick(0.95)
+clickAnimation: AnimationPresets.pressClick(0.95);
 // Scales down to 0.95 on click (button press effect)
 ```
 
 ---
+
 interactiveElementType: "button", // Auto cursor: "pointer"
-  hoverAnimation: AnimationPresets.scaleHover(0.1),
-  clickAnimation: AnimationPresets.pressClick(0.95),
+hoverAnimation: AnimationPresets.scaleHover(0.1),
+clickAnimation: AnimationPresets.pressClick(0.95),
 });
 
 return (
-  <button
-    style={{
+<button
+style={{
       transform: `scale(${1 + submitBtn.hover.progress * 0.1})`,
       opacity: submitBtn.click.isClicking ? 0.8 : 1,
     }}
-  >
+
+>
+
     Submit
+
   </button>
 );
 ```
 
 ### Example 2: Text Input with Smart Cursor
 
-```tsx
+````tsx
 const emailInput = useInteractiveComponent({
   id: "email-input",
   elementType: "Input",
@@ -269,7 +290,7 @@ return (
     Card {i + 1}
   </div>
 ));
-```
+````
 
 ### Example 4: Empty State (No Initial Animations)
 
@@ -326,6 +347,7 @@ const autoCursorType = useInteractiveComponentsCursor([card1, card2, button1]);
 ```
 
 Pass to `CameraHost` for automatic cursor type switching:
+
 ```tsx
 <CameraHost tracks={tracks} autoCursorType={autoCursorType}>
   {content}
@@ -374,33 +396,36 @@ console.log("User has configured:", storedAnimations);
 ## ⚡ Performance Considerations
 
 ### ✅ Do:
+
 - Reuse `cursorHistory` across all components (call `useCursorHistory` once)
 - Use animation presets when possible (pre-optimized)
 - Define zones outside the component if they're static
 
 ### ❌ Don't:
+
 - Call `useCursorHistory` multiple times (wasteful)
 - Create new animation objects on every render (use useMemo if dynamic)
 - Define zones inside loops without memoization
 
 ---
+
 interactiveElementType: "card", // Auto cursor!
-  hoverAnimation: AnimationPresets.scaleHover(0.15),
+hoverAnimation: AnimationPresets.scaleHover(0.15),
 });
 
 // Cursor aggregation - one line!
 const autoCursorType = useInteractiveComponentsCursor([element, ...others]# 🆚 Comparison Table
 
-| Feature | Manual Registration | useInteractiveComponent |
-|---------|---------------------|------------------------|
-| Lines of code | ~50 per element | ~10 per element |
-| Boilerplate | High | Minimal |
-| Type safety | Manual | Automatic |
-| Animation presets | Manual definition | Built-in library |
-| Sidebar integration | Manual (6 steps) | Automatic (1 call) |
-| Error-prone | Yes | No |
-| Beginner-friendly | No | Yes |
-| Flexibility | Full | Full |
+| Feature             | Manual Registration | useInteractiveComponent |
+| ------------------- | ------------------- | ----------------------- |
+| Lines of code       | ~50 per element     | ~10 per element         |
+| Boilerplate         | High                | Minimal                 |
+| Type safety         | Manual              | Automatic               |
+| Animation presets   | Manual definition   | Built-in library        |
+| Sidebar integration | Manual (6 steps)    | Automatic (1 call)      |
+| Error-prone         | Yes                 | No                      |
+| Beginner-friendly   | No                  | Yes                     |
+| Flexibility         | Full                | Full                    |
 
 ---
 
@@ -409,6 +434,7 @@ const autoCursorType = useInteractiveComponentsCursor([element, ...others]# 🆚
 ### Converting Existing Code
 
 **Before:**
+
 ```tsx
 // 1. Define interactive elements
 const interactiveElements = createInteractiveElements([...]);
@@ -424,6 +450,7 @@ useEffect(() => { /* ... */ }, []);
 ```
 
 **After:**
+
 ```tsx
 const element = useInteractiveComponent({
   id: "my-element",
@@ -437,6 +464,7 @@ const element = useInteractiveComponent({
 ```
 
 **Steps:**
+
 1. Remove `createInteractiveElements` call
 2. Remove `useHoverAnimationSmooth` call
 3. Remove `useRegisterInteractiveElement` call
@@ -478,16 +506,19 @@ const lift = (interactive.animatedProperties?.lift as number) ?? 0;
 const glow = (interactive.animatedProperties?.glow as number) ?? 0;
 const bgColor = interactive.animatedProperties?.backgroundColor ?? "blue";
 
-<div style={{
-  transform: `scale(${scale}) translateY(${-lift}px)`,
-  backgroundColor: bgColor,
-  boxShadow: `0 ${lift}px ${glow}px rgba(0,0,0,0.3)`,
-}}>
+<div
+  style={{
+    transform: `scale(${scale}) translateY(${-lift}px)`,
+    backgroundColor: bgColor,
+    boxShadow: `0 ${lift}px ${glow}px rgba(0,0,0,0.3)`,
+  }}
+>
   Content
-</div>
+</div>;
 ```
 
 **Problems:**
+
 - Need to add code for every new property
 - Users can't customize via UI without developer intervention
 - Easy to forget properties or use wrong fallbacks
@@ -501,10 +532,11 @@ import { AnimatedElement } from "@/remotion/components/AnimatedElement";
 // ✅ NEW WAY - Automatic (works with ANY property!)
 <AnimatedElement interactive={interactive} as="div">
   Content
-</AnimatedElement>
+</AnimatedElement>;
 ```
 
 **Benefits:**
+
 - ✅ **Zero property extraction code needed**
 - ✅ **ALL properties work automatically** (scale, backgroundColor, borderRadius, blur, etc.)
 - ✅ **Users can add ANY CSS property via UI** without code changes
@@ -516,21 +548,27 @@ import { AnimatedElement } from "@/remotion/components/AnimatedElement";
 AnimatedElement automatically applies **ALL** CSS properties:
 
 **Transform:**
+
 - `scale`, `translateX`, `translateY`, `rotate`, `rotateX`, `rotateY`, `skewX`, `skewY`
 
 **Colors:**
+
 - `backgroundColor`, `color`, `borderColor`, `borderTopColor`, `borderBottomColor`, etc.
 
 **Filters:**
+
 - `blur`, `brightness`, `contrast`, `saturate`, `hueRotate`
 
 **Size & Spacing:**
+
 - `width`, `height`, `padding`, `margin`, `paddingTop`, `marginLeft`, etc.
 
 **Borders:**
+
 - `borderWidth`, `borderRadius`, `borderTopWidth`, `borderStyle`, etc.
 
 **Effects:**
+
 - `boxShadow`, `opacity`
 
 **+ ANY other CSS property!**
@@ -551,11 +589,11 @@ export const MyComponent = ({ cursorHistory, registerForCursor }) => {
     cursorHistory,
     interactiveElementType: "button",
   });
-  
+
   React.useEffect(() => {
     registerForCursor(button);
   }, [button.hover.isHovering, button.click.isClicking]);
-  
+
   return (
     <AnimatedElement
       interactive={button}
@@ -583,13 +621,15 @@ Only extract properties manually when you need custom logic:
 const glow = (interactive.animatedProperties?.glow as number) ?? 0;
 
 <AnimatedElement interactive={interactive} as="div">
-  <div style={{
-    // Use glow value for icon shadow
-    filter: `drop-shadow(0 0 ${glow}px blue)`,
-  }}>
+  <div
+    style={{
+      // Use glow value for icon shadow
+      filter: `drop-shadow(0 0 ${glow}px blue)`,
+    }}
+  >
     🎨
   </div>
-</AnimatedElement>
+</AnimatedElement>;
 ```
 
 ### Best Practices
@@ -609,7 +649,11 @@ const glow = (interactive.animatedProperties?.glow as number) ?? 0;
 import { useInteractiveComponent } from "@/remotion/hooks/useInteractiveComponent";
 import { AnimatedElement } from "@/remotion/components/AnimatedElement";
 
-export const MyInteractiveElement = ({ cursorHistory, registerForCursor, ...props }) => {
+export const MyInteractiveElement = ({
+  cursorHistory,
+  registerForCursor,
+  ...props
+}) => {
   // 1. Create interactive component
   const interactive = useInteractiveComponent({
     id: props.id,
@@ -620,15 +664,19 @@ export const MyInteractiveElement = ({ cursorHistory, registerForCursor, ...prop
     cursorHistory,
     interactiveElementType: "button",
   });
-  
+
   // 2. Register for cursor
   React.useEffect(() => {
     registerForCursor(interactive);
   }, [interactive.hover.isHovering, interactive.click.isClicking]);
-  
+
   // 3. Render with AnimatedElement - ALL properties work automatically!
   return (
-    <AnimatedElement interactive={interactive} as="div" style={{ ...baseStyles }}>
+    <AnimatedElement
+      interactive={interactive}
+      as="div"
+      style={{ ...baseStyles }}
+    >
       {props.children}
     </AnimatedElement>
   );
@@ -636,7 +684,7 @@ export const MyInteractiveElement = ({ cursorHistory, registerForCursor, ...prop
 ```
 
 **See Examples:**
+
 - `client/remotion/ui-components/InteractiveButton.tsx` - Updated example
 - `client/remotion/ui-components/InteractiveCard.tsx` - Updated example
 - `.builder/ANIMATED_PROPERTIES.md` - Full property documentation
-

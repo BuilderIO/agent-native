@@ -2,7 +2,10 @@
  * BigQuery SQL queries for onboarding funnel analysis
  */
 
-export function getFunnelOverviewQuery(dateStart: string, dateEnd: string): string {
+export function getFunnelOverviewQuery(
+  dateStart: string,
+  dateEnd: string,
+): string {
   return `
 WITH user_events AS (
   SELECT
@@ -87,7 +90,10 @@ ORDER BY step_order
   `;
 }
 
-export function getTimeToCompleteQuery(dateStart: string, dateEnd: string): string {
+export function getTimeToCompleteQuery(
+  dateStart: string,
+  dateEnd: string,
+): string {
   return `
 WITH user_events AS (
   SELECT
@@ -139,13 +145,14 @@ ORDER BY
 export function getCohortAnalysisQuery(
   dateStart: string,
   dateEnd: string,
-  dimension: 'week' | 'space_kind' | 'plan'
+  dimension: "week" | "space_kind" | "plan",
 ): string {
-  const dimensionSelect = dimension === 'week'
-    ? `FORMAT_TIMESTAMP('%Y-W%V', signup_time) as cohort`
-    : dimension === 'space_kind'
-    ? `COALESCE(space_kind, 'Unknown') as cohort`
-    : `COALESCE(plan, 'Unknown') as cohort`;
+  const dimensionSelect =
+    dimension === "week"
+      ? `FORMAT_TIMESTAMP('%Y-W%V', signup_time) as cohort`
+      : dimension === "space_kind"
+        ? `COALESCE(space_kind, 'Unknown') as cohort`
+        : `COALESCE(plan, 'Unknown') as cohort`;
 
   return `
 WITH user_events AS (
@@ -197,7 +204,10 @@ LIMIT 20
   `;
 }
 
-export function getDropoffAnalysisQuery(dateStart: string, dateEnd: string): string {
+export function getDropoffAnalysisQuery(
+  dateStart: string,
+  dateEnd: string,
+): string {
   return `
 WITH user_events AS (
   SELECT
@@ -242,7 +252,10 @@ FROM user_progression
   `;
 }
 
-export function getDailyFunnelQuery(dateStart: string, dateEnd: string): string {
+export function getDailyFunnelQuery(
+  dateStart: string,
+  dateEnd: string,
+): string {
   return `
 WITH user_events AS (
   SELECT

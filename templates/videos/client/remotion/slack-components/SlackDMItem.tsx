@@ -19,7 +19,7 @@ export const SlackDMItem: React.FC<SlackDMItemProps> = ({
   clickProgress = 0,
 }) => {
   const bgOpacity = isActive ? 0.15 : hoverProgress * 0.1;
-  const scale = 1 + (hoverProgress * 0.02) - (clickProgress * 0.01);
+  const scale = 1 + hoverProgress * 0.02 - clickProgress * 0.01;
 
   return (
     <div

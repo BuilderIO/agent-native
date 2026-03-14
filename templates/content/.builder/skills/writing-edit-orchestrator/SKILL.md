@@ -124,30 +124,37 @@ Before declaring done, verify:
 # Edit Plan: <doc title>
 
 ## Source
+
 - Document path: <path>
 - Objective: <single objective for current pass>
 - Non-goals: <what must not change>
 
 ## Decisions from user conversation
+
 - <decision 1>
 - <decision 2>
 
 ## Chunk map
+
 1. <section/chunk boundary>
 2. <section/chunk boundary>
 
 ## Execution mode
+
 - Mode: parallel | sequential | hybrid
 - Rationale: <why>
 
 ## Subagent assignments
+
 - Chunk 1 -> <task summary>
 - Chunk 2 -> <task summary>
 
 ## Integration plan
+
 - <transition and cohesion steps>
 
 ## QA checklist
+
 - [ ] Claims preserved
 - [ ] Tone target met
 - [ ] Length target met

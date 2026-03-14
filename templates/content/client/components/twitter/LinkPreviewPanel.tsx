@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  X,
-  ExternalLink,
-  Plus,
-  Check,
-} from "lucide-react";
+import { X, ExternalLink, Plus, Check } from "lucide-react";
 import { useLinkPreview } from "@/hooks/use-twitter";
 import {
   Tooltip,
@@ -52,7 +47,10 @@ function requestWebviewHtml(): Promise<string | null> {
 }
 
 /** Extract metadata from raw HTML string */
-function extractMetaFromHtml(html: string, url: string): { title: string; description: string; image?: string } {
+function extractMetaFromHtml(
+  html: string,
+  url: string,
+): { title: string; description: string; image?: string } {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
 
@@ -64,14 +62,9 @@ function extractMetaFromHtml(html: string, url: string): { title: string; descri
   };
 
   const title =
-    getMeta("og:title") ||
-    doc.querySelector("title")?.textContent ||
-    url;
+    getMeta("og:title") || doc.querySelector("title")?.textContent || url;
 
-  const description =
-    getMeta("og:description") ||
-    getMeta("description") ||
-    "";
+  const description = getMeta("og:description") || getMeta("description") || "";
 
   const image = getMeta("og:image");
 
@@ -111,7 +104,8 @@ export function LinkPreviewPanel({
   useEffect(() => {
     const handler = () => onClose();
     window.addEventListener("builder.previewUrlClosed", handler);
-    return () => window.removeEventListener("builder.previewUrlClosed", handler);
+    return () =>
+      window.removeEventListener("builder.previewUrlClosed", handler);
   }, [onClose]);
 
   const handleClose = useCallback(() => {
@@ -128,7 +122,9 @@ export function LinkPreviewPanel({
       if (html) {
         console.log("[LinkPreviewPanel] Webview HTML received:", html);
       } else {
-        console.log("[LinkPreviewPanel] No webview HTML returned, falling back to backend preview");
+        console.log(
+          "[LinkPreviewPanel] No webview HTML returned, falling back to backend preview",
+        );
       }
       const meta = html
         ? extractMetaFromHtml(html, resolvedUrl)

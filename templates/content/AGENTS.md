@@ -37,7 +37,7 @@ Three pillars. Understand these and you understand the entire app.
 
 ### 1. Files as the Database
 
-**Everything stateful is a file on disk** — markdown, JSON, images. The file system *is* the database.
+**Everything stateful is a file on disk** — markdown, JSON, images. The file system _is_ the database.
 
 - User edits a draft in the UI → writes to `content/projects/<slug>/draft.md` → agent reads the same file
 - Agent writes a draft via script → writes to the same `draft.md` → UI displays it instantly
@@ -47,6 +47,7 @@ Three pillars. Understand these and you understand the entire app.
 No sync layer. No webhooks. No database migrations. One source of truth.
 
 **Why this matters:**
+
 - Transparent: all content is human-readable markdown and JSON
 - Version controlled: Git tracks every change from both human and agent
 - No sync bugs: one source of truth, not two systems to keep aligned
@@ -68,6 +69,7 @@ npm run script -- fetch-url-as-markdown --url "https://..."
 **Key design:** Scripts directly import and reuse core functions from `server/routes/*` rather than making HTTP calls. The UI endpoints and the agent scripts share the exact same implementation — one function, two interfaces.
 
 **Adding a new script:**
+
 1. Create `scripts/my-script.ts`
 2. Export: `export default async function main(args: string[]): Promise<void>`
 3. Use `parseArgs()` and `camelCaseArgs()` from `scripts/_utils.ts`
@@ -84,7 +86,10 @@ The app can trigger agent chat actions from UI interactions via `@agent-native/c
 **From browser code (React components):**
 
 ```typescript
-import { sendToAgentChat, useAgentChatGenerating } from "@agent-native/core/client";
+import {
+  sendToAgentChat,
+  useAgentChatGenerating,
+} from "@agent-native/core/client";
 
 // Auto-submit to the agent
 sendToAgentChat({
@@ -127,6 +132,7 @@ agentChat.send({
 ```
 
 **Example use cases:**
+
 - Button click → generate alt text for a selected image
 - Button click → enforce house style rules on the current document
 - Form submit → generate OG description from article content
@@ -143,15 +149,15 @@ These rules are non-negotiable. They exist because of past mistakes.
 
 ### Writing
 
-1. **NEVER use emdashes (—).** Use a single dash with spaces ` - ` instead. No exceptions.
+1. **NEVER use emdashes (—).** Use a single dash with spaces `-` instead. No exceptions.
 
 ### General
 
 2. **Read LEARNINGS.md before starting any work** in a workspace. It contains evolved preferences and corrections that prevent repeated mistakes.
-2. **Update LEARNINGS.md when you receive feedback.** If the user corrects you in chat — a preference, a style choice, a workflow change — immediately add it to LEARNINGS.md so it's captured for future sessions. Don't wait until the end of a task.
-3. **Read AGENTS.md rules before starting any task.**
-4. **Files are the transfer medium.** When you need to persist or share state between UI and agent, use files. Not in-memory state, not API-only data.
-5. **Always use scripts for backend operations.** Never use `curl`, `fetch`, or inline code to call endpoints. Use `npm run script -- <name>`. If a script doesn't exist for what you need, create one.
+3. **Update LEARNINGS.md when you receive feedback.** If the user corrects you in chat — a preference, a style choice, a workflow change — immediately add it to LEARNINGS.md so it's captured for future sessions. Don't wait until the end of a task.
+4. **Read AGENTS.md rules before starting any task.**
+5. **Files are the transfer medium.** When you need to persist or share state between UI and agent, use files. Not in-memory state, not API-only data.
+6. **Always use scripts for backend operations.** Never use `curl`, `fetch`, or inline code to call endpoints. Use `npm run script -- <name>`. If a script doesn't exist for what you need, create one.
 
 ### Image Generation
 
@@ -281,6 +287,7 @@ Every project can have additional files beyond `draft.md` - these appear in the 
 **When editing a draft, always check the project's other files first.** They contain context - meeting transcripts, research notes, prior discussions - that should inform your writing. Don't ask the user to re-explain what's already captured in these files.
 
 **Examples of context files:**
+
 - Meeting transcripts (e.g., `brainstorm-transcript.md`)
 - Research notes or competitor analysis
 - Source material or reference documents
@@ -305,18 +312,23 @@ Each workspace has a `LEARNINGS.md` file (e.g., `content/projects/steve/LEARNING
 - **Format:** Each entry should have a date, category, and the specific learning.
 
 **Example entries:**
+
 ```markdown
 ### 2026-02-24 — Image Generation: Logo Accuracy
+
 Never invent logos. Use actual recognizable logos for real products.
 
 ### 2026-02-24 — Hero Images: Simplicity
+
 Hero images should be bold and simple. Minimize text. Must read well on mobile.
 
 ### 2026-02-24 — Writing: Opening Pattern
+
 Start with a bold claim or counterintuitive observation, not a question.
 ```
 
 **What to capture:**
+
 - Style/aesthetic preferences
 - Content voice corrections
 - Workflow preferences (e.g., "always show 3 image options")
@@ -327,21 +339,21 @@ Start with a bold claim or counterintuitive observation, not a question.
 
 ## Scripts Reference
 
-| Script | Key Args | Purpose |
-|--------|----------|---------|
-| `generate-image` | `--prompt, --model, --preset, --project-slug` | AI image generation with style presets |
-| `list-image-presets` | — | Show available presets |
-| `search-twitter` | `--query, --filter?` | Search Twitter/X |
-| `get-twitter-article` | `--tweet-id` | Fetch X Article content |
-| `fetch-url-as-markdown` | `--url` | Convert webpage to markdown |
-| `preview-link` | `--url` | Get OG metadata |
-| `list-projects` | — | List all projects |
-| `get-file-tree` | `--project-slug?` | Show project file tree |
-| `read-file` | `--file-path, --project-slug?` | Read a file |
-| `write-file` | `--file-path, --content, --project-slug?` | Write a file |
-| `get-research` | `--project-slug` | Get research data |
-| `save-research` | `--project-slug, --data` | Save research JSON |
-| `get-editor-selection` | — | Get editor text selection |
+| Script                  | Key Args                                      | Purpose                                |
+| ----------------------- | --------------------------------------------- | -------------------------------------- |
+| `generate-image`        | `--prompt, --model, --preset, --project-slug` | AI image generation with style presets |
+| `list-image-presets`    | —                                             | Show available presets                 |
+| `search-twitter`        | `--query, --filter?`                          | Search Twitter/X                       |
+| `get-twitter-article`   | `--tweet-id`                                  | Fetch X Article content                |
+| `fetch-url-as-markdown` | `--url`                                       | Convert webpage to markdown            |
+| `preview-link`          | `--url`                                       | Get OG metadata                        |
+| `list-projects`         | —                                             | List all projects                      |
+| `get-file-tree`         | `--project-slug?`                             | Show project file tree                 |
+| `read-file`             | `--file-path, --project-slug?`                | Read a file                            |
+| `write-file`            | `--file-path, --content, --project-slug?`     | Write a file                           |
+| `get-research`          | `--project-slug`                              | Get research data                      |
+| `save-research`         | `--project-slug, --data`                      | Save research JSON                     |
+| `get-editor-selection`  | —                                             | Get editor text selection              |
 
 Run any script with `--help` for full usage.
 

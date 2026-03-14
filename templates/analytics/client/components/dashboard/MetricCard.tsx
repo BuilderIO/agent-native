@@ -56,10 +56,14 @@ export function MetricCard({
         ) : (
           <>
             <div className="text-2xl font-bold">
-              {typeof value === "number" ? value.toLocaleString() : value ?? "-"}
+              {typeof value === "number"
+                ? value.toLocaleString()
+                : (value ?? "-")}
             </div>
             {description && (
-              <p className="text-xs text-muted-foreground mt-1">{description}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {description}
+              </p>
             )}
           </>
         )}

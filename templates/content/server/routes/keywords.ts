@@ -8,7 +8,10 @@ import type {
 
 const DATAFORSEO_BASE = "https://api.dataforseo.com/v3";
 
-function getDataForSEOCredentials(): { login: string; password: string } | null {
+function getDataForSEOCredentials(): {
+  login: string;
+  password: string;
+} | null {
   const login = process.env.DATAFORSEO_LOGIN;
   const password = process.env.DATAFORSEO_PASSWORD;
   if (!login || !password) return null;
@@ -55,8 +58,10 @@ async function fetchDataForSEOMetrics(
   login: string,
   password: string,
   locationCode: number = 2840,
-  languageCode: string = "en"
-): Promise<Map<string, { volume?: number; competition?: number; cpc?: number }>> {
+  languageCode: string = "en",
+): Promise<
+  Map<string, { volume?: number; competition?: number; cpc?: number }>
+> {
   const url = `${DATAFORSEO_BASE}/keywords_data/google_ads/search_volume/live`;
   const body = [
     {
@@ -78,7 +83,10 @@ async function fetchDataForSEOMetrics(
   }
 
   const data = await res.json();
-  const metricsMap = new Map<string, { volume?: number; competition?: number; cpc?: number }>();
+  const metricsMap = new Map<
+    string,
+    { volume?: number; competition?: number; cpc?: number }
+  >();
 
   const tasks = data?.tasks;
   if (Array.isArray(tasks)) {
@@ -108,7 +116,7 @@ async function fetchDataForSEOMetrics(
  * 2. If DataForSEO credentials are set, enriches them with volume/competition/CPC.
  */
 export const suggestKeywords = async (req: Request, res: Response) => {
-  const query = (req.query.q as string || "").trim();
+  const query = ((req.query.q as string) || "").trim();
   if (!query) {
     return res.status(400).json({ error: "Query parameter 'q' is required" });
   }
@@ -122,7 +130,7 @@ export const suggestKeywords = async (req: Request, res: Response) => {
         const metrics = await fetchDataForSEOMetrics(
           rawSuggestions,
           creds.login,
-          creds.password
+          creds.password,
         );
         const suggestions: KeywordSuggestion[] = rawSuggestions.map((kw) => {
           const m = metrics.get(kw);
@@ -140,7 +148,10 @@ export const suggestKeywords = async (req: Request, res: Response) => {
           source: "dataforseo",
         } as KeywordSuggestResponse);
       } catch (err: any) {
-        console.error("DataForSEO enrichment failed, using plain suggestions:", err.message);
+        console.error(
+          "DataForSEO enrichment failed, using plain suggestions:",
+          err.message,
+        );
       }
     }
 
@@ -184,7 +195,7 @@ export const getKeywordVolume = async (req: Request, res: Response) => {
       creds.login,
       creds.password,
       locationCode || 2840,
-      languageCode || "en"
+      languageCode || "en",
     );
 
     const results: KeywordSuggestion[] = keywords.map((kw) => {
@@ -200,7 +211,9 @@ export const getKeywordVolume = async (req: Request, res: Response) => {
     return res.json({ keywords: results } as KeywordVolumeResponse);
   } catch (err: any) {
     console.error("Keyword volume error:", err);
-    return res.status(500).json({ error: err.message || "Failed to fetch volume data" });
+    return res
+      .status(500)
+      .json({ error: err.message || "Failed to fetch volume data" });
   }
 };
 
@@ -212,23 +225,31 @@ export const getKeywordVolume = async (req: Request, res: Response) => {
 export const configureApi = async (req: Request, res: Response) => {
   const { login, password } = req.body;
   if (!login || !password) {
-    return res.status(400).json({ error: "'login' and 'password' are required" });
+    return res
+      .status(400)
+      .json({ error: "'login' and 'password' are required" });
   }
 
   // Validate credentials with a lightweight test call
   try {
     const testUrl = `${DATAFORSEO_BASE}/keywords_data/google_ads/search_volume/live`;
-    const testBody = [{ keywords: ["test"], location_code: 2840, language_code: "en" }];
+    const testBody = [
+      { keywords: ["test"], location_code: 2840, language_code: "en" },
+    ];
     const testRes = await fetch(testUrl, {
       method: "POST",
       headers: dataforseoHeaders(login, password),
       body: JSON.stringify(testBody),
     });
     if (testRes.status === 401 || testRes.status === 403) {
-      return res.status(401).json({ error: "Invalid credentials — DataForSEO rejected them" });
+      return res
+        .status(401)
+        .json({ error: "Invalid credentials — DataForSEO rejected them" });
     }
   } catch {
-    return res.status(500).json({ error: "Could not reach DataForSEO API to validate credentials" });
+    return res.status(500).json({
+      error: "Could not reach DataForSEO API to validate credentials",
+    });
   }
 
   process.env.DATAFORSEO_LOGIN = login;

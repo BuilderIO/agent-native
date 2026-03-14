@@ -22,11 +22,17 @@ export default function BookingPage() {
   const [step, setStep] = useState<Step>("date");
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
-  const [confirmedBooking, setConfirmedBooking] = useState<Booking | null>(null);
+  const [confirmedBooking, setConfirmedBooking] = useState<Booking | null>(
+    null,
+  );
 
   const dateStr = selectedDate ? format(selectedDate, "yyyy-MM-dd") : "";
-  const duration = availability?.slotDurationMinutes ?? settings?.defaultEventDuration ?? 30;
-  const { data: slots = [], isLoading: slotsLoading } = useAvailableSlots(dateStr, duration);
+  const duration =
+    availability?.slotDurationMinutes ?? settings?.defaultEventDuration ?? 30;
+  const { data: slots = [], isLoading: slotsLoading } = useAvailableSlots(
+    dateStr,
+    duration,
+  );
   const createBooking = useCreateBooking();
 
   function handleDateSelect(date: Date) {
@@ -40,7 +46,11 @@ export default function BookingPage() {
     setStep("info");
   }
 
-  function handleBookingSubmit(data: { name: string; email: string; notes?: string }) {
+  function handleBookingSubmit(data: {
+    name: string;
+    email: string;
+    notes?: string;
+  }) {
     if (!selectedSlot || !slug) return;
 
     const slot = slots.find((s) => s.start === selectedSlot);
@@ -59,7 +69,7 @@ export default function BookingPage() {
           setStep("confirmed");
         },
         onError: () => toast.error("Failed to create booking"),
-      }
+      },
     );
   }
 
@@ -71,7 +81,8 @@ export default function BookingPage() {
   }
 
   const title = settings?.bookingPageTitle || "Book a Meeting";
-  const description = settings?.bookingPageDescription || "Pick a time that works for you.";
+  const description =
+    settings?.bookingPageDescription || "Pick a time that works for you.";
 
   return (
     <div className="dark min-h-screen bg-background flex items-center justify-center p-4">
@@ -96,16 +107,14 @@ export default function BookingPage() {
                     className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium ${
                       step === s
                         ? "bg-primary text-primary-foreground"
-                        : (["date", "time", "info"].indexOf(step) > i)
-                        ? "bg-primary/20 text-primary"
-                        : "bg-muted text-muted-foreground"
+                        : ["date", "time", "info"].indexOf(step) > i
+                          ? "bg-primary/20 text-primary"
+                          : "bg-muted text-muted-foreground"
                     }`}
                   >
                     {i + 1}
                   </div>
-                  {i < 2 && (
-                    <div className="h-px w-8 bg-border" />
-                  )}
+                  {i < 2 && <div className="h-px w-8 bg-border" />}
                 </div>
               ))}
             </div>
@@ -113,7 +122,9 @@ export default function BookingPage() {
 
           {step === "date" && availability && (
             <div>
-              <h3 className="mb-4 text-sm font-medium text-center">Select a Date</h3>
+              <h3 className="mb-4 text-sm font-medium text-center">
+                Select a Date
+              </h3>
               <div className="flex justify-center">
                 <DatePicker
                   selectedDate={selectedDate}

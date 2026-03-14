@@ -1,7 +1,23 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  ReactNode,
+} from "react";
 import { nanoid } from "nanoid";
 
-export type SlideLayout = "title" | "section" | "content" | "two-column" | "image" | "statement" | "full-image" | "blank";
+export type SlideLayout =
+  | "title"
+  | "section"
+  | "content"
+  | "two-column"
+  | "image"
+  | "statement"
+  | "full-image"
+  | "blank";
 
 export interface Slide {
   id: string;
@@ -38,10 +54,17 @@ interface DeckContextType {
   loading: boolean;
   createDeck: (title?: string, options?: { noDefaultSlides?: boolean }) => Deck;
   deleteDeck: (id: string) => void;
-  updateDeck: (id: string, updates: Partial<Omit<Deck, "id" | "createdAt">>) => void;
+  updateDeck: (
+    id: string,
+    updates: Partial<Omit<Deck, "id" | "createdAt">>,
+  ) => void;
   getDeck: (id: string) => Deck | undefined;
   addSlide: (deckId: string, layout?: SlideLayout, afterIndex?: number) => void;
-  updateSlide: (deckId: string, slideId: string, updates: Partial<Omit<Slide, "id">>) => void;
+  updateSlide: (
+    deckId: string,
+    slideId: string,
+    updates: Partial<Omit<Slide, "id">>,
+  ) => void;
   deleteSlide: (deckId: string, slideId: string) => void;
   duplicateSlide: (deckId: string, slideId: string) => void;
   reorderSlides: (deckId: string, oldIndex: number, newIndex: number) => void;
@@ -180,11 +203,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     fetchDecksFromAPI().then((loaded) => {
       lastExternalUpdateRef.current = Date.now(); // Don't save initial load back
       setDecks(loaded);
-      setHistory([{
-        timestamp: Date.now(),
-        label: "Initial state",
-        decks: JSON.parse(JSON.stringify(loaded)),
-      }]);
+      setHistory([
+        {
+          timestamp: Date.now(),
+          label: "Initial state",
+          decks: JSON.parse(JSON.stringify(loaded)),
+        },
+      ]);
       setHistoryIndex(0);
       setLoading(false);
     });
@@ -227,39 +252,48 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     return () => evtSource.close();
   }, []);
 
-  const pushHistory = useCallback((label: string, newDecks: Deck[]) => {
-    setHistory((prev) => {
-      const truncated = prev.slice(0, historyIndex + 1);
-      const newHistory = [...truncated, {
-        timestamp: Date.now(),
-        label,
-        decks: JSON.parse(JSON.stringify(newDecks)),
-      }];
-      if (newHistory.length > MAX_HISTORY) {
-        newHistory.shift();
-        return newHistory;
-      }
-      return newHistory;
-    });
-    setHistoryIndex((prev) => {
-      const truncatedLen = Math.min(prev + 1, history.length);
-      return Math.min(truncatedLen, MAX_HISTORY - 1);
-    });
-  }, [historyIndex, history.length]);
-
-  const setDecksWithHistory = useCallback((label: string, updater: (prev: Deck[]) => Deck[]) => {
-    setDecks((prev) => {
-      const next = updater(prev);
-      // Push to history after state update
-      setTimeout(() => {
-        if (!skipHistoryRef.current) {
-          pushHistory(label, next);
+  const pushHistory = useCallback(
+    (label: string, newDecks: Deck[]) => {
+      setHistory((prev) => {
+        const truncated = prev.slice(0, historyIndex + 1);
+        const newHistory = [
+          ...truncated,
+          {
+            timestamp: Date.now(),
+            label,
+            decks: JSON.parse(JSON.stringify(newDecks)),
+          },
+        ];
+        if (newHistory.length > MAX_HISTORY) {
+          newHistory.shift();
+          return newHistory;
         }
-        skipHistoryRef.current = false;
-      }, 0);
-      return next;
-    });
-  }, [pushHistory]);
+        return newHistory;
+      });
+      setHistoryIndex((prev) => {
+        const truncatedLen = Math.min(prev + 1, history.length);
+        return Math.min(truncatedLen, MAX_HISTORY - 1);
+      });
+    },
+    [historyIndex, history.length],
+  );
+
+  const setDecksWithHistory = useCallback(
+    (label: string, updater: (prev: Deck[]) => Deck[]) => {
+      setDecks((prev) => {
+        const next = updater(prev);
+        // Push to history after state update
+        setTimeout(() => {
+          if (!skipHistoryRef.current) {
+            pushHistory(label, next);
+          }
+          skipHistoryRef.current = false;
+        }, 0);
+        return next;
+      });
+    },
+    [pushHistory],
+  );
 
   const undo = useCallback(() => {
     if (historyIndex <= 0) return;
@@ -277,12 +311,15 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     setDecks(JSON.parse(JSON.stringify(history[newIndex].decks)));
   }, [historyIndex, history]);
 
-  const restoreFromHistory = useCallback((index: number) => {
-    if (index < 0 || index >= history.length) return;
-    setHistoryIndex(index);
-    skipHistoryRef.current = true;
-    setDecks(JSON.parse(JSON.stringify(history[index].decks)));
-  }, [history]);
+  const restoreFromHistory = useCallback(
+    (index: number) => {
+      if (index < 0 || index >= history.length) return;
+      setHistoryIndex(index);
+      skipHistoryRef.current = true;
+      setDecks(JSON.parse(JSON.stringify(history[index].decks)));
+    },
+    [history],
+  );
 
   // Keyboard shortcuts for undo/redo
   useEffect(() => {
@@ -308,123 +345,182 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", handleKey);
   }, [undo, redo]);
 
-  const createDeck = useCallback((title?: string, options?: { noDefaultSlides?: boolean }): Deck => {
-    const newDeck: Deck = {
-      id: nanoid(10),
-      title: title || "Untitled Deck",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      slides: options?.noDefaultSlides ? [] : [
-        { id: nanoid(8), content: defaultSlideContent.title, notes: "", layout: "title", background: "bg-[#000000]" },
-        { id: nanoid(8), content: defaultSlideContent.content, notes: "", layout: "content", background: "bg-[#000000]" },
-      ],
-    };
-    // Save to API immediately (not debounced)
-    createDeckOnAPI(newDeck);
-    setDecksWithHistory("Create deck", (prev) => [...prev, newDeck]);
-    return newDeck;
-  }, [setDecksWithHistory]);
+  const createDeck = useCallback(
+    (title?: string, options?: { noDefaultSlides?: boolean }): Deck => {
+      const newDeck: Deck = {
+        id: nanoid(10),
+        title: title || "Untitled Deck",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        slides: options?.noDefaultSlides
+          ? []
+          : [
+              {
+                id: nanoid(8),
+                content: defaultSlideContent.title,
+                notes: "",
+                layout: "title",
+                background: "bg-[#000000]",
+              },
+              {
+                id: nanoid(8),
+                content: defaultSlideContent.content,
+                notes: "",
+                layout: "content",
+                background: "bg-[#000000]",
+              },
+            ],
+      };
+      // Save to API immediately (not debounced)
+      createDeckOnAPI(newDeck);
+      setDecksWithHistory("Create deck", (prev) => [...prev, newDeck]);
+      return newDeck;
+    },
+    [setDecksWithHistory],
+  );
 
-  const deleteDeck = useCallback((id: string) => {
-    deleteDeckFromAPI(id);
-    setDecksWithHistory("Delete deck", (prev) => prev.filter((d) => d.id !== id));
-  }, [setDecksWithHistory]);
+  const deleteDeck = useCallback(
+    (id: string) => {
+      deleteDeckFromAPI(id);
+      setDecksWithHistory("Delete deck", (prev) =>
+        prev.filter((d) => d.id !== id),
+      );
+    },
+    [setDecksWithHistory],
+  );
 
-  const updateDeck = useCallback((id: string, updates: Partial<Omit<Deck, "id" | "createdAt">>) => {
-    // Don't push history for title changes (too noisy)
-    setDecks((prev) =>
-      prev.map((d) =>
-        d.id === id ? { ...d, ...updates, updatedAt: new Date().toISOString() } : d
-      )
-    );
-  }, []);
+  const updateDeck = useCallback(
+    (id: string, updates: Partial<Omit<Deck, "id" | "createdAt">>) => {
+      // Don't push history for title changes (too noisy)
+      setDecks((prev) =>
+        prev.map((d) =>
+          d.id === id
+            ? { ...d, ...updates, updatedAt: new Date().toISOString() }
+            : d,
+        ),
+      );
+    },
+    [],
+  );
 
   const getDeck = useCallback(
     (id: string) => decks.find((d) => d.id === id),
-    [decks]
+    [decks],
   );
 
-  const addSlide = useCallback((deckId: string, layout: SlideLayout = "content", afterIndex?: number) => {
-    const newSlide: Slide = {
-      id: nanoid(8),
-      content: defaultSlideContent[layout],
-      notes: "",
-      layout,
-      background: "bg-[#000000]",
-    };
-    setDecksWithHistory("Add slide", (prev) =>
-      prev.map((d) => {
-        if (d.id !== deckId) return d;
-        const slides = [...d.slides];
-        const insertAt = afterIndex !== undefined ? afterIndex + 1 : slides.length;
-        slides.splice(insertAt, 0, newSlide);
-        return { ...d, slides, updatedAt: new Date().toISOString() };
-      })
-    );
-  }, [setDecksWithHistory]);
+  const addSlide = useCallback(
+    (deckId: string, layout: SlideLayout = "content", afterIndex?: number) => {
+      const newSlide: Slide = {
+        id: nanoid(8),
+        content: defaultSlideContent[layout],
+        notes: "",
+        layout,
+        background: "bg-[#000000]",
+      };
+      setDecksWithHistory("Add slide", (prev) =>
+        prev.map((d) => {
+          if (d.id !== deckId) return d;
+          const slides = [...d.slides];
+          const insertAt =
+            afterIndex !== undefined ? afterIndex + 1 : slides.length;
+          slides.splice(insertAt, 0, newSlide);
+          return { ...d, slides, updatedAt: new Date().toISOString() };
+        }),
+      );
+    },
+    [setDecksWithHistory],
+  );
 
-  const updateSlide = useCallback((deckId: string, slideId: string, updates: Partial<Omit<Slide, "id">>) => {
-    const label = updates.layout ? "Change layout" : updates.background ? "Change background" : updates.content ? "Update content" : "Edit slide";
-    setDecksWithHistory(label, (prev: Deck[]) =>
-      prev.map((d) => {
-        if (d.id !== deckId) return d;
-        return {
-          ...d,
-          slides: d.slides.map((s) => (s.id === slideId ? { ...s, ...updates } : s)),
-          updatedAt: new Date().toISOString(),
-        };
-      })
-    );
-  }, [setDecksWithHistory]);
+  const updateSlide = useCallback(
+    (deckId: string, slideId: string, updates: Partial<Omit<Slide, "id">>) => {
+      const label = updates.layout
+        ? "Change layout"
+        : updates.background
+          ? "Change background"
+          : updates.content
+            ? "Update content"
+            : "Edit slide";
+      setDecksWithHistory(label, (prev: Deck[]) =>
+        prev.map((d) => {
+          if (d.id !== deckId) return d;
+          return {
+            ...d,
+            slides: d.slides.map((s) =>
+              s.id === slideId ? { ...s, ...updates } : s,
+            ),
+            updatedAt: new Date().toISOString(),
+          };
+        }),
+      );
+    },
+    [setDecksWithHistory],
+  );
 
-  const deleteSlide = useCallback((deckId: string, slideId: string) => {
-    setDecksWithHistory("Delete slide", (prev) =>
-      prev.map((d) => {
-        if (d.id !== deckId) return d;
-        const slides = d.slides.filter((s) => s.id !== slideId);
-        if (slides.length === 0) {
-          slides.push({ id: nanoid(8), content: defaultSlideContent.blank, notes: "", layout: "blank" });
-        }
-        return { ...d, slides, updatedAt: new Date().toISOString() };
-      })
-    );
-  }, [setDecksWithHistory]);
+  const deleteSlide = useCallback(
+    (deckId: string, slideId: string) => {
+      setDecksWithHistory("Delete slide", (prev) =>
+        prev.map((d) => {
+          if (d.id !== deckId) return d;
+          const slides = d.slides.filter((s) => s.id !== slideId);
+          if (slides.length === 0) {
+            slides.push({
+              id: nanoid(8),
+              content: defaultSlideContent.blank,
+              notes: "",
+              layout: "blank",
+            });
+          }
+          return { ...d, slides, updatedAt: new Date().toISOString() };
+        }),
+      );
+    },
+    [setDecksWithHistory],
+  );
 
-  const duplicateSlide = useCallback((deckId: string, slideId: string) => {
-    setDecksWithHistory("Duplicate slide", (prev) =>
-      prev.map((d) => {
-        if (d.id !== deckId) return d;
-        const idx = d.slides.findIndex((s) => s.id === slideId);
-        if (idx === -1) return d;
-        const original = d.slides[idx];
-        const copy: Slide = { ...original, id: nanoid(8) };
-        const slides = [...d.slides];
-        slides.splice(idx + 1, 0, copy);
-        return { ...d, slides, updatedAt: new Date().toISOString() };
-      })
-    );
-  }, [setDecksWithHistory]);
+  const duplicateSlide = useCallback(
+    (deckId: string, slideId: string) => {
+      setDecksWithHistory("Duplicate slide", (prev) =>
+        prev.map((d) => {
+          if (d.id !== deckId) return d;
+          const idx = d.slides.findIndex((s) => s.id === slideId);
+          if (idx === -1) return d;
+          const original = d.slides[idx];
+          const copy: Slide = { ...original, id: nanoid(8) };
+          const slides = [...d.slides];
+          slides.splice(idx + 1, 0, copy);
+          return { ...d, slides, updatedAt: new Date().toISOString() };
+        }),
+      );
+    },
+    [setDecksWithHistory],
+  );
 
-  const reorderSlides = useCallback((deckId: string, oldIndex: number, newIndex: number) => {
-    setDecksWithHistory("Reorder slides", (prev) =>
-      prev.map((d) => {
-        if (d.id !== deckId) return d;
-        const slides = [...d.slides];
-        const [moved] = slides.splice(oldIndex, 1);
-        slides.splice(newIndex, 0, moved);
-        return { ...d, slides, updatedAt: new Date().toISOString() };
-      })
-    );
-  }, [setDecksWithHistory]);
+  const reorderSlides = useCallback(
+    (deckId: string, oldIndex: number, newIndex: number) => {
+      setDecksWithHistory("Reorder slides", (prev) =>
+        prev.map((d) => {
+          if (d.id !== deckId) return d;
+          const slides = [...d.slides];
+          const [moved] = slides.splice(oldIndex, 1);
+          slides.splice(newIndex, 0, moved);
+          return { ...d, slides, updatedAt: new Date().toISOString() };
+        }),
+      );
+    },
+    [setDecksWithHistory],
+  );
 
-  const setDeckSlides = useCallback((deckId: string, slides: Slide[]) => {
-    setDecksWithHistory("Generate slides", (prev) =>
-      prev.map((d) => {
-        if (d.id !== deckId) return d;
-        return { ...d, slides, updatedAt: new Date().toISOString() };
-      })
-    );
-  }, [setDecksWithHistory]);
+  const setDeckSlides = useCallback(
+    (deckId: string, slides: Slide[]) => {
+      setDecksWithHistory("Generate slides", (prev) =>
+        prev.map((d) => {
+          if (d.id !== deckId) return d;
+          return { ...d, slides, updatedAt: new Date().toISOString() };
+        }),
+      );
+    },
+    [setDecksWithHistory],
+  );
 
   return (
     <DeckContext.Provider

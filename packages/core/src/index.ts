@@ -24,7 +24,11 @@ export {
 } from "./client/index.js";
 
 // Shared (isomorphic)
-export { agentChat } from "./shared/index.js";
+export {
+  agentChat,
+  type AgentChatCallOptions,
+  type AgentChatResponse,
+} from "./shared/index.js";
 
 // Scripts
 export {

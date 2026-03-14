@@ -10,9 +10,15 @@ import { parseArgs, output, fatal } from "./helpers";
 import { fetchAllTweetsForUser } from "../server/routes/twitter";
 
 const args = parseArgs();
-if (!args.userNames) fatal("--userNames is required (comma-separated). Example: --userNames=builderio,steve8708");
+if (!args.userNames)
+  fatal(
+    "--userNames is required (comma-separated). Example: --userNames=builderio,steve8708",
+  );
 
-const userNames = args.userNames.split(",").map((u) => u.trim()).filter(Boolean);
+const userNames = args.userNames
+  .split(",")
+  .map((u) => u.trim())
+  .filter(Boolean);
 if (userNames.length > 10) fatal("Max 10 usernames at a time");
 
 const pages = Math.min(Number(args.pages) || 5, 10);

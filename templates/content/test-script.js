@@ -1,5 +1,5 @@
-import fs from 'fs';
-import yaml from 'yaml';
+import fs from "fs";
+import yaml from "yaml";
 
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)*/;
 
@@ -23,19 +23,26 @@ function updateFrontmatter(markdown, updates) {
   return `---\n${yamlStr}---\n\n${parsed.content}`;
 }
 
-const original = fs.readFileSync('content/projects/alice/how-to-run-claude-code-on-mobile/draft.md', 'utf8');
+const original = fs.readFileSync(
+  "content/projects/alice/how-to-run-claude-code-on-mobile/draft.md",
+  "utf8",
+);
 
-const updated = updateFrontmatter(original, { });
+const updated = updateFrontmatter(original, {});
 
 if (original !== updated) {
   console.log("Original and updated differ!");
   console.log("Original length:", original.length);
   console.log("Updated length:", updated.length);
-  for(let i=0; i<Math.max(original.length, updated.length); i++) {
-    if(original[i] !== updated[i]) {
+  for (let i = 0; i < Math.max(original.length, updated.length); i++) {
+    if (original[i] !== updated[i]) {
       console.log(`First diff at index ${i}`);
-      console.log(`Original: ${JSON.stringify(original.substring(Math.max(0, i-10), i+40))}`);
-      console.log(`Updated: ${JSON.stringify(updated.substring(Math.max(0, i-10), i+40))}`);
+      console.log(
+        `Original: ${JSON.stringify(original.substring(Math.max(0, i - 10), i + 40))}`,
+      );
+      console.log(
+        `Updated: ${JSON.stringify(updated.substring(Math.max(0, i - 10), i + 40))}`,
+      );
       break;
     }
   }

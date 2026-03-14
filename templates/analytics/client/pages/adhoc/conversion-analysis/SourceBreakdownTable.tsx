@@ -30,11 +30,14 @@ interface SourceRow {
   pct_change: number;
 }
 
-export function SourceBreakdownTable({ weeksRecent, weeksBaseline }: SourceBreakdownTableProps) {
+export function SourceBreakdownTable({
+  weeksRecent,
+  weeksBaseline,
+}: SourceBreakdownTableProps) {
   const sqlQuery = getSourceBreakdownQuery(weeksRecent, weeksBaseline);
   const { data, isLoading, error } = useMetricsQuery(
     ["source-breakdown", String(weeksRecent), String(weeksBaseline)],
-    sqlQuery
+    sqlQuery,
   );
 
   if (error) {
@@ -44,7 +47,9 @@ export function SourceBreakdownTable({ weeksRecent, weeksBaseline }: SourceBreak
           <CardTitle className="text-base">Traffic Source Breakdown</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-sm text-destructive">Error loading source data: {data?.error || String(error)}</div>
+          <div className="text-sm text-destructive">
+            Error loading source data: {data?.error || String(error)}
+          </div>
         </CardContent>
       </Card>
     );
@@ -89,28 +94,48 @@ export function SourceBreakdownTable({ weeksRecent, weeksBaseline }: SourceBreak
             {rows.map((row) => (
               <TableRow key={row.channel}>
                 <TableCell className="font-medium">{row.channel}</TableCell>
-                <TableCell className="text-right">{row.recent_visitors.toLocaleString()}</TableCell>
                 <TableCell className="text-right">
-                  <span className="font-semibold">{row.recent_conv_rate_pct.toFixed(2)}%</span>
+                  {row.recent_visitors.toLocaleString()}
+                </TableCell>
+                <TableCell className="text-right">
+                  <span className="font-semibold">
+                    {row.recent_conv_rate_pct.toFixed(2)}%
+                  </span>
                   <span className="text-xs text-muted-foreground ml-1">
                     ({row.recent_signups})
                   </span>
                 </TableCell>
                 <TableCell className="text-right">
-                  <span className="font-semibold">{row.baseline_conv_rate_pct.toFixed(2)}%</span>
+                  <span className="font-semibold">
+                    {row.baseline_conv_rate_pct.toFixed(2)}%
+                  </span>
                   <span className="text-xs text-muted-foreground ml-1">
                     ({row.baseline_signups})
                   </span>
                 </TableCell>
                 <TableCell className="text-right">
-                  <span className={row.conv_rate_change_pct < 0 ? 'text-destructive' : 'text-green-600'}>
-                    {row.conv_rate_change_pct > 0 ? '+' : ''}{row.conv_rate_change_pct.toFixed(2)}%
+                  <span
+                    className={
+                      row.conv_rate_change_pct < 0
+                        ? "text-destructive"
+                        : "text-green-600"
+                    }
+                  >
+                    {row.conv_rate_change_pct > 0 ? "+" : ""}
+                    {row.conv_rate_change_pct.toFixed(2)}%
                   </span>
                 </TableCell>
                 <TableCell className="text-right">
-                  <div className={`flex items-center justify-end gap-1 ${row.pct_change < 0 ? 'text-destructive' : 'text-green-600'}`}>
-                    {row.pct_change < 0 ? <ArrowDown className="h-3 w-3" /> : <ArrowUp className="h-3 w-3" />}
-                    {row.pct_change > 0 ? '+' : ''}{row.pct_change.toFixed(1)}%
+                  <div
+                    className={`flex items-center justify-end gap-1 ${row.pct_change < 0 ? "text-destructive" : "text-green-600"}`}
+                  >
+                    {row.pct_change < 0 ? (
+                      <ArrowDown className="h-3 w-3" />
+                    ) : (
+                      <ArrowUp className="h-3 w-3" />
+                    )}
+                    {row.pct_change > 0 ? "+" : ""}
+                    {row.pct_change.toFixed(1)}%
                   </div>
                 </TableCell>
               </TableRow>
@@ -119,7 +144,11 @@ export function SourceBreakdownTable({ weeksRecent, weeksBaseline }: SourceBreak
         </Table>
 
         <div className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground">
-          <p><strong>Interpretation:</strong> Focus on channels with high visitor volume and negative conversion rate changes. These are driving the overall decline.</p>
+          <p>
+            <strong>Interpretation:</strong> Focus on channels with high visitor
+            volume and negative conversion rate changes. These are driving the
+            overall decline.
+          </p>
         </div>
 
         <SqlCodeToggle sql={sqlQuery} title="View SQL Query" />

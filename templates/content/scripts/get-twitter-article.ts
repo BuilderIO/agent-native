@@ -4,7 +4,11 @@ const TWITTER_API_BASE = "https://api.twitterapi.io";
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 6000;
 
-async function fetchWithRetry(url: string, headers: Record<string, string>, retries = MAX_RETRIES): Promise<Response> {
+async function fetchWithRetry(
+  url: string,
+  headers: Record<string, string>,
+  retries = MAX_RETRIES,
+): Promise<Response> {
   for (let attempt = 1; attempt <= retries; attempt++) {
     const response = await fetch(url, { headers });
     if (response.status === 429 && attempt < retries) {
@@ -37,7 +41,7 @@ Options:
 
   const response = await fetchWithRetry(
     `${TWITTER_API_BASE}/twitter/article?tweet_id=${encodeURIComponent(tweetId)}`,
-    { "x-api-key": apiKey }
+    { "x-api-key": apiKey },
   );
 
   if (!response.ok) {

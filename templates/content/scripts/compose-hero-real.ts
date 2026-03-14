@@ -72,9 +72,11 @@ function createMotifsSvg(): string {
     <!-- Dot grid -->
     <g transform="translate(${W * 0.08}, ${H * 0.74}) scale(3)" opacity="0.1">
       ${Array.from({ length: 5 }, (_, r) =>
-        Array.from({ length: 5 }, (_, c) =>
-          `<circle cx="${c * 14}" cy="${r * 14}" r="2" fill="white"/>`
-        ).join("")
+        Array.from(
+          { length: 5 },
+          (_, c) =>
+            `<circle cx="${c * 14}" cy="${r * 14}" r="2" fill="white"/>`,
+        ).join(""),
       ).join("")}
     </g>
   </svg>`;
@@ -104,7 +106,9 @@ interface BrandfetchResponse {
 async function fetchLogoBrandfetch(domain: string): Promise<Buffer> {
   const apiKey = process.env.BRANDFETCH_API_KEY;
   if (!apiKey) {
-    throw new Error("BRANDFETCH_API_KEY not set. Set it via DevServerControl or .env");
+    throw new Error(
+      "BRANDFETCH_API_KEY not set. Set it via DevServerControl or .env",
+    );
   }
 
   console.log(`Fetching brand data from Brandfetch for ${domain}...`);
@@ -152,7 +156,9 @@ async function fetchLogoBrandfetch(domain: string): Promise<Buffer> {
   }
 
   const best = candidates[0];
-  console.log(`Selected logo: score=${best.score}, width=${best.width}, url=${best.url}`);
+  console.log(
+    `Selected logo: score=${best.score}, width=${best.width}, url=${best.url}`,
+  );
 
   const logoRes = await fetch(best.url);
   if (!logoRes.ok) {
@@ -178,9 +184,13 @@ export default async function main(args: string[]) {
   const raw = parseArgs(args);
   const opts = camelCaseArgs(raw);
   const domain = (opts.domain as string) || "claude.ai";
-  const projectSlug = (opts.projectSlug as string) || "steve/claude-code-for-designers";
+  const projectSlug =
+    (opts.projectSlug as string) || "steve/claude-code-for-designers";
   const outDir = path.join(PROJECTS_DIR, projectSlug, "media");
-  const localLogoPath = path.join(PROJECTS_DIR, "steve/claude-code-for-designers/media/claude-logo-reference.png");
+  const localLogoPath = path.join(
+    PROJECTS_DIR,
+    "steve/claude-code-for-designers/media/claude-logo-reference.png",
+  );
 
   console.log("Compositing hero with real Claude logo...");
   console.log(`Font: ${fs.existsSync(FONT_PATH) ? "Caveat" : "DejaVu Serif"}`);
@@ -194,7 +204,9 @@ export default async function main(args: string[]) {
       rawLogoBuffer = await fetchLogoBrandfetch(domain);
       console.log("Logo fetched via Brandfetch");
     } catch (err: any) {
-      console.warn(`Brandfetch failed: ${err.message}. Falling back to local logo.`);
+      console.warn(
+        `Brandfetch failed: ${err.message}. Falling back to local logo.`,
+      );
       rawLogoBuffer = fetchLogoLocal(localLogoPath);
     }
   } else {
@@ -205,24 +217,35 @@ export default async function main(args: string[]) {
   // Upscale logo and always remove light backgrounds (white, beige, cream)
   const logoSize = 400;
   const rawLogo = await sharp(rawLogoBuffer)
-    .resize(logoSize, logoSize, { fit: "contain", background: { r: 255, g: 255, b: 255, alpha: 0 } })
+    .resize(logoSize, logoSize, {
+      fit: "contain",
+      background: { r: 255, g: 255, b: 255, alpha: 0 },
+    })
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
 
   const { data, info } = rawLogo;
   for (let i = 0; i < data.length; i += 4) {
-    const r = data[i], g = data[i + 1], b = data[i + 2];
+    const r = data[i],
+      g = data[i + 1],
+      b = data[i + 2];
     // Remove white, beige, cream backgrounds (all channels > 200 and similar)
     const lightness = (r + g + b) / 3;
     if (lightness > 220 && Math.abs(r - g) < 30 && Math.abs(g - b) < 30) {
       data[i + 3] = 0;
-    } else if (lightness > 180 && Math.abs(r - g) < 30 && Math.abs(g - b) < 30) {
+    } else if (
+      lightness > 180 &&
+      Math.abs(r - g) < 30 &&
+      Math.abs(g - b) < 30
+    ) {
       data[i + 3] = Math.round(255 * (1 - (lightness - 180) / 60));
     }
   }
 
-  const logoBuffer = await sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } })
+  const logoBuffer = await sharp(data, {
+    raw: { width: info.width, height: info.height, channels: 4 },
+  })
     .png()
     .toBuffer();
   console.log(`Logo upscaled to ${logoSize}x${logoSize} (light bg removed)`);
@@ -244,7 +267,12 @@ export default async function main(args: string[]) {
 
   // Composite on black
   const result = await sharp({
-    create: { width: W, height: H, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } },
+    create: {
+      width: W,
+      height: H,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 1 },
+    },
   })
     .composite([
       { input: motifsBuffer, top: 0, left: 0 },

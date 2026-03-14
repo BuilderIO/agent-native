@@ -74,9 +74,18 @@ describe("threeWayMerge", () => {
   it("fails closed on LCS bailout for large files (>10M cells)", () => {
     // Create arrays where m * n > 10,000,000
     // 3163 lines each -> 3163 * 3163 ~ 10M, use 3200 to be safe
-    const bigBase = Array.from({ length: 3200 }, (_, i) => `base-line-${i}`).join("\n");
-    const bigLocal = Array.from({ length: 3200 }, (_, i) => `local-line-${i}`).join("\n");
-    const bigRemote = Array.from({ length: 3200 }, (_, i) => `remote-line-${i}`).join("\n");
+    const bigBase = Array.from(
+      { length: 3200 },
+      (_, i) => `base-line-${i}`,
+    ).join("\n");
+    const bigLocal = Array.from(
+      { length: 3200 },
+      (_, i) => `local-line-${i}`,
+    ).join("\n");
+    const bigRemote = Array.from(
+      { length: 3200 },
+      (_, i) => `remote-line-${i}`,
+    ).join("\n");
     const result = threeWayMerge(bigBase, bigLocal, bigRemote);
     // LCS returns [] -> everything becomes one hunk -> hunks overlap -> conflict
     expect(result.success).toBe(false);

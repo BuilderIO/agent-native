@@ -15,18 +15,24 @@ async function hubspotGet(path: string) {
 }
 
 // Step 1: Deal -> Company
-const companyAssoc = await hubspotGet(`/crm/v3/objects/deals/${DEAL_ID}/associations/companies`);
+const companyAssoc = await hubspotGet(
+  `/crm/v3/objects/deals/${DEAL_ID}/associations/companies`,
+);
 const companyIds = companyAssoc.results?.map((r: any) => r.id) ?? [];
 console.error(`Company IDs: ${companyIds.join(", ")}`);
 
 // Step 2: Company -> Contacts
 const allContactIds: string[] = [];
 for (const companyId of companyIds) {
-  const contactAssoc = await hubspotGet(`/crm/v3/objects/companies/${companyId}/associations/contacts`);
+  const contactAssoc = await hubspotGet(
+    `/crm/v3/objects/companies/${companyId}/associations/contacts`,
+  );
   const ids = contactAssoc.results?.map((r: any) => r.id) ?? [];
   allContactIds.push(...ids);
 }
-console.error(`Contact IDs (${allContactIds.length}): ${allContactIds.slice(0, 10).join(", ")}...`);
+console.error(
+  `Contact IDs (${allContactIds.length}): ${allContactIds.slice(0, 10).join(", ")}...`,
+);
 
 // Step 3: Contacts -> builder_user_id via dim_hs_contacts
 const contactIdList = allContactIds.join(",");
@@ -38,7 +44,9 @@ const contactResult = await runQuery(`
     AND builder_user_id != ''
 `);
 const builderUserIds = contactResult.rows.map((r: any) => r.builder_user_id);
-console.error(`Builder user IDs (${builderUserIds.length}): ${builderUserIds.join(", ")}`);
+console.error(
+  `Builder user IDs (${builderUserIds.length}): ${builderUserIds.join(", ")}`,
+);
 
 // Step 4: builder_user_id -> root_organization_id via signups
 let orgIds: string[] = [];
@@ -68,7 +76,9 @@ if (orgIds.length > 0) {
   `);
   spaceIds = spaceResult.rows.map((r: any) => r.space_id);
 }
-console.error(`Space IDs (${spaceIds.length}): ${spaceIds.slice(0, 10).join(", ")}...`);
+console.error(
+  `Space IDs (${spaceIds.length}): ${spaceIds.slice(0, 10).join(", ")}...`,
+);
 
 // Step 6: Query Amplitude for fusion messages in last 30 days
 const args = parseArgs();
@@ -95,7 +105,9 @@ if (orgIds.length > 0) {
 
 // If no results, try organizationId (space-level)
 if (messages.length === 0 && spaceIds.length > 0) {
-  console.error("No results with rootOrganizationId, trying organizationId (space IDs)...");
+  console.error(
+    "No results with rootOrganizationId, trying organizationId (space IDs)...",
+  );
   const spaceIdList = spaceIds.map((id: string) => `'${id}'`).join(",");
   const spaceResult2 = await runQuery(`
     SELECT
@@ -112,7 +124,10 @@ if (messages.length === 0 && spaceIds.length > 0) {
   messages = spaceResult2.rows;
 }
 
-const totalMessages = messages.reduce((sum: number, r: any) => sum + parseInt(r.message_count), 0);
+const totalMessages = messages.reduce(
+  (sum: number, r: any) => sum + parseInt(r.message_count),
+  0,
+);
 console.error(`Total fusion messages in last ${days} days: ${totalMessages}`);
 
 output({

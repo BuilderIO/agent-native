@@ -47,7 +47,9 @@ export function UIHeader({ x, y, width, height }: UIHeaderProps) {
             cursor: "pointer",
           }}
         >
-          <Menu style={{ width: 20, height: 20, color: "rgba(255, 255, 255, 0.6)" }} />
+          <Menu
+            style={{ width: 20, height: 20, color: "rgba(255, 255, 255, 0.6)" }}
+          />
         </button>
 
         {/* Center: Title with gradient */}
@@ -59,7 +61,8 @@ export function UIHeader({ x, y, width, height }: UIHeaderProps) {
             transform: "translate(-50%, -50%)",
             fontSize: "20px",
             fontWeight: "bold",
-            background: "linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%)",
+            background:
+              "linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%)",
             WebkitBackgroundClip: "text",
             WebkitTextFillColor: "transparent",
             backgroundClip: "text",

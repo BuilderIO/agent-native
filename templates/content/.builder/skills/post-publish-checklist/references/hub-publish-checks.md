@@ -16,13 +16,14 @@ After the standard reverse internal linking audit, run these hub-specific checks
 
 Read `hub.yaml` `links:` section. For each link where `from == current_page_slug` or `to == current_page_slug`:
 
-| Page Type | Verify | Severity if Missing |
-|-----------|--------|---------------------|
-| **Pillar** | Contains an outbound link to every cluster page that has `status: in-progress` or later | **Critical** -- pillar must link to all active clusters |
-| **Cluster** | Contains exactly 1 link to the pillar page | **Critical** -- every cluster must link to pillar |
-| **Cluster** | Pillar backlink is within the first 2-3 paragraphs (introduction) | **Important** -- placement matters for SEO signal |
+| Page Type   | Verify                                                                                  | Severity if Missing                                     |
+| ----------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| **Pillar**  | Contains an outbound link to every cluster page that has `status: in-progress` or later | **Critical** -- pillar must link to all active clusters |
+| **Cluster** | Contains exactly 1 link to the pillar page                                              | **Critical** -- every cluster must link to pillar       |
+| **Cluster** | Pillar backlink is within the first 2-3 paragraphs (introduction)                       | **Important** -- placement matters for SEO signal       |
 
 **Process:**
+
 1. Scan `post.md` for each expected outbound hub link URL (`https://www.builder.io/blog/<target-slug>`)
 2. If found, record as verified
 3. If missing, flag with severity and the planned anchor text from `hub.yaml`
@@ -31,11 +32,11 @@ Read `hub.yaml` `links:` section. For each link where `from == current_page_slug
 
 For cluster pages, check planned sibling links from `hub.yaml`.
 
-| Timing | Check | Action |
-|--------|-------|--------|
-| **During sequential creation** | Sibling links with `status: planned` to not-yet-published clusters | Skip -- these are deferred to finalization |
-| **During sequential creation** | Sibling links with `status: implemented` to already-published clusters | Verify the link exists in `post.md` |
-| **During finalization** | ALL planned sibling links | Verify every planned sibling link exists |
+| Timing                         | Check                                                                  | Action                                     |
+| ------------------------------ | ---------------------------------------------------------------------- | ------------------------------------------ |
+| **During sequential creation** | Sibling links with `status: planned` to not-yet-published clusters     | Skip -- these are deferred to finalization |
+| **During sequential creation** | Sibling links with `status: implemented` to already-published clusters | Verify the link exists in `post.md`        |
+| **During finalization**        | ALL planned sibling links                                              | Verify every planned sibling link exists   |
 
 **Severity:** Missing sibling links during finalization are **Important** (not Critical). The pillar ↔ cluster links are the structural backbone; sibling links are enhancement.
 
@@ -55,10 +56,10 @@ After all verification checks pass, update `hub.yaml` with the current page's re
 
 Set the current page's status in `hub.yaml`:
 
-| Page Type | Field Path | New Value |
-|-----------|-----------|-----------|
-| Pillar | `pillar.status` | `published` |
-| Cluster | `clusters[slug].status` | `published` |
+| Page Type | Field Path              | New Value   |
+| --------- | ----------------------- | ----------- |
+| Pillar    | `pillar.status`         | `published` |
+| Cluster   | `clusters[slug].status` | `published` |
 
 ### Link Status Update
 
@@ -70,12 +71,12 @@ For all links in `hub.yaml` involving the current page:
 
 ### Hub-Level Fields Update
 
-| Field | Update |
-|-------|--------|
-| `ahrefs_units_consumed` | Add this page's Ahrefs unit consumption (from phase files) to the running total |
-| `current_page_index` | Advance to the next page in the publishing queue |
-| `status` | Set to `in-progress` if pages remain; `published` if all non-skipped pages are `published`; `partial` if any page is `failed` or `skipped` |
-| `links.last_updated` | Set to today's date |
+| Field                   | Update                                                                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ahrefs_units_consumed` | Add this page's Ahrefs unit consumption (from phase files) to the running total                                                            |
+| `current_page_index`    | Advance to the next page in the publishing queue                                                                                           |
+| `status`                | Set to `in-progress` if pages remain; `published` if all non-skipped pages are `published`; `partial` if any page is `failed` or `skipped` |
+| `links.last_updated`    | Set to today's date                                                                                                                        |
 
 ### Hub Status Determination Logic
 
@@ -90,11 +91,11 @@ else:
 
 ## Schema Markup Verification (extends Step 7)
 
-| Page Type | Expected Schema | Additional Check |
-|-----------|----------------|-----------------|
-| **Pillar** | `Article` (NOT `BlogPosting`) | Must include `hasPart` array listing cluster page URLs |
-| **Cluster** | `BlogPosting` | Must include `isPartOf` pointing to pillar page URL |
-| **Standalone** | `BlogPosting` | No hub-related schema checks |
+| Page Type      | Expected Schema               | Additional Check                                       |
+| -------------- | ----------------------------- | ------------------------------------------------------ |
+| **Pillar**     | `Article` (NOT `BlogPosting`) | Must include `hasPart` array listing cluster page URLs |
+| **Cluster**    | `BlogPosting`                 | Must include `isPartOf` pointing to pillar page URL    |
+| **Standalone** | `BlogPosting`                 | No hub-related schema checks                           |
 
 **Severity:** Wrong schema type for pillar pages is **Critical**. Missing `hasPart` or `isPartOf` is **Important**.
 
@@ -105,10 +106,10 @@ When assembling `metadata.yaml` for a hub page, add these fields:
 ```yaml
 # Hub context (only present when hub_slug is set)
 hub_slug: "claude-code"
-page_type: pillar  # pillar | cluster
-hub_status: in-progress  # hub-level status after this page
-hub_links_verified: 8  # count of links involving this page now verified
-hub_links_total: 12  # total links involving this page in hub.yaml
+page_type: pillar # pillar | cluster
+hub_status: in-progress # hub-level status after this page
+hub_links_verified: 8 # count of links involving this page now verified
+hub_links_total: 12 # total links involving this page in hub.yaml
 ```
 
 ## Examples
@@ -118,19 +119,20 @@ hub_links_total: 12  # total links involving this page in hub.yaml
 **Input:** Cluster page `claude-code-vs-cursor` within hub `claude-code`.
 
 **Hub link verification:**
+
 ```yaml
 hub_link_checks:
   pillar_backlink:
     found: true
-    location: paragraph_2  # Within first 2-3 paragraphs
+    location: paragraph_2 # Within first 2-3 paragraphs
     anchor_text: "complete guide to Claude Code"
     status: verified
   sibling_links:
     - to: claude-code-beginners
-      status: implemented  # Already published, link verified
+      status: implemented # Already published, link verified
       found: true
     - to: claude-code-tips
-      status: planned  # Not yet published, deferred
+      status: planned # Not yet published, deferred
       skipped: true
   reverse_link_patches:
     - target: pillar
@@ -139,6 +141,7 @@ hub_link_checks:
 ```
 
 **hub.yaml updates:**
+
 ```yaml
 # Page status
 clusters[claude-code-vs-cursor].status: published
@@ -146,11 +149,11 @@ clusters[claude-code-vs-cursor].status: published
 # Link statuses
 links[from=claude-code-vs-cursor, to=pillar].status: verified
 links[from=claude-code-vs-cursor, to=claude-code-beginners].status: verified
-links[from=pillar, to=claude-code-vs-cursor].status: verified  # Reverse patch was applied
+links[from=pillar, to=claude-code-vs-cursor].status: verified # Reverse patch was applied
 
 # Hub-level
-current_page_index: 3  # Advanced
-ahrefs_units_consumed: 8200  # Running total
+current_page_index: 3 # Advanced
+ahrefs_units_consumed: 8200 # Running total
 ```
 
 ### Example 2: Pillar Page Missing Cluster Link
@@ -158,6 +161,7 @@ ahrefs_units_consumed: 8200  # Running total
 **Input:** Pillar page for hub `react-hooks`, 6 cluster pages planned.
 
 **Hub link verification (excerpt):**
+
 ```yaml
 hub_link_checks:
   cluster_links:
@@ -168,8 +172,8 @@ hub_link_checks:
       found: true
       status: verified
     - to: custom-hooks
-      found: false  # MISSING
-      status: implemented  # Was implemented at Phase 8 but link is gone
+      found: false # MISSING
+      status: implemented # Was implemented at Phase 8 but link is gone
       issue:
         severity: critical
         message: "Pillar page missing link to cluster 'custom-hooks'. Expected URL: /blog/custom-hooks. Planned anchor: 'building custom hooks'"

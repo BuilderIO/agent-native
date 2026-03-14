@@ -7,12 +7,14 @@ This directory contains technical documentation for BigQuery tables and schemas.
 **Primary Source of Truth**: [Notion Data Dictionary](https://www.notion.so/builderio/31a3d7274be580da9da7cf54909e1b7c?v=31a3d7274be580efb02f000c2d14371e)
 
 The Notion Data Dictionary contains:
+
 - Official metric definitions
 - Correct table references
 - Supported cuts/filters
 - Business context and usage guidelines
 
 **When to use:**
+
 - Creating new dashboards or metrics
 - Validating existing queries
 - Understanding metric definitions

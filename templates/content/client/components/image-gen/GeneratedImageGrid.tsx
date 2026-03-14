@@ -95,7 +95,9 @@ function GeneratedImageCard({ image }: { image: ImageGenResponse }) {
       </div>
       <div className="px-3 py-2 border-t border-border/50">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] text-muted-foreground">{modelLabel}</span>
+          <span className="text-[11px] text-muted-foreground">
+            {modelLabel}
+          </span>
           {image.savedPath && (
             <span className="text-[10px] text-green-500">Saved to project</span>
           )}
@@ -170,8 +172,10 @@ function SaveToProjectButton({ image }: { image: ImageGenResponse }) {
                 {p.name}
               </button>
             ))}
-            {(!projectsData?.projects.length) && (
-              <p className="px-3 py-2 text-xs text-muted-foreground">No projects</p>
+            {!projectsData?.projects.length && (
+              <p className="px-3 py-2 text-xs text-muted-foreground">
+                No projects
+              </p>
             )}
           </div>
         </>

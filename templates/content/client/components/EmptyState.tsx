@@ -12,7 +12,9 @@ export function EmptyState({ hasProject }: EmptyStateProps) {
           <PenLine size={24} className="text-muted-foreground" />
         </div>
         <h2 className="text-lg font-semibold text-foreground mb-2">
-          {hasProject ? "Select a page to edit" : "Welcome to Content Workspace"}
+          {hasProject
+            ? "Select a page to edit"
+            : "Welcome to Content Workspace"}
         </h2>
         <p className="text-sm text-muted-foreground leading-relaxed mb-8">
           {hasProject

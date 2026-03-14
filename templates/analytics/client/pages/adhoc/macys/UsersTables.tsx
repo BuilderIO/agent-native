@@ -33,7 +33,9 @@ function DataTable({
     <Card className="bg-card border-border/50">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
+        {subtitle && (
+          <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
+        )}
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -41,7 +43,9 @@ function DataTable({
         ) : error ? (
           <p className="text-sm text-red-400 py-4 text-center">{error}</p>
         ) : rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4 text-center">No data</p>
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            No data
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -59,7 +63,10 @@ function DataTable({
               </thead>
               <tbody>
                 {rows.map((row, i) => (
-                  <tr key={i} className="border-b border-border/30 hover:bg-muted/30">
+                  <tr
+                    key={i}
+                    className="border-b border-border/30 hover:bg-muted/30"
+                  >
                     {columns.map((col) => (
                       <td
                         key={col.key}
@@ -80,13 +87,25 @@ function DataTable({
 }
 
 export function UsersTables({ dateStart, dateEnd }: UsersTablesProps) {
-  const userMsgSql = useMemo(() => agentChatMessagesByUserQuery(dateStart, dateEnd), [dateStart, dateEnd]);
-  const eventTypeSql = useMemo(() => agentChatEventsByTypeQuery(dateStart, dateEnd), [dateStart, dateEnd]);
+  const userMsgSql = useMemo(
+    () => agentChatMessagesByUserQuery(dateStart, dateEnd),
+    [dateStart, dateEnd],
+  );
+  const eventTypeSql = useMemo(
+    () => agentChatEventsByTypeQuery(dateStart, dateEnd),
+    [dateStart, dateEnd],
+  );
   const usersSql = useMemo(() => macysUsersQuery(), []);
   const subsSql = useMemo(() => macysSubscriptionsQuery(), []);
 
-  const userMsgData = useMetricsQuery(["macys-user-msgs", userMsgSql], userMsgSql);
-  const eventTypeData = useMetricsQuery(["macys-event-types", eventTypeSql], eventTypeSql);
+  const userMsgData = useMetricsQuery(
+    ["macys-user-msgs", userMsgSql],
+    userMsgSql,
+  );
+  const eventTypeData = useMetricsQuery(
+    ["macys-event-types", eventTypeSql],
+    eventTypeSql,
+  );
   const usersData = useMetricsQuery(["macys-users", usersSql], usersSql);
   const subsData = useMetricsQuery(["macys-subs", subsSql], subsSql);
 

@@ -1,6 +1,9 @@
 import { Trash2, Loader2, Check, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useDeleteProjectMedia, type MediaFile } from "@/hooks/use-project-media";
+import {
+  useDeleteProjectMedia,
+  type MediaFile,
+} from "@/hooks/use-project-media";
 import { toast } from "sonner";
 
 interface MediaCardProps {
@@ -48,7 +51,7 @@ export function MediaCard({
         "group relative aspect-square rounded-lg overflow-hidden border bg-muted cursor-pointer transition-all",
         isSelected
           ? "border-primary ring-2 ring-primary/30"
-          : "border-border hover:border-foreground/20"
+          : "border-border hover:border-foreground/20",
       )}
       onClick={onClick}
     >
@@ -82,7 +85,7 @@ export function MediaCard({
             "absolute top-1.5 left-1.5 w-5 h-5 rounded flex items-center justify-center transition-all z-10",
             isSelected
               ? "bg-primary text-primary-foreground"
-              : "bg-black/40 text-white/70 hover:bg-black/60"
+              : "bg-black/40 text-white/70 hover:bg-black/60",
           )}
         >
           {isSelected && <Check size={12} strokeWidth={3} />}

@@ -49,7 +49,10 @@ export function JiraCreatedResolvedChart({ analytics, isLoading }: Props) {
               tick={{ fontSize: 11, fill: "#94a3b8" }}
               tickFormatter={(v: string) => v.slice(5)}
             />
-            <YAxis tick={{ fontSize: 12, fill: "#94a3b8" }} allowDecimals={false} />
+            <YAxis
+              tick={{ fontSize: 12, fill: "#94a3b8" }}
+              allowDecimals={false}
+            />
             <Tooltip
               contentStyle={{
                 backgroundColor: "hsl(var(--card))",

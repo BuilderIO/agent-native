@@ -121,7 +121,10 @@ export function BubbleToolbar({ editor, onGenerateImage }: BubbleToolbarProps) {
       }}
     >
       {showLinkInput ? (
-        <div className="flex items-center gap-1 px-1" onMouseDown={(e) => e.preventDefault()}>
+        <div
+          className="flex items-center gap-1 px-1"
+          onMouseDown={(e) => e.preventDefault()}
+        >
           <input
             autoFocus
             type="url"
@@ -145,17 +148,22 @@ export function BubbleToolbar({ editor, onGenerateImage }: BubbleToolbarProps) {
           </button>
         </div>
       ) : (
-        <div className="flex items-center gap-0.5" onMouseDown={(e) => e.preventDefault()}>
+        <div
+          className="flex items-center gap-0.5"
+          onMouseDown={(e) => e.preventDefault()}
+        >
           {items.map((item, i) => {
             if ("type" in item && item.type === "divider") {
               return (
-                <div
-                  key={`d-${i}`}
-                  className="w-px h-5 bg-gray-600 mx-0.5"
-                />
+                <div key={`d-${i}`} className="w-px h-5 bg-gray-600 mx-0.5" />
               );
             }
-            const { icon: Icon, title, action, isActive } = item as {
+            const {
+              icon: Icon,
+              title,
+              action,
+              isActive,
+            } = item as {
               icon: React.ElementType;
               title: string;
               action: () => void;
@@ -170,7 +178,7 @@ export function BubbleToolbar({ editor, onGenerateImage }: BubbleToolbarProps) {
                   "p-1.5 rounded transition-colors",
                   isActive()
                     ? "bg-gray-600 text-white"
-                    : "text-gray-300 hover:bg-gray-700 hover:text-white"
+                    : "text-gray-300 hover:bg-gray-700 hover:text-white",
                 )}
               >
                 <Icon size={14} strokeWidth={2.5} />

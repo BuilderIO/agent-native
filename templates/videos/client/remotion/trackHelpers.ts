@@ -28,7 +28,13 @@ export function createCameraTrack(durationInFrames: number): AnimationTrack {
       { property: "scale", from: "1", to: "1", unit: "", keyframes: [] },
       { property: "rotateX", from: "0", to: "0", unit: "deg", keyframes: [] },
       { property: "rotateY", from: "0", to: "0", unit: "deg", keyframes: [] },
-      { property: "perspective", from: "800", to: "800", unit: "px", keyframes: [] },
+      {
+        property: "perspective",
+        from: "800",
+        to: "800",
+        unit: "px",
+        keyframes: [],
+      },
     ],
   };
 }
@@ -46,7 +52,7 @@ export function createCursorTrack(
     startY?: number;
     startOpacity?: number;
     easing?: string;
-  }
+  },
 ): AnimationTrack {
   const {
     startX = 960,
@@ -62,9 +68,27 @@ export function createCursorTrack(
     endFrame: durationInFrames,
     easing,
     animatedProps: [
-      { property: "x", from: String(startX), to: String(startX), unit: "px", keyframes: [] },
-      { property: "y", from: String(startY), to: String(startY), unit: "px", keyframes: [] },
-      { property: "opacity", from: String(startOpacity), to: String(startOpacity), unit: "", keyframes: [] },
+      {
+        property: "x",
+        from: String(startX),
+        to: String(startX),
+        unit: "px",
+        keyframes: [],
+      },
+      {
+        property: "y",
+        from: String(startY),
+        to: String(startY),
+        unit: "px",
+        keyframes: [],
+      },
+      {
+        property: "opacity",
+        from: String(startOpacity),
+        to: String(startOpacity),
+        unit: "",
+        keyframes: [],
+      },
       { property: "scale", from: "1", to: "1", unit: "", keyframes: [] },
       // CRITICAL: Must be "default" — autoCursorType overrides to "pointer" on hover
       { property: "type", from: "default", to: "default", unit: "" },
@@ -76,7 +100,9 @@ export function createCursorTrack(
 /**
  * Create standard camera + cursor tracks for a new composition.
  */
-export function createStandardTracks(durationInFrames: number): AnimationTrack[] {
+export function createStandardTracks(
+  durationInFrames: number,
+): AnimationTrack[] {
   return [
     createCameraTrack(durationInFrames),
     createCursorTrack(durationInFrames),

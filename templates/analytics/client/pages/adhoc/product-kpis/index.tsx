@@ -20,7 +20,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-function useUrlParam(key: string, defaultValue: string): [string, (v: string) => void] {
+function useUrlParam(
+  key: string,
+  defaultValue: string,
+): [string, (v: string) => void] {
   const [value, setValue] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get(key) || defaultValue;
@@ -34,7 +37,11 @@ function useUrlParam(key: string, defaultValue: string): [string, (v: string) =>
       params.set(key, value);
     }
     const s = params.toString();
-    window.history.replaceState(null, "", `${window.location.pathname}${s ? `?${s}` : ""}`);
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${s ? `?${s}` : ""}`,
+    );
   }, [value, key, defaultValue]);
 
   return [value, setValue];
@@ -49,25 +56,43 @@ export default function ProductKpisDashboard() {
   const dc = cadence as DateCadence;
 
   // Signup → Paid Conversion
-  const convSql = useMemo(() => signupToPaidQuery(dc, dateStart, dateEnd), [dc, dateStart, dateEnd]);
+  const convSql = useMemo(
+    () => signupToPaidQuery(dc, dateStart, dateEnd),
+    [dc, dateStart, dateEnd],
+  );
   const convData = useMetricsQuery(["kpi-conv", convSql], convSql);
 
-  const planSql = useMemo(() => signupToPaidByPlanQuery(dc, dateStart, dateEnd), [dc, dateStart, dateEnd]);
+  const planSql = useMemo(
+    () => signupToPaidByPlanQuery(dc, dateStart, dateEnd),
+    [dc, dateStart, dateEnd],
+  );
   const planData = useMetricsQuery(["kpi-plan", planSql], planSql);
 
   // WAU
-  const wauSql = useMemo(() => wauQuery(dc, dateStart, dateEnd), [dc, dateStart, dateEnd]);
+  const wauSql = useMemo(
+    () => wauQuery(dc, dateStart, dateEnd),
+    [dc, dateStart, dateEnd],
+  );
   const wauData = useMetricsQuery(["kpi-wau", wauSql], wauSql);
 
   // ARPA
-  const arpaSql = useMemo(() => arpaQuery(dc, dateStart, dateEnd, planFilter), [dc, dateStart, dateEnd, planFilter]);
+  const arpaSql = useMemo(
+    () => arpaQuery(dc, dateStart, dateEnd, planFilter),
+    [dc, dateStart, dateEnd, planFilter],
+  );
   const arpaData = useMetricsQuery(["kpi-arpa", arpaSql], arpaSql);
 
   // Retention
-  const retSql = useMemo(() => retentionSummaryQuery(dateStart, dateEnd), [dateStart, dateEnd]);
+  const retSql = useMemo(
+    () => retentionSummaryQuery(dateStart, dateEnd),
+    [dateStart, dateEnd],
+  );
   const retData = useMetricsQuery(["kpi-ret", retSql], retSql);
 
-  const sigRetSql = useMemo(() => signupRetentionQuery(dc, dateStart, dateEnd), [dc, dateStart, dateEnd]);
+  const sigRetSql = useMemo(
+    () => signupRetentionQuery(dc, dateStart, dateEnd),
+    [dc, dateStart, dateEnd],
+  );
   const sigRetData = useMetricsQuery(["kpi-sigret", sigRetSql], sigRetSql);
 
   // Latest values for headline KPIs
@@ -118,36 +143,52 @@ export default function ProductKpisDashboard() {
       <div className="rounded-lg border border-border p-3">
         <div className="flex flex-wrap gap-3 items-end">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground font-medium">Cadence</label>
+            <label className="text-xs text-muted-foreground font-medium">
+              Cadence
+            </label>
             <Select value={cadence} onValueChange={setCadence}>
               <SelectTrigger className="h-8 w-[120px] text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {["Weekly", "Monthly", "Quarterly"].map((c) => (
-                  <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>
+                  <SelectItem key={c} value={c} className="text-xs">
+                    {c}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground font-medium">From</label>
+            <label className="text-xs text-muted-foreground font-medium">
+              From
+            </label>
             <DatePicker value={dateStart} onChange={setDateStart} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground font-medium">To</label>
+            <label className="text-xs text-muted-foreground font-medium">
+              To
+            </label>
             <DatePicker value={dateEnd} onChange={setDateEnd} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground font-medium">Plan</label>
+            <label className="text-xs text-muted-foreground font-medium">
+              Plan
+            </label>
             <Select value={planFilter} onValueChange={setPlanFilter}>
               <SelectTrigger className="h-8 w-[130px] text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all" className="text-xs">All Plans</SelectItem>
-                <SelectItem value="self-serve" className="text-xs">Self-Serve</SelectItem>
-                <SelectItem value="enterprise" className="text-xs">Enterprise</SelectItem>
+                <SelectItem value="all" className="text-xs">
+                  All Plans
+                </SelectItem>
+                <SelectItem value="self-serve" className="text-xs">
+                  Self-Serve
+                </SelectItem>
+                <SelectItem value="enterprise" className="text-xs">
+                  Enterprise
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -200,7 +241,9 @@ export default function ProductKpisDashboard() {
           color="#8b5cf6"
           isLoading={arpaData.isLoading}
           error={arpaData.data?.error}
-          yFormatter={(v) => `$${v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)}`}
+          yFormatter={(v) =>
+            `$${v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)}`
+          }
           latestValue={latestArpa}
         />
       </div>
@@ -285,10 +328,23 @@ export default function ProductKpisDashboard() {
 
       {/* Definitions */}
       <div className="rounded-lg border border-border/50 p-3 text-xs text-muted-foreground space-y-1">
-        <p><span className="font-medium text-foreground">Signup → Paid</span> — % of signups whose top_subscription is not &quot;free&quot;</p>
-        <p><span className="font-medium text-foreground">30-Day Retention</span> — % of cohort signups who had any active_users event after their signup period</p>
-        <p><span className="font-medium text-foreground">Active Users</span> — Distinct users with any activity event in the period</p>
-        <p><span className="font-medium text-foreground">ARPA</span> — Total ARR / active subscriptions for the selected plan type</p>
+        <p>
+          <span className="font-medium text-foreground">Signup → Paid</span> — %
+          of signups whose top_subscription is not &quot;free&quot;
+        </p>
+        <p>
+          <span className="font-medium text-foreground">30-Day Retention</span>{" "}
+          — % of cohort signups who had any active_users event after their
+          signup period
+        </p>
+        <p>
+          <span className="font-medium text-foreground">Active Users</span> —
+          Distinct users with any activity event in the period
+        </p>
+        <p>
+          <span className="font-medium text-foreground">ARPA</span> — Total ARR
+          / active subscriptions for the selected plan type
+        </p>
       </div>
     </div>
   );

@@ -40,10 +40,7 @@ export function AssetLibraryPicker({
           </div>
         ) : imageFiles.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
-            <ImageIcon
-              size={24}
-              className="text-muted-foreground/30 mb-2"
-            />
+            <ImageIcon size={24} className="text-muted-foreground/30 mb-2" />
             <p className="text-xs text-muted-foreground">
               No images in this project yet
             </p>
@@ -89,7 +86,7 @@ function AssetThumb({
         "relative aspect-square rounded-md overflow-hidden border bg-muted cursor-pointer transition-all",
         isHovered
           ? "border-primary ring-2 ring-primary/30"
-          : "border-border hover:border-foreground/20"
+          : "border-border hover:border-foreground/20",
       )}
     >
       <img

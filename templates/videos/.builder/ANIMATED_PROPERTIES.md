@@ -22,9 +22,9 @@ const MyComp = ({ cursorHistory }) => {
     cursorHistory,
     interactiveElementType: "button",
   });
-  
+
   registerForCursor(button);
-  
+
   return (
     <AnimatedElement interactive={button} as="button">
       Click me!
@@ -48,12 +48,14 @@ const MyComp = ({ cursorHistory }) => {
 The `AnimatedElement` component automatically converts animated properties to appropriate CSS styles. Here are some examples:
 
 #### Transform Properties
+
 - `scale` → `transform: scale()`
 - `translateX`, `translateY`, `translateZ` → `transform: translate()`
 - `rotate`, `rotateX`, `rotateY`, `rotateZ` → `transform: rotate()`
 - `skewX`, `skewY` → `transform: skew()`
 
 #### Filter Properties
+
 - `blur` → `filter: blur()`
 - `brightness` → `filter: brightness()`
 - `contrast` → `filter: contrast()`
@@ -61,21 +63,25 @@ The `AnimatedElement` component automatically converts animated properties to ap
 - `hueRotate` → `filter: hue-rotate()`
 
 #### Color Properties
+
 - `backgroundColor` or `background`
 - `color` or `textColor`
 - `borderColor`
 
 #### Size Properties
+
 - `width`, `height`
 - `padding`, `margin`
 - `borderWidth`
 - `borderRadius`
 
 #### Shadow & Effects
+
 - `boxShadow` or `shadow`
 - `opacity`
 
 #### Custom Properties
+
 - **ANY** kebab-case CSS property name (e.g., `font-size`, `line-height`)
 - **ANY** camelCase CSS property name (e.g., `fontSize`, `lineHeight`)
 
@@ -106,11 +112,7 @@ The `AnimatedElement` component:
 
 ```tsx
 // Works with ANY component that accepts style prop
-<AnimatedElement 
-  interactive={myButton} 
-  as={CustomButton}
-  customProp="value"
->
+<AnimatedElement interactive={myButton} as={CustomButton} customProp="value">
   Content
 </AnimatedElement>
 ```
@@ -123,8 +125,8 @@ The `AnimatedElement` component:
   interactive={myButton}
   as="div"
   style={{
-    backgroundColor: "red",  // This overrides animated backgroundColor
-    position: "absolute",     // Static styles work fine
+    backgroundColor: "red", // This overrides animated backgroundColor
+    position: "absolute", // Static styles work fine
   }}
 >
   Content
@@ -156,6 +158,7 @@ const customProp = button.animatedProperties?.myCustomProperty;
 ### Background Color Hover
 
 Via UI:
+
 1. Select element
 2. Add hover animation
 3. Add property: `backgroundColor`
@@ -164,6 +167,7 @@ Via UI:
 ### Multi-Property Animation
 
 Via UI:
+
 1. Select element
 2. Add hover animation
 3. Add properties:
@@ -177,6 +181,7 @@ All properties animate smoothly together!
 ### Click Feedback
 
 Via UI:
+
 1. Select element
 2. Add click animation (duration: 6 frames)
 3. Add properties:
@@ -188,16 +193,20 @@ Element "presses down" on click!
 ## Property Types
 
 ### Number Properties
+
 - Automatically adds `px` for size properties (width, padding, etc.)
 - Automatically adds `deg` for rotation properties
 - Automatically adds `%` for filter properties (brightness, contrast)
 
 ### String Properties
+
 - Used as-is for colors, shadows, etc.
 - Example: `#ff0000`, `rgba(0,0,0,0.5)`, `0 4px 8px rgba(0,0,0,0.2)`
 
 ### Units
+
 When adding properties via UI, include units in the value:
+
 - `10px` ✅
 - `50%` ✅
 - `1.5em` ✅
@@ -206,6 +215,7 @@ When adding properties via UI, include units in the value:
 ## Best Practices
 
 ### 1. Use AnimatedElement by Default
+
 ```tsx
 // ✅ RECOMMENDED - Works with ANY property
 <AnimatedElement interactive={button} as="button">
@@ -222,16 +232,19 @@ When adding properties via UI, include units in the value:
 ```
 
 ### 2. Keep Animations Subtle
+
 - Hover scale: 1.05 - 1.15 (not 2.0!)
 - Lift: 4px - 12px (not 50px!)
 - Color shifts: Slight variations (not black → white!)
 
 ### 3. Use Appropriate Durations
+
 - Hover: 6-12 frames (fast, responsive)
 - Click: 3-6 frames (immediate feedback)
 - Complex: 12-24 frames (smooth, elegant)
 
 ### 4. Test on Actual Hardware
+
 - What looks good at 60fps may feel sluggish at 30fps
 - Test hover responsiveness with real mouse movement
 - Check click feedback feels immediate
@@ -241,6 +254,7 @@ When adding properties via UI, include units in the value:
 ### Properties Not Applying?
 
 **Check:**
+
 1. ✅ Using `AnimatedElement` component?
 2. ✅ Passing `interactive` prop correctly?
 3. ✅ Registered component with `registerForCursor()`?
@@ -249,6 +263,7 @@ When adding properties via UI, include units in the value:
 ### Common Mistakes
 
 **Wrong:** Using className instead of inline styles in Remotion
+
 ```tsx
 <AnimatedElement interactive={button} className="hover:bg-red-500">
   Won't work - Remotion doesn't support className animations
@@ -256,6 +271,7 @@ When adding properties via UI, include units in the value:
 ```
 
 **Right:** AnimatedElement handles everything
+
 ```tsx
 <AnimatedElement interactive={button}>
   Works - animatedProperties applied as inline styles!
@@ -296,12 +312,14 @@ Applies to rendered element
 ### Storage
 
 Animations are stored in:
+
 - `CurrentElementContext` - In-memory state
 - `localStorage` - Persistent across reloads (per-composition)
 
 ### Interpolation
 
 Property values are interpolated using:
+
 - Easing functions (expo.out, power2.inOut, etc.)
 - Progress value (0 → 1 for hover/click)
 - Keyframes (from → to values)

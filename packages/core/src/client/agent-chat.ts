@@ -34,7 +34,7 @@ if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("builder.fusion.chatRunning", {
           detail: event.data.detail,
-        })
+        }),
       );
     }
   });

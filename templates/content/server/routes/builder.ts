@@ -7,7 +7,10 @@ import {
   getBuilderBlogProjectSlug,
   normalizeBuilderBlogHandle,
 } from "../../shared/builder-slugs.js";
-import { normalizeBuilderAssetUrl, reuploadBlockImages } from "../utils/builder-upload";
+import {
+  normalizeBuilderAssetUrl,
+  reuploadBlockImages,
+} from "../utils/builder-upload";
 
 const BUILDER_API = "https://builder.io/api/v1";
 const BUILDER_CDN = "https://cdn.builder.io/api/v3";
@@ -17,7 +20,7 @@ const AUTHOR_WORKSPACES_FILE = path.join(
   process.cwd(),
   "content",
   "shared-resources",
-  "builder-author-workspaces.json"
+  "builder-author-workspaces.json",
 );
 
 type BuilderAuthorEntry = {
@@ -90,8 +93,14 @@ function getStoredAuth(): { apiKey: string | null; privateKey: string | null } {
     const raw = fs.readFileSync(AUTH_FILE, "utf-8");
     const parsed = JSON.parse(raw);
     return {
-      apiKey: typeof parsed?.apiKey === "string" && parsed.apiKey ? parsed.apiKey : null,
-      privateKey: typeof parsed?.privateKey === "string" && parsed.privateKey ? parsed.privateKey : null,
+      apiKey:
+        typeof parsed?.apiKey === "string" && parsed.apiKey
+          ? parsed.apiKey
+          : null,
+      privateKey:
+        typeof parsed?.privateKey === "string" && parsed.privateKey
+          ? parsed.privateKey
+          : null,
     };
   } catch {
     return { apiKey: null, privateKey: null };
@@ -134,7 +143,9 @@ function fetchBuilderContent<T>({
         params.set("includeUnpublished", "true");
       }
 
-      const response = await fetch(`${BUILDER_CDN}/content/${model}?${params.toString()}`);
+      const response = await fetch(
+        `${BUILDER_CDN}/content/${model}?${params.toString()}`,
+      );
       if (!response.ok) {
         const text = await response.text();
         throw new Error(text || `Failed to fetch ${model}`);
@@ -157,7 +168,9 @@ function fetchBuilderContent<T>({
   return fetchAll();
 }
 
-function normalizeAuthorReferences(articleData: BuilderArticleEntry["data"]): BuilderAuthorReference[] {
+function normalizeAuthorReferences(
+  articleData: BuilderArticleEntry["data"],
+): BuilderAuthorReference[] {
   if (!articleData) return [];
 
   const refs = [
@@ -169,7 +182,7 @@ function normalizeAuthorReferences(articleData: BuilderArticleEntry["data"]): Bu
         : []),
   ].filter(
     (ref): ref is BuilderAuthorReference =>
-      !!ref && typeof ref.id === "string" && typeof ref.model === "string"
+      !!ref && typeof ref.id === "string" && typeof ref.model === "string",
   );
 
   const seen = new Set<string>();
@@ -191,7 +204,10 @@ function readAuthorWorkspaceMappings(): AuthorWorkspaceMappings {
 
     return {
       byId: parsed?.byId && typeof parsed.byId === "object" ? parsed.byId : {},
-      byHandle: parsed?.byHandle && typeof parsed.byHandle === "object" ? parsed.byHandle : {},
+      byHandle:
+        parsed?.byHandle && typeof parsed.byHandle === "object"
+          ? parsed.byHandle
+          : {},
     };
   } catch {
     return { byId: {}, byHandle: {} };
@@ -226,7 +242,10 @@ function getActiveDraftPath(projectDir: string): string {
   const metaPath = path.join(projectDir, ".project.json");
   try {
     const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
-    if (meta.activeDraft && fs.existsSync(path.join(projectDir, meta.activeDraft))) {
+    if (
+      meta.activeDraft &&
+      fs.existsSync(path.join(projectDir, meta.activeDraft))
+    ) {
       return meta.activeDraft;
     }
   } catch {
@@ -240,15 +259,31 @@ function getActiveDraftPath(projectDir: string): string {
   return listMarkdownFiles(projectDir)[0] || "draft.md";
 }
 
-function discoverProjectDirs(dir: string, relativePath: string, results: { projectDir: string; slug: string; workspace: string }[], workspace: string) {
+function discoverProjectDirs(
+  dir: string,
+  relativePath: string,
+  results: { projectDir: string; slug: string; workspace: string }[],
+  workspace: string,
+) {
   if (!fs.existsSync(dir)) return;
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith(".") || entry.name === "shared-resources") continue;
+    if (
+      !entry.isDirectory() ||
+      entry.name.startsWith(".") ||
+      entry.name === "shared-resources"
+    )
+      continue;
     const fullDir = path.join(dir, entry.name);
-    const currentPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+    const currentPath = relativePath
+      ? `${relativePath}/${entry.name}`
+      : entry.name;
     if (fs.existsSync(path.join(fullDir, ".project.json"))) {
-      results.push({ projectDir: fullDir, slug: `${workspace}/${currentPath}`, workspace });
+      results.push({
+        projectDir: fullDir,
+        slug: `${workspace}/${currentPath}`,
+        workspace,
+      });
     } else {
       discoverProjectDirs(fullDir, currentPath, results, workspace);
     }
@@ -262,13 +297,19 @@ function getLocalProjectLinks(): Map<string, LocalProjectLink> {
     return links;
   }
 
-  const workspaceEntries = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true });
+  const workspaceEntries = fs.readdirSync(PROJECTS_DIR, {
+    withFileTypes: true,
+  });
   for (const workspaceEntry of workspaceEntries) {
     if (!workspaceEntry.isDirectory()) continue;
 
     const workspace = workspaceEntry.name;
     const workspaceDir = path.join(PROJECTS_DIR, workspace);
-    const projectResults: { projectDir: string; slug: string; workspace: string }[] = [];
+    const projectResults: {
+      projectDir: string;
+      slug: string;
+      workspace: string;
+    }[] = [];
     discoverProjectDirs(workspaceDir, "", projectResults, workspace);
 
     for (const { projectDir, workspace: ws } of projectResults) {
@@ -286,7 +327,8 @@ function getLocalProjectLinks(): Map<string, LocalProjectLink> {
         if (!handle || typeof handle !== "string") continue;
 
         const normalizedHandle = normalizeBuilderBlogHandle(handle);
-        const canonicalProjectSlug = getBuilderBlogProjectSlug(normalizedHandle);
+        const canonicalProjectSlug =
+          getBuilderBlogProjectSlug(normalizedHandle);
         if (!normalizedHandle || !canonicalProjectSlug) continue;
 
         const projectMetaPath = path.join(projectDir, ".project.json");
@@ -315,7 +357,7 @@ function getLocalProjectLinks(): Map<string, LocalProjectLink> {
 function resolveMappedWorkspace(
   authorRefs: BuilderAuthorReference[],
   authorLookup: Map<string, BuilderAuthorEntry>,
-  mappings: AuthorWorkspaceMappings
+  mappings: AuthorWorkspaceMappings,
 ): string | undefined {
   for (const ref of authorRefs) {
     const mappedById = mappings.byId?.[ref.id];
@@ -340,7 +382,11 @@ const memoryUpload = multer({
     if (mimeType.startsWith("image/")) {
       cb(null, true);
     } else {
-      cb(new Error(`Only image files are allowed, got ${file.mimetype} (${path.extname(file.originalname)})`));
+      cb(
+        new Error(
+          `Only image files are allowed, got ${file.mimetype} (${path.extname(file.originalname)})`,
+        ),
+      );
     }
   },
 });
@@ -380,7 +426,9 @@ export const uploadImage: RequestHandler = async (req, res) => {
 
     if (!response.ok) {
       const text = await response.text();
-      res.status(response.status).json({ error: `Builder upload failed: ${text}` });
+      res
+        .status(response.status)
+        .json({ error: `Builder upload failed: ${text}` });
       return;
     }
 
@@ -402,7 +450,9 @@ export const uploadArticle: RequestHandler = async (req, res) => {
   try {
     const { apiKey, privateKey, article, model = "blog-article" } = req.body;
     if (!apiKey || !privateKey || !article) {
-      res.status(400).json({ success: false, error: "Missing required fields" });
+      res
+        .status(400)
+        .json({ success: false, error: "Missing required fields" });
       return;
     }
 
@@ -412,7 +462,7 @@ export const uploadArticle: RequestHandler = async (req, res) => {
       reuploadResult = await reuploadBlockImages(
         article.data.blocks,
         article.data,
-        { apiKey, privateKey }
+        { apiKey, privateKey },
       );
     }
 
@@ -435,7 +485,8 @@ export const uploadArticle: RequestHandler = async (req, res) => {
     res.json({
       success: true,
       id: data.id || data._id,
-      ...(reuploadResult && (reuploadResult.reuploaded > 0 || reuploadResult.failed > 0)
+      ...(reuploadResult &&
+      (reuploadResult.reuploaded > 0 || reuploadResult.failed > 0)
         ? { imageReupload: reuploadResult }
         : {}),
     });
@@ -450,7 +501,9 @@ export const updateArticle: RequestHandler = async (req, res) => {
     const { id } = req.params;
     const { apiKey, privateKey, article, model = "blog-article" } = req.body;
     if (!apiKey || !privateKey || !article) {
-      res.status(400).json({ success: false, error: "Missing required fields" });
+      res
+        .status(400)
+        .json({ success: false, error: "Missing required fields" });
       return;
     }
 
@@ -460,18 +513,21 @@ export const updateArticle: RequestHandler = async (req, res) => {
       reuploadResult = await reuploadBlockImages(
         article.data.blocks,
         article.data,
-        { apiKey, privateKey }
+        { apiKey, privateKey },
       );
     }
 
-    const response = await fetch(`${BUILDER_API}/write/${model}/${id}?autoSaveOnly=true`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${privateKey}`,
+    const response = await fetch(
+      `${BUILDER_API}/write/${model}/${id}?autoSaveOnly=true`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${privateKey}`,
+        },
+        body: JSON.stringify(article),
       },
-      body: JSON.stringify(article),
-    });
+    );
 
     if (!response.ok) {
       const text = await response.text();
@@ -483,7 +539,8 @@ export const updateArticle: RequestHandler = async (req, res) => {
     res.json({
       success: true,
       id: data.id || data._id || id,
-      ...(reuploadResult && (reuploadResult.reuploaded > 0 || reuploadResult.failed > 0)
+      ...(reuploadResult &&
+      (reuploadResult.reuploaded > 0 || reuploadResult.failed > 0)
         ? { imageReupload: reuploadResult }
         : {}),
     });
@@ -585,16 +642,22 @@ export const getBlogIndex: RequestHandler = async (req, res) => {
           title: article.data?.title || article.name || handle,
           authorIds,
           authorNames,
-          publishedAt: article.data?.date ? new Date(article.data.date).toISOString() : undefined,
+          publishedAt: article.data?.date
+            ? new Date(article.data.date).toISOString()
+            : undefined,
           topic: article.data?.topic,
           tags: Array.isArray(article.data?.tags) ? article.data.tags : [],
           linkedProjectSlug: linkedProject?.slug,
           linkedProjectName: linkedProject?.name,
           linkedWorkspace: linkedProject?.workspace,
-          inferredWorkspace: linkedProject?.workspace || resolveMappedWorkspace(authorRefs, authorLookup, workspaceMappings),
+          inferredWorkspace:
+            linkedProject?.workspace ||
+            resolveMappedWorkspace(authorRefs, authorLookup, workspaceMappings),
         };
       })
-      .filter((article): article is NonNullable<typeof article> => Boolean(article))
+      .filter((article): article is NonNullable<typeof article> =>
+        Boolean(article),
+      )
       .sort((a, b) => {
         const aTime = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
         const bTime = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
@@ -614,13 +677,19 @@ function getLocalDocProjectLinks(): Map<string, LocalProjectLink> {
     return links;
   }
 
-  const workspaceEntries = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true });
+  const workspaceEntries = fs.readdirSync(PROJECTS_DIR, {
+    withFileTypes: true,
+  });
   for (const workspaceEntry of workspaceEntries) {
     if (!workspaceEntry.isDirectory()) continue;
 
     const workspace = workspaceEntry.name;
     const workspaceDir = path.join(PROJECTS_DIR, workspace);
-    const projectResults: { projectDir: string; slug: string; workspace: string }[] = [];
+    const projectResults: {
+      projectDir: string;
+      slug: string;
+      workspace: string;
+    }[] = [];
     discoverProjectDirs(workspaceDir, "", projectResults, workspace);
 
     for (const { projectDir, slug, workspace: ws } of projectResults) {
@@ -695,7 +764,8 @@ export const getDocsIndex: RequestHandler = async (req, res) => {
 
     const rows = entries
       .map((entry) => {
-        const title = entry.data?.pageTitle || entry.name || entry.url || entry.id;
+        const title =
+          entry.data?.pageTitle || entry.name || entry.url || entry.id;
         const linkedProject = localProjectLinks.get(entry.id);
 
         return {
@@ -714,7 +784,8 @@ export const getDocsIndex: RequestHandler = async (req, res) => {
       .sort((a, b) => {
         const aRef = a.referenceNumber || "";
         const bRef = b.referenceNumber || "";
-        if (aRef && bRef) return aRef.localeCompare(bRef, undefined, { numeric: true });
+        if (aRef && bRef)
+          return aRef.localeCompare(bRef, undefined, { numeric: true });
         if (aRef) return -1;
         if (bRef) return 1;
         return a.title.localeCompare(b.title);
@@ -745,13 +816,15 @@ export const getDocs: RequestHandler = async (req, res) => {
     while (true) {
       const cacheBuster = `&cb=${Date.now()}`;
       const response = await fetch(
-        `${BUILDER_CDN}/content/docs-content?apiKey=${apiKey}&limit=${limit}&offset=${offset}&fields=${fields}&includeUnpublished=true${cacheBuster}`
+        `${BUILDER_CDN}/content/docs-content?apiKey=${apiKey}&limit=${limit}&offset=${offset}&fields=${fields}&includeUnpublished=true${cacheBuster}`,
       );
 
       if (!response.ok) {
         const errorText = await response.text();
         if (allDocs.length === 0) {
-          res.status(response.status).json({ error: `Failed to fetch docs: ${errorText}` });
+          res
+            .status(response.status)
+            .json({ error: `Failed to fetch docs: ${errorText}` });
           return;
         }
         break;
@@ -784,7 +857,7 @@ export const validateConnection: RequestHandler = async (req, res) => {
     }
 
     const response = await fetch(
-      `${BUILDER_CDN}/content/blog-article?apiKey=${apiKey}&limit=1&fields=id`
+      `${BUILDER_CDN}/content/blog-article?apiKey=${apiKey}&limit=1&fields=id`,
     );
 
     if (!response.ok) {
@@ -807,7 +880,10 @@ export const saveAuth: RequestHandler = async (req, res) => {
       return;
     }
     fs.mkdirSync(path.dirname(AUTH_FILE), { recursive: true });
-    fs.writeFileSync(AUTH_FILE, JSON.stringify({ apiKey, privateKey }, null, 2));
+    fs.writeFileSync(
+      AUTH_FILE,
+      JSON.stringify({ apiKey, privateKey }, null, 2),
+    );
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

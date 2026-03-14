@@ -26,6 +26,8 @@
     "./adapters/firestore": "./dist/adapters/firestore/index.js",
     "./adapters/supabase": "./dist/adapters/supabase/index.js",
     "./adapters/neon": "./dist/adapters/neon/index.js",
+    "./adapters/cli": "./dist/adapters/cli/index.js",
+    "./a2a": "./dist/a2a/index.js",
     "./tailwind": "./dist/tailwind.preset.js",
     "./tsconfig.base.json": "./tsconfig.base.json"
   },

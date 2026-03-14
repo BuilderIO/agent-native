@@ -1,8 +1,14 @@
+---
+name: brand-management
+description: How to manage and re-analyze brand assets using the analyze-brand script.
+---
+
 # Brand Management
 
 ## When to Re-analyze
 
 Run `pnpm script analyze-brand` after:
+
 - New reference images are uploaded
 - Multiple reference images are deleted
 - The user asks to refresh or update the style profile

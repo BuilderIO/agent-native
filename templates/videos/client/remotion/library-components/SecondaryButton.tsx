@@ -27,9 +27,7 @@ import type { AnimationTrack, AnimationShorthand } from "@/types";
 const brightnessHover = (amount: number): AnimationShorthand => ({
   duration: 6,
   easing: "expo.out",
-  properties: [
-    { property: "brightness", from: 1, to: 1 + amount, unit: "" },
-  ],
+  properties: [{ property: "brightness", from: 1, to: 1 + amount, unit: "" }],
 });
 
 export type SecondaryButtonProps = {
@@ -53,28 +51,28 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
   const cx = String(1920 / 2 - 16);
   const cy = String(1080 / 2 - 16);
 
-  cursor.animatedProps.find(p => p.property === "x")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "x")!.keyframes = [
     { frame: 0, value: "200" },
     { frame: 15, value: cx },
     { frame: 90, value: cx },
     { frame: 120, value: "1720" },
     { frame: 150, value: "1720" },
   ];
-  cursor.animatedProps.find(p => p.property === "y")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "y")!.keyframes = [
     { frame: 0, value: "200" },
     { frame: 15, value: cy },
     { frame: 90, value: cy },
     { frame: 120, value: "200" },
     { frame: 150, value: "200" },
   ];
-  cursor.animatedProps.find(p => p.property === "isClicking")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "isClicking")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: 59, value: "0" },
     { frame: 60, value: "1" },
     { frame: 70, value: "0" },
     { frame: 150, value: "0" },
   ];
-  cursor.animatedProps.find(p => p.property === "opacity")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "opacity")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: 5, value: "0" },
     { frame: 15, value: "1" },
@@ -86,78 +84,84 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
   return tracks;
 })();
 
-export const SecondaryButton = createInteractiveComposition<SecondaryButtonProps>({
-  fallbackTracks: FALLBACK_TRACKS,
+export const SecondaryButton =
+  createInteractiveComposition<SecondaryButtonProps>({
+    fallbackTracks: FALLBACK_TRACKS,
 
-  render: ({ cursorHistory, registerForCursor }, props) => {
-    const {
-      label = "Share",
-      icon = "🔗",
-      x = 860,
-      y = 524,
-      backgroundColor = "#2a2a2a",
-      borderColor = "#393939",
-      textColor = "#ffffff",
-    } = props;
-    const { width, height } = useVideoConfig();
+    render: ({ cursorHistory, registerForCursor }, props) => {
+      const {
+        label = "Share",
+        icon = "🔗",
+        x = 860,
+        y = 524,
+        backgroundColor = "#2a2a2a",
+        borderColor = "#393939",
+        textColor = "#ffffff",
+      } = props;
+      const { width, height } = useVideoConfig();
 
-    const buttonWidth = 90;
-    const buttonHeight = 32;
-    const buttonX = typeof x === "number" ? x : (width - buttonWidth) / 2;
-    const buttonY = typeof y === "number" ? y : (height - buttonHeight) / 2;
+      const buttonWidth = 90;
+      const buttonHeight = 32;
+      const buttonX = typeof x === "number" ? x : (width - buttonWidth) / 2;
+      const buttonY = typeof y === "number" ? y : (height - buttonHeight) / 2;
 
-    const button = useInteractiveComponent({
-      id: "secondary-button",
-      elementType: "Button",
-      label,
-      compositionId: "secondary-button",
-      zone: { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight },
-      cursorHistory,
-      interactiveElementType: "button",
-      hoverAnimation: brightnessHover(0.2),
-    });
+      const button = useInteractiveComponent({
+        id: "secondary-button",
+        elementType: "Button",
+        label,
+        compositionId: "secondary-button",
+        zone: {
+          x: buttonX,
+          y: buttonY,
+          width: buttonWidth,
+          height: buttonHeight,
+        },
+        cursorHistory,
+        interactiveElementType: "button",
+        hoverAnimation: brightnessHover(0.2),
+      });
 
-    registerForCursor(button);
+      registerForCursor(button);
 
-    const fontSize = 11;
-    const paddingX = 11;
-    const paddingY = 5;
+      const fontSize = 11;
+      const paddingX = 11;
+      const paddingY = 5;
 
-    return (
-      <AbsoluteFill style={{ backgroundColor: "#0a0a0a" }}>
-        <AnimatedElement
-          interactive={button}
-          as="div"
-          style={{
-            position: "absolute",
-            left: buttonX,
-            top: buttonY,
-            width: buttonWidth,
-            height: buttonHeight,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: icon ? "4px" : "0",
-            paddingLeft: paddingX,
-            paddingRight: paddingX,
-            paddingTop: paddingY,
-            paddingBottom: paddingY,
-            backgroundColor,
-            border: `1px solid ${borderColor}`,
-            borderRadius: 6,
-            color: textColor,
-            fontSize,
-            fontWeight: 500,
-            cursor: "pointer",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {icon && (
-            <span style={{ fontSize: 16, lineHeight: "16px" }}>{icon}</span>
-          )}
-          <span>{label}</span>
-        </AnimatedElement>
-      </AbsoluteFill>
-    );
-  },
-});
+      return (
+        <AbsoluteFill style={{ backgroundColor: "#0a0a0a" }}>
+          <AnimatedElement
+            interactive={button}
+            as="div"
+            style={{
+              position: "absolute",
+              left: buttonX,
+              top: buttonY,
+              width: buttonWidth,
+              height: buttonHeight,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: icon ? "4px" : "0",
+              paddingLeft: paddingX,
+              paddingRight: paddingX,
+              paddingTop: paddingY,
+              paddingBottom: paddingY,
+              backgroundColor,
+              border: `1px solid ${borderColor}`,
+              borderRadius: 6,
+              color: textColor,
+              fontSize,
+              fontWeight: 500,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {icon && (
+              <span style={{ fontSize: 16, lineHeight: "16px" }}>{icon}</span>
+            )}
+            <span>{label}</span>
+          </AnimatedElement>
+        </AbsoluteFill>
+      );
+    },
+  });

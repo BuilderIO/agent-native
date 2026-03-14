@@ -33,19 +33,35 @@ Options:
   const domain = new URL(finalUrl).hostname.replace(/^www\./, "");
 
   const titleMatch =
-    html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) ||
-    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i) ||
+    html.match(
+      /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i,
+    ) ||
+    html.match(
+      /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i,
+    ) ||
     html.match(/<title[^>]*>([^<]+)<\/title>/i);
 
   const descMatch =
-    html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i) ||
-    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i) ||
-    html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i) ||
-    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i);
+    html.match(
+      /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i,
+    ) ||
+    html.match(
+      /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i,
+    ) ||
+    html.match(
+      /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i,
+    ) ||
+    html.match(
+      /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i,
+    );
 
   const imageMatch =
-    html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
-    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+    html.match(
+      /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
+    ) ||
+    html.match(
+      /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i,
+    );
 
   const title = titleMatch?.[1]?.trim() || domain;
   const description = descMatch?.[1]?.trim() || "";

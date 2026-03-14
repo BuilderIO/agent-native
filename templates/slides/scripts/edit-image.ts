@@ -38,7 +38,9 @@ export default async function main(args: string[]) {
   const count = parseInt(opts["count"] || "1", 10);
 
   if (!inputPath || !prompt) {
-    console.error("Usage: pnpm script edit-image --input <path> --prompt <instructions> [--output <prefix>] [--count N]");
+    console.error(
+      "Usage: pnpm script edit-image --input <path> --prompt <instructions> [--output <prefix>] [--count N]",
+    );
     process.exit(1);
   }
 
@@ -55,7 +57,9 @@ export default async function main(args: string[]) {
   const imgBase64 = imgBuffer.toString("base64");
   const mimeType = inputPath.endsWith(".png") ? "image/png" : "image/jpeg";
 
-  console.log(`Input image: ${inputPath} (${Math.round(imgBuffer.length / 1024)}KB)`);
+  console.log(
+    `Input image: ${inputPath} (${Math.round(imgBuffer.length / 1024)}KB)`,
+  );
   console.log(`Edit prompt: "${prompt}"`);
   console.log(`Generating ${count} variation(s)...\n`);
 
@@ -91,7 +95,9 @@ Keep everything else about the image the same - same style, same composition, sa
           if (attempt > 0) {
             await new Promise((r) => setTimeout(r, attempt * 3000));
           }
-          console.log(`  [Gemini] Trying ${modelName} (attempt ${attempt + 1})`);
+          console.log(
+            `  [Gemini] Trying ${modelName} (attempt ${attempt + 1})`,
+          );
 
           const response = await client.models.generateContent({
             model: modelName,
@@ -103,15 +109,21 @@ Keep everything else about the image the same - same style, same composition, sa
           for (const part of parts) {
             if (part.inlineData) {
               const buffer = Buffer.from(part.inlineData.data!, "base64");
-              const ext = part.inlineData.mimeType?.includes("png") ? "png" : "png";
+              const ext = part.inlineData.mimeType?.includes("png")
+                ? "png"
+                : "png";
 
               if (outputPrefix) {
                 const filePath = `${outputPrefix}-v${i + 1}.${ext}`;
                 writeFileSync(filePath, buffer);
                 generatedFiles.push(filePath);
-                console.log(`  Saved: ${filePath} (${Math.round(buffer.length / 1024)}KB)`);
+                console.log(
+                  `  Saved: ${filePath} (${Math.round(buffer.length / 1024)}KB)`,
+                );
               } else {
-                console.log(`  Generated (${Math.round(buffer.length / 1024)}KB)`);
+                console.log(
+                  `  Generated (${Math.round(buffer.length / 1024)}KB)`,
+                );
               }
               success = true;
               break;
@@ -119,7 +131,9 @@ Keep everything else about the image the same - same style, same composition, sa
           }
           if (success) break;
         } catch (e: any) {
-          console.warn(`  [Gemini] ${modelName} attempt ${attempt + 1} failed: ${e.message}`);
+          console.warn(
+            `  [Gemini] ${modelName} attempt ${attempt + 1} failed: ${e.message}`,
+          );
           if (e.status === 429 || e.status === 503) continue;
           break;
         }

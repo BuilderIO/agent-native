@@ -15,12 +15,18 @@ type SpringConfig = {
  */
 export function easingToSpringConfig(easing: EasingKey): SpringConfig {
   switch (easing) {
-    case "spring":       return { damping: 25, stiffness: 150, mass: 0.5 };
-    case "ease-out":     return { damping: 200, stiffness: 400 };
-    case "ease-in":      return { damping: 200, stiffness: 20 };
-    case "ease-in-out":  return { damping: 200, stiffness: 80 };
-    case "linear":       return { damping: 200, stiffness: 200, overshootClamping: true };
-    default:             return { damping: 200 };
+    case "spring":
+      return { damping: 25, stiffness: 150, mass: 0.5 };
+    case "ease-out":
+      return { damping: 200, stiffness: 400 };
+    case "ease-in":
+      return { damping: 200, stiffness: 20 };
+    case "ease-in-out":
+      return { damping: 200, stiffness: 80 };
+    case "linear":
+      return { damping: 200, stiffness: 200, overshootClamping: true };
+    default:
+      return { damping: 200 };
   }
 }
 
@@ -33,7 +39,7 @@ export function easingToSpringConfig(easing: EasingKey): SpringConfig {
 export function trackProgress(
   frame: number,
   fps: number,
-  track: AnimationTrack
+  track: AnimationTrack,
 ): number {
   const { startFrame, endFrame, easing } = track;
 
@@ -61,7 +67,7 @@ export function trackProgress(
 export function findTrack(
   tracks: AnimationTrack[],
   id: string,
-  fallback: AnimationTrack
+  fallback: AnimationTrack,
 ): AnimationTrack {
   return tracks.find((t) => t.id === id) ?? fallback;
 }
@@ -77,13 +83,13 @@ export function getPropValue(
   track: AnimationTrack,
   property: string,
   defaultFrom: number,
-  defaultTo: number
+  defaultTo: number,
 ): number {
   const prop = track.animatedProps?.find((p) => p.property === property);
   const fromNum = prop ? parseFloat(prop.from) : NaN;
-  const toNum   = prop ? parseFloat(prop.to)   : NaN;
+  const toNum = prop ? parseFloat(prop.to) : NaN;
   const from = Number.isFinite(fromNum) ? fromNum : defaultFrom;
-  const to   = Number.isFinite(toNum)   ? toNum   : defaultTo;
+  const to = Number.isFinite(toNum) ? toNum : defaultTo;
   return interpolate(progress, [0, 1], [from, to]);
 }
 
@@ -103,7 +109,7 @@ export function getPropValueKeyframed(
   fps: number,
   track: AnimationTrack,
   property: string,
-  defaultValue: number
+  defaultValue: number,
 ): number {
   const prop = track.animatedProps?.find((p) => p.property === property);
 

@@ -16,9 +16,7 @@ const EXAMPLE_QUERIES = [
 
 export function JiraSearchPanel({ defaultProject }: Props) {
   const [jql, setJql] = useState(
-    defaultProject
-      ? `project = ${defaultProject} ORDER BY created DESC`
-      : ""
+    defaultProject ? `project = ${defaultProject} ORDER BY created DESC` : "",
   );
   const [submittedJql, setSubmittedJql] = useState("");
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
@@ -30,7 +28,7 @@ export function JiraSearchPanel({ defaultProject }: Props) {
       e.preventDefault();
       if (jql.trim()) setSubmittedJql(jql.trim());
     },
-    [jql]
+    [jql],
   );
 
   return (
@@ -92,9 +90,7 @@ export function JiraSearchPanel({ defaultProject }: Props) {
           <IssuesTable
             issues={data.issues}
             expandedKey={expandedKey}
-            onToggle={(key) =>
-              setExpandedKey(expandedKey === key ? null : key)
-            }
+            onToggle={(key) => setExpandedKey(expandedKey === key ? null : key)}
           />
         </div>
       )}
@@ -168,9 +164,7 @@ function IssueRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const statusColor = getStatusColor(
-    issue.fields.status.statusCategory.key
-  );
+  const statusColor = getStatusColor(issue.fields.status.statusCategory.key);
 
   return (
     <>

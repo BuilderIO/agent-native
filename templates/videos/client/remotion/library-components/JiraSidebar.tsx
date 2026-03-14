@@ -173,7 +173,14 @@ export const JiraSidebar: React.FC<JiraSidebarProps> = ({
               </div>
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: 6 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                marginLeft: 6,
+              }}
+            >
               {/* Vote button */}
               <div
                 style={{
@@ -245,85 +252,159 @@ export const JiraSidebar: React.FC<JiraSidebarProps> = ({
           </div>
 
           {/* Details content */}
-          <div style={{ marginTop: 44, fontSize: 20, display: "flex", flexDirection: "column", gap: 18 }}>
+          <div
+            style={{
+              marginTop: 44,
+              fontSize: 20,
+              display: "flex",
+              flexDirection: "column",
+              gap: 18,
+            }}
+          >
             {/* Reporter */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ color: "rgba(169, 171, 175, 1)", lineHeight: 1.33 }}>Reporter</div>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px", lineHeight: 1.43 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <div
+                style={{ color: "rgba(169, 171, 175, 1)", lineHeight: 1.33 }}
+              >
+                Reporter
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  lineHeight: 1.43,
+                }}
+              >
                 <JiraAvatar
                   src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/b1393f38e6937677e8054a046449a106ced6cb31?placeholderIfAbsent=true"
                   size={36}
                 />
-                <div style={{ color: "rgba(255, 255, 255, 1)" }}>Jeanne Thomas</div>
+                <div style={{ color: "rgba(255, 255, 255, 1)" }}>
+                  Jeanne Thomas
+                </div>
               </div>
             </div>
 
             {/* Assignee */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ color: "rgba(169, 171, 175, 1)", lineHeight: 1.33 }}>Assignee</div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <div
+                style={{ color: "rgba(169, 171, 175, 1)", lineHeight: 1.33 }}
+              >
+                Assignee
+              </div>
               {assigneeState === "unassigned" ? (
-                <div style={{
-                  color: "rgba(102, 157, 241, 1)",
-                  lineHeight: 1.43,
-                  cursor: "pointer",
-                  textDecoration: "underline"
-                }}>Unassigned</div>
-              ) : assigneeState === "dropdown" || assigneeState === "typing" ? (
-                <div style={{ position: "relative" }}>
-                  <div style={{
+                <div
+                  style={{
                     color: "rgba(102, 157, 241, 1)",
                     lineHeight: 1.43,
                     cursor: "pointer",
-                    textDecoration: "underline"
-                  }}>Unassigned</div>
+                    textDecoration: "underline",
+                  }}
+                >
+                  Unassigned
+                </div>
+              ) : assigneeState === "dropdown" || assigneeState === "typing" ? (
+                <div style={{ position: "relative" }}>
+                  <div
+                    style={{
+                      color: "rgba(102, 157, 241, 1)",
+                      lineHeight: 1.43,
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    Unassigned
+                  </div>
                   {/* Dropdown */}
-                  <div style={{
-                    position: "absolute",
-                    top: 30,
-                    right: 0,
-                    width: 300,
-                    backgroundColor: "rgba(31, 31, 33, 1)",
-                    border: "1px solid rgba(58, 59, 61, 1)",
-                    borderRadius: "5px",
-                    padding: "12px",
-                    opacity: assigneeDropdownProgress,
-                    transform: `scale(${0.95 + assigneeDropdownProgress * 0.05})`,
-                    transformOrigin: "top right",
-                    pointerEvents: assigneeDropdownProgress > 0 ? "auto" : "none",
-                  }}>
-                    {/* Search input */}
-                    <div style={{
-                      backgroundColor: "rgba(42, 42, 42, 1)",
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 30,
+                      right: 0,
+                      width: 300,
+                      backgroundColor: "rgba(31, 31, 33, 1)",
                       border: "1px solid rgba(58, 59, 61, 1)",
-                      borderRadius: "3px",
-                      padding: "8px 12px",
-                      fontSize: 16,
-                      color: "rgba(255, 255, 255, 1)",
-                      marginBottom: 8,
-                    }}>
+                      borderRadius: "5px",
+                      padding: "12px",
+                      opacity: assigneeDropdownProgress,
+                      transform: `scale(${0.95 + assigneeDropdownProgress * 0.05})`,
+                      transformOrigin: "top right",
+                      pointerEvents:
+                        assigneeDropdownProgress > 0 ? "auto" : "none",
+                    }}
+                  >
+                    {/* Search input */}
+                    <div
+                      style={{
+                        backgroundColor: "rgba(42, 42, 42, 1)",
+                        border: "1px solid rgba(58, 59, 61, 1)",
+                        borderRadius: "3px",
+                        padding: "8px 12px",
+                        fontSize: 16,
+                        color: "rgba(255, 255, 255, 1)",
+                        marginBottom: 8,
+                      }}
+                    >
                       {typedText}
                       <span style={{ opacity: 0.5 }}>|</span>
                     </div>
                     {/* Dropdown options */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: "4px", maxHeight: 250, overflowY: "auto" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "4px",
+                        maxHeight: 250,
+                        overflowY: "auto",
+                      }}
+                    >
                       {/* Builder.io Bot - highlighted when typing "Buil" */}
                       {typedText.length > 0 && (
-                        <div style={{
-                          padding: "8px",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "12px",
-                          cursor: "pointer",
-                          borderRadius: "3px",
-                          backgroundColor: "rgba(42, 42, 42, 1)",
-                        }}>
+                        <div
+                          style={{
+                            padding: "8px",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "12px",
+                            cursor: "pointer",
+                            borderRadius: "3px",
+                            backgroundColor: "rgba(42, 42, 42, 1)",
+                          }}
+                        >
                           <JiraAvatar
                             src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/a00048974f859ab6824d8e80aa3d388dbdfcd90c?placeholderIfAbsent=true"
                             size={32}
                           />
                           <div>
-                            <div style={{ fontSize: 16, color: "rgba(255, 255, 255, 1)" }}>Builder.io Bot</div>
-                            <div style={{ fontSize: 12, color: "rgba(169, 171, 175, 1)" }}>builder@builder.io</div>
+                            <div
+                              style={{
+                                fontSize: 16,
+                                color: "rgba(255, 255, 255, 1)",
+                              }}
+                            >
+                              Builder.io Bot
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 12,
+                                color: "rgba(169, 171, 175, 1)",
+                              }}
+                            >
+                              builder@builder.io
+                            </div>
                           </div>
                         </div>
                       )}
@@ -331,83 +412,151 @@ export const JiraSidebar: React.FC<JiraSidebarProps> = ({
                       {/* Show all team members when dropdown first opens (no text typed yet) */}
                       {typedText.length === 0 && (
                         <>
-                          <div style={{
-                            padding: "8px",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "12px",
-                            cursor: "pointer",
-                            borderRadius: "3px",
-                          }}>
+                          <div
+                            style={{
+                              padding: "8px",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "12px",
+                              cursor: "pointer",
+                              borderRadius: "3px",
+                            }}
+                          >
                             <JiraAvatar
                               src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/a00048974f859ab6824d8e80aa3d388dbdfcd90c?placeholderIfAbsent=true"
                               size={32}
                             />
                             <div>
-                              <div style={{ fontSize: 16, color: "rgba(255, 255, 255, 1)" }}>Builder.io Bot</div>
-                              <div style={{ fontSize: 12, color: "rgba(169, 171, 175, 1)" }}>builder@builder.io</div>
+                              <div
+                                style={{
+                                  fontSize: 16,
+                                  color: "rgba(255, 255, 255, 1)",
+                                }}
+                              >
+                                Builder.io Bot
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  color: "rgba(169, 171, 175, 1)",
+                                }}
+                              >
+                                builder@builder.io
+                              </div>
                             </div>
                           </div>
 
-                          <div style={{
-                            padding: "8px",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "12px",
-                            cursor: "pointer",
-                            borderRadius: "3px",
-                          }}>
+                          <div
+                            style={{
+                              padding: "8px",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "12px",
+                              cursor: "pointer",
+                              borderRadius: "3px",
+                            }}
+                          >
                             <JiraAvatar
                               src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/b1393f38e6937677e8054a046449a106ced6cb31?placeholderIfAbsent=true"
                               size={32}
                             />
                             <div>
-                              <div style={{ fontSize: 16, color: "rgba(255, 255, 255, 1)" }}>Jeanne Thomas</div>
-                              <div style={{ fontSize: 12, color: "rgba(169, 171, 175, 1)" }}>jthomas@acme.com</div>
+                              <div
+                                style={{
+                                  fontSize: 16,
+                                  color: "rgba(255, 255, 255, 1)",
+                                }}
+                              >
+                                Jeanne Thomas
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  color: "rgba(169, 171, 175, 1)",
+                                }}
+                              >
+                                jthomas@acme.com
+                              </div>
                             </div>
                           </div>
 
-                          <div style={{
-                            padding: "8px",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "12px",
-                            cursor: "pointer",
-                            borderRadius: "3px",
-                          }}>
+                          <div
+                            style={{
+                              padding: "8px",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "12px",
+                              cursor: "pointer",
+                              borderRadius: "3px",
+                            }}
+                          >
                             <JiraAvatar
                               src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/de43b059c7ff55947168ed77c06d48f98e7d746e?placeholderIfAbsent=true"
                               size={32}
                             />
                             <div>
-                              <div style={{ fontSize: 16, color: "rgba(255, 255, 255, 1)" }}>Sarah Chen</div>
-                              <div style={{ fontSize: 12, color: "rgba(169, 171, 175, 1)" }}>schen@acme.com</div>
+                              <div
+                                style={{
+                                  fontSize: 16,
+                                  color: "rgba(255, 255, 255, 1)",
+                                }}
+                              >
+                                Sarah Chen
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  color: "rgba(169, 171, 175, 1)",
+                                }}
+                              >
+                                schen@acme.com
+                              </div>
                             </div>
                           </div>
 
-                          <div style={{
-                            padding: "8px",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "12px",
-                            cursor: "pointer",
-                            borderRadius: "3px",
-                          }}>
-                            <div style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: "50%",
-                              backgroundColor: "rgba(88, 101, 242, 1)",
+                          <div
+                            style={{
+                              padding: "8px",
                               display: "flex",
                               alignItems: "center",
-                              justifyContent: "center",
-                              fontSize: 14,
-                              fontWeight: 600,
-                              color: "white",
-                            }}>MR</div>
+                              gap: "12px",
+                              cursor: "pointer",
+                              borderRadius: "3px",
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: 32,
+                                height: 32,
+                                borderRadius: "50%",
+                                backgroundColor: "rgba(88, 101, 242, 1)",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: 14,
+                                fontWeight: 600,
+                                color: "white",
+                              }}
+                            >
+                              MR
+                            </div>
                             <div>
-                              <div style={{ fontSize: 16, color: "rgba(255, 255, 255, 1)" }}>Mike Rodriguez</div>
-                              <div style={{ fontSize: 12, color: "rgba(169, 171, 175, 1)" }}>mrodriguez@acme.com</div>
+                              <div
+                                style={{
+                                  fontSize: 16,
+                                  color: "rgba(255, 255, 255, 1)",
+                                }}
+                              >
+                                Mike Rodriguez
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  color: "rgba(169, 171, 175, 1)",
+                                }}
+                              >
+                                mrodriguez@acme.com
+                              </div>
                             </div>
                           </div>
                         </>
@@ -416,26 +565,67 @@ export const JiraSidebar: React.FC<JiraSidebarProps> = ({
                   </div>
                 </div>
               ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: "12px", lineHeight: 1.43 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    lineHeight: 1.43,
+                  }}
+                >
                   <JiraAvatar
                     src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/a00048974f859ab6824d8e80aa3d388dbdfcd90c?placeholderIfAbsent=true"
                     size={36}
                   />
-                  <div style={{ color: "rgba(255, 255, 255, 1)" }}>Builder.io Bot</div>
+                  <div style={{ color: "rgba(255, 255, 255, 1)" }}>
+                    Builder.io Bot
+                  </div>
                 </div>
               )}
             </div>
 
             {/* Sprint */}
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-              <div style={{ color: "rgba(169, 171, 175, 1)", lineHeight: 1.33 }}>Sprint</div>
-              <div style={{ color: "rgba(102, 157, 241, 1)", lineHeight: 1.43 }}>Sales Refinement</div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+              }}
+            >
+              <div
+                style={{ color: "rgba(169, 171, 175, 1)", lineHeight: 1.33 }}
+              >
+                Sprint
+              </div>
+              <div
+                style={{ color: "rgba(102, 157, 241, 1)", lineHeight: 1.43 }}
+              >
+                Sales Refinement
+              </div>
             </div>
 
             {/* Priority */}
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-              <div style={{ color: "rgba(169, 171, 175, 1)", lineHeight: 1.33 }}>Priority</div>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px", color: "rgba(156, 156, 156, 1)", lineHeight: 1.43 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+              }}
+            >
+              <div
+                style={{ color: "rgba(169, 171, 175, 1)", lineHeight: 1.33 }}
+              >
+                Priority
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  color: "rgba(156, 156, 156, 1)",
+                  lineHeight: 1.43,
+                }}
+              >
                 <img
                   src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/5499a6af148e3c5e86b2ca918e0037197e22eb9b?placeholderIfAbsent=true"
                   alt="Priority"
@@ -456,7 +646,15 @@ export const JiraSidebar: React.FC<JiraSidebarProps> = ({
             padding: "14px",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: 24, color: "rgba(156, 156, 156, 1)" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              fontSize: 24,
+              color: "rgba(156, 156, 156, 1)",
+            }}
+          >
             <img
               src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/ea834425960b0663ee3535cc7c0042004387ab59?placeholderIfAbsent=true"
               alt="Development"
@@ -475,7 +673,15 @@ export const JiraSidebar: React.FC<JiraSidebarProps> = ({
             padding: "14px",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: 24, color: "rgba(156, 156, 156, 1)" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              fontSize: 24,
+              color: "rgba(156, 156, 156, 1)",
+            }}
+          >
             <img
               src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/ea834425960b0663ee3535cc7c0042004387ab59?placeholderIfAbsent=true"
               alt="More fields"
@@ -494,7 +700,15 @@ export const JiraSidebar: React.FC<JiraSidebarProps> = ({
             padding: "14px",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: 24, color: "rgba(156, 156, 156, 1)" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              fontSize: 24,
+              color: "rgba(156, 156, 156, 1)",
+            }}
+          >
             <img
               src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/ea834425960b0663ee3535cc7c0042004387ab59?placeholderIfAbsent=true"
               alt="Automation"
@@ -507,18 +721,41 @@ export const JiraSidebar: React.FC<JiraSidebarProps> = ({
 
       {/* Bottom timestamps section */}
       <div style={{ marginTop: 349 }}>
-        <div style={{ display: "flex", flexDirection: "column", fontSize: 18, color: "rgba(169, 171, 175, 1)", lineHeight: 1.33 }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            fontSize: 18,
+            color: "rgba(169, 171, 175, 1)",
+            lineHeight: 1.33,
+          }}
+        >
           <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
             <div>Created</div>
             <div>February 24, 2026 at 9:43 AM</div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "5px", marginTop: 8 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              marginTop: 8,
+            }}
+          >
             <div>Updated</div>
             <div>3 days ago</div>
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: 20, marginTop: 24 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            fontSize: 20,
+            marginTop: 24,
+          }}
+        >
           <img
             src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/3ed304f698b7135da9dd0a5d322a7bf2e1a81d03?placeholderIfAbsent=true"
             alt="Configure"

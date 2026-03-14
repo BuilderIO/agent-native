@@ -19,17 +19,19 @@ The agent is the single AI interface. It has context about the full project, can
 ## How
 
 **From the UI (client):**
+
 ```ts
 import { sendToAgentChat } from "@agent-native/core";
 
 sendToAgentChat({
   message: "Generate a summary of this document",
-  context: documentContent,  // optional hidden context (not shown in chat UI)
-  submit: true,              // auto-submit to the agent
+  context: documentContent, // optional hidden context (not shown in chat UI)
+  submit: true, // auto-submit to the agent
 });
 ```
 
 **From scripts (Node):**
+
 ```ts
 import { agentChat } from "@agent-native/core";
 
@@ -37,6 +39,7 @@ agentChat.submit("Process the uploaded images and create thumbnails");
 ```
 
 **From the UI, detecting when agent is done:**
+
 ```ts
 import { useAgentChatGenerating } from "@agent-native/core";
 
@@ -50,11 +53,11 @@ function MyComponent() {
 
 The `submit` option controls whether the message is sent automatically or placed in the chat input for user review:
 
-| `submit` value | Behavior | Use when |
-|---|---|---|
-| `true` | Auto-submits to the agent immediately | Routine operations the user has already approved |
-| `false` | Prefills the chat input for user review | High-stakes operations (deleting data, modifying code, API calls with side effects) |
-| omitted | Uses the project's default setting | General-purpose delegation |
+| `submit` value | Behavior                                | Use when                                                                            |
+| -------------- | --------------------------------------- | ----------------------------------------------------------------------------------- |
+| `true`         | Auto-submits to the agent immediately   | Routine operations the user has already approved                                    |
+| `false`        | Prefills the chat input for user review | High-stakes operations (deleting data, modifying code, API calls with side effects) |
+| omitted        | Uses the project's default setting      | General-purpose delegation                                                          |
 
 ```ts
 // Auto-submit: routine operation

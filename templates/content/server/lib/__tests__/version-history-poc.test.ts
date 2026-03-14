@@ -29,7 +29,10 @@ interface ChangeSummary {
   sectionsAffected: string[];
 }
 
-function computeChangeSummary(oldContent: string, newContent: string): ChangeSummary {
+function computeChangeSummary(
+  oldContent: string,
+  newContent: string,
+): ChangeSummary {
   const wordDiff = Diff.diffWords(oldContent, newContent);
   let wordsAdded = 0;
   let wordsRemoved = 0;
@@ -53,7 +56,10 @@ function computeChangeSummary(oldContent: string, newContent: string): ChangeSum
   return { wordsAdded, wordsRemoved, linesChanged, sectionsAffected };
 }
 
-function detectAffectedSections(oldContent: string, newContent: string): string[] {
+function detectAffectedSections(
+  oldContent: string,
+  newContent: string,
+): string[] {
   const oldSections = parseMarkdownSections(oldContent);
   const newSections = parseMarkdownSections(newContent);
   const affected = new Set<string>();
@@ -92,7 +98,10 @@ function parseMarkdownSections(content: string): MarkdownSection[] {
     const headingMatch = line.match(/^#{1,3}\s+(.+)/);
     if (headingMatch) {
       if (currentBody.length > 0 || currentHeading !== "(intro)") {
-        sections.push({ heading: currentHeading, body: currentBody.join("\n") });
+        sections.push({
+          heading: currentHeading,
+          body: currentBody.join("\n"),
+        });
       }
       currentHeading = headingMatch[1].trim();
       currentBody = [];
@@ -110,7 +119,7 @@ function parseMarkdownSections(content: string): MarkdownSection[] {
  */
 function groupVersionsByTimeWindow(
   versions: VersionSnapshot[],
-  windowMs: number = 30_000
+  windowMs: number = 30_000,
 ): VersionSnapshot[][] {
   if (versions.length === 0) return [];
 
@@ -228,9 +237,17 @@ React makes building UIs simple, declarative, and efficient.
   });
 
   it("generates a structured patch", () => {
-    const patch = Diff.structuredPatch("draft.md", "draft.md", v1Content, v2Content, "", "", {
-      context: 3,
-    });
+    const patch = Diff.structuredPatch(
+      "draft.md",
+      "draft.md",
+      v1Content,
+      v2Content,
+      "",
+      "",
+      {
+        context: 3,
+      },
+    );
 
     expect(patch.hunks.length).toBeGreaterThan(0);
     // Each hunk should have line info
@@ -270,12 +287,37 @@ React makes building UIs simple, declarative, and efficient.
   it("groups rapid changes by time window", () => {
     const now = Date.now();
     const versions: VersionSnapshot[] = [
-      { id: "v1", content: "a", timestamp: now, actor: { type: "user", id: "u1" } },
-      { id: "v2", content: "ab", timestamp: now + 5_000, actor: { type: "user", id: "u1" } },
-      { id: "v3", content: "abc", timestamp: now + 10_000, actor: { type: "user", id: "u1" } },
+      {
+        id: "v1",
+        content: "a",
+        timestamp: now,
+        actor: { type: "user", id: "u1" },
+      },
+      {
+        id: "v2",
+        content: "ab",
+        timestamp: now + 5_000,
+        actor: { type: "user", id: "u1" },
+      },
+      {
+        id: "v3",
+        content: "abc",
+        timestamp: now + 10_000,
+        actor: { type: "user", id: "u1" },
+      },
       // 60s gap - new group
-      { id: "v4", content: "abcd", timestamp: now + 70_000, actor: { type: "agent", id: "fusion" } },
-      { id: "v5", content: "abcde", timestamp: now + 75_000, actor: { type: "agent", id: "fusion" } },
+      {
+        id: "v4",
+        content: "abcd",
+        timestamp: now + 70_000,
+        actor: { type: "agent", id: "fusion" },
+      },
+      {
+        id: "v5",
+        content: "abcde",
+        timestamp: now + 75_000,
+        actor: { type: "agent", id: "fusion" },
+      },
     ];
 
     const groups = groupVersionsByTimeWindow(versions, 30_000);
@@ -317,18 +359,28 @@ Content here with additions.
 
   it("produces compact diffs for small edits in large documents", () => {
     // Simulate a ~2000 word article with a small change
-    const longContent = Array.from({ length: 100 }, (_, i) =>
-      `Line ${i}: This is paragraph content that simulates a real article with enough text to be meaningful.`
+    const longContent = Array.from(
+      { length: 100 },
+      (_, i) =>
+        `Line ${i}: This is paragraph content that simulates a real article with enough text to be meaningful.`,
     ).join("\n\n");
 
     const editedContent = longContent.replace(
       "Line 50: This is paragraph",
-      "Line 50: This is UPDATED paragraph"
+      "Line 50: This is UPDATED paragraph",
     );
 
-    const patch = Diff.structuredPatch("draft.md", "draft.md", longContent, editedContent, "", "", {
-      context: 3,
-    });
+    const patch = Diff.structuredPatch(
+      "draft.md",
+      "draft.md",
+      longContent,
+      editedContent,
+      "",
+      "",
+      {
+        context: 3,
+      },
+    );
 
     // Should produce a single small hunk, not diff the entire file
     expect(patch.hunks.length).toBe(1);
