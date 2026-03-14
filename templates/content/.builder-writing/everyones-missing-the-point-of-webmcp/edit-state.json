@@ -1,0 +1,39 @@
+{
+  "doc_path": "code/content/projects/alice/everyones-missing-the-point-of-webmcp/draft.md",
+  "objective": "Revise the article for tighter flow, less repetition, and better-supported implications while keeping the draft around 1,800 words.",
+  "mode": "hybrid",
+  "word_count_before": 1754,
+  "word_count_after": 1773,
+  "assessment": {
+    "status": "completed",
+    "summary": "Draft has a strong thesis and stronger intro, but the middle repeated the browser-automation distinction, the copilots section was the most speculative, and several product / implementation claims needed narrower framing."
+  },
+  "research": {
+    "status": "deferred_to_narrowing",
+    "tasks": [
+      "Narrow unsupported product claims instead of expanding sourced assertions in this pass",
+      "Keep implementation caveats concise and credible",
+      "Trim or caveat the strongest speculative claims"
+    ]
+  },
+  "chunks": [
+    { "id": "chunk-1", "scope": "Intro + What is WebMCP?", "status": "kept_with_light_integration" },
+    { "id": "chunk-2", "scope": "Comparison + What WebMCP is actually for", "status": "completed" },
+    { "id": "chunk-3", "scope": "Why WebMCP matters for AI browsers and assistants + copilots section", "status": "completed" },
+    { "id": "chunk-4", "scope": "Testing contrast + accessibility", "status": "completed" },
+    { "id": "chunk-5", "scope": "Recommendation + ending", "status": "completed" }
+  ],
+  "integration": { "status": "completed" },
+  "qa": {
+    "status": "completed",
+    "notes": [
+      "Core thesis preserved",
+      "Pain-point-first framing preserved",
+      "Repeated browser-automation contrast reduced",
+      "Product claims narrowed",
+      "Accessibility section preserved",
+      "Word count remains near 1,800"
+    ]
+  },
+  "last_updated": "2026-03-09T00:00:00.000Z"
+}

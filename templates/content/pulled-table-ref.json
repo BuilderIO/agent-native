@@ -1,0 +1,1940 @@
+[
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-9029ae1a86eb405daaa720fd0632664e",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>AI for developers used to mean autocomplete, inline hints, or a chat panel in your IDE. Nice, but not life changing. The real shift in 2026 is happening behind the scenes. Background agents are quietly picking up tickets, cloning your repo in the cloud, running tests, and opening pull requests while you keep coding.</p><p>These agents connect to your issue tracker, monitor your Slack channels, analyze your codebase, set up preview environments, and then deliver working implementations. They feel like reliable junior developers who are integrated into your workflow, except they never sleep, never ask for context twice, and always clean your Jira board.</p><p>This guide breaks down the best background agents for developers in 2026. We’ll define what developers should expect from a modern background agent, compare the leading tools, and walk through scenarios to help you choose the right one for your team.</p>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "0px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-588aeebcc7684cde9a7ebb8b859b6be6",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h2>AI background agents compared for developers</h2>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-ecda3cad31bf4555bd18f42b9a8d7841",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Here’s a quick comparison of the best AI background agents for developers:</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-bd84829c119f444ba4607e1895ee66c3",
+    "component": {
+      "name": "Material Table",
+      "options": {
+        "headColumns": [
+          {
+            "label": "Tool"
+          },
+          {
+            "label": "Repo integration"
+          },
+          {
+            "label": "Ticket and chat triggers"
+          },
+          {
+            "label": "Best for"
+          },
+          {
+            "label": "Autonomy level"
+          },
+          {
+            "label": "Ideal team"
+          }
+        ],
+        "bodyRows": [
+          {
+            "columns": [
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-0aa726ef0c0c4b33a2f2d179d29ff8fd",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Cursor</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-962841d314fb4e39b94739caef48d1bd",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>GitHub or GitLab, Linear, Slack</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-122e1ce97b684417972185feb6537483",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Yes</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-e6d4273935d344a2aa51bd04713122a2",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Bug fixes, small features, refactors</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-f61ab4cda761432ab11fd3f3a5d7d801",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>High</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-efecfae2f94642b08b4a93f4afda2ff2",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>General dev teams</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "columns": [
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-d5e7ca1c503649a38fc4e76e9c5e726d",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Copilot Coding Agent</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-ba362bf1e7c448b0ac83ae3df634aaef",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>GitHub native</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-34b8a2dd10c44ad4837209e6006d0b9b",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Partial</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-ee1374e4a33341aab706372144a6e39e",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Issue to PR flows, enterprise governance</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-4a2ef6d9470344fd8fa446f44f5fd601",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Medium high</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-c9661b72e22e46e59ef2ea577dccfa08",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>GitHub centric orgs</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "columns": [
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-49d879c6e8f345b2bdd08a53a33f8962",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Builder</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-3d74ba315ffc4582a4e2e7bab05353de",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>GitHub, Jira, Slack, Figma</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-81c24bc88d994ea58b6285ae2a65291b",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Yes</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-687090b61b5a4306989adda73d2db115",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>UI heavy features, front end builds</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-94c231d18edc46d98ebeec8a92176372",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>High</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-2629af8641c341ab8f513414bca44e59",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Front end and full stack teams</p>"
+                      },
+                      "isRSC": null
+                    },
+                    "responsiveStyles": {
+                      "large": {
+                        "paddingLeft": "0px"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "columns": [
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-10899d0e9e004d7799ca5e50cbed7c2e",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Devin</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-acdb8aea828a4b9a8ee1d79e1c4f93fc",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Slack, Linear, Jira</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-e907a1afd9d14e599b75d3b9da4158d2",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Yes</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-c1cdef5e375e4e8dbc074ed797721b3b",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Complex engineering tasks, greenfield projects</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-2c232cd4f7b8498684520b477a024fd2",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Very high</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-53fc43337a0c419c89ca80778df63254",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Backend and infra heavy teams</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "columns": [
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-d5c3e6694c5d4f5b9aa16299fdc9fd97",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Claude Code</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-fe882fb7f61145aa809a318d1f47e6e8",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>CLI based</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-bbf50270bff74aa7977ae5bbc4dd8053",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Manual or scripted</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-63c0880c34904653895022d6d6874ac6",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Refactors, analysis, background shells</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-ebae6bcb5cb8421397bc1a3e0c212f4d",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>Medium high</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              },
+              {
+                "content": [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    "id": "builder-55a08fb2fbeb497f8e9805a0766ebaf5",
+                    "component": {
+                      "name": "Text",
+                      "options": {
+                        "text": "<p>CLI driven engineering teams</p>"
+                      },
+                      "isRSC": null
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "display": "flex",
+        "flexDirection": "column",
+        "position": "relative",
+        "flexShrink": "0",
+        "boxSizing": "border-box",
+        "marginTop": "20px"
+      },
+      "small": {
+        "overflowX": "scroll"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-e94c549711be4f64b836d225789a240a",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h2>What developers should expect from a background agent in 2026</h2>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-2e0cbebd7f274fcfb0fa80489b6d1682",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>You don’t need AI that only autocompletes functions. You need agents that integrate seamlessly into your real workflow, follow your conventions, and save you significant time. Here’s the checklist.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-74cf729638224bd3a3e14e6d85443efe",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>1. Deep repo and toolchain integration</h3>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-b9fac4ec661e48ffb9d8236c49751ba7",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Agents should connect directly to GitHub or GitLab. They should understand your repo layout, monorepo structure, tests, and build system. If an agent cannot open a pull request that passes CI, it’s not a background agent. It is just a chatbot.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-08c5119a3e944b3b9851a4e824df66d2",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>2. Ticket and chat triggers</h3>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-6bb4e683bcef4cd4a5d69e616310f9d3",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>The best agents leverage the tools developers already use. Slack. Jira. Linear. GitHub issues. A good agent starts work when you assign a ticket or tag it in a chat thread.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-fb0322d69dff4152be7559404cb0cc9e",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>3. Background execution and long-running tasks</h3>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-d96e7c7a0cb44663aa8d1a3fcb92818b",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Agents should clone your repo into a secure cloud environment and keep working even after you close your laptop. This includes running test suites, building previews, drafting features, and posting updates back to Slack or Jira.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-bb733668a19d4887a29f8c09c3ff4dc0",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>4. Autonomy with proper review gates</h3>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-c0ac31e9929f4b64853c7b5539daa1d7",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>No agent should bypass branch protections. Here is what it can look like instead:</p><ul><li>The agent does the work.</li>\n<li>The agent opens the pull request.</li>\n<li>The agent runs tests.</li>\n<li>You review and merge.</li></ul>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-24939274b11b40d1b64b485f8925999b",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>5. Security, privacy, and policy controls</h3>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-e3f6ed78b88c4c29af6e70d79b09769c",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Background agents now have access to real code and sometimes secrets. You need to restrict repo access, limit permissions, and audit what the agent did. Any agent without clear safety controls should not be included in your production workflow.</p><p>With this rubric in mind, here are the strongest options available today.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-bc85684390364f22860e8dfafdba0bf2",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h2>The best background agents for developers in 2026</h2>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-1640e2603a44401884a4454b807fe4dd",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Below are the most capable agents, from widely adopted tools to more specialized options. Each one fits a different developer workflow.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-2ae151fbf2354a50b23d367488d52eb0",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>1. Cursor background agents</h3>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-b14d2d41868847a7bdfb135c9fb70549",
+    "component": {
+      "name": "Image",
+      "options": {
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4244f6d47cf243f1b7ab865a802b8754?width=776",
+        "aspectRatio": 0.294,
+        "altText": "Cursor prompt box, showing a new chat screen.",
+        "sizes": "(max-width: 638px) 86vw, (max-width: 998px) 57vw, 56vw",
+        "height": 394,
+        "width": 1338
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "position": "relative",
+        "overflow": "hidden"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-df5b77ecf0b844b98ee519c58b787ddd",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><a href=\"https://www.builder.io/blog/cursor-tips\">Cursor</a> is the pure developer agent. It runs cloud-based agents that clone your repo, create branches, make code changes, run tests, and open pull requests. Cursor agents can be triggered from Slack, Linear, GitHub, or directly inside the Cursor editor.</p>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-ea6beee6880b49869b3782ee2581f2a0",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Why developers love Cursor</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-ac578491def14d259bc28715df10f50d",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Cursor supports developers exactly where they already work. It integrates with GitHub or GitLab, understands your codebase, and follows your coding patterns. It behaves like a junior engineer who never gets tired.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-b73bf8c3297b4f15b0a57ed97c674a8a",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Where Cursor shines</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-d26743bef4de481f8040d003576d8058",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ul><li>Bug fixes</li>\n<li>Small to medium feature work</li>\n<li>Repetitive code changes and refactors</li>\n<li>Reducing backlog noise</li>\n<li>Fast UI changes when visual previews are not needed</li></ul>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-3013480930884e509171665f4d9fa6ec",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Tradeoffs</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-93b0b7ce91f54abb9a087345886f9094",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Cursor does not provide visual previews and is not connected to Figma. It cannot validate visual layouts, so frontend developers must verify the output manually.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-408b79e441f24f03af09673ddff02d7d",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Bottom line</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-8dad546f0a654c36946bc9a9c12c8149",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>If you want a reliable junior developer in the cloud, Cursor is the best general-purpose background coding agent available today.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-0920cb38b7e046b6a0d24ef918b1c8d4",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>2. GitHub Copilot Coding Agent and Agent HQ</h3>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-656b3e87396540aaa5d3b16bdd6ab436",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>GitHub Copilot has evolved from an autocomplete tool into a full-fledged coding agent. The Copilot Coding Agent and Agent HQ now let you assign issues to the agent, watch it build a plan, write the code, open a pull request, and pass automated review steps.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-bfe4ceeb6c854504a96090ba3de2753d",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Why developers like it</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-32e483c998a742d3b7afcef55e34187a",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Copilot is fully native to GitHub. Your repositories, branches, issues, CI/CD, and reviews are already in one place. The agent extends that workflow with almost no configuration.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-6476d5e38f95433ebbf7c321887fdd2d",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Where Copilot shines</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-268b9ae2afb649a4af3cf0c05525b065",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ul><li>Enterprise-scale repo governance</li>\n<li>Automated AI review of pull requests</li>\n<li>CodeQL and security tool integration</li>\n<li>Metrics dashboards for usage and quality</li>\n<li>Perfect for teams already built around GitHub workflows</li></ul>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-69f5381f4b54418db3f01542d0254924",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Tradeoffs</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-e19906bdb98e415ba17f7e761acead81",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Copilot is conservative and repo-centric. It does not integrate with design tools or multimodal contexts. It is not ideal for UI heavy features.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-988c3eca22f447b195a6c9302115908f",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Bottom line</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-8e2ff2b465e44209b658a90154753062",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Copilot is the best choice for companies that live inside GitHub and want safe, stable, native background automation.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-d34ab879383a49c0b1e55a016e67a73e",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>3. Builder.io</h3>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-30a5d8f6f14e45228c2ffcfca341daaa",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Does it have a UI? Then you’ll want to use Builder.io.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-15ef13f9db36403aa843866f04f38a2f",
+    "component": {
+      "name": "Video",
+      "options": {
+        "video": "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F731d52e6dacb40f5b0a49218a4585a8d?alt=media&token=08455511-b565-4c56-87b7-54fd09a323ed&apiKey=YJIGb4i01jvw0SRdL5Bt",
+        "autoPlay": true,
+        "controls": false,
+        "muted": true,
+        "loop": true,
+        "playsInline": true,
+        "fit": "cover",
+        "preload": "metadata",
+        "fitContent": true,
+        "position": "center",
+        "aspectRatio": 0.75,
+        "lazyLoad": true,
+        "posterImage": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa05e9f4aa71342959af85eda61a9aa71"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "display": "flex",
+        "flexDirection": "column",
+        "position": "relative",
+        "flexShrink": "0",
+        "boxSizing": "border-box",
+        "marginTop": "20px",
+        "minHeight": "20px",
+        "minWidth": "20px",
+        "width": "100%"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-d573ce4630dd4e35beba53c0eadb13ec",
+    "meta": {
+      "mdNodeType": "paragraph",
+      "previousId": "builder-30a5d8f6f14e45228c2ffcfca341daaa"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Builder.io is the most interesting hybrid agent in the field because it spans frontend development, UI implementation, design systems, and real repo integration. It connects to your GitHub repository, your design system, your Figma files, and now your workflow tools, such as Slack and Jira.</p><p>Builder is the only agent that can take a UI ticket, read the associated Figma frame, use your real components, generate production-aligned code, and submit a pull request in the background. Even better, Builder’s visual layer allows for instant feedback and testing.</p>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-951d9f1661584bfeaa336fc49649b0bf",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>New for Builder.io in 2026: background workflow integrations</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-d065b6ae4cf04bf4913712a12166afcd",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Builder now supports:</p><ul><li><a href=\"https://www.builder.io/c/docs/fusion-integrate-slack-agent\">Slack</a> triggers. You can tag the Builder bot and it will begin a build.</li>\n<li><a href=\"https://www.builder.io/c/docs/integrate-jira\">Jira</a> triggers. Assign a Jira ticket to the bot and it will create a branch, generate code, and open a pull request.</li>\n<li>GitHub integration for direct PR creation.</li>\n<li>Figma and design system sync as part of the pipeline.</li>\n<li>Chrome MCP for automatic, advanced browser testing under the hood.</li></ul><p>These integrations move Builder from a design-to-code tool into a true background agent that developers can trust in production workflows</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-febe06b53f9c434188885bcc9130ba9c",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Where Builder shines</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-0ac4885ac844475ea582a9bdbfeb4219",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ul><li>UI-heavy features</li>\n<li>Frontend development in component systems</li>\n<li>Design system-aligned code generation</li>\n<li>Preview environments for design and product teams</li>\n<li>Repetitive UI updates across many screens</li></ul>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-99e446db697e445c9c568b601c0a0461",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Tradeoffs</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-9c6a9ee35f7244bf9fbe0a55df10674f",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Builder is strongest for frontend and fullstack teams building component driven apps. It’s less suited for backend heavy projects with minimal UI work.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-cfc1dc8f24804fbb9e810aebf31d3eba",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Bottom line</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-223b0f9de58943abab80205b75d7aa5b",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Builder is the best background agent for frontend developers in 2026. It is the only agent that can read your Figma files, read your repository, generate UI code, and run in the background across Slack or Jira.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-d83a5c5e08674431bf9302a76945d82e",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>4. Devin</h3>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-805488e4708a435dbef43256a5a88dfd",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><a href=\"https://devin.ai/\">Devin</a> is a fully autonomous AI software engineer that operates in its own cloud sandbox. It plans tasks, writes code, debugs, researches, runs tests, and executes multi-step features without manual oversight.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-0cd1bdab15da4b51a19b7e89afbce0d2",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Why developers use Devin</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-cc231b06b2a14156be95e93f09725f43",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Devin is ideal for complex engineering tasks that require deep reasoning or long sequences of actions. It can handle complex backend logic, infrastructure setup, and scaffolding new repositories.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-5c7fb4381f5b4773bac0c6ef0c9800ba",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Where Devin shines</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-7c42459ce32d49d58e93297160b337f0",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ul><li>Greenfield projects</li>\n<li>Complex backend logic</li>\n<li>Multi-step debugging</li>\n<li>Infrastructure and configuration work</li>\n<li>Large refactors</li>\n<li>Performance improvements</li>\n<li>Combining research and implementation</li></ul>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-f3e8127e0c484cdb8ea739e860b79a34",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Tradeoffs</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-dd180c207cba489fb398ee74bef17f7f",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Devin is not visual and does not understand design systems. It requires close supervision for projects with existing complex architectures.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-df80b2b4068b4b69a94326177d587af1",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Bottom line</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-bea008766aa042b98992b42e7aa39ecd",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Devin is the go-to agent when you want very high autonomy for deep engineering challenges.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-1042c76f035b4fad8d6348219d980f2d",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h3>5. Claude Code</h3>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-cbccc1b6ee954bd6a9022d764ee4efa7",
+    "component": {
+      "name": "Image",
+      "options": {
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F81556bd4cf9e4bcda757beebbad9699b?width=776",
+        "aspectRatio": 0.803,
+        "altText": "Claude Code's new chat screen.",
+        "sizes": "(max-width: 638px) 86vw, (max-width: 998px) 57vw, 56vw",
+        "height": 1500,
+        "width": 1868
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "position": "relative",
+        "overflow": "hidden"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-4a187f1085ee43c5940ae8be8c71ca25",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><a href=\"https://www.builder.io/blog/claude-code\">Claude Code</a> is a developer-focused agent that lives in your terminal and manages background shells. It can run servers, execute commands, refactor code, and manage multi-process builds.</p>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-bf5b17928aa74567a1c1e81a3c6780d3",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Why developers like Claude Code</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-8c24a326acaf4bcb91463875f34f47b5",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Claude Code is highly analytical and great for slow, methodical engineering tasks. It can run dev servers in the background, coordinate subagents, and perform complex migrations.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-82e7fe63e0014f0a8071da14ee88d84c",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Where Claude Code shines</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-12e2487cd5d3409485a20518b9e4aa8b",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<ul><li>Background dev servers and build systems</li>\n<li>Migrating or modernizing large codebases</li>\n<li>Analyzing complex repos</li>\n<li>Parallel background tasks</li>\n<li>Scripted CI and CLI-driven workflows</li></ul>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-b94279a100334aaa9530df1808a352c3",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Tradeoffs</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-8c66c5a041f6493b8325c50ba7a83e26",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Claude Code is less autonomous than Devin and is not frontend or UI aware. It is best suited for developers who prefer working in the command line and setting up custom workflows.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-1c817bf36f624c9a90601ff725705d8c",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h4>Bottom line</h4>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-46db1e17d7cf4633ab0322f63fbbf932",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Claude Code is ideal for developers who want a flexible CLI agent that behaves like a command-line coworker.</p>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-e74e5b486761457e9d4c93a106888fe9",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h2>Which background agent should you use as a developer</h2>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-912e213e2a484240ba57231a23993944",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Here are the most common situations.</p><ul><li>You want to clear out backlog tasks: choose Cursor or Copilot Agents.</li>\n<li>You build UI heavy features: choose Builder.</li>\n<li>You need deep engineering or multi-step logic: choose Devin.</li>\n<li>You want a command-line-powered agent: choose Claude Code.</li>\n<li>You want everything to stay inside GitHub: choose Copilot Agents.</li>\n<li>You want Slack or Jira-triggered agents: Choose Builder or Cursor.</li></ul>"
+      },
+      "isRSC": null
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-c298f56074d34ae6ad5e48ed1cdab6a4",
+    "meta": {
+      "mdNodeType": "heading"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h2>Conclusion</h2>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-4ea47a2d5abe4ced9016a11c4c7a67a7",
+    "meta": {
+      "mdNodeType": "paragraph"
+    },
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Background agents are real teammates now, and they're here to stay. They handle tickets, clone repos, create branches, write code, run tests, open pull requests, and notify your team. All while you stay focused on architecture, debugging, and the interesting parts of software development.</p><p>So, to recap:</p><ul><li>Cursor is the best general-purpose background agent.</li><li>Copilot is perfect for GitHub-centric teams.</li><li>Builder is the enterprise choice for developers, designers, and highly collaborative teams.</li><li>Devin is unmatched for deep engineering tasks.</li><li>Claude Code is ideal for CLI-driven developers.</li></ul>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginBottom": "60px"
+      }
+    }
+  },
+  {
+    "id": "builder-pixel-9u9ukrbt1pa",
+    "@type": "@builder.io/sdk:Element",
+    "tagName": "img",
+    "properties": {
+      "src": "https://cdn.builder.io/api/v1/pixel?apiKey=YJIGb4i01jvw0SRdL5Bt",
+      "aria-hidden": "true",
+      "alt": "",
+      "role": "presentation",
+      "width": "0",
+      "height": "0"
+    },
+    "responsiveStyles": {
+      "large": {
+        "height": "0",
+        "width": "0",
+        "display": "block",
+        "opacity": "0",
+        "overflow": "hidden",
+        "pointerEvents": "none"
+      }
+    }
+  }
+]

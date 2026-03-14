@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 import {
-  IconRefresh,
   IconSettings,
   IconShare,
   IconExternalLink,
+  IconMessageReport,
 } from "@tabler/icons-react";
 import { useTerminal } from "./hooks/useTerminal";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -12,6 +12,17 @@ import {
   saveSettings,
   type LaunchSettings,
 } from "./lib/settings";
+
+function Tooltip({ children, label }: { children: ReactNode; label: string }) {
+  return (
+    <div className="relative group/tip">
+      {children}
+      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-1 rounded bg-[#111] border border-white/10 text-[11px] text-white/80 whitespace-nowrap opacity-0 pointer-events-none group-hover/tip:opacity-100 transition-opacity z-50">
+        {label}
+      </div>
+    </div>
+  );
+}
 
 const APP_PORT = Number(
   new URLSearchParams(location.search).get("appPort") || "8080"
@@ -30,10 +41,8 @@ const APP_URL = SINGLE_PORT ? "/app/" : `http://localhost:${APP_PORT}`;
 export function App() {
   const [settings, setSettings] = useState<LaunchSettings>(loadSettings);
   const [showSettings, setShowSettings] = useState(false);
-  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
-  const restartRef = useRef<HTMLDivElement>(null);
   const shareRef = useRef<HTMLDivElement>(null);
 
   const [appName, setAppName] = useState("Agent Native");
@@ -65,9 +74,6 @@ export function App() {
     const handler = (e: MouseEvent) => {
       if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) {
         setShowSettings(false);
-      }
-      if (restartRef.current && !restartRef.current.contains(e.target as Node)) {
-        setShowRestartConfirm(false);
       }
       if (shareRef.current && !shareRef.current.contains(e.target as Node)) {
         setShowShareMenu(false);
@@ -147,54 +153,21 @@ export function App() {
           </span>
           <span className="flex-1" />
 
-          {/* Restart */}
-          <div ref={restartRef} className="relative">
-            <button
-              onClick={() => setShowRestartConfirm((v) => !v)}
-              className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
-              title="Restart Claude Code"
-            >
-              <IconRefresh size={14} stroke={1.5} />
-            </button>
-            {showRestartConfirm && (
-              <div className="absolute top-8 right-0 bg-[#2a2a2a] border border-white/10 rounded-lg p-3 z-50 min-w-[200px] shadow-2xl">
-                <p className="text-xs text-white/70 mb-2">
-                  Restart Claude Code? This will end the current session.
-                </p>
-                <div className="flex gap-2 justify-end">
-                  <button
-                    onClick={() => setShowRestartConfirm(false)}
-                    className="px-2 py-1 text-[11px] text-white/50 hover:text-white/80 rounded transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowRestartConfirm(false);
-                      restart(settings);
-                    }}
-                    className="px-2 py-1 text-[11px] bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded transition-colors"
-                  >
-                    Restart
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
           {/* Settings */}
           <div ref={settingsRef} className="relative">
-            <button
-              onClick={() => setShowSettings((v) => !v)}
-              className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
-              title="Settings"
-            >
-              <IconSettings size={14} stroke={1.5} />
-            </button>
+            <Tooltip label="Settings">
+              <button
+                onClick={() => setShowSettings((v) => !v)}
+                className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
+              >
+                <IconSettings size={14} stroke={1.5} />
+              </button>
+            </Tooltip>
             {showSettings && (
               <SettingsPanel
                 settings={settings}
                 onChange={updateSettings}
+                onRestart={() => restart(settings)}
                 appPort={APP_PORT}
                 iframeRef={iframeRef}
                 connected={connected}
@@ -204,13 +177,14 @@ export function App() {
 
           {/* Share */}
           <div ref={shareRef} className="relative">
-            <button
-              onClick={() => setShowShareMenu((v) => !v)}
-              className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
-              title="Share"
-            >
-              <IconShare size={14} stroke={1.5} />
-            </button>
+            <Tooltip label="Share">
+              <button
+                onClick={() => setShowShareMenu((v) => !v)}
+                className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
+              >
+                <IconShare size={14} stroke={1.5} />
+              </button>
+            </Tooltip>
             {showShareMenu && (
               <div className="absolute top-8 right-0 bg-[#2a2a2a] border border-white/10 rounded-lg p-3 z-50 min-w-[260px] shadow-2xl">
                 <h3 className="text-[13px] font-semibold text-white/90 mb-2">
@@ -239,6 +213,18 @@ export function App() {
               </div>
             )}
           </div>
+
+          {/* Feedback */}
+          <Tooltip label="Feedback">
+            <a
+              href="https://docs.google.com/forms/d/e/1FAIpQLSfI7sc2egh0vLBgzOy5tEEZF0e4PdXsQRNsZhX_yR2vx0m8ig/viewform?usp=publish-editor"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors block"
+            >
+              <IconMessageReport size={14} stroke={1.5} />
+            </a>
+          </Tooltip>
         </div>
 
         {/* Terminal */}

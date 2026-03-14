@@ -1,0 +1,32 @@
+{
+  "presets": [
+    {
+      "id": "1771800323586",
+      "name": "Daigrams",
+      "paths": [
+        "image-references/diagrams/ai-prototyping-guide-extra-3.png",
+        "image-references/diagrams/ai-prototyping-guide-extra-4.png",
+        "image-references/diagrams/claude-code-to-figma-1.png",
+        "image-references/diagrams/design-system-ai-automation-extra-1.png",
+        "image-references/diagrams/ship-3x-faster-1.png",
+        "image-references/diagrams/subagents-1.png",
+        "image-references/diagrams/design-system-ai-automation-extra-5.png"
+      ],
+      "createdAt": 1771800323586
+    },
+    {
+      "id": "1771800323666",
+      "name": "Hero images",
+      "paths": [
+        "image-references/hero-images/claude-code-for-product-managers.png",
+        "image-references/hero-images/cursor-design-mode-visual-editing.png",
+        "image-references/hero-images/ship-3x-faster.png",
+        "image-references/hero-images/ai-prototyping-guide.png",
+        "image-references/hero-images/lovable-alternatives.png",
+        "image-references/hero-images/cursor-alternatives-2026.png"
+      ],
+      "instructions": "Use as little text as possible — ideally no text at all. The image must be easy to read and visually clear at small sizes (mobile screens). Favor bold, simple compositions over busy or detailed ones. Let the visual concept communicate the idea, not words.",
+      "createdAt": 1771800323666
+    }
+  ]
+}

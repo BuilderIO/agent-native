@@ -1,0 +1,8 @@
+{
+  "syncFilePatterns": [
+    "data/decks/**/*.json",
+    "data/**/*.md",
+    "!data/sync-config.json",
+    "!data/decks/.conflict-*"
+  ]
+}

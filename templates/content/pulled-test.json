@@ -1,0 +1,642 @@
+[
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-8u",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h1>Testing Complex Builder.io Sync</h1>\n<p>Cursor changed how we write code, transforming from a VS Code fork into the default editor for AI-native development. But in 2026, the landscape has shifted. It is no longer the only game in town. <em>(Testing Builder.io push synchronization - Alice)</em></p>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8era-4",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<blockquote><p>\"The future of coding is agentic, not just autocomplete.\" - Unknown Developer, 2026</p></blockquote>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px",
+        "paddingLeft": "20px",
+        "borderLeft": "4px solid rgba(150,150,150,0.5)"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-8v",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h2>1. Table Testing</h2>\n<p>Here is a complex table to ensure Builder's table block rendering parses correctly:</p>\n<table><tr><th>Feature</th><th>Cursor</th><th>Fusion</th><th>Claude Code</th></tr><tr><td><strong>Primary Interface</strong></td><td>GUI (VS Code)</td><td>Visual Canvas</td><td>Terminal CLI</td></tr><tr><td><strong>Agentic Capability</strong></td><td>High (Composer)</td><td>High (Visual)</td><td>Extreme</td></tr><tr><td><strong>Cost</strong></td><td>$20-$40/mo</td><td>Variable</td><td>Usage-based</td></tr></table>\n<h2>2. Code Block Testing</h2>\n<p>Let's test if syntax highlighting and whitespace are preserved during the push/pull cycle:</p>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8era-g",
+    "component": {
+      "name": "Code Block",
+      "options": {
+        "code": "import { useState, useEffect } from \"react\";\n\n// This is a test component to verify formatting\nexport function SyncTest() {\n  const [synced, setSynced] = useState<boolean>(false);\n\n  useEffect(() => {\n    console.log(\"Checking sync status...\");\n    if (Date.now() > 0) {\n      setSynced(true);\n    }\n  }, []);\n\n  return (\n    <div className=\"flex flex-col gap-4 p-4 border rounded-md\">\n      <h3>Status: {synced ? \"Connected\" : \"Pending\"}</h3>\n      <button onClick={() => alert(\"Test!\")}>Click Me</button>\n    </div>\n  );\n}",
+        "language": "typescript"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px",
+        "paddingLeft": "20px",
+        "borderRadius": "4px",
+        "paddingRight": "20px",
+        "backgroundColor": "rgba(40,44,52,1)",
+        "boxShadow": "0 2px 6px 0 rgba(0,0,0,0.27)"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-8w",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<h2>3. Nested Lists and Formatting</h2>\n<p>Testing deep nesting and inline formatting:</p>\n<ol><li><strong>First Order Item</strong><ul><li><em>Nested unordered item</em> with <code>inline code</code></li><li>Another nested item with a <a href=\"https://www.builder.io\">link to Builder</a></li></ul></li><li><strong>Second Order Item</strong><ol><li>Deeply nested ordered list</li><li>Showing how deep we can go<ul><li>And going one level deeper</li></ul></li></ol></li></ol>\n<h2>4. Thematic Breaks and Media</h2>\n<p>Testing horizontal rules:</p>\n<hr />\n<p>Let's test an image block right below the rule:\n</p>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8era-w",
+    "component": {
+      "name": "Image",
+      "options": {
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc7ad20e4022644d8914bb9ebf0a7ab7d?width=776",
+        "aspectRatio": 0.7306701030927835,
+        "altText": "Test Image from Builder",
+        "backgroundSize": "cover",
+        "backgroundPosition": "center",
+        "lazy": false,
+        "fitContent": true,
+        "lockAspectRatio": false,
+        "sizes": "(max-width: 638px) 86vw, (max-width: 998px) 54vw, 56vw"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px",
+        "position": "relative",
+        "overflow": "hidden"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-8x",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<hr />\n<p>Developers are moving past the novelty phase. <strong>We don't just want a chatbot that can read code; we want an agent that can ship it.</strong></p>\n<p>This isn't a \"ditch Cursor\" hit piece—Cursor is excellent. But for many teams, specialized alternatives now handle specific workflows (like terminal automation, design systems, or enterprise specs) better.</p>\n<p>Here is the state of <a href=\"https://www.builder.io/blog/agentic-ide\">agentic IDEs</a> in 2026, comparing Cursor to its strongest contenders.</p>\n<h2>What is Cursor (in 2026)?</h2>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8era-18",
+    "component": {
+      "name": "Image",
+      "options": {
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc7ad20e4022644d8914bb9ebf0a7ab7d?width=776",
+        "aspectRatio": 0.7306701030927835,
+        "altText": "The Cursor interface.",
+        "backgroundSize": "cover",
+        "backgroundPosition": "center",
+        "lazy": false,
+        "fitContent": true,
+        "lockAspectRatio": false,
+        "sizes": "(max-width: 638px) 86vw, (max-width: 998px) 54vw, 56vw"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px",
+        "position": "relative",
+        "overflow": "hidden"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-8y",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>Cursor is an AI-powered IDE built on top of VS Code. It adds a \"Composer\" agent for multi‑file edits, deep repo indexing, and inline chat that can read and modify your entire codebase. For many developers, Cursor has become the default way to work with <a href=\"https://www.builder.io/blog/large-language-model-llm\">large language models</a> (LLMs) inside their editor.</p>\n<h3>Benefits of Cursor</h3>\n<p>Cursor is still the gold standard for \"VS Code with a brain.\" Its superpower remains its context engine—the ability to index your entire repo and answer vague questions like \"where is the auth logic handling token refresh?\" accurately.</p>\n<p>The \"Composer\" has matured into a reliable way to execute multi-file edits, and because it’s a VS Code fork, you don't have to relearn your keybindings or abandon your favorite extensions. If you want to tune that setup further, we put together a separate guide on <a href=\"https://www.builder.io/blog/best-vs-code-extensions-2026\">the best VS Code extensions for 2026</a>.</p>\n<h3>Downsides to Cursor</h3>\n<p>However, a few cracks have appeared as the tool and its user base have scaled.</p>\n<ul><li><strong>Performance</strong>: Indexing massive monorepos still chews up RAM, and on lower-powered laptops, the Electron overhead is real.</li><li><strong>Cost complexity</strong>: The \"Ultra\" tiers for teams have become a significant line item, and many engineering managers are questioning if every junior dev needs a $40/mo seat just for autocomplete.</li><li><strong>Workflow lock-in</strong>: Cursor enforces a \"chat-sidebar + inline-diff\" workflow. If you prefer staying in the terminal or need a visual canvas, Cursor fights you—it wants to be the center of your universe.</li></ul>\n<p>So if Cursor is the baseline, here is how the alternatives carve out their own niches. If you want a deeper look into Cursor itself (including setup tips and power‑user tricks), <a href=\"https://www.builder.io/blog/cursor-tips\">we've got you covered</a>.</p>\n<h2>How to choose: A selection framework</h2>\n<p>Don't just pick the tool with the coolest demo video. When evaluating these alternatives, look at four specific axes:</p>\n<ol><li><strong>Local vs. cloud vs. hybrid</strong>: Does the agent run on your machine (privacy, offline capable), in a cloud sandbox (infinite compute), or a <strong>hybrid</strong> of both?</li><li><strong>Agentic depth</strong>: Is it just fancy autocomplete, a chatbot that can read files, or a true agent that can run terminal commands, create files, and fix its own lint errors?</li><li><strong>Ecosystem</strong>: Will you lose your VS Code extensions? Does it support your specific language server (LSP)?</li><li><strong>Team readiness</strong>: Can you share context and indexes with your team, or is every developer an island?</li></ol>\n<p>If you're still figuring out how to <em>talk</em> to these tools effectively, we also collected <a href=\"https://www.builder.io/blog/ai-prompts-for-web-developers-chatgpt\">50+ practical prompts for web developers</a> that you can reuse across Cursor, Claude Code, Codex, and Fusion.</p>\n<h3><strong>The \"jump to\" checklist</strong></h3>\n<p>If you already know what matters most to you, here’s where to look:</p>\n<ul><li><strong>“I live in the terminal and hate GUIs”</strong> → Look at <a href=\"#claudeCode\">Claude Code</a>.</li><li><strong>“I want to design and code simultaneously”</strong> → Look at <a href=\"#fusion\">Fusion</a>.</li><li><strong>“I want a high-performance local editor (no Electron bloat)”</strong> → Check out <a href=\"#zed\">Zed</a>.</li><li><strong>“We want Cursor-ish UX, but with a different roadmap/pricing”</strong> → See <a href=\"#windsurf\">Windsurf</a> or <a href=\"#traeAI\">Trae AI</a>.</li><li><strong>“I want open-source privacy (no sending code to cloud)”</strong> → Check out <a href=\"#void\">Void</a>.</li><li><strong>“We're all-in on Google Cloud / Firebase”</strong> → Explore <a href=\"#google\">Firebase Studio &amp; Antigravity</a>.</li><li><strong>“We need spec-driven, auditable enterprise workflows”</strong> → Read about <a href=\"#kiro\">Kiro</a>.</li></ul>\n<h2>Claude Code: For terminal nerds</h2>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8era-26",
+    "component": {
+      "name": "Image",
+      "options": {
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f02edf506fc42f59b5117642d3a5540?width=776",
+        "aspectRatio": 0.5605670103092784,
+        "altText": "Claude Code’s welcome screen.",
+        "backgroundSize": "cover",
+        "backgroundPosition": "center",
+        "lazy": false,
+        "fitContent": true,
+        "lockAspectRatio": false,
+        "sizes": "(max-width: 638px) 86vw, (max-width: 998px) 54vw, 56vw"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px",
+        "position": "relative",
+        "overflow": "hidden"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-8z",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>If your IDE wasn't an app, but a CLI command, it would look like <a href=\"https://www.claude.com/product/claude-code\">Claude Code</a>. It started life as a terminal‑first agent, but today it also ships with a native VS Code extension, so you can use it either as a CLI that drives your editor or as a full GUI inside VS Code.</p>\n<p>It’s built on the Claude models that power <a href=\"https://www.builder.io/blog/ai-dev-tools-miss-mark\">many of the best AI dev tools</a>, but wrapped in a workflow that feels closer to ⁠git than to VS Code’s traditional “chat sidebar.”</p>\n<p>With the VS Code extension, you get a dedicated Claude Code panel, inline diffs, plan mode, and conversation history right in the editor. For a lot of devs, the combo is effectively “VS Code + Claude Code” rather than a separate AI IDE.</p>\n<h3>Claude Code vs. Cursor</h3>\n<p>Claude Code excels at what you might call “agentic Git automation.” You can tell it: “Clone the ⁠analytics repo, find how the ⁠<code>User</code> event is defined, and update the tracking schema in this current repo to match it.” It will ⁠<code>cd</code> around, ⁠<code>grep</code> for answers, edit files, run tests, and even stage the commit. You just watch the stdout log (or, in the extension, review its plan and diffs).</p>\n<p>Where Cursor feels like “VS Code with a built‑in agent,” Claude Code feels more like “an autonomous teammate that happens to live in your terminal and IDE.” Cursor keeps you in a more traditional editor model (files, tabs, and inline suggestions), while Claude Code is optimized for high‑level tasks that touch many files, branches, and repos.</p>\n<p>We’ve written up <a href=\"https://www.builder.io/blog/claude-code\">a whole bunch of power user tips for Claude Code.</a></p>\n<h3>Who should pick Claude Code</h3>\n<ul><li><strong>Ops &amp; backend teams</strong>: If your work involves hopping between five different microservices and updating config files, a CLI agent is often faster than opening five IDE windows.</li><li><strong>Terminal‑native engineers</strong>: If you already live in tmux, ⁠<code>fzf</code>, and ⁠<code>git</code> on the command line, Claude Code feels like a natural extension of that workflow. You can still pop into the VS Code GUI to inspect diffs and navigate files as needed.</li><li><strong>Teams standardizing on VS Code</strong>: If your org is “all‑in on VS Code,” the official extension makes it feel less like adopting a new IDE and more like bolting a powerful agent onto the editor you already use.</li></ul>\n<h3>Tradeoffs of Claude Code</h3>\n<p>You lose some of Cursor’s “always‑visible diff view” polish if you stick purely to the terminal. Reviewing changes there is harder than seeing a side‑by‑side diff in a GUI, but the VS Code extension closes much of that gap.</p>\n<p>It also requires a mindset shift. You’re not just asking for autocomplete; you’re letting an agent drive your terminal and editor. You have to be comfortable delegating big, repo‑wide tasks and then reviewing its work after the fact. Until you trust it (and tune your safeguards), that can feel riskier than Cursor’s more incremental, inline suggestions.</p>\n<h2>Fusion: A visual IDE</h2>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8era-2y",
+    "component": {
+      "name": "Video",
+      "options": {
+        "video": "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F92ac26124d0243a8ab26b4626653dd39?alt=media&token=02546bd2-0fc3-4872-a7fd-a81106ca4d82&apiKey=YJIGb4i01jvw0SRdL5Bt",
+        "aspectRatio": 0.5625,
+        "autoPlay": true,
+        "muted": true,
+        "loop": true,
+        "playsInline": true,
+        "fit": "cover",
+        "position": "center"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-90",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><a href=\"https://www.builder.io/fusion\">Fusion</a> is a visual-first agentic IDE built for frontend development and design systems. Instead of starting from a text editor, you work on a live canvas that understands your components, tokens, and layout rules, and writes production‑ready code back to your repo.</p>\n<h3>Fusion vs. Cursor</h3>\n<p>Fusion doesn’t try to be a general‑purpose editor. It sits on top of your existing stack—GitHub, Jira, Figma, Slack—and treats your UI as something you can <em>see</em> and manipulate:</p>\n<ul><li>Click a component in the preview and ask the agent to “change the padding to match ⁠<code>spacing.md</code>.”</li><li>Paste in a Jira ticket or tag ⁠<code>@Builder.io</code> in Slack and let Fusion spin up a branch, implement the feature, and iterate on feedback.</li><li>Import a Figma frame and have <a href=\"https://www.builder.io/blog/figma-to-code-fusion\">Fusion map it onto your real components</a>, design tokens, and APIs.</li></ul>\n<p><a href=\"https://www.builder.io/blog/fusion\">Fusion 1.0</a> goes beyond being a “nice visual layer” for frontend devs. It’s an AI agent that speaks product, design, and code, keeps everything anchored to one Git repo, and keeps shipping until the PR is green.</p>\n<p>Where Cursor is an AI‑native <em>editor</em> you live in all day, Fusion is the AI <em>agent</em> and visual IDE for the product surface of your app.</p>\n<h3>Who should pick Fusion</h3>\n<ul><li><strong>Frontend devs &amp; designers</strong>: If you spend half your time tweaking CSS or React props, Fusion’s canvas is far better than a text‑only chat window. It shines for visual regression fixes and understanding complex state or layout that’s invisible in a code tab.</li><li><strong>“No‑handoff” teams</strong>: As PMs, designers, and engineers all <a href=\"https://www.builder.io/blog/governance-beyond-figma\">touch the same repo</a>, Fusion lets them work together on the actual product instead of passing specs around. With MCP integrations (for example, the <a href=\"https://www.builder.io/blog/supabase-mcp\">Supabase MCP server</a>), it can pull live data or tickets (Linear/Jira) and generate code that actually compiles.</li><li><strong>Design‑system‑heavy orgs</strong>: Fusion is both text‑to‑code and <em>visual‑to‑code</em>. It understands that a “button” is more than just a JSX snippet. It’s a rendered component that must match Figma and your design system.</li></ul>\n<h3>Tradeoffs of Fusion</h3>\n<p>Fusion isn’t meant to be your all‑purpose editor. You won’t write your Rust backend or wrangle Docker configs in it. It’s optimized for frontend and product workflows.</p>\n<p>It’s designed to work <em>alongside</em> your IDE <em>a</em>s a <a href=\"https://marketplace.visualstudio.com/items?itemName=Builder.Builder\">VS Code extension</a> or <a href=\"https://www.builder.io/desktop-app\">desktop app</a>, not replace it.</p>\n<h2>Windsurf: Cursor’s closest cousin</h2>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8era-3o",
+    "component": {
+      "name": "Image",
+      "options": {
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff4327e4985944d51a4a08e64ffc20cef?width=776",
+        "aspectRatio": 0.625,
+        "altText": "The Windsurf interface.",
+        "backgroundSize": "cover",
+        "backgroundPosition": "center",
+        "lazy": false,
+        "fitContent": true,
+        "lockAspectRatio": false,
+        "sizes": "(max-width: 638px) 86vw, (max-width: 998px) 54vw, 56vw"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px",
+        "position": "relative",
+        "overflow": "hidden"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-91",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><a href=\"https://codeium.com/windsurf\">Windsurf</a>, powered by the \"Cascade\" agent, is the Cursor look‑alike with a different brain and roadmap. It lives in the same VS Code family, but leans harder into agents that observe your workflow and suggest changes as you work.</p>\n<h3>Windsurf vs. Cursor</h3>\n<p>While the UI is similar, the philosophy differs slightly. Windsurf’s agent \"watches\" your actions more passively. It pays attention to what commands you run in the terminal and what files you open, building context without you explicitly tagging files as often. It attempts to \"flow\" with you rather than waiting for a \"generate\" command. The feeling is less like \"stopping to ask a chatbot\" and more like having a pair programmer who is silently reading your mind.</p>\n<p>Its roadmap is also tied to Cognition (the makers of Devin). This implies a future where the IDE might offload massive tasks to a fully autonomous background agent (\"Devin\") while you keep working on the frontend.</p>\n<h3>Who should pick Windsurf</h3>\n<ul><li><strong>The \"Cursor curious\"</strong>: If you like the Cursor workflow but are unhappy with their specific pricing model, model choices, or UI quirks, Windsurf is the most painless switch. It’s familiar, but with a different flavor of AI integration.</li></ul>\n<h3>Tradeoffs of Windsurf</h3>\n<p>The product focus has shifted a few times, and with the \"Devin\" integration looming, it’s unclear if Windsurf will remain a standalone IDE or become just a \"cockpit\" for a cloud agent.</p>\n<h2>Void: Open source AI coding</h2>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-48",
+    "component": {
+      "name": "Image",
+      "options": {
+        "image": "https://voideditor.com/demos2/AgentMode.png",
+        "aspectRatio": 0.6326732673267327,
+        "altText": "Void's interface.",
+        "backgroundSize": "cover",
+        "backgroundPosition": "center",
+        "lazy": false,
+        "fitContent": true,
+        "lockAspectRatio": false
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px",
+        "position": "relative",
+        "overflow": "hidden"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-92",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>\"What if Cursor, but you actually owned it?\" Void is an open‑source fork of VS Code that aims to match Cursor’s feature set without the closed‑source lock‑in or hosted‑only assumptions.</p>\n<h3>Void vs. Cursor</h3>\n<p>Cursor is a black box; you send code to their servers (mostly), and you pay them a subscription. Void runs entirely locally or connects to your own API keys (Anthropic, OpenAI, Gemini). It gives you the same \"inline diff\" and \"chat with repo\" experience, but you control the plumbing.</p>\n<h3>Who should pick Void</h3>\n<ul><li><strong>Privacy absolutists</strong>: If your legal team blocked Cursor because \"we can't send IP to a startup,\" Void is your loophole. You can point it at a local LLM or a private enterprise instance.</li><li><strong>Open source zealots</strong>: If you fundamentally mistrust closed-source dev tools, Void aligns with your values.</li></ul>\n<h3>Tradeoffs of Void</h3>\n<p>It's community-driven. You won't get the polished \"User Experience\" team of a VC-backed unicorn. Features might break, and the \"polish\" will always lag slightly behind the paid product.</p>\n<h2>Trae AI: A free(?) challenger</h2>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-4q",
+    "component": {
+      "name": "Image",
+      "options": {
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F193f3b0dcd0644928119ed2a84b0ed06?width=776",
+        "aspectRatio": 0.6417525773195877,
+        "altText": "Trae’s chat interface.",
+        "backgroundSize": "cover",
+        "backgroundPosition": "center",
+        "lazy": false,
+        "fitContent": true,
+        "lockAspectRatio": false,
+        "sizes": "(max-width: 638px) 86vw, (max-width: 998px) 54vw, 56vw"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px",
+        "position": "relative",
+        "overflow": "hidden"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-93",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><a href=\"https://www.trae.ai/\">Trae</a> is a fully free, ByteDance‑backed alternative that aims to match Cursor’s speed and polish. It aggressively targets price‑sensitive developers with a free tier that feels very close to Cursor’s paid experience.</p>\n<h3>Trae AI vs. Cursor</h3>\n<p>Trae copies Cursor’s UX almost pixel-for-pixel but removes the paywall (for now). It brings the speed and polish of a VC-backed tool but uses its \"Free\" status as a wedge to capture the market. Unlike Cursor’s sometimes opaque pricing, Trae is transparently using loss-leading tactics to gain adoption.</p>\n<h3>Who should pick Trae AI</h3>\n<ul><li><strong>Students &amp; Indie Devs</strong>: If $20/month is a dealbreaker, Trae offers a surprisingly capable free tier that handles small-to-medium repos well. It’s fast, familiar (VS Code fork), and currently subsidized by deep pockets.</li></ul>\n<h3>Tradeoffs of Trae AI</h3>\n<p>The \"Free\" price tag comes with an asterisk. Trae is owned by ByteDance, and privacy-conscious developers have raised concerns about telemetry and data collection.</p>\n<p>If you are working on sensitive IP or in a regulated industry, \"free\" might actually cost you your data sovereignty. Read the privacy policy carefully before cloning your company's monorepo.</p>\n<h2>Zed: Speed first, AI second</h2>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-5a",
+    "component": {
+      "name": "Image",
+      "options": {
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F974a911c56ba4c3abadf9e5eba084f3e?width=776",
+        "aspectRatio": 0.7061855670103093,
+        "altText": "The Zed interface.",
+        "backgroundSize": "cover",
+        "backgroundPosition": "center",
+        "lazy": false,
+        "fitContent": true,
+        "lockAspectRatio": false,
+        "sizes": "(max-width: 638px) 86vw, (max-width: 998px) 54vw, 56vw"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px",
+        "position": "relative",
+        "overflow": "hidden"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-94",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p>\"What if your editor ran at the speed of a video game?\" <a href=\"https://zed.dev/ai\">Zed</a> is a high‑performance, native editor (written in Rust, GPU‑accelerated) with AI layered on top rather than bolted on as an afterthought.</p>\n<h3>Zed vs. Cursor</h3>\n<p>It is <strong>not</strong> based on VS Code. This is its greatest strength and weakness.</p>\n<ul><li><strong>Strength</strong>: It is blazing fast. Opening files is instant. Typing latency is non-existent. It makes Electron-based editors feel sluggish.</li><li><strong>Weakness</strong>: You don't get the massive VS Code extension marketplace (though Zed has its own growing one).</li></ul>\n<p>Zed’s approach to AI is less \"batteries included\" and more \"bring your own juice.\" It supports inline generation and chat, but it feels more like a power-user tool where you wire up the models you want. You can easily plug in a local <strong>Llama 4</strong> or <strong>Mistral</strong> model, keeping your code entirely on your machine. This is something Cursor makes difficult. It also shines in <strong>multiplayer</strong>: multiple developers can edit the same file in real-time (like Google Docs), which is a game-changer for remote pair programming.</p>\n<h3>Who should pick Zed</h3>\n<ul><li><strong>Performance maximalists</strong>: If you rage-quit whenever your editor lags, Zed is your sanctuary.</li><li><strong>Pair programming teams</strong>: The built-in collaboration features are best-in-class.</li></ul>\n<h3>Tradeoffs of Zed</h3>\n<p>The agentic workflows are less mature than Cursor’s. You might find yourself missing the \"Apply to file\" polish of Cursor’s Composer for a while longer.</p>\n<h2>OpenAI Codex: A cloud workspace</h2>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-5w",
+    "component": {
+      "name": "Image",
+      "options": {
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fee9363df7d924e31be6c4b075d564eb1?width=776",
+        "aspectRatio": 0.5631443298969072,
+        "altText": "The OpenAI Codex interface.",
+        "backgroundSize": "cover",
+        "backgroundPosition": "center",
+        "lazy": false,
+        "fitContent": true,
+        "lockAspectRatio": false,
+        "sizes": "(max-width: 638px) 86vw, (max-width: 998px) 54vw, 56vw"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px",
+        "position": "relative",
+        "overflow": "hidden"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-95",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><a href=\"https://openai.com/codex/\">OpenAI’s Codex</a> is a cloud‑native dev environment where the “IDE” is really a window into a remote agent. You give it a goal, and it spins up sandboxes, runs builds, and executes risky commands in the cloud instead of on your laptop.</p>\n<p>There’s also a <strong>Codex CLI</strong> (<code>⁠npm i -g @openai/codex</code>) that runs in your terminal. It can read, edit, and run code in your repo with an interactive UI and slash commands like <code>/model</code>⁠, <code>/review</code>⁠, <code>/approvals</code>, and ⁠<code>AGENTS.md</code>‑based instructions. From the CLI you can still launch <strong>Codex Cloud tasks</strong> and apply the resulting diffs locally.</p>\n<p>If you also care about how it stacks up against Claude Code specifically, <a href=\"https://www.builder.io/blog/codex-vs-claude-code\">we've broken that down in detail</a>.</p>\n<h3>Codex vs. Cursor</h3>\n<p>Cursor is local: a smart editor on your laptop where you open files, ask for changes, and accept diffs.</p>\n<p>Codex is cloud‑first: it spins up sandboxed environments, runs builds and tests in the cloud, and streams the results back, which suits big repos and risky operations.</p>\n<p>Cursor feels file‑centric; Codex is task‑centric. You describe an outcome, and Codex orchestrates tools and environments to get there. The Codex CLI gives you a terminal touchpoint, but the center of gravity remains the cloud agent, not a local editor window.</p>\n<h3>Who should pick Codex</h3>\n<ul><li><strong>Teams needing “infinite” compute</strong>: If your laptop fans spin up just opening the monorepo, being able to offload builds and experiments to Codex Cloud is a relief.</li><li><strong>Python / data‑heavy workflows</strong>: The Jupyter‑style, environment‑oriented model fits data work and ML pipelines well.</li><li><strong>Teams standardizing on OpenAI</strong>: If you’re already all‑in on ChatGPT, Copilot‑style tools, and OpenAI infra, Codex gives you a first‑party agent that ties the stack together.</li></ul>\n<h3>Tradeoffs of Codex</h3>\n<p>You are effectively renting your dev environment. If the internet goes down or OpenAI changes pricing, Codex is offline.</p>\n<p>It also feels less “yours” than a local editor you’ve spent years customizing. And while there is a local CLI, the real power is in the cloud sandbox; if you want a deeply local, editor‑centric workflow, Cursor, Claude Code, or Zed will feel more natural.</p>\n<h2>Kiro: An enterprise specialist</h2>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-6o",
+    "component": {
+      "name": "Image",
+      "options": {
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F59dbdea436a3471dba57ba2edc6507d1?width=776",
+        "aspectRatio": 0.625,
+        "altText": "The Kiro interface.",
+        "backgroundSize": "cover",
+        "backgroundPosition": "center",
+        "lazy": false,
+        "fitContent": true,
+        "lockAspectRatio": false,
+        "sizes": "(max-width: 638px) 86vw, (max-width: 998px) 54vw, 56vw"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px",
+        "position": "relative",
+        "overflow": "hidden"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-96",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><a href=\"https://kiro.dev/\">Kiro</a> is an “AI IDE for adults”: an agentic IDE + CLI from AWS that starts every feature with a <strong>spec</strong>, not a chat.</p>\n<p>Instead of vibe‑coding straight into the codebase, you describe what you want and Kiro turns it into structured requirements, a design doc, and a sequenced task plan that agents can implement and keep in sync with your repo.</p>\n<p>It’s built for teams that care about traceability, governance, and getting production‑grade systems out of AI—not just quick prototypes.</p>\n<h3>Kiro vs. Cursor</h3>\n<p>Kiro and Cursor start from opposite ends of the spectrum.</p>\n<p>Cursor is conversational: you open files, describe what you want, and its agent edits inline as you go. Kiro is structured and spec‑first. You feed it a PRD, a high‑level prompt, or an existing system, and it generates requirements, design docs, and a task plan that agents execute against under strict guardrails—often with hooks and policies enforcing tests, docs, and security checks on every save.</p>\n<p>Cursor optimizes for fast iteration inside a familiar editor; Kiro optimizes for teams that need every change to be justified, reproducible, and easy to audit months later.</p>\n<h3>Who should pick Kiro</h3>\n<ul><li><strong>Large enterprises</strong>: If your CTO asks \"where does the code go?\" and \"who authorized this change?\", Kiro has the audit trails you need.</li><li><strong>Architects</strong>: It allows for \"Spec-First Development.\" You write the requirements, Kiro writes the boilerplate.</li></ul>\n<h3>Tradeoffs of Kiro</h3>\n<p>Kiro kills the “vibe coding” momentum. It demands you be an architect before you can be a coder.</p>\n<p>If you just want to hack together a quick script or experiment with a new library, Kiro’s insistence on Specs, EARS notation, and \"implementation plans\" feels like filling out tax forms.</p>\n<p>It’s powerful for complex systems, but suffocating for creative prototyping.</p>\n<h2>Google’s Cloud IDEs: Firebase Studio &amp; Antigravity</h2>\n<p>Google’s own cloud IDEs sit at the intersection of Gemini and the GCP stack. If you already build on Firebase or Google Cloud, these tools promise an agent‑first workflow that stays close to your infra.</p>\n<h3>Firebase Studio: Browser-only, Firebase-native</h3>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-7m",
+    "component": {
+      "name": "Image",
+      "options": {
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F439d4890aca246c19969d339c66e05c3?width=776",
+        "aspectRatio": 0.5219072164948454,
+        "altText": "The Firebase Studio interface.",
+        "backgroundSize": "cover",
+        "backgroundPosition": "center",
+        "lazy": false,
+        "fitContent": true,
+        "lockAspectRatio": false,
+        "sizes": "(max-width: 638px) 86vw, (max-width: 998px) 54vw, 56vw"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px",
+        "position": "relative",
+        "overflow": "hidden"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-97",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><a href=\"https://firebase.studio/\">Firebase Studio</a> is an entirely web‑based workspace for full‑stack apps on Firebase. You open a browser, import a repo from GitHub/GitLab/Bitbucket (or local), and you’re building in minutes—no local setup. An App Prototyping agent can even scaffold a new app from natural‑language prompts, mockups, or screenshots, with Nix under the hood if you want a custom environment.</p>\n<p>Because it’s Firebase‑native, the AI already knows data shape. Gemini in Firebase reads your rules, schema, and backend to help with coding, debugging, and tests, with Open VSX extensions, built‑in previews/emulators, and one‑click deploys to Firebase or Cloud Run.</p>\n<p>If your stack is “Firestore, Functions, Hosting, Cloud Run,” Firebase Studio is the most opinionated, batteries‑included way to work with an AI‑aware IDE.</p>\n<h3>Antigravity: Agent-first Gemini IDE</h3>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-7w",
+    "component": {
+      "name": "Image",
+      "options": {
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9d48fe74213d404e87d04ab356874372?width=776",
+        "aspectRatio": 0.6469072164948454,
+        "altText": "Antigravity IDE interface.",
+        "backgroundSize": "cover",
+        "backgroundPosition": "center",
+        "lazy": false,
+        "fitContent": true,
+        "lockAspectRatio": false,
+        "sizes": "(max-width: 638px) 86vw, (max-width: 998px) 54vw, 56vw"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px",
+        "position": "relative",
+        "overflow": "hidden"
+      }
+    }
+  },
+  {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    "id": "builder-mm9m8erb-98",
+    "component": {
+      "name": "Text",
+      "options": {
+        "text": "<p><a href=\"https://antigravity.google/\">Google Antigravity</a> is Gemini’s agent‑first desktop IDE—a VS‑Code‑style editor with a second “mission control” view for agents. You get two faces:</p>\n<ul><li><strong>Editor view</strong>: Familiar VS Code‑like interface with files, terminal, and a chat panel.</li><li><strong>Agent Manager view</strong>: A dashboard where you spin up tasks, see plans and artifacts, and orchestrate multiple agents across workspaces in parallel.</li></ul>\n<p>Agents have direct access to the editor, terminal, and a browser via a Chrome extension. In Planning mode they generate Artifacts like task lists and implementation plans that you can review before execution, while Fast mode skips planning for quick edits.</p>\n<p>The killer feature is the <strong>browser agent</strong>: Like Fusion, Antigravity can run and test your app in Chrome on its own—clicking through flows, filling forms, recording video, and feeding those results back into the plan. On top of that, you get multi‑agent orchestration, rules and allowlists/denylists, and the ability to swap between Gemini 3 Pro, Claude Sonnet 4.5, or other supported models.</p>\n<h3>Google Cloud IDEs vs. Cursor</h3>\n<p>Cursor is still the best fit if you want a single, local, file‑centric editor with a very polished inline UX. Google’s tools lean into a different thesis:</p>\n<ul><li><strong>Firebase Studio</strong> is ideal if you’re deep in the Firebase ecosystem and want a browser‑only IDE where Gemini already understands your database, auth rules, and hosting targets.</li><li><strong>Antigravity</strong> is for teams that want agents as first‑class citizens—a mission‑control view, artifact‑based planning, and full browser automation on top of their existing repos.</li></ul>\n<p>If your repo lives on GCP and you like the idea of agents that can plan, execute, and verify work across editor, terminal, and browser, Antigravity and Firebase Studio are the most “Google‑native” alternatives to Cursor today.</p>\n<h2>Honorable mentions</h2>\n<p>There is a graveyard of \"AI coding tools\" that aren't quite IDEs.</p>\n<ul><li><strong>Bolt.new / Lovable / v0</strong>: These are <em>app generators</em>, not IDEs. They are amazing for <a href=\"https://builder.io/blog/ai-prototyping-guide\">prototyping a React app from scratch</a>. For Product Managers or Junior Devs, these might actually replace the IDE entirely for simple projects. But you generally wouldn't use them to maintain a 500,000-line backend repo. Use them to start, then move to Cursor/Zed to maintain.</li><li><strong>Replit Agent</strong>: A fantastic cloud agent, especially for beginners or quick scripts. It often lacks the deep local configuration power required by senior engineering teams.</li></ul>\n<h2>The future of agentic IDEs is bright</h2>\n<p>In 2024, the answer to \"what AI editor should I use?\" was simple: Cursor. In 2026, the answer is: \"It depends.\"</p>\n<p>The era of the \"one size fits all\" IDE is ending. We are moving toward a world where you might use <strong>Claude Code</strong> to script a migration, <strong>Fusion</strong> to polish the UI, and <strong>Zed</strong> to write the high-performance Rust core (all on the same repo).</p>\n<p>If you’re specifically building in React, we also put together a recommended <a href=\"https://www.builder.io/blog/react-ai-stack\">React + AI stack for 2025</a> that pairs these IDEs with frameworks, libraries, and hosting choices that play especially well with AI agents.</p>\n<p>So, don't let FOMO paralyze you. Stick with Cursor if it works. But if you feel the friction—if you hate the lag, miss the terminal, or need better collaboration—know that for the first time, you have genuine, powerful alternatives.</p>"
+      },
+      "isRSC": null
+    },
+    "responsiveStyles": {
+      "large": {
+        "marginTop": "20px"
+      }
+    }
+  },
+  {
+    "id": "builder-pixel-ienuqsntqkb",
+    "@type": "@builder.io/sdk:Element",
+    "tagName": "img",
+    "properties": {
+      "src": "https://cdn.builder.io/api/v1/pixel?apiKey=YJIGb4i01jvw0SRdL5Bt",
+      "aria-hidden": "true",
+      "alt": "",
+      "role": "presentation",
+      "width": "0",
+      "height": "0"
+    },
+    "responsiveStyles": {
+      "large": {
+        "height": "0",
+        "width": "0",
+        "display": "block",
+        "opacity": "0",
+        "overflow": "hidden",
+        "pointerEvents": "none"
+      }
+    }
+  }
+]

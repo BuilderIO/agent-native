@@ -1,0 +1,20 @@
+{
+  "name": "Steve chart",
+  "events": [
+    {
+      "event": "fusion chat message submitted",
+      "filters": [
+        {
+          "property": "org_subscription",
+          "operator": "=",
+          "value": ""
+        }
+      ],
+      "groupBy": [
+        "org_subscription"
+      ]
+    }
+  ],
+  "chartType": "line",
+  "dateRange": "30d"
+}

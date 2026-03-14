@@ -1,0 +1,415 @@
+=== DATA DICTIONARY ANALYSIS ===
+
+Total Metrics: 38
+
+1. Current ARR
+   Definition: The current annual recurring revenue for an enterprise account, cast from current_enterprise_arr on the enterprise company record.
+   Table: dbt_mart.enterprise_companies
+   Department: Customer Success
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+2. Signups
+   Definition: new users created who have a signup date, excluding builder.io domain emails
+   Table: dbt_mart.dim_users_core,
+dbt_analytics. signups
+   Department: General
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+3. Traffic
+   Definition: distinct visitor ids
+   Table: dbt_intermediate.all_pageviews
+   Department: Marketing
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+4. Self Serve Paid Subs
+   Definition: subscriptions from stripe with plan = ‘self-serve’
+   Table: dbt_mart.dim_susbcriptions
+   Department: General
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+5. WoW Signups Growth
+   Definition: Week-over-week growth rate of signups: (Current Week - Previous Week) ÷ Previous Week. Available by individual channel or across all channels combined.
+   Table: Computed via LAG window function over weekly signup counts
+   Department: Marketing
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+6. Page Performance
+   Definition: Per-URL and per-Referrer performance pivot showing: New Visitors, Signups, % Signups, SS Paid Subs, % Paid Subs, Marketing Contacts, % ICP Signups.
+   Table: sigma_materialized views, dbt_analytics.hs_contacts
+   Department: Marketing
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+7. Monthly User Count
+   Definition: Count of users taken on the last day of each month for an account. Displayed as a line chart trending over time.
+   Table: dbt_mart.dim_root_organizations (joined with user data)
+   Department: Product
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+8. Signup to Paid Sub Conversion
+   Definition: Percentage of signups that convert to at least one paid subscription. Calculated as Paid Subscribers ÷ Total Signups.
+   Table: signup materialized views, dbt_mart.user_top_subscription
+   Department: General
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+9. % Users with ≥1 Session (Last 30 Days)
+   Definition: Percentage of an account's users who had at least one session in the trailing 30-day window. Calculated as countdistinct(users with sessions) / total users. Sessions filtered by session_raw_date within range.
+   Table: dbt_mart.user_sessions, dbt_mart.dim_users_core
+   Department: Product
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+10. Signup Rate
+   Definition: Signups ÷ New Visitors for a given time period and channel. Measures conversion rate from first visit to account creation.
+   Table: Computed from dbt_staging_bigquery.signups and dbt_staging_bigquery.first_pageviews
+   Department: General
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+11. Pipeline S1 (Qualified)
+   Definition: Total deal amount for deals at the S1/Qualified stage. qualified_pipeline_flag = Yes when stage is NOT IN ('Automated Deal', 'Meeting Disqualified', 'S0 - Unqualified', 'S0 - MIAM'). Excludes Self-Serve pipelines.
+   Table: hubspot.deals, dbt_mart.dim_date, hubspot.owners
+   Department: Sales
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+12. % Spaces Utilized
+   Definition: Number of active spaces (num_spaces) divided by contracted_spaces. Shows how much of the contracted space allocation the account is using.
+   Table: dbt_mart.enterprise_companies
+   Department: Customer Success
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+13. QLs (Qualified Leads)
+   Definition: Contacts who have moved from S0 stage (date_moved_from_s0 is not null). Cohorted by date_moved_from_s0.
+   Table: dbt_analytics.hs_contacts
+   Department: Sales
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+14. Products
+   Definition: Comma-separated list of distinct product names purchased by the account (e.g. Publish, Fusion). Derived from listaggdistinct of the products field from HubSpot deals, ordered alphabetically.
+   Table: dbt_mart.dim_root_organizations (joined with HubSpot deal data)
+   Department: Sales
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+15. % Pageviews Utilized
+   Definition: Current month's total pageviews divided by contracted_pageviews. Includes MoM comparison calculated as current_month_pageviews / previous_month_pageviews.
+   Table: dbt_analytics.monthly_pageviews_and_bandwidth_by_org, dbt_mart.dim_organizations
+   Department: Customer Success
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+16. Paid Sub Flag
+   Definition: Boolean flag indicating whether a user is on at least one Paid Space. Used as a filter to isolate users who have converted to paid subscriptions.
+   Table: dbt_mart.user_top_subscription, signup materialized views
+   Department: Customer Success
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+17. Pipeline S0 (Pre-Qualified)
+   Definition: Total deal amount at the pre-qualified stage — deals that exist but haven't yet been qualified by sales. Excludes disqualified deals.
+   Table: hubspot.deals, dbt_mart.dim_date, hubspot.owners, dbt_mapping.hs_deals_to_contact_id
+   Department: Sales
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+18. SAL (Sales Accepted Lead)
+   Definition: A contact where the AE has committed to pursuing the contact. Tracked by date_entered_sal in HubSpot contacts.
+   Table: dbt_analytics.hs_contacts
+   Department: Sales
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+19. Active Users (Weekly)
+   Definition: Count of distinct active_user values per week (truncated to Monday). An active user has a page view on the web app or generated an AI chat. Excludes Shopify orgs (kind <> 'shopify'), test orgs, and internal subscriptions (subscription_name <> 'internal').
+   Table: dbt_analytics.active_users, dbt_mart.dim_root_organizations
+   Department: General
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+20. CSM Health Status
+   Definition: Customer success health classification for an account. Values: healthy, On the Radar, or contains Churn. Sourced from the health_status field on the enterprise company.
+   Table: dbt_mart.enterprise_companies
+   Department: Customer Success
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+21. % Bandwidth Utilized
+   Definition: Current month's total bandwidth usage divided by contracted_bandwidth. Includes MoM comparison. Excludes internal subscriptions — same filter logic as pageviews.
+   Table: dbt_analytics.monthly_pageviews_and_bandwidth_by_org, dbt_mart.dim_organizations
+   Department: Customer Success
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+22. ICP Signups
+   Definition: Signups where Company_Fit_Score ≥ 4
+   Table: dbt_analytics.hs_contacts, signup materialized views
+   Department: Marketing
+   Owner: MISSING ❌
+   Query Template: ✓
+   Common Questions: How many high-quality signups did we get this week?
+What's our ICP conversion rate compared to last month?
+Which channels are driving the most ICP signups?
+Are we hitting our 2x ICP signup growth goal?
+   Known Gotchas: Company_Fit_Score can be NULL for old contacts (before 2025-01-15)
+Always exclude @builder.io emails to avoid counting internal tests
+Signup date is based on first form submission, not user creation
+Score threshold of 4 is the current ICP definition but may change quarterly
+   Example Use Case: Marketing wants to know if the new enterprise campaign increased high-quality signups. Query last 30 days of ICP signups, segment by utm_campaign, and compare week-over-week growth to identify which campaigns are working.
+
+23. Product Health % (Publish)
+   Definition: A percentage score representing the health of a customer's Publish product usage. Stored as product_health_pct, filtered by product type. Scoring methodology linked in Notion.
+   Table: dbt_mart.product_health_score
+   Department: Customer Success
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+24. Upcoming Renewal Date
+   Definition: The next renewal date for the account's contract, stored as upcoming_renewal_date on the enterprise company record.
+   Table: dbt_mart.enterprise_companies
+   Department: Customer Success
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+25. ⚙ Root Org ID Resolution (Business Logic)
+   Definition: If root_org_id is null or empty, fall back to org_id. This logic is repeated across nearly every query and is a core concept for org-level aggregation.
+   Table: Applied across all org-level queries
+   Department: General
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+26. % Seats Utilized
+   Definition: Ratio of current active users to contracted_user_seats. Represents how much of the seat allocation the customer is consuming.
+   Table: dbt_mart.enterprise_companies
+   Department: Customer Success
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+27. ⚙ Paid Org Filter (Business Logic)
+   Definition: Foundational filter applied across nearly all queries: subscription_name NOT IN ('free', 'internal') AND kind <> 'shopify' AND org name does not contain 'test'.
+   Table: dbt_mart.dim_organizations, dbt_mart.dim_root_organizations
+   Department: General
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+28. New Visitors
+   Definition: Count of distinct first-time visitors (by visitor_id) cohorted by their first pageview date. Only counts users whose first-ever pageview falls within the selected date range.
+   Table: dbt_staging_bigquery.first_pageviews, dbt_staging_bigquery.signups
+   Department: Marketing
+   Owner: MISSING ❌
+   Query Template: ✓
+   Common Questions: How many new visitors did we get today?
+What's the week-over-week growth in traffic?
+Which landing pages are attracting the most new visitors?
+How does organic vs paid traffic compare for new visitor acquisition?
+   Known Gotchas: Excludes internal traffic (Builder.io IPs and @builder.io emails)
+Visitor_id can be unstable if users clear cookies
+First pageview is determined by earliest timestamp in Amplitude, not session start
+Cross-device visitors may appear as multiple new visitors
+   Example Use Case: Product marketing wants to measure the impact of the new homepage design. Compare new visitors before/after launch date, segment by traffic source, and calculate conversion rate to signup for each segment.
+
+29. Self Serve ARR
+   Definition: ARR from self-serve paid subscriptions, measured per user to track back to pageview. First-touch pageview must occur before the subscription start date (v.created_date < sub.start_date).
+   Table: dbt_mart.dim_subscriptions, dbt_staging_bigquery.first_pageviews, dbt_staging_bigquery.signups
+   Department: General
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+30. Signups
+   Definition: Count of distinct users who created an account, cohorted by User_Create_D. Pageview Centric view excludes signups without a tracked pageview (e.g. adblock/Figma plugin). Signup Centric view includes ALL product signups.
+   Table: dbt_staging_bigquery.signups (Pageview Centric), dbt_analytics.product_signups (Signup Centric)
+   Department: General
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+31. Customer Since
+   Definition: The close_date from the earliest HubSpot deal associated with the account's root org. Represents when the customer first became a paying customer.
+   Table: dbt_mart.enterprise_companies (via HubSpot deal close dates)
+   Department: Customer Success
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+32. Avg Monthly Sessions per User
+   Definition: Average number of sessions per user per month. Calculated by counting session_id per user per month (truncated to month), then averaging across all users. Filtered to the current billing period.
+   Table: dbt_mart.user_sessions
+   Department: Product
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+33. First Touch Channel
+   Definition: Attributed acquisition channel based on a user's first tracked touchpoint. Coalesce_Channel prioritizes First_Touch_Channel over the pageview-level Channel field. Values: direct, organic, figma, oss, ai chat, paid, referral, social, other.
+   Table: signup materialized views
+   Department: Marketing
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+34. Contracted Seats / Bandwidth / Pageviews / AI Credits
+   Definition: Contractual limits for an account across key resource dimensions: contracted_user_seats, contracted_bandwidth, contracted_pageviews, contracted_ai_credits. These serve as the denominators for all utilization % metrics.
+   Table: dbt_mart.dim_organizations (paid orgs query, subscription_name NOT IN ('free', 'internal'))
+   Department: Product
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+35. QL Rate
+   Definition: QLs ÷ Signups for a given time period and channel. Measures conversion rate from signup to qualified lead status.
+   Table: Computed from QL and Signup metrics
+   Department: Marketing
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+36. ⚙ Root Org ID Resolution (Business Logic)
+   Definition: If root_org_id is null or empty, fall back to org_id. This logic is repeated across nearly every query and is a core concept for org-level aggregation.
+   Table: Applied across all org-level queries
+   Department: General
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+37. ⚙ Paid Org Filter (Business Logic)
+   Definition: Foundational filter applied across nearly all queries: subscription_name NOT IN ('free', 'internal') AND kind <> 'shopify' AND org name does not contain 'test'.
+   Table: dbt_mart.dim_organizations, dbt_mart.dim_root_organizations
+   Department: General
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+38. Pipeline
+   Definition: Total deal amount for qualified open deals (S1, S2, S3 stages). Excludes S0 (pre-qualified) and closed deals (Closed Won, Closed Lost). Cohorted by first pageview date when used in acquisition context.
+   Table: dbt_mart.dim_deals, dbt_staging_bigquery.first_pageviews, dbt_staging_bigquery.signups, dbt_analytics.hs_contacts
+   Department: Sales
+   Owner: MISSING ❌
+   Query Template: MISSING ❌
+   Common Questions: MISSING ❌
+   Known Gotchas: MISSING ❌
+   Example Use Case: MISSING ❌
+
+=== MISSING FIELDS SUMMARY ===
+definition: 0/38 (0% missing)
+table: 0/38 (0% missing)
+department: 0/38 (0% missing)
+owner: 38/38 (100% missing)
+queryTemplate: 36/38 (95% missing)
+commonQuestions: 36/38 (95% missing)
+knownGotchas: 36/38 (95% missing)
+exampleUseCase: 36/38 (95% missing)
+file:///root/app/code/scripts/analyze-dd.mjs:103
+await Bun.write('dd-analysis.json', JSON.stringify(entries, null, 2));
+^
+
+ReferenceError: Bun is not defined
+    at [90mfile:///root/app/code/scripts/[39manalyze-dd.mjs:103:1
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+
+Node.js v22.22.0
