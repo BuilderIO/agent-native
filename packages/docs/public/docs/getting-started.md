@@ -72,7 +72,10 @@ export default {
 | `@agent-native/core` | Server, client, scripts: createServer, createFileWatcher, createSSEHandler, createProductionServer, runScript, parseArgs, loadEnv, fail, agentChat, sendToAgentChat, useAgentChatGenerating, useFileWatcher, cn |
 | `@agent-native/core/vite` | defineConfig(), defineServerConfig() |
 | `@agent-native/core/tailwind` | Tailwind preset (HSL colors, shadcn/ui tokens, animations) |
-| `@agent-native/core/adapters/firestore` | FileSync, threeWayMerge, loadSyncConfig |
+| `@agent-native/core/adapters/sync` | FileSyncAdapter interface, FileRecord, FileChange types |
+| `@agent-native/core/adapters/firestore` | FirestoreFileSyncAdapter, FileSync, threeWayMerge, loadSyncConfig |
+| `@agent-native/core/adapters/supabase` | SupabaseFileSyncAdapter, FileSync, threeWayMerge, loadSyncConfig |
+| `@agent-native/core/adapters/neon` | NeonFileSyncAdapter, FileSync, threeWayMerge, loadSyncConfig |
 
 ## Architecture Principles
 

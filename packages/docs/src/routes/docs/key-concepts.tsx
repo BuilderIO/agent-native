@@ -229,23 +229,44 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`} />
         across different agent instances, you need a sync layer.
       </p>
       <p>
-        Agent-native provides a <strong>Firestore adapter</strong> that syncs files to Google Cloud Firestore in real-time.
-        It works transparently behind the scenes:
+        Agent-native provides a <strong>pluggable adapter system</strong> that syncs files to a remote database in real-time.
+        Three adapters ship out of the box:
       </p>
+      <div className="my-4 grid gap-4 sm:grid-cols-3">
+        <div className="rounded-xl border border-[var(--border)] p-5">
+          <div className="mb-2 text-sm font-semibold">Google Cloud Firestore</div>
+          <p className="m-0 text-sm text-[var(--fg-secondary)]">
+            Real-time listener via <code>onSnapshot</code>. Best for apps already on Google Cloud or Firebase.
+          </p>
+        </div>
+        <div className="rounded-xl border border-[var(--border)] p-5">
+          <div className="mb-2 text-sm font-semibold">Supabase (Postgres)</div>
+          <p className="m-0 text-sm text-[var(--fg-secondary)]">
+            Real-time via Supabase Realtime channels. Best for teams using Supabase for auth, storage, or edge functions.
+          </p>
+        </div>
+        <div className="rounded-xl border border-[var(--border)] p-5">
+          <div className="mb-2 text-sm font-semibold">Neon (Postgres)</div>
+          <p className="m-0 text-sm text-[var(--fg-secondary)]">
+            Polling-based sync via serverless SQL. Best for serverless-first architectures and Vercel deployments.
+          </p>
+        </div>
+      </div>
+      <p>All adapters work the same way under the hood:</p>
       <ul className="list-disc space-y-1 pl-5">
-        <li>A file watcher detects local changes and pushes them to Firestore</li>
-        <li>A Firestore listener detects remote changes and writes them to disk</li>
+        <li>A chokidar file watcher detects local changes and pushes them to the database</li>
+        <li>A remote listener (real-time or polling) detects remote changes and writes them to disk</li>
         <li>Three-way merge with LCS-based conflict resolution handles concurrent edits</li>
-        <li>Unresolvable conflicts create <code>.conflict</code> sidecar files</li>
+        <li>Unresolvable conflicts create <code>.conflict</code> sidecar files for manual or LLM-assisted resolution</li>
       </ul>
       <p>
-        The app doesn't know about Firestore — it just reads and writes files.
+        The app doesn't know about the database — it just reads and writes files.
         The adapter handles sync behind the scenes. You configure which files sync via glob patterns:
       </p>
       <CodeBlock code={`// data/sync-config.json
 {
-  "patterns": ["data/projects/**/*.json", "data/**/*.md"],
-  "ignore": ["data/sync-config.json", "data/.selection"]
+  "syncFilePatterns": ["data/projects/**/*.json", "data/**/*.md"],
+  "privateSyncFilePatterns": ["data/users/**/*.json"]
 }`} />
       <p>
         This is important: the database is never the source of truth.

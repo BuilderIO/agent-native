@@ -72,21 +72,82 @@ In the browser, messages are sent via `window.postMessage()`. In Node.js (script
 | `ensureDir(dir)` | `void` | mkdir -p helper |
 | `fail(message)` | `never` | Print error to stderr and exit(1) |
 
-## Firestore Adapter
+## Database Sync Adapters
 
-For apps that need bidirectional file sync across instances, import from `@agent-native/core/adapters/firestore`:
+For apps that need bidirectional file sync across instances, agent-native provides adapters for **Google Cloud Firestore**, **Supabase**, and **Neon** (Postgres). All adapters implement the same `FileSyncAdapter` interface and plug into `FileSync`:
+
+### Google Cloud Firestore
 
 ```ts
-import { FileSync } from "@agent-native/core/adapters/firestore";
+import { FileSync, FirestoreFileSyncAdapter } from "@agent-native/core/adapters/firestore";
 
+const adapter = new FirestoreFileSyncAdapter(() => db.collection("files"));
 const sync = new FileSync({
   appId: "my-app",
   ownerId: "owner-123",
   contentRoot: "./content",
-  getFileCollection: () => db.collection("fusionAppFiles"),
+  adapter,
 });
-
 await sync.initFileSync();
 ```
 
-Features: startup sync, real-time Firestore listeners, chokidar file watchers, three-way merge with LCS-based conflict resolution, and `.conflict` sidecar files for unresolvable conflicts.
+### Supabase
+
+```ts
+import { FileSync, SupabaseFileSyncAdapter } from "@agent-native/core/adapters/supabase";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const adapter = new SupabaseFileSyncAdapter(supabase);
+const sync = new FileSync({
+  appId: "my-app",
+  ownerId: "owner-123",
+  contentRoot: "./content",
+  adapter,
+});
+await sync.initFileSync();
+```
+
+### Neon (Postgres)
+
+```ts
+import { FileSync, NeonFileSyncAdapter } from "@agent-native/core/adapters/neon";
+import { neon } from "@neondatabase/serverless";
+
+const sql = neon(DATABASE_URL);
+const adapter = new NeonFileSyncAdapter(sql, { pollIntervalMs: 2000 });
+const sync = new FileSync({
+  appId: "my-app",
+  ownerId: "owner-123",
+  contentRoot: "./content",
+  adapter,
+});
+await sync.initFileSync();
+```
+
+### SQL Migration (Supabase & Neon)
+
+Supabase and Neon use the same Postgres table schema:
+
+```sql
+CREATE TABLE files (
+  id TEXT PRIMARY KEY,
+  path TEXT NOT NULL,
+  content TEXT NOT NULL DEFAULT '',
+  app TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  last_updated BIGINT NOT NULL DEFAULT 0,
+  created_at BIGINT
+);
+CREATE INDEX idx_files_app_owner ON files(app, owner_id);
+```
+
+### Custom Adapters
+
+The adapter interface is available at `@agent-native/core/adapters/sync` for building custom adapters:
+
+```ts
+import type { FileSyncAdapter } from "@agent-native/core/adapters/sync";
+```
+
+All adapters support: startup sync, remote change listeners, chokidar file watchers, three-way merge with LCS-based conflict resolution, and `.conflict` sidecar files for unresolvable conflicts.
