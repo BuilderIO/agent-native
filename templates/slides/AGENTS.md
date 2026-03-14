@@ -90,8 +90,8 @@ The script runner (`scripts/run.ts`) dispatches to individual script files in `s
 |--------|---------|---------|
 | `generate-image` | Generate images with Gemini + style references | `pnpm script generate-image --prompt "hero image" --count 3` |
 | `image-gen-status` | Check if Gemini API key is configured | `pnpm script image-gen-status` |
-| `image-search` | Search Google Images via Custom Search API | `pnpm script image-search --query "Intuit logo transparent" --count 5` |
-| `logo-lookup` | Get company logo URL via Logo.dev API (free tier, needs token) | `pnpm script logo-lookup --domain intuit.com` |
+| `image-search` | Search Google Images via Custom Search API | `pnpm script image-search --query "Acme logo transparent" --count 5` |
+| `logo-lookup` | Get company logo URL via Logo.dev API (free tier, needs token) | `pnpm script logo-lookup --domain acme.com` |
 
 ### Adding New Scripts
 
