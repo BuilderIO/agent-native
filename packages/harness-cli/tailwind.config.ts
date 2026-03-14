@@ -3,7 +3,6 @@ import type { Config } from "tailwindcss";
 export default {
   content: [
     "./client/**/*.{ts,tsx}",
-    "../harness-shared/client/**/*.{ts,tsx}",
     "./index.html",
   ],
   theme: {

@@ -6,6 +6,26 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 
+// Known CLI tools and their install packages + env vars to strip
+const CLI_REGISTRY: Record<string, { installPackage: string; stripEnv: string[] }> = {
+  claude: {
+    installPackage: '@anthropic-ai/claude-code',
+    stripEnv: ['CLAUDECODE', 'CLAUDE_CODE_SESSION'],
+  },
+  codex: {
+    installPackage: '@openai/codex',
+    stripEnv: [],
+  },
+  gemini: {
+    installPackage: '@google/gemini-cli',
+    stripEnv: [],
+  },
+  opencode: {
+    installPackage: 'opencode',
+    stripEnv: [],
+  },
+};
+
 // Parse CLI args
 function parseArgs(args: string[]): {
   appDir: string;
@@ -48,7 +68,7 @@ const shell = os.platform() === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin
 let appName = path.basename(appDir);
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(appDir, 'package.json'), 'utf-8'));
-  if (pkg.name) appName = pkg.name.replace(/^@[^/]+\//, ''); // strip scope
+  if (pkg.name) appName = pkg.name.replace(/^@[^/]+\//, '');
 } catch {}
 
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -65,7 +85,6 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
 });
 const wss = new WebSocketServer({ server });
 
-// Check if a command exists on PATH
 function commandExists(cmd: string): boolean {
   try {
     execSync(`command -v ${cmd}`, { stdio: 'ignore' });
@@ -75,52 +94,59 @@ function commandExists(cmd: string): boolean {
   }
 }
 
-// Install claude and notify client via WebSocket
-async function installClaude(ws: WebSocket): Promise<boolean> {
-
-  // Send structured JSON messages the client can parse
+async function installCLI(ws: WebSocket, command: string, installPackage: string): Promise<boolean> {
   const sendStatus = (status: string, message: string) => {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'setup-status', status, message }));
     }
   };
 
-  sendStatus('installing', 'Installing Claude Code CLI...');
+  sendStatus('installing', `Installing ${command} CLI...`);
 
   try {
-    // Try npm global install
-    execSync('npm install -g @anthropic-ai/claude-code', {
+    execSync(`npm install -g ${installPackage}`, {
       stdio: 'pipe',
       timeout: 120000,
     });
 
-    if (commandExists('claude')) {
-      sendStatus('installed', 'Claude Code CLI installed successfully!');
+    if (commandExists(command)) {
+      sendStatus('installed', `${command} CLI installed successfully!`);
       return true;
     }
   } catch (err) {
     console.error('[harness] npm install failed:', err);
   }
 
-  sendStatus('failed', 'Failed to install Claude Code CLI. Please install it manually: npm install -g @anthropic-ai/claude-code');
+  sendStatus('failed', `Failed to install ${command} CLI. Please install it manually: npm install -g ${installPackage}`);
   return false;
 }
 
 // WebSocket handling — each connection gets a PTY
 wss.on('connection', async (ws: WebSocket, req) => {
   const url = new URL(req.url || '', `http://${req.headers.host}`);
+  const command = url.searchParams.get('command') || config.command;
   const extraFlags = url.searchParams.get('flags') || '';
-  const fullCommand = extraFlags ? `${config.command} ${extraFlags}` : config.command;
+  const fullCommand = extraFlags ? `${command} ${extraFlags}` : command;
   console.log('[harness] WebSocket connected, spawning PTY:', fullCommand);
 
-  // Check if claude is installed; if not, try to install it
-  if (config.command === 'claude' && !commandExists('claude')) {
-    console.log('[harness] Claude CLI not found, attempting install...');
-    const installed = await installClaude(ws);
-    if (!installed) {
-      if (ws.readyState === WebSocket.OPEN) ws.close();
-      return;
+  // Check if CLI is installed; if not, try to install it
+  if (!commandExists(command)) {
+    const registry = CLI_REGISTRY[command];
+    if (registry) {
+      console.log(`[harness] ${command} CLI not found, attempting install...`);
+      const installed = await installCLI(ws, command, registry.installPackage);
+      if (!installed) {
+        if (ws.readyState === WebSocket.OPEN) ws.close();
+        return;
+      }
     }
+  }
+
+  // Build env, stripping CLI-specific nesting vars
+  const registry = CLI_REGISTRY[command];
+  const env: Record<string, string | undefined> = { ...process.env, TERM: 'xterm-256color' };
+  if (registry) {
+    for (const v of registry.stripEnv) delete env[v];
   }
 
   let ptyProcess: pty.IPty;
@@ -130,13 +156,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
       cols: 120,
       rows: 40,
       cwd: appDir,
-      env: (() => {
-        const env: Record<string, string | undefined> = { ...process.env, TERM: 'xterm-256color' };
-        // Remove Claude Code nesting detection env vars so a fresh session can spawn
-        delete env.CLAUDECODE;
-        delete env.CLAUDE_CODE_SESSION;
-        return env;
-      })() as Record<string, string>,
+      env: env as Record<string, string>,
     });
   } catch (err) {
     console.error('[harness] Failed to spawn PTY:', err);
@@ -149,9 +169,6 @@ wss.on('connection', async (ws: WebSocket, req) => {
 
   console.log(`[harness] PTY spawned (pid: ${ptyProcess.pid})`);
 
-  // Track early exits (exit code 127 = command not found)
-  let spawned = true;
-
   ptyProcess.onData((data: string) => {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(data);
@@ -161,11 +178,10 @@ wss.on('connection', async (ws: WebSocket, req) => {
   ptyProcess.onExit(({ exitCode }) => {
     console.log(`[harness] PTY exited with code ${exitCode}`);
     if (exitCode === 127 && ws.readyState === WebSocket.OPEN) {
-      // Command not found — send structured error so client doesn't reconnect-loop
       ws.send(JSON.stringify({
         type: 'setup-status',
         status: 'not-found',
-        message: `Command "${config.command}" not found. Please install it first.`,
+        message: `Command "${command}" not found. Please install it first.`,
       }));
     }
     if (ws.readyState === WebSocket.OPEN) {
@@ -176,7 +192,6 @@ wss.on('connection', async (ws: WebSocket, req) => {
   ws.on('message', (data: Buffer | string) => {
     const str = typeof data === 'string' ? data : data.toString();
 
-    // Handle JSON control messages from the client
     try {
       const msg = JSON.parse(str);
 
@@ -184,15 +199,11 @@ wss.on('connection', async (ws: WebSocket, req) => {
         const envPath = path.join(appDir, '.env');
         const vars: Array<{ key: string; value: string }> = msg.data.vars;
 
-        // Read existing .env lines (or start empty)
         let lines: string[] = [];
         try {
           lines = fs.readFileSync(envPath, 'utf-8').split('\n');
-        } catch {
-          // No existing .env file — start fresh
-        }
+        } catch {}
 
-        // Upsert each key=value pair
         for (const { key, value } of vars) {
           const idx = lines.findIndex((l) => l.startsWith(`${key}=`));
           const entry = `${key}=${value}`;
@@ -203,13 +214,11 @@ wss.on('connection', async (ws: WebSocket, req) => {
           }
         }
 
-        // Remove any trailing empty lines, then ensure single trailing newline
         while (lines.length > 0 && lines[lines.length - 1] === '') {
           lines.pop();
         }
         fs.writeFileSync(envPath, lines.join('\n') + '\n', 'utf-8');
 
-        // Confirm back to client
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({
             type: 'env-vars-saved',
@@ -239,5 +248,5 @@ wss.on('connection', async (ws: WebSocket, req) => {
 server.listen(config.port, () => {
   console.log(`[harness] WebSocket server on ws://localhost:${config.port}/ws`);
   console.log(`[harness] App dir: ${appDir}`);
-  console.log(`[harness] Command: ${config.command}`);
+  console.log(`[harness] Default command: ${config.command}`);
 });

@@ -226,9 +226,9 @@ function Home() {
           </div>
         </div>
 
-        {/* Ultra-wide: 4-column grid */}
+        {/* Ultra-wide: 5-column grid */}
         <div className="hidden 2xl:block">
-          <div className="mx-auto grid max-w-[1680px] grid-cols-4 gap-5">
+          <div className="mx-auto grid max-w-[1920px] grid-cols-5 gap-5">
             {templates.map((t) => (
               <TemplateCard key={t.name} template={t} />
             ))}

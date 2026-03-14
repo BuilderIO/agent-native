@@ -109,10 +109,12 @@ export function useTerminal() {
       }
 
       const flags = settingsToFlags(settings, config);
-      const params = flags ? `?flags=${encodeURIComponent(flags)}` : "";
+      const qs = new URLSearchParams();
+      if (flags) qs.set("flags", flags);
+      qs.set("command", config.command);
       const protocol = location.protocol === "https:" ? "wss:" : "ws:";
       const ws = new WebSocket(
-        `${protocol}//${location.host}/ws/${appName}${params}`
+        `${protocol}//${location.host}/ws/${appName}?${qs.toString()}`
       );
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
