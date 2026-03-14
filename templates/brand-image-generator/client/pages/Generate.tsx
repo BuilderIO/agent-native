@@ -4,7 +4,7 @@ import { PromptInput } from "@/components/PromptInput";
 import { GenerationGrid } from "@/components/GenerationGrid";
 
 export default function Generate() {
-  const isGenerating = useAgentChatGenerating();
+  const [isGenerating] = useAgentChatGenerating();
   const { data: generations } = useGenerations();
   const latest = generations?.[0];
 
