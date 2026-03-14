@@ -17,8 +17,7 @@ This means:
 
 - When the UI updates something, it writes to files via the backend API (`/api/decks`)
 - When the agent needs to do something, it reads/writes the same JSON files directly (in `data/decks/`)
-- **All decks are JSON files** in `data/decks/` — including the FMD deck
-- The FMD TypeScript source files (`client/data/builderFMDSlides*.ts`) are only used for initial seeding. Once `data/decks/builder-fmd.json` exists, it is the source of truth
+- **All decks are JSON files** in `data/decks/`
 - **No localStorage** — JSON files are the only source of truth
 - The frontend subscribes to file changes via SSE (`/api/decks/events`), so agent edits to JSON files appear in the UI in real-time
 
@@ -90,12 +89,12 @@ The script runner (`scripts/run.ts`) dispatches to individual script files in `s
 
 ### Available Scripts
 
-| Script             | Purpose                                                        | Example                                                                |
-| ------------------ | -------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `generate-image`   | Generate images with Gemini + style references                 | `pnpm script generate-image --prompt "hero image" --count 3`           |
-| `image-gen-status` | Check if Gemini API key is configured                          | `pnpm script image-gen-status`                                         |
-| `image-search`     | Search Google Images via Custom Search API                     | `pnpm script image-search --query "Intuit logo transparent" --count 5` |
-| `logo-lookup`      | Get company logo URL via Logo.dev API (free tier, needs token) | `pnpm script logo-lookup --domain intuit.com`                          |
+| Script             | Purpose                                                        | Example                                                              |
+| ------------------ | -------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `generate-image`   | Generate images with Gemini + style references                 | `pnpm script generate-image --prompt "hero image" --count 3`         |
+| `image-gen-status` | Check if Gemini API key is configured                          | `pnpm script image-gen-status`                                       |
+| `image-search`     | Search Google Images via Custom Search API                     | `pnpm script image-search --query "Acme logo transparent" --count 5` |
+| `logo-lookup`      | Get company logo URL via Logo.dev API (free tier, needs token) | `pnpm script logo-lookup --domain acme.com`                          |
 
 ### Adding New Scripts
 
@@ -185,7 +184,7 @@ When the user asks to insert a company logo:
 
 1. Run `pnpm script logo-lookup --domain companyname.com`
 2. Use the returned URL: `https://img.logo.dev/companyname.com?token=TOKEN&size=128`
-3. Update the slide content in the appropriate data file (`client/data/builderFMDSlides*.ts`)
+3. Update the slide content in the deck JSON file
 4. Sign up for a free token at https://logo.dev/signup
 
 **Option 2: Google Image Search** (fallback, always available):
@@ -227,7 +226,7 @@ Key styling rules for all generated slides:
 - **Two-column slides**: Use flex with `gap: 40px`, text on left, image placeholder on right
 - **Tables**: Use CSS grid with `grid-template-columns`, alternating row backgrounds with rgba(255,255,255,0.04/0.07)
 
-Reference the 37 slides in `data/decks/vkkvhkbJ_Q.json` for specific examples of each slide type.
+Reference existing deck JSON files in `data/decks/` for specific examples of each slide type.
 
 ## Current Selection State
 
@@ -279,10 +278,7 @@ client/                        # React SPA frontend
 │   ├── deck/
 │   │   └── SlideRenderer.tsx  # Core 960x540 slide rendering
 │   └── ui/                    # Reusable UI primitives (Radix-based)
-├── data/
-│   ├── builderFMDSlides1.ts   # FMD slides 1-7 (title, overview, stats, workflow)
-│   ├── builderFMDSlides2.ts   # FMD slides 8-14 (platform features, guardrails)
-│   └── builderFMDSlides3.ts   # FMD slides 15-21 (use cases, architecture, appendix)
+├── data/                      # Shared data types and utilities
 ├── context/
 │   └── DeckContext.tsx        # Central state: decks, slides, undo/redo (fetches from /api/decks)
 ├── lib/

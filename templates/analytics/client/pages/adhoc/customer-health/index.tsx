@@ -43,7 +43,7 @@ function get90DaysAgo(): string {
 }
 
 export default function CustomerHealthDashboard() {
-  const [company, setCompany] = useState<string | null>("Intuit");
+  const [company, setCompany] = useState<string | null>(null);
   const [dateStart, setDateStart] = useUrlParam("from", get90DaysAgo());
   const [dateEnd, setDateEnd] = useUrlParam("to", getToday());
 

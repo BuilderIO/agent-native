@@ -15,7 +15,7 @@ export function logoConfig(_req: Request, res: Response) {
 
 /**
  * Logo search endpoint
- * GET /api/logo/search?q=intuit
+ * GET /api/logo/search?q=acme
  */
 export async function searchLogos(req: Request, res: Response) {
   const q = ((req.query.q as string) || "").trim().toLowerCase();

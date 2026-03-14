@@ -2,10 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { CliRegistry } from "./registry.js";
 import type { CliAdapter, CliResult } from "./types.js";
 
-function createMockAdapter(
-  name: string,
-  available = true,
-): CliAdapter {
+function createMockAdapter(name: string, available = true): CliAdapter {
   return {
     name,
     description: `Mock ${name} CLI`,

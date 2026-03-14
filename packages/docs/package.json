@@ -10,7 +10,7 @@
     "dev:proxied": "vite dev --port 3000 --base /docs/",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.18",

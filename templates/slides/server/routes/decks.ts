@@ -1,8 +1,6 @@
 import { Router, Request, Response } from "express";
 import fs from "fs";
 import path from "path";
-import { createBuilderFMDDeck } from "../../client/data/builderFMDDeck";
-
 const DECKS_DIR = path.join(process.cwd(), "data", "decks");
 
 // Ensure the directory exists
@@ -12,19 +10,7 @@ function ensureDecksDir() {
   }
 }
 
-// Seed built-in decks as JSON files if they don't exist yet
-function seedBuiltInDecks() {
-  ensureDecksDir();
-  const fmdPath = getDeckFilePath("builder-fmd");
-  if (!fs.existsSync(fmdPath)) {
-    const fmd = createBuilderFMDDeck();
-    fs.writeFileSync(fmdPath, JSON.stringify(fmd, null, 2), "utf-8");
-    console.log("[decks] Seeded builder-fmd.json from TypeScript source");
-  }
-}
-
-// Run on import
-seedBuiltInDecks();
+ensureDecksDir();
 
 function getDeckFilePath(id: string): string {
   const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "");
@@ -125,10 +111,8 @@ decksRouter.get("/events", (req: Request, res: Response) => {
 // GET /api/decks — list all decks
 decksRouter.get("/", (_req: Request, res: Response) => {
   const decks = listAllDecks();
-  // Sort by updatedAt desc, but keep builder-fmd first
+  // Sort by updatedAt desc
   decks.sort((a, b) => {
-    if (a.id === "builder-fmd") return -1;
-    if (b.id === "builder-fmd") return 1;
     return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
   });
   res.json(decks);

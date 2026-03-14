@@ -604,6 +604,9 @@ importers:
       typescript:
         specifier: ^5.9.0-dev.20250117
         version: 5.9.3
+      vite:
+        specifier: ^7.1.2
+        version: 7.3.1(@types/node@24.12.0)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.2)
       vitest:
         specifier: ^3.0.4
         version: 3.2.4(@types/debug@4.1.12)(@types/node@24.12.0)(jiti@2.6.1)(jsdom@28.1.0(canvas@3.2.1))(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.2)
