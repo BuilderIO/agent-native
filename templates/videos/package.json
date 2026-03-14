@@ -21,7 +21,7 @@
     "validate:compositions": "tsx scripts/validate-compositions.ts"
   },
   "dependencies": {
-    "@agent-native/core": "^0.2.1",
+    "@agent-native/core": "workspace:*",
     "@remotion/player": "^4.0.434",
     "@remotion/transitions": "^4.0.434",
     "dotenv": "^17.2.1",

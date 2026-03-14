@@ -16,6 +16,7 @@ export function useFileWatcher() {
         queryClient.invalidateQueries({ queryKey: ["file"] });
         queryClient.invalidateQueries({ queryKey: ["fileTree"] });
         queryClient.invalidateQueries({ queryKey: ["projects"] });
+        queryClient.invalidateQueries({ queryKey: ["pageTree"] });
         queryClient.invalidateQueries({ queryKey: ["versionHistory"] });
         queryClient.invalidateQueries({ queryKey: ["versionContent"] });
       } catch (err) {

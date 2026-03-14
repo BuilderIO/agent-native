@@ -13,8 +13,9 @@ import { useBuilderAuth } from "@/components/builder/BuilderAuthContext";
 import { ConnectScreen } from "@/components/builder/ConnectScreen";
 import { ImagePreview, isImagePath } from "@/components/shared/ImagePreview";
 import { ImageFolderGrid } from "@/components/shared/ImageFolderGrid";
+import type { Page } from "@shared/api";
 
-type View = "editor" | "global-images" | "research-search" | "project-media" | "project-history" | "all-up";
+type View = "editor" | "global-images" | "research-search" | "project-media" | "project-history";
 
 interface ActiveFile {
   projectSlug: string;
@@ -33,7 +34,6 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sharedFile, setSharedFile] = useState<string | null>(null);
-  const [lastProjectSlug, setLastProjectSlug] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
 
   // --- Parse URL segments ---
@@ -41,11 +41,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   const searchParams = new URLSearchParams(location.search);
 
   // Check top-level routes
-  const isBlog = segments[0] === "blog";
-  const isDocs = segments[0] === "docs";
   const isImageGenRoute = segments[0] === "image-gen";
   const isResearchRoute = segments[0] === "research-search";
-  const isTopLevel = isBlog || isDocs || isImageGenRoute || isResearchRoute;
+  const isTopLevel = isImageGenRoute || isResearchRoute;
 
   // Detect /workspace/ prefix for new workspaces
   const hasWorkspacePrefix = segments[0] === "workspace";
@@ -54,10 +52,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   const urlWorkspace = isTopLevel ? null : segments[offset] || null;
   const urlFile = searchParams.get("file");
 
-  // Only restore workspace from localStorage when inside a workspace route (not top-level)
   const selectedOwner = urlWorkspace;
 
-  // Parse multi-segment project path: everything after workspace, minus known subviews
+  // Parse multi-segment project path
   const KNOWN_SUBVIEWS = ["media", "history"];
   let urlSubView: string | null = null;
   let routeProjectSlug: string | null = null;
@@ -80,41 +77,21 @@ export function AppLayout({ children }: AppLayoutProps) {
     ? "global-images"
     : isResearchRoute
       ? "research-search"
-      : (isBlog || isDocs)
-        ? "all-up"
-        : isProjectMediaRoute
-          ? "project-media"
-          : isProjectHistoryRoute
-            ? "project-history"
-            : "editor";
+      : isProjectMediaRoute
+        ? "project-media"
+        : isProjectHistoryRoute
+          ? "project-history"
+          : "editor";
 
   const effectiveProjectSlug = isTopLevel ? null : activeProjectSlug;
-
-  const validLastProject = lastProjectSlug?.startsWith(`${urlWorkspace}/`) ? lastProjectSlug : null;
-  const sidebarProjectSlug = effectiveProjectSlug || validLastProject;
-
-  // Use activeDraft from project metadata, defaulting to draft.md
   const lastFilePath = urlFile || activeProjectData?.activeDraft || "draft.md";
 
-  const activeFile: ActiveFile | null = sharedFile
-    ? { projectSlug: SHARED_SLUG, filePath: sharedFile }
-    : (view === "editor" || view === "project-history") && effectiveProjectSlug
-      ? { projectSlug: effectiveProjectSlug, filePath: lastFilePath }
-      : null;
-
-  // Track last active project
-  useEffect(() => {
-    if (effectiveProjectSlug) {
-      setLastProjectSlug(effectiveProjectSlug);
-    }
-  }, [effectiveProjectSlug]);
-
-  // Persist workspace to localStorage
-  useEffect(() => {
-    if (urlWorkspace && projectsData?.groups?.includes(urlWorkspace)) {
-      localStorage.setItem("workspaceOwner", urlWorkspace);
-    }
-  }, [urlWorkspace, projectsData?.groups]);
+  // Derive active page ID for sidebar highlighting
+  const activePageId = effectiveProjectSlug
+    ? urlFile
+      ? `${effectiveProjectSlug}::${urlFile}`
+      : effectiveProjectSlug
+    : null;
 
   // Helper to check if a workspace is prefixed
   const isWorkspacePrefixed = useCallback(
@@ -126,67 +103,74 @@ export function AppLayout({ children }: AppLayoutProps) {
   const handleSelectOwner = useCallback(
     (owner: string) => {
       setSharedFile(null);
-      setLastProjectSlug(null);
       navigate(workspaceUrl(owner, isWorkspacePrefixed(owner)));
     },
     [navigate, isWorkspacePrefixed]
   );
 
-  const handleSelectProject = useCallback(
-    (slug: string) => {
+  const handleSelectPage = useCallback(
+    (page: Page) => {
       setSharedFile(null);
-      if (!slug) {
-        navigate(urlWorkspace ? workspaceUrl(urlWorkspace, hasWorkspacePrefix || isWorkspacePrefixed(urlWorkspace)) : "/");
-      } else {
-        const project = projectsData?.projects.find((entry) => entry.slug === slug);
-        const targetSlug = project ? getProjectRouteSlug(project) : slug;
-        const ws = targetSlug.includes("/") ? targetSlug.split("/")[0] : targetSlug;
-        navigate(workspaceUrl(targetSlug, isWorkspacePrefixed(ws)));
-      }
-    },
-    [hasWorkspacePrefix, isWorkspacePrefixed, navigate, projectsData?.projects, urlWorkspace]
-  );
+      const projectSlug = page._projectSlug;
+      if (!projectSlug) return;
 
-  const handleSelectFile = useCallback(
-    (projectSlug: string, filePath: string) => {
-      if (projectSlug === SHARED_SLUG) {
-        setSharedFile(filePath);
+      const project = projectsData?.projects.find((p) => p.slug === projectSlug);
+      const routeSlug = project ? getProjectRouteSlug(project) : projectSlug;
+      const ws = routeSlug.includes("/") ? routeSlug.split("/")[0] : routeSlug;
+      const base = workspaceUrl(routeSlug, isWorkspacePrefixed(ws));
+
+      if (page._filePath === null) {
+        // Navigate to project root (active draft)
+        navigate(base);
       } else {
-        setSharedFile(null);
-        const project = projectsData?.projects.find((entry) => entry.slug === projectSlug);
-        const routeSlug = project ? getProjectRouteSlug(project) : projectSlug;
-        const ws = routeSlug.includes("/") ? routeSlug.split("/")[0] : routeSlug;
-        const base = workspaceUrl(routeSlug, isWorkspacePrefixed(ws));
-        // Navigate to base URL when selecting the active draft (no ?file= needed)
+        // Navigate to specific file
         const proj = project;
         const projActiveDraft = proj?.activeDraft || "draft.md";
-        if (filePath === projActiveDraft) {
+        if (page._filePath === projActiveDraft) {
           navigate(base);
         } else {
-          navigate(`${base}?file=${encodeURIComponent(filePath)}`);
+          navigate(`${base}?file=${encodeURIComponent(page._filePath)}`);
         }
       }
     },
     [isWorkspacePrefixed, navigate, projectsData?.projects]
   );
 
-  const handleDeleteFile = useCallback(
+  // Legacy handlers for QuickSearch compatibility
+  const handleSelectFile = useCallback(
     (projectSlug: string, filePath: string) => {
-      if (projectSlug === SHARED_SLUG && sharedFile === filePath) {
-        setSharedFile(null);
+      handleSelectPage({
+        id: `${projectSlug}::${filePath}`,
+        title: "",
+        parentId: null,
+        type: "page",
+        updatedAt: "",
+        hasChildren: false,
+        _projectSlug: projectSlug,
+        _filePath: filePath,
+      });
+    },
+    [handleSelectPage]
+  );
+
+  const handleSelectProject = useCallback(
+    (slug: string) => {
+      if (!slug) {
+        navigate(urlWorkspace ? workspaceUrl(urlWorkspace, hasWorkspacePrefix || isWorkspacePrefixed(urlWorkspace)) : "/");
         return;
       }
-      if (
-        activeFile?.projectSlug === projectSlug &&
-        activeFile?.filePath === filePath
-      ) {
-        const project = projectsData?.projects.find((entry) => entry.slug === projectSlug);
-        const routeSlug = project ? getProjectRouteSlug(project) : projectSlug;
-        const ws = routeSlug.includes("/") ? routeSlug.split("/")[0] : routeSlug;
-        navigate(workspaceUrl(routeSlug, isWorkspacePrefixed(ws)));
-      }
+      handleSelectPage({
+        id: slug,
+        title: "",
+        parentId: null,
+        type: "page",
+        updatedAt: "",
+        hasChildren: false,
+        _projectSlug: slug,
+        _filePath: null,
+      });
     },
-    [activeFile, isWorkspacePrefixed, navigate, projectsData?.projects, sharedFile]
+    [handleSelectPage, hasWorkspacePrefix, isWorkspacePrefixed, navigate, urlWorkspace]
   );
 
   const handleOpenGlobalImages = useCallback(() => {
@@ -199,27 +183,12 @@ export function AppLayout({ children }: AppLayoutProps) {
     navigate("/research-search");
   }, [navigate]);
 
-  const handleOpenProjectMedia = useCallback(() => {
-    setSharedFile(null);
-    const slug = effectiveProjectSlug || validLastProject;
-    if (slug) {
-      const project = projectsData?.projects.find((entry) => entry.slug === slug);
-      const routeSlug = project ? getProjectRouteSlug(project) : slug;
-      const ws = routeSlug.includes("/") ? routeSlug.split("/")[0] : routeSlug;
-      navigate(`${workspaceUrl(routeSlug, isWorkspacePrefixed(ws))}/media`);
+  // Persist workspace to localStorage
+  useEffect(() => {
+    if (urlWorkspace && projectsData?.groups?.includes(urlWorkspace)) {
+      localStorage.setItem("workspaceOwner", urlWorkspace);
     }
-  }, [
-    effectiveProjectSlug,
-    isWorkspacePrefixed,
-    navigate,
-    projectsData?.projects,
-    validLastProject,
-  ]);
-
-  const handleOpenAllContent = useCallback(() => {
-    setSharedFile(null);
-    navigate("/blog");
-  }, [navigate]);
+  }, [urlWorkspace, projectsData?.groups]);
 
   if (location.pathname.startsWith('/test') || location.pathname.startsWith('/builder-')) {
     return <>{children}</>;
@@ -232,11 +201,8 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <ProjectSidebar
-        activeFile={view === "editor" || view === "project-history" ? activeFile : null}
-        activeProjectSlug={sidebarProjectSlug}
-        onSelectProject={handleSelectProject}
-        onSelectFile={handleSelectFile}
-        onDeleteFile={handleDeleteFile}
+        activePageId={view === "editor" || view === "project-history" ? activePageId : null}
+        onSelectPage={handleSelectPage}
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         collapsed={sidebarCollapsed}
@@ -248,10 +214,6 @@ export function AppLayout({ children }: AppLayoutProps) {
         isGlobalImagesActive={view === "global-images"}
         onOpenSearchResearch={handleOpenSearchResearch}
         isSearchResearchActive={view === "research-search"}
-        onOpenProjectMedia={handleOpenProjectMedia}
-        isProjectMediaActive={view === "project-media"}
-        onOpenAllContent={handleOpenAllContent}
-        isAllContentActive={isTopLevel}
         onOpenSearch={() => setSearchOpen(true)}
       />
       <QuickSearch

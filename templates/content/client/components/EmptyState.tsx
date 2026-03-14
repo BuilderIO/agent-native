@@ -1,4 +1,4 @@
-import { PenLine, FolderOpen, BookOpen } from "lucide-react";
+import { PenLine, FileText, BookOpen } from "lucide-react";
 
 interface EmptyStateProps {
   hasProject: boolean;
@@ -12,21 +12,21 @@ export function EmptyState({ hasProject }: EmptyStateProps) {
           <PenLine size={24} className="text-muted-foreground" />
         </div>
         <h2 className="text-lg font-semibold text-foreground mb-2">
-          {hasProject ? "Select a file to edit" : "Welcome to Content Workspace"}
+          {hasProject ? "Select a page to edit" : "Welcome to Content Workspace"}
         </h2>
         <p className="text-sm text-muted-foreground leading-relaxed mb-8">
           {hasProject
-            ? "Pick a file from the sidebar to start writing, or create a new file in your project."
-            : "Create a project to start writing. Each project has a draft for your blog post and a place for research resources."}
+            ? "Pick a page from the sidebar to start writing, or create a new subpage."
+            : "Create a page to start writing. Each page can have subpages for organizing your content."}
         </p>
         <div className="flex items-center justify-center gap-6 text-muted-foreground">
           <div className="flex items-center gap-2 text-xs">
-            <FolderOpen size={13} />
-            <span>Projects for blog posts</span>
+            <FileText size={13} />
+            <span>Pages for your content</span>
           </div>
           <div className="flex items-center gap-2 text-xs">
             <BookOpen size={13} />
-            <span>Resources for research</span>
+            <span>Subpages for details</span>
           </div>
         </div>
       </div>

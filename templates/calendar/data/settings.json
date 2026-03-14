@@ -1,0 +1,6 @@
+{
+  "timezone": "America/New_York",
+  "bookingPageTitle": "Book a Meeting",
+  "bookingPageDescription": "Pick a time that works for you.",
+  "defaultEventDuration": 30
+}

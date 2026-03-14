@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "concurrently -n server,client -c blue,green \"tsx src/server.ts\" \"vite\"",
     "dev:server": "tsx src/server.ts",
-    "dev:client": "vite --port 3334",
+    "dev:client": "vite",
     "build": "vite build",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true"
   },

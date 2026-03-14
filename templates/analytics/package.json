@@ -20,7 +20,7 @@
     "script": "agent-native script"
   },
   "dependencies": {
-    "@agent-native/core": "^0.2.3",
+    "@agent-native/core": "workspace:*",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
@@ -29,7 +29,7 @@
     "chartjs-node-canvas": "^5.0.0",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
-"zod": "^3.25.76"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@hookform/resolvers": "^5.2.1",

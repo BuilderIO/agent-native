@@ -1,0 +1,10 @@
+{
+  "syncFilePatterns": [
+    "data/events/**/*.json",
+    "data/bookings/**/*.json",
+    "data/availability.json",
+    "data/settings.json",
+    "!data/sync-config.json",
+    "!data/google-auth.json"
+  ]
+}

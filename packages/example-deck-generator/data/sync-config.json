@@ -1,6 +1,0 @@
-{
-  "syncFilePatterns": [
-    "data/decks/**/*.json",
-    "!data/decks/.conflict-*"
-  ]
-}

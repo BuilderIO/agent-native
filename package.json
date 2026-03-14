@@ -7,10 +7,7 @@
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",
     "typecheck": "pnpm -r typecheck",
-    "dev:deck": "pnpm --filter @agent-native/core build && pnpm --filter @agent-native/example-deck-generator dev",
-    "dev:harness": "concurrently -n ws,ui -c blue,green \"pnpm --filter @agent-native/harness-claude-code dev:server -- --app-dir ../example-deck-generator\" \"pnpm --filter @agent-native/harness-claude-code dev:client\"",
-    "dev:all": "pnpm --filter @agent-native/core build && concurrently -n app,ws,ui -c yellow,blue,green \"pnpm --filter @agent-native/example-deck-generator dev\" \"pnpm --filter @agent-native/harness-claude-code dev:server -- --app-dir ../example-deck-generator\" \"APP_PORT=8080 VITE_SINGLE_PORT=0 pnpm --filter @agent-native/harness-claude-code dev:client\"",
-    "dev:all:single-port": "pnpm --filter @agent-native/core build && concurrently -n app,docs,ws,ui -c yellow,magenta,blue,green \"pnpm --filter @agent-native/example-deck-generator exec vite --base /app/\" \"pnpm --filter @agent-native/docs dev:proxied\" \"pnpm --filter @agent-native/harness-claude-code dev:server -- --app-dir ../example-deck-generator\" \"APP_PORT=8080 DOCS_PORT=3000 VITE_SINGLE_PORT=1 pnpm --filter @agent-native/harness-claude-code dev:client\"",
+    "dev:all": "pnpm --filter @agent-native/core build && node scripts/dev-all.mjs",
     "dev:docs": "pnpm --filter @agent-native/docs dev"
   },
   "devDependencies": {

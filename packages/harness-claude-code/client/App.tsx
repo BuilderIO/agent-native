@@ -4,6 +4,8 @@ import {
   IconShare,
   IconExternalLink,
   IconMessageReport,
+  IconTerminal2,
+  IconDeviceDesktop,
 } from "@tabler/icons-react";
 import { useTerminal } from "./hooks/useTerminal";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -24,19 +26,10 @@ function Tooltip({ children, label }: { children: ReactNode; label: string }) {
   );
 }
 
-const APP_PORT = Number(
-  new URLSearchParams(location.search).get("appPort") || "8080"
-);
-// Single-port mode: app is proxied through /app/ on the same origin.
-// Explicit: VITE_SINGLE_PORT env var or ?singlePort=1 query param.
-// Auto-detect fallback: if no explicit signal and we're not on the app's own port.
-const SINGLE_PORT =
-  import.meta.env.VITE_SINGLE_PORT === "1" ||
-  new URLSearchParams(location.search).get("singlePort") === "1" ||
-  (import.meta.env.VITE_SINGLE_PORT !== "0" &&
-    !new URLSearchParams(location.search).has("appPort") &&
-    location.port !== "8080");
-const APP_URL = SINGLE_PORT ? "/app/" : `http://localhost:${APP_PORT}`;
+const APP_CONFIG: Array<{ name: string; appPort: number; wsPort: number }> =
+  import.meta.env.VITE_APP_CONFIG || [
+    { name: "default", appPort: 8081, wsPort: 3341 },
+  ];
 
 export function App() {
   const [settings, setSettings] = useState<LaunchSettings>(loadSettings);
@@ -45,45 +38,51 @@ export function App() {
   const settingsRef = useRef<HTMLDivElement>(null);
   const shareRef = useRef<HTMLDivElement>(null);
 
-  const [appName, setAppName] = useState("Agent Native");
-
-  const { termRef, iframeRef, connected, setupStatus, connect, restart, fit } = useTerminal({
-    appPort: APP_PORT,
+  const [activeApp, setActiveApp] = useState(() => {
+    const saved = loadSettings().activeApp;
+    return APP_CONFIG.find((a) => a.name === saved)?.name || APP_CONFIG[0]?.name || "default";
   });
 
-  // Connect on mount + fetch app info
+  const [mobileTab, setMobileTab] = useState<"agent" | "interact">("interact");
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+
+  const activeAppConfig = APP_CONFIG.find((a) => a.name === activeApp);
+  const appUrl = activeAppConfig ? `http://localhost:${activeAppConfig.appPort}` : `http://localhost:8081`;
+
+  const { termRef, iframeRef, connected, setupStatus, connect, restart, fit } =
+    useTerminal();
+
   useEffect(() => {
-    connect(settings);
-    fetch("/api/app-info")
-      .then((r) => r.json())
-      .then((info) => { if (info.name) setAppName(info.name); })
-      .catch(() => {});
+    connect(settings, activeApp);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Save settings on change
-  const updateSettings = useCallback(
-    (s: LaunchSettings) => {
-      setSettings(s);
-      saveSettings(s);
+  const updateSettings = useCallback((s: LaunchSettings) => {
+    setSettings(s);
+    saveSettings(s);
+  }, []);
+
+  const switchApp = useCallback(
+    (name: string) => {
+      if (name === activeApp) return;
+      setActiveApp(name);
+      updateSettings({ ...settings, activeApp: name });
+      restart(settings, name);
     },
-    []
+    [activeApp, settings, updateSettings, restart]
   );
 
-  // Close popovers on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) {
+      if (settingsRef.current && !settingsRef.current.contains(e.target as Node))
         setShowSettings(false);
-      }
-      if (shareRef.current && !shareRef.current.contains(e.target as Node)) {
+      if (shareRef.current && !shareRef.current.contains(e.target as Node))
         setShowShareMenu(false);
-      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // Resizable panes — persist width in localStorage
+  // Desktop resize
   const [termWidth, setTermWidth] = useState<number | null>(() => {
     const saved = localStorage.getItem("harness:termWidth");
     return saved ? Number(saved) : null;
@@ -111,9 +110,8 @@ export function App() {
         document.body.style.userSelect = "";
         if (iframeRef.current) iframeRef.current.style.pointerEvents = "";
         fit();
-        if (termWidth !== null) {
+        if (termWidth !== null)
           localStorage.setItem("harness:termWidth", String(termWidth));
-        }
       }
     };
     document.addEventListener("mousemove", onMouseMove);
@@ -124,181 +122,212 @@ export function App() {
     };
   }, [fit, iframeRef, termWidth]);
 
-  // Resize terminal on window resize
   useEffect(() => {
-    const handler = () => fit();
+    const handler = () => {
+      setIsMobile(window.innerWidth < 768);
+      fit();
+    };
     window.addEventListener("resize", handler);
     return () => window.removeEventListener("resize", handler);
   }, [fit]);
 
   const copyUrl = () => {
-    const url = SINGLE_PORT
-      ? `${location.origin}/app/`
-      : `http://localhost:${APP_PORT}`;
-    navigator.clipboard.writeText(url);
+    navigator.clipboard.writeText(`${location.origin}${appUrl}`);
     setShowShareMenu(false);
   };
 
+  // Terminal header — lives inside the terminal pane only
+  const terminalHeader = (
+    <div className="flex items-center gap-2 px-3 h-10 shrink-0">
+      <span className="text-[13px] font-medium text-white/90">{activeApp}</span>
+      <span className="flex-1" />
+
+      <div ref={settingsRef} className="relative">
+        <Tooltip label="Settings">
+          <button
+            onClick={() => setShowSettings((v) => !v)}
+            className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
+          >
+            <IconSettings size={14} stroke={1.5} />
+          </button>
+        </Tooltip>
+        {showSettings && (
+          <SettingsPanel
+            settings={settings}
+            onChange={updateSettings}
+            onRestart={() => restart(settings, activeApp)}
+            appUrl={appUrl}
+            iframeRef={iframeRef}
+            connected={connected}
+            apps={APP_CONFIG}
+            activeApp={activeApp}
+            onSwitchApp={switchApp}
+          />
+        )}
+      </div>
+
+      <div ref={shareRef} className="relative">
+        <Tooltip label="Share">
+          <button
+            onClick={() => setShowShareMenu((v) => !v)}
+            className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
+          >
+            <IconShare size={14} stroke={1.5} />
+          </button>
+        </Tooltip>
+        {showShareMenu && (
+          <div className="absolute top-8 right-0 bg-[#2a2a2a] border border-white/10 rounded-lg p-3 z-50 min-w-[260px] shadow-2xl">
+            <h3 className="text-[13px] font-semibold text-white/90 mb-2">Share</h3>
+            <button
+              onClick={copyUrl}
+              className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded text-xs text-white/60 hover:text-white/90 hover:bg-white/5 transition-colors"
+            >
+              <IconExternalLink size={13} stroke={1.5} />
+              Copy local URL
+            </button>
+            <div className="border-t border-white/10 my-2" />
+            <p className="text-[11px] text-white/40 leading-relaxed">
+              Need sharing, collaboration, or remote access? Use the{" "}
+              <a href="https://www.builder.io" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">
+                Builder harness
+              </a>{" "}
+              for real-time multiplayer, cloud deployment, and shareable links.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <Tooltip label="Feedback">
+        <a
+          href="https://docs.google.com/forms/d/e/1FAIpQLSfI7sc2egh0vLBgzOy5tEEZF0e4PdXsQRNsZhX_yR2vx0m8ig/viewform?usp=publish-editor"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors block"
+        >
+          <IconMessageReport size={14} stroke={1.5} />
+        </a>
+      </Tooltip>
+    </div>
+  );
+
+  // Setup overlay
+  const setupOverlay = (setupStatus.status === "installing" ||
+    setupStatus.status === "not-found" ||
+    setupStatus.status === "failed") && (
+    <div className="absolute inset-0 bg-[#1e1e1e]/95 flex items-center justify-center z-10">
+      <div className="text-center max-w-sm px-6">
+        {setupStatus.status === "installing" ? (
+          <>
+            <div className="w-8 h-8 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin mx-auto mb-4" />
+            <h3 className="text-sm font-medium text-white/90 mb-2">Installing Claude Code</h3>
+            <p className="text-xs text-white/50 leading-relaxed">
+              Running <code className="bg-white/10 px-1.5 py-0.5 rounded text-[11px]">npm install -g @anthropic-ai/claude-code</code>
+            </p>
+            <p className="text-[11px] text-white/30 mt-3">This may take a minute...</p>
+          </>
+        ) : (
+          <>
+            <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
+              <span className="text-red-400 text-lg">!</span>
+            </div>
+            <h3 className="text-sm font-medium text-white/90 mb-2">Claude Code Not Found</h3>
+            <p className="text-xs text-white/50 leading-relaxed mb-4">{setupStatus.message}</p>
+            <p className="text-xs text-white/40 leading-relaxed">Install manually:</p>
+            <code className="block bg-white/10 px-3 py-2 rounded text-[11px] text-white/70 mt-2">
+              npm install -g @anthropic-ai/claude-code
+            </code>
+            <button
+              onClick={() => restart(settings, activeApp)}
+              className="mt-4 px-3 py-1.5 text-xs bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 rounded transition-colors"
+            >
+              Retry
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
   return (
-    <div className="flex h-screen bg-[#1e1e1e]">
+    <div className={`h-screen bg-[#1e1e1e] ${isMobile ? "flex flex-col" : "flex"}`}>
       {/* Terminal pane */}
       <div
-        className="flex flex-col min-h-0"
-        style={{ width: termWidth ?? "36%", flexShrink: 0 }}
+        className={
+          isMobile
+            ? `flex flex-col ${mobileTab === "agent" ? "flex-1 min-h-0" : "absolute inset-0 invisible"}`
+            : "flex flex-col min-h-0"
+        }
+        style={isMobile ? undefined : { width: termWidth ?? "36%", flexShrink: 0 }}
       >
-        {/* Terminal header */}
-        <div className="flex items-center gap-2 px-3 h-10 shrink-0">
-          <span className="text-[13px] font-medium text-white/90">
-            {appName}
-          </span>
-          <span className="flex-1" />
-
-          {/* Settings */}
-          <div ref={settingsRef} className="relative">
-            <Tooltip label="Settings">
-              <button
-                onClick={() => setShowSettings((v) => !v)}
-                className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
-              >
-                <IconSettings size={14} stroke={1.5} />
-              </button>
-            </Tooltip>
-            {showSettings && (
-              <SettingsPanel
-                settings={settings}
-                onChange={updateSettings}
-                onRestart={() => restart(settings)}
-                appPort={APP_PORT}
-                iframeRef={iframeRef}
-                connected={connected}
-              />
-            )}
-          </div>
-
-          {/* Share */}
-          <div ref={shareRef} className="relative">
-            <Tooltip label="Share">
-              <button
-                onClick={() => setShowShareMenu((v) => !v)}
-                className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
-              >
-                <IconShare size={14} stroke={1.5} />
-              </button>
-            </Tooltip>
-            {showShareMenu && (
-              <div className="absolute top-8 right-0 bg-[#2a2a2a] border border-white/10 rounded-lg p-3 z-50 min-w-[260px] shadow-2xl">
-                <h3 className="text-[13px] font-semibold text-white/90 mb-2">
-                  Share
-                </h3>
-                <button
-                  onClick={copyUrl}
-                  className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded text-xs text-white/60 hover:text-white/90 hover:bg-white/5 transition-colors"
-                >
-                  <IconExternalLink size={13} stroke={1.5} />
-                  Copy local URL
-                </button>
-                <div className="border-t border-white/10 my-2" />
-                <p className="text-[11px] text-white/40 leading-relaxed">
-                  Need sharing, collaboration, or remote access? Use the{" "}
-                  <a
-                    href="https://www.builder.io"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 hover:text-blue-300"
-                  >
-                    Builder harness
-                  </a>{" "}
-                  for real-time multiplayer, cloud deployment, and shareable links.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Feedback */}
-          <Tooltip label="Feedback">
-            <a
-              href="https://docs.google.com/forms/d/e/1FAIpQLSfI7sc2egh0vLBgzOy5tEEZF0e4PdXsQRNsZhX_yR2vx0m8ig/viewform?usp=publish-editor"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors block"
-            >
-              <IconMessageReport size={14} stroke={1.5} />
-            </a>
-          </Tooltip>
-        </div>
+        {/* Header inside terminal pane */}
+        {terminalHeader}
 
         {/* Terminal */}
         <div className="flex-1 min-h-0 relative">
           <div ref={termRef} className="w-full h-full py-1 pl-3 pr-1" />
-
-          {/* Setup overlay — shown when Claude CLI needs to be installed */}
-          {(setupStatus.status === 'installing' || setupStatus.status === 'not-found' || setupStatus.status === 'failed') && (
-            <div className="absolute inset-0 bg-[#1e1e1e]/95 flex items-center justify-center z-10">
-              <div className="text-center max-w-sm px-6">
-                {setupStatus.status === 'installing' ? (
-                  <>
-                    <div className="w-8 h-8 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin mx-auto mb-4" />
-                    <h3 className="text-sm font-medium text-white/90 mb-2">
-                      Installing Claude Code
-                    </h3>
-                    <p className="text-xs text-white/50 leading-relaxed">
-                      Running <code className="bg-white/10 px-1.5 py-0.5 rounded text-[11px]">npm install -g @anthropic-ai/claude-code</code>
-                    </p>
-                    <p className="text-[11px] text-white/30 mt-3">This may take a minute...</p>
-                  </>
-                ) : (
-                  <>
-                    <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
-                      <span className="text-red-400 text-lg">!</span>
-                    </div>
-                    <h3 className="text-sm font-medium text-white/90 mb-2">
-                      Claude Code Not Found
-                    </h3>
-                    <p className="text-xs text-white/50 leading-relaxed mb-4">
-                      {setupStatus.message}
-                    </p>
-                    <p className="text-xs text-white/40 leading-relaxed">
-                      Install manually:
-                    </p>
-                    <code className="block bg-white/10 px-3 py-2 rounded text-[11px] text-white/70 mt-2">
-                      npm install -g @anthropic-ai/claude-code
-                    </code>
-                    <button
-                      onClick={() => {
-                        restart(settings);
-                      }}
-                      className="mt-4 px-3 py-1.5 text-xs bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 rounded transition-colors"
-                    >
-                      Retry
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
+          {setupOverlay}
         </div>
       </div>
 
-      {/* Drag handle */}
-      <div
-        onMouseDown={onMouseDown}
-        className="w-1 cursor-col-resize flex items-center justify-center hover:bg-blue-500/30 transition-colors"
-      >
-        <div className="w-px h-8 bg-white/10 rounded-full" />
-      </div>
+      {/* Drag handle — desktop only */}
+      {!isMobile && (
+        <div
+          onMouseDown={onMouseDown}
+          className="w-1 cursor-col-resize flex items-center justify-center hover:bg-blue-500/30 transition-colors"
+        >
+          <div className="w-px h-8 bg-white/10 rounded-full" />
+        </div>
+      )}
 
-      {/* Preview pane — full height */}
-      <div className="flex-1 flex flex-col min-h-0 p-2 pl-0">
-        <div className="flex-1 rounded-xl overflow-hidden bg-black">
+      {/* Preview pane — full height, no header */}
+      <div
+        className={
+          isMobile
+            ? `flex flex-col ${mobileTab === "interact" ? "flex-1 min-h-0" : "absolute inset-0 invisible"}`
+            : "flex-1 flex flex-col min-h-0 p-2 pl-0"
+        }
+      >
+        <div className={`flex-1 overflow-hidden bg-black ${isMobile ? "" : "rounded-xl"}`}>
           <iframe
             ref={iframeRef}
-            src={APP_URL}
+            src={appUrl}
             className="w-full h-full border-none"
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-presentation"
             allow="fullscreen"
           />
         </div>
       </div>
+
+      {/* Mobile bottom tab bar */}
+      {isMobile && (
+        <div className="flex shrink-0 border-t border-white/10 bg-[#111]">
+          <button
+            onClick={() => {
+              setMobileTab("agent");
+              requestAnimationFrame(() => fit());
+            }}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs font-medium transition-colors ${
+              mobileTab === "agent"
+                ? "text-blue-400 bg-blue-500/10"
+                : "text-white/40 hover:text-white/60"
+            }`}
+          >
+            <IconTerminal2 size={16} stroke={1.5} />
+            Agent
+          </button>
+          <button
+            onClick={() => setMobileTab("interact")}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs font-medium transition-colors ${
+              mobileTab === "interact"
+                ? "text-blue-400 bg-blue-500/10"
+                : "text-white/40 hover:text-white/60"
+            }`}
+          >
+            <IconDeviceDesktop size={16} stroke={1.5} />
+            Interact
+          </button>
+        </div>
+      )}
     </div>
   );
 }

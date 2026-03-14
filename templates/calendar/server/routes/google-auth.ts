@@ -1,0 +1,54 @@
+import type { Request, Response } from "express";
+import {
+  getAuthUrl,
+  exchangeCode,
+  getAuthStatus,
+  disconnect,
+} from "../lib/google-calendar.js";
+
+export function getGoogleAuthUrl(_req: Request, res: Response): void {
+  try {
+    const url = getAuthUrl();
+    res.json({ url });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+export async function handleGoogleCallback(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const code = req.query.code as string;
+    if (!code) {
+      res.status(400).json({ error: "Missing authorization code" });
+      return;
+    }
+    await exchangeCode(code);
+    res.redirect("/settings?connected=true");
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+export async function getGoogleStatus(
+  _req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const status = await getAuthStatus();
+    res.json(status);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+export function disconnectGoogle(_req: Request, res: Response): void {
+  try {
+    disconnect();
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+}

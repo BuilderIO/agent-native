@@ -63,7 +63,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   res.writeHead(404);
   res.end();
 });
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ server });
 
 // Check if a command exists on PATH
 function commandExists(cmd: string): boolean {

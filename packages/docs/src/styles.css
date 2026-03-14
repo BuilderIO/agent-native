@@ -331,6 +331,36 @@ html.dark .shiki span {
   margin-bottom: 24px;
 }
 
+@media (max-width: 767px) {
+  .hero-section {
+    text-align: left;
+    padding: 48px 0 48px;
+  }
+
+  .hero-section .flex {
+    justify-content: flex-start;
+  }
+
+  .hero-section p {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .hero-section button {
+    margin-left: 0;
+    margin-right: auto;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .terminal-command-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+}
+
 @media (min-width: 768px) {
   .hero-section h1 {
     font-size: 64px;
@@ -443,33 +473,27 @@ html.dark .shiki span {
 }
 
 @media (max-width: 767px) {
-  .approaches-table-wrapper {
-    /* Break out of parent px-6 padding to go full-width */
-    margin-left: -24px;
+  .approaches-table-outer {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Break out right side of parent px-6 so scroll goes to edge */
     margin-right: -24px;
-    width: calc(100% + 48px);
+    padding-right: 24px;
+  }
+
+  .approaches-table-wrapper {
+    min-width: 600px;
     max-width: none;
-    border-radius: 0;
-    border-left: none;
-    border-right: none;
+    border-radius: 12px;
+  }
+
+  .approaches-table-scroll {
+    overflow-x: visible;
   }
 
   .approaches-th,
   .approaches-td {
     padding: 10px 14px;
-  }
-
-  /* First column sticks so dimension labels stay visible while scrolling */
-  .approaches-td--dim,
-  .approaches-th.approaches-col-dim {
-    position: sticky;
-    left: 0;
-    background: var(--bg);
-    z-index: 1;
-  }
-
-  thead .approaches-col-dim {
-    background: var(--bg-secondary);
   }
 
   .approaches-solution-tagline {

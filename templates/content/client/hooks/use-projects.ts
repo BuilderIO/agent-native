@@ -12,6 +12,7 @@ import type {
   FileSaveResponse,
   VersionHistoryListResponse,
   VersionContentResponse,
+  PageTreeResponse,
 } from "@shared/api";
 
 export type { ProjectListResponse };
@@ -191,6 +192,18 @@ function getApiBase(projectSlug: string, operation: "tree" | "file"): string {
     return `/api/workspace/${workspace}/shared/${operation}`;
   }
   return `/api/projects/${projectSlug}/${operation}`;
+}
+
+export function usePageTree(workspace: string | null) {
+  return useQuery<PageTreeResponse>({
+    queryKey: ["pageTree", workspace],
+    queryFn: async () => {
+      const res = await authFetch(`/api/pages?workspace=${encodeURIComponent(workspace!)}`);
+      if (!res.ok) throw new Error("Failed to fetch page tree");
+      return res.json();
+    },
+    enabled: !!workspace,
+  });
 }
 
 export function useFileTree(projectSlug: string | null) {

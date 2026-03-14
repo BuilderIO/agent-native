@@ -1,60 +1,70 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 
-const APP_PORT = parseInt(process.env.APP_PORT || "8080", 10);
-const DOCS_PORT = parseInt(process.env.DOCS_PORT || "3000", 10);
+// App config: array of { name, appPort, wsPort }
+// Set by dev-all.mjs, or defaults to a single app
+const apps: Array<{ name: string; appPort: number; wsPort: number }> = JSON.parse(
+  process.env.VITE_APP_CONFIG || '[{"name":"default","appPort":8081,"wsPort":3341}]'
+);
 
 export default defineConfig({
   plugins: [
     react(),
-    // Redirect /docs and /app to their trailing-slash versions so the
-    // upstream Vite servers (which require the trailing slash with --base)
-    // don't send absolute Location headers pointing at their own port.
+    // Redirect /app/<name> to /app/<name>/ so Vite proxy matches
     {
       name: "trailing-slash-redirect",
       configureServer(server) {
         server.middlewares.use((req, _res, next) => {
-          if (req.url === "/docs" || req.url === "/app") {
-            _res.writeHead(301, { Location: req.url + "/" });
-            _res.end();
-            return;
+          for (const app of apps) {
+            if (req.url === `/app/${app.name}`) {
+              _res.writeHead(301, { Location: `/app/${app.name}/` });
+              _res.end();
+              return;
+            }
           }
           next();
         });
       },
     },
   ],
+  define: {
+    "import.meta.env.VITE_APP_CONFIG": JSON.stringify(apps),
+  },
   server: {
-    port: 3334,
-    proxy: {
-      "/ws": {
-        target: "ws://localhost:3333",
-        ws: true,
-      },
-      // Harness-specific endpoint (WS server only serves this one route)
-      "/api/app-info": {
-        target: "http://localhost:3333",
-      },
-      // App API routes — the iframe shares our origin, so its fetch("/api/...")
-      // calls arrive here. Forward them to the app's Express server.
-      "/api": {
-        target: `http://localhost:${APP_PORT}`,
-        changeOrigin: true,
-      },
-      // In single-port mode, apps run with --base <prefix> so all their
-      // assets are served under that prefix. No path rewriting needed —
-      // just forward to the right port.
-      "/app": {
-        target: `http://localhost:${APP_PORT}`,
-        changeOrigin: true,
-        ws: true,
-      },
-      "/docs": {
-        target: `http://localhost:${DOCS_PORT}`,
-        changeOrigin: true,
-        ws: true,
-      },
-    },
+    port: parseInt(process.env.PORT || "3334", 10),
+    strictPort: true,
+    proxy: Object.fromEntries(
+      apps.flatMap(({ name, appPort, wsPort }) => [
+        // WebSocket for Claude terminal
+        [
+          `/ws/${name}`,
+          {
+            target: `ws://localhost:${wsPort}`,
+            ws: true,
+            rewrite: () => "/ws",
+          },
+        ],
+        // App API routes
+        [
+          `/api/${name}`,
+          {
+            target: `http://localhost:${appPort}`,
+            changeOrigin: true,
+            rewrite: (p: string) => p.replace(`/api/${name}`, "/api"),
+          },
+        ],
+        // App itself
+        [
+          `/app/${name}`,
+          {
+            target: `http://localhost:${appPort}`,
+            changeOrigin: true,
+            rewrite: (p: string) => p.replace(`/app/${name}`, ""),
+            ws: true,
+          },
+        ],
+      ])
+    ),
   },
   build: {
     outDir: "dist/client",
