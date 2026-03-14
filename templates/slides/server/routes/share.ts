@@ -64,7 +64,7 @@ export const shareDeck: RequestHandler = (req, res) => {
  * Retrieve a shared deck by token
  */
 export const getSharedDeck: RequestHandler = (req, res) => {
-  const { token } = req.params;
+  const token = req.params.token as string;
   const shared = sharedDecks.get(token);
 
   if (!shared) {
