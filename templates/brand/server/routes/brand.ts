@@ -9,7 +9,11 @@ const BRAND_DIR = path.join(process.cwd(), "data", "brand");
 // Multer config for brand asset uploads
 const storage = multer.diskStorage({
   destination: (req, _file, cb) => {
-    const category = req.query.category as AssetCategory;
+    const category = req.query.category as string;
+    if (!isValidCategory(category)) {
+      cb(new Error(`Invalid category: ${category}`), "");
+      return;
+    }
     const dir = path.join(BRAND_DIR, category);
     fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
@@ -42,6 +46,17 @@ const upload = multer({
     }
   },
 });
+
+const VALID_CATEGORIES = new Set<AssetCategory>(["logos", "references"]);
+
+function isValidCategory(cat: string): cat is AssetCategory {
+  return VALID_CATEGORIES.has(cat as AssetCategory);
+}
+
+function isSafePath(base: string, ...segments: string[]): boolean {
+  const resolved = path.resolve(base, ...segments);
+  return resolved.startsWith(path.resolve(base));
+}
 
 export const brandRouter = Router();
 
@@ -117,6 +132,10 @@ brandRouter.get("/assets", (req, res) => {
 // DELETE /api/brand/assets/:category/:filename
 brandRouter.delete("/assets/:category/:filename", (req, res) => {
   const { category, filename } = req.params;
+  if (!isSafePath(BRAND_DIR, category, filename)) {
+    res.status(400).json({ error: "Invalid path" });
+    return;
+  }
   const filePath = path.join(BRAND_DIR, category, filename);
   if (!fs.existsSync(filePath)) {
     res.status(404).json({ error: "File not found" });

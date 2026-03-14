@@ -5,6 +5,11 @@ import type { GenerationRecord } from "@shared/types.js";
 
 const GENERATIONS_DIR = path.join(process.cwd(), "data", "generations");
 
+function isSafePath(base: string, ...segments: string[]): boolean {
+  const resolved = path.resolve(base, ...segments);
+  return resolved.startsWith(path.resolve(base));
+}
+
 export const generationsRouter = Router();
 
 // GET /api/generations — list all generation records
@@ -27,6 +32,10 @@ generationsRouter.get("/", (_req, res) => {
 
 // GET /api/generations/:id — get a specific generation
 generationsRouter.get("/:id", (req, res) => {
+  if (!isSafePath(GENERATIONS_DIR, `${req.params.id}.json`)) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
   const filePath = path.join(GENERATIONS_DIR, `${req.params.id}.json`);
   if (!fs.existsSync(filePath)) {
     res.status(404).json({ error: "Generation not found" });
@@ -39,6 +48,10 @@ generationsRouter.get("/:id", (req, res) => {
 // DELETE /api/generations/:id — delete a generation and its images
 generationsRouter.delete("/:id", (req, res) => {
   const id = req.params.id;
+  if (!isSafePath(GENERATIONS_DIR, `${id}.json`)) {
+    res.status(400).json({ error: "Invalid id" });
+    return;
+  }
   const metaPath = path.join(GENERATIONS_DIR, `${id}.json`);
   if (!fs.existsSync(metaPath)) {
     res.status(404).json({ error: "Generation not found" });
