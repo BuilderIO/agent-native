@@ -8,11 +8,11 @@ export const slide1: Slide = {
     <img src="/assets/builder-logo-white.svg" alt="Builder.io" style="height: 32px; width: auto; display: block;" />
   </div>
   <div>
-    <div class="fmd-title-heading">AI Product Development<br/>for <span class="fmd-cyan">Intuit</span></div>
+    <div class="fmd-title-heading">AI Product Development<br/>for <span class="fmd-cyan">[Company Name]</span></div>
   </div>
   <div>
-    <div class="text-[16px] text-white/65 mb-1">Brent Locks</div>
-    <div class="text-[16px] text-white/50">February 10, 2026</div>
+    <div class="text-[16px] text-white/65 mb-1">[Presenter Name]</div>
+    <div class="text-[16px] text-white/50">[Date]</div>
   </div>
 </div>`,
   notes: "",
@@ -20,16 +20,16 @@ export const slide1: Slide = {
   background: "bg-[#000000]",
 };
 
-// Slide 2: Intuit Overview
+// Slide 2: Company Overview
 export const slide2: Slide = {
   id: "fmd-2",
   content: `<div class="fmd-slide p-[24px_40px] gap-0">
   <div class="flex items-start justify-between mb-4">
     <div class="flex items-center gap-4">
-      <img src="https://cdn.freebiesupply.com/images/large/2x/intuit-logo-white.png" alt="Intuit" style="width: 100px; height: auto; object-fit: contain;" />
+      <div class="fmd-logo-placeholder" style="width: 100px; height: 32px;">[LOGO]</div>
     </div>
     <div class="flex-1 px-10">
-      <div class="text-[18px] font-extrabold text-white leading-[1.3]">Powering prosperity around the world with TurboTax, Credit Karma, QuickBooks, and Mailchimp.</div>
+      <div class="text-[18px] font-extrabold text-white leading-[1.3]">[Company tagline or mission statement]</div>
     </div>
     <div>
       <img src="/assets/builder-logo-white.svg" alt="Builder.io" style="height: 18px; width: auto;" />
@@ -42,9 +42,9 @@ export const slide2: Slide = {
         <div class="fmd-cyan text-[11px] font-bold tracking-wide uppercase leading-[1.4]">BUSINESS<br/>STRATEGIES</div>
       </div>
       <div class="fmd-table-content">
-        <div class="fmd-table-cell"><span class="text-white font-semibold">Increase brand awareness</span> outside of core brand.</div>
-        <div class="fmd-table-cell"><span class="text-white font-semibold">4x</span> the number of annual <span class="text-white font-semibold">product launches</span> across all brand channels.</div>
-        <div class="fmd-table-cell"><span class="text-white font-semibold">Market expansion</span> to Northern European Markets and APAC markets.</div>
+        <div class="fmd-table-cell"><span class="text-white font-semibold">[Strategy 1]</span> — brief description.</div>
+        <div class="fmd-table-cell"><span class="text-white font-semibold">[Strategy 2]</span> — brief description.</div>
+        <div class="fmd-table-cell"><span class="text-white font-semibold">[Strategy 3]</span> — brief description.</div>
       </div>
     </div>
 
@@ -53,10 +53,9 @@ export const slide2: Slide = {
         <div class="fmd-cyan text-[11px] font-bold tracking-wide uppercase leading-[1.4]">BUSINESS<br/>INITIATIVES</div>
       </div>
       <div class="fmd-table-content">
-        <div class="fmd-table-cell"><span class="text-white font-semibold">Consolidate</span> product experiences across Intuit brands for easy cross-promotion and syndication</div>
-        <div class="fmd-table-cell">Consolidate CMS across brands for workflow efficiencies and better content / data reusability</div>
-        <div class="fmd-table-cell"><span class="text-white font-semibold">Launch</span> new locale website, '<span class="text-white font-semibold">project Dorathee</span>', in ANZ market before summer.</div>
-        <div class="fmd-table-cell"><span class="text-white font-semibold">'Project 2x'</span> to double the engineering team before the summer.</div>
+        <div class="fmd-table-cell"><span class="text-white font-semibold">[Initiative 1]</span> — brief description.</div>
+        <div class="fmd-table-cell"><span class="text-white font-semibold">[Initiative 2]</span> — brief description.</div>
+        <div class="fmd-table-cell"><span class="text-white font-semibold">[Initiative 3]</span> — brief description.</div>
       </div>
     </div>
 
@@ -65,10 +64,9 @@ export const slide2: Slide = {
         <div class="fmd-cyan text-[11px] font-bold tracking-wide uppercase leading-[1.4]">RISKS<br/>&amp; CRITICAL<br/>CAPABILITIES</div>
       </div>
       <div class="fmd-table-content">
-        <div class="fmd-table-cell">Supporting additional sites and locales will require additional work to ship experiences and more deployments</div>
-        <div class="fmd-table-cell">Integrating existing workflows for new locales and brands</div>
-        <div class="fmd-table-cell">Hiring bottleneck: # of developers that can be hired/onboarded in 6 months</div>
-        <div class="fmd-table-cell">Decentralize workflow ownership while maintaining uniformity for shared teams</div>
+        <div class="fmd-table-cell">[Risk or capability 1]</div>
+        <div class="fmd-table-cell">[Risk or capability 2]</div>
+        <div class="fmd-table-cell">[Risk or capability 3]</div>
       </div>
     </div>
 
