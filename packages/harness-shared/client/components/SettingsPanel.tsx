@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, type RefObject } from "react";
 import { IconStar, IconStarFilled, IconX, IconRefresh } from "@tabler/icons-react";
 import { type LaunchSettings } from "../lib/settings";
+import { useHarnessConfig } from "../lib/config";
 
 const URL_HISTORY_KEY = "harness:urlHistory";
 const URL_STARRED_KEY = "harness:urlStarred";
@@ -44,8 +45,13 @@ export function SettingsPanel({
   activeApp,
   onSwitchApp,
 }: SettingsPanelProps) {
+  const config = useHarnessConfig();
+
   const update = (patch: Partial<LaunchSettings>) =>
     onChange({ ...settings, ...patch });
+
+  const updateOption = (key: string, value: boolean) =>
+    onChange({ ...settings, options: { ...settings.options, [key]: value } });
 
   const [urlInput, setUrlInput] = useState("/");
   const [history, setHistory] = useState<string[]>(loadUrlHistory);
@@ -207,7 +213,7 @@ export function SettingsPanel({
       <div className="flex items-center justify-between py-1">
         <span className="text-[12px] font-medium text-white/70">Harness</span>
         <div className="flex items-center gap-2">
-          <span className="text-[12px] font-medium text-white/80">Claude Code</span>
+          <span className="text-[12px] font-medium text-white/80">{config.name}</span>
           <span className={`flex items-center gap-1 text-[10px] ${connected ? "text-green-400" : "text-red-400"}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`} />
             {connected ? "Connected" : "Disconnected"}
@@ -234,44 +240,22 @@ export function SettingsPanel({
         Launch Options
       </h3>
 
-      <label className="flex items-center gap-2 text-xs text-white/60 hover:text-white/80 cursor-pointer py-1">
-        <input
-          type="checkbox"
-          checked={settings.skipPermissions}
-          onChange={(e) => update({ skipPermissions: e.target.checked })}
-          className="accent-blue-500"
-        />
-        --dangerously-skip-permissions
-      </label>
-      <p className="text-[11px] text-white/30 ml-5 mb-2">
-        Auto-accept all tool use (no confirmation prompts)
-      </p>
-
-      <label className="flex items-center gap-2 text-xs text-white/60 hover:text-white/80 cursor-pointer py-1">
-        <input
-          type="checkbox"
-          checked={settings.resume}
-          onChange={(e) => update({ resume: e.target.checked })}
-          className="accent-blue-500"
-        />
-        --resume
-      </label>
-      <p className="text-[11px] text-white/30 ml-5 mb-2">
-        Resume the most recent conversation
-      </p>
-
-      <label className="flex items-center gap-2 text-xs text-white/60 hover:text-white/80 cursor-pointer py-1">
-        <input
-          type="checkbox"
-          checked={settings.verbose}
-          onChange={(e) => update({ verbose: e.target.checked })}
-          className="accent-blue-500"
-        />
-        --verbose
-      </label>
-      <p className="text-[11px] text-white/30 ml-5 mb-2">
-        Enable verbose logging output
-      </p>
+      {config.options.map((opt) => (
+        <div key={opt.key}>
+          <label className="flex items-center gap-2 text-xs text-white/60 hover:text-white/80 cursor-pointer py-1">
+            <input
+              type="checkbox"
+              checked={settings.options[opt.key] ?? false}
+              onChange={(e) => updateOption(opt.key, e.target.checked)}
+              className="accent-blue-500"
+            />
+            {opt.label}
+          </label>
+          <p className="text-[11px] text-white/30 ml-5 mb-2">
+            {opt.description}
+          </p>
+        </div>
+      ))}
 
       <div className="border-t border-white/10 my-2" />
 
@@ -280,7 +264,7 @@ export function SettingsPanel({
         type="text"
         value={settings.custom}
         onChange={(e) => update({ custom: e.target.value })}
-        placeholder='e.g. --model sonnet --print "hello"'
+        placeholder={config.customPlaceholder}
         className="w-full mt-1 bg-[#1e1e1e] border border-white/10 rounded px-2 py-1 text-xs text-white/80 font-mono focus:outline-none focus:border-blue-500"
       />
       <p className="text-[11px] text-white/30 mt-1">
@@ -294,7 +278,7 @@ export function SettingsPanel({
         className="flex items-center gap-2 w-full px-2 py-1.5 rounded text-xs text-red-400 hover:bg-red-500/10 transition-colors"
       >
         <IconRefresh size={13} stroke={1.5} />
-        Restart Claude Code
+        Restart {config.name}
       </button>
       <p className="text-[11px] text-white/30 ml-7">
         Ends the current session and relaunches with these settings

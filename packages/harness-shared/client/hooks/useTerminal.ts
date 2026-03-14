@@ -2,6 +2,7 @@ import { useRef, useEffect, useCallback, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { settingsToFlags, type LaunchSettings } from "../lib/settings";
+import { useHarnessConfig } from "../lib/config";
 
 export type SetupStatus = {
   status: "none" | "installing" | "installed" | "not-found" | "failed";
@@ -9,6 +10,7 @@ export type SetupStatus = {
 };
 
 export function useTerminal() {
+  const config = useHarnessConfig();
   const termRef = useRef<HTMLDivElement>(null);
   const termInstance = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
@@ -106,7 +108,7 @@ export function useTerminal() {
         wsRef.current = null;
       }
 
-      const flags = settingsToFlags(settings);
+      const flags = settingsToFlags(settings, config);
       const params = flags ? `?flags=${encodeURIComponent(flags)}` : "";
       const protocol = location.protocol === "https:" ? "wss:" : "ws:";
       const ws = new WebSocket(
@@ -202,7 +204,7 @@ export function useTerminal() {
         if (idleTimer) clearTimeout(idleTimer);
       };
     },
-    [notifyApp]
+    [config, notifyApp]
   );
 
   const restart = useCallback(
@@ -210,11 +212,11 @@ export function useTerminal() {
       wsRef.current?.close();
       termInstance.current?.clear();
       termInstance.current?.write(
-        "\x1b[33m[harness] Restarting Claude Code...\x1b[0m\r\n"
+        `\x1b[33m[harness] Restarting ${config.name}...\x1b[0m\r\n`
       );
       setTimeout(() => connect(settings, appName), 500);
     },
-    [connect]
+    [config, connect]
   );
 
   const fit = useCallback(() => {
