@@ -14,6 +14,7 @@ This is an **agent-native** app built with `@agent-native/core`. See `.agents/sk
 All stateful data in this app is stored in **files**. The frontend (React/Vite) reads and writes files. The agent chat reads and writes files. Scripts read and write files. Files are the shared state mechanism between all three.
 
 This means:
+
 - When the UI updates something, it writes to files via the backend API (`/api/decks`)
 - When the agent needs to do something, it reads/writes the same JSON files directly (in `data/decks/`)
 - **All decks are JSON files** in `data/decks/`
@@ -56,18 +57,21 @@ This means:
 Data files are bidirectionally synced with Firestore so multiple users (and the cloud-hosted Builder harness) share the same state. The sync is powered by `@agent-native/core/adapters/firestore`.
 
 **What syncs:** Configured in `data/sync-config.json`:
+
 - `data/decks/**/*.json` — All deck JSON files
 - `data/**/*.md` — Reference docs (e.g. `builder-positioning.md`)
 
 **What doesn't sync:** Code files, uploads, sync-config itself, conflict sidecar files.
 
 **How it works:**
+
 - On server start, `initFileSync()` does a startup sync (compare local vs Firestore timestamps, resolve conflicts)
 - A Firestore real-time listener pushes remote changes to disk
 - A file watcher pushes local changes to Firestore
 - Three-way merge resolves conflicts; unresolvable conflicts create `.conflict` sidecar files
 
 **Important for agents:**
+
 - Files in `data/decks/` and `data/*.md` are **gitignored** (synced at runtime, not checked in)
 - The `.ignore` file overrides this so agents can still search/grep/read these files
 - When editing deck JSON files, the changes are automatically synced to Firestore within seconds
@@ -85,16 +89,17 @@ The script runner (`scripts/run.ts`) dispatches to individual script files in `s
 
 ### Available Scripts
 
-| Script | Purpose | Example |
-|--------|---------|---------|
-| `generate-image` | Generate images with Gemini + style references | `pnpm script generate-image --prompt "hero image" --count 3` |
-| `image-gen-status` | Check if Gemini API key is configured | `pnpm script image-gen-status` |
-| `image-search` | Search Google Images via Custom Search API | `pnpm script image-search --query "Acme logo transparent" --count 5` |
-| `logo-lookup` | Get company logo URL via Logo.dev API (free tier, needs token) | `pnpm script logo-lookup --domain acme.com` |
+| Script             | Purpose                                                        | Example                                                              |
+| ------------------ | -------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `generate-image`   | Generate images with Gemini + style references                 | `pnpm script generate-image --prompt "hero image" --count 3`         |
+| `image-gen-status` | Check if Gemini API key is configured                          | `pnpm script image-gen-status`                                       |
+| `image-search`     | Search Google Images via Custom Search API                     | `pnpm script image-search --query "Acme logo transparent" --count 5` |
+| `logo-lookup`      | Get company logo URL via Logo.dev API (free tier, needs token) | `pnpm script logo-lookup --domain acme.com`                          |
 
 ### Adding New Scripts
 
 1. Create `scripts/my-script.ts`:
+
 ```typescript
 export default async function main(args: string[]) {
   // Parse args, do work, output results
@@ -103,6 +108,7 @@ export default async function main(args: string[]) {
 ```
 
 2. Register in `scripts/run.ts`:
+
 ```typescript
 const scripts: Record<string, () => Promise<...>> = {
   "my-script": () => import("./my-script.js"),
@@ -125,27 +131,31 @@ The app can delegate tasks to the agent chat using `sendToAgentChat()` and `agen
 ### How It Works
 
 From browser code (React components):
+
 ```typescript
 import { agentChat } from "@agent-native/core";
 
 // Auto-submit to the agent
 agentChat.submit(
   "Generate 3 hero images for the AI slide",
-  "Hidden context: slide id is 'slide-3', deck id is 'my-deck', current content is..."
+  "Hidden context: slide id is 'slide-3', deck id is 'my-deck', current content is...",
 );
 
 // Or prefill for user review
 agentChat.prefill(
   "Update all slides to use dark gradient backgrounds",
-  "Context about the current deck state..."
+  "Context about the current deck state...",
 );
 ```
 
 From scripts (Node.js context):
+
 ```typescript
 import { agentChat } from "@agent-native/core";
 
-agentChat.submit("Image generation complete — 3 variations saved to /tmp/images/");
+agentChat.submit(
+  "Image generation complete — 3 variations saved to /tmp/images/",
+);
 ```
 
 ### Transport
@@ -171,6 +181,7 @@ This pattern applies to any complex operation where follow-up is valuable.
 When the user asks to insert a company logo:
 
 **Option 1: Logo.dev API** (best quality, requires free token via `LOGO_DEV_TOKEN` env var):
+
 1. Run `pnpm script logo-lookup --domain companyname.com`
 2. Use the returned URL: `https://img.logo.dev/companyname.com?token=TOKEN&size=128`
 3. Update the slide content in the deck JSON file
@@ -224,6 +235,7 @@ The editor exposes the current selection state so the AI agent agent can access 
 ### Browser Context (DOM)
 
 Data attributes on `<html>` element:
+
 - `data-deck-id` — current deck ID
 - `data-slide-id` — current slide ID
 - `data-slide-index` — current slide index (0-based)
@@ -232,7 +244,7 @@ Data attributes on `<html>` element:
 ### Browser Context (JavaScript)
 
 ```javascript
-window.__deckSelection
+window.__deckSelection;
 // Returns:
 // {
 //   deckId: string,
@@ -322,6 +334,7 @@ pnpm script <name> [--args]  # Run a backend script
 This project maintains a `LEARNINGS.md` file at the repo root. This file captures preferences, corrections, and patterns learned from feedback during chat sessions.
 
 **Rules:**
+
 - **Always read `LEARNINGS.md` before starting work** — it contains important preferences and past corrections
 - **Update `LEARNINGS.md` when corrected** — if the user gives feedback or corrects a mistake, capture the learning immediately
 - **Keep entries concise** — short, actionable bullets grouped by category
