@@ -238,6 +238,10 @@ pnpm test         # Run Vitest tests
 pnpm script <name> [--args]  # Run a backend script
 ```
 
+## TypeScript Everywhere
+
+All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`, or `.mjs` files. Node 22+ runs `.ts` files natively, so no compilation step is needed for scripts. Use ESM imports (`import`), not CommonJS (`require`).
+
 ## Key Conventions
 
 1. **Files are the only source of truth** — all calendar state lives in JSON files in `data/`. UI edits save to these files via API. Agent edits the files directly. SSE pushes file changes to the UI in real-time.

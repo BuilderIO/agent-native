@@ -11,8 +11,6 @@ This is an **agent-native** app built with `@agent-native/core`. See `.agents/sk
 
 > **CRITICAL: Before doing ANY work, read [docs/learnings.md](docs/learnings.md) first.**
 > It contains essential cross-cutting knowledge about agent behavior, customer data, user preferences, and UI patterns.
-> **Before writing ANY BigQuery SQL or data query, read [docs/data-dictionary.md](docs/data-dictionary.md).**
-> It is the canonical source of truth for metric definitions, table/column mappings, query templates, join patterns, and known gotchas. It is synced from Notion on every server startup.
 > **Provider-specific knowledge** (BigQuery tables, API quirks, auth, script usage) lives in `.builder/skills/<provider>/SKILL.md`.
 > Read the relevant skill before querying any provider. After completing work, **update the relevant skill or learnings.md** with new discoveries.
 
@@ -283,36 +281,6 @@ When a user asks for a **chart, metrics view, or data breakdown** → add it to 
 4. Add lazy import to `dashboardComponents` in the same file (for routing)
 5. Add entry to `defaultTools` array in `client/components/layout/Sidebar.tsx` (for sidebar placement)
 
-### Adding an Ad-Hoc Analysis
-
-**IMPORTANT**: When creating an ad-hoc analysis, YOU (the creator) must provide your name or email as the author.
-
-Ad-hoc analyses are one-time deep dives or investigations. They require additional fields:
-
-1. Create component in `client/pages/adhoc/my-analysis/index.tsx`
-2. Use `<DashboardHeader />` component at the top
-3. Add entry to `adHocAnalyses` array in `client/pages/adhoc/registry.ts` with **REQUIRED fields**:
-   - `author`: **YOUR name or email** - the person creating this analysis
-   - `lastUpdated`: Today's date (YYYY-MM-DD)
-   - `description`: Brief description of the analysis
-   - `dateCreated`: Today's date (YYYY-MM-DD)
-   - `category: 'adhoc'`: Mark it as an ad-hoc analysis
-4. Add lazy import to `dashboardComponents`
-
-**Example:**
-
-```typescript
-{
-  id: "conversion-deep-dive",
-  name: "Conversion Deep Dive",
-  description: "Analysis of declining conversion rates by traffic source",
-  dateCreated: "2026-03-12",      // Today's date
-  author: "jane@builder.io",      // REQUIRED: Your name/email
-  lastUpdated: "2026-03-12",      // Today's date
-  category: 'adhoc'
-}
-```
-
 ## Styling
 
 - **TailwindCSS 3** utility classes for all styling
@@ -323,26 +291,22 @@ Ad-hoc analyses are one-time deep dives or investigations. They require addition
 
 Knowledge is stored in three places:
 
-1. **[docs/data-dictionary.md](docs/data-dictionary.md)** — metric definitions, query templates, column mappings, join patterns, and known gotchas. **Read this before writing any data query.** Auto-synced from Notion on server startup (gitignored).
+1. **`.builder/skills/<provider>/SKILL.md`** — provider-specific knowledge (tables, API quirks, auth, scripts, gotchas). This is the primary knowledge store for each integration. Read the relevant skill before querying any provider.
 
-2. **`.builder/skills/<provider>/SKILL.md`** — provider-specific knowledge (tables, API quirks, auth, scripts, gotchas). This is the primary knowledge store for each integration. Read the relevant skill before querying any provider.
-
-3. **[docs/learnings.md](docs/learnings.md)** — cross-cutting knowledge (agent behavior rules, customer data, user preferences, UI patterns). Read this before doing any work.
+2. **[docs/learnings.md](docs/learnings.md)** — cross-cutting knowledge (agent behavior rules, customer data, user preferences, UI patterns). Read this before doing any work.
 
 ### Rules
 
 1. **ALWAYS read learnings.md first.** Non-negotiable. Before any work.
-2. **ALWAYS read data-dictionary.md before writing any data/SQL query.** It defines how every metric is calculated.
-3. **Read the relevant skill** before querying a provider. It tells you table names, column names, join paths, auth, and patterns.
-4. **Update skills directly.** When you discover something new about a provider, update that provider's SKILL.md. Skills should be continuously improved.
-5. **Learn from corrections.** If the user corrects you, capture it in the relevant skill or learnings.md.
-6. **Keep it concise.** Each learning should be actionable — what to do, what not to do, and why.
+2. **Read the relevant skill** before querying a provider. It tells you table names, column names, join paths, auth, and patterns.
+3. **Update skills directly.** When you discover something new about a provider, update that provider's SKILL.md. Skills should be continuously improved.
+4. **Learn from corrections.** If the user corrects you, capture it in the relevant skill or learnings.md.
+5. **Keep it concise.** Each learning should be actionable — what to do, what not to do, and why.
 
 ### What belongs where
 
 | Content                                                       | Location                  |
 | ------------------------------------------------------------- | ------------------------- |
-| Metric definitions, query templates, column mappings, gotchas | `docs/data-dictionary.md` |
 | BigQuery table names, column mappings, SQL patterns           | `bigquery/SKILL.md`       |
 | API quirks for a specific provider                            | `<provider>/SKILL.md`     |
 | Customer data (IDs, deal info, stakeholders)                  | `docs/learnings.md`       |
@@ -356,13 +320,12 @@ When the user asks a data question, **query real data first**, then present the 
 
 ### How to answer questions
 
-1. **Read the data dictionary** — check `docs/data-dictionary.md` for metric definitions, correct columns, query templates, and gotchas
-2. **Read the relevant skill** — check `.builder/skills/<provider>/SKILL.md` for the right functions, scripts, and patterns
-3. **Use existing scripts** — run `pnpm script <name> --arg=value`. All scripts support `--grep` and `--fields`.
-4. **Write ad-hoc scripts** — if no existing script covers the question, create one in `scripts/`
-5. **Use BigQuery directly** — for analytics/metrics questions, write SQL and run via `runQuery()`
-6. **Include charts** — generate charts using the `generate-chart` script (see `charts/SKILL.md`)
-7. **Cross-reference sources** — combine data from multiple sources for complete answers
+1. **Read the relevant skill** — check `.builder/skills/<provider>/SKILL.md` for the right functions, scripts, and patterns
+2. **Use existing scripts** — run `pnpm script <name> --arg=value`. All scripts support `--grep` and `--fields`.
+3. **Write ad-hoc scripts** — if no existing script covers the question, create one in `scripts/`
+4. **Use BigQuery directly** — for analytics/metrics questions, write SQL and run via `runQuery()`
+5. **Include charts** — generate charts using the `generate-chart` script (see `charts/SKILL.md`)
+6. **Cross-reference sources** — combine data from multiple sources for complete answers
 
 ### Available Data Sources
 
@@ -407,6 +370,10 @@ pnpm script seo-top-keywords --grep=remix --fields=keyword,rank_absolute,etv
 ```
 
 **Key principle**: When asked a question, don't just say "you can check the dashboard" — actually run the query, get the data, and present the answer directly in chat with tables and/or charts.
+
+## TypeScript Everywhere
+
+All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`, or `.mjs` files. Node 22+ runs `.ts` files natively, so no compilation step is needed for scripts. Use ESM imports (`import`), not CommonJS (`require`).
 
 ## Code Comments Policy
 

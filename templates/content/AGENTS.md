@@ -363,6 +363,10 @@ Run any script with `--help` for full usage.
 
 Follow [UI.md](./UI.md) for aesthetic and component preferences.
 
+## TypeScript Everywhere
+
+All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`, or `.mjs` files. Node 22+ runs `.ts` files natively, so no compilation step is needed for scripts. Use ESM imports (`import`), not CommonJS (`require`).
+
 ## Development Commands
 
 ```bash
