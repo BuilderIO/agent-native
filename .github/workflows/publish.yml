@@ -19,6 +19,7 @@ on:
           - patch
           - minor
           - major
+          - dev
 
 jobs:
   publish:
@@ -57,7 +58,7 @@ jobs:
         run: pnpm --filter @agent-native/core test
 
       - name: Bump version (manual dispatch only)
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version_bump != 'dev'
         working-directory: packages/core
         run: |
           git config user.name "github-actions[bot]"
@@ -69,6 +70,22 @@ jobs:
           git tag "v${VERSION}"
           git push origin HEAD:main --tags
 
+      - name: Set dev version (manual dispatch only)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version_bump == 'dev'
+        working-directory: packages/core
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          DEV_VERSION="${CURRENT}-dev.${SHORT_SHA}"
+          npm version "$DEV_VERSION" --no-git-tag-version
+          echo "DEV_VERSION=$DEV_VERSION" >> $GITHUB_ENV
+
       - name: Publish to npm
+        if: github.event.inputs.version_bump != 'dev'
         working-directory: packages/core
         run: npm publish --access public --provenance
+
+      - name: Publish dev version to npm
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version_bump == 'dev'
+        working-directory: packages/core
+        run: npm publish --access public --provenance --tag dev
