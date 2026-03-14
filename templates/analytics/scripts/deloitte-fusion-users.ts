@@ -14,14 +14,17 @@ async function hubspotGet(path: string) {
 }
 
 async function hubspotSearch(objectType: string, filters: any) {
-  const res = await fetch(`https://api.hubapi.com/crm/v3/objects/${objectType}/search`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${HUBSPOT_TOKEN}`,
-      "Content-Type": "application/json",
+  const res = await fetch(
+    `https://api.hubapi.com/crm/v3/objects/${objectType}/search`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${HUBSPOT_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(filters),
     },
-    body: JSON.stringify(filters),
-  });
+  );
   if (!res.ok) throw new Error(`HubSpot ${res.status}: ${await res.text()}`);
   return res.json();
 }
@@ -45,7 +48,9 @@ const companySearch = await hubspotSearch("companies", {
 });
 
 const companyIds = companySearch.results?.map((r: any) => r.id) ?? [];
-console.error(`Found ${companyIds.length} Deloitte companies: ${companySearch.results?.map((r: any) => r.properties.name).join(", ")}`);
+console.error(
+  `Found ${companyIds.length} Deloitte companies: ${companySearch.results?.map((r: any) => r.properties.name).join(", ")}`,
+);
 
 if (companyIds.length === 0) {
   output({ error: "No Deloitte companies found in HubSpot" });
@@ -55,11 +60,15 @@ if (companyIds.length === 0) {
 // Step 2: Company -> Contacts
 const allContactIds: string[] = [];
 for (const companyId of companyIds) {
-  const contactAssoc = await hubspotGet(`/crm/v3/objects/companies/${companyId}/associations/contacts`);
+  const contactAssoc = await hubspotGet(
+    `/crm/v3/objects/companies/${companyId}/associations/contacts`,
+  );
   const ids = contactAssoc.results?.map((r: any) => r.id) ?? [];
   allContactIds.push(...ids);
 }
-console.error(`Found ${allContactIds.length} contacts associated with Deloitte companies`);
+console.error(
+  `Found ${allContactIds.length} contacts associated with Deloitte companies`,
+);
 
 if (allContactIds.length === 0) {
   output({ error: "No contacts found for Deloitte companies" });
@@ -122,9 +131,14 @@ const messagesResult = await runQuery(`
 `);
 
 const users = messagesResult.rows;
-const totalMessages = users.reduce((sum: number, r: any) => sum + parseInt(r.message_count), 0);
+const totalMessages = users.reduce(
+  (sum: number, r: any) => sum + parseInt(r.message_count),
+  0,
+);
 
-console.error(`\nFound ${users.length} Deloitte users with Fusion activity (${totalMessages} total messages)`);
+console.error(
+  `\nFound ${users.length} Deloitte users with Fusion activity (${totalMessages} total messages)`,
+);
 
 output({
   days,

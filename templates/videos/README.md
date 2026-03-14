@@ -20,28 +20,33 @@ Open http://localhost:8080 to access the studio.
 ## ✨ Features
 
 ### 🎬 AI-Powered Generation
+
 - Describe videos in natural language
 - Attach reference images, logos, and assets
 - Generates React components and animation tracks automatically
 
 ### 🎥 Camera System
+
 - 6 animatable properties: translate X/Y, scale, rotate X/Y, perspective
 - Multi-keyframe selection with box-select and shift-click
 - Visual camera controls with real-time preview
 
 ### 🖱️ Interactive Cursor
+
 - Position tracking with smooth animations
 - Hover and click detection
 - Component-type based interactions
 - Visual cursor with multiple states
 
 ### 🎭 Cursor Interactions
+
 - Add hover animations to any component type
 - Click effects with timing control
 - Scale, translate, and rotate on interaction
 - Duration and easing customization
 
 ### ⚡ Advanced Timeline
+
 - Multi-keyframe selection and editing
 - Visual easing selector (20+ curves)
 - View range control for focused editing
@@ -49,6 +54,7 @@ Open http://localhost:8080 to access the studio.
 - Expression-controlled animations (programmatic)
 
 ### 🎨 Built-in Components
+
 - Kinetic Text (typing reveal, drift, explode)
 - Logo Reveal (particle burst)
 - Logo Explode (SVG scatter)
@@ -59,10 +65,7 @@ Open http://localhost:8080 to access the studio.
 ## 🛠️ Helper Functions
 
 ```typescript
-import {
-  createBlankComposition,
-  addComposition,
-} from "@/remotion/registry";
+import { createBlankComposition, addComposition } from "@/remotion/registry";
 
 import {
   createCameraTrack,
@@ -92,22 +95,26 @@ validateComposition(tracks); // Ensure it has required tracks
 ## 📖 Key Concepts
 
 ### Compositions
+
 - **ID**: URL-friendly slug (auto-generated from title)
 - **Tracks**: Animation timelines (camera, cursor, custom)
 - **Props**: Component configuration (colors, text, etc.)
 - **Dimensions**: Default 1920×1080 @ 30fps
 
 ### Tracks
+
 - **Camera**: Controls viewport (required)
 - **Cursor**: Tracks pointer position (required for interactions)
 - **Custom**: Element-specific animations (optional)
 
 ### Keyframes
+
 - **Simple**: from/to values with easing
 - **Complex**: Multiple keyframes with individual easing
 - **Programmatic**: Code-driven animations with parameters
 
 ### Cursor Interactions
+
 - **Hover**: Trigger when cursor enters component bounds
 - **Click**: Trigger on cursor click events
 - **Component-Type Based**: Apply to all instances globally
@@ -115,6 +122,7 @@ validateComposition(tracks); // Ensure it has required tracks
 ## 🎯 Common Workflows
 
 ### Create with AI
+
 1. Click "+ New Composition"
 2. Describe your video
 3. Attach references (optional)
@@ -122,6 +130,7 @@ validateComposition(tracks); // Ensure it has required tracks
 5. Edit and customize
 
 ### Create Manually
+
 1. Copy `BlankComposition.tsx` as template
 2. Modify component code
 3. Register in `registry.ts`
@@ -129,12 +138,14 @@ validateComposition(tracks); // Ensure it has required tracks
 5. Navigate to `/c/your-comp-id`
 
 ### Add Cursor Interactions
+
 1. Ensure cursor track exists
 2. Add `<Cursor>` to component
 3. Use `useHoverAnimation()` hook
 4. Configure in Properties → Cursor Interactions
 
 ### Multi-Keyframe Editing
+
 1. Box-select: Click+drag in timeline
 2. Shift-click: Add individual keyframes
 3. Drag selection: Move all together
@@ -189,6 +200,7 @@ pnpm format.fix        # Format code
 ### Environment
 
 All compositions run at:
+
 - **30fps** (standardized)
 - **1920×1080** (Wide format default)
 - **240 frames** (8 seconds default duration)

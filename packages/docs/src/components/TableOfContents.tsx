@@ -1,7 +1,7 @@
 interface TocItem {
-  id: string
-  label: string
-  indent?: boolean
+  id: string;
+  label: string;
+  indent?: boolean;
 }
 
 export default function TableOfContents({ items }: { items: TocItem[] }) {
@@ -26,5 +26,5 @@ export default function TableOfContents({ items }: { items: TocItem[] }) {
         </ul>
       </nav>
     </aside>
-  )
+  );
 }

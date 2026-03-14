@@ -6,11 +6,16 @@
 const scriptName = process.argv[2];
 if (!scriptName) {
   console.error("Usage: pnpm script <script-name> [--args]");
-  console.error("Available scripts: generate-image, image-gen-status, image-search");
+  console.error(
+    "Available scripts: generate-image, image-gen-status, image-search",
+  );
   process.exit(1);
 }
 
-const scripts: Record<string, () => Promise<{ default: (args: string[]) => Promise<void> }>> = {
+const scripts: Record<
+  string,
+  () => Promise<{ default: (args: string[]) => Promise<void> }>
+> = {
   "generate-image": () => import("./generate-image.js"),
   "image-gen-status": () => import("./image-gen-status.js"),
   "image-search": () => import("./image-search.js"),

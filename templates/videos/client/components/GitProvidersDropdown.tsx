@@ -64,10 +64,12 @@ export const GitProvidersDropdown: React.FC<GitProvidersDropdownProps> = ({
   bitbucketProviderIsHovered = false,
 }) => {
   const [shouldRender, setShouldRender] = React.useState(isOpen);
-  const [animationState, setAnimationState] = React.useState<"entering" | "entered" | "exiting">(
-    isOpen ? "entering" : "exiting"
+  const [animationState, setAnimationState] = React.useState<
+    "entering" | "entered" | "exiting"
+  >(isOpen ? "entering" : "exiting");
+  const [hoveredProvider, setHoveredProvider] = React.useState<string | null>(
+    null,
   );
-  const [hoveredProvider, setHoveredProvider] = React.useState<string | null>(null);
 
   // Map provider IDs to hover states
   const providerHoverStates: Record<string, boolean> = {
@@ -163,7 +165,9 @@ export const GitProvidersDropdown: React.FC<GitProvidersDropdownProps> = ({
         >
           {providers.map((provider, index) => {
             // Use hover state from props (Remotion mode) or local state (interactive mode)
-            const isHovered = providerHoverStates[provider.id] || hoveredProvider === provider.id;
+            const isHovered =
+              providerHoverStates[provider.id] ||
+              hoveredProvider === provider.id;
 
             return (
               <div
@@ -182,7 +186,9 @@ export const GitProvidersDropdown: React.FC<GitProvidersDropdownProps> = ({
                   padding: "5px 3px 5px 10px",
                   marginLeft: -10,
                   borderRadius: 6,
-                  backgroundColor: isHovered ? "rgba(255, 255, 255, 0.15)" : "transparent",
+                  backgroundColor: isHovered
+                    ? "rgba(255, 255, 255, 0.15)"
+                    : "transparent",
                   transition: "background-color 0.15s ease",
                 }}
               >

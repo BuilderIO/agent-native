@@ -43,14 +43,14 @@ export function EditorView({ projectSlug, filePath }: EditorViewProps) {
 
   useEffect(() => {
     queryClient.prefetchQuery({
-      queryKey: ['notion-schema'],
-      queryFn: () => authFetch("/api/notion/schema").then(r => r.json()),
+      queryKey: ["notion-schema"],
+      queryFn: () => authFetch("/api/notion/schema").then((r) => r.json()),
       staleTime: 5 * 60 * 1000,
     });
 
     queryClient.prefetchQuery({
-      queryKey: ['notion-pages'],
-      queryFn: () => authFetch("/api/notion/pages").then(r => r.json()),
+      queryKey: ["notion-pages"],
+      queryFn: () => authFetch("/api/notion/pages").then((r) => r.json()),
       staleTime: 5 * 60 * 1000,
     });
 
@@ -74,46 +74,61 @@ export function EditorView({ projectSlug, filePath }: EditorViewProps) {
   const [mode, setMode] = useState<EditorMode>("visual");
   const [isDirty, setIsDirty] = useState(false);
   const hasLoadedRef = useRef(false);
-  const [notionSyncStatus, setNotionSyncStatus] = useState<'idle' | 'syncing' | 'synced'>('idle');
+  const [notionSyncStatus, setNotionSyncStatus] = useState<
+    "idle" | "syncing" | "synced"
+  >("idle");
   const isDirtyRef = useRef(isDirty);
   isDirtyRef.current = isDirty;
 
   // Hero image undo/redo stack
-  const heroHistoryRef = useRef<{ undo: string[], redo: string[] }>({ undo: [], redo: [] });
-  const lastHeroActionRef = useRef<'hero' | 'body' | null>(null);
+  const heroHistoryRef = useRef<{ undo: string[]; redo: string[] }>({
+    undo: [],
+    redo: [],
+  });
+  const lastHeroActionRef = useRef<"hero" | "body" | null>(null);
 
-  const projectMeta = projectsData?.projects.find((project) => project.slug === projectSlug);
-  const canonicalHandleFallback = projectMeta?.canonicalSlug?.split("/").pop() || null;
+  const projectMeta = projectsData?.projects.find(
+    (project) => project.slug === projectSlug,
+  );
+  const canonicalHandleFallback =
+    projectMeta?.canonicalSlug?.split("/").pop() || null;
 
   // Parse frontmatter
-  const { heroImage, frontmatter, contentWithoutFrontmatter, handle } = useMemo(() => {
-    try {
-      const parsed = parseFrontmatter(content);
-      // We need to extract just the frontmatter block as a string to pass to VisualEditor
-      const fmRegex = /^---\n([\s\S]*?)\n---\n?/;
-      const match = content.match(fmRegex);
+  const { heroImage, frontmatter, contentWithoutFrontmatter, handle } =
+    useMemo(() => {
+      try {
+        const parsed = parseFrontmatter(content);
+        // We need to extract just the frontmatter block as a string to pass to VisualEditor
+        const fmRegex = /^---\n([\s\S]*?)\n---\n?/;
+        const match = content.match(fmRegex);
 
-      return {
-        heroImage: (parsed.data.builder?.image !== undefined ? parsed.data.builder.image : parsed.data.hero_image) ?? null,
-        frontmatter: match ? match[0] : null,
-        contentWithoutFrontmatter: parsed.content,
-        handle:
-          parsed.data.builder?.handle ||
-          parsed.data.handle ||
-          canonicalHandleFallback ||
-          projectSlug.split('/').pop() ||
-          projectSlug
-      };
-    } catch (e) {
-      // Fallback if parsing fails
-      return {
-        heroImage: null,
-        frontmatter: null,
-        contentWithoutFrontmatter: content,
-        handle: canonicalHandleFallback || projectSlug.split('/').pop() || projectSlug
-      };
-    }
-  }, [canonicalHandleFallback, content, projectSlug]);
+        return {
+          heroImage:
+            (parsed.data.builder?.image !== undefined
+              ? parsed.data.builder.image
+              : parsed.data.hero_image) ?? null,
+          frontmatter: match ? match[0] : null,
+          contentWithoutFrontmatter: parsed.content,
+          handle:
+            parsed.data.builder?.handle ||
+            parsed.data.handle ||
+            canonicalHandleFallback ||
+            projectSlug.split("/").pop() ||
+            projectSlug,
+        };
+      } catch (e) {
+        // Fallback if parsing fails
+        return {
+          heroImage: null,
+          frontmatter: null,
+          contentWithoutFrontmatter: content,
+          handle:
+            canonicalHandleFallback ||
+            projectSlug.split("/").pop() ||
+            projectSlug,
+        };
+      }
+    }, [canonicalHandleFallback, content, projectSlug]);
 
   const contentRef = useRef(content);
   contentRef.current = content;
@@ -127,7 +142,7 @@ export function EditorView({ projectSlug, filePath }: EditorViewProps) {
     // Push current content to hero undo stack
     heroHistoryRef.current.undo.push(prev);
     heroHistoryRef.current.redo = [];
-    lastHeroActionRef.current = 'hero';
+    lastHeroActionRef.current = "hero";
 
     try {
       const newContent = updateHeroImage(prev, url);
@@ -144,7 +159,7 @@ export function EditorView({ projectSlug, filePath }: EditorViewProps) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isMod = e.metaKey || e.ctrlKey;
-      if (!isMod || e.key.toLowerCase() !== 'z') return;
+      if (!isMod || e.key.toLowerCase() !== "z") return;
 
       const isRedo = e.shiftKey;
       const history = heroHistoryRef.current;
@@ -156,7 +171,11 @@ export function EditorView({ projectSlug, filePath }: EditorViewProps) {
         const prev = contentRef.current;
         history.undo.push(prev);
         setTimeout(() => handleChangeRef.current?.(redoContent), 0);
-      } else if (!isRedo && lastHeroActionRef.current === 'hero' && history.undo.length > 0) {
+      } else if (
+        !isRedo &&
+        lastHeroActionRef.current === "hero" &&
+        history.undo.length > 0
+      ) {
         e.preventDefault();
         e.stopPropagation();
         const undoContent = history.undo.pop()!;
@@ -169,10 +188,12 @@ export function EditorView({ projectSlug, filePath }: EditorViewProps) {
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown, true);
-    return () => document.removeEventListener('keydown', handleKeyDown, true);
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
   }, []);
-  const [activeSidebar, setActiveSidebar] = useState<'builder' | 'notion' | null>(null);
+  const [activeSidebar, setActiveSidebar] = useState<
+    "builder" | "notion" | null
+  >(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveMutationRef = useRef(saveMutation);
   saveMutationRef.current = saveMutation;
@@ -188,7 +209,11 @@ export function EditorView({ projectSlug, filePath }: EditorViewProps) {
     if (data?.content !== undefined) {
       // Don't overwrite local edits with server data if we have pending changes
       // or if a save is currently in flight
-      if (!isDirtyRef.current && !saveTimeoutRef.current && !saveMutationRef.current.isPending) {
+      if (
+        !isDirtyRef.current &&
+        !saveTimeoutRef.current &&
+        !saveMutationRef.current.isPending
+      ) {
         // Only update if content actually changed to prevent unnecessary re-renders
         if (data.content !== contentRef.current) {
           setContent(data.content);
@@ -255,7 +280,11 @@ export function EditorView({ projectSlug, filePath }: EditorViewProps) {
           <h2 className="text-sm font-medium text-foreground truncate">
             {data?.title || filePath}
           </h2>
-          <SaveStatus isDirty={isDirty} isSaving={saveMutation.isPending} notionSyncStatus={notionSyncStatus} />
+          <SaveStatus
+            isDirty={isDirty}
+            isSaving={saveMutation.isPending}
+            notionSyncStatus={notionSyncStatus}
+          />
         </div>
         <div className="flex items-center gap-3">
           <PresenceAvatars viewers={viewers} />
@@ -284,12 +313,16 @@ export function EditorView({ projectSlug, filePath }: EditorViewProps) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
-                  onClick={() => setActiveSidebar(activeSidebar === 'notion' ? null : 'notion')}
+                  onClick={() =>
+                    setActiveSidebar(
+                      activeSidebar === "notion" ? null : "notion",
+                    )
+                  }
                   className={cn(
                     "flex items-center justify-center w-7 h-7 rounded-md transition-all",
-                    activeSidebar === 'notion'
+                    activeSidebar === "notion"
                       ? "bg-background shadow-sm opacity-100"
-                      : "opacity-60 hover:opacity-100 hover:bg-background/50"
+                      : "opacity-60 hover:opacity-100 hover:bg-background/50",
                   )}
                 >
                   <img
@@ -307,12 +340,16 @@ export function EditorView({ projectSlug, filePath }: EditorViewProps) {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
-                    onClick={() => setActiveSidebar(activeSidebar === 'builder' ? null : 'builder')}
+                    onClick={() =>
+                      setActiveSidebar(
+                        activeSidebar === "builder" ? null : "builder",
+                      )
+                    }
                     className={cn(
                       "flex items-center justify-center w-7 h-7 rounded-md transition-all",
-                      activeSidebar === 'builder'
+                      activeSidebar === "builder"
                         ? "bg-background shadow-sm opacity-100"
-                        : "opacity-60 hover:opacity-100 hover:bg-background/50"
+                        : "opacity-60 hover:opacity-100 hover:bg-background/50",
                     )}
                   >
                     <BuilderLogo size={14} className="text-foreground" />
@@ -351,8 +388,10 @@ export function EditorView({ projectSlug, filePath }: EditorViewProps) {
                 <VisualEditor
                   content={contentWithoutFrontmatter}
                   onChange={(md) => {
-                    lastHeroActionRef.current = 'body';
-                    const full = frontmatterRef.current ? frontmatterRef.current + md : md;
+                    lastHeroActionRef.current = "body";
+                    const full = frontmatterRef.current
+                      ? frontmatterRef.current + md
+                      : md;
                     handleChange(full);
                   }}
                   projectSlug={projectSlug}
@@ -368,15 +407,13 @@ export function EditorView({ projectSlug, filePath }: EditorViewProps) {
         <div
           className={cn(
             "h-full border-border bg-background flex flex-col shrink-0 transition-[width] duration-200 overflow-hidden",
-            activeSidebar
-              ? "w-[340px] border-l"
-              : "w-0 border-l-0"
+            activeSidebar ? "w-[340px] border-l" : "w-0 border-l-0",
           )}
         >
-          {activeSidebar === 'builder' && (
+          {activeSidebar === "builder" && (
             <BuilderSidebar
               open={true}
-              onOpenChange={(open) => setActiveSidebar(open ? 'builder' : null)}
+              onOpenChange={(open) => setActiveSidebar(open ? "builder" : null)}
               markdown={content}
               onChange={handleChange}
               projectSlug={projectSlug}
@@ -389,8 +426,8 @@ export function EditorView({ projectSlug, filePath }: EditorViewProps) {
           )}
 
           <NotionSidebar
-            open={activeSidebar === 'notion'}
-            onOpenChange={(open) => setActiveSidebar(open ? 'notion' : null)}
+            open={activeSidebar === "notion"}
+            onOpenChange={(open) => setActiveSidebar(open ? "notion" : null)}
             markdown={content}
             onChange={handleChange}
             projectSlug={projectSlug}
@@ -398,7 +435,6 @@ export function EditorView({ projectSlug, filePath }: EditorViewProps) {
             localUpdatedAt={data?.updatedAt}
             onSyncStatusChange={setNotionSyncStatus}
           />
-
         </div>
       </div>
     </div>
@@ -425,7 +461,7 @@ function ModeButton({
             "flex items-center justify-center w-7 h-7 rounded-md transition-all",
             isActive
               ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
+              : "text-muted-foreground hover:text-foreground",
           )}
         >
           <Icon size={14} />
@@ -449,13 +485,13 @@ function WordCount({ count }: { count: number }) {
 function SaveStatus({
   isDirty,
   isSaving,
-  notionSyncStatus = 'idle',
+  notionSyncStatus = "idle",
 }: {
   isDirty: boolean;
   isSaving: boolean;
-  notionSyncStatus?: 'idle' | 'syncing' | 'synced';
+  notionSyncStatus?: "idle" | "syncing" | "synced";
 }) {
-  if (notionSyncStatus === 'syncing') {
+  if (notionSyncStatus === "syncing") {
     return (
       <span className="flex items-center gap-1 text-xs text-muted-foreground">
         <Loader2 size={12} className="animate-spin" />

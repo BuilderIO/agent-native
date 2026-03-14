@@ -27,7 +27,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors",
                   location.pathname === to
                     ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 <Icon className="h-4 w-4" />

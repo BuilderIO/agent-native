@@ -19,9 +19,16 @@ interface ImageGenPanelProps {
   anchorRef?: React.RefObject<HTMLButtonElement | null>;
 }
 
-export default function ImageGenPanel({ open, onOpenChange, slideContext, anchorRef }: ImageGenPanelProps) {
+export default function ImageGenPanel({
+  open,
+  onOpenChange,
+  slideContext,
+  anchorRef,
+}: ImageGenPanelProps) {
   const [prompt, setPrompt] = useState("");
-  const [disabledDefaults, setDisabledDefaults] = useState<Set<number>>(new Set());
+  const [disabledDefaults, setDisabledDefaults] = useState<Set<number>>(
+    new Set(),
+  );
   const { generating, submit: agentSubmit } = useAgentGenerating();
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -53,28 +60,42 @@ export default function ImageGenPanel({ open, onOpenChange, slideContext, anchor
   };
 
   const handleGenerate = () => {
-    const activeRefs = DEFAULT_STYLE_REFERENCE_URLS.filter((_, i) => !disabledDefaults.has(i));
+    const activeRefs = DEFAULT_STYLE_REFERENCE_URLS.filter(
+      (_, i) => !disabledDefaults.has(i),
+    );
     const contextParts: string[] = [];
 
-    contextParts.push("Generate 3 image variations using our image generation script (`pnpm script generate-image`).");
+    contextParts.push(
+      "Generate 3 image variations using our image generation script (`pnpm script generate-image`).",
+    );
 
     if (prompt.trim()) {
       contextParts.push(`Image prompt: "${prompt}"`);
     } else {
-      contextParts.push("Generate an appropriate image based on the slide content below.");
+      contextParts.push(
+        "Generate an appropriate image based on the slide content below.",
+      );
     }
 
     if (slideContext) {
-      contextParts.push(`\nTarget: Slide ${slideContext.slideIndex + 1} (id: ${slideContext.slideId}) in deck "${slideContext.deckTitle}" (id: ${slideContext.deckId}).`);
+      contextParts.push(
+        `\nTarget: Slide ${slideContext.slideIndex + 1} (id: ${slideContext.slideId}) in deck "${slideContext.deckTitle}" (id: ${slideContext.deckId}).`,
+      );
       contextParts.push(`Current slide layout: ${slideContext.slideLayout}`);
-      contextParts.push(`Current slide content:\n\`\`\`\n${slideContext.slideContent}\n\`\`\``);
+      contextParts.push(
+        `Current slide content:\n\`\`\`\n${slideContext.slideContent}\n\`\`\``,
+      );
     }
 
     if (activeRefs.length > 0) {
-      contextParts.push(`\nUse these ${activeRefs.length} style reference URLs for brand matching (already configured as defaults in the script).`);
+      contextParts.push(
+        `\nUse these ${activeRefs.length} style reference URLs for brand matching (already configured as defaults in the script).`,
+      );
     }
 
-    contextParts.push("\nGenerate 3 variations, show them to the user, and let them pick their favorite. Then insert the chosen image into the slide content in the right place.");
+    contextParts.push(
+      "\nGenerate 3 variations, show them to the user, and let them pick their favorite. Then insert the chosen image into the slide content in the right place.",
+    );
 
     const label = prompt.trim()
       ? `Generate 3 image variations: ${prompt}`
@@ -106,10 +127,17 @@ export default function ImageGenPanel({ open, onOpenChange, slideContext, anchor
   }
 
   return createPortal(
-    <div ref={panelRef} style={style} className="w-80 bg-[hsl(240,5%,10%)] border border-white/[0.1] rounded-xl shadow-2xl shadow-black/60 overflow-hidden">
+    <div
+      ref={panelRef}
+      style={style}
+      className="w-80 bg-[hsl(240,5%,10%)] border border-white/[0.1] rounded-xl shadow-2xl shadow-black/60 overflow-hidden"
+    >
       <div className="px-4 pt-3 pb-2 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-white/90">Generate Image</h3>
-        <button onClick={() => onOpenChange(false)} className="text-white/30 hover:text-white/60 transition-colors">
+        <button
+          onClick={() => onOpenChange(false)}
+          className="text-white/30 hover:text-white/60 transition-colors"
+        >
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -130,10 +158,12 @@ export default function ImageGenPanel({ open, onOpenChange, slideContext, anchor
                       : "border-[#609FF8]/40"
                   }`}
                 >
-                  <img src={url} alt="" className="w-full h-full object-cover" />
-                  {disabled && (
-                    <div className="absolute inset-0 bg-black/40" />
-                  )}
+                  <img
+                    src={url}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                  {disabled && <div className="absolute inset-0 bg-black/40" />}
                 </button>
               );
             })}

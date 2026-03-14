@@ -52,5 +52,5 @@ if (!window.__appRoot) {
 window.__appRoot.render(
   <StrictMode>
     <App />
-  </StrictMode>
+  </StrictMode>,
 );

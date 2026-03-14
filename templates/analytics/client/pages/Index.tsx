@@ -75,32 +75,32 @@ export default function Index() {
 
   const signups = useMetricsQuery(
     ["signups-total", range],
-    signupsTotalSql(days)
+    signupsTotalSql(days),
   );
 
   const activeUsers = useMetricsQuery(
     ["active-users-total", range],
-    activeUsersTotalSql(days)
+    activeUsersTotalSql(days),
   );
 
   const agentChatMessages = useMetricsQuery(
     ["agent-chat-msgs-total", range],
-    agentChatMessagesTotalSql(days)
+    agentChatMessagesTotalSql(days),
   );
 
   const signupsOverTime = useMetricsQuery(
     ["signups-time", range],
-    signupsOverTimeSql(days)
+    signupsOverTimeSql(days),
   );
 
   const activeUsersOverTime = useMetricsQuery(
     ["active-users-time", range],
-    activeUsersOverTimeSql(days)
+    activeUsersOverTimeSql(days),
   );
 
   const agentChatOverTime = useMetricsQuery(
     ["agent-chat-time", range],
-    agentChatMessagesOverTimeSql(days)
+    agentChatMessagesOverTimeSql(days),
   );
 
   const getTotal = (q: ReturnType<typeof useMetricsQuery>) =>

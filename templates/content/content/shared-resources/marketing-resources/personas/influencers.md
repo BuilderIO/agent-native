@@ -56,7 +56,7 @@ You're talking to this persona when:
 - "Where are validated ideas getting stuck before they reach production?"
 - "What tools have you tried to accelerate product velocity, and what happened?"
 
-*Listen for:*
+_Listen for:_
 
 - **Executive pressure:** CEO/Board mandates to ship faster
 - **Team friction:** Cross-functional friction between design/product/engineering, engineering as bottleneck
@@ -70,7 +70,7 @@ You're talking to this persona when:
 - "What percentage of your designers' or PMs' time goes to redlines and implementation details vs. discovery and strategy?"
 - "How often does what ships match what was designed - and how many iteration cycles does that typically take?"
 
-*Listen for:*
+_Listen for:_
 
 - **Metrics:** Timelines in months not weeks, designers/PMs spending significant time on implementation details or redlines
 - **Waste:** Significant backlogs of validated work waiting on engineering, prototypes getting thrown out and rebuilt from scratch
@@ -83,7 +83,7 @@ You're talking to this persona when:
 - "How does your CTO or VP of Engineering typically evaluate new tools?"
 - "Who else is frustrated by this problem and would champion a solution internally?"
 
-*Listen for:*
+_Listen for:_
 
 - **Key players:** Champions who control technical validation (Distinguished Engineers, tech leads), exec buyers with budget (VPs, Directors)
 - **Pain breadth:** Cross-functional pain (not just design/product)

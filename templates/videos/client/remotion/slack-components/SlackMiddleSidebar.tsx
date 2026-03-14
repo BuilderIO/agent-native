@@ -33,7 +33,14 @@ export const SlackMiddleSidebar: React.FC<SlackMiddleSidebarProps> = ({
       }}
     >
       {/* Workspace header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "7px 0",
+        }}
+      >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div
             style={{
@@ -105,14 +112,23 @@ export const SlackMiddleSidebar: React.FC<SlackMiddleSidebarProps> = ({
       </div>
 
       {/* Secondary nav */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 11, marginTop: 26 }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 11,
+          marginTop: 26,
+        }}
+      >
         <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
           <img
             src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/eb75ec77dfb6fae9942b9074ee545969d5b36a86"
             alt=""
             style={{ width: 21, height: 21 }}
           />
-          <div style={{ color: "#ffffff", fontSize: 19, lineHeight: "38px" }}>Starred</div>
+          <div style={{ color: "#ffffff", fontSize: 19, lineHeight: "38px" }}>
+            Starred
+          </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
           <img
@@ -120,19 +136,30 @@ export const SlackMiddleSidebar: React.FC<SlackMiddleSidebarProps> = ({
             alt=""
             style={{ width: 21, height: 21 }}
           />
-          <div style={{ color: "#ffffff", fontSize: 19, lineHeight: "38px" }}>External connections</div>
+          <div style={{ color: "#ffffff", fontSize: 19, lineHeight: "38px" }}>
+            External connections
+          </div>
         </div>
       </div>
 
       {/* Channels section */}
       <div style={{ marginTop: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 8 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 11,
+            marginBottom: 8,
+          }}
+        >
           <img
             src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/b026865fa13a0fdc6521ea1a22ee98f7e63b335a"
             alt=""
             style={{ width: 21, height: 21 }}
           />
-          <div style={{ color: "#ffffff", fontSize: 19, lineHeight: "38px" }}>Channels</div>
+          <div style={{ color: "#ffffff", fontSize: 19, lineHeight: "38px" }}>
+            Channels
+          </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <SlackChannelItem
@@ -158,13 +185,22 @@ export const SlackMiddleSidebar: React.FC<SlackMiddleSidebarProps> = ({
 
       {/* Direct Messages section */}
       <div style={{ marginTop: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 14 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 11,
+            marginBottom: 14,
+          }}
+        >
           <img
             src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/04f0987b0e138885f36a07c9b75a4e861424bb74"
             alt=""
             style={{ width: 21, height: 21 }}
           />
-          <div style={{ color: "#e3ceeb", fontSize: 19, lineHeight: "38px" }}>Direct messages</div>
+          <div style={{ color: "#e3ceeb", fontSize: 19, lineHeight: "38px" }}>
+            Direct messages
+          </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <SlackDMItem
@@ -192,21 +228,39 @@ export const SlackMiddleSidebar: React.FC<SlackMiddleSidebarProps> = ({
 
       {/* Apps section */}
       <div style={{ marginTop: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 14 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 11,
+            marginBottom: 14,
+          }}
+        >
           <img
             src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/7c481c16df0ec227c32f5249e48f18aa468bd999"
             alt=""
             style={{ width: 21, height: 21 }}
           />
-          <div style={{ color: "#e3ceeb", fontSize: 19, lineHeight: "38px" }}>Apps</div>
+          <div style={{ color: "#e3ceeb", fontSize: 19, lineHeight: "38px" }}>
+            Apps
+          </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 11, padding: "0 17px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 11,
+            padding: "0 17px",
+          }}
+        >
           <img
             src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/7ce35bb5623b61d1a3c832cd44546d8c86782686"
             alt=""
             style={{ width: 21, height: 21, borderRadius: 6 }}
           />
-          <div style={{ color: "#e3ceeb", fontSize: 19, lineHeight: "38px" }}>Builder.io</div>
+          <div style={{ color: "#e3ceeb", fontSize: 19, lineHeight: "38px" }}>
+            Builder.io
+          </div>
         </div>
       </div>
     </div>

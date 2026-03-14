@@ -20,7 +20,9 @@ export function useDeleteGeneration() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      fetch(`/api/generations/${id}`, { method: "DELETE" }).then((r) => r.json()),
+      fetch(`/api/generations/${id}`, { method: "DELETE" }).then((r) =>
+        r.json(),
+      ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["generations"] }),
   });
 }

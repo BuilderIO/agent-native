@@ -16,14 +16,14 @@ If the top 5 word counts have high variance (standard deviation > 50% of the med
 
 When SERP data is unavailable (trending topics) or unreliable (high variance), use these ranges as **guidance, not limits**:
 
-| Post Type | Guidance Range | Soft Max |
-|-----------|---------------|----------|
-| Tutorial / Guide | 2,000-4,000 | 6,000 |
-| Comparison | 2,500-5,000 | 6,000 |
-| Explainer | 1,500-3,000 | 5,000 |
-| How-to | 1,200-2,500 | 4,000 |
-| Quick Reference | 600-1,200 | 2,000 |
-| Thought Leadership | 1,200-2,500 | 4,000 |
+| Post Type          | Guidance Range | Soft Max |
+| ------------------ | -------------- | -------- |
+| Tutorial / Guide   | 2,000-4,000    | 6,000    |
+| Comparison         | 2,500-5,000    | 6,000    |
+| Explainer          | 1,500-3,000    | 5,000    |
+| How-to             | 1,200-2,500    | 4,000    |
+| Quick Reference    | 600-1,200      | 2,000    |
+| Thought Leadership | 1,200-2,500    | 4,000    |
 
 ## Core Principle
 

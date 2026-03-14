@@ -1,4 +1,9 @@
-import type { FileSyncAdapter, FileRecord, FileChange, Unsubscribe } from "../sync/types.js";
+import type {
+  FileSyncAdapter,
+  FileRecord,
+  FileChange,
+  Unsubscribe,
+} from "../sync/types.js";
 
 // ---------------------------------------------------------------------------
 // Minimal Neon SQL interface (avoids hard @neondatabase/serverless dep)
@@ -9,7 +14,10 @@ interface NeonQueryResult {
   rowCount: number;
 }
 
-type NeonSql = (strings: TemplateStringsArray, ...values: any[]) => Promise<NeonQueryResult>;
+type NeonSql = (
+  strings: TemplateStringsArray,
+  ...values: any[]
+) => Promise<NeonQueryResult>;
 
 // ---------------------------------------------------------------------------
 // Column mapping helpers
@@ -53,11 +61,17 @@ export class NeonFileSyncAdapter implements FileSyncAdapter {
     this.pollIntervalMs = options?.pollIntervalMs ?? 2000;
   }
 
-  async query(appId: string, ownerId: string): Promise<{ id: string; data: FileRecord }[]> {
+  async query(
+    appId: string,
+    ownerId: string,
+  ): Promise<{ id: string; data: FileRecord }[]> {
     const result = await this.sql`
       SELECT * FROM files WHERE app = ${appId} AND owner_id = ${ownerId}
     `;
-    return result.rows.map((row: any) => ({ id: row.id, data: rowToRecord(row) }));
+    return result.rows.map((row: any) => ({
+      id: row.id,
+      data: rowToRecord(row),
+    }));
   }
 
   async get(id: string): Promise<{ id: string; data: FileRecord } | null> {
@@ -100,7 +114,10 @@ export class NeonFileSyncAdapter implements FileSyncAdapter {
     onChange: (changes: FileChange[]) => void,
     onError: (error: any) => void,
   ): Unsubscribe {
-    const snapshot = new Map<string, { content: string; lastUpdated: number }>();
+    const snapshot = new Map<
+      string,
+      { content: string; lastUpdated: number }
+    >();
     let stopped = false;
 
     const poll = async () => {
@@ -121,10 +138,19 @@ export class NeonFileSyncAdapter implements FileSyncAdapter {
 
           if (!prev) {
             changes.push({ type: "added", id: row.id, data: record });
-            snapshot.set(row.id, { content: row.content, lastUpdated: Number(row.last_updated) });
-          } else if (prev.content !== row.content || prev.lastUpdated !== Number(row.last_updated)) {
+            snapshot.set(row.id, {
+              content: row.content,
+              lastUpdated: Number(row.last_updated),
+            });
+          } else if (
+            prev.content !== row.content ||
+            prev.lastUpdated !== Number(row.last_updated)
+          ) {
             changes.push({ type: "modified", id: row.id, data: record });
-            snapshot.set(row.id, { content: row.content, lastUpdated: Number(row.last_updated) });
+            snapshot.set(row.id, {
+              content: row.content,
+              lastUpdated: Number(row.last_updated),
+            });
           }
         }
 
@@ -134,7 +160,13 @@ export class NeonFileSyncAdapter implements FileSyncAdapter {
             changes.push({
               type: "removed",
               id,
-              data: { path: "", content: prev.content, app: appId, ownerId, lastUpdated: prev.lastUpdated },
+              data: {
+                path: "",
+                content: prev.content,
+                app: appId,
+                ownerId,
+                lastUpdated: prev.lastUpdated,
+              },
             });
             snapshot.delete(id);
           }

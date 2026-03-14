@@ -100,7 +100,7 @@ export function ArticleCard({ article, index, onDelete }: ArticleCardProps) {
             size={12}
             className={cn(
               "transition-transform duration-150",
-              expanded && "rotate-180"
+              expanded && "rotate-180",
             )}
           />
           {expanded ? "Hide details" : "Show highlights & key quote"}

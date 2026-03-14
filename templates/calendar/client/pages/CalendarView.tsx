@@ -32,7 +32,9 @@ type ViewMode = "month" | "week" | "day";
 export default function CalendarView() {
   const [viewMode, setViewMode] = useState<ViewMode>("month");
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(
+    null,
+  );
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
@@ -73,11 +75,14 @@ export default function CalendarView() {
       viewMode === "day"
         ? events.filter((e) => isSameDay(parseISO(e.start), selectedDate))
         : events,
-    [events, viewMode, selectedDate]
+    [events, viewMode, selectedDate],
   );
 
   function handleNavigate(direction: "prev" | "next") {
-    const fn = direction === "next" ? { month: addMonths, week: addWeeks, day: addDays } : { month: subMonths, week: subWeeks, day: subDays };
+    const fn =
+      direction === "next"
+        ? { month: addMonths, week: addWeeks, day: addDays }
+        : { month: subMonths, week: subWeeks, day: subDays };
     setSelectedDate((d) => fn[viewMode](d, 1));
   }
 
@@ -120,10 +125,18 @@ export default function CalendarView() {
             Today
           </Button>
           <div className="flex items-center">
-            <Button variant="ghost" size="icon" onClick={() => handleNavigate("prev")}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleNavigate("prev")}
+            >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={() => handleNavigate("next")}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleNavigate("next")}
+            >
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -133,7 +146,10 @@ export default function CalendarView() {
         <div className="flex items-center gap-3">
           {googleStatus.data?.connected && <GoogleSyncButton />}
 
-          <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
+          <Tabs
+            value={viewMode}
+            onValueChange={(v) => setViewMode(v as ViewMode)}
+          >
             <TabsList>
               <TabsTrigger value="month">Month</TabsTrigger>
               <TabsTrigger value="week">Week</TabsTrigger>

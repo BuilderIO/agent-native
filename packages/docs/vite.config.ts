@@ -1,10 +1,10 @@
-import { defineConfig } from 'vite'
-import { devtools } from '@tanstack/devtools-vite'
-import { tanstackStart } from '@tanstack/react-start/plugin/vite'
-import netlify from '@netlify/vite-plugin-tanstack-start'
+import { defineConfig } from "vite";
+import { devtools } from "@tanstack/devtools-vite";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import netlify from "@netlify/vite-plugin-tanstack-start";
 
-import viteReact from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
+import viteReact from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 const config = defineConfig(({ command }) => ({
   plugins: [
@@ -16,7 +16,7 @@ const config = defineConfig(({ command }) => ({
         crawlLinks: true,
       },
     }),
-    command === 'build' && netlify(),
+    command === "build" && netlify(),
     viteReact(),
   ],
   resolve: {
@@ -24,21 +24,21 @@ const config = defineConfig(({ command }) => ({
   },
   server: {
     watch: {
-      ignored: ['**/routeTree.gen.ts'],
+      ignored: ["**/routeTree.gen.ts"],
     },
   },
   optimizeDeps: {
-    exclude: ['lightningcss', 'fsevents'],
+    exclude: ["lightningcss", "fsevents"],
   },
   ssr: {
-    external: ['lightningcss', 'fsevents'],
-    noExternal: ['@tailwindcss/vite'],
+    external: ["lightningcss", "fsevents"],
+    noExternal: ["@tailwindcss/vite"],
   },
   build: {
     rollupOptions: {
-      external: ['lightningcss', 'fsevents'],
+      external: ["lightningcss", "fsevents"],
     },
   },
-}))
+}));
 
-export default config
+export default config;

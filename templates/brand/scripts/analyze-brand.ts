@@ -13,9 +13,11 @@ export default async function main(args: string[]) {
   if (!apiKey) fail("GEMINI_API_KEY is required. Add it to your .env file.");
 
   // Load all reference images
-  if (!fs.existsSync(REFS_DIR)) fail("No references directory found at data/brand/references/");
+  if (!fs.existsSync(REFS_DIR))
+    fail("No references directory found at data/brand/references/");
   const imageFiles = fs.readdirSync(REFS_DIR).filter((f) => !f.startsWith("."));
-  if (imageFiles.length === 0) fail("No reference images found. Upload some first.");
+  if (imageFiles.length === 0)
+    fail("No reference images found. Upload some first.");
 
   console.log(`Analyzing ${imageFiles.length} reference image(s)...`);
 
@@ -23,17 +25,24 @@ export default async function main(args: string[]) {
   const client = new GoogleGenAI({ apiKey });
 
   // Build content parts: all images + analysis prompt
-  const contents: Array<{ inlineData: { mimeType: string; data: string } } | { text: string }> = [];
+  const contents: Array<
+    { inlineData: { mimeType: string; data: string } } | { text: string }
+  > = [];
 
   for (const file of imageFiles) {
     const filePath = path.join(REFS_DIR, file);
     const data = fs.readFileSync(filePath);
     const ext = path.extname(file).toLowerCase();
     const mimeType =
-      ext === ".png" ? "image/png" :
-      ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" :
-      ext === ".webp" ? "image/webp" :
-      ext === ".svg" ? "image/svg+xml" : "image/png";
+      ext === ".png"
+        ? "image/png"
+        : ext === ".jpg" || ext === ".jpeg"
+          ? "image/jpeg"
+          : ext === ".webp"
+            ? "image/webp"
+            : ext === ".svg"
+              ? "image/svg+xml"
+              : "image/png";
 
     contents.push({
       inlineData: { mimeType, data: data.toString("base64") },

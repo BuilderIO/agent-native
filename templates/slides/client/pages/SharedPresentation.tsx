@@ -51,7 +51,9 @@ export default function SharedPresentation() {
           <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center">
             <AlertCircle className="w-6 h-6 text-red-400" />
           </div>
-          <h1 className="text-lg font-semibold text-white/90">Presentation Not Found</h1>
+          <h1 className="text-lg font-semibold text-white/90">
+            Presentation Not Found
+          </h1>
           <p className="text-sm text-white/50">
             {error || "This shared presentation doesn't exist or has expired."}
           </p>

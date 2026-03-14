@@ -33,7 +33,7 @@ export function SummaryCards({ fiscalYear }: SummaryCardsProps) {
   const sql = summaryTotalsQuery(fiscalYear);
   const { data, isLoading } = useMetricsQuery(
     ["arr-summary", String(fiscalYear)],
-    sql
+    sql,
   );
 
   const row = data?.rows?.[0];
@@ -75,7 +75,7 @@ export function SummaryCards({ fiscalYear }: SummaryCardsProps) {
             ? "border-border/50"
             : isPositive
               ? "border-emerald-500/30"
-              : "border-red-500/30"
+              : "border-red-500/30",
         )}
       >
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -85,7 +85,7 @@ export function SummaryCards({ fiscalYear }: SummaryCardsProps) {
           <div
             className={cn(
               "flex h-8 w-8 items-center justify-center rounded-full",
-              isPositive ? "bg-emerald-500/10" : "bg-red-500/10"
+              isPositive ? "bg-emerald-500/10" : "bg-red-500/10",
             )}
           >
             {isPositive ? (
@@ -105,14 +105,15 @@ export function SummaryCards({ fiscalYear }: SummaryCardsProps) {
               <div
                 className={cn(
                   "text-3xl font-bold",
-                  isPositive ? "text-emerald-500" : "text-red-500"
+                  isPositive ? "text-emerald-500" : "text-red-500",
                 )}
               >
                 {isPositive ? "+" : ""}
                 {fmtFull(net)}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                {isPositive ? "Net positive" : "Net negative"} for FY{fiscalYear}
+                {isPositive ? "Net positive" : "Net negative"} for FY
+                {fiscalYear}
               </p>
             </>
           )}
@@ -188,7 +189,7 @@ function MetricCard({
         <div
           className={cn(
             "flex h-8 w-8 items-center justify-center rounded-full",
-            bgColor
+            bgColor,
           )}
         >
           <Icon className={cn("h-4 w-4", color)} />

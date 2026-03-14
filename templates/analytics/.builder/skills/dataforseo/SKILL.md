@@ -20,13 +20,13 @@ description: >
 
 ### Exported Functions
 
-| Function | Description |
-|---|---|
-| `getRelevantBlogPages(limit?, offset?)` | Blog pages with SEO metrics |
-| `getAllBlogPagesSeo()` | All blog pages (paginated, up to 1000) |
-| `getTopBlogKeywords(limit?, offset?)` | Top ranking keywords |
-| `getAllTopBlogKeywords(maxResults?)` | All top keywords |
-| `getRankedKeywordsForPage(blogSlug, limit?)` | Keywords for a specific blog post |
+| Function                                     | Description                            |
+| -------------------------------------------- | -------------------------------------- |
+| `getRelevantBlogPages(limit?, offset?)`      | Blog pages with SEO metrics            |
+| `getAllBlogPagesSeo()`                       | All blog pages (paginated, up to 1000) |
+| `getTopBlogKeywords(limit?, offset?)`        | Top ranking keywords                   |
+| `getAllTopBlogKeywords(maxResults?)`         | All top keywords                       |
+| `getRankedKeywordsForPage(blogSlug, limit?)` | Keywords for a specific blog post      |
 
 ## Script Usage
 

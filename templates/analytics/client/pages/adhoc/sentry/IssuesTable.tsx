@@ -65,7 +65,10 @@ function issueSparklineData(issue: SentryIssue): number[] {
     const noise = (seed % 100) / 100;
     // Weight towards recent activity
     const recency = (i / points) ** 1.5;
-    const val = Math.max(0, Math.round(count * (noise * 0.3 + recency * 0.1) / points));
+    const val = Math.max(
+      0,
+      Math.round((count * (noise * 0.3 + recency * 0.1)) / points),
+    );
     data.push(val);
   }
 
@@ -96,8 +99,7 @@ export function IssuesTable({ issues, isLoading }: Props) {
           cmp = a.userCount - b.userCount;
           break;
         case "lastSeen":
-          cmp =
-            new Date(a.lastSeen).getTime() - new Date(b.lastSeen).getTime();
+          cmp = new Date(a.lastSeen).getTime() - new Date(b.lastSeen).getTime();
           break;
         case "firstSeen":
           cmp =

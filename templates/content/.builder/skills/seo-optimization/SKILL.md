@@ -27,6 +27,7 @@ Optimize an edited blog post (`post.md`) for on-page SEO. This phase runs after 
 Focus effort on what moves the needle. Ignore vanity metrics.
 
 **High-impact (apply rigorously):**
+
 - Search intent match (most important -- verify the post answers what searchers want)
 - Title tag with primary keyword near the beginning
 - Content quality and depth (already handled by Phases 6-7)
@@ -35,6 +36,7 @@ Focus effort on what moves the needle. Ignore vanity metrics.
 - Meta description that drives clicks
 
 **Low-impact (do NOT over-optimize):**
+
 - Keyword density -- ignore. Natural keyword usage from drafting is sufficient.
 - Exact keyword in URL slug -- marginal benefit, prioritize readability
 - Meta keywords tag -- ignored by Google since 2009
@@ -47,15 +49,18 @@ Focus effort on what moves the needle. Ignore vanity metrics.
 Read `content_timing`, `content_goal`, `hub_slug`, and `page_type` from `phases/01-topic-validation.yaml`.
 
 **Content timing:**
+
 - If `content_timing: trending`: See the Trending Topic Mode section below for per-step adjustments.
 - If `content_timing: evergreen`: Apply all steps at full rigor.
 
 **Content goal** (drives linking and E-E-A-T checks):
+
 - `awareness`: Internal links to related Builder.io blog posts are fine (subtle, SEO-helpful). External links to neutral, authoritative sources.
 - `acquisition`: Internal links to Builder.io blog posts, docs, and product pages. External links to authoritative sources that reinforce the problem Builder.io solves.
 - `hybrid`: Internal links to related Builder.io blog posts throughout, plus 1 product/docs link in the conclusion CTA. External links throughout the body.
 
 **Hub context** (drives linking and schema):
+
 - If `hub_slug` is present: read `output/hubs/<hub_slug>/hub.yaml`. Extract the `links:` section, the current page's slug (`page_slug`), and `page_type` (`pillar` or `cluster`). Hub-aware behavior activates in Step 8 (linking) and Step 9 (schema). Load the [hub-linking](../hub-linking/SKILL.md) skill for link implementation rules.
 - If `hub_slug` is absent: `page_type` defaults to `standalone`. All steps run in standard mode.
 
@@ -78,6 +83,7 @@ Write a meta description for the post. This appears in search results and drives
 **Formula:** `[What you'll learn]. [Proof/credibility]. [Call to action].`
 
 **Rules:**
+
 1. Length: 120-155 characters. Under 120 is too short (Google may replace it). Over 155 gets truncated.
 2. Include the primary keyword naturally -- not forced, not at the start if it reads awkwardly.
 3. Include a specific number, result, or proof point when possible.
@@ -102,6 +108,7 @@ Review the title from `post.md` frontmatter. Optimize for search without losing 
 **Formula:** `[Primary Keyword]: [Benefit/Hook] | Builder.io`
 
 **Rules:**
+
 1. Length: 50-60 characters (excluding the ` | Builder.io` suffix, which the CMS appends). Google truncates at ~60 characters.
 2. Primary keyword should appear in the first half of the title.
 3. Do not keyword-stuff. One primary keyword per title.
@@ -109,6 +116,7 @@ Review the title from `post.md` frontmatter. Optimize for search without losing 
 5. If the title already scores well on both SEO and human appeal, leave it alone.
 
 **Content goal adjustments:**
+
 - `awareness`: Omit ` | Builder.io` suffix. The title stands alone.
 - `acquisition` / `hybrid`: Include ` | Builder.io` suffix (CMS default).
 
@@ -127,6 +135,7 @@ If the title already has the primary keyword in a strong position, do not change
 Review the URL slug (from `post.md` frontmatter `slug` field or derived from the title).
 
 **Rules:**
+
 1. Include the primary keyword or its core noun phrase.
 2. Keep it short: 3-6 words, separated by hyphens.
 3. Remove stop words (a, the, in, of, for, and) unless they clarify meaning.
@@ -149,17 +158,18 @@ Verify that keywords appear in the right places. Do NOT add keywords where they 
 
 **Placement checklist:**
 
-| Location | Keyword | Required | Notes |
-|----------|---------|----------|-------|
-| Title tag | Primary | Yes | First half of title preferred |
-| H2 headings | Primary or secondary | At least 2 of the H2s | Natural phrasing, not forced |
-| First paragraph | Primary | Yes | Within the first 100 words |
-| Meta description | Primary | Yes | Natural inclusion |
-| Conclusion | Primary | Yes | Reinforcement, not repetition |
-| Image alt text | Secondary or semantic | If images exist | Descriptive, not keyword-stuffed |
-| Body paragraphs | Secondary + semantic | Naturally distributed | No density targets |
+| Location         | Keyword               | Required              | Notes                            |
+| ---------------- | --------------------- | --------------------- | -------------------------------- |
+| Title tag        | Primary               | Yes                   | First half of title preferred    |
+| H2 headings      | Primary or secondary  | At least 2 of the H2s | Natural phrasing, not forced     |
+| First paragraph  | Primary               | Yes                   | Within the first 100 words       |
+| Meta description | Primary               | Yes                   | Natural inclusion                |
+| Conclusion       | Primary               | Yes                   | Reinforcement, not repetition    |
+| Image alt text   | Secondary or semantic | If images exist       | Descriptive, not keyword-stuffed |
+| Body paragraphs  | Secondary + semantic  | Naturally distributed | No density targets               |
 
 **Verification process:**
+
 1. Search `post.md` for the primary keyword. Confirm it appears in title, first paragraph, at least 2 H2s, and conclusion.
 2. Search for secondary keywords. Confirm at least 1 appearance each in body sections.
 3. Search for semantic keywords. These should appear naturally -- do not force them. Note any that are completely absent for the output report.
@@ -171,14 +181,15 @@ Verify that the post demonstrates Experience, Expertise, Authoritativeness, and 
 
 **E-E-A-T checklist:**
 
-| Signal | What to Check | How to Fix |
-|--------|--------------|------------|
-| **Experience** | Post contains original code examples, benchmarks, or real project references | Add a personal observation or result from testing the topic |
-| **Expertise** | Author bio is present in frontmatter with real credentials | Ensure `author` field has name, role, and relevant experience |
-| **Authoritativeness** | Post links to external authoritative sources | Verify 2-3 external links to official docs, specs, or recognized authorities |
-| **Trustworthiness** | Claims are supported with evidence; limitations are acknowledged | Flag unsupported claims. Add "Limitations" or "Trade-offs" notes where appropriate |
+| Signal                | What to Check                                                                | How to Fix                                                                         |
+| --------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| **Experience**        | Post contains original code examples, benchmarks, or real project references | Add a personal observation or result from testing the topic                        |
+| **Expertise**         | Author bio is present in frontmatter with real credentials                   | Ensure `author` field has name, role, and relevant experience                      |
+| **Authoritativeness** | Post links to external authoritative sources                                 | Verify 2-3 external links to official docs, specs, or recognized authorities       |
+| **Trustworthiness**   | Claims are supported with evidence; limitations are acknowledged             | Flag unsupported claims. Add "Limitations" or "Trade-offs" notes where appropriate |
 
 **Builder.io-specific E-E-A-T examples:**
+
 - **Experience:** "I built a headless CMS integration using Builder.io's SDK and measured a 2.3s improvement in page load time."
 - **Expertise:** Author bio: "Vishwas, DevRel at Builder.io. 10+ years in web development."
 - **Authoritativeness:** Links to React docs, MDN, TC39 proposals, framework changelogs.
@@ -199,6 +210,7 @@ Check whether sections flagged for featured snippet targeting in `outline.md` ar
 3. **Table snippet** -- Comparison tables for vs./comparison sections. Verify the table has clear headers, consistent columns, and enough rows to be useful (3+ rows).
 
 **Verification process:**
+
 1. Read the `featured_snippet_target` field for each section in `outline.md`.
 2. For each flagged section, check the corresponding section in `post.md`.
 3. Verify the format matches the target type (definition block, ordered list, or table).
@@ -215,6 +227,7 @@ Add links that support the post's authority and help readers navigate related co
 **Standard mode** (when `hub_slug` is absent):
 
 **Internal links (pointing to other Builder.io blog posts or docs):**
+
 - Target: 2-3 internal links per post
 - Link to related Builder.io blog posts or documentation pages
 - Use descriptive anchor text (not "click here" or "read more")
@@ -225,6 +238,7 @@ Add links that support the post's authority and help readers navigate related co
   - `hybrid`: 2-3 links to Builder.io blog posts throughout, plus 1 product/docs link in the conclusion CTA
 
 **External links (pointing to authoritative third-party sources):**
+
 - Target: 2-3 external links per post
 - Link to official documentation, framework repos, specifications, or research
 - Prefer primary sources (React docs > a blog post about React)
@@ -232,9 +246,10 @@ Add links that support the post's authority and help readers navigate related co
 - Do not link to direct competitors
 
 **Internal linking audit (for new posts, standard mode only):**
-When publishing a new post, identify 3-5 existing Builder.io blog posts that should link *to* this new post. Record these in the output YAML as `reverse_internal_links`. These are suggestions for the author to update manually after publication.
+When publishing a new post, identify 3-5 existing Builder.io blog posts that should link _to_ this new post. Record these in the output YAML as `reverse_internal_links`. These are suggestions for the author to update manually after publication.
 
 To identify candidates:
+
 1. Search `site:builder.io/blog` for the primary keyword using WebSearch
 2. Note posts that cover related topics but lack depth on this specific angle
 3. Record the URL and suggested anchor text for each
@@ -246,6 +261,7 @@ When `hub_slug` is set, the internal linking process is deterministic -- links c
 **8a. Implement outbound hub links:**
 
 For each entry in `hub.yaml` `links:` where `from == current_page_slug`:
+
 1. Read the planned `anchor_text` and `placement` from `hub.yaml`
 2. Locate the target zone in `post.md` (`intro`, `body`, or `conclusion`)
 3. Insert the link as `[anchor text](https://www.builder.io/blog/target-slug)` in a natural sentence
@@ -257,6 +273,7 @@ Follow the hub-linking skill's anchor text strategy (50% primary keyword, 30% se
 **8b. Generate reverse link patches:**
 
 For inbound links where `to == current_page_slug` and the source page is already published:
+
 1. Only generate patches for the **pillar page** -- never for already-published cluster pages
 2. Write patches to `phases/08-seo-reverse-links.yaml` in the format defined by the hub-linking skill (Step 4)
 3. Each patch includes `before` and `after` context for precise text replacement
@@ -264,7 +281,7 @@ For inbound links where `to == current_page_slug` and the source page is already
 
 Cluster-to-cluster reverse links are deferred to hub finalization (not generated here).
 
-**External links in hub mode:** The external linking rules (2-3 links to authoritative sources) still apply. Hub mode only replaces the *internal* linking process.
+**External links in hub mode:** The external linking rules (2-3 links to authoritative sources) still apply. Hub mode only replaces the _internal_ linking process.
 
 **Reverse internal linking audit:** Skip the WebSearch-based `reverse_internal_links` audit when in hub mode -- hub links replace it entirely.
 
@@ -274,14 +291,15 @@ Generate JSON-LD structured data for the post using the templates in [schema-mar
 
 **Decision logic:**
 
-| Post Type | Schema Types |
-|-----------|-------------|
-| Tutorial, How-To | BlogPosting + HowTo |
-| Explainer with FAQ section | BlogPosting + FAQPage |
-| Tutorial with FAQ section | BlogPosting + HowTo + FAQPage |
-| Comparison, Thought Leadership | BlogPosting only |
+| Post Type                      | Schema Types                  |
+| ------------------------------ | ----------------------------- |
+| Tutorial, How-To               | BlogPosting + HowTo           |
+| Explainer with FAQ section     | BlogPosting + FAQPage         |
+| Tutorial with FAQ section      | BlogPosting + HowTo + FAQPage |
+| Comparison, Thought Leadership | BlogPosting only              |
 
 **Process:**
+
 1. Determine which schemas apply based on post type (from `outline.md`) and whether the post has a FAQ section.
 2. Generate the base schema. For `page_type: pillar`, use `Article` instead of `BlogPosting` and add a `hasPart` array listing cluster page URLs (see hub schema section below). For all other page types, use `BlogPosting`. Populate from `post.md` frontmatter, Phase 2 keywords, and the meta description from Step 2.
 3. If applicable, generate FAQPage schema from the FAQ section's question-answer pairs.
@@ -303,6 +321,7 @@ Schema validation is deferred to the Post-Publish Checklist (Phase 10).
 Verify that the final post still matches the search intent identified in Phase 3 (SERP Analysis).
 
 **Process:**
+
 1. Read `search_intent` from `phases/03-serp-analysis.yaml`. Possible values: `informational`, `navigational`, `commercial`, `transactional`.
 2. Compare the post's content against the intent:
    - **Informational:** Post should educate. Check that it answers the core question thoroughly, not just promote a product.
@@ -328,7 +347,7 @@ Update `post.md` frontmatter with SEO fields:
 ```yaml
 meta_description: "..."
 slug: "..."
-schema_markup: BlogPosting  # or Article (pillar), BlogPosting + HowTo, etc.
+schema_markup: BlogPosting # or Article (pillar), BlogPosting + HowTo, etc.
 word_count: [updated count]
 status: seo-optimized
 ```
@@ -338,7 +357,7 @@ Write `phases/08-seo-optimization.yaml`:
 ```yaml
 meta_description: "React Server Components explained with practical examples..."
 meta_description_length: 148
-title_tag_optimized: true  # or false if no changes needed
+title_tag_optimized: true # or false if no changes needed
 slug_optimized: true
 keyword_placements:
   title: true
@@ -346,13 +365,13 @@ keyword_placements:
   first_paragraph: true
   meta_description: true
   conclusion: true
-  missing_secondary: []  # list any secondary keywords not found in body
+  missing_secondary: [] # list any secondary keywords not found in body
 internal_links_added: 2
 external_links_added: 3
-reverse_internal_links:           # standard mode only (omit in hub mode)
+reverse_internal_links: # standard mode only (omit in hub mode)
   - url: "https://www.builder.io/blog/existing-post-slug"
     suggested_anchor: "descriptive anchor text"
-schema_markup: BlogPosting  # or Article (pillar), BlogPosting + HowTo, etc.
+schema_markup: BlogPosting # or Article (pillar), BlogPosting + HowTo, etc.
 schema_types_applied:
   - BlogPosting
 eeat_signals:
@@ -360,20 +379,20 @@ eeat_signals:
   expertise: true
   authoritativeness: true
   trustworthiness: true
-  missing: []  # list any weak or missing signals
-featured_snippet_targets_verified: 2  # count of sections checked
-search_intent_match: true  # or false if drift detected
+  missing: [] # list any weak or missing signals
+featured_snippet_targets_verified: 2 # count of sections checked
+search_intent_match: true # or false if drift detected
 word_count_before: 2180
 word_count_after: 2210
-content_goal: awareness  # from Phase 1
-page_type: standalone  # standalone | pillar | cluster
+content_goal: awareness # from Phase 1
+page_type: standalone # standalone | pillar | cluster
 status: seo-optimized
 
 # Hub-specific fields (only present when hub_slug is set)
-hub_slug: null                    # or the hub slug value
-hub_links_implemented: 0          # count of outbound hub links inserted into post.md
-hub_links_from_plan: 0            # total planned outbound links for this page
-reverse_links_generated: false    # true if phases/08-seo-reverse-links.yaml was written
+hub_slug: null # or the hub slug value
+hub_links_implemented: 0 # count of outbound hub links inserted into post.md
+hub_links_from_plan: 0 # total planned outbound links for this page
+reverse_links_generated: false # true if phases/08-seo-reverse-links.yaml was written
 ```
 
 ## Trending Topic Mode
@@ -416,6 +435,7 @@ seo_baseline: "deferred -- trending topic, no SERP data at publish time"
 **Draft:** `React Server Components cut client JS by 64% in our tests. Learn when to use them, with code examples and migration steps.` (127 chars)
 
 **Checklist:**
+
 - Length: 127 chars (within 120-155 range)
 - Primary keyword: present ("React Server Components")
 - Proof point: "64% in our tests"
@@ -436,9 +456,11 @@ seo_baseline: "deferred -- trending topic, no SERP data at publish time"
 ### Example 3: E-E-A-T Signal Improvement
 
 **Before (weak experience signal):**
+
 > Server Components are useful for data-heavy pages because they reduce bundle size.
 
 **After (strong experience signal):**
+
 > Server Components are useful for data-heavy pages. Our dashboard page dropped from 245KB to 89KB of client JS after converting two data-fetching components -- a 64% reduction.
 
 **Signal added:** Experience (original benchmark from a real project).
@@ -457,6 +479,7 @@ seo_baseline: "deferred -- trending topic, no SERP data at publish time"
 **Phase 3 SERP analysis:** `skipped: true`
 
 **Adjustments:**
+
 - Step 5: Use keywords from Phase 2 social signals (HN discussions, X posts)
 - Step 7: Format snippet targets correctly but don't prioritize optimization
 - Step 10: Skip search intent cross-check. Output: `search_intent_check: "deferred -- trending topic, no SERP data at publish time"`
@@ -470,4 +493,4 @@ seo_baseline: "deferred -- trending topic, no SERP data at publish time"
 - Schema markup enables rich results but does not guarantee them. Generate it correctly and let Google decide what to display.
 - Internal linking serves two purposes: it helps readers find related content AND it distributes page authority. Both matter.
 - E-E-A-T is not a checklist to game. It reflects whether the content was written by someone with real experience. The signals should already exist from good drafting -- this step verifies they're visible to search engines.
-- The reverse internal linking audit is aspirational. It identifies where new links *should* go, but the actual linking happens manually after publication. Record the suggestions; don't skip them.
+- The reverse internal linking audit is aspirational. It identifies where new links _should_ go, but the actual linking happens manually after publication. Record the suggestions; don't skip them.

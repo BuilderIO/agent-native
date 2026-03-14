@@ -17,7 +17,10 @@ function orgIdList(): string {
 
 // ─── Agent Chat Messages Over Time ────────────────────────────────────
 
-export function agentChatMessagesByDayQuery(dateStart: string, dateEnd: string): string {
+export function agentChatMessagesByDayQuery(
+  dateStart: string,
+  dateEnd: string,
+): string {
   return `SELECT
   DATE(event_time) AS period,
   COUNT(*) AS messages,
@@ -32,7 +35,10 @@ ORDER BY period`;
 
 // ─── Messages by User ──────────────────────────────────────────────────
 
-export function agentChatMessagesByUserQuery(dateStart: string, dateEnd: string): string {
+export function agentChatMessagesByUserQuery(
+  dateStart: string,
+  dateEnd: string,
+): string {
   return `SELECT
   COALESCE(JSON_VALUE(user_properties, '$.email'), user_id) AS user_email,
   COUNT(*) AS messages,
@@ -49,7 +55,10 @@ ORDER BY messages DESC`;
 
 // ─── All Agent Chat Events (not just messages) ─────────────────────────
 
-export function agentChatEventsByTypeQuery(dateStart: string, dateEnd: string): string {
+export function agentChatEventsByTypeQuery(
+  dateStart: string,
+  dateEnd: string,
+): string {
   return `SELECT
   event_type,
   COUNT(*) AS event_count,
@@ -64,7 +73,10 @@ ORDER BY event_count DESC`;
 
 // ─── All Builder Events by Day ─────────────────────────────────────────
 
-export function allEventsByDayQuery(dateStart: string, dateEnd: string): string {
+export function allEventsByDayQuery(
+  dateStart: string,
+  dateEnd: string,
+): string {
   return `SELECT
   DATE(event_time) AS period,
   COUNT(*) AS events,

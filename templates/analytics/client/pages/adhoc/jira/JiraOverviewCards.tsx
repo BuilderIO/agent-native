@@ -23,8 +23,7 @@ export function JiraOverviewCards({ analytics, isLoading }: Props) {
         value={analytics?.resolvedInPeriod}
         loading={isLoading}
         variant={
-          analytics &&
-          analytics.resolvedInPeriod >= analytics.createdInPeriod
+          analytics && analytics.resolvedInPeriod >= analytics.createdInPeriod
             ? "success"
             : "default"
         }
@@ -40,8 +39,7 @@ export function JiraOverviewCards({ analytics, isLoading }: Props) {
         }
         loading={isLoading}
         variant={
-          analytics &&
-          analytics.createdInPeriod > analytics.resolvedInPeriod
+          analytics && analytics.createdInPeriod > analytics.resolvedInPeriod
             ? "danger"
             : "success"
         }

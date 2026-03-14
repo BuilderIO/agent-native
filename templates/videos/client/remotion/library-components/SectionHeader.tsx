@@ -39,7 +39,7 @@ const FALLBACK_TRACKS: AnimationTrack[] = (() => {
   ];
   const cursor = tracks[1];
 
-  cursor.animatedProps.find(p => p.property === "opacity")!.keyframes = [
+  cursor.animatedProps.find((p) => p.property === "opacity")!.keyframes = [
     { frame: 0, value: "0" },
     { frame: 150, value: "0" },
   ];

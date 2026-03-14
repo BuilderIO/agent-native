@@ -28,7 +28,9 @@ export function ChartPopover({
   decimal = false,
 }: ChartPopoverProps) {
   const fmt = (v: number) =>
-    decimal ? v.toLocaleString(undefined, { maximumFractionDigits: 1 }) : v.toLocaleString();
+    decimal
+      ? v.toLocaleString(undefined, { maximumFractionDigits: 1 })
+      : v.toLocaleString();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

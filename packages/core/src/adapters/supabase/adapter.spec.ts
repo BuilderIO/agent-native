@@ -5,7 +5,11 @@ function createMockClient(state: Map<string, any> = new Map()) {
   const channels: any[] = [];
 
   const filterBuilder = (rows: any[]) => ({
-    select: vi.fn(function (this: any) { return this; }).mockReturnThis(),
+    select: vi
+      .fn(function (this: any) {
+        return this;
+      })
+      .mockReturnThis(),
     eq: vi.fn(function (this: any, col: string, val: any) {
       return filterBuilder(rows.filter((r) => r[col] === val));
     }),

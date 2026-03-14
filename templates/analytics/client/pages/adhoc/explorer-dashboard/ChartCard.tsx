@@ -72,7 +72,7 @@ export function DashboardChartCard({
   const { data: result, isLoading: queryLoading } = useMetricsQuery(
     ["dashboard-chart", chart.configId, sql],
     sql,
-    { enabled: !!sql }
+    { enabled: !!sql },
   );
 
   const isLoading = !config || queryLoading;

@@ -44,6 +44,7 @@ When pointed at a hub page folder (contains `hub-context.yaml`):
 ### Step 1: Generate Topic Slug (Standalone Only)
 
 Apply the same slug rules as `/content-blog`:
+
 - Lowercase, replace spaces with hyphens, remove special characters
 - Max 50 characters
 - Date prefix: today's date (YYYY-MM-DD format)
@@ -57,6 +58,7 @@ Scan for a matching folder (standalone: `output/posts/`, hub mode: the provided 
 **If `output/posts/*-<slug>/seed/` already exists:**
 
 Stop with message:
+
 ```
 Seed folder already exists at output/posts/[path]/seed/
 
@@ -83,6 +85,7 @@ Use **AskUserQuestion** to ask which placeholder files to create:
 **Question:** "Which seed files should I create? Select all that apply."
 
 **Options (multiSelect: true):**
+
 1. **urls.txt** -- "URLs to blog posts, docs, articles to fetch during research"
 2. **keywords.txt** -- "Keyword list from SurferSEO or manual research"
 3. **serp-intents.txt** -- "SERP intent clusters from Ahrefs 'Identify intents' button"

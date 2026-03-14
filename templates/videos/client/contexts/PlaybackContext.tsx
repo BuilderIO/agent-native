@@ -1,4 +1,10 @@
-import { createContext, useContext, useState, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useMemo,
+  type ReactNode,
+} from "react";
 import { useComposition } from "./CompositionContext";
 
 // ─── Context type ─────────────────────────────────────────────────────────────
@@ -22,7 +28,9 @@ type PlaybackProviderProps = {
 export function PlaybackProvider({ children }: PlaybackProviderProps) {
   const { effectiveComposition, compSettings } = useComposition();
   const [currentFrame, setCurrentFrame] = useState(0);
-  const [seekToFrame, setSeekToFrame] = useState<((frame: number) => void) | undefined>();
+  const [seekToFrame, setSeekToFrame] = useState<
+    ((frame: number) => void) | undefined
+  >();
 
   // Get fps from effective composition or settings
   const fps = effectiveComposition?.fps ?? compSettings?.fps ?? 30;
@@ -35,7 +43,7 @@ export function PlaybackProvider({ children }: PlaybackProviderProps) {
       setCurrentFrame,
       registerSeek: setSeekToFrame,
     }),
-    [currentFrame, fps, seekToFrame]
+    [currentFrame, fps, seekToFrame],
   );
 
   return (

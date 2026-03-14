@@ -11,17 +11,21 @@ POST https://cdn.builder.io/api/v1/query-metrics?apiKey=<publicApiKey>
 ## Authentication
 
 **Option A: Private Key (API access)**
+
 ```
 Authorization: Bearer bpk-...
 ```
+
 - The private key must correspond to the `apiKey` in the query string
 - Org must have the `analyticsAPI` subscription feature
 
 **Option B: Firebase Auth (web app)**
+
 - Authenticated via Firebase session cookie
 - User must belong to the organization matching `apiKey`
 
 **Option C: Superuser (admin access)**
+
 - Firebase authenticated user who is in the `superusers` Firestore collection
 - Bypasses `analyticsAPI` feature requirement
 - Can optionally skip owner_id filtering (admin mode)
@@ -29,14 +33,16 @@ Authorization: Bearer bpk-...
 ## Request
 
 ### Query Parameters
-| Param       | Required | Description                           |
-|-------------|----------|---------------------------------------|
-| `apiKey`    | Yes      | Organization public API key           |
-| `useMatView`| No       | Use materialized view (`events_mv`)   |
-| `compress`  | No       | Return pako-compressed results        |
-| `table`     | No       | `app_events` to query analytics table |
+
+| Param        | Required | Description                           |
+| ------------ | -------- | ------------------------------------- |
+| `apiKey`     | Yes      | Organization public API key           |
+| `useMatView` | No       | Use materialized view (`events_mv`)   |
+| `compress`   | No       | Return pako-compressed results        |
+| `table`      | No       | `app_events` to query analytics table |
 
 ### Body
+
 ```json
 {
   "query": "SELECT COUNT(*) FROM @events WHERE TYPE = \"impression\""
@@ -47,10 +53,10 @@ Or pass `query` as a query parameter.
 
 ## Table Placeholders
 
-| Placeholder    | Resolves To                                    |
-|----------------|------------------------------------------------|
-| `@events`      | `<project_id>.metrics.events`                  |
-| `@app_events`  | `<project_id>.analytics.events_partitioned`    |
+| Placeholder   | Resolves To                                 |
+| ------------- | ------------------------------------------- |
+| `@events`     | `<project_id>.metrics.events`               |
+| `@app_events` | `<project_id>.analytics.events_partitioned` |
 
 ## SQL Validation
 
@@ -82,12 +88,12 @@ Results are in `results[0]` — an array of row objects.
 
 ## Error Responses
 
-| Status | Meaning                                |
-|--------|----------------------------------------|
-| 400    | Invalid SQL or missing query           |
-| 401    | Invalid private key                    |
-| 403    | Org doesn't have analyticsAPI feature  |
-| 500    | BigQuery execution error               |
+| Status | Meaning                               |
+| ------ | ------------------------------------- |
+| 400    | Invalid SQL or missing query          |
+| 401    | Invalid private key                   |
+| 403    | Org doesn't have analyticsAPI feature |
+| 500    | BigQuery execution error              |
 
 ## Usage from Dashboard
 

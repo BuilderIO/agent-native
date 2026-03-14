@@ -82,7 +82,9 @@ function SubscriptionCard({ sub }: { sub: StripeSubscription }) {
             {items.map((item) => (
               <div key={item.id}>
                 <div className="text-sm font-medium">
-                  {item.price.nickname || item.price.productName || item.price.product}
+                  {item.price.nickname ||
+                    item.price.productName ||
+                    item.price.product}
                   {item.quantity > 1 && (
                     <span className="text-muted-foreground ml-1">
                       x{item.quantity}
@@ -93,7 +95,7 @@ function SubscriptionCard({ sub }: { sub: StripeSubscription }) {
                   {item.price.unit_amount != null
                     ? formatCurrency(
                         item.price.unit_amount * item.quantity,
-                        item.price.currency
+                        item.price.currency,
                       )
                     : "Custom pricing"}
                   {item.price.recurring &&

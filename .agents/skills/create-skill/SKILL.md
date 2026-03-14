@@ -11,11 +11,13 @@ description: >-
 ## When to Use
 
 Create a new skill when:
+
 - There's a pattern the agent should follow repeatedly
 - A workflow needs step-by-step guidance
 - You want to scaffold files from a template
 
 Don't create a skill when:
+
 - The guidance already exists in another skill (extend it instead)
 - You're documenting something the agent already knows (e.g., how to write TypeScript)
 - The guidance is a one-off — put it in `AGENTS.md` or `learnings.md` instead
@@ -46,18 +48,23 @@ description: >-
 # [Pattern Name]
 
 ## Rule
+
 [One sentence: what must be true]
 
 ## Why
+
 [Why this rule exists]
 
 ## How
+
 [How to follow it, with code examples]
 
 ## Don't
+
 [Common violations]
 
 ## Related Skills
+
 [Which skills compose with this one]
 ```
 
@@ -75,15 +82,19 @@ description: >-
 # [Workflow Name]
 
 ## Prerequisites
+
 [What must be in place first]
 
 ## Steps
+
 [Numbered steps with code examples]
 
 ## Verification
+
 [How to confirm it worked]
 
 ## Troubleshooting
+
 [Common issues and fixes]
 
 ## Related Skills
@@ -103,15 +114,19 @@ description: >-
 # [Generator Name]
 
 ## Usage
+
 [How to invoke — what args/inputs are needed]
 
 ## What Gets Created
+
 [List of files and their purpose]
 
 ## Template
+
 [The template content with placeholders]
 
 ## After Generation
+
 [What to do next — wire up SSE, add routes, etc.]
 
 ## Related Skills
@@ -134,7 +149,7 @@ description: >-
 - **Inline LLM calls** — Skills must not call LLMs directly (violates Rule 2)
 - **Database patterns** — Skills must not introduce databases (violates Rule 1)
 - **Ignoring SSE** — If a skill creates data files, mention wiring up `useFileWatcher`
-- **Vague descriptions** — "Helps with development" won't trigger. Be specific about *when*.
+- **Vague descriptions** — "Helps with development" won't trigger. Be specific about _when_.
 - **Pure documentation** — Skills should guide action, not just explain concepts
 
 ## File Structure

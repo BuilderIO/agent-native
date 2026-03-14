@@ -88,10 +88,7 @@ function computeHunks(base: string[], modified: string[]): Hunk[] {
       const baseStart = bi;
       const modStart = mi;
 
-      while (
-        bi < base.length &&
-        (li >= lcs.length || base[bi] !== lcs[li])
-      ) {
+      while (bi < base.length && (li >= lcs.length || base[bi] !== lcs[li])) {
         bi++;
       }
       while (

@@ -51,7 +51,7 @@ function createTextSvg(
   width: number,
   height: number,
   fontSize: number,
-  color = "#FFFFFF"
+  color = "#FFFFFF",
 ): string {
   let fontFace = "";
   if (fs.existsSync(FONT_PATH)) {
@@ -67,9 +67,7 @@ function createTextSvg(
       </defs>`;
   }
 
-  const fontFamily = fs.existsSync(FONT_PATH)
-    ? "Caveat"
-    : "DejaVu Serif";
+  const fontFamily = fs.existsSync(FONT_PATH) ? "Caveat" : "DejaVu Serif";
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
     ${fontFace}
@@ -114,12 +112,16 @@ Options:
   const text = opts.text || "for designers";
 
   console.log(`Creating ${width}x${height} hero composite...`);
-  console.log(`Font available: ${fs.existsSync(FONT_PATH) ? "Caveat (embedded)" : "DejaVu Serif (fallback)"}`);
+  console.log(
+    `Font available: ${fs.existsSync(FONT_PATH) ? "Caveat (embedded)" : "DejaVu Serif (fallback)"}`,
+  );
 
   // 1. Render Claude logo
   const logoSvg = createClaudeLogoSvg(logoSize);
   const logoBuffer = await sharp(Buffer.from(logoSvg)).png().toBuffer();
-  console.log(`Logo: ${logoSize}x${logoSize}px, ${Math.round(logoBuffer.length / 1024)}KB`);
+  console.log(
+    `Logo: ${logoSize}x${logoSize}px, ${Math.round(logoBuffer.length / 1024)}KB`,
+  );
 
   // 2. Render text with embedded font
   const textWidth = 1200;
@@ -128,7 +130,9 @@ Options:
   const textSvg = createTextSvg(text, textWidth, textHeight, fontSize);
   const textBuffer = await sharp(Buffer.from(textSvg)).png().toBuffer();
   const textStats = await sharp(textBuffer).stats();
-  console.log(`Text: ${textWidth}x${textHeight}px, mean R=${Math.round(textStats.channels[0].mean)}`);
+  console.log(
+    `Text: ${textWidth}x${textHeight}px, mean R=${Math.round(textStats.channels[0].mean)}`,
+  );
 
   // 3. Design motifs overlay (subtle)
   const motifsSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
@@ -151,9 +155,11 @@ Options:
     </g>
     <g transform="translate(${width * 0.08}, ${height * 0.74}) scale(3)" opacity="0.1">
       ${Array.from({ length: 5 }, (_, r) =>
-        Array.from({ length: 5 }, (_, c) =>
-          `<circle cx="${c * 14}" cy="${r * 14}" r="2" fill="white"/>`
-        ).join("")
+        Array.from(
+          { length: 5 },
+          (_, c) =>
+            `<circle cx="${c * 14}" cy="${r * 14}" r="2" fill="white"/>`,
+        ).join(""),
       ).join("")}
     </g>
   </svg>`;
@@ -166,7 +172,12 @@ Options:
   const textY = Math.round(logoY + logoSize + 40);
 
   const result = await sharp({
-    create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } },
+    create: {
+      width,
+      height,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 1 },
+    },
   })
     .composite([
       { input: motifsBuffer, top: 0, left: 0 },
@@ -195,7 +206,9 @@ Options:
   fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
 
   const finalStats = await sharp(result).stats();
-  console.log(`Final means: R=${Math.round(finalStats.channels[0].mean)} G=${Math.round(finalStats.channels[1].mean)} B=${Math.round(finalStats.channels[2].mean)}`);
+  console.log(
+    `Final means: R=${Math.round(finalStats.channels[0].mean)} G=${Math.round(finalStats.channels[1].mean)} B=${Math.round(finalStats.channels[2].mean)}`,
+  );
   console.log(`\nUploaded to Builder CDN: ${cdnUrl}`);
   console.log(`Size: ${Math.round(result.length / 1024)}KB`);
 }

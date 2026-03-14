@@ -31,7 +31,7 @@ export function AdHocTopN() {
 
   const sql = useMemo(
     () => topNQuery(f.topN, f.pageType, f.dateStart, f.dateEnd, cadence),
-    [f.topN, f.pageType, f.dateStart, f.dateEnd, cadence]
+    [f.topN, f.pageType, f.dateStart, f.dateEnd, cadence],
   );
 
   const { data, isLoading } = useMetricsQuery(["topn", sql], sql);
@@ -39,7 +39,10 @@ export function AdHocTopN() {
   // Get the unique base_urls to show in the summary table
   const topPages = useMemo(() => {
     const rows = data?.rows ?? [];
-    const map = new Map<string, { base_url: string; page_type: string; traffic: number; signups: number }>();
+    const map = new Map<
+      string,
+      { base_url: string; page_type: string; traffic: number; signups: number }
+    >();
     for (const r of rows) {
       const url = String(r.base_url ?? "");
       const existing = map.get(url);
@@ -72,11 +75,18 @@ export function AdHocTopN() {
     <div className="space-y-4">
       {/* Filters */}
       <div className="rounded-lg border border-border p-3 space-y-3">
-        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Filters</h3>
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Filters
+        </h3>
         <div className="flex flex-wrap gap-3 items-end">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground font-medium">Top N</label>
-            <Select value={String(f.topN)} onValueChange={(v) => setF("topN", Number(v))}>
+            <label className="text-xs text-muted-foreground font-medium">
+              Top N
+            </label>
+            <Select
+              value={String(f.topN)}
+              onValueChange={(v) => setF("topN", Number(v))}
+            >
               <SelectTrigger className="h-8 w-[80px] text-xs">
                 <SelectValue />
               </SelectTrigger>
@@ -90,29 +100,52 @@ export function AdHocTopN() {
             </Select>
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground font-medium">Page Type</label>
-            <Select value={f.pageType} onValueChange={(v) => setF("pageType", v)}>
+            <label className="text-xs text-muted-foreground font-medium">
+              Page Type
+            </label>
+            <Select
+              value={f.pageType}
+              onValueChange={(v) => setF("pageType", v)}
+            >
               <SelectTrigger className="h-8 w-[120px] text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="blog" className="text-xs">blog</SelectItem>
-                <SelectItem value="docs" className="text-xs">docs</SelectItem>
-                <SelectItem value="marketing" className="text-xs">marketing</SelectItem>
-                <SelectItem value="explainer" className="text-xs">explainer</SelectItem>
+                <SelectItem value="blog" className="text-xs">
+                  blog
+                </SelectItem>
+                <SelectItem value="docs" className="text-xs">
+                  docs
+                </SelectItem>
+                <SelectItem value="marketing" className="text-xs">
+                  marketing
+                </SelectItem>
+                <SelectItem value="explainer" className="text-xs">
+                  explainer
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
-          <DateRangeInput label="Date Range" startDate={f.dateStart} endDate={f.dateEnd} onStartChange={(v) => setF("dateStart", v)} onEndChange={(v) => setF("dateEnd", v)} />
+          <DateRangeInput
+            label="Date Range"
+            startDate={f.dateStart}
+            endDate={f.dateEnd}
+            onStartChange={(v) => setF("dateStart", v)}
+            onEndChange={(v) => setF("dateEnd", v)}
+          />
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground font-medium">Cadence</label>
+            <label className="text-xs text-muted-foreground font-medium">
+              Cadence
+            </label>
             <Select value={f.cadence} onValueChange={(v) => setF("cadence", v)}>
               <SelectTrigger className="h-8 w-[120px] text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {["Daily", "Weekly", "Monthly", "Quarterly"].map((c) => (
-                  <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>
+                  <SelectItem key={c} value={c} className="text-xs">
+                    {c}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -123,33 +156,58 @@ export function AdHocTopN() {
       {/* Top N Table */}
       <Card className="bg-card border-border/50">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Top {f.topN} Pages by Signups</CardTitle>
+          <CardTitle className="text-sm font-medium">
+            Top {f.topN} Pages by Signups
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <Skeleton className="h-32 w-full" />
           ) : data?.error ? (
-            <p className="text-sm text-red-400 py-4 text-center">{data.error}</p>
+            <p className="text-sm text-red-400 py-4 text-center">
+              {data.error}
+            </p>
           ) : topPages.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">No data</p>
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              No data
+            </p>
           ) : (
             <div className="overflow-auto max-h-[300px]">
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-card z-10">
                   <tr className="border-b border-border">
-                    <th className="text-left py-2 px-2 font-medium text-muted-foreground">Base URL</th>
-                    <th className="text-left py-2 px-2 font-medium text-muted-foreground">Page Type</th>
-                    <th className="text-right py-2 px-2 font-medium text-muted-foreground">Traffic</th>
-                    <th className="text-right py-2 px-2 font-medium text-muted-foreground">Signups</th>
+                    <th className="text-left py-2 px-2 font-medium text-muted-foreground">
+                      Base URL
+                    </th>
+                    <th className="text-left py-2 px-2 font-medium text-muted-foreground">
+                      Page Type
+                    </th>
+                    <th className="text-right py-2 px-2 font-medium text-muted-foreground">
+                      Traffic
+                    </th>
+                    <th className="text-right py-2 px-2 font-medium text-muted-foreground">
+                      Signups
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {topPages.map((row, i) => (
-                    <tr key={i} className="border-b border-border/30 hover:bg-muted/30">
-                      <td className="py-1.5 px-2 font-mono text-[11px] max-w-[300px] truncate">{row.base_url}</td>
-                      <td className="py-1.5 px-2 whitespace-nowrap">{row.page_type}</td>
-                      <td className="py-1.5 px-2 text-right tabular-nums">{formatNumber(row.traffic)}</td>
-                      <td className="py-1.5 px-2 text-right tabular-nums">{formatNumber(row.signups)}</td>
+                    <tr
+                      key={i}
+                      className="border-b border-border/30 hover:bg-muted/30"
+                    >
+                      <td className="py-1.5 px-2 font-mono text-[11px] max-w-[300px] truncate">
+                        {row.base_url}
+                      </td>
+                      <td className="py-1.5 px-2 whitespace-nowrap">
+                        {row.page_type}
+                      </td>
+                      <td className="py-1.5 px-2 text-right tabular-nums">
+                        {formatNumber(row.traffic)}
+                      </td>
+                      <td className="py-1.5 px-2 text-right tabular-nums">
+                        {formatNumber(row.signups)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

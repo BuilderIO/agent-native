@@ -28,7 +28,7 @@ export default function JiraDashboard() {
 
   const projectOptions = useMemo(
     () => projects?.map((p) => ({ key: p.key, name: p.name })) ?? [],
-    [projects]
+    [projects],
   );
 
   return (
@@ -95,9 +95,7 @@ export default function JiraDashboard() {
         </TabsContent>
 
         <TabsContent value="search" className="mt-4">
-          <JiraSearchPanel
-            defaultProject={selectedProjects[0]}
-          />
+          <JiraSearchPanel defaultProject={selectedProjects[0]} />
         </TabsContent>
 
         <TabsContent value="sprints" className="mt-4">

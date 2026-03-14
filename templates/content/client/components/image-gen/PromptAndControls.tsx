@@ -47,7 +47,9 @@ export function PromptAndControls({
   return (
     <div className="space-y-3">
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-muted-foreground">Prompt</label>
+        <label className="text-xs font-medium text-muted-foreground">
+          Prompt
+        </label>
         <textarea
           value={prompt}
           onChange={(e) => onPromptChange(e.target.value)}
@@ -78,7 +80,7 @@ export function PromptAndControls({
                     i > 0 && "border-l border-border",
                     isSelected
                       ? "bg-foreground text-background"
-                      : "text-muted-foreground hover:text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
                 >
                   {isPendingModel ? (
@@ -134,8 +136,10 @@ export function PromptAndControls({
           >
             {isPending ? (
               <Loader2 size={14} className="animate-spin" />
+            ) : selectedModels.length > 1 ? (
+              `Generate (${selectedModels.length})`
             ) : (
-              selectedModels.length > 1 ? `Generate (${selectedModels.length})` : "Generate"
+              "Generate"
             )}
           </Button>
         </div>

@@ -11,7 +11,11 @@ interface KeywordResultsProps {
 type SortField = "keyword" | "volume" | "cpc" | "competition";
 type SortDir = "asc" | "desc";
 
-export function KeywordResults({ suggestions, source, query }: KeywordResultsProps) {
+export function KeywordResults({
+  suggestions,
+  source,
+  query,
+}: KeywordResultsProps) {
   const [sortField, setSortField] = useState<SortField>("volume");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -56,9 +60,10 @@ export function KeywordResults({ suggestions, source, query }: KeywordResultsPro
   };
 
   const copySelected = async () => {
-    const keywords = selected.size > 0
-      ? sorted.filter((s) => selected.has(s.keyword))
-      : sorted;
+    const keywords =
+      selected.size > 0
+        ? sorted.filter((s) => selected.has(s.keyword))
+        : sorted;
     const text = keywords.map((k) => k.keyword).join("\n");
     await navigator.clipboard.writeText(text);
     setCopied(true);
@@ -66,10 +71,13 @@ export function KeywordResults({ suggestions, source, query }: KeywordResultsPro
   };
 
   const SortIcon = ({ field }: { field: SortField }) => {
-    if (sortField !== field) return <ArrowUpDown size={12} className="opacity-30" />;
-    return sortDir === "asc"
-      ? <ArrowUp size={12} className="text-primary" />
-      : <ArrowDown size={12} className="text-primary" />;
+    if (sortField !== field)
+      return <ArrowUpDown size={12} className="opacity-30" />;
+    return sortDir === "asc" ? (
+      <ArrowUp size={12} className="text-primary" />
+    ) : (
+      <ArrowDown size={12} className="text-primary" />
+    );
   };
 
   if (sorted.length === 0) {
@@ -96,7 +104,11 @@ export function KeywordResults({ suggestions, source, query }: KeywordResultsPro
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
         >
           {copied ? <Check size={13} /> : <Copy size={13} />}
-          {copied ? "Copied!" : selected.size > 0 ? `Copy ${selected.size}` : "Copy all"}
+          {copied
+            ? "Copied!"
+            : selected.size > 0
+              ? `Copy ${selected.size}`
+              : "Copy all"}
         </button>
       </div>
 
@@ -215,7 +227,9 @@ function CompetitionBadge({ value }: { value?: number }) {
   }
 
   return (
-    <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded ${color}`}>
+    <span
+      className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded ${color}`}
+    >
       {value} <span className="opacity-70">{label}</span>
     </span>
   );

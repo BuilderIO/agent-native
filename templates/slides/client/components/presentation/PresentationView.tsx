@@ -10,8 +10,14 @@ interface PresentationViewProps {
   startIndex?: number;
 }
 
-export default function PresentationView({ slides, deckId, startIndex = 0 }: PresentationViewProps) {
-  const [currentIndex, setCurrentIndex] = useState(Math.min(startIndex, slides.length - 1));
+export default function PresentationView({
+  slides,
+  deckId,
+  startIndex = 0,
+}: PresentationViewProps) {
+  const [currentIndex, setCurrentIndex] = useState(
+    Math.min(startIndex, slides.length - 1),
+  );
   const [showControls, setShowControls] = useState(false);
   const navigate = useNavigate();
 

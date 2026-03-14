@@ -21,26 +21,26 @@ description: >
 
 ### Exported Functions
 
-| Function | Description |
-|---|---|
-| `searchPRs(opts)` | Search PRs using GitHub search syntax |
-| `searchIssues(opts)` | Search issues using GitHub search syntax |
-| `getPR(owner, repo, number)` | Full PR detail — commits, reviews, files (4 parallel API calls) |
-| `getIssue(owner, repo, number)` | Issue detail with labels, assignees |
-| `listPRs(owner, repo, opts)` | List repo PRs by state (open/closed/all) |
-| `searchOrgPRs(opts)` | Convenience wrapper — prepends `org:BuilderIO is:pr` |
-| `runGraphQL(query, variables?)` | Raw GraphQL query |
+| Function                        | Description                                                     |
+| ------------------------------- | --------------------------------------------------------------- |
+| `searchPRs(opts)`               | Search PRs using GitHub search syntax                           |
+| `searchIssues(opts)`            | Search issues using GitHub search syntax                        |
+| `getPR(owner, repo, number)`    | Full PR detail — commits, reviews, files (4 parallel API calls) |
+| `getIssue(owner, repo, number)` | Issue detail with labels, assignees                             |
+| `listPRs(owner, repo, opts)`    | List repo PRs by state (open/closed/all)                        |
+| `searchOrgPRs(opts)`            | Convenience wrapper — prepends `org:BuilderIO is:pr`            |
+| `runGraphQL(query, variables?)` | Raw GraphQL query                                               |
 
 ### API Routes
 
-| Route | Description |
-|---|---|
-| `GET /api/github/search?q=...&type=pr\|issue&limit=30` | Full GitHub search syntax |
-| `GET /api/github/pr?owner=...&repo=...&number=...` | PR detail with commits, reviews, files |
-| `GET /api/github/issue?owner=...&repo=...&number=...` | Issue detail |
-| `GET /api/github/prs?owner=...&repo=...&state=open\|closed\|all` | List repo PRs |
-| `GET /api/github/org-prs?org=BuilderIO&q=...&state=OPEN\|CLOSED\|MERGED` | Org-wide PR search |
-| `POST /api/github/graphql` body: `{ query, variables? }` | Raw GraphQL |
+| Route                                                                    | Description                            |
+| ------------------------------------------------------------------------ | -------------------------------------- |
+| `GET /api/github/search?q=...&type=pr\|issue&limit=30`                   | Full GitHub search syntax              |
+| `GET /api/github/pr?owner=...&repo=...&number=...`                       | PR detail with commits, reviews, files |
+| `GET /api/github/issue?owner=...&repo=...&number=...`                    | Issue detail                           |
+| `GET /api/github/prs?owner=...&repo=...&state=open\|closed\|all`         | List repo PRs                          |
+| `GET /api/github/org-prs?org=BuilderIO&q=...&state=OPEN\|CLOSED\|MERGED` | Org-wide PR search                     |
+| `POST /api/github/graphql` body: `{ query, variables? }`                 | Raw GraphQL                            |
 
 ## Script Usage
 

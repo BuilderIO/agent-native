@@ -24,7 +24,7 @@ You spot a tiny UI issue on production. Fixing it in Figma takes 30 seconds, but
 
 **Claude Code** can help you move faster. It's an agent that can **open your repo, read files, make edits, and preview your app**—all from a workflow that's increasingly approachable for non-engineers.
 
-Pair it with **Figma MCP**, and Claude pulls *structured design context* directly from your files to generate code that actually matches your frames.
+Pair it with **Figma MCP**, and Claude pulls _structured design context_ directly from your files to generate code that actually matches your frames.
 
 Here's how to get started, some useful workflows, and where to turn if the workflow gets too complex or tough to maintain.
 
@@ -54,14 +54,14 @@ Claude Code is an **AI assistant that actually does the work**: instead of you t
 
 For designers, the easiest way to start is the **Claude Desktop app**. It keeps you out of the command line (that intimidating black window with scrolling text) and gives you a friendly visual interface. The app's Code tab provides:
 
-* **App preview**: Claude Code Desktop can spin up your local development server and show you a preview of your app right in its own interface. You can see all your design changes live.
-* **Permission modes**: Control how much the AI is allowed to do on its own.
-* **Safe multitasking**: Explore multiple design ideas at once without them tangling together.
-* **Tool connections**: Hook it up to tools your team already uses, like GitHub, Slack, or Linear. (And Figma, of course! More on that below.)
-* **Integrated code review**: While you don't need to read the code, Claude Code can automatically check the code it writes for bugs and logical issues before you hand it off.
-* **Built-in safety:** Start in "Plan mode" so the AI can only propose changes, not make them. That single habit gets you 80% of the safety you want.
+- **App preview**: Claude Code Desktop can spin up your local development server and show you a preview of your app right in its own interface. You can see all your design changes live.
+- **Permission modes**: Control how much the AI is allowed to do on its own.
+- **Safe multitasking**: Explore multiple design ideas at once without them tangling together.
+- **Tool connections**: Hook it up to tools your team already uses, like GitHub, Slack, or Linear. (And Figma, of course! More on that below.)
+- **Integrated code review**: While you don't need to read the code, Claude Code can automatically check the code it writes for bugs and logical issues before you hand it off.
+- **Built-in safety:** Start in "Plan mode" so the AI can only propose changes, not make them. That single habit gets you 80% of the safety you want.
 
-Note: You must have a paid Claude plan to even *see* the Code tab in the Claude Desktop app.
+Note: You must have a paid Claude plan to even _see_ the Code tab in the Claude Desktop app.
 
 ![The Claude Code tab open in the Claude Desktop app.](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F258e1c75f29346caa5bc9f597e8a14d6?width=776)
 
@@ -79,9 +79,9 @@ The fastest way to get over the fear of breaking things is to understand what a 
 
 If you mess it up, the worst case is usually:
 
-* Delete the folder
-* Re-clone the repo
-* Try again
+- Delete the folder
+- Re-clone the repo
+- Try again
 
 **You are not breaking production.** If you completely destroy a layout locally, you haven't touched the original source truth. And even when you are ready to share your work, your team's normal code review process is what actually protects the live site.
 
@@ -99,7 +99,7 @@ We're letting Claude Code do all the heavy lifting.
 
 Instead of trying to figure out `git clone` commands, you can just ask Claude to grab the code for you:
 
-*Please clone the repository from \[insert GitHub URL here\] into my \[insert parent folder here\] folder.*
+_Please clone the repository from \[insert GitHub URL here\] into my \[insert parent folder here\] folder._
 
 Claude will handle downloading the code to your machine. The code will always be placed in a new folder matching the repository name.
 
@@ -107,7 +107,7 @@ Claude will handle downloading the code to your machine. The code will always be
 
 Now that you have the code, you need to see it. Designers often get stuck on installing dependencies and starting the local server. Let's make Claude do it:
 
-Prompt: *Get local dev working.*
+Prompt: _Get local dev working._
 
 That's it. Claude will analyze the repo, figure out the framework, and install the right dependencies.
 
@@ -127,13 +127,13 @@ Claude can't fix this for you because it doesn't know the passwords. You have to
 
 What to Slack your engineering team:
 
-*Hey! I'm trying to spin up* `[repo name]` *locally to test some design tweaks. Can someone securely send me the* `.env` *file I need to get the dev server running?*
+_Hey! I'm trying to spin up_ `[repo name]` _locally to test some design tweaks. Can someone securely send me the_ `.env` _file I need to get the dev server running?_
 
 Once they send you the file (save it to your Downloads folder), **do not paste the passwords directly into Claude**. You don't want to leak company secrets into an AI chat log.
 
 Instead, just tell Claude where you saved the file:
 
-*I downloaded the* `.env` *file to my Downloads folder. Please move it to the correct location in this repository and try starting the server again.*
+_I downloaded the_ `.env` _file to my Downloads folder. Please move it to the correct location in this repository and try starting the server again._
 
 ### Step 3: Get the preview working
 
@@ -145,19 +145,19 @@ To actually see the site, look for the big **Preview** button in the top right o
 
 Remember that you are talking to a smart AI, not a strict form. You don't have to know the answers. Just keep telling it what you do and don't know:
 
-* "I don't know the difference between those options. Please just pick the one that lets me see the site."
-* "I still can't see the preview. Here is a screenshot of what I see."
-* "The preview is showing an error about a missing port. Can you fix it?"
+- "I don't know the difference between those options. Please just pick the one that lets me see the site."
+- "I still can't see the preview. Here is a screenshot of what I see."
+- "The preview is showing an error about a missing port. Can you fix it?"
 
 Keep pushing back. Eventually, Claude will figure out the right configuration and you will be looking at a preview of your app right in the interface.
 
 ![A web app running in Claude Desktop.](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffc4e0c1c6f4a4374b2c748f7fe92b86f?width=776)
 
-**The fallback plan:** The in-app preview feature is new and, in my experience, can still be a little buggy. If you've gone back and forth with Claude and the preview *still* isn't loading, don't sweat it.
+**The fallback plan:** The in-app preview feature is new and, in my experience, can still be a little buggy. If you've gone back and forth with Claude and the preview _still_ isn't loading, don't sweat it.
 
 Just tell Claude:
 
-*Let's skip the in-app preview. Please just start the local dev server and give me the localhost link so I can open it in my regular browser.*
+_Let's skip the in-app preview. Please just start the local dev server and give me the localhost link so I can open it in my regular browser._
 
 Click the link it gives you (usually something like `http://localhost:3000`), and you'll see your site running perfectly fine in Chrome or Safari. This is being served from your local files—not the internet.
 
@@ -169,26 +169,26 @@ Before you redesign the entire navigation bar, get a quick win.
 
 Good first tasks:
 
-* Fix padding/margins on a single component
-* Align a button style to a token
-* Fix a hover/focus state
-* Update a small layout issue in an existing page
+- Fix padding/margins on a single component
+- Align a button style to a token
+- Fix a hover/focus state
+- Update a small layout issue in an existing page
 
 Avoid for your first try:
 
-* New architecture
-* Big refactors
-* Changes that span across the whole app
+- New architecture
+- Big refactors
+- Changes that span across the whole app
 
 ### Step 5: Ask for the change
 
 Now, describe what you want changed using plain English, just like you would in a comment on a Figma frame to another designer:
 
-*Let's make a small visual update to \[describe the component, e.g., the primary button on the homepage\].*
+_Let's make a small visual update to \[describe the component, e.g., the primary button on the homepage\]._
 
-*Please change the background color to \[hex code or token name\] and increase the horizontal padding slightly.*
+_Please change the background color to \[hex code or token name\] and increase the horizontal padding slightly._
 
-*Make this change with the smallest code diff possible. Prefer using our existing design tokens/variables if they exist.*
+_Make this change with the smallest code diff possible. Prefer using our existing design tokens/variables if they exist._
 
 ### Step 6: See the change live
 
@@ -198,7 +198,7 @@ If it looks wrong, simply reply: "That padding looks a bit too wide, can you red
 
 ## Connect Claude Code and Figma
 
-Right now, you're describing design changes to Claude using plain English. That works, but Claude is still guessing what your button *should* look like based on the words you give it. It doesn't know your exact spacing, your design tokens, or your component library.
+Right now, you're describing design changes to Claude using plain English. That works, but Claude is still guessing what your button _should_ look like based on the words you give it. It doesn't know your exact spacing, your design tokens, or your component library.
 
 The Figma integration fixes that.
 
@@ -212,9 +212,9 @@ So Claude ends up generating code with hardcoded colors (`#3B82F6` instead of `v
 
 Instead of looking at a screenshot, Claude can now see:
 
-* The actual layers and auto-layout rules in your Figma frame
-* Your design tokens and variables
-* Component mappings (if your team uses Code Connect)
+- The actual layers and auto-layout rules in your Figma frame
+- Your design tokens and variables
+- Component mappings (if your team uses Code Connect)
 
 This means Claude generates code that actually uses your button component instead of building a new one from scratch every time.
 
@@ -241,15 +241,15 @@ Here's the workflow:
 1. **In Figma:** Right-click on the frame you want to build and select "Copy link"
 2. **In Claude Code:** Paste this prompt:
 
-*Build the component in this Figma frame: \[paste link here\]*
+_Build the component in this Figma frame: \[paste link here\]_
 
-* *Reuse existing components if possible*
-* *Use design tokens/variables instead of hardcoded values*
-* *Keep the diff minimal*
+- _Reuse existing components if possible_
+- _Use design tokens/variables instead of hardcoded values_
+- _Keep the diff minimal_
 
 Claude will pull the structured design data from Figma, see your spacing/tokens/components, and generate code that actually fits your system.
 
-Your mileage may vary. Heavily. Agentic workflows are, if you haven't already noticed, *very* finnicky. The key is to keep iterating.
+Your mileage may vary. Heavily. Agentic workflows are, if you haven't already noticed, _very_ finnicky. The key is to keep iterating.
 
 ### The reverse workflow: Code to Canvas
 
@@ -281,7 +281,7 @@ Claude Code Desktop makes the whole experience more approachable (just keep aski
 
 ![Pirates of the Carribean "first time" meme with James Franco on the noose.](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F33bc7c13ccf945f1b2dac055e7e8d78a?width=776)
 
-Claude can *help* you debug merge conflicts and commit issues, but you're still fundamentally playing the role of a junior developer managing a local repository.
+Claude can _help_ you debug merge conflicts and commit issues, but you're still fundamentally playing the role of a junior developer managing a local repository.
 
 So yes—Claude Code is cool. But the environment drift and manual syncing are still the boss fight for designers just trying to ship a visual tweak.
 
@@ -313,7 +313,7 @@ Then the real collaboration loop kicks in: you can share preview URLs directly w
 
 For many teams, Builder and Figma are **side-by-side tools**: Figma for net-new design (0-to-1) and exploration, Builder for faster web iteration and shipping—without sacrificing import fidelity or round-tripping.
 
-If you prefer to start in Figma, Builder's plugin supports [exporting frames and pasting them directly into a Builder Project prompt](https://www.builder.io/c/docs/import-from-figma). You can even [export from Builder *back* to Figma](https://www.builder.io/c/docs/design-with-figma-and-fusion) if you want to update your design files after iterating in code.
+If you prefer to start in Figma, Builder's plugin supports [exporting frames and pasting them directly into a Builder Project prompt](https://www.builder.io/c/docs/import-from-figma). You can even [export from Builder _back_ to Figma](https://www.builder.io/c/docs/design-with-figma-and-fusion) if you want to update your design files after iterating in code.
 
 <video src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd1d3b9f1b7634040b61039eff1f50cc9?alt=media&token=f6966016-67b5-4c1d-baef-e26b997af3c1&apiKey=YJIGb4i01jvw0SRdL5Bt" controls=""></video>
 
@@ -325,22 +325,22 @@ So, which tool should you use? It comes down to what you are trying to accomplis
 
 **Start in Figma when:**
 
-* You are exploring net-new flows and completely new architecture.
-* You need wide collaboration on a blank canvas.
-* You are doing discovery and iteration before implementation.
+- You are exploring net-new flows and completely new architecture.
+- You need wide collaboration on a blank canvas.
+- You are doing discovery and iteration before implementation.
 
 **Use Claude Code (with Figma MCP) when:**
 
-* You want an AI agent **specifically inside your local repo**.
-* You are comfortable running terminal commands, managing Git, and learning local dev step-by-step.
-* You need deep custom configuration, unique to you.
+- You want an AI agent **specifically inside your local repo**.
+- You are comfortable running terminal commands, managing Git, and learning local dev step-by-step.
+- You need deep custom configuration, unique to you.
 
 **Use Builder when:**
 
-* You want to eliminate repo setup friction and environment drift for non-engineers.
-* Your team wants a shared cloud environment with live previews and automated PR workflows.
-* You are iterating on an existing web experience and want to visually edit UI without bouncing between tools.
-* You want built-in Figma import and round-tripping.
+- You want to eliminate repo setup friction and environment drift for non-engineers.
+- Your team wants a shared cloud environment with live previews and automated PR workflows.
+- You are iterating on an existing web experience and want to visually edit UI without bouncing between tools.
+- You want built-in Figma import and round-tripping.
 
 ## Builder is Claude Code with even more superpowers
 

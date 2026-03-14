@@ -2,7 +2,16 @@ import { useMetricsQuery } from "@/lib/query-metrics";
 import { getDailyFunnelQuery } from "./queries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 
 interface DailyTrendsChartProps {
   dateStart: string;
@@ -18,10 +27,13 @@ interface DailyMetrics {
   pct_completed: number;
 }
 
-export function DailyTrendsChart({ dateStart, dateEnd }: DailyTrendsChartProps) {
+export function DailyTrendsChart({
+  dateStart,
+  dateEnd,
+}: DailyTrendsChartProps) {
   const { data, isLoading, error } = useMetricsQuery(
     ["daily-trends", dateStart, dateEnd],
-    getDailyFunnelQuery(dateStart, dateEnd)
+    getDailyFunnelQuery(dateStart, dateEnd),
   );
 
   if (error) {
@@ -31,7 +43,9 @@ export function DailyTrendsChart({ dateStart, dateEnd }: DailyTrendsChartProps) 
           <CardTitle className="text-base">Daily Trends</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-sm text-destructive">Error loading data: {data?.error || String(error)}</div>
+          <div className="text-sm text-destructive">
+            Error loading data: {data?.error || String(error)}
+          </div>
         </CardContent>
       </Card>
     );
@@ -76,20 +90,33 @@ export function DailyTrendsChart({ dateStart, dateEnd }: DailyTrendsChartProps) 
             <YAxis
               yAxisId="left"
               tick={{ fontSize: 11 }}
-              label={{ value: 'Users', angle: -90, position: 'insideLeft', fontSize: 11 }}
+              label={{
+                value: "Users",
+                angle: -90,
+                position: "insideLeft",
+                fontSize: 11,
+              }}
             />
             <YAxis
               yAxisId="right"
               orientation="right"
               tick={{ fontSize: 11 }}
-              label={{ value: 'Completion %', angle: 90, position: 'insideRight', fontSize: 11 }}
+              label={{
+                value: "Completion %",
+                angle: 90,
+                position: "insideRight",
+                fontSize: 11,
+              }}
             />
             <Tooltip
               contentStyle={{ fontSize: 12 }}
               formatter={(value: any, name: string) => {
-                if (name === 'signups') return [value.toLocaleString(), 'Signups'];
-                if (name === 'completed') return [value.toLocaleString(), 'Completed'];
-                if (name === 'pct_completed') return [value + '%', 'Completion Rate'];
+                if (name === "signups")
+                  return [value.toLocaleString(), "Signups"];
+                if (name === "completed")
+                  return [value.toLocaleString(), "Completed"];
+                if (name === "pct_completed")
+                  return [value + "%", "Completion Rate"];
                 return [value, name];
               }}
             />
@@ -142,13 +169,19 @@ export function DailyTrendsChart({ dateStart, dateEnd }: DailyTrendsChartProps) 
           <div>
             <div className="text-muted-foreground">Avg Daily Signups</div>
             <div className="text-lg font-bold">
-              {(rows.reduce((sum, d) => sum + d.signups, 0) / rows.length).toFixed(0)}
+              {(
+                rows.reduce((sum, d) => sum + d.signups, 0) / rows.length
+              ).toFixed(0)}
             </div>
           </div>
           <div>
             <div className="text-muted-foreground">Avg Completion Rate</div>
             <div className="text-lg font-bold text-blue-600">
-              {(rows.reduce((sum, d) => sum + (d.pct_completed || 0), 0) / rows.filter(d => d.pct_completed).length).toFixed(1)}%
+              {(
+                rows.reduce((sum, d) => sum + (d.pct_completed || 0), 0) /
+                rows.filter((d) => d.pct_completed).length
+              ).toFixed(1)}
+              %
             </div>
           </div>
         </div>

@@ -53,7 +53,9 @@ export default function ImageSearchPanel({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/image-search?q=${encodeURIComponent(query)}`);
+      const res = await fetch(
+        `/api/image-search?q=${encodeURIComponent(query)}`,
+      );
       if (!res.ok) {
         const data = await res.json();
         setError(data.error || "Search failed");
@@ -89,7 +91,10 @@ export default function ImageSearchPanel({
     >
       <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
         <h3 className="text-sm font-semibold text-white/90">Search Images</h3>
-        <button onClick={() => onOpenChange(false)} className="text-white/30 hover:text-white/60 transition-colors">
+        <button
+          onClick={() => onOpenChange(false)}
+          className="text-white/30 hover:text-white/60 transition-colors"
+        >
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -103,7 +108,9 @@ export default function ImageSearchPanel({
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSearch();
+              }}
               placeholder="Search for images..."
               className="w-full pl-8 pr-3 py-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg text-sm text-white/90 placeholder:text-white/30 outline-none focus:border-[#609FF8]/50"
             />
@@ -113,14 +120,20 @@ export default function ImageSearchPanel({
             disabled={loading || !query.trim()}
             className="px-3 py-1.5 rounded-lg bg-[#609FF8] hover:bg-[#7AB2FA] disabled:opacity-50 text-black text-xs font-medium transition-colors"
           >
-            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Search"}
+            {loading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              "Search"
+            )}
           </button>
         </div>
       </div>
 
       <div className="px-4 pb-4 overflow-y-auto flex-1">
         {error && (
-          <div className="text-center py-4 text-red-400/70 text-xs">{error}</div>
+          <div className="text-center py-4 text-red-400/70 text-xs">
+            {error}
+          </div>
         )}
         {!loading && results.length === 0 && !error && (
           <div className="text-center py-8 text-white/30 text-xs">
@@ -141,7 +154,12 @@ export default function ImageSearchPanel({
                 className="aspect-square rounded-md overflow-hidden border border-white/[0.08] bg-white/[0.02] hover:ring-2 hover:ring-[#609FF8]/50 transition-all"
                 title={result.title}
               >
-                <img src={result.thumbnail} alt={result.title} className="w-full h-full object-cover" loading="lazy" />
+                <img
+                  src={result.thumbnail}
+                  alt={result.title}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                />
               </button>
             ))}
           </div>

@@ -66,7 +66,7 @@ export type CreateProjectPromptProps = {
 };
 
 export const CreateProjectPrompt: React.FC<CreateProjectPromptProps> = (
-  props
+  props,
 ) => {
   const {
     x = 0,
@@ -111,18 +111,21 @@ export const CreateProjectPrompt: React.FC<CreateProjectPromptProps> = (
   const [showDropdownState, setShowDropdownState] = React.useState(false);
 
   // Define default zones relative to the component (0,0 is top-left of component)
-  const defaultZones = React.useMemo(() => ({
-    Input: { x: 18, y: 69, width: width - 36, height: 100 }, // Inside card, after heading
-    Cog: { x: 16, y: 187, width: 30, height: 30 }, // Controls row
-    React: { x: 52, y: 187, width: 130, height: 30 }, // React + Vite button
-    '1x': { x: width - 16 - 220, y: 187, width: 55, height: 30 }, // Approximate right side positioning
-    Build: { x: width - 16 - 143, y: 187, width: 102, height: 30 }, // Build button
-    Send: { x: width - 16 - 29, y: 187, width: 29, height: 29 }, // Send button (rightmost)
-  }), [width]);
+  const defaultZones = React.useMemo(
+    () => ({
+      Input: { x: 18, y: 69, width: width - 36, height: 100 }, // Inside card, after heading
+      Cog: { x: 16, y: 187, width: 30, height: 30 }, // Controls row
+      React: { x: 52, y: 187, width: 130, height: 30 }, // React + Vite button
+      "1x": { x: width - 16 - 220, y: 187, width: 55, height: 30 }, // Approximate right side positioning
+      Build: { x: width - 16 - 143, y: 187, width: 102, height: 30 }, // Build button
+      Send: { x: width - 16 - 29, y: 187, width: 29, height: 29 }, // Send button (rightmost)
+    }),
+    [width],
+  );
 
   // Use editable zones hook
   const { zones, ZoneEditor } = useEditableZones({
-    componentId: 'create-project-prompt',
+    componentId: "create-project-prompt",
     defaultZones,
     enabled: debugMode,
   });
@@ -258,7 +261,9 @@ export const CreateProjectPrompt: React.FC<CreateProjectPromptProps> = (
                   alignItems: "center",
                   justifyContent: "center",
                   cursor: "pointer",
-                  backgroundColor: cogButtonIsHovered ? "rgba(255, 255, 255, 0.1)" : "transparent",
+                  backgroundColor: cogButtonIsHovered
+                    ? "rgba(255, 255, 255, 0.1)"
+                    : "transparent",
                   transition: "background-color 0.15s ease",
                 }}
               >
@@ -284,7 +289,9 @@ export const CreateProjectPrompt: React.FC<CreateProjectPromptProps> = (
                   cursor: "pointer",
                   padding: "6px 8px",
                   borderRadius: 5,
-                  backgroundColor: reactViteIsHovered ? "rgba(255, 255, 255, 0.1)" : "transparent",
+                  backgroundColor: reactViteIsHovered
+                    ? "rgba(255, 255, 255, 0.1)"
+                    : "transparent",
                   transition: "background-color 0.15s ease",
                   marginLeft: -8,
                 }}
@@ -319,7 +326,9 @@ export const CreateProjectPrompt: React.FC<CreateProjectPromptProps> = (
                 cursor: "pointer",
                 padding: "6px 8px",
                 borderRadius: 5,
-                backgroundColor: oneXIsHovered ? "rgba(255, 255, 255, 0.1)" : "transparent",
+                backgroundColor: oneXIsHovered
+                  ? "rgba(255, 255, 255, 0.1)"
+                  : "transparent",
                 transition: "background-color 0.15s ease",
                 marginLeft: -8,
               }}
@@ -345,7 +354,9 @@ export const CreateProjectPrompt: React.FC<CreateProjectPromptProps> = (
                 cursor: "pointer",
                 padding: "6px 8px",
                 borderRadius: 5,
-                backgroundColor: buildButtonIsHovered ? "rgba(255, 255, 255, 0.1)" : "transparent",
+                backgroundColor: buildButtonIsHovered
+                  ? "rgba(255, 255, 255, 0.1)"
+                  : "transparent",
                 transition: "background-color 0.15s ease",
                 marginLeft: -8,
               }}
@@ -386,8 +397,11 @@ export const CreateProjectPrompt: React.FC<CreateProjectPromptProps> = (
                 alignItems: "center",
                 justifyContent: "center",
                 cursor: "pointer",
-                transform: isClicking ? "scale(0.9)" : `scale(${1 + hoverProgress * 0.1})`,
-                filter: hasText && isHovered ? "brightness(1.15)" : "brightness(1)",
+                transform: isClicking
+                  ? "scale(0.9)"
+                  : `scale(${1 + hoverProgress * 0.1})`,
+                filter:
+                  hasText && isHovered ? "brightness(1.15)" : "brightness(1)",
                 transition: "transform 0.1s ease, filter 0.15s ease",
               }}
             >
@@ -398,7 +412,7 @@ export const CreateProjectPrompt: React.FC<CreateProjectPromptProps> = (
                   width: 22,
                   aspectRatio: 1,
                   objectFit: "contain",
-                  filter: hasText ? "invert(1)" : "none"
+                  filter: hasText ? "invert(1)" : "none",
                 }}
               />
               {/* Hover overlay */}
@@ -444,7 +458,9 @@ export const CreateProjectPrompt: React.FC<CreateProjectPromptProps> = (
               color: "#000000",
               fontWeight: 500,
               cursor: "pointer",
-              filter: connectRepoIsHovered ? "brightness(1.15)" : "brightness(1)",
+              filter: connectRepoIsHovered
+                ? "brightness(1.15)"
+                : "brightness(1)",
               transition: "filter 0.15s ease",
             }}
           >
@@ -467,7 +483,9 @@ export const CreateProjectPrompt: React.FC<CreateProjectPromptProps> = (
               alignItems: "center",
               justifyContent: "center",
               borderLeft: "1px solid rgba(0, 0, 0, 0.15)",
-              filter: connectRepoIsHovered ? "brightness(1.15)" : "brightness(1)",
+              filter: connectRepoIsHovered
+                ? "brightness(1.15)"
+                : "brightness(1)",
               transition: "filter 0.15s ease",
               cursor: "pointer",
             }}

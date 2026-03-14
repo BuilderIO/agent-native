@@ -57,7 +57,7 @@ export function SaveToProjectDialog({
             onOpenChange(false);
             onSaved?.(res.projectSlug);
           },
-        }
+        },
       );
     } else if (mode === "new" && newName.trim()) {
       save.mutate(
@@ -72,7 +72,7 @@ export function SaveToProjectDialog({
             onOpenChange(false);
             onSaved?.(res.projectSlug);
           },
-        }
+        },
       );
     }
   };
@@ -87,8 +87,8 @@ export function SaveToProjectDialog({
         <DialogHeader>
           <DialogTitle>Save Twitter Research</DialogTitle>
           <DialogDescription>
-            Save {tweets.length} tweet{tweets.length !== 1 ? "s" : ""} from
-            "{query}" to a project.
+            Save {tweets.length} tweet{tweets.length !== 1 ? "s" : ""} from "
+            {query}" to a project.
           </DialogDescription>
         </DialogHeader>
 
@@ -164,10 +164,7 @@ export function SaveToProjectDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button
-            onClick={handleSave}
-            disabled={!canSave || save.isPending}
-          >
+          <Button onClick={handleSave} disabled={!canSave || save.isPending}>
             {save.isPending && (
               <Loader2 size={14} className="animate-spin mr-1.5" />
             )}

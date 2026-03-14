@@ -72,7 +72,12 @@ export function TwitterSearchBar({
             className="pl-9 h-9 bg-muted/50"
           />
         </div>
-        <Button type="submit" size="sm" className="h-9" disabled={!query.trim() || isLoading}>
+        <Button
+          type="submit"
+          size="sm"
+          className="h-9"
+          disabled={!query.trim() || isLoading}
+        >
           {isLoading ? "Searching..." : "Search"}
         </Button>
       </form>
@@ -124,7 +129,7 @@ function PillGroup<T extends string>({
             "px-2.5 py-1 rounded-full text-xs font-medium transition-colors",
             value === opt.value
               ? "bg-foreground text-background"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted",
           )}
         >
           {opt.label}

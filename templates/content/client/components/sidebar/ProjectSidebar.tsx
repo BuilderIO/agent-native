@@ -147,7 +147,7 @@ export function ProjectSidebar({
         className={cn(
           "fixed sm:relative z-40 flex flex-col h-screen bg-sidebar border-r border-sidebar-border transition-all duration-200 overflow-hidden",
           isOpen ? "translate-x-0" : "-translate-x-full sm:translate-x-0",
-          collapsed && "sm:!w-0 sm:border-r-0"
+          collapsed && "sm:!w-0 sm:border-r-0",
         )}
         style={{ width: collapsed ? 0 : width }}
       >
@@ -185,7 +185,7 @@ export function ProjectSidebar({
                       size={10}
                       className={cn(
                         "transition-transform duration-150",
-                        !pagesExpanded && "-rotate-90"
+                        !pagesExpanded && "-rotate-90",
                       )}
                     />
                     Pages
@@ -230,7 +230,7 @@ export function ProjectSidebar({
                       "flex items-center gap-2 w-full px-2 py-1.5 rounded-[4px] text-[13px] transition-colors",
                       isGlobalImagesActive
                         ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent/60",
                     )}
                   >
                     <ImageIcon size={14} className="shrink-0" />
@@ -242,7 +242,7 @@ export function ProjectSidebar({
                       "flex items-center gap-2 w-full px-2 py-1.5 rounded-[4px] text-[13px] transition-colors",
                       isSearchResearchActive
                         ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent/60"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent/60",
                     )}
                   >
                     <Compass size={14} className="shrink-0" />
@@ -342,7 +342,10 @@ export function ProjectSidebar({
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setShowNewWorkspace(false)}>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowNewWorkspace(false)}
+                >
                   Cancel
                 </Button>
                 <Button
@@ -355,7 +358,9 @@ export function ProjectSidebar({
                       setNewWorkspaceName("");
                     });
                   }}
-                  disabled={!newWorkspaceName.trim() || createWorkspace.isPending}
+                  disabled={
+                    !newWorkspaceName.trim() || createWorkspace.isPending
+                  }
                 >
                   {createWorkspace.isPending ? "Creating..." : "Create"}
                 </Button>

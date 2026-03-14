@@ -4,13 +4,13 @@ Threshold tables used by the Content Refresh Analysis skill to determine refresh
 
 ## Scope Decision Matrix
 
-| Signal | Metadata-Only | Selective Rewrite | Full Rewrite |
-|--------|--------------|-------------------|--------------|
-| Sections needing rewrite | 0 | 1-40% of sections | >40% of sections |
-| New competitor sections to add | 0 | 1-2 | 3+ |
-| SERP intent shift | None | Minor (same category) | Major (informational to commercial) |
-| Primary keyword ranking change | Still in top 10 | Dropped 5-15 positions | Dropped 15+ or out of top 50 |
-| Framework/API version outdated | None | 1-2 sections affected | Core premise outdated |
+| Signal                         | Metadata-Only   | Selective Rewrite      | Full Rewrite                        |
+| ------------------------------ | --------------- | ---------------------- | ----------------------------------- |
+| Sections needing rewrite       | 0               | 1-40% of sections      | >40% of sections                    |
+| New competitor sections to add | 0               | 1-2                    | 3+                                  |
+| SERP intent shift              | None            | Minor (same category)  | Major (informational to commercial) |
+| Primary keyword ranking change | Still in top 10 | Dropped 5-15 positions | Dropped 15+ or out of top 50        |
+| Framework/API version outdated | None            | 1-2 sections affected  | Core premise outdated               |
 
 ## How to Apply
 
@@ -24,6 +24,7 @@ Threshold tables used by the Content Refresh Analysis skill to determine refresh
 ### Sections Needing Rewrite
 
 Count sections where any of these are true:
+
 - Code examples reference outdated API versions
 - Competitor content covers the subtopic with significantly more depth
 - Community feedback (HN, SO) contradicts the section's claims
@@ -37,13 +38,13 @@ Sections that top-5 competitors cover but the original post does not. Only count
 
 ### SERP Intent Shift
 
-| Shift Type | Classification |
-|------------|---------------|
-| informational to informational | None |
-| informational to commercial | Major |
-| commercial to informational | Major |
-| informational to navigational | Major |
-| Same category, different angle | Minor |
+| Shift Type                     | Classification |
+| ------------------------------ | -------------- |
+| informational to informational | None           |
+| informational to commercial    | Major          |
+| commercial to informational    | Major          |
+| informational to navigational  | Major          |
+| Same category, different angle | Minor          |
 
 ### Primary Keyword Ranking Change
 
@@ -56,6 +57,7 @@ Check the post's code examples and technical claims against current documentatio
 ## Override Rules
 
 The user can override the recommended scope at Gate 1. Valid overrides:
+
 - Force selective when tool recommends metadata-only (user wants to update specific sections)
 - Force full when tool recommends selective (user wants a complete rewrite)
 - Force metadata when tool recommends selective or full (user only wants SEO updates)

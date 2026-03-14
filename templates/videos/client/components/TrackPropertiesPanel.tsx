@@ -1,5 +1,15 @@
 import { useRef, useState, useEffect } from "react";
-import { Clock, Plus, X, Code2, ChevronDown, Copy, Check, Braces, Sparkles } from "lucide-react";
+import {
+  Clock,
+  Plus,
+  X,
+  Code2,
+  ChevronDown,
+  Copy,
+  Check,
+  Braces,
+  Sparkles,
+} from "lucide-react";
 import type { AnimationTrack, AnimatedProp, EasingKey } from "@/types";
 import { COMMON_PROP_TEMPLATES } from "@/types";
 import { cn } from "@/lib/utils";
@@ -55,12 +65,12 @@ const EASING_COLORS: Record<EasingKey, string> = {
 const PROP_LABEL: Record<string, string> = {
   translateY: "Y",
   translateX: "X",
-  opacity:    "op",
-  scale:      "sc",
-  rotate:     "rot",
-  width:      "w",
-  blur:       "blur",
-  radius:     "r",
+  opacity: "op",
+  scale: "sc",
+  rotate: "rot",
+  width: "w",
+  blur: "blur",
+  radius: "r",
 };
 
 // Expression-controlled accent — blue tint
@@ -92,14 +102,20 @@ function CodeBlock({ snippet }: { snippet: string }) {
       <div className="flex items-center justify-between px-2.5 py-1 bg-zinc-900/60 border-b border-zinc-700/30">
         <div className="flex items-center gap-1.5">
           <Braces size={9} className="text-zinc-500/70" />
-          <span className="text-[9px] font-mono text-zinc-500/70 uppercase tracking-wider">read-only</span>
+          <span className="text-[9px] font-mono text-zinc-500/70 uppercase tracking-wider">
+            read-only
+          </span>
         </div>
         <button
           type="button"
           onClick={handleCopy}
           className="flex items-center gap-1 text-[9px] font-mono text-zinc-500/70 hover:text-zinc-300 transition-colors"
         >
-          {copied ? <Check size={9} className="text-green-400" /> : <Copy size={9} />}
+          {copied ? (
+            <Check size={9} className="text-green-400" />
+          ) : (
+            <Copy size={9} />
+          )}
           {copied ? "copied" : "copy"}
         </button>
       </div>
@@ -128,7 +144,10 @@ function ExpressionPropRow({
   return (
     <div
       className="rounded-lg border overflow-hidden"
-      style={{ borderColor: `${EXPR_COLOR}30`, backgroundColor: `${EXPR_COLOR}05` }}
+      style={{
+        borderColor: `${EXPR_COLOR}30`,
+        backgroundColor: `${EXPR_COLOR}05`,
+      }}
     >
       {/* Header row */}
       <div className="flex items-center gap-1.5 px-2 py-1.5">
@@ -142,9 +161,11 @@ function ExpressionPropRow({
 
         <span className="text-[10px] font-mono text-foreground/70 flex-1 truncate">
           {prop.property}
-          {prop.unit && !isProgrammatic
-            ? <span className="text-muted-foreground/35 ml-0.5">({prop.unit})</span>
-            : null}
+          {prop.unit && !isProgrammatic ? (
+            <span className="text-muted-foreground/35 ml-0.5">
+              ({prop.unit})
+            </span>
+          ) : null}
         </span>
 
         {/* From → to inline (for hybrid props that have editable range) */}
@@ -152,17 +173,29 @@ function ExpressionPropRow({
           <span className="flex items-center gap-1 flex-shrink-0">
             <span
               className="text-xs font-mono px-1.5 py-0.5 rounded"
-              style={{ backgroundColor: `${EXPR_COLOR}15`, color: `${EXPR_COLOR}cc` }}
+              style={{
+                backgroundColor: `${EXPR_COLOR}15`,
+                color: `${EXPR_COLOR}cc`,
+              }}
             >
               {prop.from}
             </span>
-            <span className="text-[9px] text-muted-foreground/30 font-mono">→</span>
+            <span className="text-[9px] text-muted-foreground/30 font-mono">
+              →
+            </span>
             <span
               className="text-xs font-mono px-1.5 py-0.5 rounded"
-              style={{ backgroundColor: `${EXPR_COLOR}15`, color: `${EXPR_COLOR}cc` }}
+              style={{
+                backgroundColor: `${EXPR_COLOR}15`,
+                color: `${EXPR_COLOR}cc`,
+              }}
             >
               {prop.to}
-              {prop.unit ? <span className="ml-0.5 text-[8px] opacity-60">{prop.unit}</span> : null}
+              {prop.unit ? (
+                <span className="ml-0.5 text-[8px] opacity-60">
+                  {prop.unit}
+                </span>
+              ) : null}
             </span>
           </span>
         )}
@@ -175,10 +208,15 @@ function ExpressionPropRow({
           style={{ color: `${EXPR_COLOR}70` }}
           title={expanded ? "Hide code" : "View expression code"}
         >
-          <span className="uppercase tracking-wider">{expanded ? "hide" : "code"}</span>
+          <span className="uppercase tracking-wider">
+            {expanded ? "hide" : "code"}
+          </span>
           <ChevronDown
             size={10}
-            className={cn("transition-transform duration-150", expanded && "rotate-180")}
+            className={cn(
+              "transition-transform duration-150",
+              expanded && "rotate-180",
+            )}
           />
         </button>
 
@@ -192,7 +230,10 @@ function ExpressionPropRow({
 
       {/* Adjustable parameters - always visible */}
       {prop.parameters && prop.parameters.length > 0 && (
-        <div className="px-2.5 pb-2.5 pt-2 space-y-2 border-t" style={{ borderColor: `${EXPR_COLOR}20` }}>
+        <div
+          className="px-2.5 pb-2.5 pt-2 space-y-2 border-t"
+          style={{ borderColor: `${EXPR_COLOR}20` }}
+        >
           <span
             className="text-[10px] uppercase tracking-wider font-semibold"
             style={{ color: `${EXPR_COLOR}80` }}
@@ -201,7 +242,8 @@ function ExpressionPropRow({
           </span>
           <div className="space-y-2">
             {prop.parameters.map((param) => {
-              const currentValue = prop.parameterValues?.[param.name] ?? param.default;
+              const currentValue =
+                prop.parameterValues?.[param.name] ?? param.default;
               return (
                 <div key={param.name} className="space-y-0.5">
                   <label className="text-[9px] text-muted-foreground/60 font-mono">
@@ -214,7 +256,8 @@ function ExpressionPropRow({
                     max={param.max}
                     step={param.step ?? 0.01}
                     onChange={(e) => {
-                      const newValue = parseFloat(e.target.value) || param.default;
+                      const newValue =
+                        parseFloat(e.target.value) || param.default;
                       onUpdate?.({
                         ...prop,
                         parameterValues: {
@@ -242,9 +285,12 @@ function ExpressionPropRow({
           {prop.description && (
             <div className="pt-2 space-y-1">
               <div className="flex items-center gap-1">
-                <Sparkles size={9} style={{ color: EXPR_COLOR, opacity: 0.7 }} />
+                <Sparkles
+                  size={9}
+                  style={{ color: EXPR_COLOR, opacity: 0.7 }}
+                />
                 <span
-            className="text-[10px] uppercase tracking-wider font-semibold"
+                  className="text-[10px] uppercase tracking-wider font-semibold"
                   style={{ color: `${EXPR_COLOR}80` }}
                 >
                   How it works
@@ -260,14 +306,16 @@ function ExpressionPropRow({
           {!isProgrammatic && (
             <div className="space-y-1">
               <span
-            className="text-[10px] uppercase tracking-wider font-semibold"
+                className="text-[10px] uppercase tracking-wider font-semibold"
                 style={{ color: `${EXPR_COLOR}80` }}
               >
                 Values
               </span>
               <div className="flex items-center gap-1.5">
                 <div className="flex-1 space-y-0.5">
-                  <span className="text-[9px] text-muted-foreground/40 font-mono">from</span>
+                  <span className="text-[9px] text-muted-foreground/40 font-mono">
+                    from
+                  </span>
                   <input
                     type="number"
                     value={prop.from}
@@ -275,9 +323,13 @@ function ExpressionPropRow({
                     className="w-full bg-background border border-border/40 rounded px-1.5 py-1 text-[10px] font-mono text-foreground/50 focus:outline-none cursor-not-allowed"
                   />
                 </div>
-                <span className="text-[9px] text-muted-foreground/30 font-mono mt-4">→</span>
+                <span className="text-[9px] text-muted-foreground/30 font-mono mt-4">
+                  →
+                </span>
                 <div className="flex-1 space-y-0.5">
-                  <span className="text-[9px] text-muted-foreground/40 font-mono">to</span>
+                  <span className="text-[9px] text-muted-foreground/40 font-mono">
+                    to
+                  </span>
                   <input
                     type="number"
                     value={prop.to}
@@ -292,7 +344,8 @@ function ExpressionPropRow({
                 )}
               </div>
               <p className="text-[9px] text-muted-foreground/35 italic">
-                Edit these values in the track's Animated Properties section above.
+                Edit these values in the track's Animated Properties section
+                above.
               </p>
             </div>
           )}
@@ -302,12 +355,14 @@ function ExpressionPropRow({
             <div className="space-y-1">
               <div className="flex items-center gap-1.5">
                 <span
-            className="text-[10px] uppercase tracking-wider font-semibold"
+                  className="text-[10px] uppercase tracking-wider font-semibold"
                   style={{ color: `${EXPR_COLOR}80` }}
                 >
                   Expression
                 </span>
-                <span className="text-[8px] text-muted-foreground/40 font-mono italic">read-only</span>
+                <span className="text-[8px] text-muted-foreground/40 font-mono italic">
+                  read-only
+                </span>
               </div>
               <CodeBlock snippet={prop.codeSnippet} />
             </div>
@@ -342,7 +397,10 @@ function AnimatedPropRow({
   return (
     <div
       className="rounded-lg border p-2 space-y-2"
-      style={{ borderColor: `${accentColor}25`, backgroundColor: `${accentColor}06` }}
+      style={{
+        borderColor: `${accentColor}25`,
+        backgroundColor: `${accentColor}06`,
+      }}
     >
       {/* Row 1: badge / property name + actions */}
       <div className="flex items-center gap-1.5">
@@ -350,20 +408,29 @@ function AnimatedPropRow({
           <input
             value={prop.property === "custom" ? "" : prop.property}
             placeholder="css-property…"
-            onChange={(e) => onUpdate({ ...prop, property: e.target.value || "custom" })}
+            onChange={(e) =>
+              onUpdate({ ...prop, property: e.target.value || "custom" })
+            }
             className={`${inputCls} flex-1`}
           />
         ) : (
           <>
             <span
               className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded flex-shrink-0"
-              style={{ backgroundColor: `${accentColor}20`, color: accentColor }}
+              style={{
+                backgroundColor: `${accentColor}20`,
+                color: accentColor,
+              }}
             >
               {badge}
             </span>
             <span className="text-[10px] text-muted-foreground/60 flex-1 truncate">
               {prop.property}
-              {prop.unit ? <span className="text-muted-foreground/35 ml-0.5">({prop.unit})</span> : null}
+              {prop.unit ? (
+                <span className="text-muted-foreground/35 ml-0.5">
+                  ({prop.unit})
+                </span>
+              ) : null}
             </span>
           </>
         )}
@@ -396,7 +463,9 @@ function AnimatedPropRow({
       {isCustom ? (
         <div className="space-y-1.5">
           <div className="flex items-start gap-1">
-            <span className="text-[9px] text-muted-foreground/50 w-7 pt-1 flex-shrink-0 font-mono">from</span>
+            <span className="text-[9px] text-muted-foreground/50 w-7 pt-1 flex-shrink-0 font-mono">
+              from
+            </span>
             <textarea
               rows={2}
               value={prop.from}
@@ -406,7 +475,9 @@ function AnimatedPropRow({
             />
           </div>
           <div className="flex items-start gap-1">
-            <span className="text-[9px] text-muted-foreground/50 w-7 pt-1 flex-shrink-0 font-mono">to</span>
+            <span className="text-[9px] text-muted-foreground/50 w-7 pt-1 flex-shrink-0 font-mono">
+              to
+            </span>
             <textarea
               rows={2}
               value={prop.to}
@@ -427,7 +498,9 @@ function AnimatedPropRow({
                 className={inputCls}
               />
             </div>
-            <span className="text-[9px] text-muted-foreground/40 flex-shrink-0 font-mono">→</span>
+            <span className="text-[9px] text-muted-foreground/40 flex-shrink-0 font-mono">
+              →
+            </span>
             <div className="relative flex-1">
               <input
                 type="number"
@@ -446,15 +519,21 @@ function AnimatedPropRow({
           {/* Motion curve for keyframed properties */}
           {prop.keyframes && prop.keyframes.length > 0 && (
             <div className="space-y-0.5">
-              <label className="text-[8px] text-muted-foreground/50 uppercase tracking-wider">Motion Curve</label>
+              <label className="text-[8px] text-muted-foreground/50 uppercase tracking-wider">
+                Motion Curve
+              </label>
               <select
                 value={prop.easing ?? "linear"}
-                onChange={(e) => onUpdate({ ...prop, easing: e.target.value as EasingKey })}
+                onChange={(e) =>
+                  onUpdate({ ...prop, easing: e.target.value as EasingKey })
+                }
                 className="w-full text-[10px] bg-background border border-border/60 rounded px-1.5 py-1 text-foreground/80 focus:outline-none focus:ring-1 focus:ring-primary/40"
                 title="Applies to all keyframe segments"
               >
                 {EASING_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -471,7 +550,10 @@ function AnimatedPropRow({
           {prop.description && (
             <div className="space-y-1">
               <div className="flex items-center gap-1">
-                <Sparkles size={9} style={{ color: accentColor, opacity: 0.6 }} />
+                <Sparkles
+                  size={9}
+                  style={{ color: accentColor, opacity: 0.6 }}
+                />
                 <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground/50">
                   How it works
                 </span>
@@ -481,9 +563,7 @@ function AnimatedPropRow({
               </p>
             </div>
           )}
-          {prop.codeSnippet && (
-            <CodeBlock snippet={prop.codeSnippet} />
-          )}
+          {prop.codeSnippet && <CodeBlock snippet={prop.codeSnippet} />}
         </div>
       )}
     </div>
@@ -540,7 +620,10 @@ function PropPicker({
         </span>
         <ChevronDown
           size={9}
-          className={cn("transition-transform duration-150", open && "rotate-180")}
+          className={cn(
+            "transition-transform duration-150",
+            open && "rotate-180",
+          )}
         />
       </button>
 
@@ -573,10 +656,10 @@ export function TrackPropertiesPanel({
   durationInFrames,
   onUpdateTrack,
 }: TrackPropertiesPanelProps) {
-  const duration    = track.endFrame - track.startFrame;
-  const startSec    = (track.startFrame / fps).toFixed(2);
-  const endSec      = (track.endFrame   / fps).toFixed(2);
-  const durationSec = (duration         / fps).toFixed(2);
+  const duration = track.endFrame - track.startFrame;
+  const startSec = (track.startFrame / fps).toFixed(2);
+  const endSec = (track.endFrame / fps).toFixed(2);
+  const durationSec = (duration / fps).toFixed(2);
   const accentColor = EASING_COLORS[track.easing];
 
   const animatedProps: AnimatedProp[] = track.animatedProps ?? [];
@@ -602,9 +685,9 @@ export function TrackPropertiesPanel({
 
     const newProp: AnimatedProp = {
       property: tpl.isCustom ? "custom" : tpl.property,
-      from:     tpl.defaultFrom,
-      to:       tpl.defaultTo,
-      unit:     tpl.unit,
+      from: tpl.defaultFrom,
+      to: tpl.defaultTo,
+      unit: tpl.unit,
       isCustom: tpl.isCustom,
     };
     setProps([...animatedProps, newProp]);
@@ -612,164 +695,180 @@ export function TrackPropertiesPanel({
 
   // Properties already added (excluding custom, which can be added multiple times)
   const usedProps = new Set(
-    animatedProps.filter((p) => !p.isCustom).map((p) => p.property)
+    animatedProps.filter((p) => !p.isCustom).map((p) => p.property),
   );
   const availableTemplates = COMMON_PROP_TEMPLATES.filter(
-    (t) => t.isCustom || !usedProps.has(t.property)
+    (t) => t.isCustom || !usedProps.has(t.property),
   );
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-3 p-4 border-t">
-        {/* ── Label ──────────────────────────────────────────────────────── */}
-        <div className="space-y-1">
-          <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Label</label>
-          <input
-            type="text"
-            value={track.label}
-            onChange={(e) => onUpdateTrack(track.id, { label: e.target.value })}
-            className="w-full text-xs bg-secondary border border-border rounded-lg px-3 py-1.5 text-foreground/80 focus:outline-none focus:ring-1 focus:ring-primary/40"
+      {/* ── Label ──────────────────────────────────────────────────────── */}
+      <div className="space-y-1">
+        <label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+          Label
+        </label>
+        <input
+          type="text"
+          value={track.label}
+          onChange={(e) => onUpdateTrack(track.id, { label: e.target.value })}
+          className="w-full text-xs bg-secondary border border-border rounded-lg px-3 py-1.5 text-foreground/80 focus:outline-none focus:ring-1 focus:ring-primary/40"
+        />
+      </div>
+
+      {/* ── Easing ─────────────────────────────────────────────────────── */}
+      <div className="space-y-1">
+        <label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+          Timing Function
+        </label>
+        <div className="relative">
+          <select
+            value={track.easing}
+            onChange={(e) =>
+              onUpdateTrack(track.id, { easing: e.target.value as EasingKey })
+            }
+            className="w-full text-xs bg-secondary border border-border rounded-lg px-3 py-1.5 text-foreground/80 focus:outline-none focus:ring-1 focus:ring-primary/40 appearance-none pr-7"
+          >
+            {EASING_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <div
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full pointer-events-none"
+            style={{ backgroundColor: accentColor }}
           />
         </div>
+      </div>
 
-        {/* ── Easing ─────────────────────────────────────────────────────── */}
+      {/* ── Frame bounds ────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
           <label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-            Timing Function
+            Start <span className="normal-case opacity-40">(f)</span>
           </label>
-          <div className="relative">
-            <select
-              value={track.easing}
-              onChange={(e) => onUpdateTrack(track.id, { easing: e.target.value as EasingKey })}
-              className="w-full text-xs bg-secondary border border-border rounded-lg px-3 py-1.5 text-foreground/80 focus:outline-none focus:ring-1 focus:ring-primary/40 appearance-none pr-7"
+          <input
+            type="number"
+            min={0}
+            max={track.endFrame - 1}
+            value={track.startFrame}
+            onChange={(e) =>
+              onUpdateTrack(track.id, {
+                startFrame: Math.max(
+                  0,
+                  Math.min(track.endFrame - 1, Number(e.target.value)),
+                ),
+              })
+            }
+            className="w-full text-xs bg-secondary border border-border rounded-lg px-2 py-1.5 text-foreground/80 font-mono focus:outline-none focus:ring-1 focus:ring-primary/40"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+            End <span className="normal-case opacity-40">(f)</span>
+          </label>
+          <input
+            type="number"
+            min={track.startFrame + 1}
+            max={durationInFrames}
+            value={track.endFrame}
+            onChange={(e) =>
+              onUpdateTrack(track.id, {
+                endFrame: Math.max(
+                  track.startFrame + 1,
+                  Math.min(durationInFrames, Number(e.target.value)),
+                ),
+              })
+            }
+            className="w-full text-xs bg-secondary border border-border rounded-lg px-2 py-1.5 text-foreground/80 font-mono focus:outline-none focus:ring-1 focus:ring-primary/40"
+          />
+        </div>
+      </div>
+
+      {/* ── Timing summary ──────────────────────────────────────────────── */}
+      <div
+        className="flex items-center gap-1.5 pb-1 border-b"
+        style={{ borderColor: `${accentColor}20` }}
+      >
+        <Clock size={10} style={{ color: accentColor, opacity: 0.7 }} />
+        <span className="text-[10px] font-mono text-muted-foreground/55">
+          {startSec}s → {endSec}s
+        </span>
+        <span className="text-muted-foreground/30 text-[10px]">·</span>
+        <span className="text-[10px] font-mono text-muted-foreground/55">
+          {durationSec}s ({duration}f)
+        </span>
+      </div>
+
+      {/* ── Animated Properties ─────────────────────────────────────────── */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Code2 size={11} style={{ color: accentColor, opacity: 0.8 }} />
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+              Animated Properties
+            </span>
+          </div>
+          {animatedProps.length > 0 && (
+            <span
+              className="text-[10px] font-mono px-1 py-0.5 rounded"
+              style={{
+                backgroundColor: `${accentColor}15`,
+                color: accentColor,
+              }}
             >
-              {EASING_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-            <div
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full pointer-events-none"
-              style={{ backgroundColor: accentColor }}
-            />
-          </div>
+              {animatedProps.length}
+            </span>
+          )}
         </div>
 
-        {/* ── Frame bounds ────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Start <span className="normal-case opacity-40">(f)</span></label>
-            <input
-              type="number"
-              min={0}
-              max={track.endFrame - 1}
-              value={track.startFrame}
-              onChange={(e) =>
-                onUpdateTrack(track.id, {
-                  startFrame: Math.max(0, Math.min(track.endFrame - 1, Number(e.target.value))),
-                })
-              }
-              className="w-full text-xs bg-secondary border border-border rounded-lg px-2 py-1.5 text-foreground/80 font-mono focus:outline-none focus:ring-1 focus:ring-primary/40"
-            />
+        {/* Prop rows */}
+        {animatedProps.length === 0 ? (
+          <div
+            className="text-[10px] text-muted-foreground/35 text-center py-3 rounded-lg border border-dashed"
+            style={{ borderColor: `${accentColor}20` }}
+          >
+            No properties — add one below
           </div>
-          <div className="space-y-1">
-            <label className="text-[10px] text-muted-foreground uppercase tracking-wider">End <span className="normal-case opacity-40">(f)</span></label>
-            <input
-              type="number"
-              min={track.startFrame + 1}
-              max={durationInFrames}
-              value={track.endFrame}
-              onChange={(e) =>
-                onUpdateTrack(track.id, {
-                  endFrame: Math.max(
-                    track.startFrame + 1,
-                    Math.min(durationInFrames, Number(e.target.value))
-                  ),
-                })
-              }
-              className="w-full text-xs bg-secondary border border-border rounded-lg px-2 py-1.5 text-foreground/80 font-mono focus:outline-none focus:ring-1 focus:ring-primary/40"
-            />
-          </div>
-        </div>
-
-        {/* ── Timing summary ──────────────────────────────────────────────── */}
-        <div
-          className="flex items-center gap-1.5 pb-1 border-b"
-          style={{ borderColor: `${accentColor}20` }}
-        >
-          <Clock size={10} style={{ color: accentColor, opacity: 0.7 }} />
-          <span className="text-[10px] font-mono text-muted-foreground/55">
-            {startSec}s → {endSec}s
-          </span>
-          <span className="text-muted-foreground/30 text-[10px]">·</span>
-          <span className="text-[10px] font-mono text-muted-foreground/55">
-            {durationSec}s ({duration}f)
-          </span>
-        </div>
-
-        {/* ── Animated Properties ─────────────────────────────────────────── */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <Code2 size={11} style={{ color: accentColor, opacity: 0.8 }} />
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                Animated Properties
-              </span>
-            </div>
-            {animatedProps.length > 0 && (
-              <span
-                className="text-[10px] font-mono px-1 py-0.5 rounded"
-                style={{ backgroundColor: `${accentColor}15`, color: accentColor }}
-              >
-                {animatedProps.length}
-              </span>
+        ) : (
+          <div className="space-y-1.5">
+            {animatedProps.map((prop, i) =>
+              prop.programmatic ? (
+                /* Fully code-driven: fx badge, description card, read-only source */
+                <ExpressionPropRow
+                  key={i}
+                  prop={prop}
+                  onUpdate={(updated) => handleUpdateProp(i, updated)}
+                  onRemove={() => handleRemoveProp(i)}
+                />
+              ) : (
+                /* Editable (may have codeSnippet/description for "how it works") */
+                <AnimatedPropRow
+                  key={i}
+                  prop={prop}
+                  accentColor={accentColor}
+                  onUpdate={(updated) => handleUpdateProp(i, updated)}
+                  onRemove={() => handleRemoveProp(i)}
+                />
+              ),
             )}
           </div>
+        )}
 
-          {/* Prop rows */}
-          {animatedProps.length === 0 ? (
-            <div
-              className="text-[10px] text-muted-foreground/35 text-center py-3 rounded-lg border border-dashed"
-              style={{ borderColor: `${accentColor}20` }}
-            >
-              No properties — add one below
-            </div>
-          ) : (
-            <div className="space-y-1.5">
-              {animatedProps.map((prop, i) =>
-                prop.programmatic ? (
-                  /* Fully code-driven: fx badge, description card, read-only source */
-                  <ExpressionPropRow
-                    key={i}
-                    prop={prop}
-                    onUpdate={(updated) => handleUpdateProp(i, updated)}
-                    onRemove={() => handleRemoveProp(i)}
-                  />
-                ) : (
-                  /* Editable (may have codeSnippet/description for "how it works") */
-                  <AnimatedPropRow
-                    key={i}
-                    prop={prop}
-                    accentColor={accentColor}
-                    onUpdate={(updated) => handleUpdateProp(i, updated)}
-                    onRemove={() => handleRemoveProp(i)}
-                  />
-                )
-              )}
-            </div>
-          )}
-
-          {/* Add property picker — custom dropdown (avoids Radix React-instance conflict) */}
-          {availableTemplates.length > 0 && (
-            <PropPicker
-              templates={availableTemplates}
-              accentColor={accentColor}
-              onSelect={(property) =>
-                handleAddProp({ target: { value: property } } as any)
-              }
-            />
-          )}
-        </div>
+        {/* Add property picker — custom dropdown (avoids Radix React-instance conflict) */}
+        {availableTemplates.length > 0 && (
+          <PropPicker
+            templates={availableTemplates}
+            accentColor={accentColor}
+            onSelect={(property) =>
+              handleAddProp({ target: { value: property } } as any)
+            }
+          />
+        )}
+      </div>
     </div>
   );
 }

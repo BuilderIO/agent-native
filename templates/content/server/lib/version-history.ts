@@ -10,7 +10,11 @@ const WATCHER_SUPPRESSION_WINDOW_MS = 10_000;
 const RECENT_PERSIST_DEDUPE_WINDOW_MS = 15_000;
 const MAX_SECTIONS_AFFECTED = 8;
 const PROJECTS_ROOT = path.resolve(process.cwd(), "content", "projects");
-const VERSION_HISTORY_DIR = path.resolve(process.cwd(), "content", ".version-history");
+const VERSION_HISTORY_DIR = path.resolve(
+  process.cwd(),
+  "content",
+  ".version-history",
+);
 
 export type VersionActorType = "user" | "agent";
 export type VersionSource = "autosave" | "agentWrite" | "restore";
@@ -49,10 +53,16 @@ interface MarkdownSection {
 }
 
 const pendingFileWrites = new Map<string, PendingFileWrite>();
-const recentAgentBatches = new Map<string, { batchId: string; timestamp: number }>();
+const recentAgentBatches = new Map<
+  string,
+  { batchId: string; timestamp: number }
+>();
 const suppressedWatcherWrites = new Map<string, number>();
 const persistQueueTails = new Map<string, Promise<void>>();
-const recentPersistFingerprints = new Map<string, { fingerprint: string; timestamp: number }>();
+const recentPersistFingerprints = new Map<
+  string,
+  { fingerprint: string; timestamp: number }
+>();
 
 function normalizeVersionHistoryKey(filePath: string) {
   return path.posix.normalize(filePath.replace(/\\/g, "/"));
@@ -62,7 +72,9 @@ function normalizeVersionHistoryKey(filePath: string) {
  * Build a canonical path key for a project file (used as the version history key).
  */
 export function buildProjectFilePath(project: string, filePath: string) {
-  return normalizeVersionHistoryKey(path.posix.join("content", "projects", project, filePath));
+  return normalizeVersionHistoryKey(
+    path.posix.join("content", "projects", project, filePath),
+  );
 }
 
 /** @deprecated Alias kept for backward compatibility with route imports */
@@ -105,13 +117,18 @@ function writeVersionHistoryFile(fileKey: string, docs: VersionHistoryDoc[]) {
  * Read version history entries for a file, sorted by timestamp ascending.
  */
 export function getVersionHistory(fileKey: string): VersionHistoryDoc[] {
-  return readVersionHistoryFile(fileKey).sort((a, b) => a.timestamp - b.timestamp);
+  return readVersionHistoryFile(fileKey).sort(
+    (a, b) => a.timestamp - b.timestamp,
+  );
 }
 
 /**
  * Get a single version history entry by ID.
  */
-export function getVersionById(fileKey: string, versionId: string): VersionHistoryDoc | null {
+export function getVersionById(
+  fileKey: string,
+  versionId: string,
+): VersionHistoryDoc | null {
   const docs = readVersionHistoryFile(fileKey);
   return docs.find((d) => d.id === versionId) ?? null;
 }
@@ -141,7 +158,7 @@ function createPendingFileWrite(
   metadata: Omit<PendingFileWrite, "timestamp" | "batchId"> & {
     timestamp?: number;
     batchId?: string;
-  }
+  },
 ): PendingFileWrite {
   const timestamp = metadata.timestamp ?? Date.now();
 
@@ -161,13 +178,19 @@ export function registerPendingFileWrite(
   metadata: Omit<PendingFileWrite, "timestamp" | "batchId"> & {
     timestamp?: number;
     batchId?: string;
-  }
+  },
 ) {
   const normalizedFilePath = normalizeVersionHistoryKey(filePath);
-  pendingFileWrites.set(normalizedFilePath, createPendingFileWrite(normalizedFilePath, metadata));
+  pendingFileWrites.set(
+    normalizedFilePath,
+    createPendingFileWrite(normalizedFilePath, metadata),
+  );
 }
 
-export function suppressWatcherVersionHistory(absFilePath: string, ttlMs = WATCHER_SUPPRESSION_WINDOW_MS) {
+export function suppressWatcherVersionHistory(
+  absFilePath: string,
+  ttlMs = WATCHER_SUPPRESSION_WINDOW_MS,
+) {
   suppressedWatcherWrites.set(path.resolve(absFilePath), Date.now() + ttlMs);
 }
 
@@ -194,7 +217,11 @@ export function resolveProjectVersionHistoryTarget(absFilePath: string) {
   const normalizedPath = path.resolve(absFilePath);
   const relativeToProjects = path.relative(PROJECTS_ROOT, normalizedPath);
 
-  if (!relativeToProjects || relativeToProjects.startsWith("..") || path.isAbsolute(relativeToProjects)) {
+  if (
+    !relativeToProjects ||
+    relativeToProjects.startsWith("..") ||
+    path.isAbsolute(relativeToProjects)
+  ) {
     return null;
   }
 
@@ -249,7 +276,10 @@ function parseMarkdownSections(content: string): MarkdownSection[] {
     const headingMatch = line.match(/^#{1,3}\s+(.+)/);
     if (headingMatch) {
       if (currentBody.length > 0 || currentHeading !== "(intro)") {
-        sections.push({ heading: currentHeading, body: currentBody.join("\n") });
+        sections.push({
+          heading: currentHeading,
+          body: currentBody.join("\n"),
+        });
       }
       currentHeading = headingMatch[1].trim();
       currentBody = [];
@@ -273,8 +303,12 @@ export function detectAffectedSections(oldContent: string, newContent: string) {
   const affected: string[] = [];
 
   for (const heading of headings) {
-    const oldSection = oldSections.find((section) => section.heading === heading);
-    const newSection = newSections.find((section) => section.heading === heading);
+    const oldSection = oldSections.find(
+      (section) => section.heading === heading,
+    );
+    const newSection = newSections.find(
+      (section) => section.heading === heading,
+    );
     if (!oldSection || !newSection || oldSection.body !== newSection.body) {
       affected.push(heading);
     }
@@ -285,7 +319,7 @@ export function detectAffectedSections(oldContent: string, newContent: string) {
 
 export function computeChangeSummary(
   oldContent: string,
-  newContent: string
+  newContent: string,
 ): ChangeSummary {
   const wordDiff = Diff.diffWords(oldContent, newContent);
   let wordsAdded = 0;
@@ -313,7 +347,10 @@ export function computeChangeSummary(
   };
 }
 
-function getResolvedActorValue(nextValue: string | undefined, currentValue: unknown) {
+function getResolvedActorValue(
+  nextValue: string | undefined,
+  currentValue: unknown,
+) {
   if (typeof nextValue === "string" && nextValue.trim()) {
     return nextValue;
   }
@@ -324,7 +361,7 @@ function getResolvedActorValue(nextValue: string | undefined, currentValue: unkn
 function shouldGroupWithLatest(
   latestVersion: VersionHistoryDoc | null,
   metadata: PendingFileWrite,
-  timestamp: number
+  timestamp: number,
 ) {
   if (!latestVersion) return false;
 
@@ -351,12 +388,16 @@ function buildPersistFingerprint(filePath: string, content: string) {
       JSON.stringify({
         filePath: normalizeVersionHistoryKey(filePath),
         content,
-      })
+      }),
     )
     .digest("hex");
 }
 
-function wasRecentlyPersisted(filePath: string, fingerprint: string, timestamp: number) {
+function wasRecentlyPersisted(
+  filePath: string,
+  fingerprint: string,
+  timestamp: number,
+) {
   const recent = recentPersistFingerprints.get(filePath);
   if (!recent) {
     return false;
@@ -370,13 +411,21 @@ function wasRecentlyPersisted(filePath: string, fingerprint: string, timestamp: 
   return recent.fingerprint === fingerprint;
 }
 
-function markRecentlyPersisted(filePath: string, fingerprint: string, timestamp: number) {
+function markRecentlyPersisted(
+  filePath: string,
+  fingerprint: string,
+  timestamp: number,
+) {
   recentPersistFingerprints.set(filePath, { fingerprint, timestamp });
 }
 
-async function runPersistSerially<T>(filePath: string, callback: () => Promise<T>) {
+async function runPersistSerially<T>(
+  filePath: string,
+  callback: () => Promise<T>,
+) {
   const normalizedFilePath = normalizeVersionHistoryKey(filePath);
-  const previous = persistQueueTails.get(normalizedFilePath) ?? Promise.resolve();
+  const previous =
+    persistQueueTails.get(normalizedFilePath) ?? Promise.resolve();
   let releaseCurrent!: () => void;
   const current = new Promise<void>((resolve) => {
     releaseCurrent = resolve;
@@ -433,7 +482,10 @@ export async function persistVersionHistory({
     }
 
     if (shouldGroupWithLatest(latestVersion, metadata, timestamp)) {
-      const summary = computeChangeSummary(latestVersion!.content ?? "", content);
+      const summary = computeChangeSummary(
+        latestVersion!.content ?? "",
+        content,
+      );
       // Update in place
       Object.assign(latestVersion!, {
         ...summary,
@@ -443,9 +495,12 @@ export async function persistVersionHistory({
         actorId: metadata.actorId,
         actorDisplayName: getResolvedActorValue(
           metadata.actorDisplayName,
-          latestVersion!.actorDisplayName
+          latestVersion!.actorDisplayName,
         ),
-        actorEmail: getResolvedActorValue(metadata.actorEmail, latestVersion!.actorEmail),
+        actorEmail: getResolvedActorValue(
+          metadata.actorEmail,
+          latestVersion!.actorEmail,
+        ),
         source: metadata.source,
         batchId: latestVersion!.batchId || metadata.batchId,
       });

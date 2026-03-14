@@ -11,7 +11,9 @@ export type TimelineState = {
   setTracks: (tracks: AnimationTrack[]) => void;
 };
 
-export function useTimelineState(initialTracks: AnimationTrack[] = []): TimelineState {
+export function useTimelineState(
+  initialTracks: AnimationTrack[] = [],
+): TimelineState {
   const [tracks, setTracksInternal] = useState<AnimationTrack[]>(initialTracks);
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
 
@@ -19,17 +21,20 @@ export function useTimelineState(initialTracks: AnimationTrack[] = []): Timeline
     setSelectedTrackId(id);
   }, []);
 
-  const updateTrack = useCallback((id: string, patch: Partial<AnimationTrack>) => {
-    setTracksInternal((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, ...patch } : t))
-    );
-  }, []);
+  const updateTrack = useCallback(
+    (id: string, patch: Partial<AnimationTrack>) => {
+      setTracksInternal((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+      );
+    },
+    [],
+  );
 
   const addTrack = useCallback((track: AnimationTrack) => {
     setTracksInternal((prev) => {
       // Cursor track should be inserted at the top (after camera if it exists)
       if (track.id === "cursor") {
-        const cameraIndex = prev.findIndex(t => t.id === "camera");
+        const cameraIndex = prev.findIndex((t) => t.id === "camera");
         if (cameraIndex >= 0) {
           // Insert after camera
           return [
@@ -48,9 +53,9 @@ export function useTimelineState(initialTracks: AnimationTrack[] = []): Timeline
   }, []);
 
   const deleteTrack = useCallback((id: string) => {
-    setTracksInternal((prev) => prev.filter(t => t.id !== id));
+    setTracksInternal((prev) => prev.filter((t) => t.id !== id));
     // Clear selection if the deleted track was selected
-    setSelectedTrackId((prevId) => prevId === id ? null : prevId);
+    setSelectedTrackId((prevId) => (prevId === id ? null : prevId));
   }, []);
 
   // Resets tracks and clears selection — used when switching compositions
@@ -66,6 +71,6 @@ export function useTimelineState(initialTracks: AnimationTrack[] = []): Timeline
     updateTrack,
     addTrack,
     deleteTrack,
-    setTracks
+    setTracks,
   };
 }

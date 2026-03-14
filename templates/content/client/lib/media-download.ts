@@ -26,11 +26,18 @@ export function getDownloadFilename(url: string, fallback = "download") {
     // Ignore URL parsing failures and fall back to manual parsing.
   }
 
-  const fallbackFilename = url.split(/[?#]/)[0]?.split("/").filter(Boolean).pop();
+  const fallbackFilename = url
+    .split(/[?#]/)[0]
+    ?.split("/")
+    .filter(Boolean)
+    .pop();
   return fallbackFilename ? decodeURIComponent(fallbackFilename) : fallback;
 }
 
-export async function downloadMediaAsset({ url, filename }: DownloadMediaOptions) {
+export async function downloadMediaAsset({
+  url,
+  filename,
+}: DownloadMediaOptions) {
   const resolvedFilename = filename || getDownloadFilename(url);
   const toastId = toast.loading(`Preparing ${resolvedFilename}...`);
 
@@ -40,7 +47,9 @@ export async function downloadMediaAsset({ url, filename }: DownloadMediaOptions
       throw new Error(`Request failed with status ${response.status}`);
     }
 
-    const totalBytes = Number(response.headers.get("content-length") || Number.NaN);
+    const totalBytes = Number(
+      response.headers.get("content-length") || Number.NaN,
+    );
     const contentType = response.headers.get("content-type") || undefined;
 
     toast.loading(`Downloading ${resolvedFilename}...`, { id: toastId });
@@ -64,8 +73,13 @@ export async function downloadMediaAsset({ url, filename }: DownloadMediaOptions
         receivedBytes += value.byteLength;
 
         if (Number.isFinite(totalBytes) && totalBytes > 0) {
-          const progress = Math.min(99, Math.round((receivedBytes / totalBytes) * 100));
-          toast.loading(`Downloading ${resolvedFilename} (${progress}%)...`, { id: toastId });
+          const progress = Math.min(
+            99,
+            Math.round((receivedBytes / totalBytes) * 100),
+          );
+          toast.loading(`Downloading ${resolvedFilename} (${progress}%)...`, {
+            id: toastId,
+          });
         }
       }
 

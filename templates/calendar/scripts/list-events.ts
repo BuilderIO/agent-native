@@ -73,7 +73,9 @@ export default async function main(args: string[]) {
   }
 
   // Sort by start time
-  filtered.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+  filtered.sort(
+    (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
+  );
 
   if (filtered.length === 0) {
     console.log("No events found matching the criteria.");
@@ -83,18 +85,29 @@ export default async function main(args: string[]) {
 
   // Print formatted table
   console.log("");
-  console.log(`${"Title".padEnd(40)} ${"Date / Time".padEnd(40)} ${"Source".padEnd(8)} Location`);
-  console.log(`${"─".repeat(40)} ${"─".repeat(40)} ${"─".repeat(8)} ${"─".repeat(20)}`);
+  console.log(
+    `${"Title".padEnd(40)} ${"Date / Time".padEnd(40)} ${"Source".padEnd(8)} Location`,
+  );
+  console.log(
+    `${"─".repeat(40)} ${"─".repeat(40)} ${"─".repeat(8)} ${"─".repeat(20)}`,
+  );
 
   for (const event of filtered) {
-    const title = event.title.length > 38 ? event.title.slice(0, 35) + "..." : event.title;
-    const dateRange = event.allDay ? `${new Date(event.start).toLocaleDateString()} (all day)` : formatDateRange(event.start, event.end);
+    const title =
+      event.title.length > 38 ? event.title.slice(0, 35) + "..." : event.title;
+    const dateRange = event.allDay
+      ? `${new Date(event.start).toLocaleDateString()} (all day)`
+      : formatDateRange(event.start, event.end);
     const loc = event.location || "";
 
-    console.log(`${title.padEnd(40)} ${dateRange.padEnd(40)} ${event.source.padEnd(8)} ${loc}`);
+    console.log(
+      `${title.padEnd(40)} ${dateRange.padEnd(40)} ${event.source.padEnd(8)} ${loc}`,
+    );
   }
 
   console.log("");
   console.log(`Total: ${filtered.length} event(s)`);
-  agentChat.submit(`Found ${filtered.length} event(s)${from || to ? " in the specified date range" : ""}.`);
+  agentChat.submit(
+    `Found ${filtered.length} event(s)${from || to ? " in the specified date range" : ""}.`,
+  );
 }

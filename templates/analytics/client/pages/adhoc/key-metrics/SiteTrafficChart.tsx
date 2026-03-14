@@ -23,7 +23,13 @@ interface SiteTrafficChartProps {
   onEditSql?: () => void;
 }
 
-export function SiteTrafficChart({ title = "Site traffic", rows, isLoading, error, onEditSql }: SiteTrafficChartProps) {
+export function SiteTrafficChart({
+  title = "Site traffic",
+  rows,
+  isLoading,
+  error,
+  onEditSql,
+}: SiteTrafficChartProps) {
   const data = useMemo(() => {
     return rows.map((r) => ({
       period: String(r.period ?? ""),
@@ -41,17 +47,19 @@ export function SiteTrafficChart({ title = "Site traffic", rows, isLoading, erro
   // Calculate KPI stats (current vs baseline)
   const kpiStats = useMemo(() => {
     if (data.length < 2) return null;
-    
+
     const latest = data[data.length - 1];
     const baseline = data[0];
-    
-    const notBlogChange = baseline.not_blog > 0 
-      ? ((latest.not_blog - baseline.not_blog) / baseline.not_blog) * 100 
-      : 0;
-    const blogChange = baseline.blog > 0 
-      ? ((latest.blog - baseline.blog) / baseline.blog) * 100 
-      : 0;
-    
+
+    const notBlogChange =
+      baseline.not_blog > 0
+        ? ((latest.not_blog - baseline.not_blog) / baseline.not_blog) * 100
+        : 0;
+    const blogChange =
+      baseline.blog > 0
+        ? ((latest.blog - baseline.blog) / baseline.blog) * 100
+        : 0;
+
     return {
       notBlog: latest.not_blog,
       notBlogChange,
@@ -93,8 +101,11 @@ export function SiteTrafficChart({ title = "Site traffic", rows, isLoading, erro
             <div>
               <span className="text-muted-foreground">Not blog: </span>
               <span className="font-semibold">{formatY(kpiStats.notBlog)}</span>
-              <span className={`ml-1.5 ${kpiStats.notBlogChange >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                {kpiStats.notBlogChange >= 0 ? '↑' : '↓'} {Math.abs(kpiStats.notBlogChange).toFixed(1)}%
+              <span
+                className={`ml-1.5 ${kpiStats.notBlogChange >= 0 ? "text-green-500" : "text-red-500"}`}
+              >
+                {kpiStats.notBlogChange >= 0 ? "↑" : "↓"}{" "}
+                {Math.abs(kpiStats.notBlogChange).toFixed(1)}%
               </span>
               <span className="text-muted-foreground text-[10px] ml-1">
                 from {formatDate(kpiStats.baselineDate)}
@@ -103,8 +114,11 @@ export function SiteTrafficChart({ title = "Site traffic", rows, isLoading, erro
             <div>
               <span className="text-muted-foreground">Blog: </span>
               <span className="font-semibold">{formatY(kpiStats.blog)}</span>
-              <span className={`ml-1.5 ${kpiStats.blogChange >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                {kpiStats.blogChange >= 0 ? '↑' : '↓'} {Math.abs(kpiStats.blogChange).toFixed(1)}%
+              <span
+                className={`ml-1.5 ${kpiStats.blogChange >= 0 ? "text-green-500" : "text-red-500"}`}
+              >
+                {kpiStats.blogChange >= 0 ? "↑" : "↓"}{" "}
+                {Math.abs(kpiStats.blogChange).toFixed(1)}%
               </span>
               <span className="text-muted-foreground text-[10px] ml-1">
                 from {formatDate(kpiStats.baselineDate)}
@@ -119,13 +133,21 @@ export function SiteTrafficChart({ title = "Site traffic", rows, isLoading, erro
         ) : error ? (
           <p className="text-sm text-red-400 py-4 text-center">{error}</p>
         ) : data.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4 text-center">No data</p>
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            No data
+          </p>
         ) : (
           <div className="h-[280px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data}>
                 <defs>
-                  <linearGradient id="grad-not-blog" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient
+                    id="grad-not-blog"
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
                     <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4} />
                     <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.05} />
                   </linearGradient>
@@ -134,7 +156,11 @@ export function SiteTrafficChart({ title = "Site traffic", rows, isLoading, erro
                     <stop offset="95%" stopColor="#84cc16" stopOpacity={0.05} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="#27272a"
+                  vertical={false}
+                />
                 <XAxis
                   dataKey="period"
                   stroke="#52525b"
@@ -162,7 +188,7 @@ export function SiteTrafficChart({ title = "Site traffic", rows, isLoading, erro
                   labelFormatter={formatDate}
                   formatter={(v: number, name: string) => [
                     formatY(v),
-                    name === "not_blog" ? "Not blog" : "Blog"
+                    name === "not_blog" ? "Not blog" : "Blog",
                   ]}
                 />
                 <Area
@@ -185,8 +211,14 @@ export function SiteTrafficChart({ title = "Site traffic", rows, isLoading, erro
                 />
                 <Legend
                   iconType="circle"
-                  wrapperStyle={{ fontSize: "11px", color: "#a1a1aa", paddingTop: "12px" }}
-                  formatter={(value) => value === "not_blog" ? "Not blog" : "Blog"}
+                  wrapperStyle={{
+                    fontSize: "11px",
+                    color: "#a1a1aa",
+                    paddingTop: "12px",
+                  }}
+                  formatter={(value) =>
+                    value === "not_blog" ? "Not blog" : "Blog"
+                  }
                 />
               </AreaChart>
             </ResponsiveContainer>

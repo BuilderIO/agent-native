@@ -11,7 +11,11 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Toggle } from "@/components/ui/toggle";
 import { cn } from "@/lib/utils";
 
@@ -224,7 +228,10 @@ export function ContentTableToolbar(props: ContentTableToolbarProps) {
     ...props.selectedTags.map((tag) => ({
       key: `tag-${tag}`,
       label: `Tag: ${tag}`,
-      onRemove: () => props.onSelectedTagsChange(props.selectedTags.filter((value) => value !== tag)),
+      onRemove: () =>
+        props.onSelectedTagsChange(
+          props.selectedTags.filter((value) => value !== tag),
+        ),
     })),
   ];
 
@@ -236,9 +243,13 @@ export function ContentTableToolbar(props: ContentTableToolbarProps) {
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={props.searchQuery}
-              onChange={(event) => props.onSearchQueryChange(event.target.value)}
+              onChange={(event) =>
+                props.onSearchQueryChange(event.target.value)
+              }
               placeholder={
-                props.kind === "blog" ? "Search titles and authors..." : "Search titles..."
+                props.kind === "blog"
+                  ? "Search titles and authors..."
+                  : "Search titles..."
               }
               className="pl-9"
             />
@@ -309,7 +320,12 @@ export function ContentTableToolbar(props: ContentTableToolbarProps) {
         {(hasActiveFilters || activeFilters.length > 0) && (
           <div className="flex flex-wrap items-center justify-between gap-3">
             {hasActiveFilters && (
-              <Button type="button" variant="ghost" size="sm" onClick={props.onReset}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={props.onReset}
+              >
                 Clear all
               </Button>
             )}

@@ -30,7 +30,7 @@ interface Props {
 export function PostedVsResolvedChart({ dateRange }: Props) {
   const series = useMetricsQuery(
     ["pr-review-posted-vs-resolved-v2", dateRange],
-    postedVsResolvedPerDaySql(dateRange)
+    postedVsResolvedPerDaySql(dateRange),
   );
 
   const chartData = useMemo(
@@ -41,7 +41,7 @@ export function PostedVsResolvedChart({ dateRange }: Props) {
         issues_resolved: Number(r.issues_resolved || 0),
         issues_dropped: Number(r.issues_dropped || 0),
       })),
-    [series.data]
+    [series.data],
   );
 
   return (
@@ -68,7 +68,13 @@ export function PostedVsResolvedChart({ dateRange }: Props) {
                     <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.2} />
                     <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
                   </linearGradient>
-                  <linearGradient id="resolved-grad" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient
+                    id="resolved-grad"
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
                     <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                   </linearGradient>
@@ -84,7 +90,9 @@ export function PostedVsResolvedChart({ dateRange }: Props) {
                   contentStyle={TOOLTIP_STYLE}
                   labelFormatter={formatDate}
                 />
-                <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }} />
+                <Legend
+                  wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }}
+                />
                 <Area
                   type="monotone"
                   dataKey="issues_posted"

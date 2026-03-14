@@ -14,7 +14,9 @@ export function GoogleSyncButton() {
       onSuccess: (data: { synced?: number }) => {
         const count = data?.synced ?? 0;
         setLastResult(`${count} event${count !== 1 ? "s" : ""} synced`);
-        toast.success(`Synced ${count} event${count !== 1 ? "s" : ""} from Google Calendar`);
+        toast.success(
+          `Synced ${count} event${count !== 1 ? "s" : ""} from Google Calendar`,
+        );
       },
       onError: () => {
         toast.error("Failed to sync with Google Calendar");
@@ -31,7 +33,10 @@ export function GoogleSyncButton() {
         disabled={syncGoogle.isPending}
       >
         <RefreshCw
-          className={cn("mr-1.5 h-3.5 w-3.5", syncGoogle.isPending && "animate-spin")}
+          className={cn(
+            "mr-1.5 h-3.5 w-3.5",
+            syncGoogle.isPending && "animate-spin",
+          )}
         />
         Sync Google
       </Button>

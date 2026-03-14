@@ -17,7 +17,9 @@ interface CursorPositioningOverlayProps {
  * Only visible when video is paused.
  * Automatically creates/updates x/y keyframes at current frame.
  */
-export const CursorPositioningOverlay: React.FC<CursorPositioningOverlayProps> = ({
+export const CursorPositioningOverlay: React.FC<
+  CursorPositioningOverlayProps
+> = ({
   compositionWidth,
   compositionHeight,
   currentFrame,
@@ -38,8 +40,20 @@ export const CursorPositioningOverlay: React.FC<CursorPositioningOverlayProps> =
       return { translateX: 0, translateY: 0, scale: 1 };
     }
     return {
-      translateX: getPropValueKeyframed(currentFrame, fps, cameraTrack, "translateX", 0),
-      translateY: getPropValueKeyframed(currentFrame, fps, cameraTrack, "translateY", 0),
+      translateX: getPropValueKeyframed(
+        currentFrame,
+        fps,
+        cameraTrack,
+        "translateX",
+        0,
+      ),
+      translateY: getPropValueKeyframed(
+        currentFrame,
+        fps,
+        cameraTrack,
+        "translateY",
+        0,
+      ),
       scale: getPropValueKeyframed(currentFrame, fps, cameraTrack, "scale", 1),
     };
   }, [cameraTrack, currentFrame, fps]);
@@ -57,8 +71,10 @@ export const CursorPositioningOverlay: React.FC<CursorPositioningOverlayProps> =
       const centerX = compositionWidth / 2;
       const centerY = compositionHeight / 2;
 
-      const adjustedX = ((x - centerX) - camera.translateX) / camera.scale + centerX;
-      const adjustedY = ((y - centerY) - camera.translateY) / camera.scale + centerY;
+      const adjustedX =
+        (x - centerX - camera.translateX) / camera.scale + centerX;
+      const adjustedY =
+        (y - centerY - camera.translateY) / camera.scale + centerY;
 
       // Clamp to composition bounds
       const clampedX = Math.max(0, Math.min(compositionWidth, adjustedX));
@@ -72,17 +88,28 @@ export const CursorPositioningOverlay: React.FC<CursorPositioningOverlayProps> =
 
       // Update or create keyframes
       const updateKeyframes = (keyframes: any[] = [], value: string) => {
-        const existingIdx = keyframes.findIndex((kf) => kf.frame === currentFrame);
+        const existingIdx = keyframes.findIndex(
+          (kf) => kf.frame === currentFrame,
+        );
         if (existingIdx >= 0) {
           return keyframes.map((kf, i) =>
-            i === existingIdx ? { ...kf, value } : kf
+            i === existingIdx ? { ...kf, value } : kf,
           );
         }
-        return [...keyframes, { frame: currentFrame, value, easing: "expo.inOut" }];
+        return [
+          ...keyframes,
+          { frame: currentFrame, value, easing: "expo.inOut" },
+        ];
       };
 
-      const newXKeyframes = updateKeyframes(xProp.keyframes, clampedX.toString());
-      const newYKeyframes = updateKeyframes(yProp.keyframes, clampedY.toString());
+      const newXKeyframes = updateKeyframes(
+        xProp.keyframes,
+        clampedX.toString(),
+      );
+      const newYKeyframes = updateKeyframes(
+        yProp.keyframes,
+        clampedY.toString(),
+      );
 
       const updatedProps = cursorTrack.animatedProps?.map((p) => {
         if (p.property === "x") return { ...p, keyframes: newXKeyframes };
@@ -92,7 +119,14 @@ export const CursorPositioningOverlay: React.FC<CursorPositioningOverlayProps> =
 
       onUpdateTrack("cursor", { animatedProps: updatedProps });
     },
-    [cursorTrack, currentFrame, compositionWidth, compositionHeight, onUpdateTrack, getCameraTransform]
+    [
+      cursorTrack,
+      currentFrame,
+      compositionWidth,
+      compositionHeight,
+      onUpdateTrack,
+      getCameraTransform,
+    ],
   );
 
   /**
@@ -134,7 +168,7 @@ export const CursorPositioningOverlay: React.FC<CursorPositioningOverlayProps> =
 
       return { x, y };
     },
-    [compositionWidth, compositionHeight]
+    [compositionWidth, compositionHeight],
   );
 
   const handleMouseDown = useCallback(
@@ -145,7 +179,7 @@ export const CursorPositioningOverlay: React.FC<CursorPositioningOverlayProps> =
       updateCursorPosition(x, y);
       setIsDragging(true);
     },
-    [cursorTrack, getCompositionCoordinates, updateCursorPosition]
+    [cursorTrack, getCompositionCoordinates, updateCursorPosition],
   );
 
   const handleMouseMove = useCallback(
@@ -155,7 +189,7 @@ export const CursorPositioningOverlay: React.FC<CursorPositioningOverlayProps> =
       const { x, y } = getCompositionCoordinates(e);
       updateCursorPosition(x, y);
     },
-    [isDragging, getCompositionCoordinates, updateCursorPosition]
+    [isDragging, getCompositionCoordinates, updateCursorPosition],
   );
 
   const handleMouseUp = useCallback(() => {

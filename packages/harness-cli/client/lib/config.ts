@@ -55,20 +55,24 @@ export function HarnessConfigProvider({
   return React.createElement(
     ConfigContext.Provider,
     { value: { config, configs, switchHarness } },
-    children
+    children,
   );
 }
 
 export function useHarnessConfig(): HarnessConfig {
   const ctx = useContext(ConfigContext);
   if (!ctx)
-    throw new Error("useHarnessConfig must be used within HarnessConfigProvider");
+    throw new Error(
+      "useHarnessConfig must be used within HarnessConfigProvider",
+    );
   return ctx.config;
 }
 
 export function useHarnessConfigs(): HarnessConfigContextValue {
   const ctx = useContext(ConfigContext);
   if (!ctx)
-    throw new Error("useHarnessConfigs must be used within HarnessConfigProvider");
+    throw new Error(
+      "useHarnessConfigs must be used within HarnessConfigProvider",
+    );
   return ctx;
 }

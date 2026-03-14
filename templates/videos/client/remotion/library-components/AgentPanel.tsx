@@ -64,7 +64,7 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({
   // Generate unique ID for scrollbar
   const scrollbarId = React.useMemo(
     () => `agent-scrollbar-${Math.random().toString(36).substr(2, 9)}`,
-    []
+    [],
   );
 
   // Ref for chat messages container
@@ -78,14 +78,19 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({
   const fullMessage = typingMessage;
   // Parse message to extract @mention if present
   const atIndex = fullMessage.indexOf("@");
-  const messageBeforeBadge = atIndex >= 0 ? fullMessage.substring(0, atIndex) : fullMessage;
+  const messageBeforeBadge =
+    atIndex >= 0 ? fullMessage.substring(0, atIndex) : fullMessage;
   const remainingText = atIndex >= 0 ? fullMessage.substring(atIndex + 1) : "";
   const spaceIndex = remainingText.indexOf(" ");
-  const searchText = spaceIndex >= 0 ? remainingText.substring(0, spaceIndex) : remainingText;
-  const messageAfterBadge = spaceIndex >= 0 ? remainingText.substring(spaceIndex) : "";
+  const searchText =
+    spaceIndex >= 0 ? remainingText.substring(0, spaceIndex) : remainingText;
+  const messageAfterBadge =
+    spaceIndex >= 0 ? remainingText.substring(spaceIndex) : "";
 
   // Dynamic component name from @mention
-  const componentName = searchText ? searchText.charAt(0).toUpperCase() + searchText.slice(1) + " Component" : "Tile Component";
+  const componentName = searchText
+    ? searchText.charAt(0).toUpperCase() + searchText.slice(1) + " Component"
+    : "Tile Component";
   const componentLetter = searchText ? searchText.charAt(0).toUpperCase() : "T";
 
   // Calculate what should be shown based on typing progress
@@ -114,7 +119,9 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({
     else {
       // Phase 1: Type text before @ (0 to 0.15)
       if (typingProgress <= 0.15) {
-        const chars = Math.floor((typingProgress / 0.15) * messageBeforeBadge.length);
+        const chars = Math.floor(
+          (typingProgress / 0.15) * messageBeforeBadge.length,
+        );
         textBeforeBadge = messageBeforeBadge.substring(0, chars);
       }
       // Phase 2: Type "@" which triggers menu (0.15 to 0.2)
@@ -125,15 +132,22 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({
       else if (typingProgress <= 0.55) {
         const progress = (typingProgress - 0.2) / 0.35;
         const chars = Math.floor(progress * searchText.length);
-        textBeforeBadge = messageBeforeBadge + "@" + searchText.substring(0, chars);
+        textBeforeBadge =
+          messageBeforeBadge + "@" + searchText.substring(0, chars);
       }
       // Phase 4: After selection, show badge and continue (0.55 to 1.0)
       else {
         showBadge = true;
         textBeforeBadge = messageBeforeBadge;
         const progress = (typingProgress - 0.55) / 0.45;
-        const chars = Math.min(messageAfterBadge.length, Math.ceil(progress * messageAfterBadge.length));
-        textAfterBadge = progress >= 1 ? messageAfterBadge : messageAfterBadge.substring(0, chars);
+        const chars = Math.min(
+          messageAfterBadge.length,
+          Math.ceil(progress * messageAfterBadge.length),
+        );
+        textAfterBadge =
+          progress >= 1
+            ? messageAfterBadge
+            : messageAfterBadge.substring(0, chars);
       }
     }
   }
@@ -218,13 +232,16 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({
               gap: 13,
             }}
           >
-            <div style={{ color: activeMode === "agent" ? "#b9b9b9" : "#a4a4a4" }}>
+            <div
+              style={{ color: activeMode === "agent" ? "#b9b9b9" : "#a4a4a4" }}
+            >
               Agent
             </div>
             <div
               style={{
                 borderRadius: 6,
-                backgroundColor: activeMode === "interact" ? "#48a1ff" : "transparent",
+                backgroundColor:
+                  activeMode === "interact" ? "#48a1ff" : "transparent",
                 display: "flex",
                 minHeight: 30,
                 padding: "5px 4px",
@@ -242,7 +259,9 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({
               />
               <div>Interact</div>
             </div>
-            <div style={{ color: activeMode === "code" ? "#b9b9b9" : "#a4a4a4" }}>
+            <div
+              style={{ color: activeMode === "code" ? "#b9b9b9" : "#a4a4a4" }}
+            >
               Code
             </div>
           </div>
@@ -293,7 +312,8 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({
             <div
               style={{
                 borderRadius: 5,
-                backgroundColor: activePanel === "agent" ? "#2a2a2a" : "transparent",
+                backgroundColor:
+                  activePanel === "agent" ? "#2a2a2a" : "transparent",
                 display: "flex",
                 minHeight: 30,
                 padding: "7px 12px",
@@ -400,100 +420,118 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({
             zIndex: 0,
           }}
         >
-            {chatHistory.length > 0 ? (
-              chatHistory.map((msg, index) =>
-                msg.type === "user" ? (
-                  <UserMessage key={index} text={msg.message} />
-                ) : (
-                  <AgentMessage
-                    key={index}
-                    showThinking={false}
-                    toolCards={msg.toolCards || []}
-                    text={msg.message}
-                    isCompleted={true}
-                    thinkingText={thinkingText}
-                  />
-                )
-              )
-            ) : (
-              <>
-                <UserMessage
-                  text="This is a chat message where the user's question will display. If it is too long, a gradient and chevron overlap it, ensuring that the message is concisely shown on screen without taking upp too much space for the"
-                />
-
+          {chatHistory.length > 0 ? (
+            chatHistory.map((msg, index) =>
+              msg.type === "user" ? (
+                <UserMessage key={index} text={msg.message} />
+              ) : (
                 <AgentMessage
-                  showThinking={true}
-                  toolCards={[
-                    {
-                      icon: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/e5c48e7d9597db495f941e446ea4c08e0d78cb04?placeholderIfAbsent=true",
-                      text: "Read client/remotion/compositions/Kin...",
-                    },
-                    {
-                      icon: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/2a3121902b0446844b18127d6b4bfa5561b73de3?placeholderIfAbsent=true",
-                      text: "Todo list (1/3 completed)",
-                    },
-                  ]}
-                  text="This is the agent's reply to the message above. The agent can reply with markdown, including cards that indicate when it is running skills, tools, or looking at different files."
+                  key={index}
+                  showThinking={false}
+                  toolCards={msg.toolCards || []}
+                  text={msg.message}
                   isCompleted={true}
                   thinkingText={thinkingText}
                 />
-              </>
-            )}
+              ),
+            )
+          ) : (
+            <>
+              <UserMessage text="This is a chat message where the user's question will display. If it is too long, a gradient and chevron overlap it, ensuring that the message is concisely shown on screen without taking upp too much space for the" />
 
-            {/* Action buttons (copy, bookmark, thumbs up/down) */}
+              <AgentMessage
+                showThinking={true}
+                toolCards={[
+                  {
+                    icon: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/e5c48e7d9597db495f941e446ea4c08e0d78cb04?placeholderIfAbsent=true",
+                    text: "Read client/remotion/compositions/Kin...",
+                  },
+                  {
+                    icon: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/2a3121902b0446844b18127d6b4bfa5561b73de3?placeholderIfAbsent=true",
+                    text: "Todo list (1/3 completed)",
+                  },
+                ]}
+                text="This is the agent's reply to the message above. The agent can reply with markdown, including cards that indicate when it is running skills, tools, or looking at different files."
+                isCompleted={true}
+                thinkingText={thinkingText}
+              />
+            </>
+          )}
+
+          {/* Action buttons (copy, bookmark, thumbs up/down) */}
+          <div
+            style={{
+              display: "flex",
+              width: "100%",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginTop: 14,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 19 }}>
+              <img
+                src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/5ace7f16f5b8d8aea30b383964f8e39c3e6b03de?placeholderIfAbsent=true"
+                alt=""
+                style={{
+                  width: 21,
+                  aspectRatio: 1,
+                  objectFit: "contain",
+                  cursor: "pointer",
+                }}
+              />
+              <img
+                src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/c4d9e9ce0288c2ea86fb9b3fe3c60cd672e3fe37?placeholderIfAbsent=true"
+                alt=""
+                style={{
+                  width: 21,
+                  aspectRatio: 1,
+                  objectFit: "contain",
+                  cursor: "pointer",
+                }}
+              />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 19 }}>
+              <img
+                src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/b1425581945a0423d845ecc69a44cebf807fe276?placeholderIfAbsent=true"
+                alt=""
+                style={{
+                  width: 21,
+                  aspectRatio: 1,
+                  objectFit: "contain",
+                  cursor: "pointer",
+                }}
+              />
+              <img
+                src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/8a7f9386403125b91e0cbb41562291f207d363bb?placeholderIfAbsent=true"
+                alt=""
+                style={{
+                  width: 21,
+                  aspectRatio: 1,
+                  objectFit: "contain",
+                  cursor: "pointer",
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Mention Hint Message */}
+          {mentionHintOpacity > 0.01 && (
             <div
               style={{
-                display: "flex",
-                width: "100%",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginTop: 14,
+                marginTop: 24,
+                opacity: mentionHintOpacity,
+                transform: `translateY(${mentionHintY}px) scale(${mentionHintScale})`,
+                fontSize: 45,
+                color: "#ffffff",
+                textAlign: "left",
+                fontWeight: 600,
+                lineHeight: 1.2,
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 19 }}>
-                <img
-                  src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/5ace7f16f5b8d8aea30b383964f8e39c3e6b03de?placeholderIfAbsent=true"
-                  alt=""
-                  style={{ width: 21, aspectRatio: 1, objectFit: "contain", cursor: "pointer" }}
-                />
-                <img
-                  src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/c4d9e9ce0288c2ea86fb9b3fe3c60cd672e3fe37?placeholderIfAbsent=true"
-                  alt=""
-                  style={{ width: 21, aspectRatio: 1, objectFit: "contain", cursor: "pointer" }}
-                />
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 19 }}>
-                <img
-                  src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/b1425581945a0423d845ecc69a44cebf807fe276?placeholderIfAbsent=true"
-                  alt=""
-                  style={{ width: 21, aspectRatio: 1, objectFit: "contain", cursor: "pointer" }}
-                />
-                <img
-                  src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/8a7f9386403125b91e0cbb41562291f207d363bb?placeholderIfAbsent=true"
-                  alt=""
-                  style={{ width: 21, aspectRatio: 1, objectFit: "contain", cursor: "pointer" }}
-                />
-              </div>
+              Mention components and files in chat
             </div>
-
-            {/* Mention Hint Message */}
-            {mentionHintOpacity > 0.01 && (
-              <div
-                style={{
-                  marginTop: 24,
-                  opacity: mentionHintOpacity,
-                  transform: `translateY(${mentionHintY}px) scale(${mentionHintScale})`,
-                  fontSize: 45,
-                  color: "#ffffff",
-                  textAlign: "left",
-                  fontWeight: 600,
-                  lineHeight: 1.2,
-                }}
-              >
-                Mention components and files in chat
-              </div>
-            )}
-          </div>
+          )}
+        </div>
 
         {/* Bottom section */}
         <div
@@ -510,7 +548,10 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({
             style={{
               borderRadius: 8,
               backgroundColor: "#2a2a2a",
-              borderColor: isInputActive && sendMessageProgress < 0.3 ? "#48a1ff" : "transparent",
+              borderColor:
+                isInputActive && sendMessageProgress < 0.3
+                  ? "#48a1ff"
+                  : "transparent",
               borderStyle: "solid",
               borderWidth: 1,
               display: "flex",
@@ -560,7 +601,10 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({
                     padding: "8px 16px",
                     fontSize: 14,
                     color: typingProgress > 0.35 ? "#48a1ff" : "#999999",
-                    backgroundColor: typingProgress > 0.35 ? "rgba(72, 161, 255, 0.1)" : "transparent",
+                    backgroundColor:
+                      typingProgress > 0.35
+                        ? "rgba(72, 161, 255, 0.1)"
+                        : "transparent",
                     cursor: "pointer",
                     display: "flex",
                     alignItems: "center",
@@ -649,18 +693,27 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({
               style={{
                 width: "100%",
                 minHeight: 40,
-                color: (textBeforeBadge || textAfterBadge) ? "#ffffff" : "#999999",
+                color:
+                  textBeforeBadge || textAfterBadge ? "#ffffff" : "#999999",
                 fontSize: 15,
                 fontFamily: "Inter, sans-serif",
                 fontWeight: 400,
                 lineHeight: 1.4,
                 wordBreak: "break-word",
                 overflowWrap: "break-word",
-                opacity: sendMessageProgress > 0 && sendMessageProgress < 0.9 ? 1 - sendMessageProgress : 1,
-                transform: sendMessageProgress > 0 && sendMessageProgress < 0.9 ? `translateY(${-sendMessageProgress * 10}px)` : "translateY(0)",
+                opacity:
+                  sendMessageProgress > 0 && sendMessageProgress < 0.9
+                    ? 1 - sendMessageProgress
+                    : 1,
+                transform:
+                  sendMessageProgress > 0 && sendMessageProgress < 0.9
+                    ? `translateY(${-sendMessageProgress * 10}px)`
+                    : "translateY(0)",
               }}
             >
-              <span style={{ wordBreak: "break-word" }}>{showPlaceholder ? "Ask Builder" : textBeforeBadge}</span>
+              <span style={{ wordBreak: "break-word" }}>
+                {showPlaceholder ? "Ask Builder" : textBeforeBadge}
+              </span>
 
               {/* Component Badge */}
               {showBadge && (
@@ -738,12 +791,22 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({
                 <img
                   src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/177f4bcec2486c739c85f0111bcfb07e3a0a90dd?placeholderIfAbsent=true"
                   alt=""
-                  style={{ width: 19, aspectRatio: 1, objectFit: "contain", cursor: "pointer" }}
+                  style={{
+                    width: 19,
+                    aspectRatio: 1,
+                    objectFit: "contain",
+                    cursor: "pointer",
+                  }}
                 />
                 <img
                   src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/fa924377bc54ac9a4239f0fcaf773f667946a235?placeholderIfAbsent=true"
                   alt=""
-                  style={{ width: 19, aspectRatio: 1, objectFit: "contain", cursor: "pointer" }}
+                  style={{
+                    width: 19,
+                    aspectRatio: 1,
+                    objectFit: "contain",
+                    cursor: "pointer",
+                  }}
                 />
               </div>
 
@@ -760,18 +823,29 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({
                     lineHeight: 23 / 15,
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 2 }}
+                  >
                     <img
                       src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/aa677b80285fcb40b5c5f0b14d76a3bf751edde3?placeholderIfAbsent=true"
                       alt=""
-                      style={{ width: 21, aspectRatio: 1, objectFit: "contain" }}
+                      style={{
+                        width: 21,
+                        aspectRatio: 1,
+                        objectFit: "contain",
+                      }}
                     />
                     <div>Build</div>
                   </div>
                   <img
                     src="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/f872b16106ef6bbaea80fcefece2392325659d2c?placeholderIfAbsent=true"
                     alt=""
-                    style={{ width: 16, aspectRatio: 1, objectFit: "contain", cursor: "pointer" }}
+                    style={{
+                      width: 16,
+                      aspectRatio: 1,
+                      objectFit: "contain",
+                      cursor: "pointer",
+                    }}
                   />
                 </div>
                 {/* Send Button */}
@@ -794,8 +868,14 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({
                     height: 29,
                     cursor: "pointer",
                     transition: "background-color 0.2s ease",
-                    transform: sendMessageProgress > 0 && sendMessageProgress < 0.9 ? `scale(${1 - sendMessageProgress * 0.2})` : "scale(1)",
-                    opacity: sendMessageProgress > 0.5 && sendMessageProgress < 0.9 ? 0 : 1,
+                    transform:
+                      sendMessageProgress > 0 && sendMessageProgress < 0.9
+                        ? `scale(${1 - sendMessageProgress * 0.2})`
+                        : "scale(1)",
+                    opacity:
+                      sendMessageProgress > 0.5 && sendMessageProgress < 0.9
+                        ? 0
+                        : 1,
                   }}
                 >
                   <img

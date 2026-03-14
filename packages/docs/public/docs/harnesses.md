@@ -21,12 +21,12 @@ pnpm dev:harness
 
 ### Supported CLIs
 
-| CLI | Command | Key Flags |
-|-----|---------|-----------|
-| Claude Code | `claude` | `--dangerously-skip-permissions`, `--resume`, `--verbose` |
-| Codex | `codex` | `--full-auto`, `--quiet` |
-| Gemini CLI | `gemini` | `--sandbox` |
-| OpenCode | `opencode` | — |
+| CLI         | Command    | Key Flags                                                 |
+| ----------- | ---------- | --------------------------------------------------------- |
+| Claude Code | `claude`   | `--dangerously-skip-permissions`, `--resume`, `--verbose` |
+| Codex       | `codex`    | `--full-auto`, `--quiet`                                  |
+| Gemini CLI  | `gemini`   | `--sandbox`                                               |
+| OpenCode    | `opencode` | —                                                         |
 
 Switch between CLIs at any time from the settings panel. The harness restarts the terminal with the selected CLI and loads its saved launch options.
 
@@ -41,18 +41,18 @@ Switch between CLIs at any time from the settings panel. The harness restarts th
 
 ## Feature Comparison
 
-| Feature | CLI Harness | Builder Harness |
-|---------|-------------|-----------------|
-| Local development | Yes | Yes |
-| Cloud/remote | No | Yes |
-| Multi-CLI support | Yes (4 CLIs) | Yes |
-| Real-time collaboration | No | Yes |
-| Visual editing | No | Yes |
-| Parallel agents | No | Yes |
-| Agent chat bridge | Yes | Yes |
-| File watcher (SSE) | Yes | Yes |
-| Script system | Yes | Yes |
-| Open source | Yes | No |
+| Feature                 | CLI Harness  | Builder Harness |
+| ----------------------- | ------------ | --------------- |
+| Local development       | Yes          | Yes             |
+| Cloud/remote            | No           | Yes             |
+| Multi-CLI support       | Yes (4 CLIs) | Yes             |
+| Real-time collaboration | No           | Yes             |
+| Visual editing          | No           | Yes             |
+| Parallel agents         | No           | Yes             |
+| Agent chat bridge       | Yes          | Yes             |
+| File watcher (SSE)      | Yes          | Yes             |
+| Script system           | Yes          | Yes             |
+| Open source             | Yes          | No              |
 
 ## How It Works
 

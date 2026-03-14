@@ -98,7 +98,7 @@ export function PropertyValueCombobox({
                     <Check
                       className={cn(
                         "mr-2 h-3 w-3 shrink-0",
-                        value === v.value ? "opacity-100" : "opacity-0"
+                        value === v.value ? "opacity-100" : "opacity-0",
                       )}
                     />
                     <span className="truncate">{v.value}</span>

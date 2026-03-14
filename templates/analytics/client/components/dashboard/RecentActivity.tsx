@@ -1,5 +1,11 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 
 const activities = [
   {
@@ -44,9 +50,7 @@ export function RecentActivity() {
     <Card className="col-span-3 bg-card border-border/50">
       <CardHeader>
         <CardTitle>Recent Sales</CardTitle>
-        <CardDescription>
-          You made 265 sales this month.
-        </CardDescription>
+        <CardDescription>You made 265 sales this month.</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-8">
@@ -57,7 +61,9 @@ export function RecentActivity() {
                 <AvatarFallback>{activity.initials}</AvatarFallback>
               </Avatar>
               <div className="ml-4 space-y-1">
-                <p className="text-sm font-medium leading-none">{activity.name}</p>
+                <p className="text-sm font-medium leading-none">
+                  {activity.name}
+                </p>
                 <p className="text-sm text-muted-foreground">
                   {activity.email}
                 </p>

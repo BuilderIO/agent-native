@@ -26,10 +26,12 @@ Structure a blog post into a publish-ready outline based on research from Phases
 Read `content_timing` and `content_goal` from `phases/01-topic-validation.yaml`.
 
 **Content timing:**
+
 - If `content_timing: trending`: See the Trending Topic Mode section below for adjustments.
 - If `content_timing: evergreen`: Continue with Step 1 using all available data.
 
 **Content goal** (drives Builder.io section placement):
+
 - `awareness`: No Builder.io section in the outline.
 - `acquisition`: Include a Builder.io integration section. Placement depends on `integration_pattern` from Phase 1 output.
 - `hybrid`: Include a light CTA section in the outline.
@@ -70,13 +72,13 @@ Proceed normally through Steps 1-9. Use the original post as reference context (
 
 Determine the post type from the topic, research findings, and search intent. The post type drives the structural template.
 
-| Post Type | Best For | Signal |
-|-----------|----------|--------|
-| Tutorial | Step-by-step implementation | Search intent is "how to", topic involves building something |
-| Comparison | Evaluating alternatives | Topic contains "vs", "alternatives", or "which" |
-| Explainer | Conceptual understanding | Search intent is "what is", topic is a concept or technology |
-| How-to | Solving a specific problem | Narrow scope, single clear outcome |
-| Thought Leadership | Opinion, strategy, prediction | No existing consensus, contrarian angle from research |
+| Post Type          | Best For                      | Signal                                                       |
+| ------------------ | ----------------------------- | ------------------------------------------------------------ |
+| Tutorial           | Step-by-step implementation   | Search intent is "how to", topic involves building something |
+| Comparison         | Evaluating alternatives       | Topic contains "vs", "alternatives", or "which"              |
+| Explainer          | Conceptual understanding      | Search intent is "what is", topic is a concept or technology |
+| How-to             | Solving a specific problem    | Narrow scope, single clear outcome                           |
+| Thought Leadership | Opinion, strategy, prediction | No existing consensus, contrarian angle from research        |
 
 Load the matching template from [outline-templates.md](./references/outline-templates.md). The template provides the base structure -- adapt it to the specific topic.
 
@@ -86,29 +88,30 @@ Load the matching template from [outline-templates.md](./references/outline-temp
 
 Generate 3-5 title options. Score each using the headline scoring checklist:
 
-| Criterion | Points | Question |
-|-----------|--------|----------|
-| Clarity | 0-2 | Is the meaning immediately clear? |
-| Curiosity | 0-2 | Does it make the reader want to click? |
-| Specificity | 0-2 | Does it use concrete numbers, tools, or details? |
-| Value | 0-2 | Is the benefit to the reader obvious? |
-| Authenticity | 0-2 | Does it avoid clickbait and AI-sounding phrasing? |
+| Criterion    | Points | Question                                          |
+| ------------ | ------ | ------------------------------------------------- |
+| Clarity      | 0-2    | Is the meaning immediately clear?                 |
+| Curiosity    | 0-2    | Does it make the reader want to click?            |
+| Specificity  | 0-2    | Does it use concrete numbers, tools, or details?  |
+| Value        | 0-2    | Is the benefit to the reader obvious?             |
+| Authenticity | 0-2    | Does it avoid clickbait and AI-sounding phrasing? |
 
 **Scoring rules:**
+
 - 7+ out of 10: Publishable.
 - 5-6: Needs refinement. Try adding specificity or a clearer benefit.
 - Below 5: Rethink the angle.
 
 **Title formulas by post type:**
 
-| Post Type | Formula | Example |
-|-----------|---------|---------|
-| Tutorial | "How to [X] with [Y]" | "How to Build a Visual CMS with Next.js" |
-| Tutorial | "[Number] [Outcome] with [Tool]" | "5 Ways to Speed Up Your React App" |
-| Comparison | "[X] vs [Y]: [Specific Angle]" | "Server Components vs Client Components: When to Use Each" |
-| Explainer | "What is [X]? [Audience-specific qualifier]" | "What is a Headless CMS? A Frontend Developer's Guide" |
-| How-to | "How to [Solve Specific Problem]" | "How to Fix React Hydration Errors in Next.js" |
-| Thought Leadership | Contrarian or bold claim | "You Don't Need a JavaScript Framework for That" |
+| Post Type          | Formula                                      | Example                                                    |
+| ------------------ | -------------------------------------------- | ---------------------------------------------------------- |
+| Tutorial           | "How to [X] with [Y]"                        | "How to Build a Visual CMS with Next.js"                   |
+| Tutorial           | "[Number] [Outcome] with [Tool]"             | "5 Ways to Speed Up Your React App"                        |
+| Comparison         | "[X] vs [Y]: [Specific Angle]"               | "Server Components vs Client Components: When to Use Each" |
+| Explainer          | "What is [X]? [Audience-specific qualifier]" | "What is a Headless CMS? A Frontend Developer's Guide"     |
+| How-to             | "How to [Solve Specific Problem]"            | "How to Fix React Hydration Errors in Next.js"             |
+| Thought Leadership | Contrarian or bold claim                     | "You Don't Need a JavaScript Framework for That"           |
 
 **Specificity rules:** Use exact numbers (not rounded), specific tool names, and non-generic qualifiers. "5 React Performance Tips" is weaker than "5 React Performance Fixes That Cut Our Bundle Size by 40%".
 
@@ -116,14 +119,14 @@ Generate 3-5 title options. Score each using the headline scoring checklist:
 
 Select the hook type that best fits the topic angle and research findings.
 
-| Hook Type | When to Use | Example |
-|-----------|-------------|---------|
-| Bold Claim | Strong research backing, surprising conclusion | "React Server Components make 90% of your client-side state management unnecessary." |
-| Story Start | Personal experience angle, relatable frustration | "Last week, I spent 3 hours debugging a hydration error that shouldn't have existed." |
-| Contrarian | Going against popular opinion, research supports a different view | "Everyone's excited about Server Components, but most tutorials are teaching them wrong." |
-| Question | Reader identifies with the problem, curiosity gap | "What if your React components could fetch their own data without useEffect?" |
-| Statistic | Hard data available, performance or adoption angle | "Pages using Server Components load 40% faster on average." |
-| Problem | Universal pain point, immediate reader recognition | "Every React app eventually hits the 'waterfall problem' -- fetch parent, wait, fetch child, wait." |
+| Hook Type   | When to Use                                                       | Example                                                                                             |
+| ----------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Bold Claim  | Strong research backing, surprising conclusion                    | "React Server Components make 90% of your client-side state management unnecessary."                |
+| Story Start | Personal experience angle, relatable frustration                  | "Last week, I spent 3 hours debugging a hydration error that shouldn't have existed."               |
+| Contrarian  | Going against popular opinion, research supports a different view | "Everyone's excited about Server Components, but most tutorials are teaching them wrong."           |
+| Question    | Reader identifies with the problem, curiosity gap                 | "What if your React components could fetch their own data without useEffect?"                       |
+| Statistic   | Hard data available, performance or adoption angle                | "Pages using Server Components load 40% faster on average."                                         |
+| Problem     | Universal pain point, immediate reader recognition                | "Every React app eventually hits the 'waterfall problem' -- fetch parent, wait, fetch child, wait." |
 
 Write a specific hook idea (not just the type). The hook should reference actual findings from Phase 4 research.
 
@@ -133,11 +136,11 @@ Write a specific hook idea (not just the type). The hook should reference actual
 
 Choose the framework based on content goal and post type:
 
-| Framework | Best For | Structure |
-|-----------|----------|-----------|
-| PAS (Problem-Agitate-Solution) | Acquisition posts, pain-point-driven topics | Problem → Agitate the pain → Solution |
-| AIDA (Attention-Interest-Desire-Action) | Product-focused posts, acquisition/hybrid goals | Attention → Interest → Desire → Action |
-| Before-After-Bridge | How-to posts, transformation narratives | Painful Before → Ideal After → Bridge (how to get there) |
+| Framework                               | Best For                                        | Structure                                                |
+| --------------------------------------- | ----------------------------------------------- | -------------------------------------------------------- |
+| PAS (Problem-Agitate-Solution)          | Acquisition posts, pain-point-driven topics     | Problem → Agitate the pain → Solution                    |
+| AIDA (Attention-Interest-Desire-Action) | Product-focused posts, acquisition/hybrid goals | Attention → Interest → Desire → Action                   |
+| Before-After-Bridge                     | How-to posts, transformation narratives         | Painful Before → Ideal After → Bridge (how to get there) |
 
 For pure awareness posts, the framework is lighter -- the post structure itself carries the narrative. Still select one as a guiding principle, but do not force every section into the framework.
 
@@ -177,6 +180,7 @@ If a `seed/ai-search.txt` file exists in the post output folder, it contains the
 If a `seed/keywords.txt` file exists in the post output folder, it may contain keyword density targets from tools like SurferSEO. Some keywords are recommended for headings.
 
 Cross-reference the AEO heading plan with heading-recommended keywords:
+
 - For each heading keyword, check if it fits naturally into an existing AEO question heading.
 - Prefer hybrid headings that satisfy both AEO (question-form) and keyword density (keyword-rich). Example: "Where does the Cursor agent still shine?" is both a question and contains "Cursor agent."
 - Do not sacrifice heading clarity or question-form for keyword insertion. If a keyword does not fit naturally, place it in the section body instead.
@@ -204,12 +208,12 @@ Declare the target word count and its source (SERP competitive median, guidance 
 
 Distribute across sections:
 
-| Section | Typical Range |
-|---------|--------------|
+| Section                       | Typical Range |
+| ----------------------------- | ------------- |
 | Introduction (hook + context) | 150-250 words |
-| Each body H2 section | 300-600 words |
-| FAQ section (if included) | 150-300 words |
-| Conclusion + CTA | 100-200 words |
+| Each body H2 section          | 300-600 words |
+| FAQ section (if included)     | 150-300 words |
+| Conclusion + CTA              | 100-200 words |
 
 Use as many body sections as the topic requires (typical: 4-8). If the total significantly exceeds the competitive target, evaluate whether sections should be split into a separate post rather than trimming.
 
@@ -225,6 +229,7 @@ Use as many body sections as the topic requires (typical: 4-8). If the total sig
 Include an FAQ section when PAA (People Also Ask) questions are available from SERP analysis.
 
 **Sources for FAQ questions:**
+
 1. PAA questions from `phases/03-serp-analysis.yaml` (evergreen topics)
 2. AI search queries from `seed/ai-search.txt` that were not mapped to H2 headings (see Step 5)
 3. Common questions from Hacker News and X/Twitter research (Phase 4)
@@ -240,6 +245,7 @@ If no PAA data exists (trending topics), use questions extracted from social dis
 Based on `content_goal` from Step 0:
 
 **Acquisition:**
+
 - Read `integration_pattern` from `phases/01-topic-validation.yaml`
 - Place the Builder.io section according to the pattern:
   - `product-showcase`: Builder.io is woven throughout (the content demonstrates Builder.io)
@@ -250,11 +256,13 @@ Based on `content_goal` from Step 0:
 - Note the Builder.io capability being highlighted (`builder_capability` from Phase 1)
 
 **Hybrid:**
+
 - Add a light CTA section to the outline
 - The CTA should connect naturally to the post's topic
 - Do not add a dedicated Builder.io section in the body
 
 **Awareness:**
+
 - No Builder.io section. The post stands on its own merit.
 - CTA in the conclusion is topic-related (e.g., "Star the repo", "Try the tool", "Read the docs")
 
@@ -273,6 +281,7 @@ The conclusion should include:
 If the post type is `comparison` OR the topic involves AI models, developer tools, or pricing:
 
 Build a "Claims to Verify Before Publish" list. For each product or tool discussed, list every factual claim the outline implies:
+
 - Feature availability (e.g., "Cursor supports subagents")
 - Model names and versions (e.g., "uses GPT-5")
 - Pricing tiers
@@ -301,12 +310,15 @@ Write the complete outline to `outline.md` in the post output folder using this 
 # Title Candidates
 
 ## Option 1: [Title] (Score: X/10)
+
 - Clarity: X/2 | Curiosity: X/2 | Specificity: X/2 | Value: X/2 | Authenticity: X/2
 
 ## Option 2: [Title] (Score: X/10)
+
 - Clarity: X/2 | Curiosity: X/2 | Specificity: X/2 | Value: X/2 | Authenticity: X/2
 
 ## Option 3: [Title] (Score: X/10)
+
 - Clarity: X/2 | Curiosity: X/2 | Specificity: X/2 | Value: X/2 | Authenticity: X/2
 
 ---
@@ -320,12 +332,14 @@ Write the complete outline to `outline.md` in the post output folder using this 
 ---
 
 ## Introduction (~200 words)
+
 - **Hook type:** [Bold Claim | Story | Contrarian | Question | Statistic | Problem]
 - **Hook:** [Specific hook idea referencing research findings]
 - **Context:** [What problem this solves, why the reader should care]
 - **Thesis:** [1-sentence promise of what the reader will learn]
 
 ## [Question-Based H2 Heading] (~400 words)
+
 - Key point 1
 - Key point 2
 - Key point 3
@@ -334,6 +348,7 @@ Write the complete outline to `outline.md` in the post output folder using this 
 - **Featured snippet target:** definition/list/table/code/none
 
 ## [Question-Based H2 Heading] (~400 words)
+
 - Key point 1
 - Key point 2
 - Key point 3
@@ -344,11 +359,13 @@ Write the complete outline to `outline.md` in the post output folder using this 
 [... additional H2 sections ...]
 
 ## FAQ (~200 words)
+
 - **Q: [Question]?** → [40-60 word answer]
 - **Q: [Question]?** → [40-60 word answer]
 - **Q: [Question]?** → [40-60 word answer]
 
 ## Conclusion (~150 words)
+
 - **Summary:** [Key takeaway in 2-3 sentences]
 - **CTA:** [Specific, content-connected call to action]
 
@@ -372,14 +389,17 @@ When in refresh outline mode, prefix each H2 heading with `[KEEP]`, `[REWRITE]`,
 ---
 
 ## [KEEP] What Are React Server Components? (~400 words)
+
 - [locked -- content preserved from original]
 
 ## [REWRITE] How to Build Your First Server Component (~500 words)
+
 - Key point 1 (updated)
 - **Answer-first block:** [new 40-60 word answer]
 - **Featured snippet target:** code
 
 ## [ADD] How Do Server Components Handle Streaming? (~350 words)
+
 - Key point 1
 - **Answer-first block:** [40-60 word answer]
 - **Insert after:** "How to Build Your First Server Component"
@@ -396,7 +416,7 @@ Write `phases/05-outline-creation.yaml`:
 
 ```yaml
 post_type: tutorial | comparison | explainer | how-to | thought-leadership
-page_type: standalone | pillar | cluster  # from phases/01-topic-validation.yaml
+page_type: standalone | pillar | cluster # from phases/01-topic-validation.yaml
 title_candidates:
   - title: "Title text"
     score: 8
@@ -439,11 +459,11 @@ ai_search_query_coverage:
   - query: "When to Use Claude Code vs Cursor"
     mapped_to: "FAQ"
 seed_heading_keywords:
-  incorporated: []    # keywords added to headings from seed/keywords.txt
+  incorporated: [] # keywords added to headings from seed/keywords.txt
   deferred_to_body: [] # keywords that didn't fit headings naturally
-word_count_target: 2150  # from SERP competitive median, guidance range, or user override
-word_count_source: serp_competitive_median  # serp_competitive_median | guidance_range | user_override
-word_count_serp_median: 2000  # median of top 5 competitors (null if no SERP data)
+word_count_target: 2150 # from SERP competitive median, guidance range, or user override
+word_count_source: serp_competitive_median # serp_competitive_median | guidance_range | user_override
+word_count_serp_median: 2000 # median of top 5 competitors (null if no SERP data)
 ```
 
 Also write `outline.md` in the post output folder using the format from Step 9.
@@ -483,6 +503,7 @@ Add to the outline metadata when `content_timing: trending`:
 **Post type:** `tutorial`
 
 **Title candidates:**
+
 1. "How React Server Components Actually Work: A Practical Guide" (Score: 8/10 -- Clarity: 2, Curiosity: 2, Specificity: 1, Value: 2, Authenticity: 1)
 2. "React Server Components in 2026: What Every Frontend Dev Needs to Know" (Score: 7/10)
 3. "Building Your First React Server Component: From Zero to Production" (Score: 8/10)
@@ -492,6 +513,7 @@ Add to the outline metadata when `content_timing: trending`:
 **Copywriting framework:** Before-After-Bridge
 
 **Sections:**
+
 - Introduction: Problem hook + context (~200 words)
 - "What Are React Server Components and Why Do They Matter?" (~400 words) -- answer-first block, definition snippet target
 - "How Do Server Components Differ from Client Components?" (~350 words) -- comparison table, mermaid diagram of render flow
@@ -509,6 +531,7 @@ Add to the outline metadata when `content_timing: trending`:
 **Content goal:** `hybrid`
 
 **Title candidates:**
+
 1. "Claude 4.5's Extended Thinking: What It Is and How to Use It in Your Apps" (Score: 8/10)
 2. "Extended Thinking in Claude 4.5: A Developer's First Look" (Score: 7/10)
 3. "How Claude 4.5's Extended Thinking Changes AI-Assisted Coding" (Score: 7/10)
@@ -518,6 +541,7 @@ Add to the outline metadata when `content_timing: trending`:
 **Copywriting framework:** PAS
 
 **Sections:**
+
 - Introduction: Bold claim + context (~200 words)
 - "What Is Extended Thinking in Claude 4.5?" (~400 words) -- answer-first block, definition snippet (best-effort)
 - "How Does Extended Thinking Compare to Chain-of-Thought Prompting?" (~350 words) -- comparison, HN-sourced debate
@@ -537,6 +561,7 @@ Add to the outline metadata when `content_timing: trending`:
 **Integration pattern:** `honest-comparison`
 
 **Title candidates:**
+
 1. "Headless CMS in 2026: Contentful vs Sanity vs Builder.io for React Teams" (Score: 8/10)
 2. "Which Headless CMS Should You Choose? A Real-World Comparison" (Score: 7/10)
 3. "Headless CMS Showdown: What 50+ GitHub Discussions Reveal" (Score: 7/10)
@@ -546,6 +571,7 @@ Add to the outline metadata when `content_timing: trending`:
 **Copywriting framework:** AIDA
 
 **Sections:**
+
 - Introduction: Question hook + honesty pledge (~200 words)
 - "What Makes a CMS 'Headless' and Why Does It Matter for React?" (~300 words) -- answer-first block, definition snippet
 - "How Do Contentful, Sanity, and Builder.io Compare on Developer Experience?" (~500 words) -- comparison table, code examples from each

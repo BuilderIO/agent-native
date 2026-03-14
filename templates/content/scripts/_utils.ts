@@ -53,7 +53,9 @@ export function parseArgs(args: string[]): Record<string, string> {
 /**
  * Convert kebab-case keys to camelCase
  */
-export function camelCaseArgs(args: Record<string, string>): Record<string, string> {
+export function camelCaseArgs(
+  args: Record<string, string>,
+): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(args)) {
     const camel = key.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
@@ -80,7 +82,11 @@ export function isValidProjectPath(project: string): boolean {
  */
 export function isValidPath(p: string): boolean {
   const normalized = path.normalize(p);
-  return !normalized.startsWith("..") && !path.isAbsolute(normalized) && !p.includes("\0");
+  return (
+    !normalized.startsWith("..") &&
+    !path.isAbsolute(normalized) &&
+    !p.includes("\0")
+  );
 }
 
 /**

@@ -97,7 +97,9 @@ export const handleJiraAnalytics: RequestHandler = async (req, res) => {
   if (requireEnvKey(res, "JIRA_EMAIL", "Jira")) return;
   try {
     const projectsParam = req.query.projects as string | undefined;
-    const projects = projectsParam ? projectsParam.split(",").map((p) => p.trim()) : [];
+    const projects = projectsParam
+      ? projectsParam.split(",").map((p) => p.trim())
+      : [];
     const days = parseInt(req.query.days as string) || 30;
     const analytics = await getAnalytics(projects, days);
     res.json(analytics);

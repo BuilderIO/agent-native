@@ -22,9 +22,7 @@ export default function Settings() {
                 <span className="text-sm text-muted-foreground">
                   Signed in as
                 </span>
-                <span className="text-sm font-medium">
-                  {auth.email}
-                </span>
+                <span className="text-sm font-medium">{auth.email}</span>
               </div>
             )}
           </CardContent>
@@ -45,8 +43,8 @@ export default function Settings() {
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
             <p>
-              Analytics Dashboard is an internal tool for querying
-              Builder.io metrics stored in BigQuery.
+              Analytics Dashboard is an internal tool for querying Builder.io
+              metrics stored in BigQuery.
             </p>
             <p>
               Queries run directly against BigQuery. Use the Query Explorer to

@@ -71,8 +71,17 @@ export const handleSetPersona: RequestHandler = async (req, res) => {
       return;
     }
 
-    console.log("Calling setUserPersona with:", { userId: userInfo.uid, persona, department });
-    await setUserPersona(userInfo.uid, persona as PersonaType, userInfo.email, department);
+    console.log("Calling setUserPersona with:", {
+      userId: userInfo.uid,
+      persona,
+      department,
+    });
+    await setUserPersona(
+      userInfo.uid,
+      persona as PersonaType,
+      userInfo.email,
+      department,
+    );
 
     console.log("Successfully set persona");
     res.json({ success: true, persona, department });
@@ -146,7 +155,9 @@ export const handleValidateMetric: RequestHandler = async (req, res) => {
       status: "pending", // pending, approved, rejected
     };
     validationsStore.push(validation);
-    console.log(`Saved validation to memory store${isNewMetric ? ' (NEW METRIC)' : ''}`);
+    console.log(
+      `Saved validation to memory store${isNewMetric ? " (NEW METRIC)" : ""}`,
+    );
 
     // Persist to BigQuery (fire and forget)
     persistValidationToBigQuery(validation).catch((err) => {
@@ -237,7 +248,9 @@ async function getUserIdFromToken(_req: any): Promise<string | null> {
   return "local";
 }
 
-async function getUserInfoFromToken(_req: any): Promise<{ uid: string; email: string } | null> {
+async function getUserInfoFromToken(
+  _req: any,
+): Promise<{ uid: string; email: string } | null> {
   return { uid: "local", email: "local@localhost" };
 }
 
@@ -245,7 +258,7 @@ async function incrementUserPoints(
   userId: string,
   email: string,
   points: number,
-  type: "contribution" | "validation"
+  type: "contribution" | "validation",
 ): Promise<void> {
   const existing = userPointsStore.get(userId);
 
@@ -267,8 +280,10 @@ async function incrementUserPoints(
       totalPoints: existing.totalPoints + points,
       weekPoints: existing.weekPoints + points,
       monthPoints: existing.monthPoints + points,
-      contributionCount: existing.contributionCount + (type === "contribution" ? 1 : 0),
-      validationCount: existing.validationCount + (type === "validation" ? 1 : 0),
+      contributionCount:
+        existing.contributionCount + (type === "contribution" ? 1 : 0),
+      validationCount:
+        existing.validationCount + (type === "validation" ? 1 : 0),
       lastActivity: new Date(),
       updatedAt: new Date(),
     });
@@ -318,7 +333,7 @@ async function incrementValidationTrust(metricId: string): Promise<void> {
 
 async function getLeaderboardFromFirestore(
   period: string,
-  track: string
+  track: string,
 ): Promise<any[]> {
   // Get all user points from memory store
   const allPoints = Array.from(userPointsStore.values());
@@ -335,14 +350,19 @@ async function getLeaderboardFromFirestore(
       return {
         userId: data.userId,
         email: data.userEmail,
-        totalPoints: period === "week" ? data.weekPoints : period === "month" ? data.monthPoints : data.totalPoints,
+        totalPoints:
+          period === "week"
+            ? data.weekPoints
+            : period === "month"
+              ? data.monthPoints
+              : data.totalPoints,
         contributionCount: data.contributionCount || 0,
         validationCount: data.validationCount || 0,
         persona: persona?.persona || "regular",
         department: persona?.department || "General",
         lastActivity: data.lastActivity,
       };
-    })
+    }),
   );
 
   // Sort by points and limit to top 50
@@ -355,7 +375,7 @@ async function getLeaderboardFromFirestore(
 async function getUserStats(email: string): Promise<any> {
   // Find user in memory store
   const userPoints = Array.from(userPointsStore.values()).find(
-    (p) => p.userEmail === email
+    (p) => p.userEmail === email,
   );
 
   if (!userPoints) {
@@ -380,8 +400,9 @@ async function getUserStats(email: string): Promise<any> {
 }
 
 async function getUserRank(email: string): Promise<number | null> {
-  const allPoints = Array.from(userPointsStore.values())
-    .sort((a, b) => b.totalPoints - a.totalPoints);
+  const allPoints = Array.from(userPointsStore.values()).sort(
+    (a, b) => b.totalPoints - a.totalPoints,
+  );
 
   const rank = allPoints.findIndex((p) => p.userEmail === email);
 
@@ -437,12 +458,15 @@ async function persistValidationToBigQuery(validation: any): Promise<void> {
   };
 
   // Run query - this will throw if it fails, and the caller will log the error
-  await runQuery(sql.replace(/@(\w+)/g, (_, key) => {
-    const val = (params as any)[key];
-    if (val === null || val === undefined) return "NULL";
-    if (typeof val === "boolean") return val ? "TRUE" : "FALSE";
-    if (typeof val === "number") return String(val);
-    if (Array.isArray(val)) return `[${val.map((v) => `"${String(v).replace(/"/g, '\\"')}"`).join(", ")}]`;
-    return `"${String(val).replace(/"/g, '\\"')}"`;
-  }));
+  await runQuery(
+    sql.replace(/@(\w+)/g, (_, key) => {
+      const val = (params as any)[key];
+      if (val === null || val === undefined) return "NULL";
+      if (typeof val === "boolean") return val ? "TRUE" : "FALSE";
+      if (typeof val === "number") return String(val);
+      if (Array.isArray(val))
+        return `[${val.map((v) => `"${String(v).replace(/"/g, '\\"')}"`).join(", ")}]`;
+      return `"${String(val).replace(/"/g, '\\"')}"`;
+    }),
+  );
 }

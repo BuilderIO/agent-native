@@ -17,12 +17,14 @@ No-code and low-code platforms using AI to rapidly generate working application 
 **How competitors cluster:**
 
 **Cluster 1: UI Component Generators (v0, Figma Make, Claude Artifacts)**
+
 - Focus on individual UI components or single-page interfaces
 - Quick generation from prompts or designs
 - React/Next.js code output
 - Generic component libraries (ShadCN, Tailwind)
 
 **Cluster 2: Full-Stack App Builders (Lovable, Bolt, Replit Agent)**
+
 - Promise complete application generation
 - Include backend, database, and deployment
 - Marketing emphasis on "ship in minutes"
@@ -103,6 +105,7 @@ Builder is not a prototyping tool but competes when customers discover the "demo
 - **Why Builder won:** Only solution working with actual Spectrum components across React, Web Components, and multiple platforms
 
 **Adobe:**
+
 > "In all of our testing...when it comes to trying to translate with 100 percent accuracy, you know, from our designs and Figma...into a working environment that's what I think a lot of designers' expectations are...that's where I think a lot of our testing has reached the ceiling when it comes to lovable replit."
 
 **Switching story:** Adobe's design organization tested multiple AI prototyping tools (Lovable, Replit) hoping to accelerate the designer-to-prototype workflow. Initial demos impressed with generation speed. However, the organization discovered the "accuracy ceiling" when trying to use their 800+ component Spectrum design system. Prototyping tools generated UIs using generic libraries (ShadCN, Tailwind) that looked similar but didn't reflect actual Spectrum component capabilities, constraints, or cross-platform implementations. This created "magical thinking" where designers built prototypes with features the real components couldn't support, leading to costly rework.
@@ -114,6 +117,7 @@ Builder is not a prototyping tool but competes when customers discover the "demo
 - **Why Builder won:** Generates production code using Cisco's actual React/Angular/Web Components design system
 
 **Cisco:**
+
 > "It's using like ShadCN and generating Tailwinds and it's okay for quick demos, prototypes and POCs, but it's not enterprise ready. It's not accessible. It's not localizable...It can't be ShadCN, Tailwinds applications. That's just not how we do things."
 
 ## Common Customer Paths

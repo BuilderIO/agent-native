@@ -5,9 +5,22 @@ import fs from "fs";
 import { createServer } from "@agent-native/core/server";
 import { handleDemo } from "./routes/demo";
 import { handleQuery } from "./routes/query-proxy";
-import { handleBlogPagesSeo, handlePageKeywords, handleTopKeywords } from "./routes/dataforseo";
-import { handleHubspotDeals, handleHubspotPipelines, handleHubspotMetrics } from "./routes/hubspot";
-import { handleContentCalendar, handleContentCalendarSchema, handleNotionPage, handleDataDictionary } from "./routes/notion";
+import {
+  handleBlogPagesSeo,
+  handlePageKeywords,
+  handleTopKeywords,
+} from "./routes/dataforseo";
+import {
+  handleHubspotDeals,
+  handleHubspotPipelines,
+  handleHubspotMetrics,
+} from "./routes/hubspot";
+import {
+  handleContentCalendar,
+  handleContentCalendarSchema,
+  handleNotionPage,
+  handleDataDictionary,
+} from "./routes/notion";
 import { syncDataDictionary } from "./lib/notion";
 import { handleTwitterTweets, handleTwitterMulti } from "./routes/twitter";
 import { handlePylonIssues, handlePylonAccounts } from "./routes/pylon";
@@ -65,7 +78,12 @@ import {
   handleMyStats,
   handleNewMetrics,
 } from "./routes/gamification";
-import { handleMissingMetrics, handleApproveSuggestion, handleUpdateEntry, handleCanEdit } from "./routes/data-dictionary";
+import {
+  handleMissingMetrics,
+  handleApproveSuggestion,
+  handleUpdateEntry,
+  handleCanEdit,
+} from "./routes/data-dictionary";
 import {
   handleStripeBilling,
   handleStripeBillingByProduct,
@@ -74,7 +92,12 @@ import {
   handleStripeSubscriptions,
 } from "./routes/stripe";
 import { handleTrackEvent } from "./routes/events";
-import { handleListInstructions, handleGetInstruction, handleSaveInstruction, handleCanEditInstructions } from "./routes/ai-instructions";
+import {
+  handleListInstructions,
+  handleGetInstruction,
+  handleSaveInstruction,
+  handleCanEditInstructions,
+} from "./routes/ai-instructions";
 import { envKeys } from "./lib/env-config.js";
 import {
   listExplorerConfigs,
@@ -245,8 +268,14 @@ export function createAppServer() {
 
   // Sync data dictionary from Notion to local file (fire-and-forget)
   syncDataDictionary()
-    .then(() => console.log("[startup] Data dictionary synced to docs/data-dictionary.md"))
-    .catch((err) => console.error("[startup] Failed to sync data dictionary:", err.message));
+    .then(() =>
+      console.log(
+        "[startup] Data dictionary synced to docs/data-dictionary.md",
+      ),
+    )
+    .catch((err) =>
+      console.error("[startup] Failed to sync data dictionary:", err.message),
+    );
 
   return app;
 }

@@ -36,8 +36,8 @@ export function GalleryGroup({ generation }: GalleryGroupProps) {
           </h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {formatDate(generation.createdAt)} &middot;{" "}
-            {modelLabel(generation.model)} &middot;{" "}
-            {generation.outputs.length} image
+            {modelLabel(generation.model)} &middot; {generation.outputs.length}{" "}
+            image
             {generation.outputs.length !== 1 ? "s" : ""}
           </p>
         </div>

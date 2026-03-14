@@ -19,13 +19,20 @@ generationsRouter.get("/", (_req, res) => {
     return;
   }
 
-  const files = fs.readdirSync(GENERATIONS_DIR).filter((f) => f.endsWith(".json"));
+  const files = fs
+    .readdirSync(GENERATIONS_DIR)
+    .filter((f) => f.endsWith(".json"));
   const records: GenerationRecord[] = files
     .map((f) => {
-      const data = JSON.parse(fs.readFileSync(path.join(GENERATIONS_DIR, f), "utf-8"));
+      const data = JSON.parse(
+        fs.readFileSync(path.join(GENERATIONS_DIR, f), "utf-8"),
+      );
       return data as GenerationRecord;
     })
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
 
   res.json(records);
 });
@@ -59,7 +66,9 @@ generationsRouter.delete("/:id", (req, res) => {
   }
 
   // Delete image files
-  const record = JSON.parse(fs.readFileSync(metaPath, "utf-8")) as GenerationRecord;
+  const record = JSON.parse(
+    fs.readFileSync(metaPath, "utf-8"),
+  ) as GenerationRecord;
   for (const output of record.outputs) {
     const imgPath = path.join(GENERATIONS_DIR, output.filename);
     if (fs.existsSync(imgPath)) fs.unlinkSync(imgPath);

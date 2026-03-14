@@ -18,8 +18,8 @@ export const SlackIconButton: React.FC<SlackIconButtonProps> = ({
   hoverProgress = 0,
   clickProgress = 0,
 }) => {
-  const scale = 1 + (hoverProgress * 0.1) - (clickProgress * 0.05);
-  const opacity = isActive ? 1 : 0.7 + (hoverProgress * 0.3);
+  const scale = 1 + hoverProgress * 0.1 - clickProgress * 0.05;
+  const opacity = isActive ? 1 : 0.7 + hoverProgress * 0.3;
 
   return (
     <div

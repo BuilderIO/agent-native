@@ -1,4 +1,9 @@
-import type { FileSyncAdapter, FileRecord, FileChange, Unsubscribe } from "../sync/types.js";
+import type {
+  FileSyncAdapter,
+  FileRecord,
+  FileChange,
+  Unsubscribe,
+} from "../sync/types.js";
 
 // ---------------------------------------------------------------------------
 // Minimal Supabase client interface (avoids hard @supabase/supabase-js dep)
@@ -56,7 +61,10 @@ function rowToRecord(row: any): FileRecord {
   };
 }
 
-function recordToRow(id: string, record: Partial<FileRecord>): Record<string, any> {
+function recordToRow(
+  id: string,
+  record: Partial<FileRecord>,
+): Record<string, any> {
   const row: Record<string, any> = { id };
   if (record.path !== undefined) row.path = record.path;
   if (record.content !== undefined) row.content = record.content;
@@ -77,7 +85,10 @@ export class SupabaseFileSyncAdapter implements FileSyncAdapter {
     private table: string = "files",
   ) {}
 
-  async query(appId: string, ownerId: string): Promise<{ id: string; data: FileRecord }[]> {
+  async query(
+    appId: string,
+    ownerId: string,
+  ): Promise<{ id: string; data: FileRecord }[]> {
     const { data, error } = await (this.client
       .from(this.table)
       .select("*")
@@ -85,7 +96,10 @@ export class SupabaseFileSyncAdapter implements FileSyncAdapter {
       .eq("owner_id", ownerId) as any);
 
     if (error) throw error;
-    return (data ?? []).map((row: any) => ({ id: row.id, data: rowToRecord(row) }));
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      data: rowToRecord(row),
+    }));
   }
 
   async get(id: string): Promise<{ id: string; data: FileRecord } | null> {
@@ -128,7 +142,12 @@ export class SupabaseFileSyncAdapter implements FileSyncAdapter {
       .channel(`file-sync-${appId}-${ownerId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: this.table, filter: `app=eq.${appId}` },
+        {
+          event: "*",
+          schema: "public",
+          table: this.table,
+          filter: `app=eq.${appId}`,
+        },
         (payload: any) => {
           try {
             const row = payload.new ?? payload.old;

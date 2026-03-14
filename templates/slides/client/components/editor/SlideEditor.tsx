@@ -1,4 +1,10 @@
-import { useState, useCallback, useRef, useEffect, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { agentChat } from "@agent-native/core";
 import { createPortal } from "react-dom";
 import { enterSelectionMode } from "@/App";
@@ -101,7 +107,8 @@ export default function SlideEditor({
     const handleClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (target.closest(".image-overlay-menu")) return;
-      if (target.tagName === "IMG" && containerRef.current?.contains(target)) return;
+      if (target.tagName === "IMG" && containerRef.current?.contains(target))
+        return;
       setSelectedImg(null);
       setImageOverlay(null);
     };
@@ -121,34 +128,39 @@ export default function SlideEditor({
     if (!container) return;
     // Small delay to ensure SlideRenderer has rendered its content
     const timer = setTimeout(() => {
-      const slideContent = container.querySelector(".slide-content") as HTMLElement;
+      const slideContent = container.querySelector(
+        ".slide-content",
+      ) as HTMLElement;
       if (slideContent) stampBuilderIds(slideContent);
     }, 50);
     return () => clearTimeout(timer);
   }, [slide.id, slide.content]);
 
-  const showImageOverlay = useCallback(
-    (target: HTMLElement) => {
-      if (target.tagName === "IMG") {
-        const img = target as HTMLImageElement;
-        const rect = img.getBoundingClientRect();
-        const src = img.getAttribute("src") || "";
-        const fit = (window.getComputedStyle(img).objectFit === "contain" ? "contain" : "cover") as "cover" | "contain";
-        setSelectedImg(img);
-        setImageOverlay({ rect, src, objectFit: fit });
-        return;
-      }
-      // Also handle placeholder divs (dashed border boxes meant for images)
-      const placeholder = target.closest(".fmd-img-placeholder") as HTMLElement | null;
-      if (placeholder) {
-        const rect = placeholder.getBoundingClientRect();
-        const src = `placeholder:${placeholder.textContent?.trim() || "image"}`;
-        setSelectedImg(placeholder as any);
-        setImageOverlay({ rect, src, objectFit: "cover" });
-      }
-    },
-    [],
-  );
+  const showImageOverlay = useCallback((target: HTMLElement) => {
+    if (target.tagName === "IMG") {
+      const img = target as HTMLImageElement;
+      const rect = img.getBoundingClientRect();
+      const src = img.getAttribute("src") || "";
+      const fit = (
+        window.getComputedStyle(img).objectFit === "contain"
+          ? "contain"
+          : "cover"
+      ) as "cover" | "contain";
+      setSelectedImg(img);
+      setImageOverlay({ rect, src, objectFit: fit });
+      return;
+    }
+    // Also handle placeholder divs (dashed border boxes meant for images)
+    const placeholder = target.closest(
+      ".fmd-img-placeholder",
+    ) as HTMLElement | null;
+    if (placeholder) {
+      const rect = placeholder.getBoundingClientRect();
+      const src = `placeholder:${placeholder.textContent?.trim() || "image"}`;
+      setSelectedImg(placeholder as any);
+      setImageOverlay({ rect, src, objectFit: "cover" });
+    }
+  }, []);
 
   const handleSlideClick = useCallback(
     (e: React.MouseEvent) => {
@@ -158,7 +170,11 @@ export default function SlideEditor({
       const target = e.target as HTMLElement;
       const selector = getBuilderSelector(target);
       if (selector) {
-        console.log("[SlideEditor] click selector:", selector, document.querySelector(selector));
+        console.log(
+          "[SlideEditor] click selector:",
+          selector,
+          document.querySelector(selector),
+        );
         enterSelectionMode("builder.enterStyleEditing", { selector });
       }
     },
@@ -185,7 +201,8 @@ export default function SlideEditor({
       setPendingUpdateCount(count);
     };
     window.addEventListener("builder.agentChat.pendingUpdates", handler);
-    return () => window.removeEventListener("builder.agentChat.pendingUpdates", handler);
+    return () =>
+      window.removeEventListener("builder.agentChat.pendingUpdates", handler);
   }, []);
 
   const handleApplyUpdates = useCallback(() => {
@@ -205,7 +222,11 @@ export default function SlideEditor({
       // For text elements, enter text editing mode
       const selector = getBuilderSelector(target);
       if (selector) {
-        console.log("[SlideEditor] dblclick text selector:", selector, document.querySelector(selector));
+        console.log(
+          "[SlideEditor] dblclick text selector:",
+          selector,
+          document.querySelector(selector),
+        );
         enterSelectionMode("builder.enterTextEditing", { selector });
       }
     },
@@ -224,7 +245,10 @@ export default function SlideEditor({
               onContextMenu={handleSlideContextMenu}
               onDoubleClick={handleSlideDoubleClick}
             >
-              <SlideRenderer slide={slide} className="shadow-2xl shadow-black/40" />
+              <SlideRenderer
+                slide={slide}
+                className="shadow-2xl shadow-black/40"
+              />
             </div>
           </div>
         ) : (
@@ -255,7 +279,8 @@ export default function SlideEditor({
           onSearch={() => onSearchImage(imageOverlay.src)}
           onLogo={() => onLogoSearch(imageOverlay.src)}
           onToggleObjectFit={() => {
-            const newFit = imageOverlay.objectFit === "cover" ? "contain" : "cover";
+            const newFit =
+              imageOverlay.objectFit === "cover" ? "contain" : "cover";
             onToggleObjectFit(imageOverlay.src, newFit);
             setImageOverlay({ ...imageOverlay, objectFit: newFit });
           }}

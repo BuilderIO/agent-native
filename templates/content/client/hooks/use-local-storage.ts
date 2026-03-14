@@ -1,6 +1,9 @@
 import { useState, useCallback } from "react";
 
-export function useLocalStorage<T>(key: string, defaultValue: T): [T, (val: T | ((prev: T) => T)) => void] {
+export function useLocalStorage<T>(
+  key: string,
+  defaultValue: T,
+): [T, (val: T | ((prev: T) => T)) => void] {
   const [value, setValue] = useState<T>(() => {
     try {
       const stored = localStorage.getItem(key);
@@ -20,7 +23,7 @@ export function useLocalStorage<T>(key: string, defaultValue: T): [T, (val: T | 
         return next;
       });
     },
-    [key]
+    [key],
   );
 
   return [value, set];

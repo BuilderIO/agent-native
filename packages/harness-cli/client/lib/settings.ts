@@ -11,7 +11,7 @@ export interface LaunchSettings {
 export function defaultSettings(config: HarnessConfig): LaunchSettings {
   return {
     options: Object.fromEntries(
-      config.options.map((o) => [o.key, o.defaultValue])
+      config.options.map((o) => [o.key, o.defaultValue]),
     ),
     custom: "",
     activeApp: "",
@@ -25,9 +25,7 @@ function storageKey(config: HarnessConfig): string {
 export function loadSettings(config: HarnessConfig): LaunchSettings {
   const defaults = defaultSettings(config);
   try {
-    const saved = JSON.parse(
-      localStorage.getItem(storageKey(config)) || "{}"
-    );
+    const saved = JSON.parse(localStorage.getItem(storageKey(config)) || "{}");
     return {
       ...defaults,
       ...saved,
@@ -44,7 +42,7 @@ export function saveSettings(config: HarnessConfig, s: LaunchSettings) {
 
 export function settingsToFlags(
   s: LaunchSettings,
-  config: HarnessConfig
+  config: HarnessConfig,
 ): string {
   const flags: string[] = [];
   for (const opt of config.options) {

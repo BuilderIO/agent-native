@@ -18,7 +18,7 @@ export const SlackNavItem: React.FC<SlackNavItemProps> = ({
   hoverProgress = 0,
   clickProgress = 0,
 }) => {
-  const scale = 1 + (hoverProgress * 0.05) - (clickProgress * 0.03);
+  const scale = 1 + hoverProgress * 0.05 - clickProgress * 0.03;
   const bgOpacity = hoverProgress * 0.1;
 
   return (

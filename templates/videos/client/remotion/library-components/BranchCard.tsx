@@ -73,7 +73,9 @@ export const BranchCard: React.FC<BranchCardProps> = ({
         borderColor: isHighlighted ? "#47a0fe" : "#393939",
         borderStyle: "solid",
         borderWidth: 2,
-        boxShadow: isHighlighted ? "0px 0px 16px rgba(72, 161, 255, 0.2)" : "none",
+        boxShadow: isHighlighted
+          ? "0px 0px 16px rgba(72, 161, 255, 0.2)"
+          : "none",
         padding: "22px",
         display: "flex",
         flexDirection: "column",

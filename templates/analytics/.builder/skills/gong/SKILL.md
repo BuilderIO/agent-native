@@ -20,20 +20,20 @@ description: >
 
 ### Exported Functions
 
-| Function | Description |
-|---|---|
-| `getCalls(filters?)` | List calls (cursor-paginated) |
-| `getCall(callId)` | Get single call detail |
-| `getCallTranscript(callId)` | Get call transcript |
-| `getUsers()` | List Gong users |
-| `searchCalls(query, days)` | List + client-side filter by company name |
+| Function                    | Description                               |
+| --------------------------- | ----------------------------------------- |
+| `getCalls(filters?)`        | List calls (cursor-paginated)             |
+| `getCall(callId)`           | Get single call detail                    |
+| `getCallTranscript(callId)` | Get call transcript                       |
+| `getUsers()`                | List Gong users                           |
+| `searchCalls(query, days)`  | List + client-side filter by company name |
 
 ### API Routes
 
-| Route | Description |
-|---|---|
+| Route                 | Description       |
+| --------------------- | ----------------- |
 | `GET /api/gong/calls` | List/search calls |
-| `GET /api/gong/users` | List users |
+| `GET /api/gong/users` | List users        |
 
 ## Script Usage
 

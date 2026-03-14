@@ -43,6 +43,7 @@ Read three data sources:
    - Content gaps and competitive landscape
 
 Also check for seed materials:
+
 - `seed/keywords.txt` -- user-provided keywords to consider
 - `seed/notes.md` -- user observations about what needs updating
 - `seed/urls.txt` -- new reference articles
@@ -53,12 +54,14 @@ Also check for seed materials:
 Compare the original post's target keywords against fresh keyword data.
 
 **Identify:**
+
 - **Unchanged keywords:** Primary keyword still valid, volume stable
 - **New high-volume keywords:** Keywords with significant volume (>500/mo) that did not exist or were not targeted in the original
 - **Dropped keywords:** Keywords the original targeted that have lost relevance (volume dropped >50% or no longer match search intent)
 - **Competitor keywords we miss:** Keywords that top-5 SERP competitors rank for that the original post does not address
 
 **Ranking change assessment:**
+
 - If Ahrefs position data is available for the original primary keyword, compare old rank vs current rank
 - If Ahrefs data is unavailable, use WebSearch to estimate current position (search the primary keyword, check if the post appears in the first 5 pages)
 - Record `positions_dropped` (0 = stable, positive = dropped, negative = improved)
@@ -68,6 +71,7 @@ Compare the original post's target keywords against fresh keyword data.
 Compare what was true when the post was published against current SERP state.
 
 **Identify:**
+
 - **New competitors:** Domains in the top 5 that were not there before
 - **Lost positions:** How many positions the original post dropped
 - **New SERP features:** AI Overview now present (was not before), new PAA questions, featured snippet format changes
@@ -98,11 +102,11 @@ For each H2 section in the original post, evaluate:
 
 **Assign each section an action:**
 
-| Action | Criteria |
-|--------|----------|
-| **KEEP** | Content is accurate, competitive depth is adequate, answer-first block is still quote-worthy |
-| **REWRITE** | Content has inaccuracies, competitors cover it better, or answer-first block is outdated |
-| **ADD** | Competitors cover a subtopic the original post lacks entirely. Specify `insert_after` position |
+| Action      | Criteria                                                                                       |
+| ----------- | ---------------------------------------------------------------------------------------------- |
+| **KEEP**    | Content is accurate, competitive depth is adequate, answer-first block is still quote-worthy   |
+| **REWRITE** | Content has inaccuracies, competitors cover it better, or answer-first block is outdated       |
+| **ADD**     | Competitors cover a subtopic the original post lacks entirely. Specify `insert_after` position |
 
 Include a `reason` for every REWRITE and ADD action. KEEP sections get a brief confirmation reason.
 
@@ -123,11 +127,13 @@ If the `seed/` folder contains user-provided materials:
 Check whether the original content goal or timing should change:
 
 **Content goal change:**
+
 - If SERP intent shifted from informational to commercial: recommend `awareness` to `acquisition`
 - If the post's topic now has a natural Builder.io connection that did not exist before: recommend `awareness` to `hybrid`
 - If the Builder.io product mentioned is deprecated or significantly changed: flag for review
 
 **Content timing change:**
+
 - If the original was `trending` and SERP data now exists: recommend transition to `evergreen` (this means full SERP analysis is now possible)
 - If the original was `evergreen` but the topic has become time-sensitive (new release, breaking change): note this but do not change timing (the refresh itself addresses recency)
 
@@ -148,6 +154,7 @@ Evaluate each signal:
 The overall recommendation is the **highest triggered scope** across all signals.
 
 **Scope definitions:**
+
 - **metadata-only:** No content changes. Re-optimize meta description, title tag, keywords, schema markup, and internal links.
 - **selective-rewrite:** Mark sections as KEEP/REWRITE/ADD. Preserve 50-80% of original content. Rewrite flagged sections and add new ones.
 - **full-rewrite:** Essentially re-run the blog pipeline seeded with the original post. Preserve URL and slug but rewrite all content.
@@ -161,10 +168,10 @@ Write the complete refresh scope file to `refresh-scope.yaml` in the post output
 Write `refresh-scope.yaml`:
 
 ```yaml
-refresh_mode: selective-rewrite  # metadata-only | selective-rewrite | full-rewrite
+refresh_mode: selective-rewrite # metadata-only | selective-rewrite | full-rewrite
 recommendation_reason: "2 of 6 sections have outdated code examples. 1 new competitor section to add. Primary keyword dropped from #3 to #8."
-scope_override: false  # true if user overrode at Gate 1
-original_recommendation: null  # populated only if scope_override is true
+scope_override: false # true if user overrode at Gate 1
+original_recommendation: null # populated only if scope_override is true
 original_post:
   url: "https://example.com/blog/topic"
   title: "Original Post Title"
@@ -173,7 +180,7 @@ original_post:
   content_goal: awareness
   content_timing: evergreen
   sections_count: 6
-  has_pipeline_metadata: true  # false for external posts
+  has_pipeline_metadata: true # false for external posts
 keyword_delta:
   original_primary: "react server components"
   current_primary: "react server components"
@@ -187,7 +194,7 @@ keyword_delta:
     - "rsc vs ssr"
     - "server components streaming"
 serp_delta:
-  original_serp_data: available  # available | unavailable
+  original_serp_data: available # available | unavailable
   new_competitors:
     - "vercel.com/blog/rsc-guide"
     - "tkdodo.eu/blog/rsc"
@@ -199,7 +206,7 @@ serp_delta:
       new_questions:
         - "Are React Server Components production ready?"
         - "Do Server Components replace getServerSideProps?"
-  intent_shift: none  # none | minor | major
+  intent_shift: none # none | minor | major
 sections:
   - heading: "Introduction"
     action: KEEP
@@ -223,10 +230,10 @@ sections:
   - heading: "Conclusion"
     action: KEEP
     reason: "CTA still relevant"
-content_goal_change: none  # none | recommended (with details below)
-content_goal_recommendation: null  # e.g., "awareness -> hybrid: Builder.io now has RSC visual editing"
-content_timing_change: none  # none | recommended (with details below)
-content_timing_recommendation: null  # e.g., "trending -> evergreen: SERP data now available"
+content_goal_change: none # none | recommended (with details below)
+content_goal_recommendation: null # e.g., "awareness -> hybrid: Builder.io now has RSC visual editing"
+content_timing_change: none # none | recommended (with details below)
+content_timing_recommendation: null # e.g., "trending -> evergreen: SERP data now available"
 seed_signals_applied:
   - "User noted Section 3 code examples are outdated (notes.md)"
   - "User provided new reference article on streaming (seed/streaming-guide.md)"
@@ -288,6 +295,7 @@ This often triggers a `selective-rewrite` or `full-rewrite` scope because the or
 **Primary keyword:** "react server components" (was #3, now #8)
 
 **Delta findings:**
+
 - 2 of 6 sections have outdated Next.js 14 code examples
 - 1 new competitor section on streaming (3 of top 5 cover it)
 - AI Overview now present (was not before)
@@ -296,6 +304,7 @@ This often triggers a `selective-rewrite` or `full-rewrite` scope because the or
 **Scope:** `selective-rewrite` (2 REWRITE + 1 ADD = 50% affected)
 
 **Section plan:**
+
 - Introduction: KEEP
 - What Are RSC: KEEP
 - How Do RSC Differ: REWRITE (add streaming/Suspense)
@@ -310,6 +319,7 @@ This often triggers a `selective-rewrite` or `full-rewrite` scope because the or
 **Primary keyword:** "headless cms comparison" (was #5, now #6)
 
 **Delta findings:**
+
 - 0 sections need rewriting (content still accurate)
 - 0 new competitor sections needed
 - Meta description could be stronger (current one is generic)
@@ -323,6 +333,7 @@ This often triggers a `selective-rewrite` or `full-rewrite` scope because the or
 **Primary keyword:** "qwik framework" (was #4, now #22)
 
 **Delta findings:**
+
 - SERP intent shifted from informational to commercial (now dominated by comparisons)
 - Core premise outdated (Qwik 2.0 released with significant API changes)
 - 4 of 5 sections need rewriting
@@ -336,6 +347,7 @@ This often triggers a `selective-rewrite` or `full-rewrite` scope because the or
 **URL:** `https://techblog.example.com/react-hooks-guide`
 
 **Handling:**
+
 - Reconstructed content goal: `awareness` (no Builder.io mentions)
 - Reconstructed timing: `evergreen`
 - Reconstructed keywords: "react hooks", "usestate", "useeffect" (from title and headings)

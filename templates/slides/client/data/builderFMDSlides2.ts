@@ -1,6 +1,5 @@
 import type { Slide } from "@/context/DeckContext";
 
-
 // Slide 8: Unlock AI product development for your teams
 export const slide8: Slide = {
   id: "fmd-8",

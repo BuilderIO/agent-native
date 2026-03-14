@@ -58,6 +58,60 @@ function prefill(message: string, context?: string): void {
   send({ message, context, submit: false });
 }
 
+export interface AgentChatCallOptions {
+  context?: string;
+  timeout?: number;
+  harnessPort?: number;
+}
+
+export interface AgentChatResponse {
+  response: string;
+  filesChanged: string[];
+  warnings?: string[];
+}
+
+/**
+ * Request/response call to the harness agent.
+ * Sends a message to the harness CLI endpoint and awaits a response.
+ * Node.js only — requires the harness server to be running.
+ */
+async function call(
+  message: string,
+  options?: AgentChatCallOptions,
+): Promise<AgentChatResponse> {
+  if (isBrowser) {
+    throw new Error("agentChat.call() is only available in Node.js");
+  }
+
+  const port =
+    options?.harnessPort ??
+    (typeof process !== "undefined" && process.env.HARNESS_PORT
+      ? parseInt(process.env.HARNESS_PORT, 10)
+      : 3333);
+  const timeout = options?.timeout ?? 300_000;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const res = await fetch(`http://localhost:${port}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, context: options?.context }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Harness chat failed (${res.status}): ${text}`);
+    }
+
+    return (await res.json()) as AgentChatResponse;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export const agentChat = {
   /** Send raw AgentChatMessage — full control over all fields */
   send,
@@ -65,4 +119,6 @@ export const agentChat = {
   submit,
   /** Prefill the chat input for user review before sending */
   prefill,
+  /** Request/response call to the harness agent (Node.js only) */
+  call,
 };

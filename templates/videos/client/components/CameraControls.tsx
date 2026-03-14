@@ -1,7 +1,13 @@
 import { useEffect, useState, useCallback } from "react";
 import type { AnimationTrack, EasingKey } from "@/types";
 import { getPropValueKeyframed } from "@/remotion/trackAnimation";
-import { ArrowLeftRight, ArrowUpDown, RotateCw, ZoomIn, Eye } from "lucide-react";
+import {
+  ArrowLeftRight,
+  ArrowUpDown,
+  RotateCw,
+  ZoomIn,
+  Eye,
+} from "lucide-react";
 import { Label } from "./ui/label";
 import { MotionCurveSelect } from "./MotionCurveSelect";
 import { KeyframeNavigation } from "./keyframes/KeyframeNavigation";
@@ -46,7 +52,9 @@ const DEFAULT_CAMERA: CameraState = {
 };
 
 // Helper function to create a default camera track
-const createDefaultCameraTrack = (durationInFrames: number): AnimationTrack => ({
+const createDefaultCameraTrack = (
+  durationInFrames: number,
+): AnimationTrack => ({
   id: "camera",
   label: "Camera",
   startFrame: 0,
@@ -58,7 +66,13 @@ const createDefaultCameraTrack = (durationInFrames: number): AnimationTrack => (
     { property: "scale", from: "1", to: "1", unit: "", keyframes: [] },
     { property: "rotateX", from: "0", to: "0", unit: "deg", keyframes: [] },
     { property: "rotateY", from: "0", to: "0", unit: "deg", keyframes: [] },
-    { property: "perspective", from: "800", to: "800", unit: "px", keyframes: [] },
+    {
+      property: "perspective",
+      from: "800",
+      to: "800",
+      unit: "px",
+      keyframes: [],
+    },
   ],
 });
 
@@ -97,20 +111,55 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
     }
 
     const newState: CameraState = {
-      translateX: getPropValueKeyframed(currentFrame, fps, cameraTrack, "translateX", 0),
-      translateY: getPropValueKeyframed(currentFrame, fps, cameraTrack, "translateY", 0),
+      translateX: getPropValueKeyframed(
+        currentFrame,
+        fps,
+        cameraTrack,
+        "translateX",
+        0,
+      ),
+      translateY: getPropValueKeyframed(
+        currentFrame,
+        fps,
+        cameraTrack,
+        "translateY",
+        0,
+      ),
       scale: getPropValueKeyframed(currentFrame, fps, cameraTrack, "scale", 1),
-      rotateX: getPropValueKeyframed(currentFrame, fps, cameraTrack, "rotateX", 0),
-      rotateY: getPropValueKeyframed(currentFrame, fps, cameraTrack, "rotateY", 0),
-      perspective: getPropValueKeyframed(currentFrame, fps, cameraTrack, "perspective", 800),
+      rotateX: getPropValueKeyframed(
+        currentFrame,
+        fps,
+        cameraTrack,
+        "rotateX",
+        0,
+      ),
+      rotateY: getPropValueKeyframed(
+        currentFrame,
+        fps,
+        cameraTrack,
+        "rotateY",
+        0,
+      ),
+      perspective: getPropValueKeyframed(
+        currentFrame,
+        fps,
+        cameraTrack,
+        "perspective",
+        800,
+      ),
     };
 
     // Validate all values are finite before setting state
-    const allValuesValid = Object.values(newState).every(v => Number.isFinite(v));
+    const allValuesValid = Object.values(newState).every((v) =>
+      Number.isFinite(v),
+    );
     if (allValuesValid) {
       setLocalState(newState);
     } else {
-      console.warn("Camera: Received invalid values from track, skipping update", newState);
+      console.warn(
+        "Camera: Received invalid values from track, skipping update",
+        newState,
+      );
     }
 
     // Check if current frame is on a keyframe
@@ -136,16 +185,38 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
 
     // Get ALL current camera values at this frame to create a complete snapshot
     const allCurrentValues: Record<string, number> = {
-      translateX: getPropValueKeyframed(currentFrame, fps, track, "translateX", 0),
-      translateY: getPropValueKeyframed(currentFrame, fps, track, "translateY", 0),
+      translateX: getPropValueKeyframed(
+        currentFrame,
+        fps,
+        track,
+        "translateX",
+        0,
+      ),
+      translateY: getPropValueKeyframed(
+        currentFrame,
+        fps,
+        track,
+        "translateY",
+        0,
+      ),
       scale: getPropValueKeyframed(currentFrame, fps, track, "scale", 1),
       rotateX: getPropValueKeyframed(currentFrame, fps, track, "rotateX", 0),
       rotateY: getPropValueKeyframed(currentFrame, fps, track, "rotateY", 0),
-      perspective: getPropValueKeyframed(currentFrame, fps, track, "perspective", 800),
+      perspective: getPropValueKeyframed(
+        currentFrame,
+        fps,
+        track,
+        "perspective",
+        800,
+      ),
       [property]: value, // Override with the new value being set
     };
 
-    const updatedProps = updateCameraKeyframe(track, currentFrame, allCurrentValues);
+    const updatedProps = updateCameraKeyframe(
+      track,
+      currentFrame,
+      allCurrentValues,
+    );
     onUpdateTrack("camera", { animatedProps: updatedProps });
   };
 
@@ -156,11 +227,14 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
     onUpdateTrack("camera", { animatedProps: updatedProps });
   };
 
-
   const handleResetToDefaults = () => {
     if (!cameraTrack) return;
 
-    const resetProps = resetToDefaults(cameraTrack, currentFrame, DEFAULT_CAMERA);
+    const resetProps = resetToDefaults(
+      cameraTrack,
+      currentFrame,
+      DEFAULT_CAMERA,
+    );
     onUpdateTrack("camera", { animatedProps: resetProps });
     setLocalState(DEFAULT_CAMERA);
   };
@@ -168,7 +242,11 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
   const handleUpdateKeyframeEasing = (easing: EasingKey) => {
     if (!cameraTrack || !isOnKeyframe) return;
 
-    const updatedProps = updateKeyframeEasingUtil(cameraTrack, currentFrame, easing);
+    const updatedProps = updateKeyframeEasingUtil(
+      cameraTrack,
+      currentFrame,
+      easing,
+    );
     onUpdateTrack("camera", { animatedProps: updatedProps });
   };
 
@@ -181,7 +259,11 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
     if (!cameraTrack || !isOnKeyframe) return;
 
     const targetFrame = currentFrame + 30;
-    const updatedProps = duplicateKeyframeForTrack(cameraTrack, currentFrame, 30);
+    const updatedProps = duplicateKeyframeForTrack(
+      cameraTrack,
+      currentFrame,
+      30,
+    );
     onUpdateTrack("camera", { animatedProps: updatedProps });
 
     // Seek to the newly created/updated keyframe
@@ -226,7 +308,12 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
               <input
                 type="number"
                 value={localState.translateX.toFixed(0)}
-                onChange={(e) => updateLocalProperty("translateX", parseFloat(e.target.value) || 0)}
+                onChange={(e) =>
+                  updateLocalProperty(
+                    "translateX",
+                    parseFloat(e.target.value) || 0,
+                  )
+                }
                 className="w-full text-xs bg-secondary border border-border rounded-lg px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-blue-400/40"
               />
             </div>
@@ -240,7 +327,12 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
               <input
                 type="number"
                 value={localState.translateY.toFixed(0)}
-                onChange={(e) => updateLocalProperty("translateY", parseFloat(e.target.value) || 0)}
+                onChange={(e) =>
+                  updateLocalProperty(
+                    "translateY",
+                    parseFloat(e.target.value) || 0,
+                  )
+                }
                 className="w-full text-xs bg-secondary border border-border rounded-lg px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-blue-400/40"
               />
             </div>
@@ -254,7 +346,12 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
               <input
                 type="number"
                 value={localState.rotateX.toFixed(0)}
-                onChange={(e) => updateLocalProperty("rotateX", parseFloat(e.target.value) || 0)}
+                onChange={(e) =>
+                  updateLocalProperty(
+                    "rotateX",
+                    parseFloat(e.target.value) || 0,
+                  )
+                }
                 className="w-full text-xs bg-secondary border border-border rounded-lg px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-blue-400/40"
               />
             </div>
@@ -262,13 +359,21 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
             {/* Tilt Y */}
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <RotateCw className="w-3 h-3" style={{ transform: 'rotate(90deg)' }} />
+                <RotateCw
+                  className="w-3 h-3"
+                  style={{ transform: "rotate(90deg)" }}
+                />
                 Tilt Y
               </Label>
               <input
                 type="number"
                 value={localState.rotateY.toFixed(0)}
-                onChange={(e) => updateLocalProperty("rotateY", parseFloat(e.target.value) || 0)}
+                onChange={(e) =>
+                  updateLocalProperty(
+                    "rotateY",
+                    parseFloat(e.target.value) || 0,
+                  )
+                }
                 className="w-full text-xs bg-secondary border border-border rounded-lg px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-blue-400/40"
               />
             </div>
@@ -283,7 +388,9 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
                 type="number"
                 step="0.1"
                 value={localState.scale.toFixed(1)}
-                onChange={(e) => updateLocalProperty("scale", parseFloat(e.target.value) || 1)}
+                onChange={(e) =>
+                  updateLocalProperty("scale", parseFloat(e.target.value) || 1)
+                }
                 className="w-full text-xs bg-secondary border border-border rounded-lg px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-blue-400/40"
               />
             </div>
@@ -298,7 +405,12 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
                 type="number"
                 step="50"
                 value={localState.perspective.toFixed(0)}
-                onChange={(e) => updateLocalProperty("perspective", parseFloat(e.target.value) || 800)}
+                onChange={(e) =>
+                  updateLocalProperty(
+                    "perspective",
+                    parseFloat(e.target.value) || 800,
+                  )
+                }
                 className="w-full text-xs bg-secondary border border-border rounded-lg px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-blue-400/40"
               />
             </div>

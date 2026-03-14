@@ -20,7 +20,7 @@ export function AssetUploader({ category, accept }: AssetUploaderProps) {
         uploadAsset.mutate({ file, category });
       });
     },
-    [category, uploadAsset]
+    [category, uploadAsset],
   );
 
   function handleDragOver(e: React.DragEvent) {

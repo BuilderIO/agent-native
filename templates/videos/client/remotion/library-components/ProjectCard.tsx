@@ -50,14 +50,18 @@ export const ProjectCard: React.FC<ProjectCardProps> = (props) => {
       {
         name: "add-top-sources",
         timeAgo: "3 hr ago",
-        avatarImage: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/2b536ddd59099ee76d316a7dac1a2e30add8da48?placeholderIfAbsent=true",
-        statusIcon: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/27e05e8e75ad8b8ffb335fdc8efc1248596e26aa?placeholderIfAbsent=true",
+        avatarImage:
+          "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/2b536ddd59099ee76d316a7dac1a2e30add8da48?placeholderIfAbsent=true",
+        statusIcon:
+          "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/27e05e8e75ad8b8ffb335fdc8efc1248596e26aa?placeholderIfAbsent=true",
       },
       {
         name: "register-components",
         timeAgo: "5 hr ago",
-        avatarImage: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/9abb9bfd27065db5f2e84a5000a196098c2adb20?placeholderIfAbsent=true",
-        statusIcon: "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/0fb587208661e0859816cbdf05a8517bfceca602?placeholderIfAbsent=true",
+        avatarImage:
+          "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/9abb9bfd27065db5f2e84a5000a196098c2adb20?placeholderIfAbsent=true",
+        statusIcon:
+          "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/0fb587208661e0859816cbdf05a8517bfceca602?placeholderIfAbsent=true",
       },
     ],
     tracks = [],

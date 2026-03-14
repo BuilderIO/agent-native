@@ -8,7 +8,11 @@
  *   pnpm script commonroom-members --segments  (list segments)
  */
 import { parseArgs, output } from "./helpers";
-import { getMemberByEmail, getMembers, getSegments } from "../server/lib/commonroom";
+import {
+  getMemberByEmail,
+  getMembers,
+  getSegments,
+} from "../server/lib/commonroom";
 
 const args = parseArgs();
 

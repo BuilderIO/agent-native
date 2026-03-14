@@ -1,4 +1,10 @@
-import { loadEnv, parseArgs, camelCaseArgs, isValidProjectPath, fail } from "./_utils.js";
+import {
+  loadEnv,
+  parseArgs,
+  camelCaseArgs,
+  isValidProjectPath,
+  fail,
+} from "./_utils.js";
 import { fetchLogo, saveLogoToProject } from "../server/routes/clearbit.js";
 
 export default async function main(args: string[]) {
@@ -26,11 +32,19 @@ Uses logo.dev API if LOGO_DEV_API_KEY is set, falls back to Google favicon API.`
   console.log(`Fetching logo for ${domain} (size: ${size}px)...`);
 
   const { imageData, mimeType, source } = await fetchLogo(domain, size);
-  console.log(`Fetched ${Math.round(imageData.length / 1024)}KB ${mimeType} logo via ${source}`);
+  console.log(
+    `Fetched ${Math.round(imageData.length / 1024)}KB ${mimeType} logo via ${source}`,
+  );
 
   if (projectSlug) {
-    if (!isValidProjectPath(projectSlug)) fail(`Invalid project slug: ${projectSlug}`);
-    const savedPath = saveLogoToProject(projectSlug, domain, imageData, mimeType);
+    if (!isValidProjectPath(projectSlug))
+      fail(`Invalid project slug: ${projectSlug}`);
+    const savedPath = saveLogoToProject(
+      projectSlug,
+      domain,
+      imageData,
+      mimeType,
+    );
     console.log(`Saved to: ${savedPath}`);
   } else {
     console.log(`(pass --project-slug to save to a project's media folder)`);

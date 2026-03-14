@@ -146,9 +146,7 @@ export function CalendarTable({
     <Card className="bg-card border-border/50">
       <CardHeader className="pb-2">
         <div className="flex items-center gap-2">
-          <CardTitle className="text-sm font-medium">
-            Content SEO
-          </CardTitle>
+          <CardTitle className="text-sm font-medium">Content SEO</CardTitle>
           {loadingHint && (
             <span className="text-[10px] text-muted-foreground animate-pulse">
               Loading {loadingHint} data...
@@ -180,7 +178,7 @@ export function CalendarTable({
                       key={col.key}
                       className={cn(
                         "text-left py-2 px-2 font-medium text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap select-none",
-                        col.width
+                        col.width,
                       )}
                       onClick={() => handleSort(col.key)}
                     >
@@ -203,7 +201,7 @@ export function CalendarTable({
                         className={cn(
                           "border-b border-border/30 hover:bg-muted/30",
                           entry.handle && "cursor-pointer",
-                          isExpanded && "bg-muted/20"
+                          isExpanded && "bg-muted/20",
                         )}
                         onClick={() =>
                           entry.handle &&
@@ -232,8 +230,7 @@ export function CalendarTable({
                               (col.key === "seo_etv" ||
                                 col.key === "seo_keywords") &&
                                 "text-blue-400",
-                              col.key === "status" &&
-                                statusColor(entry.status)
+                              col.key === "status" && statusColor(entry.status),
                             )}
                             title={
                               col.format === "text"

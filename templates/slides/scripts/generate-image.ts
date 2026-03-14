@@ -1,12 +1,12 @@
 /**
  * Generate images using Gemini with reference images for style matching.
- * 
+ *
  * Usage:
  *   pnpm script generate-image --prompt "description"
  *   pnpm script generate-image --prompt "description" --slide-content "<div>...</div>"
  *   pnpm script generate-image --prompt "description" --deck-id "vkkvhkbJ_Q" --slide-id "sko-21"
  *   pnpm script generate-image --prompt "description" --count 3 --output public/assets/generated/img
- * 
+ *
  * Options:
  *   --prompt              Image description (required)
  *   --slide-content       HTML content of the current slide (primary context)
@@ -45,16 +45,19 @@ function parseArgs(args: string[]): Record<string, string> {
 /** Strip HTML tags to extract plain text from slide content */
 function stripHtml(html: string): string {
   return html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&[a-z]+;/gi, ' ')
-    .replace(/&#x[0-9a-f]+;/gi, '')
-    .replace(/\s+/g, ' ')
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&[a-z]+;/gi, " ")
+    .replace(/&#x[0-9a-f]+;/gi, "")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
 /** Load a deck JSON and extract text context */
-function loadDeckContext(deckId: string, slideId?: string): { slideContent?: string; deckText: string } {
+function loadDeckContext(
+  deckId: string,
+  slideId?: string,
+): { slideContent?: string; deckText: string } {
   // Try to find the deck file
   const deckPath = join("data", "decks", `${deckId}.json`);
   try {
@@ -78,7 +81,7 @@ function loadDeckContext(deckId: string, slideId?: string): { slideContent?: str
 
     return {
       slideContent,
-      deckText: textParts.join('\n'),
+      deckText: textParts.join("\n"),
     };
   } catch (err: any) {
     console.warn(`Could not load deck ${deckId}: ${err.message}`);
@@ -136,12 +139,14 @@ Options:
     console.log(`Loaded deck context: ${deckCtx.deckText.length} chars`);
   }
 
-  const context = (slideContent || deckText)
-    ? { slideContent, deckText }
-    : undefined;
+  const context =
+    slideContent || deckText ? { slideContent, deckText } : undefined;
 
   // Always include default style references + any extra ones
-  const referenceUrls = [...DEFAULT_STYLE_REFERENCE_URLS, ...extraReferenceUrls];
+  const referenceUrls = [
+    ...DEFAULT_STYLE_REFERENCE_URLS,
+    ...extraReferenceUrls,
+  ];
 
   // Dynamically import the server generation function
   const { generateWithGemini } = await import("../server/routes/image-gen.js");
@@ -168,9 +173,13 @@ Options:
   }
 
   console.log(`\nGenerating ${count} image(s) with prompt: "${prompt}"`);
-  console.log(`Using ${refImages.length} reference image(s) for style matching`);
+  console.log(
+    `Using ${refImages.length} reference image(s) for style matching`,
+  );
   if (context) {
-    console.log(`With context: slide content=${!!slideContent}, deck text=${deckText.length > 0}`);
+    console.log(
+      `With context: slide content=${!!slideContent}, deck text=${deckText.length > 0}`,
+    );
   }
 
   // Ensure output directory exists
@@ -189,13 +198,17 @@ Options:
         const filePath = `${outputPrefix}-v${i + 1}.png`;
         writeFileSync(filePath, result.imageData);
         generatedFiles.push(filePath);
-        console.log(`Saved: ${filePath} (${Math.round(result.imageData.length / 1024)}KB)`);
+        console.log(
+          `Saved: ${filePath} (${Math.round(result.imageData.length / 1024)}KB)`,
+        );
       } else {
         const dataUrl = `data:${result.mimeType};base64,${result.imageData.toString("base64")}`;
         console.log(`\nGenerated image ${i + 1}:`);
         console.log(`  MIME type: ${result.mimeType}`);
         console.log(`  Size: ${Math.round(result.imageData.length / 1024)}KB`);
-        console.log(`  Data URL (first 100 chars): ${dataUrl.substring(0, 100)}...`);
+        console.log(
+          `  Data URL (first 100 chars): ${dataUrl.substring(0, 100)}...`,
+        );
       }
     } catch (err: any) {
       console.error(`Failed to generate variation ${i + 1}: ${err.message}`);

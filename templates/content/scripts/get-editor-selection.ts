@@ -18,7 +18,9 @@ export default async function main(_args: string[]) {
   const age = Date.now() - new Date(data.timestamp).getTime();
   if (age > STALE_MS) {
     fs.unlinkSync(SELECTION_FILE);
-    console.log("No text is currently selected in the editor (previous selection expired).");
+    console.log(
+      "No text is currently selected in the editor (previous selection expired).",
+    );
     return;
   }
 

@@ -55,10 +55,16 @@ export function createAppServer() {
   app.use("/api/decks", decksRouter);
 
   // Serve generated images from public/assets/generated
-  app.use("/api/generated", express.static(path.join(process.cwd(), "public/assets/generated")));
+  app.use(
+    "/api/generated",
+    express.static(path.join(process.cwd(), "public/assets/generated")),
+  );
 
   // Also serve from public/generated (used by image gen preview)
-  app.use("/api/gen-preview", express.static(path.join(process.cwd(), "public/generated")));
+  app.use(
+    "/api/gen-preview",
+    express.static(path.join(process.cwd(), "public/generated")),
+  );
 
   // Serve preview HTML directly
   app.get("/api/preview-images", (_req, res) => {

@@ -1,7 +1,8 @@
 // ─── BigQuery table references (same as top-funnel) ─────────────────
 const FIRST_PV = "`builder-3b0a2.dbt_staging_bigquery.first_pageviews`";
 const SIGNUPS = "`builder-3b0a2.dbt_staging_bigquery.signups`";
-const SIGMA_BLOG = "`builder-3b0a2.sigma_materialized.SIGDS_82deb8e2_40f8_4fb4_b3cb_caa011a72d29`";
+const SIGMA_BLOG =
+  "`builder-3b0a2.sigma_materialized.SIGDS_82deb8e2_40f8_4fb4_b3cb_caa011a72d29`";
 
 const BLOG_META_SUBQUERY = `(
   SELECT

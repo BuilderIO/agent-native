@@ -13,7 +13,9 @@ function getAuth(): string {
   const login = process.env.DATAFORSEO_LOGIN;
   const password = process.env.DATAFORSEO_PASSWORD;
   if (!login || !password) {
-    throw new Error("DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD env vars required");
+    throw new Error(
+      "DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD env vars required",
+    );
   }
   return Buffer.from(`${login}:${password}`).toString("base64");
 }
@@ -83,7 +85,7 @@ interface RelevantPagesResponse {
 // Get SEO data for all builder.io/blog/ pages
 export async function getRelevantBlogPages(
   limit = 100,
-  offset = 0
+  offset = 0,
 ): Promise<BlogPageSeo[]> {
   const data = await apiPost<RelevantPagesResponse>(
     "/dataforseo_labs/google/relevant_pages/live",
@@ -97,13 +99,13 @@ export async function getRelevantBlogPages(
         filters: ["page_address", "like", "%/blog/%"],
         order_by: ["metrics.organic.etv,desc"],
       },
-    ]
+    ],
   );
 
   const task = data.tasks?.[0];
   if (!task || task.status_code !== 20000) {
     throw new Error(
-      `DataForSEO task error: ${task?.status_code} ${task?.status_message}`
+      `DataForSEO task error: ${task?.status_code} ${task?.status_message}`,
     );
   }
 
@@ -213,7 +215,7 @@ interface BulkRankedKeywordsResponse {
 
 export async function getTopBlogKeywords(
   limit = 100,
-  offset = 0
+  offset = 0,
 ): Promise<BlogKeywordRanking[]> {
   const data = await apiPost<BulkRankedKeywordsResponse>(
     "/dataforseo_labs/google/ranked_keywords/live",
@@ -231,14 +233,12 @@ export async function getTopBlogKeywords(
         ],
         order_by: ["ranked_serp_element.serp_item.etv,desc"],
       },
-    ]
+    ],
   );
 
   const task = data.tasks?.[0];
   if (!task || task.status_code !== 20000) {
-    throw new Error(
-      `DataForSEO ranked_keywords error: ${task?.status_code}`
-    );
+    throw new Error(`DataForSEO ranked_keywords error: ${task?.status_code}`);
   }
 
   return (task.result?.[0]?.items ?? []).map((item) => {
@@ -262,7 +262,7 @@ export async function getTopBlogKeywords(
 
 // Paginated: get all top blog keywords (up to maxPages * 100)
 export async function getAllTopBlogKeywords(
-  maxResults = 500
+  maxResults = 500,
 ): Promise<BlogKeywordRanking[]> {
   const all: BlogKeywordRanking[] = [];
   for (let offset = 0; offset < maxResults; offset += 100) {
@@ -277,7 +277,7 @@ export async function getAllTopBlogKeywords(
 // Get top ranked keywords for a specific blog page slug
 export async function getRankedKeywordsForPage(
   blogSlug: string,
-  limit = 10
+  limit = 10,
 ): Promise<RankedKeyword[]> {
   const data = await apiPost<RankedKeywordsResponse>(
     "/dataforseo_labs/google/ranked_keywords/live",
@@ -294,7 +294,7 @@ export async function getRankedKeywordsForPage(
         ],
         order_by: ["ranked_serp_element.serp_item.etv,desc"],
       },
-    ]
+    ],
   );
 
   const task = data.tasks?.[0];

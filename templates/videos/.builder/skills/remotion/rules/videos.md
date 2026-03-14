@@ -10,6 +10,7 @@ metadata:
 ## Prerequisites
 
 The @remotion/media package needs to be installed:
+
 ```bash
 pnpm exec remotion add @remotion/media
 ```
@@ -29,7 +30,11 @@ export const MyComposition = () => {
 
 ```tsx
 const { fps } = useVideoConfig();
-<Video src={staticFile("video.mp4")} trimBefore={2 * fps} trimAfter={10 * fps} />
+<Video
+  src={staticFile("video.mp4")}
+  trimBefore={2 * fps}
+  trimAfter={10 * fps}
+/>;
 ```
 
 ## Delaying

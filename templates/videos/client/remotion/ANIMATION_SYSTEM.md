@@ -24,9 +24,8 @@ if (hoverState.isHovering && hoverStartFrameRef.current === null) {
 }
 
 // 4. Calculate elapsed frames
-const hoverElapsedFrames = hoverStartFrameRef.current !== null 
-  ? frame - hoverStartFrameRef.current 
-  : 0;
+const hoverElapsedFrames =
+  hoverStartFrameRef.current !== null ? frame - hoverStartFrameRef.current : 0;
 
 // 5. Compute progress based on animation.duration
 const animationProgress = Math.min(1, elapsedFrames / animation.duration);
@@ -71,12 +70,13 @@ When creating or modifying interactive components:
 When animating colors (backgroundColor, borderColor, etc.):
 
 1. **Blend from current prop value to target**, not from hardcoded "from" keyframe:
+
    ```typescript
    // Get target from last keyframe
    const animatedTargets = useMemo(() => {
      const result: Record<string, number | string> = {};
-     animations.forEach(animation => {
-       animation.properties.forEach(prop => {
+     animations.forEach((animation) => {
+       animation.properties.forEach((prop) => {
          if (prop.keyframes.length > 0) {
            const lastKeyframe = prop.keyframes[prop.keyframes.length - 1];
            result[prop.property] = lastKeyframe.value;
@@ -88,11 +88,12 @@ When animating colors (backgroundColor, borderColor, etc.):
    ```
 
 2. **Use interpolateColors() for smooth RGB blending**:
+
    ```typescript
    const blendedColor = interpolateColors(
      currentStaticColor,
      targetColor,
-     progress
+     progress,
    );
    ```
 
@@ -101,6 +102,7 @@ When animating colors (backgroundColor, borderColor, etc.):
 ## Reference Implementation
 
 See `client/remotion/hooks/useInteractiveComponent.ts` for the complete, correct implementation of:
+
 - Duration-based progress calculation
 - Frame tracking with refs
 - Animated targets for color blending

@@ -90,7 +90,8 @@ function extractProp(props: any, name: string): string {
       return (prop.people ?? []).map((p: any) => p.name ?? p.id).join(", ");
     case "formula":
       if (prop.formula?.type === "string") return prop.formula.string ?? "";
-      if (prop.formula?.type === "number") return String(prop.formula.number ?? "");
+      if (prop.formula?.type === "number")
+        return String(prop.formula.number ?? "");
       if (prop.formula?.type === "date") return prop.formula.date?.start ?? "";
       return "";
     case "created_time":
@@ -98,9 +99,12 @@ function extractProp(props: any, name: string): string {
     case "last_edited_time":
       return prop.last_edited_time ?? "";
     case "rollup":
-      if (prop.rollup?.type === "number") return String(prop.rollup.number ?? "");
+      if (prop.rollup?.type === "number")
+        return String(prop.rollup.number ?? "");
       if (prop.rollup?.type === "array")
-        return (prop.rollup.array ?? []).map((a: any) => richTextToString(a.title ?? a.rich_text ?? [])).join(", ");
+        return (prop.rollup.array ?? [])
+          .map((a: any) => richTextToString(a.title ?? a.rich_text ?? []))
+          .join(", ");
       return "";
     default:
       return "";
@@ -165,7 +169,7 @@ export async function getDataDictionary(): Promise<DataDictionaryEntry[]> {
 
     const result = (await notionPost(
       `/databases/${DATA_DICTIONARY_DB_ID}/query`,
-      body
+      body,
     )) as any;
 
     for (const page of result.results ?? []) {
@@ -231,7 +235,7 @@ export async function getContentCalendar(): Promise<ContentCalendarEntry[]> {
 
     const result = (await notionPost(
       `/databases/${CONTENT_DB_ID}/query`,
-      body
+      body,
     )) as any;
 
     for (const page of result.results ?? []) {
@@ -332,7 +336,7 @@ async function fetchBlocks(blockId: string): Promise<NotionBlock[]> {
         id: block.id,
         type: block.type,
         has_children: block.has_children,
-        ...( block[block.type] ? { [block.type]: block[block.type] } : {}),
+        ...(block[block.type] ? { [block.type]: block[block.type] } : {}),
       };
 
       if (b.has_children) {
@@ -358,7 +362,7 @@ export async function getNotionPage(pageId: string): Promise<NotionPageData> {
   // Fetch page title
   const page = (await notionGet(`/pages/${pageId}`)) as any;
   const titleProp = Object.values(page.properties ?? {}).find(
-    (p: any) => p.type === "title"
+    (p: any) => p.type === "title",
   ) as any;
   const title = titleProp ? richTextToString(titleProp.title) : "";
 
@@ -521,7 +525,7 @@ export async function updateDataDictionaryEntry(
     CommonQuestions: string;
     KnownGotchas: string;
     ExampleUseCase: string;
-  }>
+  }>,
 ): Promise<void> {
   const properties: Record<string, any> = {};
 
@@ -638,16 +642,19 @@ export async function syncDataDictionary(): Promise<void> {
 
     const metaLine: string[] = [];
     if (entry.Table) metaLine.push(`**Table:** \`${entry.Table}\``);
-    if (entry.ColumnsUsed) metaLine.push(`**Columns:** \`${entry.ColumnsUsed}\``);
+    if (entry.ColumnsUsed)
+      metaLine.push(`**Columns:** \`${entry.ColumnsUsed}\``);
     if (metaLine.length) {
       lines.push(metaLine.join(" | "));
       lines.push("");
     }
 
     const contextLine: string[] = [];
-    if (entry.Department) contextLine.push(`**Department:** ${entry.Department}`);
+    if (entry.Department)
+      contextLine.push(`**Department:** ${entry.Department}`);
     if (entry.Owner) contextLine.push(`**Owner:** ${entry.Owner}`);
-    if (entry.UpdateFrequency) contextLine.push(`**Update Frequency:** ${entry.UpdateFrequency}`);
+    if (entry.UpdateFrequency)
+      contextLine.push(`**Update Frequency:** ${entry.UpdateFrequency}`);
     if (entry.DataLag) contextLine.push(`**Data Lag:** ${entry.DataLag}`);
     if (contextLine.length) {
       lines.push(contextLine.join(" | "));
@@ -719,7 +726,10 @@ export async function syncDataDictionary(): Promise<void> {
     lines.push("");
   }
 
-  const outPath = path.join(import.meta.dirname, "../../docs/data-dictionary.md");
+  const outPath = path.join(
+    import.meta.dirname,
+    "../../docs/data-dictionary.md",
+  );
   const outDir = path.dirname(outPath);
   if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
   fs.writeFileSync(outPath, lines.join("\n"), "utf8");

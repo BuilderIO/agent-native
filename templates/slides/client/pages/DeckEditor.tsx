@@ -1,6 +1,13 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useParams, Navigate, useSearchParams } from "react-router-dom";
-import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
 import { useDecks } from "@/context/DeckContext";
 import type { SlideLayout } from "@/context/DeckContext";
 import EditorSidebar from "@/components/editor/EditorSidebar";
@@ -19,9 +26,16 @@ export default function DeckEditor() {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
-    getDeck, updateDeck, updateSlide, deleteSlide,
-    duplicateSlide, reorderSlides,
-    undo, redo, canUndo, canRedo,
+    getDeck,
+    updateDeck,
+    updateSlide,
+    deleteSlide,
+    duplicateSlide,
+    reorderSlides,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
     loading,
   } = useDecks();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
@@ -30,7 +44,9 @@ export default function DeckEditor() {
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
   const isNewDeckGenerating = generating && wasNewDeckCreation.current;
   const [activeTab, setActiveTab] = useState<"visual" | "code">("visual");
-  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => window.innerWidth >= 768,
+  );
 
   // Dialog/popover states
   const [imageGenOpen, setImageGenOpen] = useState(false);
@@ -63,17 +79,20 @@ export default function DeckEditor() {
     if (!generating) {
       wasNewDeckCreation.current = false;
       if (searchParams.get("generating")) {
-        setSearchParams((prev) => {
-          const next = new URLSearchParams(prev);
-          next.delete("generating");
-          return next;
-        }, { replace: true });
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.delete("generating");
+            return next;
+          },
+          { replace: true },
+        );
       }
     }
   }, [generating, searchParams, setSearchParams]);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
 
   const handleDragEnd = useCallback(
@@ -87,7 +106,7 @@ export default function DeckEditor() {
         reorderSlides(id, oldIndex, newIndex);
       }
     },
-    [deck, id, reorderSlides]
+    [deck, id, reorderSlides],
   );
 
   // Replace an image src in the current slide's HTML content
@@ -96,7 +115,9 @@ export default function DeckEditor() {
       if (!id || !currentSlideRef.current) return;
       const slide = currentSlideRef.current;
       const updatedContent = slide.content.replace(
-        new RegExp(`src=["']${oldSrc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`),
+        new RegExp(
+          `src=["']${oldSrc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`,
+        ),
         `src="${newSrc}"`,
       );
       if (updatedContent !== slide.content) {
@@ -113,16 +134,24 @@ export default function DeckEditor() {
       const slide = currentSlideRef.current;
       const escapedSrc = imgSrc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       // Match the img tag containing this src and update/add object-fit in its style
-      const imgRegex = new RegExp(`(<img[^>]*src=["']${escapedSrc}["'][^>]*?)(/?>)`);
+      const imgRegex = new RegExp(
+        `(<img[^>]*src=["']${escapedSrc}["'][^>]*?)(/?>)`,
+      );
       const match = slide.content.match(imgRegex);
       if (!match) return;
       let imgTag = match[1];
       // Update or add style attribute with object-fit
       if (/style\s*=\s*["']/.test(imgTag)) {
         if (/object-fit\s*:/.test(imgTag)) {
-          imgTag = imgTag.replace(/object-fit\s*:\s*[^;"']+/, `object-fit: ${newFit}`);
+          imgTag = imgTag.replace(
+            /object-fit\s*:\s*[^;"']+/,
+            `object-fit: ${newFit}`,
+          );
         } else {
-          imgTag = imgTag.replace(/style\s*=\s*["']/, `style="object-fit: ${newFit}; `);
+          imgTag = imgTag.replace(
+            /style\s*=\s*["']/,
+            `style="object-fit: ${newFit}; `,
+          );
         }
       } else {
         imgTag += ` style="object-fit: ${newFit};"`;
@@ -143,7 +172,10 @@ export default function DeckEditor() {
       const form = new FormData();
       form.append("file", files[0]);
       try {
-        const res = await fetch("/api/assets/upload", { method: "POST", body: form });
+        const res = await fetch("/api/assets/upload", {
+          method: "POST",
+          body: form,
+        });
         if (res.ok) {
           const data = await res.json();
           replaceImageInSlide(replaceImageSrc, data.url);
@@ -161,8 +193,17 @@ export default function DeckEditor() {
       if (!deck || !id || !activeSlideId) return;
       // Don't intercept if user is typing in an input/textarea/contenteditable
       const target = e.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
-      if ((e.key === "Delete" || e.key === "Backspace") && !e.metaKey && !e.ctrlKey) {
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      )
+        return;
+      if (
+        (e.key === "Delete" || e.key === "Backspace") &&
+        !e.metaKey &&
+        !e.ctrlKey
+      ) {
         if (deck.slides.length <= 1) return; // don't delete last slide
         const idx = deck.slides.findIndex((s) => s.id === activeSlideId);
         const nextSlide = deck.slides[idx + 1] || deck.slides[idx - 1];
@@ -195,11 +236,14 @@ export default function DeckEditor() {
       const current = searchParams.get("slide");
       const newVal = String(idx + 1);
       if (current !== newVal) {
-        setSearchParams((prev) => {
-          const next = new URLSearchParams(prev);
-          next.set("slide", newVal);
-          return next;
-        }, { replace: true });
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.set("slide", newVal);
+            return next;
+          },
+          { replace: true },
+        );
       }
     }
   }, [activeSlideId, deck, searchParams, setSearchParams]);
@@ -207,7 +251,8 @@ export default function DeckEditor() {
   // Expose current selection state to agent chat / scripts via window global + data attrs
   useEffect(() => {
     if (!deck || !id) return;
-    const slide = deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
+    const slide =
+      deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
     const idx = deck.slides.findIndex((s) => s.id === slide?.id);
     const selection = {
       deckId: id,
@@ -237,12 +282,14 @@ export default function DeckEditor() {
     };
   }, [deck, id, activeSlideId, replaceImageSrc]);
 
-  const currentSlideRef = useRef<typeof deck extends undefined ? null : any>(null);
+  const currentSlideRef =
+    useRef<typeof deck extends undefined ? null : any>(null);
 
   if (loading) return <div className="h-screen bg-[hsl(240,5%,5%)]" />;
   if (!deck || !id) return <Navigate to="/" replace />;
 
-  const currentSlide = deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
+  const currentSlide =
+    deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
   currentSlideRef.current = currentSlide;
 
@@ -274,7 +321,9 @@ export default function DeckEditor() {
         canUndo={canUndo}
         canRedo={canRedo}
         currentSlide={currentSlide}
-        onUpdateSlide={(updates) => currentSlide && updateSlide(id, currentSlide.id, updates)}
+        onUpdateSlide={(updates) =>
+          currentSlide && updateSlide(id, currentSlide.id, updates)
+        }
       />
 
       <div className="flex-1 flex overflow-hidden relative">
@@ -285,7 +334,11 @@ export default function DeckEditor() {
               onClick={() => setSidebarOpen(false)}
             />
             <div className="absolute md:relative z-40 h-full">
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
                 <EditorSidebar
                   slides={deck.slides}
                   activeSlideId={currentSlide?.id || ""}
@@ -299,7 +352,8 @@ export default function DeckEditor() {
                   onDeleteSlide={(slideId) => {
                     deleteSlide(id, slideId);
                     const idx = deck.slides.findIndex((s) => s.id === slideId);
-                    const nextSlide = deck.slides[idx + 1] || deck.slides[idx - 1];
+                    const nextSlide =
+                      deck.slides[idx + 1] || deck.slides[idx - 1];
                     if (nextSlide) setActiveSlideId(nextSlide.id);
                   }}
                 />
@@ -313,7 +367,9 @@ export default function DeckEditor() {
         {!isNewDeckGenerating && currentSlide && (
           <SlideEditor
             slide={currentSlide}
-            onUpdateSlide={(updates) => updateSlide(id, currentSlide.id, updates)}
+            onUpdateSlide={(updates) =>
+              updateSlide(id, currentSlide.id, updates)
+            }
             activeTab={activeTab}
             onGenerateImage={() => setImageGenOpen(true)}
             onOpenAssetLibrary={(src) => {
@@ -351,46 +407,58 @@ export default function DeckEditor() {
         open={imageGenOpen}
         onOpenChange={setImageGenOpen}
         anchorRef={imageGenButtonRef}
-        slideContext={currentSlide ? {
-          slideId: currentSlide.id,
-          slideIndex: currentIndex >= 0 ? currentIndex : 0,
-          slideContent: currentSlide.content,
-          slideLayout: currentSlide.layout,
-          deckId: id,
-          deckTitle: deck.title,
-        } : undefined}
+        slideContext={
+          currentSlide
+            ? {
+                slideId: currentSlide.id,
+                slideIndex: currentIndex >= 0 ? currentIndex : 0,
+                slideContent: currentSlide.content,
+                slideLayout: currentSlide.layout,
+                deckId: id,
+                deckTitle: deck.title,
+              }
+            : undefined
+        }
       />
       <AssetLibraryPanel
         open={assetLibraryOpen}
         onOpenChange={setAssetLibraryOpen}
         anchorRef={assetsButtonRef}
-        onSelectAsset={replaceImageSrc ? (newUrl) => {
-          replaceImageInSlide(replaceImageSrc, newUrl);
-          setReplaceImageSrc(null);
-        } : undefined}
+        onSelectAsset={
+          replaceImageSrc
+            ? (newUrl) => {
+                replaceImageInSlide(replaceImageSrc, newUrl);
+                setReplaceImageSrc(null);
+              }
+            : undefined
+        }
       />
       <ImageSearchPanel
         open={imageSearchOpen}
         onOpenChange={setImageSearchOpen}
-        onSelectImage={replaceImageSrc ? (newUrl) => {
-          replaceImageInSlide(replaceImageSrc, newUrl);
-          setReplaceImageSrc(null);
-        } : undefined}
+        onSelectImage={
+          replaceImageSrc
+            ? (newUrl) => {
+                replaceImageInSlide(replaceImageSrc, newUrl);
+                setReplaceImageSrc(null);
+              }
+            : undefined
+        }
       />
       <LogoSearchPanel
         open={logoSearchOpen}
         onOpenChange={setLogoSearchOpen}
-        onSelectLogo={replaceImageSrc ? (newUrl) => {
-          replaceImageInSlide(replaceImageSrc, newUrl);
-          setReplaceImageSrc(null);
-        } : undefined}
+        onSelectLogo={
+          replaceImageSrc
+            ? (newUrl) => {
+                replaceImageInSlide(replaceImageSrc, newUrl);
+                setReplaceImageSrc(null);
+              }
+            : undefined
+        }
       />
       {deck && (
-        <ShareDialog
-          open={shareOpen}
-          onOpenChange={setShareOpen}
-          deck={deck}
-        />
+        <ShareDialog open={shareOpen} onOpenChange={setShareOpen} deck={deck} />
       )}
       <HistoryPanel
         open={historyOpen}

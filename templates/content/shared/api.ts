@@ -6,8 +6,8 @@ export interface Project {
   name: string;
   updatedAt: string;
   group?: string;
-  folder?: string;       // intermediate path within workspace (e.g. "blog" or "social/campaigns")
-  activeDraft?: string;  // defaults to "draft.md"
+  folder?: string; // intermediate path within workspace (e.g. "blog" or "social/campaigns")
+  activeDraft?: string; // defaults to "draft.md"
   isPrivate?: boolean;
   ownerId?: string;
 }
@@ -144,7 +144,7 @@ export interface RestoreVersionResponse {
 // --- Pages (unified tree) ---
 
 export interface Page {
-  id: string;              // project slug or "slug::filepath"
+  id: string; // project slug or "slug::filepath"
   title: string;
   parentId: string | null; // null = top-level in workspace
   type: "page" | "folder"; // folder = expandable group only

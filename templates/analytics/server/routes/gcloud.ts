@@ -93,7 +93,7 @@ export const handleGCloudMetrics: RequestHandler = async (req, res) => {
       service,
       metric,
       period,
-      extraFilter
+      extraFilter,
     );
     res.json({ timeSeries, total: timeSeries.length });
   } catch (err: any) {
@@ -130,11 +130,11 @@ export const handleGCloudLogs: RequestHandler = async (req, res) => {
     if (service) {
       if (type === "cloud_function") {
         filterParts.push(
-          `resource.type = "cloud_function" AND resource.labels.function_name = "${service}"`
+          `resource.type = "cloud_function" AND resource.labels.function_name = "${service}"`,
         );
       } else {
         filterParts.push(
-          `resource.type = "cloud_run_revision" AND resource.labels.service_name = "${service}"`
+          `resource.type = "cloud_run_revision" AND resource.labels.service_name = "${service}"`,
         );
       }
     }

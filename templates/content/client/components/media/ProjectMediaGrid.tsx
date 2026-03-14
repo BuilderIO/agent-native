@@ -26,7 +26,10 @@ interface ProjectMediaGridProps {
   onBack: () => void;
 }
 
-export function ProjectMediaGrid({ projectSlug, onBack }: ProjectMediaGridProps) {
+export function ProjectMediaGrid({
+  projectSlug,
+  onBack,
+}: ProjectMediaGridProps) {
   const { data, isLoading } = useProjectMedia(projectSlug);
   const bulkDelete = useBulkDeleteProjectMedia(projectSlug);
   const { upload, isUploading } = useMediaUpload(projectSlug);
@@ -72,9 +75,11 @@ export function ProjectMediaGrid({ projectSlug, onBack }: ProjectMediaGridProps)
       for (let i = 0; i < fileList.length; i++) {
         await upload(fileList[i]);
       }
-      queryClient.invalidateQueries({ queryKey: ["project-media", projectSlug] });
+      queryClient.invalidateQueries({
+        queryKey: ["project-media", projectSlug],
+      });
     },
-    [upload, queryClient, projectSlug]
+    [upload, queryClient, projectSlug],
   );
 
   const handleDrop = useCallback(
@@ -83,7 +88,7 @@ export function ProjectMediaGrid({ projectSlug, onBack }: ProjectMediaGridProps)
       setIsDragging(false);
       if (e.dataTransfer.files.length) handleUploadFiles(e.dataTransfer.files);
     },
-    [handleUploadFiles]
+    [handleUploadFiles],
   );
 
   const handleCardClick = useCallback(
@@ -94,7 +99,7 @@ export function ProjectMediaGrid({ projectSlug, onBack }: ProjectMediaGridProps)
         setLightboxFile(file.filename);
       }
     },
-    [isSelectMode, toggleSelect]
+    [isSelectMode, toggleSelect],
   );
 
   if (isLoading) {

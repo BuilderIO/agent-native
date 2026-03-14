@@ -48,7 +48,8 @@ function get7DaysAgo(): string {
 export default function KeyMetricsDashboard() {
   // Date filter state
   const [dateRange, setDateRange] = useState<string>("90");
-  const [customStartDate, setCustomStartDate] = useState<string>(get90DaysAgo());
+  const [customStartDate, setCustomStartDate] =
+    useState<string>(get90DaysAgo());
   const [customEndDate, setCustomEndDate] = useState<string>(getToday());
   const [cadence, setCadence] = useState<string>("daily");
 
@@ -82,30 +83,74 @@ export default function KeyMetricsDashboard() {
 
   // Custom SQL state - allows user to override default queries
   const [customTrafficSql, setCustomTrafficSql] = useState<string | null>(null);
-  const [customTrafficAmplitudeSql, setCustomTrafficAmplitudeSql] = useState<string | null>(null);
-  const [customDailySignupsSql, setCustomDailySignupsSql] = useState<string | null>(null);
-  const [customHourlySignupsSql, setCustomHourlySignupsSql] = useState<string | null>(null);
-  const [customNewVsCancelledSql, setCustomNewVsCancelledSql] = useState<string | null>(null);
+  const [customTrafficAmplitudeSql, setCustomTrafficAmplitudeSql] = useState<
+    string | null
+  >(null);
+  const [customDailySignupsSql, setCustomDailySignupsSql] = useState<
+    string | null
+  >(null);
+  const [customHourlySignupsSql, setCustomHourlySignupsSql] = useState<
+    string | null
+  >(null);
+  const [customNewVsCancelledSql, setCustomNewVsCancelledSql] = useState<
+    string | null
+  >(null);
 
   // Default SQL queries - using direct calls instead of useMemo to ensure fresh queries
   const defaultTrafficSql = siteTrafficQuery(dateStart, dateEnd, cadence);
-  const defaultTrafficAmplitudeSql = siteTrafficAmplitudeQuery(dateStart, dateEnd, cadence);
+  const defaultTrafficAmplitudeSql = siteTrafficAmplitudeQuery(
+    dateStart,
+    dateEnd,
+    cadence,
+  );
   const defaultDailySignupsSql = dailySignupsQuery(dateStart, dateEnd, cadence);
   const defaultHourlySignupsSql = hourlySignupsQuery();
-  const defaultNewVsCancelledSql = newVsCancelledSubsQuery(dateStart, dateEnd, cadence);
+  const defaultNewVsCancelledSql = newVsCancelledSubsQuery(
+    dateStart,
+    dateEnd,
+    cadence,
+  );
 
   // Use custom SQL if provided, otherwise use default
   const trafficSql = customTrafficSql ?? defaultTrafficSql;
-  const trafficAmplitudeSql = customTrafficAmplitudeSql ?? defaultTrafficAmplitudeSql;
+  const trafficAmplitudeSql =
+    customTrafficAmplitudeSql ?? defaultTrafficAmplitudeSql;
   const dailySignupsSql = customDailySignupsSql ?? defaultDailySignupsSql;
   const hourlySignupsSql = customHourlySignupsSql ?? defaultHourlySignupsSql;
   const newVsCancelledSql = customNewVsCancelledSql ?? defaultNewVsCancelledSql;
 
-  const trafficData = useMetricsQuery(["key-metrics-traffic", cadence, dateStart, dateEnd, trafficSql], trafficSql);
-  const trafficAmplitudeData = useMetricsQuery(["key-metrics-traffic-amplitude", cadence, dateStart, dateEnd, trafficAmplitudeSql], trafficAmplitudeSql);
-  const dailySignupsData = useMetricsQuery(["key-metrics-daily-signups", cadence, dateStart, dateEnd, dailySignupsSql], dailySignupsSql);
-  const hourlySignupsData = useMetricsQuery(["key-metrics-hourly-signups", hourlySignupsSql], hourlySignupsSql);
-  const newVsCancelledData = useMetricsQuery(["key-metrics-new-vs-cancelled", cadence, dateStart, dateEnd, newVsCancelledSql], newVsCancelledSql);
+  const trafficData = useMetricsQuery(
+    ["key-metrics-traffic", cadence, dateStart, dateEnd, trafficSql],
+    trafficSql,
+  );
+  const trafficAmplitudeData = useMetricsQuery(
+    [
+      "key-metrics-traffic-amplitude",
+      cadence,
+      dateStart,
+      dateEnd,
+      trafficAmplitudeSql,
+    ],
+    trafficAmplitudeSql,
+  );
+  const dailySignupsData = useMetricsQuery(
+    ["key-metrics-daily-signups", cadence, dateStart, dateEnd, dailySignupsSql],
+    dailySignupsSql,
+  );
+  const hourlySignupsData = useMetricsQuery(
+    ["key-metrics-hourly-signups", hourlySignupsSql],
+    hourlySignupsSql,
+  );
+  const newVsCancelledData = useMetricsQuery(
+    [
+      "key-metrics-new-vs-cancelled",
+      cadence,
+      dateStart,
+      dateEnd,
+      newVsCancelledSql,
+    ],
+    newVsCancelledSql,
+  );
 
   // Debug logging
   console.log("Traffic SQL:", trafficSql);
@@ -203,8 +248,10 @@ export default function KeyMetricsDashboard() {
 
         {/* Date range summary */}
         <div className="mt-3 text-xs text-muted-foreground">
-          Showing data from <span className="font-mono font-medium">{dateStart}</span> to{" "}
-          <span className="font-mono font-medium">{dateEnd}</span> ({cadence} cadence)
+          Showing data from{" "}
+          <span className="font-mono font-medium">{dateStart}</span> to{" "}
+          <span className="font-mono font-medium">{dateEnd}</span> ({cadence}{" "}
+          cadence)
         </div>
       </div>
 
@@ -271,7 +318,9 @@ export default function KeyMetricsDashboard() {
       {/* Top Traffic Days Analysis */}
       {trafficData.data?.rows && trafficData.data.rows.length > 0 && (
         <div className="rounded-lg border border-border/50 p-4">
-          <h3 className="text-sm font-semibold mb-3">Top 10 Traffic Days (Last 90 Days)</h3>
+          <h3 className="text-sm font-semibold mb-3">
+            Top 10 Traffic Days (Last 90 Days)
+          </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead className="border-b border-border">
@@ -293,9 +342,15 @@ export default function KeyMetricsDashboard() {
                   .map((row: any, i: number) => (
                     <tr key={i} className="border-b border-border/50">
                       <td className="py-2 font-mono">{String(row.period)}</td>
-                      <td className="py-2 text-right font-mono">{Number(row.not_blog).toLocaleString()}</td>
-                      <td className="py-2 text-right font-mono">{Number(row.blog).toLocaleString()}</td>
-                      <td className="py-2 text-right font-mono font-semibold">{row.total.toLocaleString()}</td>
+                      <td className="py-2 text-right font-mono">
+                        {Number(row.not_blog).toLocaleString()}
+                      </td>
+                      <td className="py-2 text-right font-mono">
+                        {Number(row.blog).toLocaleString()}
+                      </td>
+                      <td className="py-2 text-right font-mono font-semibold">
+                        {row.total.toLocaleString()}
+                      </td>
                     </tr>
                   ))}
               </tbody>
@@ -307,21 +362,27 @@ export default function KeyMetricsDashboard() {
       {/* Definitions */}
       <div className="rounded-lg border border-border/50 p-3 text-xs text-muted-foreground space-y-1">
         <p>
-          <span className="font-medium text-foreground">Site traffic</span> — Unique page views on
-          builder.io, segmented by blog vs non-blog pages. Excludes internal @builder.io users.
+          <span className="font-medium text-foreground">Site traffic</span> —
+          Unique page views on builder.io, segmented by blog vs non-blog pages.
+          Excludes internal @builder.io users.
         </p>
         <p>
-          <span className="font-medium text-foreground">Daily Signups</span> — Account signup events
-          per day. Excludes @builder.io emails and India-based signups.
+          <span className="font-medium text-foreground">Daily Signups</span> —
+          Account signup events per day. Excludes @builder.io emails and
+          India-based signups.
         </p>
         <p>
-          <span className="font-medium text-foreground">Hourly Signups</span> — Account signup events
-          aggregated by hour for the last 7 days. Excludes @builder.io emails and India-based signups.
+          <span className="font-medium text-foreground">Hourly Signups</span> —
+          Account signup events aggregated by hour for the last 7 days. Excludes
+          @builder.io emails and India-based signups.
         </p>
         <p>
-          <span className="font-medium text-foreground">New subs vs cancelled</span> — Daily count of
-          new subscription payment successes vs subscription plan cancellations. Excludes @builder.io,
-          qq.com emails and India-based events.
+          <span className="font-medium text-foreground">
+            New subs vs cancelled
+          </span>{" "}
+          — Daily count of new subscription payment successes vs subscription
+          plan cancellations. Excludes @builder.io, qq.com emails and
+          India-based events.
         </p>
       </div>
 

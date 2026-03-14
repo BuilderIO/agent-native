@@ -37,7 +37,7 @@ import {
 
 function useUrlParam(
   key: string,
-  defaultValue: string
+  defaultValue: string,
 ): [string, (v: string) => void] {
   const [value, setValue] = useState(() => {
     const params = new URLSearchParams(window.location.search);
@@ -55,7 +55,7 @@ function useUrlParam(
     window.history.replaceState(
       null,
       "",
-      `${window.location.pathname}${s ? `?${s}` : ""}`
+      `${window.location.pathname}${s ? `?${s}` : ""}`,
     );
   }, [value, key, defaultValue]);
 
@@ -67,7 +67,7 @@ function useUrlParam(
 function lastVal(
   rows: Record<string, unknown>[],
   key: string,
-  fmt: (v: number) => string
+  fmt: (v: number) => string,
 ): string | undefined {
   if (!rows.length) return undefined;
   return fmt(Number(rows[rows.length - 1][key] ?? 0));
@@ -76,7 +76,7 @@ function lastVal(
 function lastNonZero(
   rows: Record<string, unknown>[],
   key: string,
-  fmt: (v: number) => string
+  fmt: (v: number) => string,
 ): string | undefined {
   for (let i = rows.length - 1; i >= 0; i--) {
     const v = Number(rows[i][key] ?? 0);
@@ -94,72 +94,84 @@ export default function CompanyKpisDashboard() {
   const dc = cadence as DateCadence;
 
   // ── TOFU & Pipeline ──────────────────────────────────────────────────
-  const qlsSql = useMemo(() => qlsQuery(dc, dateStart, dateEnd), [dc, dateStart, dateEnd]);
+  const qlsSql = useMemo(
+    () => qlsQuery(dc, dateStart, dateEnd),
+    [dc, dateStart, dateEnd],
+  );
   const qlsData = useMetricsQuery(["co-qls", qlsSql], qlsSql);
 
-  const s1sSql = useMemo(() => s1sQuery(dc, dateStart, dateEnd), [dc, dateStart, dateEnd]);
+  const s1sSql = useMemo(
+    () => s1sQuery(dc, dateStart, dateEnd),
+    [dc, dateStart, dateEnd],
+  );
   const s1sData = useMetricsQuery(["co-s1s", s1sSql], s1sSql);
 
   const s1sNamedSql = useMemo(
     () => s1sNamedAccountsQuery(dc, dateStart, dateEnd),
-    [dc, dateStart, dateEnd]
+    [dc, dateStart, dateEnd],
   );
   const s1sNamedData = useMetricsQuery(["co-s1sn", s1sNamedSql], s1sNamedSql);
 
   // ── Sales Productivity ───────────────────────────────────────────────
-  const acvSql = useMemo(() => landingAcvQuery(dc, dateStart, dateEnd), [dc, dateStart, dateEnd]);
+  const acvSql = useMemo(
+    () => landingAcvQuery(dc, dateStart, dateEnd),
+    [dc, dateStart, dateEnd],
+  );
   const acvData = useMetricsQuery(["co-acv", acvSql], acvSql);
 
   const povSql = useMemo(
     () => povWinRateQuery(dc, dateStart, dateEnd),
-    [dc, dateStart, dateEnd]
+    [dc, dateStart, dateEnd],
   );
   const povData = useMetricsQuery(["co-pov", povSql], povSql);
 
   const aeSql = useMemo(
     () => aeCapacityQuery(dc, dateStart, dateEnd),
-    [dc, dateStart, dateEnd]
+    [dc, dateStart, dateEnd],
   );
   const aeData = useMetricsQuery(["co-ae", aeSql], aeSql);
 
   // ── Expansion ────────────────────────────────────────────────────────
   const expSql = useMemo(
     () => expansionPipelineQuery(dc, dateStart, dateEnd),
-    [dc, dateStart, dateEnd]
+    [dc, dateStart, dateEnd],
   );
   const expData = useMetricsQuery(["co-exp", expSql], expSql);
 
-  const ndrSql = useMemo(() => ndrQuery(dc, dateStart, dateEnd), [dc, dateStart, dateEnd]);
+  const ndrSql = useMemo(
+    () => ndrQuery(dc, dateStart, dateEnd),
+    [dc, dateStart, dateEnd],
+  );
   const ndrData = useMetricsQuery(["co-ndr", ndrSql], ndrSql);
 
   const seatSql = useMemo(
     () => seatUtilizationQuery(dc, dateStart, dateEnd),
-    [dc, dateStart, dateEnd]
+    [dc, dateStart, dateEnd],
   );
   const seatData = useMetricsQuery(["co-seat", seatSql], seatSql);
 
   // ── Self-Serve ───────────────────────────────────────────────────────
   const ssConvSql = useMemo(
     () => selfServeConversionQuery(dc, dateStart, dateEnd),
-    [dc, dateStart, dateEnd]
+    [dc, dateStart, dateEnd],
   );
   const ssConvData = useMetricsQuery(["co-ssconv", ssConvSql], ssConvSql);
 
   const ssRetSql = useMemo(
     () => selfServeRetentionQuery(dc, dateStart, dateEnd),
-    [dc, dateStart, dateEnd]
+    [dc, dateStart, dateEnd],
   );
   const ssRetData = useMetricsQuery(["co-ssret", ssRetSql], ssRetSql);
 
   const ssWauSql = useMemo(
     () => selfServeWauQuery(dc, dateStart, dateEnd),
-    [dc, dateStart, dateEnd]
+    [dc, dateStart, dateEnd],
   );
   const ssWauData = useMetricsQuery(["co-sswau", ssWauSql], ssWauSql);
 
   const ssArpaSql = useMemo(
     () => selfServeArpaQuery(dc, dateStart, dateEnd),
-    [dc, dateStart, dateEnd]
+    [dc, dateStart, dateEnd],
   );
   const ssArpaData = useMetricsQuery(["co-ssarpa", ssArpaSql], ssArpaSql);
 
@@ -181,9 +193,7 @@ export default function CompanyKpisDashboard() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">
-          Company KPIs
-        </h1>
+        <h1 className="text-2xl font-bold tracking-tight">Company KPIs</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Focus areas and key metrics across all motions
         </p>
@@ -210,11 +220,15 @@ export default function CompanyKpisDashboard() {
             </Select>
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground font-medium">From</label>
+            <label className="text-xs text-muted-foreground font-medium">
+              From
+            </label>
             <DatePicker value={dateStart} onChange={setDateStart} />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground font-medium">To</label>
+            <label className="text-xs text-muted-foreground font-medium">
+              To
+            </label>
             <DatePicker value={dateEnd} onChange={setDateEnd} />
           </div>
         </div>

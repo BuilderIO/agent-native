@@ -1,3 +1,8 @@
+---
+name: image-generation
+description: How to generate brand images using the generate-images script.
+---
+
 # Image Generation
 
 ## How to Generate

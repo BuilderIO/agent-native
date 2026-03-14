@@ -7,7 +7,10 @@ interface SqlCodeToggleProps {
   title?: string;
 }
 
-export function SqlCodeToggle({ sql, title = "View SQL Query" }: SqlCodeToggleProps) {
+export function SqlCodeToggle({
+  sql,
+  title = "View SQL Query",
+}: SqlCodeToggleProps) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
@@ -21,11 +24,11 @@ export function SqlCodeToggle({ sql, title = "View SQL Query" }: SqlCodeTogglePr
         <ChevronDown
           className={cn(
             "h-3.5 w-3.5 transition-transform",
-            isOpen && "rotate-180"
+            isOpen && "rotate-180",
           )}
         />
       </button>
-      
+
       {isOpen && (
         <div className="mt-3">
           <pre className="text-[10px] bg-muted p-3 rounded-lg overflow-x-auto border border-border leading-relaxed">

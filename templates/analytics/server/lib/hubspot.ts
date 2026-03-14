@@ -103,14 +103,14 @@ const DEAL_PROPERTIES = [
   "hubspot_owner_id",
   "hs_deal_stage_probability",
   // POV stage entry dates (hs_v2_date_entered_{stageId})
-  "hs_v2_date_entered_2121599",   // Enterprise: New Business — S2 - Proof of Value
+  "hs_v2_date_entered_2121599", // Enterprise: New Business — S2 - Proof of Value
   "hs_v2_date_entered_1166928645", // Enterprise: Expansion — S2 - Proof of Value
 ];
 
 export async function getDealPipelines(): Promise<Pipeline[]> {
   const data = await apiGet<PipelineListResponse>(
     "/crm/v3/pipelines/deals",
-    "pipelines"
+    "pipelines",
   );
   return data.results.map((p) => ({
     id: p.id,
@@ -147,13 +147,13 @@ const HIDDEN_KANBAN_LABELS = [
 
 export function getVisiblePipelines(pipelines: Pipeline[]): Pipeline[] {
   return pipelines.filter(
-    (p) => !HIDDEN_KANBAN_LABELS.includes(p.label.toLowerCase())
+    (p) => !HIDDEN_KANBAN_LABELS.includes(p.label.toLowerCase()),
   );
 }
 
 export function getMetricsPipelines(pipelines: Pipeline[]): Pipeline[] {
   return pipelines.filter(
-    (p) => !EXCLUDED_PIPELINE_LABELS.includes(p.label.toLowerCase())
+    (p) => !EXCLUDED_PIPELINE_LABELS.includes(p.label.toLowerCase()),
   );
 }
 
@@ -194,7 +194,7 @@ export async function getAllDeals(): Promise<Deal[]> {
 
 // Known POV stage IDs — used for hs_v2_date_entered_ lookups
 const POV_STAGE_IDS = [
-  "2121599",    // Enterprise: New Business
+  "2121599", // Enterprise: New Business
   "1166928645", // Enterprise: Expansion
 ];
 
@@ -213,20 +213,27 @@ export interface SalesMetrics {
   povSuccessRate: number;
   povEntered: number;
   povWon: number;
-  dealsByStage: { stageId: string; stageLabel: string; count: number; value: number }[];
+  dealsByStage: {
+    stageId: string;
+    stageLabel: string;
+    count: number;
+    value: number;
+  }[];
 }
 
 export function computeSalesMetrics(
   deals: Deal[],
   pipelines: Pipeline[],
-  filterToMetricsPipelines = true
+  filterToMetricsPipelines = true,
 ): SalesMetrics {
   // Filter deals to only enterprise/relevant pipelines for metrics
   const metricsPipelines = filterToMetricsPipelines
     ? getMetricsPipelines(pipelines)
     : pipelines;
   const metricsPipelineIds = new Set(metricsPipelines.map((p) => p.id));
-  const filteredDeals = deals.filter((d) => metricsPipelineIds.has(d.properties.pipeline));
+  const filteredDeals = deals.filter((d) =>
+    metricsPipelineIds.has(d.properties.pipeline),
+  );
   // Build stage lookup — keyed by stageId
   const stageMap = new Map<string, DealStage>();
   const wonStageIds = new Set<string>();
@@ -250,8 +257,15 @@ export function computeSalesMetrics(
         lostStageIds.add(stage.id);
       }
       // Identify POV/PoC stage per pipeline
-      if (label.includes("proof of value") || label.includes("pov") || label === "poc") {
-        pipelinePov.set(pipeline.id, { order: stage.displayOrder, id: stage.id });
+      if (
+        label.includes("proof of value") ||
+        label.includes("pov") ||
+        label === "poc"
+      ) {
+        pipelinePov.set(pipeline.id, {
+          order: stage.displayOrder,
+          id: stage.id,
+        });
       }
     }
   }
@@ -299,7 +313,7 @@ export function computeSalesMetrics(
 
     // POV success: check hs_v2_date_entered_ for each known POV stage
     const enteredPov = POV_STAGE_IDS.some(
-      (sid) => !!deal.properties[`hs_v2_date_entered_${sid}`]
+      (sid) => !!deal.properties[`hs_v2_date_entered_${sid}`],
     );
     if (enteredPov) {
       povEntered++;
@@ -311,14 +325,16 @@ export function computeSalesMetrics(
 
   const closedDeals = wonDeals + lostDeals;
   const winRate = closedDeals > 0 ? wonDeals / closedDeals : 0;
-  const avgDealSize = wonAmounts.length > 0
-    ? wonAmounts.reduce((a, b) => a + b, 0) / wonAmounts.length
-    : 0;
+  const avgDealSize =
+    wonAmounts.length > 0
+      ? wonAmounts.reduce((a, b) => a + b, 0) / wonAmounts.length
+      : 0;
   // Landing ACV: median of won deal amounts (less skewed by outliers)
   const sortedAmounts = [...wonAmounts].sort((a, b) => a - b);
-  const landingAcv = sortedAmounts.length > 0
-    ? sortedAmounts[Math.floor(sortedAmounts.length / 2)]
-    : 0;
+  const landingAcv =
+    sortedAmounts.length > 0
+      ? sortedAmounts[Math.floor(sortedAmounts.length / 2)]
+      : 0;
   const povSuccessRate = povEntered > 0 ? povWon / povEntered : 0;
 
   // Build stage breakdown

@@ -1,6 +1,10 @@
 import { RequestHandler } from "express";
 import { requireEnvKey } from "@agent-native/core/server";
-import type { SlideGenerateRequest, SlideGenerateResponse, GeneratedSlide } from "@shared/api";
+import type {
+  SlideGenerateRequest,
+  SlideGenerateResponse,
+  GeneratedSlide,
+} from "@shared/api";
 
 /**
  * POST /api/generate-slides
@@ -79,7 +83,9 @@ Respond ONLY with valid JSON. No markdown code fences, no explanation. Just the 
     // Validate and sanitize slides
     slides = slides.map((slide) => ({
       content: slide.content || "",
-      layout: ["title", "content", "two-column", "image", "blank"].includes(slide.layout)
+      layout: ["title", "content", "two-column", "image", "blank"].includes(
+        slide.layout,
+      )
         ? slide.layout
         : "content",
       notes: slide.notes || "",

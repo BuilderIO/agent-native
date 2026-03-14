@@ -20,7 +20,8 @@ Options:
 
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "User-Agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     },
     redirect: "follow",
@@ -46,7 +47,9 @@ function htmlToMarkdown(html: string, sourceUrl: string): string {
   const mainMatch =
     content.match(/<article[\s\S]*?<\/article>/i) ||
     content.match(/<main[\s\S]*?<\/main>/i) ||
-    content.match(/<div[^>]+(?:class|id)=["'][^"']*(?:content|article|post|entry|main)[\s\S]*?<\/div>/i);
+    content.match(
+      /<div[^>]+(?:class|id)=["'][^"']*(?:content|article|post|entry|main)[\s\S]*?<\/div>/i,
+    );
 
   if (mainMatch) {
     content = mainMatch[0];
@@ -61,7 +64,9 @@ function htmlToMarkdown(html: string, sourceUrl: string): string {
   content = content.replace(/<aside[\s\S]*?<\/aside>/gi, "");
 
   const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-  const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
+  const ogTitle = html.match(
+    /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i,
+  );
   const title = ogTitle?.[1]?.trim() || titleMatch?.[1]?.trim() || "";
 
   content = content.replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, "\n# $1\n\n");
@@ -78,18 +83,41 @@ function htmlToMarkdown(html: string, sourceUrl: string): string {
   content = content.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, "- $1\n");
   content = content.replace(/<\/?[ou]l[^>]*>/gi, "\n");
 
-  content = content.replace(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, "[$2]($1)");
-  content = content.replace(/<(?:strong|b)[^>]*>([\s\S]*?)<\/(?:strong|b)>/gi, "**$1**");
+  content = content.replace(
+    /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+    "[$2]($1)",
+  );
+  content = content.replace(
+    /<(?:strong|b)[^>]*>([\s\S]*?)<\/(?:strong|b)>/gi,
+    "**$1**",
+  );
   content = content.replace(/<(?:em|i)[^>]*>([\s\S]*?)<\/(?:em|i)>/gi, "*$1*");
   content = content.replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, "`$1`");
-  content = content.replace(/<pre[^>]*>([\s\S]*?)<\/pre>/gi, "\n```\n$1\n```\n\n");
+  content = content.replace(
+    /<pre[^>]*>([\s\S]*?)<\/pre>/gi,
+    "\n```\n$1\n```\n\n",
+  );
 
-  content = content.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (_, inner) => {
-    return inner.split("\n").map((line: string) => `> ${line}`).join("\n") + "\n\n";
-  });
+  content = content.replace(
+    /<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi,
+    (_, inner) => {
+      return (
+        inner
+          .split("\n")
+          .map((line: string) => `> ${line}`)
+          .join("\n") + "\n\n"
+      );
+    },
+  );
 
-  content = content.replace(/<img[^>]+src=["']([^"']+)["'][^>]*alt=["']([^"']*?)["'][^>]*\/?>/gi, "![$2]($1)\n");
-  content = content.replace(/<img[^>]+src=["']([^"']+)["'][^>]*\/?>/gi, "![]($1)\n");
+  content = content.replace(
+    /<img[^>]+src=["']([^"']+)["'][^>]*alt=["']([^"']*?)["'][^>]*\/?>/gi,
+    "![$2]($1)\n",
+  );
+  content = content.replace(
+    /<img[^>]+src=["']([^"']+)["'][^>]*\/?>/gi,
+    "![]($1)\n",
+  );
 
   content = content.replace(/<[^>]+>/g, "");
 

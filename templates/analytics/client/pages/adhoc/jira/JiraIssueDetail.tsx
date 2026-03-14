@@ -64,7 +64,10 @@ export function JiraIssueDetail({ issue }: Props) {
             value={new Date(f.resolutiondate).toLocaleDateString()}
           />
         )}
-        <DetailField label="Project" value={`${f.project.name} (${f.project.key})`} />
+        <DetailField
+          label="Project"
+          value={`${f.project.name} (${f.project.key})`}
+        />
       </div>
     </div>
   );

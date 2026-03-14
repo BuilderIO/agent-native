@@ -77,7 +77,9 @@ export function JiraStatusChart({ analytics, isLoading }: Props) {
               {data.map((entry, i) => (
                 <Cell
                   key={entry.status}
-                  fill={STATUS_COLORS[entry.status] ?? PALETTE[i % PALETTE.length]}
+                  fill={
+                    STATUS_COLORS[entry.status] ?? PALETTE[i % PALETTE.length]
+                  }
                 />
               ))}
             </Bar>

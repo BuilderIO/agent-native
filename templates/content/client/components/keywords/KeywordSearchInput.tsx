@@ -6,7 +6,10 @@ interface KeywordSearchInputProps {
   isLoading: boolean;
 }
 
-export function KeywordSearchInput({ onSearch, isLoading }: KeywordSearchInputProps) {
+export function KeywordSearchInput({
+  onSearch,
+  isLoading,
+}: KeywordSearchInputProps) {
   const [value, setValue] = useState("");
 
   const handleSubmit = useCallback(
@@ -17,7 +20,7 @@ export function KeywordSearchInput({ onSearch, isLoading }: KeywordSearchInputPr
         onSearch(trimmed);
       }
     },
-    [value, onSearch]
+    [value, onSearch],
   );
 
   const handleClear = () => {

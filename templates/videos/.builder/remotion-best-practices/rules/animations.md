@@ -16,12 +16,10 @@ export const FadeIn = () => {
   const { fps } = useVideoConfig();
 
   const opacity = interpolate(frame, [0, 2 * fps], [0, 1], {
-    extrapolateRight: 'clamp',
+    extrapolateRight: "clamp",
   });
 
-  return (
-    <div style={{ opacity }}>Hello World!</div>
-  );
+  return <div style={{ opacity }}>Hello World!</div>;
 };
 ```
 

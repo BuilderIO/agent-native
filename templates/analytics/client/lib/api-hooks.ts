@@ -54,8 +54,7 @@ interface KeywordsResponse {
 export function useBlogKeywords(slug: string | null) {
   return useQuery<KeywordsResponse>({
     queryKey: ["seo-keywords", slug],
-    queryFn: () =>
-      apiFetch<KeywordsResponse>(`/api/seo/keywords?slug=${slug}`),
+    queryFn: () => apiFetch<KeywordsResponse>(`/api/seo/keywords?slug=${slug}`),
     enabled: !!slug,
     staleTime: 30 * 60 * 1000,
     retry: 1,
@@ -139,7 +138,12 @@ export interface HubSpotMetrics {
   povSuccessRate: number;
   povEntered: number;
   povWon: number;
-  dealsByStage: { stageId: string; stageLabel: string; count: number; value: number }[];
+  dealsByStage: {
+    stageId: string;
+    stageLabel: string;
+    count: number;
+    value: number;
+  }[];
 }
 
 export function useHubspotDeals() {
@@ -302,20 +306,23 @@ interface StripeSubscriptionsResponse {
 }
 
 // Helper to build search params for Stripe API (auto-detects search type)
-function buildStripeSearchParams(searchInput: string, additionalParams?: Record<string, string>): string {
+function buildStripeSearchParams(
+  searchInput: string,
+  additionalParams?: Record<string, string>,
+): string {
   const trimmed = searchInput.trim();
   const params = new URLSearchParams();
 
   // Auto-detect search type
-  if (trimmed.startsWith('cus_')) {
+  if (trimmed.startsWith("cus_")) {
     // Customer ID lookup
-    params.set('customerId', trimmed);
-  } else if (trimmed.includes('@')) {
+    params.set("customerId", trimmed);
+  } else if (trimmed.includes("@")) {
     // Email search
-    params.set('email', trimmed);
+    params.set("email", trimmed);
   } else {
     // Name or root_id search (backend tries name first, then root_id)
-    params.set('query', trimmed);
+    params.set("query", trimmed);
   }
 
   // Add any additional params (like months)
@@ -328,24 +335,40 @@ function buildStripeSearchParams(searchInput: string, additionalParams?: Record<
   return params.toString();
 }
 
-export function useStripeBilling(searchInput: string, months: number, enabled: boolean) {
-  const params = buildStripeSearchParams(searchInput, { months: String(months) });
+export function useStripeBilling(
+  searchInput: string,
+  months: number,
+  enabled: boolean,
+) {
+  const params = buildStripeSearchParams(searchInput, {
+    months: String(months),
+  });
 
   return useQuery<StripeBillingResponse>({
     queryKey: ["stripe-billing", searchInput, months],
-    queryFn: () => apiFetch<StripeBillingResponse>(`/api/stripe/billing?${params}`),
+    queryFn: () =>
+      apiFetch<StripeBillingResponse>(`/api/stripe/billing?${params}`),
     enabled,
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
 }
 
-export function useStripeBillingByProduct(searchInput: string, months: number, enabled: boolean) {
-  const params = buildStripeSearchParams(searchInput, { months: String(months) });
+export function useStripeBillingByProduct(
+  searchInput: string,
+  months: number,
+  enabled: boolean,
+) {
+  const params = buildStripeSearchParams(searchInput, {
+    months: String(months),
+  });
 
   return useQuery<StripeBillingByProductResponse>({
     queryKey: ["stripe-billing-by-product", searchInput, months],
-    queryFn: () => apiFetch<StripeBillingByProductResponse>(`/api/stripe/billing-by-product?${params}`),
+    queryFn: () =>
+      apiFetch<StripeBillingByProductResponse>(
+        `/api/stripe/billing-by-product?${params}`,
+      ),
     enabled,
     staleTime: 5 * 60 * 1000,
     retry: 1,
@@ -357,7 +380,10 @@ export function useStripePaymentStatus(searchInput: string, enabled: boolean) {
 
   return useQuery<StripePaymentStatusResponse>({
     queryKey: ["stripe-payment-status", searchInput],
-    queryFn: () => apiFetch<StripePaymentStatusResponse>(`/api/stripe/payment-status?${params}`),
+    queryFn: () =>
+      apiFetch<StripePaymentStatusResponse>(
+        `/api/stripe/payment-status?${params}`,
+      ),
     enabled,
     staleTime: 5 * 60 * 1000,
     retry: 1,
@@ -369,7 +395,8 @@ export function useStripeRefunds(searchInput: string, enabled: boolean) {
 
   return useQuery<StripeRefundsResponse>({
     queryKey: ["stripe-refunds", searchInput],
-    queryFn: () => apiFetch<StripeRefundsResponse>(`/api/stripe/refunds?${params}`),
+    queryFn: () =>
+      apiFetch<StripeRefundsResponse>(`/api/stripe/refunds?${params}`),
     enabled,
     staleTime: 5 * 60 * 1000,
     retry: 1,
@@ -381,7 +408,10 @@ export function useStripeSubscriptions(searchInput: string, enabled: boolean) {
 
   return useQuery<StripeSubscriptionsResponse>({
     queryKey: ["stripe-subscriptions", searchInput],
-    queryFn: () => apiFetch<StripeSubscriptionsResponse>(`/api/stripe/subscriptions?${params}`),
+    queryFn: () =>
+      apiFetch<StripeSubscriptionsResponse>(
+        `/api/stripe/subscriptions?${params}`,
+      ),
     enabled,
     staleTime: 5 * 60 * 1000,
     retry: 1,

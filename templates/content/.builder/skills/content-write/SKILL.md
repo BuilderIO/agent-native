@@ -63,6 +63,7 @@ Before writing, present the outline for approval. Read `outline.md` and `phases/
 **File to review:** Tell the user: "Read `outline.md` in the output folder for the full outline with headings, key points, and word count budgets."
 
 **Show the user:**
+
 - 3-5 title options with scores (from Phase 5 YAML)
 - Selected hook type
 - Full outline structure (sections, headings, key points)
@@ -74,6 +75,7 @@ Use **AskUserQuestion**:
 **Question:** "Outline ready. How do you want to proceed?"
 
 **Options:**
+
 1. **Approve** -- Proceed to drafting with this outline
 2. **Modify** -- Describe specific changes (re-runs Phase 5 with modifications, re-presents Gate 2)
 3. **Regenerate** -- Discard and regenerate from scratch (re-runs Phase 5, re-presents Gate 2)
@@ -130,6 +132,7 @@ Present a draft summary using **AskUserQuestion**:
 **File to review:** Tell the user: "Read `draft.md` in the output folder for the full draft text."
 
 **Show the user:**
+
 - Title used
 - Word count
 - Hook type and opening line
@@ -139,6 +142,7 @@ Present a draft summary using **AskUserQuestion**:
 **Question:** "First draft complete. How do you want to proceed?"
 
 **Options:**
+
 1. **Proceed** -- Move to editing
 2. **Request changes** -- Describe specific changes (re-runs Phase 6 with feedback, re-presents Gate 3)
 3. **Stop** -- Abandon the pipeline
@@ -157,6 +161,7 @@ Run 4-pass editing using the Content Editing skill:
 4. **Engagement pass** -- Strengthen hooks, add specificity, improve examples
 
 **Content goal checks during editing:**
+
 - **Awareness:** Flag any gratuitous Builder.io mention as forced
 - **Acquisition:** Verify product mention follows 80/20 rule (flag if >20% product-focused)
 - **Hybrid:** Verify CTA is specific, flag if product mention creeps beyond CTA section
@@ -199,6 +204,7 @@ Use **AskUserQuestion** to present options:
 **Question:** "Draft is written and edited. What would you like to do next?"
 
 **Options:**
+
 1. **Optimize** -- Run `/content-optimize` to apply SEO, AEO, and final QA (run `/clear` first for a fresh context)
 2. **Review draft** -- Read `draft.md` for manual review
 3. **Done** -- Save for later
@@ -208,12 +214,15 @@ Use **AskUserQuestion** to present options:
 ## Error Handling
 
 ### Phase Failure
+
 If a phase produces an error or incomplete output:
+
 1. Announce the failure to the user
 2. Ask whether to retry the phase, skip it, or stop the pipeline
 3. If skipped, write a stub YAML with `skipped: true` and `reason`
 
 ### Gate Loops
+
 Gate loops (Modify, Regenerate, Request Changes) re-present the same gate after re-running. They do not skip ahead.
 
 ## Important Notes

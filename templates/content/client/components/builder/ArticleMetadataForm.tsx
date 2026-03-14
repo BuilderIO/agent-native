@@ -71,7 +71,7 @@ export function ArticleMetadataForm({
     (t) =>
       !metadata.tags.includes(t) &&
       t.toLowerCase().includes(tagInput.toLowerCase()) &&
-      tagInput.length > 0
+      tagInput.length > 0,
   );
 
   return (
@@ -135,8 +135,7 @@ export function ArticleMetadataForm({
       {/* Meta Title (optional SEO) */}
       <div className="space-y-1.5">
         <Label className="text-xs">
-          SEO Title{" "}
-          <span className="text-muted-foreground">(optional)</span>
+          SEO Title <span className="text-muted-foreground">(optional)</span>
         </Label>
         <Input
           value={metadata.metaTitle}

@@ -8,7 +8,11 @@ const REFS_DIR = path.join(BRAND_DIR, "references");
 const GENERATIONS_DIR = path.join(process.cwd(), "data", "generations");
 const PROFILE_PATH = path.join(BRAND_DIR, "style-profile.json");
 
-const MODELS = ["gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview", "gemini-2.5-flash-image"];
+const MODELS = [
+  "gemini-3-pro-image-preview",
+  "gemini-3.1-flash-image-preview",
+  "gemini-2.5-flash-image",
+];
 const MAX_RETRIES = 3;
 const CONCURRENCY_LIMIT = 4;
 
@@ -29,9 +33,12 @@ export default async function main(args: string[]) {
   // Load style profile
   let styleDescription = "";
   if (fs.existsSync(PROFILE_PATH)) {
-    const profile = JSON.parse(fs.readFileSync(PROFILE_PATH, "utf-8")) as StyleProfile;
+    const profile = JSON.parse(
+      fs.readFileSync(PROFILE_PATH, "utf-8"),
+    ) as StyleProfile;
     if (profile.styleDescription) {
-      styleDescription = `STYLE GUIDE:\n${profile.styleDescription}\n\nStyle attributes:\n` +
+      styleDescription =
+        `STYLE GUIDE:\n${profile.styleDescription}\n\nStyle attributes:\n` +
         Object.entries(profile.attributes || {})
           .map(([k, v]) => `- ${k}: ${v}`)
           .join("\n");
@@ -46,15 +53,20 @@ export default async function main(args: string[]) {
     ? refFiles.filter((f) => referenceFilter.includes(f))
     : refFiles.slice(0, 5); // Default: first 5
 
-  const refParts: Array<{ inlineData: { mimeType: string; data: string } }> = [];
+  const refParts: Array<{ inlineData: { mimeType: string; data: string } }> =
+    [];
   for (const file of selectedRefs) {
     const filePath = path.join(REFS_DIR, file);
     const data = fs.readFileSync(filePath);
     const ext = path.extname(file).toLowerCase();
     const mimeType =
-      ext === ".png" ? "image/png" :
-      ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" :
-      ext === ".webp" ? "image/webp" : "image/png";
+      ext === ".png"
+        ? "image/png"
+        : ext === ".jpg" || ext === ".jpeg"
+          ? "image/jpeg"
+          : ext === ".webp"
+            ? "image/webp"
+            : "image/png";
     refParts.push({ inlineData: { mimeType, data: data.toString("base64") } });
   }
 
@@ -86,7 +98,9 @@ export default async function main(args: string[]) {
   // Generate variations concurrently with concurrency limit
   const outputs: Array<{ filename: string; path: string }> = [];
 
-  async function generateOne(index: number): Promise<{ filename: string; path: string } | null> {
+  async function generateOne(
+    index: number,
+  ): Promise<{ filename: string; path: string } | null> {
     const modelsToTry = [model, ...MODELS.filter((m) => m !== model)];
 
     for (const modelName of modelsToTry) {
@@ -94,7 +108,11 @@ export default async function main(args: string[]) {
         try {
           const contents = [
             ...refParts,
-            { text: fullPrompt + `\n\n(Variation ${index + 1} of ${variations} — create a unique interpretation)` },
+            {
+              text:
+                fullPrompt +
+                `\n\n(Variation ${index + 1} of ${variations} — create a unique interpretation)`,
+            },
           ];
 
           const response = await client.models.generateContent({
@@ -115,11 +133,16 @@ export default async function main(args: string[]) {
           }
         } catch (err: any) {
           const msg = err.message || "";
-          const isOverload = msg.includes("429") || msg.includes("503") ||
-            msg.includes("RESOURCE_EXHAUSTED") || msg.includes("overloaded");
+          const isOverload =
+            msg.includes("429") ||
+            msg.includes("503") ||
+            msg.includes("RESOURCE_EXHAUSTED") ||
+            msg.includes("overloaded");
           if (isOverload && retry < MAX_RETRIES - 1) {
             const delay = (retry + 1) * 3000;
-            console.log(`  Retrying variation ${index + 1} in ${delay / 1000}s...`);
+            console.log(
+              `  Retrying variation ${index + 1} in ${delay / 1000}s...`,
+            );
             await new Promise((r) => setTimeout(r, delay));
             continue;
           }
@@ -159,6 +182,11 @@ export default async function main(args: string[]) {
     outputs,
   };
 
-  fs.writeFileSync(path.join(GENERATIONS_DIR, `${id}.json`), JSON.stringify(record, null, 2));
-  console.log(`\nGenerated ${outputs.length}/${variations} images. Record: data/generations/${id}.json`);
+  fs.writeFileSync(
+    path.join(GENERATIONS_DIR, `${id}.json`),
+    JSON.stringify(record, null, 2),
+  );
+  console.log(
+    `\nGenerated ${outputs.length}/${variations} images. Record: data/generations/${id}.json`,
+  );
 }

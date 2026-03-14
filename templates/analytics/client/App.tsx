@@ -38,7 +38,10 @@ const App = () => (
               <Route path="/" element={<Welcome />} />
               <Route path="/overview" element={<Index />} />
               <Route path="/data-dictionary" element={<DataDictionary />} />
-              <Route path="/data-dictionary/review-queue" element={<DataDictionaryReviewQueue />} />
+              <Route
+                path="/data-dictionary/review-queue"
+                element={<DataDictionaryReviewQueue />}
+              />
               <Route path="/adhoc/:id" element={<AdhocRouter />} />
               <Route path="/query" element={<QueryExplorer />} />
               <Route path="/settings" element={<Settings />} />

@@ -55,7 +55,7 @@ You're talking to this persona when:
 - "How do you currently validate ideas with users before engineering builds them - and do those prototypes feel real enough?"
 - "What's the most frustrating part of waiting for engineers to build something you've already designed?"
 
-*Listen for:*
+_Listen for:_
 
 - **Wait times:** Engineering queues measured in sprints or weeks, requests to shorten the cycle for simple updates
 - **Prototype quality:** Don't feel real enough to get quality feedback from technical users, vague feedback on static designs because engineers need interaction
@@ -69,7 +69,7 @@ You're talking to this persona when:
 - "What percentage of your time goes to implementation details and spec work vs. discovery and strategy?"
 - "How many customer requests or ideas are sitting in your backlog because you don't have engineering capacity to build them?"
 
-*Listen for:*
+_Listen for:_
 
 - **Metrics:** Wait times in weeks or sprints for simple changes, significant time on low-value spec work
 - **Quality issues:** Multiple redline cycles where engineers build it wrong despite Figma approval
@@ -84,7 +84,7 @@ You're talking to this persona when:
 - "Walk me through your handoff process - what artifacts do you create, and where do things typically break down?"
 - "How does your team handle the 'who's allowed to code' question - is there sensitivity around non-engineers prototyping?"
 
-*Listen for:*
+_Listen for:_
 
 - **Dependencies:** Hard dependency on engineering capacity with no ability to self-serve, prototypes getting thrown out while engineers rebuild from scratch
 - **Cultural barriers:** Sensitivity about who's allowed to code, concerns about non-engineers contributing code

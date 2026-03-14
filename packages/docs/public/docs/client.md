@@ -26,14 +26,14 @@ sendToAgentChat({
 
 ### AgentChatMessage
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `message` | `string` | The visible prompt sent to the chat |
-| `context` | `string?` | Hidden context appended (not shown in chat UI) |
-| `submit` | `boolean?` | true = auto-submit, false = prefill only |
-| `projectSlug` | `string?` | Optional project slug for structured context |
-| `preset` | `string?` | Optional preset name for downstream consumers |
-| `referenceImagePaths` | `string[]?` | Optional reference image paths |
+| Option                | Type        | Description                                    |
+| --------------------- | ----------- | ---------------------------------------------- |
+| `message`             | `string`    | The visible prompt sent to the chat            |
+| `context`             | `string?`   | Hidden context appended (not shown in chat UI) |
+| `submit`              | `boolean?`  | true = auto-submit, false = prefill only       |
+| `projectSlug`         | `string?`   | Optional project slug for structured context   |
+| `preset`              | `string?`   | Optional preset name for downstream consumers  |
+| `referenceImagePaths` | `string[]?` | Optional reference image paths                 |
 
 ## useAgentChatGenerating()
 
@@ -48,11 +48,13 @@ function GenerateButton() {
   return (
     <button
       disabled={isGenerating}
-      onClick={() => send({
-        message: "Generate a summary",
-        context: documentContent,
-        submit: true,
-      })}
+      onClick={() =>
+        send({
+          message: "Generate a summary",
+          context: documentContent,
+          submit: true,
+        })
+      }
     >
       {isGenerating ? "Generating..." : "Generate"}
     </button>
@@ -86,12 +88,12 @@ function App() {
 
 ### Options
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `queryClient` | `QueryClient?` | React-query client for cache invalidation |
-| `queryKeys` | `string[]?` | Query key prefixes to invalidate. Default: ["file", "fileTree"] |
-| `eventsUrl` | `string?` | SSE endpoint URL. Default: "/api/events" |
-| `onEvent` | `(data) => void` | Optional callback for each SSE event |
+| Option        | Type             | Description                                                     |
+| ------------- | ---------------- | --------------------------------------------------------------- |
+| `queryClient` | `QueryClient?`   | React-query client for cache invalidation                       |
+| `queryKeys`   | `string[]?`      | Query key prefixes to invalidate. Default: ["file", "fileTree"] |
+| `eventsUrl`   | `string?`        | SSE endpoint URL. Default: "/api/events"                        |
+| `onEvent`     | `(data) => void` | Optional callback for each SSE event                            |
 
 ## cn(...inputs)
 
@@ -100,9 +102,11 @@ Utility for merging class names (clsx + tailwind-merge):
 ```tsx
 import { cn } from "@agent-native/core";
 
-<div className={cn(
-  "px-4 py-2 rounded",
-  isActive && "bg-primary text-primary-foreground",
-  className
-)} />
+<div
+  className={cn(
+    "px-4 py-2 rounded",
+    isActive && "bg-primary text-primary-foreground",
+    className,
+  )}
+/>;
 ```

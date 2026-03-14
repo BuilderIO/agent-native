@@ -38,12 +38,12 @@ export function IssuesBySeverityChart({ dateRange }: Props) {
 
   const series = useMetricsQuery(
     ["pr-review-issues-severity", dateRange],
-    issuesBySeverityPerDaySql(dateRange)
+    issuesBySeverityPerDaySql(dateRange),
   );
 
   const repoBreakdown = useMetricsQuery(
     ["pr-review-issues-by-repo-day", dateRange],
-    issuesByRepoByDaySql(dateRange)
+    issuesByRepoByDaySql(dateRange),
   );
 
   const chartData = useMemo(
@@ -53,7 +53,7 @@ export function IssuesBySeverityChart({ dateRange }: Props) {
         high: Number(r.high || 0),
         medium: Number(r.medium || 0),
       })),
-    [series.data]
+    [series.data],
   );
 
   const breakdownByDay = useMemo(() => {
@@ -75,7 +75,7 @@ export function IssuesBySeverityChart({ dateRange }: Props) {
       const rows = breakdownByDay.get(day) ?? [];
       setPopover({ x: e.clientX, y: e.clientY, day, rows });
     },
-    [breakdownByDay]
+    [breakdownByDay],
   );
 
   const closePopover = useCallback(() => setPopover(null), []);
@@ -110,7 +110,9 @@ export function IssuesBySeverityChart({ dateRange }: Props) {
                   contentStyle={TOOLTIP_STYLE}
                   labelFormatter={formatDate}
                 />
-                <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }} />
+                <Legend
+                  wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }}
+                />
                 <Bar
                   dataKey="high"
                   name="High"
@@ -133,7 +135,11 @@ export function IssuesBySeverityChart({ dateRange }: Props) {
           </div>
         )}
       </CardContent>
-      <ChartPopover state={popover} onClose={closePopover} valueLabel="Issues" />
+      <ChartPopover
+        state={popover}
+        onClose={closePopover}
+        valueLabel="Issues"
+      />
     </Card>
   );
 }

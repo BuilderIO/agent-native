@@ -1,4 +1,13 @@
-import { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useMemo,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { compositions, type CompositionEntry } from "@/remotion/registry";
 import type { CompSettings } from "@/components/CompSettingsEditor";
@@ -24,7 +33,10 @@ function saveCompSettings(id: string, settings: CompSettings) {
   } catch {}
 }
 
-function loadProps(compositionId: string, defaults: Record<string, any>): Record<string, any> {
+function loadProps(
+  compositionId: string,
+  defaults: Record<string, any>,
+): Record<string, any> {
   try {
     const raw = localStorage.getItem(PROPS_KEY(compositionId));
     if (!raw) return defaults;
@@ -65,13 +77,16 @@ type CompositionProviderProps = {
   compositionId: string;
 };
 
-export function CompositionProvider({ children, compositionId }: CompositionProviderProps) {
+export function CompositionProvider({
+  children,
+  compositionId,
+}: CompositionProviderProps) {
   const navigate = useNavigate();
 
   const isNew = compositionId === "new";
   const selected = useMemo(
     () => compositions.find((c) => c.id === compositionId),
-    [compositionId]
+    [compositionId],
   );
 
   // ── Composition settings (duration + fps) ─────────────────────────────────
@@ -105,7 +120,7 @@ export function CompositionProvider({ children, compositionId }: CompositionProv
         return { ...prev, [selected.id]: next };
       });
     },
-    [selected]
+    [selected],
   );
 
   // Build the effective composition — registry defaults merged with user overrides
@@ -125,9 +140,15 @@ export function CompositionProvider({ children, compositionId }: CompositionProv
     // Debug log to help diagnose FPS timing issues
     if (selected.fps !== settings.fps) {
       console.log(`[Videos] FPS mismatch detected for ${selected.id}:`);
-      console.log(`  Registry: ${selected.fps} fps, ${selected.durationInFrames} frames`);
-      console.log(`  Settings: ${settings.fps} fps, ${settings.durationInFrames} frames`);
-      console.log(`  This may cause timing issues if keyframes were designed for ${selected.fps} fps`);
+      console.log(
+        `  Registry: ${selected.fps} fps, ${selected.durationInFrames} frames`,
+      );
+      console.log(
+        `  Settings: ${settings.fps} fps, ${settings.durationInFrames} frames`,
+      );
+      console.log(
+        `  This may cause timing issues if keyframes were designed for ${selected.fps} fps`,
+      );
     }
 
     return effective;
@@ -145,7 +166,7 @@ export function CompositionProvider({ children, compositionId }: CompositionProv
   });
 
   const currentProps = selected
-    ? propsOverrides[selected.id] ?? selected.defaultProps
+    ? (propsOverrides[selected.id] ?? selected.defaultProps)
     : {};
 
   // Save props to localStorage when changed (skip first load)
@@ -162,7 +183,7 @@ export function CompositionProvider({ children, compositionId }: CompositionProv
 
     for (const id of Object.keys(propsOverrides)) {
       if (propsOverrides[id] !== prevPropsRef.current[id]) {
-        console.log('[Videos] 💾 Saving props to localStorage (user edit)');
+        console.log("[Videos] 💾 Saving props to localStorage (user edit)");
         saveProps(id, propsOverrides[id]);
       }
     }
@@ -179,8 +200,8 @@ export function CompositionProvider({ children, compositionId }: CompositionProv
 
       if (e.key === propsKey && e.newValue) {
         const newProps = loadProps(selected.id, selected.defaultProps);
-        setPropsOverrides(prev => ({ ...prev, [selected.id]: newProps }));
-        console.log('[Videos] Synced props from another tab');
+        setPropsOverrides((prev) => ({ ...prev, [selected.id]: newProps }));
+        console.log("[Videos] Synced props from another tab");
       } else if (e.key === settingsKey && e.newValue) {
         const newSettings = loadCompSettings(selected.id, {
           durationInFrames: selected.durationInFrames,
@@ -188,13 +209,16 @@ export function CompositionProvider({ children, compositionId }: CompositionProv
           width: selected.width,
           height: selected.height,
         });
-        setCompSettingsOverrides(prev => ({ ...prev, [selected.id]: newSettings }));
-        console.log('[Videos] Synced composition settings from another tab');
+        setCompSettingsOverrides((prev) => ({
+          ...prev,
+          [selected.id]: newSettings,
+        }));
+        console.log("[Videos] Synced composition settings from another tab");
       }
     };
 
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
   }, [selected]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -203,7 +227,7 @@ export function CompositionProvider({ children, compositionId }: CompositionProv
       if (!selected) return;
       setPropsOverrides((prev) => ({ ...prev, [selected.id]: newProps }));
     },
-    [selected]
+    [selected],
   );
 
   const handleDelete = useCallback(
@@ -215,18 +239,21 @@ export function CompositionProvider({ children, compositionId }: CompositionProv
         navigate("/c/new", { replace: true });
       }
     },
-    [compositionId, navigate]
+    [compositionId, navigate],
   );
 
-  const handleTitleChange = useCallback((title: string) => {
-    if (!selected) return;
-    const compIndex = compositions.findIndex(c => c.id === selected.id);
-    if (compIndex !== -1) {
-      compositions[compIndex].title = title;
-      console.log(`[Videos] Renamed composition to: ${title}`);
-      setPropsOverrides(prev => ({ ...prev }));
-    }
-  }, [selected]);
+  const handleTitleChange = useCallback(
+    (title: string) => {
+      if (!selected) return;
+      const compIndex = compositions.findIndex((c) => c.id === selected.id);
+      if (compIndex !== -1) {
+        compositions[compIndex].title = title;
+        console.log(`[Videos] Renamed composition to: ${title}`);
+        setPropsOverrides((prev) => ({ ...prev }));
+      }
+    },
+    [selected],
+  );
 
   const value = useMemo(
     () => ({
@@ -236,12 +263,12 @@ export function CompositionProvider({ children, compositionId }: CompositionProv
       effectiveComposition,
       currentProps,
       compSettings: selected
-        ? compSettingsOverrides[selected.id] ?? {
+        ? (compSettingsOverrides[selected.id] ?? {
             durationInFrames: selected.durationInFrames,
             fps: selected.fps,
             width: selected.width,
             height: selected.height,
-          }
+          })
         : undefined,
       onNavigate: (path: string) => navigate(path),
       onDelete: handleDelete,
@@ -261,7 +288,7 @@ export function CompositionProvider({ children, compositionId }: CompositionProv
       handlePropsChange,
       handleTitleChange,
       handleCompSettingsChange,
-    ]
+    ],
   );
 
   return (

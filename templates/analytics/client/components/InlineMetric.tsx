@@ -10,12 +10,12 @@ interface InlineMetricProps {
   showValidation?: boolean;
 }
 
-export function InlineMetric({ 
-  title, 
-  value, 
-  isLoading, 
+export function InlineMetric({
+  title,
+  value,
+  isLoading,
   className,
-  showValidation = true 
+  showValidation = true,
 }: InlineMetricProps) {
   return (
     <Card className={`bg-card border-border/50 ${className || ""}`}>
@@ -26,13 +26,15 @@ export function InlineMetric({
             {isLoading ? (
               <Skeleton className="h-8 w-24" />
             ) : (
-              <p className="text-2xl font-bold tabular-nums truncate">{value}</p>
+              <p className="text-2xl font-bold tabular-nums truncate">
+                {value}
+              </p>
             )}
           </div>
           {showValidation && !isLoading && (
             <MetricValidationButton
               metricName={title}
-              metricValue={typeof value === 'string' ? value : value}
+              metricValue={typeof value === "string" ? value : value}
               variant="ghost"
               size="icon"
             />

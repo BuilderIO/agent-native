@@ -20,17 +20,17 @@ description: >
 
 ### Exported Functions
 
-| Function | Description |
-|---|---|
-| `searchPeople(params)` | Search people by criteria |
-| `enrichPerson(email)` | Enrich a contact by email (returns null on failure) |
-| `searchOrganizations(query, params?)` | Search companies |
-| `enrichOrganization(domain)` | Enrich company by domain (returns null on failure) |
+| Function                              | Description                                         |
+| ------------------------------------- | --------------------------------------------------- |
+| `searchPeople(params)`                | Search people by criteria                           |
+| `enrichPerson(email)`                 | Enrich a contact by email (returns null on failure) |
+| `searchOrganizations(query, params?)` | Search companies                                    |
+| `enrichOrganization(domain)`          | Enrich company by domain (returns null on failure)  |
 
 ### API Routes
 
-| Route | Description |
-|---|---|
+| Route                    | Description               |
+| ------------------------ | ------------------------- |
 | `GET /api/apollo/search` | Search contacts/companies |
 
 ## Script Usage

@@ -37,7 +37,7 @@ export function ImageFolderGrid({ folderPath, onBack }: ImageFolderGridProps) {
         }
         const res = await authFetch(
           `/api/shared/image-upload?folder=${encodeURIComponent(folderPath)}`,
-          { method: "POST", body: formData }
+          { method: "POST", body: formData },
         );
         if (!res.ok) throw new Error("Upload failed");
         queryClient.invalidateQueries({ queryKey: ["image-folders"] });
@@ -48,7 +48,7 @@ export function ImageFolderGrid({ folderPath, onBack }: ImageFolderGridProps) {
         setUploading(false);
       }
     },
-    [folderPath, queryClient]
+    [folderPath, queryClient],
   );
 
   const handleDelete = useCallback(
@@ -57,7 +57,7 @@ export function ImageFolderGrid({ folderPath, onBack }: ImageFolderGridProps) {
       try {
         const res = await authFetch(
           `/api/shared/image?path=${encodeURIComponent(imgPath)}`,
-          { method: "DELETE" }
+          { method: "DELETE" },
         );
         if (!res.ok) throw new Error("Delete failed");
         if (selectedImage === imgPath) setSelectedImage(null);
@@ -69,7 +69,7 @@ export function ImageFolderGrid({ folderPath, onBack }: ImageFolderGridProps) {
         setDeleting(null);
       }
     },
-    [queryClient, selectedImage]
+    [queryClient, selectedImage],
   );
 
   const handleDrop = useCallback(
@@ -78,7 +78,7 @@ export function ImageFolderGrid({ folderPath, onBack }: ImageFolderGridProps) {
       setIsDragging(false);
       if (e.dataTransfer.files.length) handleUpload(e.dataTransfer.files);
     },
-    [handleUpload]
+    [handleUpload],
   );
 
   if (isLoading) {
@@ -261,7 +261,10 @@ function Lightbox({
 }) {
   const fileName = imagePath.split("/").pop() || imagePath;
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
+      onClick={onClose}
+    >
       <div className="absolute top-4 right-4 flex items-center gap-2">
         <button
           onClick={(e) => {

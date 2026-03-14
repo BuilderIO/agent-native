@@ -14,8 +14,7 @@ const DEFAULT_SETTINGS: Settings = {
 
 export function getSettings(_req: Request, res: Response): void {
   try {
-    const settings =
-      readJsonFile<Settings>(SETTINGS_PATH) || DEFAULT_SETTINGS;
+    const settings = readJsonFile<Settings>(SETTINGS_PATH) || DEFAULT_SETTINGS;
     res.json(settings);
   } catch (error: any) {
     res.status(500).json({ error: error.message });

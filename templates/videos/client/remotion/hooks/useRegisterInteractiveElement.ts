@@ -6,10 +6,10 @@ import type { CurrentElement } from "@/contexts/CurrentElementContext";
 /**
  * Hook to register an interactive element and update CurrentElementContext on hover.
  * This makes the element appear in the "Cursor Interactions" sidebar panel.
- * 
+ *
  * @param elementInfo - Element identification info
  * @param hoverState - Hover animation result from useHoverAnimationSmooth
- * 
+ *
  * @example
  * const btnHover = useHoverAnimationSmooth(cursorHistory, zone);
  * useRegisterInteractiveElement({
@@ -21,16 +21,16 @@ import type { CurrentElement } from "@/contexts/CurrentElementContext";
  */
 export function useRegisterInteractiveElement(
   elementInfo: CurrentElement,
-  hoverState: HoverAnimationResult
+  hoverState: HoverAnimationResult,
 ) {
   const { setCurrentElement, currentElement } = useCurrentElement();
-  
+
   // Use ref to track previous hover state
   const prevHoveringRef = useRef(false);
 
   useEffect(() => {
     const isHovering = hoverState.isHovering;
-    
+
     // Only act when hover state changes
     if (prevHoveringRef.current !== isHovering) {
       if (isHovering) {
@@ -44,7 +44,7 @@ export function useRegisterInteractiveElement(
           setCurrentElement(null);
         }
       }
-      
+
       prevHoveringRef.current = isHovering;
     }
     // Note: currentElement is intentionally NOT in deps to prevent infinite loops

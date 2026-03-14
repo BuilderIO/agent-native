@@ -9,6 +9,7 @@ When creating a new dashboard, **YOU (the creator) must provide your name or ema
 ### Using the "New Dashboard" Button
 
 When you click the "New Dashboard" button in the sidebar, you'll be prompted to enter:
+
 1. **Your Name or Email** (required) - This becomes the `author` field
 2. **Dashboard Description** (required) - What you want the AI to create
 
@@ -70,14 +71,14 @@ import { DashboardHeader } from "@/components/layout/DashboardHeader";
 export default function MyDashboard() {
   return (
     <div className="space-y-6">
-      <DashboardHeader 
+      <DashboardHeader
         description="Optional custom description"
         actions={
           // Optional action buttons (filters, exports, etc.)
           <Button>Export</Button>
         }
       />
-      
+
       {/* Your dashboard content */}
     </div>
   );
@@ -85,6 +86,7 @@ export default function MyDashboard() {
 ```
 
 The `DashboardHeader` component will:
+
 - Automatically pull metadata from registry based on the current route
 - Display the title, description, author, and last updated date
 - Render any action buttons you provide

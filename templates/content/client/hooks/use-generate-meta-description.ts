@@ -28,7 +28,7 @@ export function useGenerateMetaDescription() {
         });
       } catch (err) {
         throw new Error(
-          "Meta description generation timed out or lost connection. Please try again."
+          "Meta description generation timed out or lost connection. Please try again.",
         );
       }
 

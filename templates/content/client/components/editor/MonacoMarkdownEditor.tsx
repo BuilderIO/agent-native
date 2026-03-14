@@ -74,7 +74,9 @@ export function MonacoMarkdownEditor({
     if (editorRef.current) {
       const monaco = (window as any).monaco;
       if (monaco) {
-        monaco.editor.setTheme(theme === "dark" ? "markpad-dark" : "markpad-light");
+        monaco.editor.setTheme(
+          theme === "dark" ? "markpad-dark" : "markpad-light",
+        );
       }
     }
   }, [theme]);

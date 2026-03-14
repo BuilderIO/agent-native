@@ -24,7 +24,7 @@ export function EventsTable({ fiscalYear }: EventsTableProps) {
   const sql = rawEventsQuery(fiscalYear, 500);
   const { data, isLoading } = useMetricsQuery(
     ["arr-raw-events", String(fiscalYear)],
-    sql
+    sql,
   );
 
   return (

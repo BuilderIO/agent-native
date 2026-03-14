@@ -54,7 +54,7 @@ export function DocsMetadataForm({
     (t) =>
       !metadata.tags.includes(t) &&
       t.toLowerCase().includes(tagInput.toLowerCase()) &&
-      tagInput.length > 0
+      tagInput.length > 0,
   );
 
   return (
@@ -85,13 +85,15 @@ export function DocsMetadataForm({
       <div className="space-y-1.5">
         <Label className="text-xs">
           Description{" "}
-          <span className={
-            metadata.description.length < 110
-              ? "text-amber-500"
-              : metadata.description.length > 163
-                ? "text-destructive"
-                : "text-green-600"
-          }>
+          <span
+            className={
+              metadata.description.length < 110
+                ? "text-amber-500"
+                : metadata.description.length > 163
+                  ? "text-destructive"
+                  : "text-green-600"
+            }
+          >
             ({metadata.description.length}/110-163)
           </span>
         </Label>
@@ -103,16 +105,18 @@ export function DocsMetadataForm({
           className={`w-full px-3 py-2 text-sm rounded-md border bg-background resize-vertical focus:outline-none focus:ring-1 ${
             metadata.description.length === 0
               ? "border-input focus:ring-ring"
-              : metadata.description.length < 110 || metadata.description.length > 163
+              : metadata.description.length < 110 ||
+                  metadata.description.length > 163
                 ? "border-destructive focus:ring-destructive"
                 : "border-green-600 focus:ring-green-600"
           }`}
         />
-        {metadata.description.length > 0 && metadata.description.length < 110 && (
-          <p className="text-[11px] text-amber-600">
-            Need {110 - metadata.description.length} more characters
-          </p>
-        )}
+        {metadata.description.length > 0 &&
+          metadata.description.length < 110 && (
+            <p className="text-[11px] text-amber-600">
+              Need {110 - metadata.description.length} more characters
+            </p>
+          )}
         {metadata.description.length > 163 && (
           <p className="text-[11px] text-destructive">
             {metadata.description.length - 163} characters over limit

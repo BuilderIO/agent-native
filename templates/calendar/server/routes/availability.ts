@@ -3,11 +3,7 @@ import path from "path";
 import type { AvailabilityConfig } from "../../shared/api.js";
 import { readJsonFile, writeJsonFile } from "../lib/data-helpers.js";
 
-const AVAILABILITY_PATH = path.join(
-  process.cwd(),
-  "data",
-  "availability.json"
-);
+const AVAILABILITY_PATH = path.join(process.cwd(), "data", "availability.json");
 
 const DEFAULT_AVAILABILITY: AvailabilityConfig = {
   timezone: "America/New_York",

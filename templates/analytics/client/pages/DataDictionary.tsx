@@ -6,7 +6,27 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, ExternalLink, Database, Tag, Copy, CheckCheck, Code2, User, Clock, AlertTriangle, HelpCircle, Link2, ShieldCheck, CheckCircle, Inbox, Plus, Pencil, X, ChevronRight } from "lucide-react";
+import {
+  Search,
+  ExternalLink,
+  Database,
+  Tag,
+  Copy,
+  CheckCheck,
+  Code2,
+  User,
+  Clock,
+  AlertTriangle,
+  HelpCircle,
+  Link2,
+  ShieldCheck,
+  CheckCircle,
+  Inbox,
+  Plus,
+  Pencil,
+  X,
+  ChevronRight,
+} from "lucide-react";
 import { Link } from "react-router-dom";
 import { getIdToken } from "@/lib/auth";
 import { PersonaSelectionModal } from "@/components/PersonaSelectionModal";
@@ -21,7 +41,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-const NOTION_DATA_DICTIONARY_URL = "https://www.notion.so/31a3d7274be580da9da7cf54909e1b7c";
+const NOTION_DATA_DICTIONARY_URL =
+  "https://www.notion.so/31a3d7274be580da9da7cf54909e1b7c";
 
 interface DictionaryEntry {
   id: string;
@@ -51,21 +72,57 @@ interface DictionaryEntry {
   NeedsTechnicalReview?: boolean;
 }
 
-const departmentColors: Record<string, { bg: string; text: string; border: string }> = {
-  "Marketing": { bg: "bg-blue-500/10", text: "text-blue-600 dark:text-blue-400", border: "border-blue-500/30" },
-  "Sales": { bg: "bg-green-500/10", text: "text-green-600 dark:text-green-400", border: "border-green-500/30" },
-  "Product": { bg: "bg-purple-500/10", text: "text-purple-600 dark:text-purple-400", border: "border-purple-500/30" },
-  "Finance": { bg: "bg-yellow-500/10", text: "text-yellow-600 dark:text-yellow-400", border: "border-yellow-500/30" },
-  "Customer Success": { bg: "bg-orange-500/10", text: "text-orange-600 dark:text-orange-400", border: "border-orange-500/30" },
-  "General": { bg: "bg-slate-500/10", text: "text-slate-600 dark:text-slate-400", border: "border-slate-500/30" },
+const departmentColors: Record<
+  string,
+  { bg: string; text: string; border: string }
+> = {
+  Marketing: {
+    bg: "bg-blue-500/10",
+    text: "text-blue-600 dark:text-blue-400",
+    border: "border-blue-500/30",
+  },
+  Sales: {
+    bg: "bg-green-500/10",
+    text: "text-green-600 dark:text-green-400",
+    border: "border-green-500/30",
+  },
+  Product: {
+    bg: "bg-purple-500/10",
+    text: "text-purple-600 dark:text-purple-400",
+    border: "border-purple-500/30",
+  },
+  Finance: {
+    bg: "bg-yellow-500/10",
+    text: "text-yellow-600 dark:text-yellow-400",
+    border: "border-yellow-500/30",
+  },
+  "Customer Success": {
+    bg: "bg-orange-500/10",
+    text: "text-orange-600 dark:text-orange-400",
+    border: "border-orange-500/30",
+  },
+  General: {
+    bg: "bg-slate-500/10",
+    text: "text-slate-600 dark:text-slate-400",
+    border: "border-slate-500/30",
+  },
 };
 
 const frequencyColors: Record<string, { bg: string; text: string }> = {
-  "Real-time": { bg: "bg-blue-500/10", text: "text-blue-600 dark:text-blue-400" },
-  "Hourly": { bg: "bg-green-500/10", text: "text-green-600 dark:text-green-400" },
-  "Daily": { bg: "bg-yellow-500/10", text: "text-yellow-600 dark:text-yellow-400" },
-  "Weekly": { bg: "bg-orange-500/10", text: "text-orange-600 dark:text-orange-400" },
-  "Monthly": { bg: "bg-red-500/10", text: "text-red-600 dark:text-red-400" },
+  "Real-time": {
+    bg: "bg-blue-500/10",
+    text: "text-blue-600 dark:text-blue-400",
+  },
+  Hourly: { bg: "bg-green-500/10", text: "text-green-600 dark:text-green-400" },
+  Daily: {
+    bg: "bg-yellow-500/10",
+    text: "text-yellow-600 dark:text-yellow-400",
+  },
+  Weekly: {
+    bg: "bg-orange-500/10",
+    text: "text-orange-600 dark:text-orange-400",
+  },
+  Monthly: { bg: "bg-red-500/10", text: "text-red-600 dark:text-red-400" },
 };
 
 async function fetchDataDictionary(): Promise<DictionaryEntry[]> {
@@ -82,7 +139,13 @@ async function fetchDataDictionary(): Promise<DictionaryEntry[]> {
   return data.entries || [];
 }
 
-function CodeBlock({ code, language = "sql" }: { code: string; language?: string }) {
+function CodeBlock({
+  code,
+  language = "sql",
+}: {
+  code: string;
+  language?: string;
+}) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -101,7 +164,11 @@ function CodeBlock({ code, language = "sql" }: { code: string; language?: string
         className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
         onClick={handleCopy}
       >
-        {copied ? <CheckCheck className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        {copied ? (
+          <CheckCheck className="h-3.5 w-3.5" />
+        ) : (
+          <Copy className="h-3.5 w-3.5" />
+        )}
       </Button>
       <pre className="bg-muted/50 p-4 rounded-md overflow-x-auto text-xs border border-border">
         <code className="text-foreground/90 font-mono">{code}</code>
@@ -110,7 +177,15 @@ function CodeBlock({ code, language = "sql" }: { code: string; language?: string
   );
 }
 
-function InfoSection({ icon: Icon, label, children }: { icon: any; label: string; children: React.ReactNode }) {
+function InfoSection({
+  icon: Icon,
+  label,
+  children,
+}: {
+  icon: any;
+  label: string;
+  children: React.ReactNode;
+}) {
   if (!children) return null;
 
   return (
@@ -126,14 +201,14 @@ function InfoSection({ icon: Icon, label, children }: { icon: any; label: string
   );
 }
 
-function MetricDetailDialog({ 
-  entry, 
-  isOpen, 
+function MetricDetailDialog({
+  entry,
+  isOpen,
   onClose,
   canEdit,
   onEdit,
-  onValidate
-}: { 
+  onValidate,
+}: {
   entry: DictionaryEntry | null;
   isOpen: boolean;
   onClose: () => void;
@@ -144,11 +219,18 @@ function MetricDetailDialog({
   if (!entry) return null;
 
   const deptColors = entry.Department
-    ? (departmentColors[entry.Department] ?? { bg: "bg-slate-500/10", text: "text-slate-500 dark:text-slate-400", border: "border-slate-500/30" })
+    ? (departmentColors[entry.Department] ?? {
+        bg: "bg-slate-500/10",
+        text: "text-slate-500 dark:text-slate-400",
+        border: "border-slate-500/30",
+      })
     : null;
 
   const freqColors = entry.UpdateFrequency
-    ? (frequencyColors[entry.UpdateFrequency] ?? { bg: "bg-slate-500/10", text: "text-slate-500 dark:text-slate-400" })
+    ? (frequencyColors[entry.UpdateFrequency] ?? {
+        bg: "bg-slate-500/10",
+        text: "text-slate-500 dark:text-slate-400",
+      })
     : null;
 
   return (
@@ -164,29 +246,40 @@ function MetricDetailDialog({
             {entry.ValidationIssues && entry.ValidationIssues > 0 && (
               <Badge variant="destructive" className="animate-pulse">
                 <AlertTriangle className="h-3 w-3 mr-1" />
-                {entry.ValidationIssues} issue{entry.ValidationIssues > 1 ? "s" : ""}
+                {entry.ValidationIssues} issue
+                {entry.ValidationIssues > 1 ? "s" : ""}
               </Badge>
             )}
             {entry.ValidationTrust && entry.ValidationTrust > 5 && (
-              <Badge variant="outline" className="border-green-500 text-green-600 dark:text-green-400">
+              <Badge
+                variant="outline"
+                className="border-green-500 text-green-600 dark:text-green-400"
+              >
                 <ShieldCheck className="h-3 w-3 mr-1" />
                 {entry.ValidationTrust} validations
               </Badge>
             )}
             {entry.NeedsTechnicalReview && (
-              <Badge variant="outline" className="border-purple-500 text-purple-600 dark:text-purple-400">
+              <Badge
+                variant="outline"
+                className="border-purple-500 text-purple-600 dark:text-purple-400"
+              >
                 <Code2 className="h-3 w-3 mr-1" />
                 Needs SQL Template
               </Badge>
             )}
             {entry.Department && deptColors && (
-              <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${deptColors.bg} ${deptColors.text} ${deptColors.border}`}>
+              <div
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${deptColors.bg} ${deptColors.text} ${deptColors.border}`}
+              >
                 <Tag className="h-3 w-3" />
                 {entry.Department}
               </div>
             )}
             {entry.UpdateFrequency && freqColors && (
-              <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${freqColors.bg} ${freqColors.text}`}>
+              <div
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${freqColors.bg} ${freqColors.text}`}
+              >
                 <Clock className="h-3 w-3" />
                 {entry.UpdateFrequency}
               </div>
@@ -202,11 +295,7 @@ function MetricDetailDialog({
           {/* Actions */}
           <div className="flex items-center gap-2">
             {canEdit && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => onEdit(entry)}
-              >
+              <Button size="sm" variant="outline" onClick={() => onEdit(entry)}>
                 <Pencil className="h-3.5 w-3.5 mr-1.5" />
                 Edit
               </Button>
@@ -254,12 +343,16 @@ function MetricDetailDialog({
             {entry.CommonQuestions && (
               <InfoSection icon={HelpCircle} label="Common Questions">
                 <div className="space-y-2">
-                  {entry.CommonQuestions.split('\n').filter(q => q.trim()).map((q, i) => (
-                    <div key={i} className="flex items-start gap-2">
-                      <span className="text-blue-500 dark:text-blue-400 font-semibold">Q:</span>
-                      <span>{q.trim()}</span>
-                    </div>
-                  ))}
+                  {entry.CommonQuestions.split("\n")
+                    .filter((q) => q.trim())
+                    .map((q, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <span className="text-blue-500 dark:text-blue-400 font-semibold">
+                          Q:
+                        </span>
+                        <span>{q.trim()}</span>
+                      </div>
+                    ))}
                 </div>
               </InfoSection>
             )}
@@ -267,12 +360,14 @@ function MetricDetailDialog({
             {entry.KnownGotchas && (
               <InfoSection icon={AlertTriangle} label="Known Gotchas">
                 <div className="space-y-1">
-                  {entry.KnownGotchas.split('\n').filter(g => g.trim()).map((gotcha, i) => (
-                    <div key={i} className="flex items-start gap-2">
-                      <span className="text-orange-500 shrink-0">⚠️</span>
-                      <span>{gotcha.trim()}</span>
-                    </div>
-                  ))}
+                  {entry.KnownGotchas.split("\n")
+                    .filter((g) => g.trim())
+                    .map((gotcha, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <span className="text-orange-500 shrink-0">⚠️</span>
+                        <span>{gotcha.trim()}</span>
+                      </div>
+                    ))}
                 </div>
               </InfoSection>
             )}
@@ -337,20 +432,30 @@ function MetricDetailDialog({
             <div className="grid grid-cols-2 gap-3 text-xs">
               {entry.DataLag && (
                 <div>
-                  <span className="text-muted-foreground font-medium">Data Lag: </span>
+                  <span className="text-muted-foreground font-medium">
+                    Data Lag:{" "}
+                  </span>
                   <span className="text-foreground/90">{entry.DataLag}</span>
                 </div>
               )}
               {entry.ValidDateRange && (
                 <div>
-                  <span className="text-muted-foreground font-medium">Valid Range: </span>
-                  <span className="text-foreground/90">{entry.ValidDateRange}</span>
+                  <span className="text-muted-foreground font-medium">
+                    Valid Range:{" "}
+                  </span>
+                  <span className="text-foreground/90">
+                    {entry.ValidDateRange}
+                  </span>
                 </div>
               )}
               {entry.Dependencies && (
                 <div className="col-span-2">
-                  <span className="text-muted-foreground font-medium">Dependencies: </span>
-                  <span className="text-foreground/90">{entry.Dependencies}</span>
+                  <span className="text-muted-foreground font-medium">
+                    Dependencies:{" "}
+                  </span>
+                  <span className="text-foreground/90">
+                    {entry.Dependencies}
+                  </span>
                 </div>
               )}
             </div>
@@ -358,7 +463,9 @@ function MetricDetailDialog({
 
           {entry.Cuts && (
             <div className="text-xs pt-2 border-t border-border/50">
-              <span className="text-muted-foreground font-medium">Available Cuts: </span>
+              <span className="text-muted-foreground font-medium">
+                Available Cuts:{" "}
+              </span>
               <span className="text-foreground/80">{entry.Cuts}</span>
             </div>
           )}
@@ -374,12 +481,24 @@ export default function DataDictionary() {
   const [selectedDepartment, setSelectedDepartment] = useState<string>("all");
   const [showPersonaModal, setShowPersonaModal] = useState(false);
   const [selectedPersona, setSelectedPersona] = useState<string | null>(null);
-  const [validationMetric, setValidationMetric] = useState<{ id: string; name: string } | null>(null);
-  const [editingEntry, setEditingEntry] = useState<DictionaryEntry | null>(null);
-  const [selectedEntry, setSelectedEntry] = useState<DictionaryEntry | null>(null);
+  const [validationMetric, setValidationMetric] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [editingEntry, setEditingEntry] = useState<DictionaryEntry | null>(
+    null,
+  );
+  const [selectedEntry, setSelectedEntry] = useState<DictionaryEntry | null>(
+    null,
+  );
   const [canEdit, setCanEdit] = useState(false);
 
-  const { data: entries = [], isLoading, error, refetch } = useQuery({
+  const {
+    data: entries = [],
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["notion-data-dictionary"],
     queryFn: fetchDataDictionary,
     staleTime: 60 * 1000,
@@ -466,22 +585,26 @@ export default function DataDictionary() {
       entry.ColumnsUsed?.toLowerCase().includes(searchLower);
 
     const matchesDepartment =
-      selectedDepartment === "all" ||
-      entry.Department === selectedDepartment;
+      selectedDepartment === "all" || entry.Department === selectedDepartment;
 
     return matchesSearch && matchesDepartment;
   });
 
   // Group entries by department
-  const groupedEntries = filteredEntries.reduce((acc, entry) => {
-    const dept = entry.Department || "General";
-    if (!acc[dept]) acc[dept] = [];
-    acc[dept].push(entry);
-    return acc;
-  }, {} as Record<string, DictionaryEntry[]>);
+  const groupedEntries = filteredEntries.reduce(
+    (acc, entry) => {
+      const dept = entry.Department || "General";
+      if (!acc[dept]) acc[dept] = [];
+      acc[dept].push(entry);
+      return acc;
+    },
+    {} as Record<string, DictionaryEntry[]>,
+  );
 
   // Get unique departments for filter
-  const departments = Array.from(new Set(entries.map(e => e.Department || "General"))).sort();
+  const departments = Array.from(
+    new Set(entries.map((e) => e.Department || "General")),
+  ).sort();
 
   return (
     <Layout>
@@ -489,7 +612,9 @@ export default function DataDictionary() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Data Dictionary</h1>
+            <h1 className="text-3xl font-bold tracking-tight">
+              Data Dictionary
+            </h1>
             <p className="text-sm text-muted-foreground mt-1">
               Browse and explore canonical metric definitions
             </p>
@@ -527,7 +652,10 @@ export default function DataDictionary() {
           <div className="flex items-center justify-between gap-4">
             <TabsList>
               <TabsTrigger value="all">All Metrics</TabsTrigger>
-              <TabsTrigger value="instructions" className="flex items-center gap-1.5">
+              <TabsTrigger
+                value="instructions"
+                className="flex items-center gap-1.5"
+              >
                 <Code2 className="h-3.5 w-3.5" />
                 AI Instructions
               </TabsTrigger>
@@ -565,12 +693,20 @@ export default function DataDictionary() {
           <TabsContent value="instructions" className="mt-4">
             <div className="mb-4">
               <p className="text-sm text-muted-foreground">
-                Edit SKILL.md and rule files that guide the AI assistant. Changes are saved to <code className="bg-muted px-1.5 py-0.5 rounded text-xs">.builder/skills/</code> and <code className="bg-muted px-1.5 py-0.5 rounded text-xs">.builder/rules/</code> directories.
+                Edit SKILL.md and rule files that guide the AI assistant.
+                Changes are saved to{" "}
+                <code className="bg-muted px-1.5 py-0.5 rounded text-xs">
+                  .builder/skills/
+                </code>{" "}
+                and{" "}
+                <code className="bg-muted px-1.5 py-0.5 rounded text-xs">
+                  .builder/rules/
+                </code>{" "}
+                directories.
               </p>
             </div>
             <AIInstructionsEditor />
           </TabsContent>
-
 
           {/* Metrics Tabs */}
           <TabsContent value="all" className="mt-4 space-y-4">
@@ -579,7 +715,10 @@ export default function DataDictionary() {
             {isLoading && (
               <div className="space-y-1">
                 {[...Array(10)].map((_, i) => (
-                  <div key={i} className="h-14 bg-muted animate-pulse rounded-lg" />
+                  <div
+                    key={i}
+                    className="h-14 bg-muted animate-pulse rounded-lg"
+                  />
                 ))}
               </div>
             )}
@@ -598,11 +737,15 @@ export default function DataDictionary() {
               <>
                 <div className="flex items-start justify-between gap-4">
                   <p className="text-xs text-muted-foreground">
-                    {filteredEntries.length} {filteredEntries.length === 1 ? "metric" : "metrics"} found
-                    {selectedDepartment !== "all" && ` in ${selectedDepartment}`}
+                    {filteredEntries.length}{" "}
+                    {filteredEntries.length === 1 ? "metric" : "metrics"} found
+                    {selectedDepartment !== "all" &&
+                      ` in ${selectedDepartment}`}
                   </p>
                   <div className="text-xs text-muted-foreground bg-muted/30 px-3 py-1.5 rounded-lg border border-border/50">
-                    <span className="font-medium">Completeness:</span> Based on essential fields (Definition, Table, Department) + at least one context field
+                    <span className="font-medium">Completeness:</span> Based on
+                    essential fields (Definition, Table, Department) + at least
+                    one context field
                   </div>
                 </div>
 
@@ -614,19 +757,28 @@ export default function DataDictionary() {
                         const deptColors = departmentColors[department] ?? {
                           bg: "bg-slate-500/10",
                           text: "text-slate-500 dark:text-slate-400",
-                          border: "border-slate-500/30"
+                          border: "border-slate-500/30",
                         };
 
                         return (
                           <div key={department} className="space-y-2">
                             {/* Department Header */}
-                            <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${deptColors.bg} ${deptColors.border}`}>
+                            <div
+                              className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${deptColors.bg} ${deptColors.border}`}
+                            >
                               <Tag className={`h-4 w-4 ${deptColors.text}`} />
-                              <h3 className={`font-semibold text-sm ${deptColors.text}`}>
+                              <h3
+                                className={`font-semibold text-sm ${deptColors.text}`}
+                              >
                                 {department}
                               </h3>
-                              <span className={`text-xs ${deptColors.text} ml-auto`}>
-                                {deptEntries.length} {deptEntries.length === 1 ? "metric" : "metrics"}
+                              <span
+                                className={`text-xs ${deptColors.text} ml-auto`}
+                              >
+                                {deptEntries.length}{" "}
+                                {deptEntries.length === 1
+                                  ? "metric"
+                                  : "metrics"}
                               </span>
                             </div>
 
@@ -648,14 +800,21 @@ export default function DataDictionary() {
                                   entry.ExampleUseCase,
                                 ];
 
-                                const hasContext = contextFields.some(f => f && f.trim());
-                                const essentialFilled = essentialFields.filter(f => f && f.trim()).length;
+                                const hasContext = contextFields.some(
+                                  (f) => f && f.trim(),
+                                );
+                                const essentialFilled = essentialFields.filter(
+                                  (f) => f && f.trim(),
+                                ).length;
                                 const essentialTotal = essentialFields.length;
 
                                 // Completeness: 75% from essentials, 25% from having at least one context field
-                                const essentialScore = (essentialFilled / essentialTotal) * 75;
+                                const essentialScore =
+                                  (essentialFilled / essentialTotal) * 75;
                                 const contextScore = hasContext ? 25 : 0;
-                                const completeness = Math.round(essentialScore + contextScore);
+                                const completeness = Math.round(
+                                  essentialScore + contextScore,
+                                );
 
                                 return (
                                   <div
@@ -674,37 +833,56 @@ export default function DataDictionary() {
                                       {/* Badges */}
                                       <div className="flex items-center gap-1.5 flex-shrink-0">
                                         {completeness === 100 && (
-                                          <Badge variant="outline" className="border-green-500 bg-green-500/10 text-green-600 dark:text-green-400 text-[10px] px-1.5 py-0 h-5">
+                                          <Badge
+                                            variant="outline"
+                                            className="border-green-500 bg-green-500/10 text-green-600 dark:text-green-400 text-[10px] px-1.5 py-0 h-5"
+                                          >
                                             <CheckCircle className="h-2.5 w-2.5 mr-0.5" />
                                             Complete
                                           </Badge>
                                         )}
-                                        {entry.ValidationIssues && entry.ValidationIssues > 0 && (
-                                          <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-5">
-                                            <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
-                                            {entry.ValidationIssues}
-                                          </Badge>
-                                        )}
-                                        {entry.ValidationTrust && entry.ValidationTrust > 5 && (
-                                          <Badge variant="outline" className="border-blue-500 text-blue-600 dark:text-blue-400 text-[10px] px-1.5 py-0 h-5">
-                                            <ShieldCheck className="h-2.5 w-2.5 mr-0.5" />
-                                            {entry.ValidationTrust}
-                                          </Badge>
-                                        )}
+                                        {entry.ValidationIssues &&
+                                          entry.ValidationIssues > 0 && (
+                                            <Badge
+                                              variant="destructive"
+                                              className="text-[10px] px-1.5 py-0 h-5"
+                                            >
+                                              <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
+                                              {entry.ValidationIssues}
+                                            </Badge>
+                                          )}
+                                        {entry.ValidationTrust &&
+                                          entry.ValidationTrust > 5 && (
+                                            <Badge
+                                              variant="outline"
+                                              className="border-blue-500 text-blue-600 dark:text-blue-400 text-[10px] px-1.5 py-0 h-5"
+                                            >
+                                              <ShieldCheck className="h-2.5 w-2.5 mr-0.5" />
+                                              {entry.ValidationTrust}
+                                            </Badge>
+                                          )}
                                       </div>
 
                                       {/* Completeness */}
                                       <div className="flex items-center gap-3 flex-shrink-0">
-                                        <div className="flex items-center gap-2" title="Based on essential fields: Definition, Table, Department + at least one context field (Common Questions, Known Gotchas, or Example Use Case)">
+                                        <div
+                                          className="flex items-center gap-2"
+                                          title="Based on essential fields: Definition, Table, Department + at least one context field (Common Questions, Known Gotchas, or Example Use Case)"
+                                        >
                                           <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
                                             <div
                                               className={`h-full transition-all ${
-                                                completeness === 100 ? 'bg-green-500' :
-                                                completeness >= 75 ? 'bg-green-400' :
-                                                completeness >= 50 ? 'bg-yellow-500' :
-                                                'bg-orange-500'
+                                                completeness === 100
+                                                  ? "bg-green-500"
+                                                  : completeness >= 75
+                                                    ? "bg-green-400"
+                                                    : completeness >= 50
+                                                      ? "bg-yellow-500"
+                                                      : "bg-orange-500"
                                               }`}
-                                              style={{ width: `${completeness}%` }}
+                                              style={{
+                                                width: `${completeness}%`,
+                                              }}
                                             />
                                           </div>
                                           <span className="text-xs font-medium text-muted-foreground w-10 text-right">
@@ -733,7 +911,10 @@ export default function DataDictionary() {
                                             variant="ghost"
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              setValidationMetric({ id: entry.id, name: entry.Metric });
+                                              setValidationMetric({
+                                                id: entry.id,
+                                                name: entry.Metric,
+                                              });
                                             }}
                                             className="h-7 w-7 p-0 hover:bg-primary/10"
                                             title="Validate Metric"
@@ -756,7 +937,8 @@ export default function DataDictionary() {
                   <div className="border border-border rounded-lg p-12 text-center">
                     <p className="text-sm text-muted-foreground">
                       No metrics found matching "{search}"
-                      {selectedDepartment !== "all" && ` in ${selectedDepartment}`}
+                      {selectedDepartment !== "all" &&
+                        ` in ${selectedDepartment}`}
                     </p>
                   </div>
                 )}
@@ -782,7 +964,10 @@ export default function DataDictionary() {
         />
 
         {/* Persona Selection Modal */}
-        <PersonaSelectionModal open={showPersonaModal} onSelect={handlePersonaSelect} />
+        <PersonaSelectionModal
+          open={showPersonaModal}
+          onSelect={handlePersonaSelect}
+        />
 
         {/* Metric Validation Form */}
         {validationMetric && (

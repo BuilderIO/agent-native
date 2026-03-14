@@ -8,8 +8,9 @@ description: "This skill should be used when implementing or validating internal
 Define and enforce the internal linking rules that connect hub pages into a cohesive topic cluster. This skill is a cross-cutting reference -- it does not run as a standalone pipeline phase. Instead, `seo-optimization` (Phase 8) and `post-publish-checklist` (Phase 10) consult it when `hub_slug` is present.
 
 **Separation of concerns:**
-- **hub-planning** plans link *intentions* (writes `status: planned` entries to `hub.yaml` links section)
-- **hub-linking** (this skill) defines link *rules* and manages link *implementation* (turning planned links into `<a>` tags and tracking status)
+
+- **hub-planning** plans link _intentions_ (writes `status: planned` entries to `hub.yaml` links section)
+- **hub-linking** (this skill) defines link _rules_ and manages link _implementation_ (turning planned links into `<a>` tags and tracking status)
 
 ## References
 
@@ -50,12 +51,12 @@ Every cluster has a bidirectional link with the pillar (mandatory). Clusters lin
 
 The pillar page links to every cluster page. Each link is contextual, placed within the relevant body section (the section that summarizes the cluster's topic).
 
-| Aspect | Requirement |
-|--------|-------------|
-| **Count** | One link per cluster page (8-12 links total) |
-| **Placement** | In the body paragraph of the corresponding H2 section |
+| Aspect          | Requirement                                                                  |
+| --------------- | ---------------------------------------------------------------------------- |
+| **Count**       | One link per cluster page (8-12 links total)                                 |
+| **Placement**   | In the body paragraph of the corresponding H2 section                        |
 | **Anchor text** | Descriptive -- use the cluster page's primary keyword or a natural variation |
-| **Format** | Inline contextual link, not a "Related posts" list |
+| **Format**      | Inline contextual link, not a "Related posts" list                           |
 
 **Anti-pattern:** Do NOT dump all cluster links in a single "Related Articles" section at the bottom. Each link belongs in the section that discusses that cluster's topic.
 
@@ -63,12 +64,12 @@ The pillar page links to every cluster page. Each link is contextual, placed wit
 
 Every cluster page links back to the pillar page within the first 2-3 paragraphs of the post body.
 
-| Aspect | Requirement |
-|--------|-------------|
-| **Count** | Exactly 1 link to the pillar page |
-| **Placement** | Within the first 2-3 paragraphs (introduction section) |
+| Aspect          | Requirement                                                          |
+| --------------- | -------------------------------------------------------------------- |
+| **Count**       | Exactly 1 link to the pillar page                                    |
+| **Placement**   | Within the first 2-3 paragraphs (introduction section)               |
 | **Anchor text** | The pillar's primary keyword (e.g., "complete guide to Claude Code") |
-| **Purpose** | Establishes the cluster's relationship to the hub anchor |
+| **Purpose**     | Establishes the cluster's relationship to the hub anchor             |
 
 **Anti-pattern:** Do NOT place the pillar backlink in the conclusion. The introduction placement signals the relationship early for both readers and search engines.
 
@@ -76,14 +77,15 @@ Every cluster page links back to the pillar page within the first 2-3 paragraphs
 
 Cluster pages link to topically adjacent siblings. These links create triangular connections that strengthen the hub's internal link equity.
 
-| Aspect | Requirement |
-|--------|-------------|
-| **Count** | 2-3 sibling links per cluster page |
-| **Selection** | Link to clusters with related search intents or complementary topics |
-| **Placement** | In body paragraphs where the sibling topic is naturally relevant |
-| **Timing** | Deferred until hub finalization (see Step 5) to avoid re-triggering publish checklists |
+| Aspect        | Requirement                                                                            |
+| ------------- | -------------------------------------------------------------------------------------- |
+| **Count**     | 2-3 sibling links per cluster page                                                     |
+| **Selection** | Link to clusters with related search intents or complementary topics                   |
+| **Placement** | In body paragraphs where the sibling topic is naturally relevant                       |
+| **Timing**    | Deferred until hub finalization (see Step 5) to avoid re-triggering publish checklists |
 
 **Selection heuristics:**
+
 - A "beginner guide" cluster links to a "tips" or "best practices" cluster
 - A "comparison" cluster links to clusters covering the compared tools individually
 - An "advanced" cluster links back to the "beginner" cluster for onboarding
@@ -93,10 +95,10 @@ Cluster pages link to topically adjacent siblings. These links create triangular
 
 ## Link Budget Per Page Type
 
-| Page Type | Max Internal Links | Breakdown |
-|-----------|-------------------|-----------|
-| **Pillar** | 15-20 | 1 per cluster (8-12) + 3-5 cross-references to external Builder.io posts |
-| **Cluster** | 5-8 | 1 pillar + 2-3 siblings + 2-3 external Builder.io posts or docs |
+| Page Type   | Max Internal Links | Breakdown                                                                |
+| ----------- | ------------------ | ------------------------------------------------------------------------ |
+| **Pillar**  | 15-20              | 1 per cluster (8-12) + 3-5 cross-references to external Builder.io posts |
+| **Cluster** | 5-8                | 1 pillar + 2-3 siblings + 2-3 external Builder.io posts or docs          |
 
 These counts include hub links only. External links (non-Builder.io) are separate and governed by the seo-optimization skill's Step 8.
 
@@ -104,13 +106,14 @@ These counts include hub links only. External links (non-Builder.io) are separat
 
 Distribute anchor text across three categories to avoid over-optimization penalties.
 
-| Category | Share | Description | Example (target: "Claude Code vs Cursor") |
-|----------|-------|-------------|---------------------------------------------|
-| **Primary keyword** | 50% | Target page's exact primary keyword | "Claude Code vs Cursor" |
-| **Semantic variation** | 30% | Long-tail or rephrased form of the keyword | "comparing Claude Code and Cursor" |
-| **Natural phrase** | 20% | Contextual phrase that reads naturally | "see how these AI coding tools compare" |
+| Category               | Share | Description                                | Example (target: "Claude Code vs Cursor") |
+| ---------------------- | ----- | ------------------------------------------ | ----------------------------------------- |
+| **Primary keyword**    | 50%   | Target page's exact primary keyword        | "Claude Code vs Cursor"                   |
+| **Semantic variation** | 30%   | Long-tail or rephrased form of the keyword | "comparing Claude Code and Cursor"        |
+| **Natural phrase**     | 20%   | Contextual phrase that reads naturally     | "see how these AI coding tools compare"   |
 
 **Hard rules:**
+
 1. Never use the same anchor text for two different target pages within the hub
 2. Never use bare "click here," "read more," or "this article" -- these waste link equity signal
 3. Never use the target page's full title as anchor text -- too long, looks unnatural
@@ -123,6 +126,7 @@ This process runs as part of seo-optimization (Phase 8) when `hub_slug` is prese
 ### Step 1: Read Hub Context
 
 Load `output/hubs/<hub_slug>/hub.yaml`. Extract:
+
 - All entries from the `links:` section where `from == current_page_slug` or `to == current_page_slug`
 - The current page's role (`pillar` or its cluster slug)
 - Sibling page topics and primary keywords (needed for anchor text generation)
@@ -171,6 +175,7 @@ reverse_links:
 ```
 
 **Rules for reverse link patches:**
+
 1. Only generate patches for the pillar page, not for already-published cluster pages
 2. Cluster-to-cluster reverse links are deferred to hub finalization (Step 5)
 3. Each patch must include `before` and `after` context for precise text replacement
@@ -183,6 +188,7 @@ After ALL cluster pages in the hub are created, run a finalization sweep. This s
 **5a. Inject deferred cluster-to-cluster links:**
 
 For each planned cluster ↔ cluster link in `hub.yaml`:
+
 1. Read the source cluster's `post.md`
 2. Find the appropriate body section
 3. Insert the link using the anchor text strategy
@@ -191,6 +197,7 @@ For each planned cluster ↔ cluster link in `hub.yaml`:
 **5b. Validate completeness:**
 
 For each link in `hub.yaml`:
+
 1. Verify the link exists in the source page's `post.md` (search for the target URL)
 2. If found, update `hub.yaml` link status: `implemented` → `verified`
 3. If missing, flag as an error in the finalization report
@@ -198,6 +205,7 @@ For each link in `hub.yaml`:
 **5c. Check for orphaned pages:**
 
 A page is orphaned if it has zero inbound hub links (no other hub page links to it). Scan `hub.yaml` links section:
+
 - Every cluster must have at least 1 inbound link from the pillar
 - Every cluster should have at least 1 inbound link from a sibling (warn if missing, not an error)
 - The pillar must have at least 1 inbound link from every cluster
@@ -210,11 +218,11 @@ A page is orphaned if it has zero inbound hub links (no other hub page links to 
 planned → implemented → verified
 ```
 
-| Status | Meaning | Set By |
-|--------|---------|--------|
-| `planned` | Link is in the plan, not yet in any post.md | hub-planning skill (Step 5) |
-| `implemented` | Link has been inserted into the source post.md | seo-optimization (Phase 8, this skill's Step 2) |
-| `verified` | Link has been validated to exist in the published post | post-publish-checklist (Phase 10) |
+| Status        | Meaning                                                | Set By                                          |
+| ------------- | ------------------------------------------------------ | ----------------------------------------------- |
+| `planned`     | Link is in the plan, not yet in any post.md            | hub-planning skill (Step 5)                     |
+| `implemented` | Link has been inserted into the source post.md         | seo-optimization (Phase 8, this skill's Step 2) |
+| `verified`    | Link has been validated to exist in the published post | post-publish-checklist (Phase 10)               |
 
 ### Updating hub.yaml After Each Page
 
@@ -242,6 +250,7 @@ Orphaned pages: 0
 **Hub:** Claude Code (12 cluster pages)
 
 **Pillar post.md H2 section (before linking):**
+
 ```markdown
 ## Getting Started with Claude Code
 
@@ -250,6 +259,7 @@ The setup process takes about 2 minutes.
 ```
 
 **After hub-linking (link to beginner cluster):**
+
 ```markdown
 ## Getting Started with Claude Code
 
@@ -259,6 +269,7 @@ see [how to use Claude Code](https://www.builder.io/blog/claude-code-beginners).
 ```
 
 **hub.yaml link entry:**
+
 ```yaml
 - from: pillar
   to: claude-code-beginners
@@ -270,6 +281,7 @@ see [how to use Claude Code](https://www.builder.io/blog/claude-code-beginners).
 ### Example 2: Cluster → Pillar Backlink
 
 **Cluster page (claude-code-vs-cursor) intro (before linking):**
+
 ```markdown
 Choosing between AI coding tools is one of the biggest decisions
 developers face in 2026. Both Claude Code and Cursor offer
@@ -277,6 +289,7 @@ powerful AI assistance, but they take fundamentally different approaches.
 ```
 
 **After hub-linking (pillar backlink in intro):**
+
 ```markdown
 Choosing between AI coding tools is one of the biggest decisions
 developers face in 2026. This comparison is part of our
@@ -292,6 +305,7 @@ assistance, but they take fundamentally different approaches.
 **Scenario:** The "Claude Code for Beginners" cluster page just completed. The pillar page needs a link to it.
 
 **Generated patch (phases/08-seo-reverse-links.yaml):**
+
 ```yaml
 reverse_links:
   - target_file: "output/hubs/claude-code/pillar/post.md"
@@ -310,12 +324,14 @@ reverse_links:
 **Scenario:** Hub finalization injects a link from "Claude Code vs Cursor" → "Claude Code for Beginners."
 
 **Before (claude-code-vs-cursor/post.md):**
+
 ```markdown
 If you're new to Claude Code, the learning curve is gentler than
 you might expect. Most developers are productive within a day.
 ```
 
 **After finalization link sweep:**
+
 ```markdown
 If you're new to Claude Code, the learning curve is gentler than
 you might expect. Our [Claude Code beginner's guide](https://www.builder.io/blog/claude-code-beginners)
@@ -323,12 +339,13 @@ covers the full onboarding process. Most developers are productive within a day.
 ```
 
 **hub.yaml link entry updated:**
+
 ```yaml
 - from: claude-code-vs-cursor
   to: claude-code-beginners
   anchor_text: "Claude Code beginner's guide"
   placement: body
-  status: implemented  # Updated from planned during finalization
+  status: implemented # Updated from planned during finalization
 ```
 
 ### Example 5: Orphan Detection
@@ -336,6 +353,7 @@ covers the full onboarding process. Most developers are productive within a day.
 **Scenario:** After finalization, Cluster G has no inbound sibling links (only the pillar links to it).
 
 **Finalization report:**
+
 ```
 WARNING: Cluster "claude-code-mcp-servers" has 0 inbound sibling links.
   - Inbound from pillar: 1 (verified)

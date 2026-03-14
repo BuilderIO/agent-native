@@ -22,21 +22,28 @@ interface FunnelRow {
   overall_conversion_rate: number;
 }
 
-export function SimpleFunnelChart({ weeksRecent, weeksBaseline }: SimpleFunnelChartProps) {
+export function SimpleFunnelChart({
+  weeksRecent,
+  weeksBaseline,
+}: SimpleFunnelChartProps) {
   const sqlQuery = getSimpleFunnelQuery(weeksRecent, weeksBaseline);
   const { data, isLoading, error } = useMetricsQuery(
     ["simple-funnel", String(weeksRecent), String(weeksBaseline)],
-    sqlQuery
+    sqlQuery,
   );
 
   if (error) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Conversion Funnel Analysis</CardTitle>
+          <CardTitle className="text-base">
+            Conversion Funnel Analysis
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-sm text-destructive">Error loading funnel data: {data?.error || String(error)}</div>
+          <div className="text-sm text-destructive">
+            Error loading funnel data: {data?.error || String(error)}
+          </div>
         </CardContent>
       </Card>
     );
@@ -46,7 +53,9 @@ export function SimpleFunnelChart({ weeksRecent, weeksBaseline }: SimpleFunnelCh
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Conversion Funnel Analysis</CardTitle>
+          <CardTitle className="text-base">
+            Conversion Funnel Analysis
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <Skeleton className="h-[400px] w-full" />
@@ -61,7 +70,7 @@ export function SimpleFunnelChart({ weeksRecent, weeksBaseline }: SimpleFunnelCh
 
   const renderFunnel = (data: FunnelRow, label: string) => {
     const maxCount = data.total_visitors;
-    
+
     const steps = [
       {
         label: "Total Visitors",
@@ -72,30 +81,36 @@ export function SimpleFunnelChart({ weeksRecent, weeksBaseline }: SimpleFunnelCh
       {
         label: "Visited Intent Page (Signup/Pricing)",
         count: data.visited_intent_page ?? 0,
-        pct: maxCount > 0 ? ((data.visited_intent_page ?? 0) / maxCount) * 100 : 0,
+        pct:
+          maxCount > 0 ? ((data.visited_intent_page ?? 0) / maxCount) * 100 : 0,
         rate: data.intent_page_visit_rate ?? null,
       },
       {
         label: "Visited Signup Page",
         count: data.visited_signup_page ?? 0,
-        pct: maxCount > 0 ? ((data.visited_signup_page ?? 0) / maxCount) * 100 : 0,
+        pct:
+          maxCount > 0 ? ((data.visited_signup_page ?? 0) / maxCount) * 100 : 0,
         rate: data.signup_page_visit_rate ?? null,
       },
       {
         label: "Completed Signup",
         count: data.completed_signups ?? 0,
-        pct: maxCount > 0 ? ((data.completed_signups ?? 0) / maxCount) * 100 : 0,
+        pct:
+          maxCount > 0 ? ((data.completed_signups ?? 0) / maxCount) * 100 : 0,
         rate: data.overall_conversion_rate ?? null,
       },
     ];
 
     return (
       <div className="space-y-3">
-        <div className="text-sm font-semibold text-muted-foreground">{label}</div>
+        <div className="text-sm font-semibold text-muted-foreground">
+          {label}
+        </div>
         {steps.map((step, idx) => {
           const prevCount = idx > 0 ? steps[idx - 1].count : step.count;
           const dropoffCount = prevCount - step.count;
-          const dropoffRate = prevCount > 0 ? (dropoffCount / prevCount) * 100 : 0;
+          const dropoffRate =
+            prevCount > 0 ? (dropoffCount / prevCount) * 100 : 0;
 
           return (
             <div key={step.label} className="space-y-1">
@@ -105,7 +120,8 @@ export function SimpleFunnelChart({ weeksRecent, weeksBaseline }: SimpleFunnelCh
                   {idx > 0 && dropoffCount > 0 && (
                     <span className="flex items-center gap-1 text-orange-600">
                       <TrendingDown className="h-3 w-3" />
-                      {dropoffCount.toLocaleString()} dropped (-{dropoffRate.toFixed(1)}%)
+                      {dropoffCount.toLocaleString()} dropped (-
+                      {dropoffRate.toFixed(1)}%)
                     </span>
                   )}
                 </div>
@@ -135,7 +151,8 @@ export function SimpleFunnelChart({ weeksRecent, weeksBaseline }: SimpleFunnelCh
   const recentConv = recent.overall_conversion_rate ?? 0;
   const baselineConv = baseline.overall_conversion_rate ?? 0;
   const convChange = recentConv - baselineConv;
-  const convChangePct = baselineConv !== 0 ? (convChange / baselineConv) * 100 : 0;
+  const convChangePct =
+    baselineConv !== 0 ? (convChange / baselineConv) * 100 : 0;
 
   return (
     <Card>
@@ -150,18 +167,32 @@ export function SimpleFunnelChart({ weeksRecent, weeksBaseline }: SimpleFunnelCh
         <div className="mb-6 p-3 rounded-lg bg-muted/30 border border-border">
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <div className="text-xs text-muted-foreground">Recent Overall Conv Rate</div>
-              <div className="text-2xl font-bold mt-1">{recentConv.toFixed(2)}%</div>
+              <div className="text-xs text-muted-foreground">
+                Recent Overall Conv Rate
+              </div>
+              <div className="text-2xl font-bold mt-1">
+                {recentConv.toFixed(2)}%
+              </div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">Baseline Overall Conv Rate</div>
-              <div className="text-2xl font-bold mt-1">{baselineConv.toFixed(2)}%</div>
+              <div className="text-xs text-muted-foreground">
+                Baseline Overall Conv Rate
+              </div>
+              <div className="text-2xl font-bold mt-1">
+                {baselineConv.toFixed(2)}%
+              </div>
             </div>
             <div>
               <div className="text-xs text-muted-foreground">Change</div>
-              <div className={`text-2xl font-bold mt-1 ${convChange < 0 ? 'text-destructive' : 'text-green-600'}`}>
-                {convChange > 0 ? '+' : ''}{convChange.toFixed(2)}%
-                <span className="text-sm ml-2 text-muted-foreground">({convChangePct > 0 ? '+' : ''}{convChangePct.toFixed(1)}%)</span>
+              <div
+                className={`text-2xl font-bold mt-1 ${convChange < 0 ? "text-destructive" : "text-green-600"}`}
+              >
+                {convChange > 0 ? "+" : ""}
+                {convChange.toFixed(2)}%
+                <span className="text-sm ml-2 text-muted-foreground">
+                  ({convChangePct > 0 ? "+" : ""}
+                  {convChangePct.toFixed(1)}%)
+                </span>
               </div>
             </div>
           </div>
@@ -170,16 +201,31 @@ export function SimpleFunnelChart({ weeksRecent, weeksBaseline }: SimpleFunnelCh
         {/* Side-by-side Funnels */}
         <div className="grid md:grid-cols-2 gap-6">
           {renderFunnel(recent, `Recent (Last ${weeksRecent} Weeks)`)}
-          {renderFunnel(baseline, `Baseline (Weeks ${weeksRecent + 1}-${weeksRecent + weeksBaseline} Ago)`)}
+          {renderFunnel(
+            baseline,
+            `Baseline (Weeks ${weeksRecent + 1}-${weeksRecent + weeksBaseline} Ago)`,
+          )}
         </div>
 
         {/* Key Findings */}
         <div className="mt-6 pt-4 border-t border-border text-xs">
           <div className="font-semibold mb-2">Key Findings:</div>
           <ul className="space-y-1 text-muted-foreground">
-            <li>• Intent Page Visit Rate: {(recent.intent_page_visit_rate ?? 0).toFixed(1)}% (vs {(baseline.intent_page_visit_rate ?? 0).toFixed(1)}%)</li>
-            <li>• Signup Page Visit Rate: {(recent.signup_page_visit_rate ?? 0).toFixed(1)}% (vs {(baseline.signup_page_visit_rate ?? 0).toFixed(1)}%)</li>
-            <li>• Signup Completion Rate: {(recent.signup_completion_rate ?? 0).toFixed(1)}% (vs {(baseline.signup_completion_rate ?? 0).toFixed(1)}%)</li>
+            <li>
+              • Intent Page Visit Rate:{" "}
+              {(recent.intent_page_visit_rate ?? 0).toFixed(1)}% (vs{" "}
+              {(baseline.intent_page_visit_rate ?? 0).toFixed(1)}%)
+            </li>
+            <li>
+              • Signup Page Visit Rate:{" "}
+              {(recent.signup_page_visit_rate ?? 0).toFixed(1)}% (vs{" "}
+              {(baseline.signup_page_visit_rate ?? 0).toFixed(1)}%)
+            </li>
+            <li>
+              • Signup Completion Rate:{" "}
+              {(recent.signup_completion_rate ?? 0).toFixed(1)}% (vs{" "}
+              {(baseline.signup_completion_rate ?? 0).toFixed(1)}%)
+            </li>
           </ul>
         </div>
 

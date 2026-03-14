@@ -1,5 +1,9 @@
 import "dotenv/config";
-import { createServer, createFileWatcher, createSSEHandler } from "@agent-native/core";
+import {
+  createServer,
+  createFileWatcher,
+  createSSEHandler,
+} from "@agent-native/core";
 
 export function createAppServer() {
   const app = createServer();

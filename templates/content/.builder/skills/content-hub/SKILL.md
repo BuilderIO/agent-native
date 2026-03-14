@@ -9,11 +9,11 @@ Plan and scaffold a content hub: a pillar page surrounded by 8-12 cluster pages.
 
 ## Three Modes
 
-| Mode | Trigger | What It Does |
-|------|---------|--------------|
-| **Plan** (default) | `/content-hub "topic"` | Research, plan, scaffold folders with hub-context.yaml |
-| **Expand** | `/content-hub --expand hub-slug` | Add clusters to existing hub, scaffold new folders |
-| **Finalize** | `/content-hub --finalize hub-slug` | Cross-cluster links, validation, pillar re-check, hub status |
+| Mode               | Trigger                            | What It Does                                                 |
+| ------------------ | ---------------------------------- | ------------------------------------------------------------ |
+| **Plan** (default) | `/content-hub "topic"`             | Research, plan, scaffold folders with hub-context.yaml       |
+| **Expand**         | `/content-hub --expand hub-slug`   | Add clusters to existing hub, scaffold new folders           |
+| **Finalize**       | `/content-hub --finalize hub-slug` | Cross-cluster links, validation, pillar re-check, hub status |
 
 ## Arguments
 
@@ -80,6 +80,7 @@ Present the hub plan using **AskUserQuestion**:
 **Question:** "Hub plan ready. How do you want to proceed?"
 
 **Options:**
+
 1. **Approve** -- Scaffold page folders
 2. **Modify clusters** -- Add, remove, or reorder cluster pages (re-runs relevant planning steps, re-presents Gate 1)
 3. **Change priorities** -- Adjust creation order (updates hub.yaml, re-presents Gate 1)
@@ -124,7 +125,7 @@ page_slug: pillar | <cluster-slug>
 # --- Pipeline fields (consumed by commands to pre-populate Phase 1) ---
 topic: "Page Topic Title"
 primary_keyword: "page primary keyword"
-content_goal: acquisition  # From hub.yaml (page override or hub default)
+content_goal: acquisition # From hub.yaml (page override or hub default)
 
 # --- Reference fields (for human readability, not consumed by pipeline) ---
 target_word_count: 2200
@@ -136,6 +137,7 @@ priority: 1
 **Hub.yaml path resolution:** Commands resolve hub.yaml deterministically as `output/hubs/<hub_slug>/hub.yaml`. No relative paths -- no `hub_yaml_path` field.
 
 **Pipeline fields vs reference fields:**
+
 - Pipeline fields (`hub_slug` through `content_goal`) are consumed by per-page commands to pre-populate Phase 1
 - Reference fields (`target_word_count` through `priority`) are for human readability only -- not consumed by the pipeline
 
@@ -144,7 +146,7 @@ priority: 1
 Set hub status to `scaffolded` in `hub.yaml`:
 
 ```yaml
-status: scaffolded  # planning → scaffolded → in-progress → published/partial
+status: scaffolded # planning → scaffolded → in-progress → published/partial
 ```
 
 #### Step S.4: Display Result
@@ -214,6 +216,7 @@ For each new cluster idea:
 Show new clusters alongside existing ones. Ask for approval:
 
 **Options:**
+
 1. **Approve** -- Add clusters and scaffold new folders
 2. **Modify** -- Adjust the new clusters
 3. **Stop** -- Cancel expansion
@@ -243,6 +246,7 @@ Check page statuses. If pages remain at `planned` or `in-progress` status, warn:
 "N pages have not reached published status: [list]. Finalize with current pages or return to complete them?"
 
 **Options:**
+
 1. **Proceed** -- Finalize with published pages
 2. **Stop** -- Return to complete remaining pages
 
@@ -287,6 +291,7 @@ Use **AskUserQuestion**:
 **Question:** "Hub finalization complete. What would you like to do next?"
 
 **Options:**
+
 1. **Capture learnings** -- Run `/content-compound` on this hub
 2. **Style audit** -- Review all hub pages for voice consistency (recommended for hubs with 5+ pages)
 3. **View hub** -- Open `hub.yaml` for the final blueprint
@@ -301,13 +306,13 @@ planning → scaffolded → in-progress → published
                                      → partial
 ```
 
-| Status | Meaning | Set By |
-|--------|---------|--------|
-| `planning` | Hub plan in progress | Hub-strategist agent (Phase 0) |
-| `scaffolded` | Folders created, no pages started yet | Plan mode (Step S.3) |
-| `in-progress` | At least one page has started its pipeline | Per-page commands (auto, when hub-context.yaml detected) |
-| `published` | All non-skipped pages published, links verified | Finalize mode |
-| `partial` | Some pages incomplete, user stopped or pages failed | Finalize mode |
+| Status        | Meaning                                             | Set By                                                   |
+| ------------- | --------------------------------------------------- | -------------------------------------------------------- |
+| `planning`    | Hub plan in progress                                | Hub-strategist agent (Phase 0)                           |
+| `scaffolded`  | Folders created, no pages started yet               | Plan mode (Step S.3)                                     |
+| `in-progress` | At least one page has started its pipeline          | Per-page commands (auto, when hub-context.yaml detected) |
+| `published`   | All non-skipped pages published, links verified     | Finalize mode                                            |
+| `partial`     | Some pages incomplete, user stopped or pages failed | Finalize mode                                            |
 
 ## Error Handling
 

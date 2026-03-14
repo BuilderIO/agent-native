@@ -28,7 +28,7 @@ export function EventCard({ event, onClick, compact = false }: EventCardProps) {
       onClick={onClick}
       className={cn(
         "flex w-full flex-col gap-0.5 rounded-md border-l-2 px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent",
-        event.source === "google" ? "border-l-green-500" : "border-l-primary"
+        event.source === "google" ? "border-l-green-500" : "border-l-primary",
       )}
     >
       <span className="font-medium truncate">{event.title}</span>

@@ -1,6 +1,12 @@
 import fs from "fs";
 import path from "path";
-import { loadEnv, parseArgs, camelCaseArgs, fail, PROJECTS_DIR } from "./_utils.js";
+import {
+  loadEnv,
+  parseArgs,
+  camelCaseArgs,
+  fail,
+  PROJECTS_DIR,
+} from "./_utils.js";
 import { uploadBufferToBuilderCDN } from "../server/utils/builder-upload.js";
 
 interface BrandfetchLogo {
@@ -22,7 +28,8 @@ export default async function main(args: string[]) {
   const opts = camelCaseArgs(raw);
 
   const domain = (opts.domain as string) || "anthropic.com";
-  const projectSlug = (opts.projectSlug as string) || "steve/claude-code-for-designers";
+  const projectSlug =
+    (opts.projectSlug as string) || "steve/claude-code-for-designers";
   const outputName = (opts.outputName as string) || "brand-logo.png";
 
   const apiKey = process.env.BRANDFETCH_API_KEY;
@@ -34,7 +41,9 @@ export default async function main(args: string[]) {
   });
 
   if (!res.ok) {
-    fail(`Brandfetch API error: ${res.status} ${res.statusText} - ${await res.text()}`);
+    fail(
+      `Brandfetch API error: ${res.status} ${res.statusText} - ${await res.text()}`,
+    );
   }
 
   const data = await res.json();
@@ -44,12 +53,21 @@ export default async function main(args: string[]) {
   for (const logo of logos) {
     console.log(`  Type: ${logo.type} | Theme: ${logo.theme}`);
     for (const fmt of logo.formats) {
-      console.log(`    Format: ${fmt.format} | ${fmt.width}x${fmt.height} | ${fmt.src}`);
+      console.log(
+        `    Format: ${fmt.format} | ${fmt.width}x${fmt.height} | ${fmt.src}`,
+      );
     }
   }
 
   // Score and pick the best logo
-  type Candidate = { url: string; score: number; format: string; width: number; type: string; theme: string | null };
+  type Candidate = {
+    url: string;
+    score: number;
+    format: string;
+    width: number;
+    type: string;
+    theme: string | null;
+  };
   const candidates: Candidate[] = [];
 
   for (const logo of logos) {
@@ -78,7 +96,9 @@ export default async function main(args: string[]) {
 
   // Download top candidate
   const best = candidates[0];
-  console.log(`\nSelected: type=${best.type}, theme=${best.theme}, format=${best.format}, width=${best.width}`);
+  console.log(
+    `\nSelected: type=${best.type}, theme=${best.theme}, format=${best.format}, width=${best.width}`,
+  );
   console.log(`URL: ${best.url}`);
 
   const logoRes = await fetch(best.url);
@@ -88,7 +108,8 @@ export default async function main(args: string[]) {
   const outDir = path.join(PROJECTS_DIR, projectSlug, "media");
   if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 
-  const mimeType = logoRes.headers.get("content-type") || `image/${best.format}`;
+  const mimeType =
+    logoRes.headers.get("content-type") || `image/${best.format}`;
   const cdnUrl = await uploadBufferToBuilderCDN(outputName, buffer, mimeType);
 
   const metadataPath = path.join(outDir, `${outputName}.json`);
@@ -102,13 +123,17 @@ export default async function main(args: string[]) {
   };
   fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
 
-  console.log(`\nUploaded to Builder CDN: ${cdnUrl} (${Math.round(buffer.length / 1024)}KB)`);
+  console.log(
+    `\nUploaded to Builder CDN: ${cdnUrl} (${Math.round(buffer.length / 1024)}KB)`,
+  );
   console.log(`Saved metadata to: ${metadataPath}`);
 
   // Also show all candidates for reference
   console.log(`\nAll ${candidates.length} candidates (top 5):`);
   candidates.slice(0, 5).forEach((c, i) => {
-    console.log(`  ${i + 1}. score=${c.score} type=${c.type} theme=${c.theme} fmt=${c.format} w=${c.width}`);
+    console.log(
+      `  ${i + 1}. score=${c.score} type=${c.type} theme=${c.theme} fmt=${c.format} w=${c.width}`,
+    );
     console.log(`     ${c.url}`);
   });
 }

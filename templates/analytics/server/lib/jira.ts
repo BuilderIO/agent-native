@@ -15,7 +15,7 @@ function getAuth(): { baseUrl: string; headers: Record<string, string> } {
   const token = process.env.JIRA_API_TOKEN;
   if (!baseUrl || !email || !token) {
     throw new Error(
-      "JIRA_BASE_URL, JIRA_USER_EMAIL, and JIRA_API_TOKEN env vars are required"
+      "JIRA_BASE_URL, JIRA_USER_EMAIL, and JIRA_API_TOKEN env vars are required",
     );
   }
   const encoded = Buffer.from(`${email}:${token}`).toString("base64");
@@ -31,9 +31,11 @@ function getAuth(): { baseUrl: string; headers: Record<string, string> } {
 async function jiraGet<T>(
   path: string,
   params?: Record<string, string>,
-  cacheKey?: string
+  cacheKey?: string,
 ): Promise<T> {
-  const key = cacheKey ?? path + (params ? "?" + new URLSearchParams(params).toString() : "");
+  const key =
+    cacheKey ??
+    path + (params ? "?" + new URLSearchParams(params).toString() : "");
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;
@@ -161,7 +163,7 @@ const DEFAULT_FIELDS = [
 export async function searchIssues(
   jql: string,
   fields?: string[],
-  maxResults = 50
+  maxResults = 50,
 ): Promise<{ issues: JiraIssue[]; total: number }> {
   const params: Record<string, string> = {
     jql,
@@ -181,11 +183,16 @@ export async function getProjects(): Promise<JiraProject[]> {
 }
 
 export async function getStatuses(
-  projectKey?: string
+  projectKey?: string,
 ): Promise<{ name: string; statusCategory: { key: string; name: string } }[]> {
   if (projectKey) {
     const data = await jiraGet<
-      { statuses: { name: string; statusCategory: { key: string; name: string } }[] }[]
+      {
+        statuses: {
+          name: string;
+          statusCategory: { key: string; name: string };
+        }[];
+      }[]
     >(`${API_V3}/project/${projectKey}/statuses`);
     const all = data.flatMap((issueType) => issueType.statuses);
     const unique = new Map(all.map((s) => [s.name, s]));
@@ -201,7 +208,7 @@ export async function getBoards(): Promise<JiraBoard[]> {
 
 export async function getSprints(boardId: number): Promise<JiraSprint[]> {
   const data = await jiraGet<{ values: JiraSprint[] }>(
-    `${API_AGILE}/board/${boardId}/sprint`
+    `${API_AGILE}/board/${boardId}/sprint`,
   );
   return data.values;
 }
@@ -222,7 +229,7 @@ export interface JiraAnalytics {
 
 export async function getAnalytics(
   projects: string[],
-  days = 30
+  days = 30,
 ): Promise<JiraAnalytics> {
   const sinceDate = new Date(Date.now() - days * 86400000)
     .toISOString()
@@ -236,21 +243,21 @@ export async function getAnalytics(
   const openResult = await searchIssues(
     `${projectJql}statusCategory != Done`,
     DEFAULT_FIELDS,
-    200
+    200,
   );
 
   // Fetch recently created
   const createdResult = await searchIssues(
     `${projectJql}created >= "${sinceDate}"`,
     [...DEFAULT_FIELDS, "resolutiondate"],
-    200
+    200,
   );
 
   // Fetch recently resolved
   const resolvedResult = await searchIssues(
     `${projectJql}resolved >= "${sinceDate}"`,
     [...DEFAULT_FIELDS, "resolutiondate"],
-    200
+    200,
   );
 
   // Aggregate
@@ -297,7 +304,7 @@ export async function getAnalytics(
   const allDays: string[] = [];
   for (let i = days - 1; i >= 0; i--) {
     allDays.push(
-      new Date(Date.now() - i * 86400000).toISOString().slice(0, 10)
+      new Date(Date.now() - i * 86400000).toISOString().slice(0, 10),
     );
   }
 

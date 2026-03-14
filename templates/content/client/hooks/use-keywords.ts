@@ -11,7 +11,7 @@ export function useKeywordSuggest(query: string) {
     queryKey: ["keywordSuggest", query],
     queryFn: async () => {
       const res = await authFetch(
-        `/api/keywords/suggest?q=${encodeURIComponent(query)}`
+        `/api/keywords/suggest?q=${encodeURIComponent(query)}`,
       );
       if (!res.ok) throw new Error("Failed to fetch suggestions");
       return res.json();

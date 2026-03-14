@@ -3,10 +3,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowUpDown, ArrowUp, ArrowDown, ExternalLink, Heart, Repeat2, Eye, MessageCircle } from "lucide-react";
+import {
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  ExternalLink,
+  Heart,
+  Repeat2,
+  Eye,
+  MessageCircle,
+} from "lucide-react";
 import { type ParsedTweet } from "./TwitterSection";
 
-type SortKey = "likeCount" | "retweetCount" | "replyCount" | "viewCount" | "createdAt";
+type SortKey =
+  | "likeCount"
+  | "retweetCount"
+  | "replyCount"
+  | "viewCount"
+  | "createdAt";
 type SortDir = "asc" | "desc";
 
 const COLUMNS: { key: SortKey; label: string }[] = [
@@ -37,7 +51,12 @@ interface Props {
   onClearFilter: () => void;
 }
 
-export function TwitterTopPosts({ tweets, isLoading, selectedAuthor, onClearFilter }: Props) {
+export function TwitterTopPosts({
+  tweets,
+  isLoading,
+  selectedAuthor,
+  onClearFilter,
+}: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("likeCount");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
@@ -46,9 +65,13 @@ export function TwitterTopPosts({ tweets, isLoading, selectedAuthor, onClearFilt
       const aVal = a[sortKey];
       const bVal = b[sortKey];
       if (typeof aVal === "string" && typeof bVal === "string") {
-        return sortDir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        return sortDir === "asc"
+          ? aVal.localeCompare(bVal)
+          : bVal.localeCompare(aVal);
       }
-      return sortDir === "asc" ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
+      return sortDir === "asc"
+        ? (aVal as number) - (bVal as number)
+        : (bVal as number) - (aVal as number);
     });
   }, [tweets, sortKey, sortDir]);
 
@@ -62,17 +85,22 @@ export function TwitterTopPosts({ tweets, isLoading, selectedAuthor, onClearFilt
   };
 
   const SortIcon = ({ col }: { col: SortKey }) => {
-    if (sortKey !== col) return <ArrowUpDown className="h-3 w-3 text-muted-foreground/30" />;
-    return sortDir === "asc"
-      ? <ArrowUp className="h-3 w-3 text-foreground" />
-      : <ArrowDown className="h-3 w-3 text-foreground" />;
+    if (sortKey !== col)
+      return <ArrowUpDown className="h-3 w-3 text-muted-foreground/30" />;
+    return sortDir === "asc" ? (
+      <ArrowUp className="h-3 w-3 text-foreground" />
+    ) : (
+      <ArrowDown className="h-3 w-3 text-foreground" />
+    );
   };
 
   return (
     <Card className="bg-muted/30 border-border/50">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium">Top Posts by Engagement</CardTitle>
+          <CardTitle className="text-sm font-medium">
+            Top Posts by Engagement
+          </CardTitle>
           {selectedAuthor && (
             <Button
               variant="ghost"
@@ -89,10 +117,17 @@ export function TwitterTopPosts({ tweets, isLoading, selectedAuthor, onClearFilt
       <CardContent>
         <div className="overflow-auto max-h-[500px]">
           <table className="w-full text-xs">
-            <thead className="sticky top-0 z-10" style={{ backgroundColor: 'hsl(var(--table-header))' }}>
+            <thead
+              className="sticky top-0 z-10"
+              style={{ backgroundColor: "hsl(var(--table-header))" }}
+            >
               <tr className="border-b border-border">
-                <th className="text-left py-2 px-2 font-medium text-muted-foreground w-[60px]">Author</th>
-                <th className="text-left py-2 px-2 font-medium text-muted-foreground min-w-[300px]">Tweet</th>
+                <th className="text-left py-2 px-2 font-medium text-muted-foreground w-[60px]">
+                  Author
+                </th>
+                <th className="text-left py-2 px-2 font-medium text-muted-foreground min-w-[300px]">
+                  Tweet
+                </th>
                 {COLUMNS.map((col) => (
                   <th
                     key={col.key}
@@ -111,8 +146,12 @@ export function TwitterTopPosts({ tweets, isLoading, selectedAuthor, onClearFilt
               {isLoading
                 ? Array.from({ length: 15 }).map((_, i) => (
                     <tr key={i} className="border-b border-border/30">
-                      <td className="py-1.5 px-2"><Skeleton className="h-4 w-12" /></td>
-                      <td className="py-1.5 px-2"><Skeleton className="h-4 w-full" /></td>
+                      <td className="py-1.5 px-2">
+                        <Skeleton className="h-4 w-12" />
+                      </td>
+                      <td className="py-1.5 px-2">
+                        <Skeleton className="h-4 w-full" />
+                      </td>
                       {COLUMNS.map((col) => (
                         <td key={col.key} className="py-1.5 px-2">
                           <Skeleton className="h-4 w-10 ml-auto" />
@@ -121,7 +160,10 @@ export function TwitterTopPosts({ tweets, isLoading, selectedAuthor, onClearFilt
                     </tr>
                   ))
                 : sorted.map((tweet) => (
-                    <tr key={tweet.id} className="border-b border-border/30 hover:bg-muted/30">
+                    <tr
+                      key={tweet.id}
+                      className="border-b border-border/30 hover:bg-muted/30"
+                    >
                       <td className="py-1.5 px-2 text-muted-foreground whitespace-nowrap">
                         {tweet.authorName}
                       </td>
@@ -129,11 +171,19 @@ export function TwitterTopPosts({ tweets, isLoading, selectedAuthor, onClearFilt
                         <div className="flex items-start gap-1.5">
                           {tweet.cardTitle ? (
                             <div className="flex flex-col gap-0.5">
-                              <span className="text-xs font-medium line-clamp-1">{tweet.cardTitle}</span>
-                              <span className="text-[10px] text-muted-foreground line-clamp-1">{tweet.text.replace(/https?:\/\/t\.co\/\w+/g, '').trim()}</span>
+                              <span className="text-xs font-medium line-clamp-1">
+                                {tweet.cardTitle}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground line-clamp-1">
+                                {tweet.text
+                                  .replace(/https?:\/\/t\.co\/\w+/g, "")
+                                  .trim()}
+                              </span>
                             </div>
                           ) : (
-                            <span className="line-clamp-2 text-xs leading-relaxed">{tweet.text}</span>
+                            <span className="line-clamp-2 text-xs leading-relaxed">
+                              {tweet.text}
+                            </span>
                           )}
                           <a
                             href={tweet.cardUrl || tweet.url}
@@ -146,7 +196,10 @@ export function TwitterTopPosts({ tweets, isLoading, selectedAuthor, onClearFilt
                         </div>
                       </td>
                       {COLUMNS.map((col) => (
-                        <td key={col.key} className="py-1.5 px-2 text-right tabular-nums whitespace-nowrap">
+                        <td
+                          key={col.key}
+                          className="py-1.5 px-2 text-right tabular-nums whitespace-nowrap"
+                        >
                           {col.key === "createdAt"
                             ? formatDate(tweet.createdAt)
                             : formatCount(tweet[col.key] as number)}

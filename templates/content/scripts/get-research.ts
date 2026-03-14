@@ -1,6 +1,13 @@
 import fs from "fs";
 import path from "path";
-import { loadEnv, parseArgs, camelCaseArgs, isValidProjectPath, PROJECTS_DIR, fail } from "./_utils.js";
+import {
+  loadEnv,
+  parseArgs,
+  camelCaseArgs,
+  isValidProjectPath,
+  PROJECTS_DIR,
+  fail,
+} from "./_utils.js";
 
 export default async function main(args: string[]) {
   loadEnv();
@@ -19,10 +26,17 @@ Options:
   if (!projectSlug) fail("--project-slug is required");
   if (!isValidProjectPath(projectSlug)) fail("Invalid project slug");
 
-  const researchPath = path.join(PROJECTS_DIR, projectSlug, "resources", "research.json");
+  const researchPath = path.join(
+    PROJECTS_DIR,
+    projectSlug,
+    "resources",
+    "research.json",
+  );
 
   if (!fs.existsSync(researchPath)) {
-    console.log(`No research data found for "${projectSlug}". Use: pnpm script save-research`);
+    console.log(
+      `No research data found for "${projectSlug}". Use: pnpm script save-research`,
+    );
     return;
   }
 

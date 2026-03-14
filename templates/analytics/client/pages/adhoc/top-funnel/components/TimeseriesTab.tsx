@@ -26,21 +26,21 @@ export function TimeseriesTab() {
 
   const sql = useMemo(
     () => timeseriesQuery(f.baseUrlContains, cadence),
-    [f.baseUrlContains, cadence]
+    [f.baseUrlContains, cadence],
   );
 
-  const { data, isLoading } = useMetricsQuery(
-    ["ts-series", sql],
-    sql,
-    { enabled: f.baseUrlContains.length > 2 }
-  );
+  const { data, isLoading } = useMetricsQuery(["ts-series", sql], sql, {
+    enabled: f.baseUrlContains.length > 2,
+  });
 
   const rows = data?.rows ?? [];
 
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-border p-3 space-y-3">
-        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Filters</h3>
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          Filters
+        </h3>
         <div className="flex flex-wrap gap-3 items-end">
           <TextFilter
             label="Base URL Contains"
@@ -49,14 +49,18 @@ export function TimeseriesTab() {
             placeholder="e.g. figma-to-angular"
           />
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground font-medium">Cadence</label>
+            <label className="text-xs text-muted-foreground font-medium">
+              Cadence
+            </label>
             <Select value={f.cadence} onValueChange={(v) => setF("cadence", v)}>
               <SelectTrigger className="h-8 w-[120px] text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {DATE_CADENCE_OPTIONS.map((c) => (
-                  <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>
+                  <SelectItem key={c} value={c} className="text-xs">
+                    {c}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>

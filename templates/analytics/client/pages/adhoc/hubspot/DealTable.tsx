@@ -106,13 +106,14 @@ export function DealTable({
     );
   }
 
-  const cols: { key: SortCol; label: string; type: "text" | "num" | "date" }[] = [
-    { key: "dealname", label: "Deal Name", type: "text" },
-    { key: "stage", label: "Stage", type: "text" },
-    { key: "amount", label: "Amount", type: "num" },
-    { key: "createdate", label: "Created", type: "date" },
-    { key: "closedate", label: "Close Date", type: "date" },
-  ];
+  const cols: { key: SortCol; label: string; type: "text" | "num" | "date" }[] =
+    [
+      { key: "dealname", label: "Deal Name", type: "text" },
+      { key: "stage", label: "Stage", type: "text" },
+      { key: "amount", label: "Amount", type: "num" },
+      { key: "createdate", label: "Created", type: "date" },
+      { key: "closedate", label: "Close Date", type: "date" },
+    ];
 
   return (
     <Card className="bg-card border-border/50">
@@ -142,13 +143,17 @@ export function DealTable({
                     key={col.key}
                     className={cn(
                       "py-2 px-2 font-medium text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap select-none",
-                      col.type === "text" ? "text-left" : "text-right"
+                      col.type === "text" ? "text-left" : "text-right",
                     )}
                     onClick={() => handleSort(col.key)}
                   >
                     <span className="inline-flex items-center gap-1">
                       {col.label}
-                      <SortIcon col={col.key} sortCol={sortCol} sortDir={sortDir} />
+                      <SortIcon
+                        col={col.key}
+                        sortCol={sortCol}
+                        sortDir={sortDir}
+                      />
                     </span>
                   </th>
                 ))}
@@ -158,7 +163,9 @@ export function DealTable({
             <tbody>
               {filtered.slice(0, 200).map((deal) => {
                 const amount = parseFloat(deal.properties.amount ?? "0") || 0;
-                const stageLabel = stageLabels[deal.properties.dealstage] ?? deal.properties.dealstage;
+                const stageLabel =
+                  stageLabels[deal.properties.dealstage] ??
+                  deal.properties.dealstage;
                 const isSelected = selectedDeal?.id === deal.id;
 
                 return (
@@ -166,7 +173,7 @@ export function DealTable({
                     key={deal.id}
                     className={cn(
                       "border-b border-border/30 hover:bg-muted/30 cursor-pointer",
-                      isSelected && "bg-primary/10"
+                      isSelected && "bg-primary/10",
                     )}
                     onClick={() => onSelectDeal?.(isSelected ? null : deal)}
                   >
@@ -232,7 +239,12 @@ function StageBadge({ label }: { label: string }) {
     color = "bg-yellow-500/15 text-yellow-400";
 
   return (
-    <span className={cn("inline-block text-[10px] px-1.5 py-0.5 rounded-full font-medium", color)}>
+    <span
+      className={cn(
+        "inline-block text-[10px] px-1.5 py-0.5 rounded-full font-medium",
+        color,
+      )}
+    >
       {label}
     </span>
   );

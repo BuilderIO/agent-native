@@ -45,7 +45,7 @@ export function ReviewPR({
     <div
       className={cn(
         "flex w-[430px] flex-col rounded-lg bg-[#191919] px-5 py-5 font-sans",
-        className
+        className,
       )}
     >
       {/* Reviewers Header */}

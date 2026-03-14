@@ -19,7 +19,10 @@ export function InlineImageGen({
   const [isGenerating, sendToAgentChat] = useAgentChatGenerating();
 
   useEffect(() => {
-    containerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    containerRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+    });
   }, []);
 
   // Auto-close when generation finishes (isGenerating goes from true → false)
@@ -53,9 +56,15 @@ export function InlineImageGen({
   };
 
   return (
-    <div ref={containerRef} className="my-4 border border-border rounded-lg bg-background">
+    <div
+      ref={containerRef}
+      className="my-4 border border-border rounded-lg bg-background"
+    >
       <div className="flex justify-end px-3 pt-2">
-        <button onClick={onClose} className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors">
+        <button
+          onClick={onClose}
+          className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+        >
           <X size={14} />
         </button>
       </div>
@@ -64,7 +73,11 @@ export function InlineImageGen({
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder={selectedText?.trim() ? "Additional instructions... (optional)" : "Describe the image you want..."}
+          placeholder={
+            selectedText?.trim()
+              ? "Additional instructions... (optional)"
+              : "Describe the image you want..."
+          }
           className="flex w-full rounded-md border border-input bg-muted px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[60px] resize-y"
           autoFocus
           onKeyDown={(e) => {
@@ -73,14 +86,16 @@ export function InlineImageGen({
         />
 
         <div className="flex items-center justify-between">
-          <span className="text-[11px] text-muted-foreground">Cmd+Enter to generate</span>
+          <span className="text-[11px] text-muted-foreground">
+            Cmd+Enter to generate
+          </span>
           <button
             onClick={handleGenerate}
             disabled={isGenerating}
             className={cn(
               "inline-flex items-center gap-1.5 justify-center rounded-md text-[11px] font-medium h-7 px-3 transition-colors",
               "bg-primary text-primary-foreground hover:bg-primary/90",
-              "disabled:opacity-50 disabled:pointer-events-none"
+              "disabled:opacity-50 disabled:pointer-events-none",
             )}
           >
             {isGenerating ? (

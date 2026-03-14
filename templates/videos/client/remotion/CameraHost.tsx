@@ -54,23 +54,48 @@ export const CameraHost: React.FC<CameraHostProps> = ({
   const cameraTrack = findTrack(tracks, "camera", FALLBACK_CAMERA_TRACK);
 
   // Read all camera properties using keyframe interpolation
-  const translateX = getPropValueKeyframed(frame, fps, cameraTrack, "translateX", 0);
-  const translateY = getPropValueKeyframed(frame, fps, cameraTrack, "translateY", 0);
+  const translateX = getPropValueKeyframed(
+    frame,
+    fps,
+    cameraTrack,
+    "translateX",
+    0,
+  );
+  const translateY = getPropValueKeyframed(
+    frame,
+    fps,
+    cameraTrack,
+    "translateY",
+    0,
+  );
   const scale = getPropValueKeyframed(frame, fps, cameraTrack, "scale", 1);
   const rotateX = getPropValueKeyframed(frame, fps, cameraTrack, "rotateX", 0);
   const rotateY = getPropValueKeyframed(frame, fps, cameraTrack, "rotateY", 0);
-  const perspective = getPropValueKeyframed(frame, fps, cameraTrack, "perspective", 800);
+  const perspective = getPropValueKeyframed(
+    frame,
+    fps,
+    cameraTrack,
+    "perspective",
+    800,
+  );
 
   // Validate all values are finite (safety check)
-  const allValid = [translateX, translateY, scale, rotateX, rotateY, perspective].every(
-    v => Number.isFinite(v)
-  );
+  const allValid = [
+    translateX,
+    translateY,
+    scale,
+    rotateX,
+    rotateY,
+    perspective,
+  ].every((v) => Number.isFinite(v));
 
   // Calculate final camera transform scale
   // Content is pre-rendered at INTERNAL_RENDER_SCALE, then camera zoom is applied on top
   // Example: at 1× camera zoom → scale 1/3 → appears normal
   //          at 3× camera zoom → scale 3/3 = 1 → 3× render at 1:1 (sharp!)
-  const cameraTransformScale = allValid ? (scale / INTERNAL_RENDER_SCALE) : (1 / INTERNAL_RENDER_SCALE);
+  const cameraTransformScale = allValid
+    ? scale / INTERNAL_RENDER_SCALE
+    : 1 / INTERNAL_RENDER_SCALE;
 
   // Build transform string (perspective → translate → rotate → scale)
   const transformStyle = allValid
@@ -134,7 +159,7 @@ export const CameraHost: React.FC<CameraHostProps> = ({
     if (!cursorTrack) return [];
 
     const clickProp = cursorTrack.animatedProps?.find(
-      (p) => p.property === "isClicking"
+      (p) => p.property === "isClicking",
     );
     if (!clickProp?.keyframes || clickProp.keyframes.length === 0) {
       return [];
@@ -151,7 +176,7 @@ export const CameraHost: React.FC<CameraHostProps> = ({
 
   // Determine if currently clicking (within 6 frames of any click)
   const isClicking = clickStartFrames.some(
-    (clickFrame) => frame >= clickFrame && frame - clickFrame < 6
+    (clickFrame) => frame >= clickFrame && frame - clickFrame < 6,
   );
 
   return (

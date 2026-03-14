@@ -33,7 +33,8 @@ function getInitial(user: PresenceUser): string {
 }
 
 function getLabel(user: PresenceUser): string {
-  if (user.displayName && user.email) return `${user.displayName} (${user.email})`;
+  if (user.displayName && user.email)
+    return `${user.displayName} (${user.email})`;
   return user.displayName || user.email || "Unknown";
 }
 
@@ -84,7 +85,10 @@ export function PresenceAvatars({ viewers }: PresenceAvatarsProps) {
             </div>
           </TooltipTrigger>
           <TooltipContent side="bottom" className="text-xs">
-            {viewers.slice(MAX_VISIBLE).map((u) => getLabel(u)).join(", ")}
+            {viewers
+              .slice(MAX_VISIBLE)
+              .map((u) => getLabel(u))
+              .join(", ")}
           </TooltipContent>
         </Tooltip>
       )}

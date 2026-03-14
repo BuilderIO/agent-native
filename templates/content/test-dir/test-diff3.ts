@@ -1,10 +1,16 @@
 import { computeBlockDiff } from "../server/routes/notion-diff.ts";
-import { getNotionMetadata, parseFrontmatter } from "../client/lib/frontmatter.ts";
+import {
+  getNotionMetadata,
+  parseFrontmatter,
+} from "../client/lib/frontmatter.ts";
 import { markdownToNotionBlocks } from "../client/lib/markdown-to-notion.ts";
 import * as fs from "fs";
 import * as path from "path";
 
-const mdPath = path.resolve(process.cwd(), "content/projects/alice/how-to-run-claude-code-on-mobile/draft.md");
+const mdPath = path.resolve(
+  process.cwd(),
+  "content/projects/alice/how-to-run-claude-code-on-mobile/draft.md",
+);
 const md = fs.readFileSync(mdPath, "utf-8");
 const md2 = md.replace("Testing.", "Testing again.");
 const parsed1 = parseFrontmatter(md);

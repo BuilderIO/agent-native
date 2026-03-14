@@ -10,7 +10,7 @@ function renderField(
   key: string,
   value: any,
   onChange: (key: string, value: any) => void,
-  depth = 0
+  depth = 0,
 ): React.ReactNode {
   if (Array.isArray(value)) {
     return (
@@ -35,8 +35,8 @@ function renderField(
                         newArr[i] = { ...item, [subKey]: subVal };
                         onChange(key, newArr);
                       },
-                      depth + 1
-                    )
+                      depth + 1,
+                    ),
                   )}
                 </div>
               ) : (
@@ -48,7 +48,7 @@ function renderField(
                     newArr[i] = v;
                     onChange(key, newArr);
                   },
-                  depth + 1
+                  depth + 1,
                 )
               )}
             </div>
@@ -72,8 +72,8 @@ function renderField(
               (subKey, subVal) => {
                 onChange(key, { ...value, [subKey]: subVal });
               },
-              depth + 1
-            )
+              depth + 1,
+            ),
           )}
         </div>
       </div>
@@ -189,11 +189,13 @@ export function PropsEditor({
       {/* Props fields */}
       {Object.entries(props).length > 0 ? (
         Object.entries(props).map(([key, value]) =>
-          renderField(key, value, handleChange)
+          renderField(key, value, handleChange),
         )
       ) : (
         <div className="text-center py-6 px-4 bg-muted/30 rounded-lg border border-dashed border-border">
-          <p className="text-xs text-muted-foreground">No properties to configure</p>
+          <p className="text-xs text-muted-foreground">
+            No properties to configure
+          </p>
           <p className="text-xs text-muted-foreground/60 mt-1">
             Add to the video by asking the agent to create something
           </p>

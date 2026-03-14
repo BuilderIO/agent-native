@@ -6,7 +6,13 @@ import { useMetricsQuery } from "@/lib/query-metrics";
 import { RevenueComparisonChart } from "@/components/dashboard/RevenueComparisonChart";
 import { CumulativeNetChart } from "@/components/dashboard/CumulativeNetChart";
 import { cn } from "@/lib/utils";
-import { TrendingUp, TrendingDown, DollarSign, ArrowDownRight, ArrowUpRight } from "lucide-react";
+import {
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  ArrowDownRight,
+  ArrowUpRight,
+} from "lucide-react";
 
 type Granularity = "daily" | "weekly";
 
@@ -56,10 +62,8 @@ ORDER BY arr_change DESC`;
 const formatCurrency = (value: number | null) => {
   if (value === null || value === undefined) return "-";
   const abs = Math.abs(value);
-  if (abs >= 1_000_000)
-    return `$${(value / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000)
-    return `$${(value / 1_000).toFixed(1)}k`;
+  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `$${(value / 1_000).toFixed(1)}k`;
   return `$${value.toFixed(0)}`;
 };
 
@@ -77,13 +81,15 @@ export default function SelfServeRevenueDashboard() {
 
   const overTime = useMetricsQuery(
     ["ss-revenue-time", granularity],
-    overTimeSql
+    overTimeSql,
   );
   const totals = useMetricsQuery(["ss-revenue-totals"], totalsSql);
   const statusBreakdown = useMetricsQuery(["ss-revenue-status"], statusSql);
 
-  const totalRevenueIn = (totals.data?.rows?.[0]?.total_revenue_in as number) ?? null;
-  const totalChurnOut = (totals.data?.rows?.[0]?.total_churn_out as number) ?? null;
+  const totalRevenueIn =
+    (totals.data?.rows?.[0]?.total_revenue_in as number) ?? null;
+  const totalChurnOut =
+    (totals.data?.rows?.[0]?.total_churn_out as number) ?? null;
   const totalNet = (totals.data?.rows?.[0]?.total_net as number) ?? null;
 
   const chartData = useMemo(() => {
@@ -125,7 +131,7 @@ export default function SelfServeRevenueDashboard() {
               size="sm"
               className={cn(
                 "h-7 px-3 text-xs capitalize",
-                granularity === g && "bg-secondary text-secondary-foreground"
+                granularity === g && "bg-secondary text-secondary-foreground",
               )}
               onClick={() => setGranularity(g)}
             >
@@ -166,7 +172,7 @@ export default function SelfServeRevenueDashboard() {
               ? "border-border/50"
               : isPositive
                 ? "border-emerald-500/30"
-                : "border-red-500/30"
+                : "border-red-500/30",
           )}
         >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -176,7 +182,7 @@ export default function SelfServeRevenueDashboard() {
             <div
               className={cn(
                 "flex h-8 w-8 items-center justify-center rounded-full",
-                isPositive ? "bg-emerald-500/10" : "bg-red-500/10"
+                isPositive ? "bg-emerald-500/10" : "bg-red-500/10",
               )}
             >
               {isPositive ? (
@@ -196,7 +202,7 @@ export default function SelfServeRevenueDashboard() {
                 <div
                   className={cn(
                     "text-3xl font-bold",
-                    isPositive ? "text-emerald-500" : "text-red-500"
+                    isPositive ? "text-emerald-500" : "text-red-500",
                   )}
                 >
                   {isPositive ? "+" : ""}
@@ -272,7 +278,7 @@ function SummaryCard({
         <div
           className={cn(
             "flex h-8 w-8 items-center justify-center rounded-full",
-            bgColor
+            bgColor,
           )}
         >
           <Icon className={cn("h-4 w-4", color)} />
@@ -352,7 +358,7 @@ function StatusBreakdownTable({
                       <td
                         className={cn(
                           "py-2 px-3 text-right font-medium",
-                          isPos ? "text-emerald-500" : "text-red-500"
+                          isPos ? "text-emerald-500" : "text-red-500",
                         )}
                       >
                         {isPos ? "+" : ""}
@@ -388,7 +394,7 @@ function StatusBadge({ status }: { status: string }) {
     <span
       className={cn(
         "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
-        colorClass
+        colorClass,
       )}
     >
       {status}

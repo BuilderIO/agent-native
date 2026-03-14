@@ -12,16 +12,17 @@ Call `subscription-info-limits-and-usage` at the start of every workflow to chec
 
 **Unit budget thresholds (check at workflow start):**
 
-| Remaining Units | Action |
-|----------------|--------|
-| >= 10,000 | Proceed normally with full field selection |
-| 5,000 - 9,999 | Proceed with reduced fields: drop `intents`, `global_volume`, `parent_volume` |
-| 2,000 - 4,999 | Warn user. Use only `keywords-explorer-overview`. Supplement with WebSearch. |
-| < 2,000 | Warn user. Switch entirely to WebSearch fallback. Mark `data_source: estimated`. |
+| Remaining Units | Action                                                                           |
+| --------------- | -------------------------------------------------------------------------------- |
+| >= 10,000       | Proceed normally with full field selection                                       |
+| 5,000 - 9,999   | Proceed with reduced fields: drop `intents`, `global_volume`, `parent_volume`    |
+| 2,000 - 4,999   | Warn user. Use only `keywords-explorer-overview`. Supplement with WebSearch.     |
+| < 2,000         | Warn user. Switch entirely to WebSearch fallback. Mark `data_source: estimated`. |
 
 Always display to user: "Ahrefs API: X units remaining (resets YYYY-MM-DD). This workflow will use ~1,800 units."
 
 **Cost-saving rules:**
+
 - Set `limit: 20-50` (default is 1000)
 - Use `where` for server-side filtering instead of fetching all results and filtering locally
 - Request only needed `select` fields -- each field with a unit cost annotation (e.g., "10 units") adds to the total
@@ -49,19 +50,19 @@ Always display to user: "Ahrefs API: X units remaining (resets YYYY-MM-DD). This
 
 **Key output fields:**
 
-| Field | Unit Cost | Description |
-|-------|-----------|-------------|
-| `keyword` | 0 | The keyword string |
-| `volume` | 10 | Monthly search volume (12-month average) |
-| `difficulty` | 10 | Ranking difficulty (0-100 scale) |
-| `traffic_potential` | 10 | Total organic traffic the #1 page gets from ALL its keywords |
-| `intents` | 10 | Object with boolean fields: `informational`, `navigational`, `commercial`, `transactional`, `branded`, `local` |
-| `parent_topic` | 0 | The broader topic the #1 page actually ranks for |
-| `parent_volume` | 10 | Search volume of the parent topic |
-| `serp_features` | 0 | Array of SERP features present (e.g., `ai_overview`, `snippet`, `video`) |
-| `global_volume` | 10 | Monthly volume across all countries |
-| `cpc` | 0 | Cost per click in USD cents |
-| `clicks` | 0 | Average monthly clicks on search results |
+| Field               | Unit Cost | Description                                                                                                    |
+| ------------------- | --------- | -------------------------------------------------------------------------------------------------------------- |
+| `keyword`           | 0         | The keyword string                                                                                             |
+| `volume`            | 10        | Monthly search volume (12-month average)                                                                       |
+| `difficulty`        | 10        | Ranking difficulty (0-100 scale)                                                                               |
+| `traffic_potential` | 10        | Total organic traffic the #1 page gets from ALL its keywords                                                   |
+| `intents`           | 10        | Object with boolean fields: `informational`, `navigational`, `commercial`, `transactional`, `branded`, `local` |
+| `parent_topic`      | 0         | The broader topic the #1 page actually ranks for                                                               |
+| `parent_volume`     | 10        | Search volume of the parent topic                                                                              |
+| `serp_features`     | 0         | Array of SERP features present (e.g., `ai_overview`, `snippet`, `video`)                                       |
+| `global_volume`     | 10        | Monthly volume across all countries                                                                            |
+| `cpc`               | 0         | Cost per click in USD cents                                                                                    |
+| `clicks`            | 0         | Average monthly clicks on search results                                                                       |
 
 ### keywords-explorer-matching-terms
 
@@ -102,10 +103,10 @@ Always display to user: "Ahrefs API: X units remaining (resets YYYY-MM-DD). This
 
 **Params specific to this tool:**
 
-| Param | Values | Description |
-|-------|--------|-------------|
-| `terms` | `all`, `questions` | `questions` returns only question-form keywords (for AEO headings) |
-| `match_mode` | `terms`, `phrase` | `terms` = words in any order; `phrase` = exact order |
+| Param        | Values             | Description                                                        |
+| ------------ | ------------------ | ------------------------------------------------------------------ |
+| `terms`      | `all`, `questions` | `questions` returns only question-form keywords (for AEO headings) |
+| `match_mode` | `terms`, `phrase`  | `terms` = words in any order; `phrase` = exact order               |
 
 ### keywords-explorer-related-terms
 
@@ -143,8 +144,8 @@ Always display to user: "Ahrefs API: X units remaining (resets YYYY-MM-DD). This
 
 **Params specific to this tool:**
 
-| Param | Values | Description |
-|-------|--------|-------------|
+| Param   | Values                                    | Description                                                                                            |
+| ------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `terms` | `also_rank_for`, `also_talk_about`, `all` | `also_rank_for` = secondary keyword targets; `also_talk_about` = semantic depth terms for article body |
 
 **Dual-call strategy:** Always make two separate calls -- one for `also_rank_for` (secondary keywords) and one for `also_talk_about` (semantic keywords). They serve different purposes.
@@ -171,6 +172,7 @@ Always display to user: "Ahrefs API: X units remaining (resets YYYY-MM-DD). This
 **Output:** Array of `{date, volume}` objects showing monthly volume over the specified period.
 
 **Trend classification:**
+
 - **Rising:** Last 3 months average > first 3 months average by 20%+
 - **Stable:** Less than 20% variance between periods
 - **Declining:** Last 3 months average < first 3 months average by 20%+
@@ -312,23 +314,37 @@ Always display to user: "Ahrefs API: X units remaining (resets YYYY-MM-DD). This
 The `where` parameter accepts a JSON filter expression. Common patterns:
 
 **Filter by volume and difficulty:**
+
 ```json
-{"and":[{"field":"volume","is":["gte",100]},{"field":"difficulty","is":["lte",60]}]}
+{
+  "and": [
+    { "field": "volume", "is": ["gte", 100] },
+    { "field": "difficulty", "is": ["lte", 60] }
+  ]
+}
 ```
 
 **Filter by traffic potential:**
+
 ```json
-{"field":"traffic_potential","is":["gte",1000]}
+{ "field": "traffic_potential", "is": ["gte", 1000] }
 ```
 
 **Filter by word count (long-tail):**
+
 ```json
-{"and":[{"field":"volume","is":["gte",50]},{"field":"word_count","is":["gte",4]}]}
+{
+  "and": [
+    { "field": "volume", "is": ["gte", 50] },
+    { "field": "word_count", "is": ["gte", 4] }
+  ]
+}
 ```
 
 **Filter informational intent:**
+
 ```json
-{"field":"intents","is":["eq",{"informational":true}]}
+{ "field": "intents", "is": ["eq", { "informational": true }] }
 ```
 
 **Operators:** `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `substring`, `isubstring`, `phrase_match`, `iphrase_match`, `prefix`, `suffix`, `regex`, `empty`, `is_null`

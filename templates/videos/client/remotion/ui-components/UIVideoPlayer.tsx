@@ -17,14 +17,12 @@ export function UIVideoPlayer({
   playheadProgress = 0,
 }: UIVideoPlayerProps) {
   const frame = useCurrentFrame();
-  
+
   // Subtle gradient animation for the mock video content
-  const gradientShift = interpolate(
-    frame % 120,
-    [0, 60, 120],
-    [0, 50, 0],
-    { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
-  );
+  const gradientShift = interpolate(frame % 120, [0, 60, 120], [0, 50, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
 
   return (
     <div

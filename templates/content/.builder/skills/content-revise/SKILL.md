@@ -50,18 +50,18 @@ If `post.md` frontmatter status is `draft` or `edited` (not an eligible post-pip
 
 Load these files at the start of the revision session:
 
-| File | Purpose | Required |
-|------|---------|----------|
-| `post.md` | The post to revise | Yes |
-| `outline.md` | Structural reference (heading budgets, hook type) | Yes |
-| `phases/01-topic-validation.yaml` | content_goal, content_timing | Yes |
-| `phases/02-keyword-research.yaml` | Primary/secondary keywords | Yes |
-| `phases/05-outline-creation.yaml` | Post type, word count target | Yes |
-| `phases/08-seo-optimization.yaml` | SEO metadata, links | Yes |
-| `phases/09-aeo-optimization.yaml` | AEO headings, answer-first blocks | Yes |
-| `phases/11-polish.yaml` | What was already fixed in polish (avoid re-proposing) | No |
-| `seed/keywords.txt` | Keyword density targets (skip density check if missing) | No |
-| `.content-style-guide.md` (project root) | Local style guide override | No |
+| File                                     | Purpose                                                 | Required |
+| ---------------------------------------- | ------------------------------------------------------- | -------- |
+| `post.md`                                | The post to revise                                      | Yes      |
+| `outline.md`                             | Structural reference (heading budgets, hook type)       | Yes      |
+| `phases/01-topic-validation.yaml`        | content_goal, content_timing                            | Yes      |
+| `phases/02-keyword-research.yaml`        | Primary/secondary keywords                              | Yes      |
+| `phases/05-outline-creation.yaml`        | Post type, word count target                            | Yes      |
+| `phases/08-seo-optimization.yaml`        | SEO metadata, links                                     | Yes      |
+| `phases/09-aeo-optimization.yaml`        | AEO headings, answer-first blocks                       | Yes      |
+| `phases/11-polish.yaml`                  | What was already fixed in polish (avoid re-proposing)   | No       |
+| `seed/keywords.txt`                      | Keyword density targets (skip density check if missing) | No       |
+| `.content-style-guide.md` (project root) | Local style guide override                              | No       |
 
 ## Style Guide Loading
 
@@ -110,6 +110,7 @@ Use **AskUserQuestion**:
 **Question:** "Parsed N feedback items. Ready to proceed?"
 
 **Options:**
+
 1. **Start** -- Begin processing
 2. **Re-paste** -- Paste feedback again (parsing was wrong)
 
@@ -156,6 +157,7 @@ Use **AskUserQuestion**:
 **Question:** "Item N/total. Apply this revision?"
 
 **Options:**
+
 1. **Apply** -- Accept the proposed revision
 2. **Modify** -- Provide instructions for a different revision
 3. **Skip** -- Move to next item (marked as deferred in report)
@@ -189,23 +191,23 @@ Auto-fix: Replace per the reference tables. Do not ask the user -- these are mec
 
 Check for violations of these rules (the five most reliably violated by AI-generated replacement text):
 
-| Rule | What to check | Auto-fix? |
-|------|--------------|-----------|
-| Rule 5 | Em dashes (`---`, `--`) in prose | Yes -- restructure sentence |
-| Rule 9 | Filler adverbs: "very," "really," "actually," "basically," "essentially," "genuinely," "truly" | Yes -- cut |
-| Rule 10 | Missing contractions: "do not," "it is," "you will" in prose | Yes -- contract |
-| Rule 11 | Contrastive patterns: "not X, but Y," "It isn't X. It's Y." | Yes -- rewrite affirmatively |
-| Rule 13 | Colon-as-em-dash: "The key idea: use X" | Yes -- restructure |
+| Rule    | What to check                                                                                  | Auto-fix?                    |
+| ------- | ---------------------------------------------------------------------------------------------- | ---------------------------- |
+| Rule 5  | Em dashes (`---`, `--`) in prose                                                               | Yes -- restructure sentence  |
+| Rule 9  | Filler adverbs: "very," "really," "actually," "basically," "essentially," "genuinely," "truly" | Yes -- cut                   |
+| Rule 10 | Missing contractions: "do not," "it is," "you will" in prose                                   | Yes -- contract              |
+| Rule 11 | Contrastive patterns: "not X, but Y," "It isn't X. It's Y."                                    | Yes -- rewrite affirmatively |
+| Rule 13 | Colon-as-em-dash: "The key idea: use X"                                                        | Yes -- restructure           |
 
 ### Step 3: Scope-Dependent Checks
 
-| Revision scope | Additional checks |
-|---------------|-------------------|
-| Touches introduction | Rule 1 (no generic openings), Category D openers |
-| Touches conclusion | Rule 7 (no "happy coding"), Category D closers, Rule 4 (specific CTA) |
-| Contains a link | Rule 16 (descriptive link text) |
-| Contains a product name | Rule 15 (proper capitalization) |
-| 2+ paragraphs | Rule 3 (short paragraphs), Rule 12 (no rhetorical questions), Rule 6 (no hedge stacking) |
+| Revision scope          | Additional checks                                                                        |
+| ----------------------- | ---------------------------------------------------------------------------------------- |
+| Touches introduction    | Rule 1 (no generic openings), Category D openers                                         |
+| Touches conclusion      | Rule 7 (no "happy coding"), Category D closers, Rule 4 (specific CTA)                    |
+| Contains a link         | Rule 16 (descriptive link text)                                                          |
+| Contains a product name | Rule 15 (proper capitalization)                                                          |
+| 2+ paragraphs           | Rule 3 (short paragraphs), Rule 12 (no rhetorical questions), Rule 6 (no hedge stacking) |
 
 ### Step 4: Overclaim and Hedge Detection
 
@@ -236,7 +238,7 @@ If the gate applies 5+ fixes, the revision is heavily AI-voiced. Regenerate with
 
 When a revision introduces or modifies factual claims, apply extra scrutiny:
 
-- **AI model names/versions:** If the revision mentions GPT-*, Gemini *, Claude *, or similar, run a WebSearch to verify the current version name before finalizing
+- **AI model names/versions:** If the revision mentions GPT-_, Gemini _, Claude \*, or similar, run a WebSearch to verify the current version name before finalizing
 - **Feature attribution for multi-product companies:** Verify that claimed features belong to the correct product tier (e.g., Claude Code CLI vs. claude.ai web)
 - **Date-sensitive claims:** Flag year references, semver strings, and pricing figures for manual verification
 
@@ -351,6 +353,7 @@ Use **AskUserQuestion** to present options:
 **Question:** "Post is revised. What would you like to do next?"
 
 **Options:**
+
 1. **Re-polish** -- Run `/content-polish` on the revised post
 2. **Capture learnings** -- Run `/content-compound` on this post
 3. **Done** -- End the session
@@ -360,23 +363,30 @@ Use **AskUserQuestion** to present options:
 ## Error Handling
 
 ### Style Guide Load Failure
+
 If neither the project default style guide nor the local `.content-style-guide.md` override can be loaded:
+
 1. Warn the user
 2. Proceed without the voice gate's style-rule checks (Steps 2-3). AI-voice vocabulary scan (Step 1, Categories A-D) and overclaim/hedge detection (Step 4) still run.
 
 ### Quote Matching Failure
+
 If a quoted passage cannot be found in `post.md`:
+
 1. Flag during the confirmation step
 2. Ask the user to identify the target section
 3. If they cannot, skip the item as "unresolvable"
 
 ### File Write Failure
+
 If writing to `post.md` fails:
+
 1. Announce the error
 2. Do not proceed to the next item
 3. Suggest checking file permissions and disk space
 
 ### Session Interruption
+
 Applied changes are already written to `post.md` in-place. Re-running the orchestrator skill and re-pasting the feedback will work -- already-applied items will produce "text not found" (the quoted text was changed) and can be skipped.
 
 ---

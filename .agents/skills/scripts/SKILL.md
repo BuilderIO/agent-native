@@ -70,6 +70,7 @@ This is the canonical approach for new apps. Script names must be lowercase with
 ## Common Patterns
 
 **API integration script** (e.g., image generation):
+
 ```ts
 import fs from "fs";
 import { parseArgs, loadEnv, fail } from "@agent-native/core";
@@ -82,12 +83,13 @@ export default async function generateImage(args: string[]) {
 
   const outputPath = parsed.output ?? "data/generated-image.png";
   const imageUrl = await callImageAPI(prompt);
-  const buffer = await fetch(imageUrl).then(r => r.arrayBuffer());
+  const buffer = await fetch(imageUrl).then((r) => r.arrayBuffer());
   fs.writeFileSync(outputPath, Buffer.from(buffer));
 }
 ```
 
 **Data processing script:**
+
 ```ts
 import fs from "fs";
 import { parseArgs, fail } from "@agent-native/core";

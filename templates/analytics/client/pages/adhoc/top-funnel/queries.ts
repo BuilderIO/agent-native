@@ -7,7 +7,8 @@ const SIGNUPS = "`builder-3b0a2.dbt_staging_bigquery.signups`";
 const PRODUCT_SIGNUPS = "`builder-3b0a2.dbt_analytics.product_signups`";
 const HS_CONTACTS = "`builder-3b0a2.dbt_mart.dim_hs_contacts`";
 const DEALS = "`builder-3b0a2.dbt_mart.dim_deals`";
-const DEAL_FIRST_CONTACT = "`builder-3b0a2.dbt_intermediate.deal_first_contact`";
+const DEAL_FIRST_CONTACT =
+  "`builder-3b0a2.dbt_intermediate.deal_first_contact`";
 const SUBS = "`builder-3b0a2.dbt_mart.dim_subscriptions`";
 
 // Blog metadata from Sigma-materialized Google Sheet (the actual source of
@@ -17,7 +18,8 @@ const SUBS = "`builder-3b0a2.dbt_mart.dim_subscriptions`";
 //   ZZJ6XRJAII = publish date   FTRKLGZM1R = purpose (Acquisition/Awareness)
 //   IFHWPU1IDO = persona        Z52LFY52AK = topic
 //   _DGCBJNKLE = sub-type       JQL-G1QE-B = sub-topic
-const SIGMA_BLOG = "`builder-3b0a2.sigma_materialized.SIGDS_82deb8e2_40f8_4fb4_b3cb_caa011a72d29`";
+const SIGMA_BLOG =
+  "`builder-3b0a2.sigma_materialized.SIGDS_82deb8e2_40f8_4fb4_b3cb_caa011a72d29`";
 
 // Deduplicated subquery — the sigma sheet has duplicate rows (http vs https).
 // We extract the slug and pick one row per slug.
@@ -49,10 +51,14 @@ function blogMetaCte(): string {
 
 function cadenceToTrunc(cadence: DateCadence): string {
   switch (cadence) {
-    case "Daily": return "DAY";
-    case "Weekly": return "WEEK";
-    case "Monthly": return "MONTH";
-    case "Quarterly": return "QUARTER";
+    case "Daily":
+      return "DAY";
+    case "Weekly":
+      return "WEEK";
+    case "Monthly":
+      return "MONTH";
+    case "Quarterly":
+      return "QUARTER";
   }
 }
 
@@ -128,7 +134,7 @@ function escapeStr(s: string): string {
 }
 
 function inList(values: string[]): string {
-  return values.map(v => `'${escapeStr(v)}'`).join(", ");
+  return values.map((v) => `'${escapeStr(v)}'`).join(", ");
 }
 
 // Blog handle extraction from pageview URL
@@ -154,12 +160,16 @@ function buildTab1Where(f: Tab1Filters): string {
   const clauses: string[] = [
     `v.created_date BETWEEN TIMESTAMP('${f.dateStart}') AND TIMESTAMP('${f.dateEnd}')`,
   ];
-  if (f.pageType.length) clauses.push(`(${PAGE_TYPE_EXPR}) IN (${inList(f.pageType)})`);
+  if (f.pageType.length)
+    clauses.push(`(${PAGE_TYPE_EXPR}) IN (${inList(f.pageType)})`);
   if (f.channel.length) clauses.push(`v.channel IN (${inList(f.channel)})`);
   if (f.referrer.length) clauses.push(`v.referrer IN (${inList(f.referrer)})`);
-  if (f.baseUrl.length) clauses.push(`(${BASE_URL_EXPR}) IN (${inList(f.baseUrl)})`);
-  if (f.subPageType.length) clauses.push(`(${SUB_PAGE_TYPE_EXPR}) IN (${inList(f.subPageType)})`);
-  if (f.urlFilter) clauses.push(`(${BASE_URL_EXPR}) LIKE '%${escapeStr(f.urlFilter)}%'`);
+  if (f.baseUrl.length)
+    clauses.push(`(${BASE_URL_EXPR}) IN (${inList(f.baseUrl)})`);
+  if (f.subPageType.length)
+    clauses.push(`(${SUB_PAGE_TYPE_EXPR}) IN (${inList(f.subPageType)})`);
+  if (f.urlFilter)
+    clauses.push(`(${BASE_URL_EXPR}) LIKE '%${escapeStr(f.urlFilter)}%'`);
   if (f.author?.length) clauses.push(`bc.author IN (${inList(f.author)})`);
   return clauses.join("\n  AND ");
 }
@@ -168,7 +178,7 @@ export function chartQuery(
   cadence: DateCadence,
   viewBy: ViewByOption,
   filters: Tab1Filters | Tab3Filters,
-  isTab3 = false
+  isTab3 = false,
 ): string {
   if (isTab3) return chartQueryTab3(cadence, viewBy, filters as Tab3Filters);
 
@@ -195,7 +205,7 @@ export function qlsQuery(
   cadence: DateCadence,
   viewBy: ViewByOption,
   filters: Tab1Filters | Tab3Filters,
-  isTab3 = false
+  isTab3 = false,
 ): string {
   if (isTab3) return qlsQueryTab3(cadence, viewBy, filters as Tab3Filters);
 
@@ -220,7 +230,7 @@ export function pipelineQuery(
   cadence: DateCadence,
   viewBy: ViewByOption,
   filters: Tab1Filters | Tab3Filters,
-  isTab3 = false
+  isTab3 = false,
 ): string {
   if (isTab3) return pipelineQueryTab3(cadence, viewBy, filters as Tab3Filters);
 
@@ -248,7 +258,7 @@ export function ssArrQuery(
   cadence: DateCadence,
   viewBy: ViewByOption,
   filters: Tab1Filters | Tab3Filters,
-  isTab3 = false
+  isTab3 = false,
 ): string {
   if (isTab3) return ssArrQueryTab3(cadence, viewBy, filters as Tab3Filters);
 
@@ -272,32 +282,49 @@ ORDER BY flex_date`;
 
 // Valid sort columns for the page performance table
 const VALID_SORT_COLS = new Set([
-  'url', 'author', 'type', 'ai_sub_type', 'purpose', 'persona', 'day_of_pub_date',
-  'new_visitors', 'pct_signups', 'signups', 'pct_paid_subs', 'ss_paid_subs',
-  'marketing_contact', 'pct_icp_signups', 'icp_signups', 'mql', 'sal',
-  'qualified_deals', 'qualified_pipeline', 'closed_won_amount', 'ss_arr',
+  "url",
+  "author",
+  "type",
+  "ai_sub_type",
+  "purpose",
+  "persona",
+  "day_of_pub_date",
+  "new_visitors",
+  "pct_signups",
+  "signups",
+  "pct_paid_subs",
+  "ss_paid_subs",
+  "marketing_contact",
+  "pct_icp_signups",
+  "icp_signups",
+  "mql",
+  "sal",
+  "qualified_deals",
+  "qualified_pipeline",
+  "closed_won_amount",
+  "ss_arr",
 ]);
 
 function sanitizeSortCol(col: string): string {
-  return VALID_SORT_COLS.has(col) ? col : 'signups';
+  return VALID_SORT_COLS.has(col) ? col : "signups";
 }
 
 export interface PagePerfSort {
   col: string;
-  dir: 'asc' | 'desc';
+  dir: "asc" | "desc";
 }
 
 // Page performance table (Tab 1)
 export function pagePerformanceQuery(
   filters: Tab1Filters | Tab3Filters,
   isTab3 = false,
-  sort: PagePerfSort = { col: 'signups', dir: 'desc' },
+  sort: PagePerfSort = { col: "signups", dir: "desc" },
 ): string {
   if (isTab3) return pagePerformanceQueryTab3(filters as Tab3Filters, sort);
 
   const where = buildTab1Where(filters);
   const orderCol = sanitizeSortCol(sort.col);
-  const orderDir = sort.dir === 'asc' ? 'ASC' : 'DESC';
+  const orderDir = sort.dir === "asc" ? "ASC" : "DESC";
 
   return `WITH ${blogMetaCte()}
 SELECT
@@ -357,36 +384,51 @@ function buildTab3Where(f: Tab3Filters): string {
   ];
   if (f.pageType.length) {
     const hasExplainer = f.pageType.includes("explainer");
-    const otherTypes = f.pageType.filter(t => t !== "explainer");
+    const otherTypes = f.pageType.filter((t) => t !== "explainer");
     const parts: string[] = [];
-    if (otherTypes.length) parts.push(`pv.page_type IN (${inList(otherTypes)})`);
+    if (otherTypes.length)
+      parts.push(`pv.page_type IN (${inList(otherTypes)})`);
     if (hasExplainer) parts.push(`pv.url LIKE '%/m/explainers/%'`);
     clauses.push(`(${parts.join(" OR ")})`);
   }
-  if (f.channel.length) clauses.push(`pv.first_touch_channel IN (${inList(f.channel)})`);
+  if (f.channel.length)
+    clauses.push(`pv.first_touch_channel IN (${inList(f.channel)})`);
   if (f.subPageType.length) {
     const hasExplainer = f.subPageType.includes("explainer");
-    const otherTypes = f.subPageType.filter(t => t !== "explainer");
+    const otherTypes = f.subPageType.filter((t) => t !== "explainer");
     const parts: string[] = [];
-    if (otherTypes.length) parts.push(`pv.sub_page_type IN (${inList(otherTypes)})`);
+    if (otherTypes.length)
+      parts.push(`pv.sub_page_type IN (${inList(otherTypes)})`);
     if (hasExplainer) parts.push(`pv.url LIKE '%/m/explainers/%'`);
     clauses.push(`(${parts.join(" OR ")})`);
   }
-  if (f.utmMedium.length) clauses.push(`pv.utm_medium IN (${inList(f.utmMedium)})`);
-  if (f.utmSource.length) clauses.push(`pv.utm_source IN (${inList(f.utmSource)})`);
+  if (f.utmMedium.length)
+    clauses.push(`pv.utm_medium IN (${inList(f.utmMedium)})`);
+  if (f.utmSource.length)
+    clauses.push(`pv.utm_source IN (${inList(f.utmSource)})`);
   if (f.utmTerm.length) clauses.push(`pv.utm_term IN (${inList(f.utmTerm)})`);
-  if (f.utmCampaign.length) clauses.push(`pv.utm_campaign IN (${inList(f.utmCampaign)})`);
-  if (f.utmContent.length) clauses.push(`pv.utm_content IN (${inList(f.utmContent)})`);
+  if (f.utmCampaign.length)
+    clauses.push(`pv.utm_campaign IN (${inList(f.utmCampaign)})`);
+  if (f.utmContent.length)
+    clauses.push(`pv.utm_content IN (${inList(f.utmContent)})`);
   if (f.author.length) clauses.push(`bc.author IN (${inList(f.author)})`);
   if (f.type.length) clauses.push(`bc.topic IN (${inList(f.type)})`);
   if (f.purpose.length) clauses.push(`bc.purpose IN (${inList(f.purpose)})`);
   if (f.pubDateStart) clauses.push(`bc.pub_date >= '${f.pubDateStart}'`);
-  if (f.referrer.length) clauses.push(`pv.c_referrer IN (${inList(f.referrer)})`);
-  if (f.baseUrl.length) clauses.push(`REGEXP_EXTRACT(pv.url, r'https?://[^/]+(/?[^?#]*)') IN (${inList(f.baseUrl)})`);
+  if (f.referrer.length)
+    clauses.push(`pv.c_referrer IN (${inList(f.referrer)})`);
+  if (f.baseUrl.length)
+    clauses.push(
+      `REGEXP_EXTRACT(pv.url, r'https?://[^/]+(/?[^?#]*)') IN (${inList(f.baseUrl)})`,
+    );
   return clauses.join("\n  AND ");
 }
 
-function chartQueryTab3(cadence: DateCadence, viewBy: ViewByOption, filters: Tab3Filters): string {
+function chartQueryTab3(
+  cadence: DateCadence,
+  viewBy: ViewByOption,
+  filters: Tab3Filters,
+): string {
   const trunc = cadenceToTrunc(cadence);
   const viewByExpr = viewByToExpr(viewBy, true);
   const where = buildTab3Where(filters);
@@ -413,7 +455,11 @@ GROUP BY flex_date, flex_view_by
 ORDER BY flex_date`;
 }
 
-function qlsQueryTab3(cadence: DateCadence, viewBy: ViewByOption, filters: Tab3Filters): string {
+function qlsQueryTab3(
+  cadence: DateCadence,
+  viewBy: ViewByOption,
+  filters: Tab3Filters,
+): string {
   const trunc = cadenceToTrunc(cadence);
   const viewByExpr = viewByToExpr(viewBy, true);
   const where = buildTab3Where(filters);
@@ -438,7 +484,11 @@ GROUP BY flex_date, flex_view_by
 ORDER BY flex_date`;
 }
 
-function pipelineQueryTab3(cadence: DateCadence, viewBy: ViewByOption, filters: Tab3Filters): string {
+function pipelineQueryTab3(
+  cadence: DateCadence,
+  viewBy: ViewByOption,
+  filters: Tab3Filters,
+): string {
   const trunc = cadenceToTrunc(cadence);
   const viewByExpr = viewByToExpr(viewBy, true);
   const where = buildTab3Where(filters);
@@ -462,7 +512,11 @@ GROUP BY flex_date, flex_view_by
 ORDER BY flex_date`;
 }
 
-function ssArrQueryTab3(cadence: DateCadence, viewBy: ViewByOption, filters: Tab3Filters): string {
+function ssArrQueryTab3(
+  cadence: DateCadence,
+  viewBy: ViewByOption,
+  filters: Tab3Filters,
+): string {
   const trunc = cadenceToTrunc(cadence);
   const viewByExpr = viewByToExpr(viewBy, true);
   const where = buildTab3Where(filters);
@@ -486,10 +540,13 @@ GROUP BY flex_date, flex_view_by
 ORDER BY flex_date`;
 }
 
-function pagePerformanceQueryTab3(filters: Tab3Filters, sort: PagePerfSort = { col: 'signups', dir: 'desc' }): string {
+function pagePerformanceQueryTab3(
+  filters: Tab3Filters,
+  sort: PagePerfSort = { col: "signups", dir: "desc" },
+): string {
   const where = buildTab3Where(filters);
   const orderCol = sanitizeSortCol(sort.col);
-  const orderDir = sort.dir === 'asc' ? 'ASC' : 'DESC';
+  const orderDir = sort.dir === "asc" ? "ASC" : "DESC";
 
   return `WITH ${blogMetaCte()},
 first_pv AS (
@@ -553,7 +610,8 @@ function buildTab2Where(f: Tab2Filters): string {
   const clauses: string[] = [
     `ps.user_create_d BETWEEN TIMESTAMP('${f.dateStart}') AND TIMESTAMP('${f.dateEnd}')`,
   ];
-  if (f.coalesceChannel.length) clauses.push(`ps.channel IN (${inList(f.coalesceChannel)})`);
+  if (f.coalesceChannel.length)
+    clauses.push(`ps.channel IN (${inList(f.coalesceChannel)})`);
   if (f.icpFlag.length) clauses.push(`ps.icp_flag IN (${inList(f.icpFlag)})`);
   if (f.referrer.length) clauses.push(`ps.referrer IN (${inList(f.referrer)})`);
   return clauses.join("\n  AND ");
@@ -562,17 +620,25 @@ function buildTab2Where(f: Tab2Filters): string {
 export function signupCentricChartQuery(
   cadence: DateCadence,
   viewBy: ViewByOption,
-  filters: Tab2Filters
+  filters: Tab2Filters,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   const where = buildTab2Where(filters);
 
   let viewByExpr: string;
   switch (viewBy) {
-    case "Channel": viewByExpr = "ps.channel"; break;
-    case "UTM Source": viewByExpr = "ps.utm_source"; break;
-    case "UTM Campaign": viewByExpr = "ps.utm_campaign"; break;
-    default: viewByExpr = "ps.channel"; break;
+    case "Channel":
+      viewByExpr = "ps.channel";
+      break;
+    case "UTM Source":
+      viewByExpr = "ps.utm_source";
+      break;
+    case "UTM Campaign":
+      viewByExpr = "ps.utm_campaign";
+      break;
+    default:
+      viewByExpr = "ps.channel";
+      break;
   }
 
   return `SELECT
@@ -594,7 +660,10 @@ ORDER BY flex_date`;
 
 // ─── Tab 4: Timeseries for a single URL ────────────────────────────────
 
-export function timeseriesQuery(baseUrlContains: string, cadence: DateCadence = "Weekly"): string {
+export function timeseriesQuery(
+  baseUrlContains: string,
+  cadence: DateCadence = "Weekly",
+): string {
   const trunc = cadenceToTrunc(cadence);
   return `SELECT
   DATE_TRUNC(DATE(v.created_date), ${trunc}) AS flex_date,
@@ -615,9 +684,7 @@ ORDER BY 1`;
 
 // ─── Referrer Sub Channel (modal) ──────────────────────────────────────
 
-export function referrerSubChannelQuery(
-  filters: Tab1Filters
-): string {
+export function referrerSubChannelQuery(filters: Tab1Filters): string {
   const where = buildTab1Where(filters);
   return `SELECT
   v.referrer AS referrer_sub_channel,
@@ -657,7 +724,7 @@ export function topNQuery(
   pageType: string,
   dateStart: string,
   dateEnd: string,
-  cadence: DateCadence
+  cadence: DateCadence,
 ): string {
   const trunc = cadenceToTrunc(cadence);
   return `WITH page_signups AS (
@@ -693,7 +760,7 @@ export function filterOptionsQuery(
   column: string,
   table: "pageviews" | "signups" | "bpc" | "bpc_author" | "crm",
   dateStart?: string,
-  dateEnd?: string
+  dateEnd?: string,
 ): string {
   switch (table) {
     case "pageviews": {

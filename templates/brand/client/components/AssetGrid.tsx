@@ -11,15 +11,11 @@ export function AssetGrid({ category }: AssetGridProps) {
   const deleteAsset = useDeleteAsset();
 
   if (isLoading) {
-    return (
-      <p className="text-sm text-muted-foreground">Loading assets...</p>
-    );
+    return <p className="text-sm text-muted-foreground">Loading assets...</p>;
   }
 
   if (!assets || assets.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">No assets yet</p>
-    );
+    return <p className="text-sm text-muted-foreground">No assets yet</p>;
   }
 
   return (

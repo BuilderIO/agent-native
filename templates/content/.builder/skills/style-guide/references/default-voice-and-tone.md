@@ -96,32 +96,32 @@ Share what you've found, what worked, what you've observed. Give readers permiss
 
 ## Hard Rules
 
-| # | Rule | Detection Pattern | Fix |
-|---|------|-------------------|-----|
-| 1 | No generic openings | "In this article we will...", "Welcome to this comprehensive guide..." | Jump directly into the topic with a hook |
-| 2 | No AI-sounding phrases | See [ai-voice-detection.md](../../content-editing/references/ai-voice-detection.md) | Replace per category tables |
-| 3 | Short paragraphs | >3 sentences per paragraph | Break at idea boundaries |
-| 4 | Specific CTAs | "Try Builder.io" (generic), "Check it out" | Connect CTA to the post's specific use case |
-| 5 | No em dashes | Any em dash (---, —) in prose | Use periods, commas, parentheses, or restructure the sentence |
-| 6 | No hedge stacking | "It might potentially be somewhat useful..." | Pick one qualifier or remove all |
-| 7 | No "happy coding" closers | "Happy coding!", "That's a wrap!" | End with a specific next step or challenge |
-| 8 | Active voice default | "The component is rendered by React" | "React renders the component" |
-| 9 | No filler adverbs | "very", "really", "actually", "basically", "essentially" | Cut or replace with specific detail |
-| 10 | Contractions required | "do not", "it is", "you will" in running prose | Use "don't", "it's", "you'll" (code comments are exempt) |
-| 11 | No contrastive patterns | "X isn't Y. It's Z.", "not X, but Y", "Without X, Y happens" | State affirmatively what something IS. See [Contrastive Patterns](#contrastive-patterns) below |
-| 12 | No rhetorical questions | "Does this create dependency?", "Sound familiar?" | Rewrite as statements. "You might think this creates dependency. It doesn't." |
-| 13 | No colon-as-em-dash | "The rule I follow: include X", "Here's the thing: it works" | Restructure to flow naturally. "What works for me is including X" |
-| 14 | Title case for titles, sentence case for headings | H2/H3/H4 in Title Case | Blog post title uses Title Case. All section headings (H2, H3, etc.) use sentence case |
-| 15 | Product names capitalized after keyword placement | "ai coding tools", "cursor and claude code" lowercased for keyword density | Capitalize product names in final text: "AI coding tools", "Cursor and Claude Code". Keyword presence is preserved |
-| 16 | Descriptive link text | "click here", "read more", "this article", "this post", bare URLs as link text | Use descriptive anchor text: page title, tool name, or specific phrase. See [link-text-rules.md](./link-text-rules.md) |
-| 17 | Three-tier name attribution | Dropped names without credentials | Keep with context, genericize, or remove. See [Name Attribution](#name-attribution) below |
-| 18 | No overclaim superlatives | "most valuable", "highest-leverage", "best in class", "every team" | Use comparatives: "have an edge", "faster than", "stronger for X than Y" |
-| 19 | No hedging -- take a position | "may prefer", "might work", "depends on your comfort level" | Recommend directly ("start with X") or state the specific tradeoff |
-| 20 | No competitor-validation hedging | "The roundtrip works when...", "The right tool depends on..." in hybrid content | Describe limitations honestly, position Builder.io as better. See [Competitor-Validation Hedging](#competitor-validation-hedging) below |
-| 21 | Write for one reader, not a crowd | "Most developers", "Many teams", "People often" | First-person ("I connected") or direct second-person ("your first command"). See [Write for One Reader](#write-for-one-reader) below |
-| 22 | Define-then-advise for non-dev audiences | Technical terms without plain English for non-dev readers | Pattern: (1) what it is, (2) why reader cares, (3) what to do |
-| 23 | Conversational quote attribution | "put it this way:", "stated that:", "noted:" | Parenthetical credentials, period before quote. See [Quote Attribution](#quote-attribution) below |
-| 24 | Full absolute URLs for Builder.io links | Relative paths: `/blog/<slug>` | Full URLs: `https://www.builder.io/blog/<slug>` |
+| #   | Rule                                              | Detection Pattern                                                                   | Fix                                                                                                                                     |
+| --- | ------------------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | No generic openings                               | "In this article we will...", "Welcome to this comprehensive guide..."              | Jump directly into the topic with a hook                                                                                                |
+| 2   | No AI-sounding phrases                            | See [ai-voice-detection.md](../../content-editing/references/ai-voice-detection.md) | Replace per category tables                                                                                                             |
+| 3   | Short paragraphs                                  | >3 sentences per paragraph                                                          | Break at idea boundaries                                                                                                                |
+| 4   | Specific CTAs                                     | "Try Builder.io" (generic), "Check it out"                                          | Connect CTA to the post's specific use case                                                                                             |
+| 5   | No em dashes                                      | Any em dash (---, —) in prose                                                       | Use periods, commas, parentheses, or restructure the sentence                                                                           |
+| 6   | No hedge stacking                                 | "It might potentially be somewhat useful..."                                        | Pick one qualifier or remove all                                                                                                        |
+| 7   | No "happy coding" closers                         | "Happy coding!", "That's a wrap!"                                                   | End with a specific next step or challenge                                                                                              |
+| 8   | Active voice default                              | "The component is rendered by React"                                                | "React renders the component"                                                                                                           |
+| 9   | No filler adverbs                                 | "very", "really", "actually", "basically", "essentially"                            | Cut or replace with specific detail                                                                                                     |
+| 10  | Contractions required                             | "do not", "it is", "you will" in running prose                                      | Use "don't", "it's", "you'll" (code comments are exempt)                                                                                |
+| 11  | No contrastive patterns                           | "X isn't Y. It's Z.", "not X, but Y", "Without X, Y happens"                        | State affirmatively what something IS. See [Contrastive Patterns](#contrastive-patterns) below                                          |
+| 12  | No rhetorical questions                           | "Does this create dependency?", "Sound familiar?"                                   | Rewrite as statements. "You might think this creates dependency. It doesn't."                                                           |
+| 13  | No colon-as-em-dash                               | "The rule I follow: include X", "Here's the thing: it works"                        | Restructure to flow naturally. "What works for me is including X"                                                                       |
+| 14  | Title case for titles, sentence case for headings | H2/H3/H4 in Title Case                                                              | Blog post title uses Title Case. All section headings (H2, H3, etc.) use sentence case                                                  |
+| 15  | Product names capitalized after keyword placement | "ai coding tools", "cursor and claude code" lowercased for keyword density          | Capitalize product names in final text: "AI coding tools", "Cursor and Claude Code". Keyword presence is preserved                      |
+| 16  | Descriptive link text                             | "click here", "read more", "this article", "this post", bare URLs as link text      | Use descriptive anchor text: page title, tool name, or specific phrase. See [link-text-rules.md](./link-text-rules.md)                  |
+| 17  | Three-tier name attribution                       | Dropped names without credentials                                                   | Keep with context, genericize, or remove. See [Name Attribution](#name-attribution) below                                               |
+| 18  | No overclaim superlatives                         | "most valuable", "highest-leverage", "best in class", "every team"                  | Use comparatives: "have an edge", "faster than", "stronger for X than Y"                                                                |
+| 19  | No hedging -- take a position                     | "may prefer", "might work", "depends on your comfort level"                         | Recommend directly ("start with X") or state the specific tradeoff                                                                      |
+| 20  | No competitor-validation hedging                  | "The roundtrip works when...", "The right tool depends on..." in hybrid content     | Describe limitations honestly, position Builder.io as better. See [Competitor-Validation Hedging](#competitor-validation-hedging) below |
+| 21  | Write for one reader, not a crowd                 | "Most developers", "Many teams", "People often"                                     | First-person ("I connected") or direct second-person ("your first command"). See [Write for One Reader](#write-for-one-reader) below    |
+| 22  | Define-then-advise for non-dev audiences          | Technical terms without plain English for non-dev readers                           | Pattern: (1) what it is, (2) why reader cares, (3) what to do                                                                           |
+| 23  | Conversational quote attribution                  | "put it this way:", "stated that:", "noted:"                                        | Parenthetical credentials, period before quote. See [Quote Attribution](#quote-attribution) below                                       |
+| 24  | Full absolute URLs for Builder.io links           | Relative paths: `/blog/<slug>`                                                      | Full URLs: `https://www.builder.io/blog/<slug>`                                                                                         |
 
 ## Formatting
 
@@ -139,18 +139,18 @@ AI-generated text leans heavily on contrastive framing, defining what something 
 
 **Banned patterns and their affirmative rewrites:**
 
-| Pattern | Example (BAD) | Rewrite (GOOD) |
-|---------|---------------|-----------------|
-| "X isn't Y. It's Z." | "The bottleneck isn't speed. It's orchestration." | "Orchestration is the real bottleneck." |
-| "X isn't Y, it's Z." | "The problem isn't the tool, it's the workflow." | "The workflow matters more than the tool." |
-| "not X, but Y" | "not speed, but orchestration" | "orchestration above all" |
-| "The real X isn't Y" | "The real issue isn't tooling" | "The real issue is workflow design." |
-| "not just X" | "not just detection" | "detection and automated fixes end-to-end" |
-| "not a X" (contrast) | "as a strength, not a weakness" | "Turn design-to-code handoffs into a competitive advantage." |
-| "Without X, Y happens" | "Without design systems, teams start over." | "Design systems keep teams moving forward." |
-| "instead of X" (contrast) | "See feedback instead of excuses." | "See actual feedback on real data." |
-| "X rather than Y" | "clarity rather than confusion" | "clarity in every interaction" |
-| "If not X, then Y" | "If not automated, then manual" | "Automation handles it." |
+| Pattern                   | Example (BAD)                                     | Rewrite (GOOD)                                               |
+| ------------------------- | ------------------------------------------------- | ------------------------------------------------------------ |
+| "X isn't Y. It's Z."      | "The bottleneck isn't speed. It's orchestration." | "Orchestration is the real bottleneck."                      |
+| "X isn't Y, it's Z."      | "The problem isn't the tool, it's the workflow."  | "The workflow matters more than the tool."                   |
+| "not X, but Y"            | "not speed, but orchestration"                    | "orchestration above all"                                    |
+| "The real X isn't Y"      | "The real issue isn't tooling"                    | "The real issue is workflow design."                         |
+| "not just X"              | "not just detection"                              | "detection and automated fixes end-to-end"                   |
+| "not a X" (contrast)      | "as a strength, not a weakness"                   | "Turn design-to-code handoffs into a competitive advantage." |
+| "Without X, Y happens"    | "Without design systems, teams start over."       | "Design systems keep teams moving forward."                  |
+| "instead of X" (contrast) | "See feedback instead of excuses."                | "See actual feedback on real data."                          |
+| "X rather than Y"         | "clarity rather than confusion"                   | "clarity in every interaction"                               |
+| "If not X, then Y"        | "If not automated, then manual"                   | "Automation handles it."                                     |
 
 **The fix:** Drop the negation. Say what something IS, does, or enables. Directly.
 
@@ -178,6 +178,7 @@ These sound balanced but weaken the Builder.io positioning. The post's own analy
 Avoid generic mass-addressing openers like "Most developers", "Many teams", "People often." These read like conference talks, not blog posts. Write as one person talking to one reader. Use first-person experience ("I connected", "I spent") or direct second-person ("your first command") instead. Collective nouns are fine occasionally but should not be the default framing, especially in intros and hooks.
 
 Patterns to avoid:
+
 - "Most developers hear about X and..."
 - "The distinction that trips people up..."
 - "Many engineers struggle with..."
@@ -204,13 +205,13 @@ Introduce quotes and expert attributions conversationally. Avoid stiff patterns 
 
 These verbs are individually fine but signal academic register when used as defaults in conversational content. Replace with informal alternatives:
 
-| Formal Verb | Conversational Alternative |
-|------------|---------------------------|
-| examines | asks, looks at, checks |
-| explores | digs into, looks at, covers |
-| demonstrates | shows |
-| illustrates | shows |
-| elucidates | explains, breaks down |
+| Formal Verb  | Conversational Alternative  |
+| ------------ | --------------------------- |
+| examines     | asks, looks at, checks      |
+| explores     | digs into, looks at, covers |
+| demonstrates | shows                       |
+| illustrates  | shows                       |
+| elucidates   | explains, breaks down       |
 
 ## Unnecessary Qualifiers to Drop
 
@@ -238,45 +239,45 @@ Three failure modes to watch for during editing. Each has detection patterns and
 
 The post reads like documentation or an academic paper.
 
-| Detection Pattern | Example | Fix |
-|-------------------|---------|-----|
-| Third person where first/second fits | "One may consider using..." | "You can use..." or "I've found..." |
-| Passive voice clusters | "It is advisable to...", "It should be noted..." | Active voice with a named subject |
-| No contractions | "do not", "cannot", "it is" throughout | Contract naturally |
-| Latin/academic phrases | "i.e.", "e.g.", "vis-a-vis", "aforementioned" | Plain English equivalents |
-| Nominalization | "The utilization of...", "The implementation of..." | Use the verb: "Using...", "Implementing..." |
+| Detection Pattern                    | Example                                             | Fix                                         |
+| ------------------------------------ | --------------------------------------------------- | ------------------------------------------- |
+| Third person where first/second fits | "One may consider using..."                         | "You can use..." or "I've found..."         |
+| Passive voice clusters               | "It is advisable to...", "It should be noted..."    | Active voice with a named subject           |
+| No contractions                      | "do not", "cannot", "it is" throughout              | Contract naturally                          |
+| Latin/academic phrases               | "i.e.", "e.g.", "vis-a-vis", "aforementioned"       | Plain English equivalents                   |
+| Nominalization                       | "The utilization of...", "The implementation of..." | Use the verb: "Using...", "Implementing..." |
 
 ### Too Casual
 
 The post reads like a chat message or unedited stream of consciousness.
 
-| Detection Pattern | Example | Fix |
-|-------------------|---------|-----|
-| Slang and filler | "gonna", "kinda", "super cool", "insane" | Moderate informal: "going to", "somewhat", specific praise |
-| Run-on sentences | 40+ word sentences chained with "and" | Split at idea boundaries |
-| No structure | Wall of text, no subheadings, no code blocks | Add subheadings every 200-300 words, break up with examples |
-| Excessive exclamation | Multiple "!" per section | One per post maximum, and only if genuinely surprising |
-| Missing evidence | Claims without code, numbers, or links | Add supporting proof per the "Prove It" check |
+| Detection Pattern     | Example                                      | Fix                                                         |
+| --------------------- | -------------------------------------------- | ----------------------------------------------------------- |
+| Slang and filler      | "gonna", "kinda", "super cool", "insane"     | Moderate informal: "going to", "somewhat", specific praise  |
+| Run-on sentences      | 40+ word sentences chained with "and"        | Split at idea boundaries                                    |
+| No structure          | Wall of text, no subheadings, no code blocks | Add subheadings every 200-300 words, break up with examples |
+| Excessive exclamation | Multiple "!" per section                     | One per post maximum, and only if genuinely surprising      |
+| Missing evidence      | Claims without code, numbers, or links       | Add supporting proof per the "Prove It" check               |
 
 ### Too Preachy
 
 The post lectures the reader instead of sharing experience.
 
-| Detection Pattern | Example | Fix |
-|-------------------|---------|-----|
-| Imperative commands | "You should always...", "Never do X..." | "I've found that..." or "In my experience..." |
-| Moral framing | "The right way to...", "Best practices dictate..." | "One approach that worked for us..." |
-| Assumed ignorance | "As you may know...", "Obviously..." | Cut the preamble, state the fact |
-| Condescending hedges | "Simply do X", "Just add a line" | Remove "simply"/"just" -- if it were simple, they wouldn't be reading |
-| Unearned authority | Strong opinions without supporting evidence | Back claims with benchmarks, examples, or linked sources |
+| Detection Pattern    | Example                                            | Fix                                                                   |
+| -------------------- | -------------------------------------------------- | --------------------------------------------------------------------- |
+| Imperative commands  | "You should always...", "Never do X..."            | "I've found that..." or "In my experience..."                         |
+| Moral framing        | "The right way to...", "Best practices dictate..." | "One approach that worked for us..."                                  |
+| Assumed ignorance    | "As you may know...", "Obviously..."               | Cut the preamble, state the fact                                      |
+| Condescending hedges | "Simply do X", "Just add a line"                   | Remove "simply"/"just" -- if it were simple, they wouldn't be reading |
+| Unearned authority   | Strong opinions without supporting evidence        | Back claims with benchmarks, examples, or linked sources              |
 
 ## Severity Classification
 
 Use these levels in editing reports and style guide compliance checks.
 
-| Severity | Description | Action | Examples |
-|----------|-------------|--------|----------|
-| **Critical** | Hard rule violation or factual error | Must fix before publish | AI-sounding phrases, generic opener, wrong code output |
-| **Important** | Voice drift, weak structure, missing elements | Should fix -- impacts reader trust | Preachy tone, no CTA, missing internal links |
-| **Minor** | Polish-level improvements | Consider -- improves quality | Paragraph rhythm, slightly weak transition |
-| **Praise** | Effective pattern worth reinforcing | Record in compound docs | Strong hook, natural Builder.io integration, specific example |
+| Severity      | Description                                   | Action                             | Examples                                                      |
+| ------------- | --------------------------------------------- | ---------------------------------- | ------------------------------------------------------------- |
+| **Critical**  | Hard rule violation or factual error          | Must fix before publish            | AI-sounding phrases, generic opener, wrong code output        |
+| **Important** | Voice drift, weak structure, missing elements | Should fix -- impacts reader trust | Preachy tone, no CTA, missing internal links                  |
+| **Minor**     | Polish-level improvements                     | Consider -- improves quality       | Paragraph rhythm, slightly weak transition                    |
+| **Praise**    | Effective pattern worth reinforcing           | Record in compound docs            | Strong hook, natural Builder.io integration, specific example |

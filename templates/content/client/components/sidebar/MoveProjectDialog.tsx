@@ -25,8 +25,10 @@ function formatLabel(slug: string) {
 }
 
 function getIcon(slug: string) {
-  if (slug === "shared") return <Globe size={14} className="shrink-0 text-sidebar-primary" />;
-  if (slug === "private") return <Lock size={14} className="shrink-0 text-muted-foreground" />;
+  if (slug === "shared")
+    return <Globe size={14} className="shrink-0 text-sidebar-primary" />;
+  if (slug === "private")
+    return <Lock size={14} className="shrink-0 text-muted-foreground" />;
   return <FolderOpen size={14} className="shrink-0" />;
 }
 
@@ -40,7 +42,9 @@ export function MoveProjectDialog({
   const moveProject = useMoveProject();
   const groups = data?.groups ?? [];
 
-  const currentGroup = project.group || (project.slug.includes("/") ? project.slug.split("/")[0] : undefined);
+  const currentGroup =
+    project.group ||
+    (project.slug.includes("/") ? project.slug.split("/")[0] : undefined);
 
   // Build ordered workspace list: private, shared, then others
   const orderedGroups = [
@@ -61,13 +65,16 @@ export function MoveProjectDialog({
             onMoved(data.slug);
           }
         },
-      }
+      },
     );
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xs" onClick={(e) => e.stopPropagation()}>
+      <DialogContent
+        className="sm:max-w-xs"
+        onClick={(e) => e.stopPropagation()}
+      >
         <DialogHeader>
           <DialogTitle className="text-sm">Move "{project.name}"</DialogTitle>
         </DialogHeader>
@@ -82,8 +89,12 @@ export function MoveProjectDialog({
                 className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-[13px] transition-colors disabled:opacity-50 hover:bg-accent disabled:hover:bg-transparent"
               >
                 {getIcon(group)}
-                <span className="flex-1 text-left truncate">{formatLabel(group)}</span>
-                {isCurrent && <Check size={14} className="text-muted-foreground shrink-0" />}
+                <span className="flex-1 text-left truncate">
+                  {formatLabel(group)}
+                </span>
+                {isCurrent && (
+                  <Check size={14} className="text-muted-foreground shrink-0" />
+                )}
               </button>
             );
           })}

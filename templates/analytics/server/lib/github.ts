@@ -49,7 +49,8 @@ async function restGet<T>(path: string, cacheKey?: string): Promise<T> {
 
 async function restGetPaginated<T>(path: string, maxPages = 10): Promise<T[]> {
   const results: T[] = [];
-  let url: string | null = `${REST_BASE}${path}${path.includes("?") ? "&" : "?"}per_page=100`;
+  let url: string | null =
+    `${REST_BASE}${path}${path.includes("?") ? "&" : "?"}per_page=100`;
 
   for (let page = 0; page < maxPages && url; page++) {
     const res = await fetch(url, { headers: getHeaders() });
@@ -68,7 +69,10 @@ async function restGetPaginated<T>(path: string, maxPages = 10): Promise<T[]> {
   return results;
 }
 
-async function graphql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
+async function graphql<T>(
+  query: string,
+  variables?: Record<string, unknown>,
+): Promise<T> {
   const body = JSON.stringify({ query, variables });
   const key = `gql:${query}:${JSON.stringify(variables)}`;
   const cached = cache.get(key);
@@ -130,8 +134,18 @@ export interface GitHubIssue {
 
 export interface GitHubPRDetail extends GitHubPR {
   commits: { sha: string; message: string; author: string; date: string }[];
-  reviews: { author: string; state: string; submittedAt: string; body?: string }[];
-  files: { filename: string; status: string; additions: number; deletions: number }[];
+  reviews: {
+    author: string;
+    state: string;
+    submittedAt: string;
+    body?: string;
+  }[];
+  files: {
+    filename: string;
+    status: string;
+    additions: number;
+    deletions: number;
+  }[];
   comments: number;
   additions: number;
   deletions: number;
@@ -174,13 +188,12 @@ function repoNameFromUrl(url?: string): string {
 
 export async function searchPRs(opts: SearchOptions): Promise<GitHubPR[]> {
   const limit = Math.min(opts.limit ?? 30, 100);
-  const q = opts.type === "issue"
-    ? `${opts.query} is:issue`
-    : `${opts.query} is:pr`;
+  const q =
+    opts.type === "issue" ? `${opts.query} is:issue` : `${opts.query} is:pr`;
 
   const data = await restGet<{ items: RawSearchItem[] }>(
     `/search/issues?q=${encodeURIComponent(q)}&per_page=${limit}&sort=updated&order=desc`,
-    `search:${q}:${limit}`
+    `search:${q}:${limit}`,
   );
 
   return (data.items ?? []).map((item) => ({
@@ -204,13 +217,15 @@ export async function searchPRs(opts: SearchOptions): Promise<GitHubPR[]> {
   }));
 }
 
-export async function searchIssues(opts: SearchOptions): Promise<GitHubIssue[]> {
+export async function searchIssues(
+  opts: SearchOptions,
+): Promise<GitHubIssue[]> {
   const limit = Math.min(opts.limit ?? 30, 100);
   const q = `${opts.query} is:issue`;
 
   const data = await restGet<{ items: RawSearchItem[] }>(
     `/search/issues?q=${encodeURIComponent(q)}&per_page=${limit}&sort=updated&order=desc`,
-    `search-issues:${q}:${limit}`
+    `search-issues:${q}:${limit}`,
   );
 
   return (data.items ?? []).map((item) => ({
@@ -232,16 +247,31 @@ export async function searchIssues(opts: SearchOptions): Promise<GitHubIssue[]> 
 
 // ─── PR detail ────────────────────────────────────────────────────────────────
 
-export async function getPR(owner: string, repo: string, prNumber: number): Promise<GitHubPRDetail> {
+export async function getPR(
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<GitHubPRDetail> {
   const [pr, commits, reviews, files] = await Promise.all([
-    restGet<Record<string, unknown>>(`/repos/${owner}/${repo}/pulls/${prNumber}`),
-    restGet<Record<string, unknown>[]>(`/repos/${owner}/${repo}/pulls/${prNumber}/commits`),
-    restGet<Record<string, unknown>[]>(`/repos/${owner}/${repo}/pulls/${prNumber}/reviews`),
-    restGet<Record<string, unknown>[]>(`/repos/${owner}/${repo}/pulls/${prNumber}/files`),
+    restGet<Record<string, unknown>>(
+      `/repos/${owner}/${repo}/pulls/${prNumber}`,
+    ),
+    restGet<Record<string, unknown>[]>(
+      `/repos/${owner}/${repo}/pulls/${prNumber}/commits`,
+    ),
+    restGet<Record<string, unknown>[]>(
+      `/repos/${owner}/${repo}/pulls/${prNumber}/reviews`,
+    ),
+    restGet<Record<string, unknown>[]>(
+      `/repos/${owner}/${repo}/pulls/${prNumber}/files`,
+    ),
   ]);
 
-  const state =
-    pr.merged_at ? "merged" : pr.state === "closed" ? "closed" : "open";
+  const state = pr.merged_at
+    ? "merged"
+    : pr.state === "closed"
+      ? "closed"
+      : "open";
 
   return {
     number: pr.number as number,
@@ -259,16 +289,22 @@ export async function getPR(owner: string, repo: string, prNumber: number): Prom
     baseRef: (pr.base as { ref: string })?.ref ?? "",
     headRef: (pr.head as { ref: string })?.ref ?? "",
     repo: `${owner}/${repo}`,
-    comments: pr.comments as number ?? 0,
-    additions: pr.additions as number ?? 0,
-    deletions: pr.deletions as number ?? 0,
+    comments: (pr.comments as number) ?? 0,
+    additions: (pr.additions as number) ?? 0,
+    deletions: (pr.deletions as number) ?? 0,
     commits: commits.map((c: Record<string, unknown>) => ({
       sha: (c.sha as string).slice(0, 7),
-      message: ((c.commit as Record<string, unknown>)?.message as string ?? "").split("\n")[0],
+      message: (
+        ((c.commit as Record<string, unknown>)?.message as string) ?? ""
+      ).split("\n")[0],
       author:
-        ((c.commit as Record<string, unknown>)?.author as { name?: string })?.name ??
-        (c.author as { login?: string })?.login ?? "",
-      date: ((c.commit as Record<string, unknown>)?.author as { date?: string })?.date ?? "",
+        ((c.commit as Record<string, unknown>)?.author as { name?: string })
+          ?.name ??
+        (c.author as { login?: string })?.login ??
+        "",
+      date:
+        ((c.commit as Record<string, unknown>)?.author as { date?: string })
+          ?.date ?? "",
     })),
     reviews: reviews.map((r: Record<string, unknown>) => ({
       author: (r.user as { login: string })?.login ?? "",
@@ -287,9 +323,13 @@ export async function getPR(owner: string, repo: string, prNumber: number): Prom
 
 // ─── Issue detail ─────────────────────────────────────────────────────────────
 
-export async function getIssue(owner: string, repo: string, issueNumber: number): Promise<GitHubIssue> {
+export async function getIssue(
+  owner: string,
+  repo: string,
+  issueNumber: number,
+): Promise<GitHubIssue> {
   const issue = await restGet<Record<string, unknown>>(
-    `/repos/${owner}/${repo}/issues/${issueNumber}`
+    `/repos/${owner}/${repo}/issues/${issueNumber}`,
   );
   return {
     number: issue.number as number,
@@ -302,9 +342,11 @@ export async function getIssue(owner: string, repo: string, issueNumber: number)
     closedAt: issue.closed_at as string | undefined,
     body: issue.body as string | undefined,
     labels: ((issue.labels as { name: string }[]) ?? []).map((l) => l.name),
-    assignees: ((issue.assignees as { login: string }[]) ?? []).map((a) => a.login),
+    assignees: ((issue.assignees as { login: string }[]) ?? []).map(
+      (a) => a.login,
+    ),
     repo: `${owner}/${repo}`,
-    comments: issue.comments as number ?? 0,
+    comments: (issue.comments as number) ?? 0,
   };
 }
 
@@ -313,13 +355,13 @@ export async function getIssue(owner: string, repo: string, issueNumber: number)
 export async function listPRs(
   owner: string,
   repo: string,
-  opts: { state?: "open" | "closed" | "all"; limit?: number } = {}
+  opts: { state?: "open" | "closed" | "all"; limit?: number } = {},
 ): Promise<GitHubPR[]> {
   const state = opts.state ?? "open";
   const limit = Math.min(opts.limit ?? 30, 100);
   const items = await restGet<Record<string, unknown>[]>(
     `/repos/${owner}/${repo}/pulls?state=${state}&per_page=${limit}&sort=updated&direction=desc`,
-    `list-prs:${owner}/${repo}:${state}:${limit}`
+    `list-prs:${owner}/${repo}:${state}:${limit}`,
   );
 
   return items.map((pr) => ({
@@ -345,7 +387,7 @@ export async function listPRs(
 
 export async function runGraphQL<T = unknown>(
   query: string,
-  variables?: Record<string, unknown>
+  variables?: Record<string, unknown>,
 ): Promise<T> {
   return graphql<T>(query, variables);
 }

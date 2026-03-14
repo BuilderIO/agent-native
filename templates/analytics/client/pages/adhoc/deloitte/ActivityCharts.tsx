@@ -9,7 +9,10 @@ interface ActivityChartsProps {
 }
 
 export function ActivityCharts({ dateStart, dateEnd }: ActivityChartsProps) {
-  const msgSql = useMemo(() => agentChatMessagesByDay(dateStart, dateEnd), [dateStart, dateEnd]);
+  const msgSql = useMemo(
+    () => agentChatMessagesByDay(dateStart, dateEnd),
+    [dateStart, dateEnd],
+  );
   const msgData = useMetricsQuery(["deloitte-agent-chat-msgs", msgSql], msgSql);
 
   return (

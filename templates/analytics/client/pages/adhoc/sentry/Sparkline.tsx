@@ -32,11 +32,7 @@ export function Sparkline({ data, color, width = 80, height = 24 }: Props) {
       viewBox={`0 0 ${width} ${height}`}
       className="inline-block"
     >
-      <polygon
-        points={fillPoints.join(" ")}
-        fill={color}
-        fillOpacity={0.15}
-      />
+      <polygon points={fillPoints.join(" ")} fill={color} fillOpacity={0.15} />
       <polyline
         points={points.join(" ")}
         fill="none"

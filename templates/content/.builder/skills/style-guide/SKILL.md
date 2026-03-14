@@ -51,15 +51,15 @@ Each section in the style guide follows a consistent structure. See [default-voi
 
 **Sections:**
 
-| Section | Purpose | Format |
-|---------|---------|--------|
-| Voice Characteristics | Tone descriptors and voice principles | Bullet list with bold lead + explanation |
-| Hard Rules | Violations that must be fixed before publish | Numbered table: Rule, Detection Pattern, Fix |
-| Formatting | Paragraph length, heading frequency, code blocks, lists | Bullet list with bold lead + rule |
-| Content Rules | Word count, link counts, code ratio, hook/conclusion | Bullet list with bold lead + rule |
-| Phrases to Avoid | Banned phrases with suggested replacements | Bullet list |
-| Formal Verbs to Replace | Academic verbs to swap for conversational alternatives | Table: Formal Verb, Alternative |
-| Unnecessary Qualifiers | Qualifiers that add false precision | Bullet list |
+| Section                 | Purpose                                                 | Format                                       |
+| ----------------------- | ------------------------------------------------------- | -------------------------------------------- |
+| Voice Characteristics   | Tone descriptors and voice principles                   | Bullet list with bold lead + explanation     |
+| Hard Rules              | Violations that must be fixed before publish            | Numbered table: Rule, Detection Pattern, Fix |
+| Formatting              | Paragraph length, heading frequency, code blocks, lists | Bullet list with bold lead + rule            |
+| Content Rules           | Word count, link counts, code ratio, hook/conclusion    | Bullet list with bold lead + rule            |
+| Phrases to Avoid        | Banned phrases with suggested replacements              | Bullet list                                  |
+| Formal Verbs to Replace | Academic verbs to swap for conversational alternatives  | Table: Formal Verb, Alternative              |
+| Unnecessary Qualifiers  | Qualifiers that add false precision                     | Bullet list                                  |
 
 ## Process
 
@@ -89,17 +89,20 @@ The merged result is the active style guide for this session.
 How the merged rules are used depends on which phase is calling:
 
 **Phase 6 (Blog Drafting):**
+
 - Voice Characteristics guide tone and word choice during drafting
 - Hard Rules are constraints to follow while writing (not violations to catch after)
 - Formatting rules set paragraph length, heading frequency, code block standards
 - Content Rules set word count target, link counts, hook/conclusion requirements
 
 **Phase 7 (Content Editing):**
+
 - Hard Rules become the checklist for Pass 1 (Clarity) and Pass 4 (Engagement)
 - Voice Violation Taxonomy drives Pass 3 (AI-Voice Detection) alongside [ai-voice-detection.md](../content-editing/references/ai-voice-detection.md)
 - Severity Classification determines issue categorization in the editing report
 
 **`/content-style-update` orchestrator skill:**
+
 - Read the current merged rules
 - Present the proposed new rule alongside any conflicting existing rule
 - If conflict detected, ask the user which to keep
@@ -112,8 +115,8 @@ When another skill requests the style guide, return:
 ```yaml
 style_guide_source:
   default: .builder/skills/style-guide/references/default-voice-and-tone.md
-  local_override: .content-style-guide.md  # or "none"
-  sections_overridden: []  # list of section names replaced by local file
+  local_override: .content-style-guide.md # or "none"
+  sections_overridden: [] # list of section names replaced by local file
   active_rules_count:
     voice_characteristics: 5
     hard_rules: 24
@@ -130,20 +133,20 @@ This lets downstream skills know which rules are active and where they came from
 
 Three failure modes with detection patterns and fixes. See [default-voice-and-tone.md](./references/default-voice-and-tone.md) for the full tables.
 
-| Failure Mode | Signal | Quick Fix |
-|-------------|--------|-----------|
-| **Too Formal** | Third person, passive clusters, no contractions, Latin phrases | Use "you"/"I", active voice, contract naturally |
-| **Too Casual** | Slang, run-on sentences, no structure, excessive exclamation | Moderate informal language, add subheadings and evidence |
-| **Too Preachy** | "You should always...", moral framing, assumed ignorance | Share experience, back claims with evidence |
+| Failure Mode    | Signal                                                         | Quick Fix                                                |
+| --------------- | -------------------------------------------------------------- | -------------------------------------------------------- |
+| **Too Formal**  | Third person, passive clusters, no contractions, Latin phrases | Use "you"/"I", active voice, contract naturally          |
+| **Too Casual**  | Slang, run-on sentences, no structure, excessive exclamation   | Moderate informal language, add subheadings and evidence |
+| **Too Preachy** | "You should always...", moral framing, assumed ignorance       | Share experience, back claims with evidence              |
 
 ## Severity Classification
 
-| Severity | Action | Applies To |
-|----------|--------|------------|
-| **Critical** | Must fix before publish | Hard rule violations, factual errors |
-| **Important** | Should fix | Voice drift, weak CTAs, missing links |
-| **Minor** | Consider | Paragraph rhythm, transition improvements |
-| **Praise** | Record in compound docs | Effective patterns to reinforce |
+| Severity      | Action                  | Applies To                                |
+| ------------- | ----------------------- | ----------------------------------------- |
+| **Critical**  | Must fix before publish | Hard rule violations, factual errors      |
+| **Important** | Should fix              | Voice drift, weak CTAs, missing links     |
+| **Minor**     | Consider                | Paragraph rhythm, transition improvements |
+| **Praise**    | Record in compound docs | Effective patterns to reinforce           |
 
 ## Examples
 
@@ -175,10 +178,10 @@ No `.content-style-guide.md` exists (or file is all placeholders).
 ```markdown
 ## Hard Rules
 
-| # | Rule | Detection Pattern | Fix |
-|---|------|-------------------|-----|
-| 1 | No generic openings | "In this article..." | Jump into the topic |
-| 2 | Maximum 1 em dash per post | Any em dash after the first | Replace with comma or period |
+| #   | Rule                       | Detection Pattern           | Fix                          |
+| --- | -------------------------- | --------------------------- | ---------------------------- |
+| 1   | No generic openings        | "In this article..."        | Jump into the topic          |
+| 2   | Maximum 1 em dash per post | Any em dash after the first | Replace with comma or period |
 ```
 
 **Result:** The default's 24 hard rules are **replaced** by these 2 local rules. All other default sections (Voice Characteristics, Formatting, Content Rules) still apply.
@@ -190,6 +193,7 @@ User runs `/content-style-update` to add: "Allow up to 4 em dashes per post."
 **Existing rule (Hard Rule #5):** "No em dash excess -- >2 em dashes per post."
 
 **Action:** Present both rules to the user:
+
 - **Existing:** Max 2 em dashes per post
 - **Proposed:** Allow up to 4 em dashes per post
 
@@ -197,12 +201,12 @@ Ask which to keep. Update the chosen location (default or local) with the winner
 
 ### Example 5: Severity in Practice
 
-| Issue Found | Severity | Why |
-|-------------|----------|-----|
-| Opening line is "In this comprehensive guide, we will explore..." | Critical | Hard Rule #1 (generic opening) + Hard Rule #2 (AI phrase) |
-| Paragraph with 5 sentences | Important | Hard Rule #3 (>3 sentences) |
-| A transition between sections feels abrupt | Minor | Polish-level -- doesn't violate a rule |
-| Hook uses a specific benchmark number from the post's research | Praise | Strong example of "specific over vague" |
+| Issue Found                                                       | Severity  | Why                                                       |
+| ----------------------------------------------------------------- | --------- | --------------------------------------------------------- |
+| Opening line is "In this comprehensive guide, we will explore..." | Critical  | Hard Rule #1 (generic opening) + Hard Rule #2 (AI phrase) |
+| Paragraph with 5 sentences                                        | Important | Hard Rule #3 (>3 sentences)                               |
+| A transition between sections feels abrupt                        | Minor     | Polish-level -- doesn't violate a rule                    |
+| Hook uses a specific benchmark number from the post's research    | Praise    | Strong example of "specific over vague"                   |
 
 ## Guidelines
 

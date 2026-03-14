@@ -5,6 +5,7 @@
 **ALL components in Video Studio should be interactive-ready from the start.**
 
 This means every button, card, image, text element, or custom component should:
+
 - ✅ Be selectable when hovered (shows in Cursor Interactions panel)
 - ✅ Work without animations configured (safe fallbacks)
 - ✅ Accept animations added through the UI
@@ -13,12 +14,14 @@ This means every button, card, image, text element, or custom component should:
 ## Why This Matters
 
 ### User Experience Benefits
+
 - 🎯 **Discoverable**: Users can hover to see what's interactive
 - 🎨 **Immediate feedback**: Components light up in the UI panel when hovered
 - ⚡ **No setup friction**: Just hover → add animation → done
 - 🔧 **Graceful degradation**: Components work perfectly with or without animations
 
 ### Developer Benefits
+
 - 🚀 **Faster development**: No need to retrofit interactivity later
 - 📦 **Consistent patterns**: All components follow the same structure
 - 🐛 **Fewer bugs**: Safe fallbacks prevent undefined errors
@@ -50,7 +53,7 @@ interface MyComponentProps {
   cursorHistory: CursorFrame[];
   tracks: AnimationTrack[];
   registerForCursor: (component: any) => void;
-  
+
   // Your custom props
   backgroundColor?: string;
   textColor?: string;
@@ -61,13 +64,13 @@ interface MyComponentProps {
 ### 3. Call useInteractiveComponent Hook
 
 ```typescript
-function MyComponent({ 
-  id, 
-  compositionId, 
+function MyComponent({
+  id,
+  compositionId,
   label,
-  x, 
-  y, 
-  width, 
+  x,
+  y,
+  width,
   height,
   cursorHistory,
   tracks,
@@ -90,24 +93,24 @@ function MyComponent({
 ### 4. Register with Cursor System
 
 ```typescript
-  // STEP 2: Register with cursor system
-  // This makes the component appear in Cursor Interactions panel
-  React.useEffect(() => {
-    registerForCursor(interactive);
-  }, [interactive.hover.isHovering, interactive.click.isClicking]);
+// STEP 2: Register with cursor system
+// This makes the component appear in Cursor Interactions panel
+React.useEffect(() => {
+  registerForCursor(interactive);
+}, [interactive.hover.isHovering, interactive.click.isClicking]);
 ```
 
 ### 5. Extract Animation Values with Safe Fallbacks
 
 ```typescript
-  // STEP 3: Extract animation values from animatedProperties with SAFE FALLBACKS
-  // The hook automatically combines hover and click animations!
-  // Values are absolute (e.g., scale: 1.0 at rest, 1.2 when hovering)
-  const scale = (interactive.animatedProperties?.scale as number) ?? 1;  // Default: 1
-  const lift = (interactive.animatedProperties?.lift as number) ?? 0;     // Default: 0
-  const glow = (interactive.animatedProperties?.glow as number) ?? 0;     // Default: 0
-  const blur = (interactive.animatedProperties?.blur as number) ?? 0;     // Default: 0
-  const color = (interactive.animatedProperties?.color as number) ?? 0;    // Default: 0
+// STEP 3: Extract animation values from animatedProperties with SAFE FALLBACKS
+// The hook automatically combines hover and click animations!
+// Values are absolute (e.g., scale: 1.0 at rest, 1.2 when hovering)
+const scale = (interactive.animatedProperties?.scale as number) ?? 1; // Default: 1
+const lift = (interactive.animatedProperties?.lift as number) ?? 0; // Default: 0
+const glow = (interactive.animatedProperties?.glow as number) ?? 0; // Default: 0
+const blur = (interactive.animatedProperties?.blur as number) ?? 0; // Default: 0
+const color = (interactive.animatedProperties?.color as number) ?? 0; // Default: 0
 ```
 
 ### 6. Apply Animations to Styles
@@ -173,6 +176,7 @@ Use this checklist for EVERY interactive component:
 Use these pre-built components instead of creating from scratch:
 
 ### InteractiveButton
+
 ```typescript
 import { InteractiveButton } from "@/remotion/ui-components/InteractiveButton";
 
@@ -191,6 +195,7 @@ import { InteractiveButton } from "@/remotion/ui-components/InteractiveButton";
 ```
 
 ### InteractiveCard
+
 ```typescript
 import { InteractiveCard } from "@/remotion/ui-components/InteractiveCard";
 
@@ -226,7 +231,7 @@ export const MyComposition = createInteractiveComposition<MyCompositionProps>({
     // - cameraTrack: AnimationTrack
     // - cursorTrack: AnimationTrack
     // - registerForCursor: (component) => void
-    
+
     return (
       <AbsoluteFill>
         {/* Your interactive components here */}
@@ -239,18 +244,21 @@ export const MyComposition = createInteractiveComposition<MyCompositionProps>({
 ## Common Mistakes to Avoid
 
 ### ❌ DON'T: Access values without safe fallbacks
+
 ```typescript
 // This will crash when animations aren't configured
 const scale = 1 + interactive.scale.value;
 ```
 
 ### ✅ DO: Always use safe fallbacks
+
 ```typescript
 // This works even without animations
 const scale = 1 + (interactive.scale?.value ?? 0);
 ```
 
 ### ❌ DON'T: Forget to register with cursor system
+
 ```typescript
 // Component won't appear in Cursor Interactions panel
 const interactive = useInteractiveComponent({ ... });
@@ -258,6 +266,7 @@ const interactive = useInteractiveComponent({ ... });
 ```
 
 ### ✅ DO: Register in useEffect
+
 ```typescript
 const interactive = useInteractiveComponent({ ... });
 
@@ -267,24 +276,28 @@ React.useEffect(() => {
 ```
 
 ### ❌ DON'T: Hardcode animation values
+
 ```typescript
 // This prevents users from customizing through UI
-transform: `scale(1.2)` // Fixed scale, no interactivity
+transform: `scale(1.2)`; // Fixed scale, no interactivity
 ```
 
 ### ✅ DO: Use animation values from hook
+
 ```typescript
 // This respects user-configured animations
-transform: `scale(${1 + (interactive.scale?.value ?? 0)})`
+transform: `scale(${1 + (interactive.scale?.value ?? 0)})`;
 ```
 
 ### ❌ DON'T: Skip zone definition
+
 ```typescript
 // Inaccurate hover detection
 zone: { x: 0, y: 0, width: 100, height: 100 }
 ```
 
 ### ✅ DO: Calculate precise zones
+
 ```typescript
 // Accurate hit detection based on actual position
 zone: { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight }
@@ -302,6 +315,7 @@ See these files for complete working examples:
 ## Summary
 
 **Always make components interactive from the start:**
+
 1. Use `useInteractiveComponent` hook
 2. Register with `registerForCursor`
 3. Extract values with `?.value ?? 0`

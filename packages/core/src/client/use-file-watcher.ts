@@ -14,12 +14,14 @@ interface QueryClient {
  * @param options.eventsUrl - SSE endpoint URL. Default: "/api/events"
  * @param options.onEvent - Optional callback for each SSE event
  */
-export function useFileWatcher(options: {
-  queryClient?: QueryClient;
-  queryKeys?: string[];
-  eventsUrl?: string;
-  onEvent?: (data: any) => void;
-} = {}): void {
+export function useFileWatcher(
+  options: {
+    queryClient?: QueryClient;
+    queryKeys?: string[];
+    eventsUrl?: string;
+    onEvent?: (data: any) => void;
+  } = {},
+): void {
   const {
     queryClient,
     queryKeys = ["file", "fileTree"],

@@ -3,9 +3,11 @@ import react from "@vitejs/plugin-react-swc";
 
 // App config: array of { name, appPort, wsPort }
 // Set by dev-all.mjs, or defaults to a single app
-const apps: Array<{ name: string; appPort: number; wsPort: number }> = JSON.parse(
-  process.env.VITE_APP_CONFIG || '[{"name":"default","appPort":8081,"wsPort":3341}]'
-);
+const apps: Array<{ name: string; appPort: number; wsPort: number }> =
+  JSON.parse(
+    process.env.VITE_APP_CONFIG ||
+      '[{"name":"default","appPort":8081,"wsPort":3341}]',
+  );
 
 export default defineConfig({
   plugins: [
@@ -63,7 +65,7 @@ export default defineConfig({
             ws: true,
           },
         ],
-      ])
+      ]),
     ),
   },
   build: {

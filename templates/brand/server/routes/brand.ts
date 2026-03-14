@@ -2,7 +2,12 @@ import { Router } from "express";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
-import type { AssetCategory, AssetInfo, BrandConfig, StyleProfile } from "@shared/types.js";
+import type {
+  AssetCategory,
+  AssetInfo,
+  BrandConfig,
+  StyleProfile,
+} from "@shared/types.js";
 
 const BRAND_DIR = path.join(process.cwd(), "data", "brand");
 
@@ -20,12 +25,19 @@ const storage = multer.diskStorage({
   },
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname);
-    const base = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
+    const base = path
+      .basename(file.originalname, ext)
+      .replace(/[^a-zA-Z0-9_-]/g, "_");
     cb(null, `${base}-${Date.now()}${ext}`);
   },
 });
 
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/svg+xml", "image/webp"];
+const ALLOWED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/svg+xml",
+  "image/webp",
+];
 const ALLOWED_FONT_TYPES = [
   "font/woff",
   "font/woff2",
@@ -39,7 +51,9 @@ const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (_req, file, cb) => {
-    if ([...ALLOWED_IMAGE_TYPES, ...ALLOWED_FONT_TYPES].includes(file.mimetype)) {
+    if (
+      [...ALLOWED_IMAGE_TYPES, ...ALLOWED_FONT_TYPES].includes(file.mimetype)
+    ) {
       cb(null, true);
     } else {
       cb(new Error(`File type ${file.mimetype} not allowed`));
@@ -107,7 +121,9 @@ brandRouter.post("/upload", upload.single("file"), (req, res) => {
 // GET /api/brand/assets?category=logos|references (or all if omitted)
 brandRouter.get("/assets", (req, res) => {
   const category = req.query.category as AssetCategory | undefined;
-  const categories: AssetCategory[] = category ? [category] : ["logos", "references"];
+  const categories: AssetCategory[] = category
+    ? [category]
+    : ["logos", "references"];
   const assets: AssetInfo[] = [];
 
   for (const cat of categories) {

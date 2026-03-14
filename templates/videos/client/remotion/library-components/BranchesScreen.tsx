@@ -85,7 +85,7 @@ export const BranchesScreen: React.FC<BranchesScreenProps> = (props) => {
   // Generate unique ID for scrollbar styles
   const scrollbarId = React.useMemo(
     () => `scrollbar-${Math.random().toString(36).substr(2, 9)}`,
-    []
+    [],
   );
 
   return (

@@ -10,7 +10,9 @@ let _version = "unknown";
 try {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   // dist/cli/index.js → ../../package.json
-  const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../package.json"), "utf-8"));
+  const pkg = JSON.parse(
+    fs.readFileSync(path.resolve(__dirname, "../../package.json"), "utf-8"),
+  );
   _version = pkg.version;
 } catch {}
 
@@ -31,7 +33,11 @@ function findTsxBin(): string {
   return "tsx";
 }
 
-function run(cmd: string, cmdArgs: string[], opts?: { stdio?: "inherit" | "pipe" }) {
+function run(
+  cmd: string,
+  cmdArgs: string[],
+  opts?: { stdio?: "inherit" | "pipe" },
+) {
   const child = spawn(cmd, cmdArgs, {
     stdio: opts?.stdio ?? "inherit",
     shell: process.platform === "win32",
@@ -56,7 +62,9 @@ switch (command) {
     console.log("Building client...");
     execSync(`${vite} build`, { stdio: "inherit" });
     console.log("\nBuilding server...");
-    execSync(`${vite} build --config vite.config.server.ts`, { stdio: "inherit" });
+    execSync(`${vite} build --config vite.config.server.ts`, {
+      stdio: "inherit",
+    });
     console.log("\nBuild complete.");
     break;
   }

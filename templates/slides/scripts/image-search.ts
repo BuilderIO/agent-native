@@ -1,10 +1,10 @@
 /**
  * Search for images using Google Custom Search API.
- * 
+ *
  * Usage:
  *   pnpm script image-search --query "builder.io logo"
  *   pnpm script image-search --query "dark abstract background" --count 6
- * 
+ *
  * Options:
  *   --query   Search query (required)
  *   --count   Number of results (default: 12, max: 12)
@@ -37,7 +37,8 @@ export default async function main(args: string[]) {
   const parsed = parseArgs(args);
 
   if (parsed.help) {
-    console.log(`
+    console.log(
+      `
 Image Search - Find images via Google Custom Search
 
 Usage:
@@ -49,14 +50,15 @@ Options:
   --help    Show this help
 
 Requires GOOGLE_API_KEY and GOOGLE_SEARCH_CX environment variables.
-    `.trim());
+    `.trim(),
+    );
     return;
   }
 
   const query = parsed.query;
   if (!query) {
     console.error("Error: --query is required");
-    console.error("Usage: pnpm script image-search --query \"search terms\"");
+    console.error('Usage: pnpm script image-search --query "search terms"');
     process.exit(1);
   }
 
@@ -64,13 +66,19 @@ Requires GOOGLE_API_KEY and GOOGLE_SEARCH_CX environment variables.
   const cx = process.env.GOOGLE_SEARCH_CX;
 
   if (!apiKey || !cx) {
-    console.error("Error: GOOGLE_API_KEY and GOOGLE_SEARCH_CX environment variables are required.");
+    console.error(
+      "Error: GOOGLE_API_KEY and GOOGLE_SEARCH_CX environment variables are required.",
+    );
     console.error("");
     console.error("To set up Google Custom Search:");
     console.error("1. Go to https://console.cloud.google.com/apis/credentials");
     console.error("2. Create an API key");
-    console.error("3. Enable 'Custom Search API' at https://console.cloud.google.com/apis/library/customsearch.googleapis.com");
-    console.error("4. Create a search engine at https://programmablesearchengine.google.com/");
+    console.error(
+      "3. Enable 'Custom Search API' at https://console.cloud.google.com/apis/library/customsearch.googleapis.com",
+    );
+    console.error(
+      "4. Create a search engine at https://programmablesearchengine.google.com/",
+    );
     console.error("5. Enable 'Search the entire web' and 'Image search'");
     console.error("6. Set GOOGLE_API_KEY and GOOGLE_SEARCH_CX env vars");
     process.exit(1);
@@ -89,7 +97,9 @@ Requires GOOGLE_API_KEY and GOOGLE_SEARCH_CX environment variables.
     safe: "active",
   });
 
-  const response = await fetch(`https://www.googleapis.com/customsearch/v1?${params}`);
+  const response = await fetch(
+    `https://www.googleapis.com/customsearch/v1?${params}`,
+  );
   if (!response.ok) {
     const text = await response.text();
     console.error("Google API error:", text);

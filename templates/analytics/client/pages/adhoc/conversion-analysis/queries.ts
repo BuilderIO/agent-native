@@ -47,7 +47,10 @@ ORDER BY week DESC
   `;
 }
 
-export function getSourceBreakdownQuery(weeksRecent: number = 4, weeksBaseline: number = 4): string {
+export function getSourceBreakdownQuery(
+  weeksRecent: number = 4,
+  weeksBaseline: number = 4,
+): string {
   return `
 WITH visitors_by_source AS (
   SELECT
@@ -133,7 +136,10 @@ ORDER BY recent_visitors DESC
   `;
 }
 
-export function getLandingPageQuery(weeksRecent: number = 4, weeksBaseline: number = 4): string {
+export function getLandingPageQuery(
+  weeksRecent: number = 4,
+  weeksBaseline: number = 4,
+): string {
   return `
 WITH first_pageviews AS (
   SELECT
@@ -239,7 +245,10 @@ ORDER BY recent_visitors DESC
   `;
 }
 
-export function getSimpleFunnelQuery(weeksRecent: number = 4, weeksBaseline: number = 4): string {
+export function getSimpleFunnelQuery(
+  weeksRecent: number = 4,
+  weeksBaseline: number = 4,
+): string {
   return `
 WITH time_periods AS (
   SELECT

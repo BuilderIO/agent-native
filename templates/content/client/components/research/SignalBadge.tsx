@@ -1,11 +1,5 @@
 import { cn } from "@/lib/utils";
-import {
-  Twitter,
-  TrendingUp,
-  Shield,
-  Clock,
-  Heart,
-} from "lucide-react";
+import { Twitter, TrendingUp, Shield, Clock, Heart } from "lucide-react";
 import type { ResearchSignal } from "@shared/api";
 
 const signalConfig: Record<
@@ -57,7 +51,7 @@ export function SignalBadge({ signal }: SignalBadgeProps) {
       className={cn(
         "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] border",
         config.bg,
-        config.color
+        config.color,
       )}
     >
       <Icon size={10} className="shrink-0" />
@@ -65,7 +59,7 @@ export function SignalBadge({ signal }: SignalBadgeProps) {
         <span
           className={cn(
             "font-semibold px-1 py-px rounded text-[10px]",
-            config.valueBg
+            config.valueBg,
           )}
         >
           {signal.value}

@@ -1,8 +1,20 @@
 import { useMemo } from "react";
-import { Users, Building2, DollarSign, MessageSquare, UserCheck, Crown, CalendarClock } from "lucide-react";
+import {
+  Users,
+  Building2,
+  DollarSign,
+  MessageSquare,
+  UserCheck,
+  Crown,
+  CalendarClock,
+} from "lucide-react";
 import { useMetricsQuery } from "@/lib/query-metrics";
 import { Skeleton } from "@/components/ui/skeleton";
-import { summaryMetricsQuery, agentChatMetrics30dQuery, renewalDateQuery } from "./queries";
+import {
+  summaryMetricsQuery,
+  agentChatMetrics30dQuery,
+  renewalDateQuery,
+} from "./queries";
 
 interface HealthSummaryCardsProps {
   companyName: string;
@@ -15,14 +27,22 @@ interface CardData {
   color: string;
 }
 
-function KpiCard({ label, value, icon: Icon, color, isLoading }: CardData & { isLoading: boolean }) {
+function KpiCard({
+  label,
+  value,
+  icon: Icon,
+  color,
+  isLoading,
+}: CardData & { isLoading: boolean }) {
   return (
     <div className="rounded-xl border border-border bg-card p-5">
       <div className="flex items-center gap-2 mb-3">
         <div className={`rounded-md p-1.5 ${color}`}>
           <Icon className="h-4 w-4" />
         </div>
-        <span className="text-xs text-muted-foreground font-medium">{label}</span>
+        <span className="text-xs text-muted-foreground font-medium">
+          {label}
+        </span>
       </div>
       {isLoading ? (
         <Skeleton className="h-8 w-28" />
@@ -37,16 +57,30 @@ function formatPlan(plans: string): string {
   const planList = plans.split(",").map((p) => p.trim().toLowerCase());
   if (planList.includes("enterprise")) return "Enterprise";
   // Capitalize first letter of each
-  return [...new Set(planList)].map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(", ");
+  return [...new Set(planList)]
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+    .join(", ");
 }
 
 export function HealthSummaryCards({ companyName }: HealthSummaryCardsProps) {
-  const summarySql = useMemo(() => summaryMetricsQuery(companyName), [companyName]);
-  const agentChatSql = useMemo(() => agentChatMetrics30dQuery(companyName), [companyName]);
-  const renewalSql = useMemo(() => renewalDateQuery(companyName), [companyName]);
+  const summarySql = useMemo(
+    () => summaryMetricsQuery(companyName),
+    [companyName],
+  );
+  const agentChatSql = useMemo(
+    () => agentChatMetrics30dQuery(companyName),
+    [companyName],
+  );
+  const renewalSql = useMemo(
+    () => renewalDateQuery(companyName),
+    [companyName],
+  );
 
   const summary = useMetricsQuery(["ch-summary", companyName], summarySql);
-  const agentChat = useMetricsQuery(["ch-agent-chat-30d", companyName], agentChatSql);
+  const agentChat = useMetricsQuery(
+    ["ch-agent-chat-30d", companyName],
+    agentChatSql,
+  );
   const renewal = useMetricsQuery(["ch-renewal", companyName], renewalSql);
 
   const s = summary.data?.rows?.[0];
@@ -66,7 +100,11 @@ export function HealthSummaryCards({ companyName }: HealthSummaryCardsProps) {
     if (renewal.isLoading) return "...";
     if (!r?.upcoming_renewal_date) return "—";
     const d = new Date(String(r.upcoming_renewal_date));
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    return d.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
   };
 
   const cards: CardData[] = [

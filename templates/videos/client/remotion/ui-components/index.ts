@@ -7,7 +7,7 @@
  * ✓ Safe animation fallbacks (?.value ?? 0)
  * ✓ Apply all animation properties
  * ✓ Provide visual feedback
- * 
+ *
  * @see INTERACTIVE_COMPONENTS.md for full documentation
  */
 

@@ -58,7 +58,7 @@ You're talking to this persona when:
 - "What's the biggest friction point in the handoff between designers and developers right now?"
 - "Walk me through what happens when you need to create a new component from design to production."
 
-*Listen for:*
+_Listen for:_
 
 - **Failed rollouts:** Copilot, Figma Make, Cursor, Bolt, tools generating generic code instead of using design system components
 - **Adoption barriers:** Technical setup requirements or intimidation preventing designer adoption
@@ -73,7 +73,7 @@ You're talking to this persona when:
 - "What would it mean for your organization if you could significantly accelerate design system adoption?"
 - "How many frameworks or platforms does your design system need to support - and how much rework happens across them?"
 
-*Listen for:*
+_Listen for:_
 
 - **Metrics:** Component creation in weeks or months (not days), low adoption percentages for technical tools among designers
 - **Consistency issues:** Inconsistent design system usage across teams
@@ -88,7 +88,7 @@ You're talking to this persona when:
 - "What are the biggest blockers to design system adoption across your organization?"
 - "How do you handle component versioning - and what happens when a design token changes?"
 
-*Listen for:*
+_Listen for:_
 
 - **System maturity:** Mature design systems with established component libraries, multi-framework support requirements (React, Angular, Vue, Web Components)
 - **Technical challenges:** Sync challenges between Figma and code (no 100% parity possible), versioning and token update workflows

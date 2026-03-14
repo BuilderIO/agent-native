@@ -28,7 +28,14 @@ export function useAvailableSlots(date: string, duration: number) {
 export function useCreateBooking() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (data: { name: string; email: string; notes?: string; start: string; end: string; slug: string }) => {
+    mutationFn: async (data: {
+      name: string;
+      email: string;
+      notes?: string;
+      start: string;
+      end: string;
+      slug: string;
+    }) => {
       const res = await fetch("/api/bookings/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

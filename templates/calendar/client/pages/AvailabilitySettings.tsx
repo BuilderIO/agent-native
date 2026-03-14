@@ -3,8 +3,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useAvailability, useUpdateAvailability } from "@/hooks/use-availability";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  useAvailability,
+  useUpdateAvailability,
+} from "@/hooks/use-availability";
 import { toast } from "sonner";
 import type { AvailabilityConfig, DaySchedule } from "@shared/api";
 
@@ -29,7 +38,9 @@ export default function AvailabilitySettings() {
   const { data: availability } = useAvailability();
   const updateAvailability = useUpdateAvailability();
 
-  const [schedule, setSchedule] = useState<AvailabilityConfig["weeklySchedule"]>({
+  const [schedule, setSchedule] = useState<
+    AvailabilityConfig["weeklySchedule"]
+  >({
     monday: { ...DEFAULT_SCHEDULE, enabled: true },
     tuesday: { ...DEFAULT_SCHEDULE, enabled: true },
     wednesday: { ...DEFAULT_SCHEDULE, enabled: true },
@@ -88,7 +99,7 @@ export default function AvailabilitySettings() {
       {
         onSuccess: () => toast.success("Availability saved"),
         onError: () => toast.error("Failed to save availability"),
-      }
+      },
     );
   }
 
@@ -105,7 +116,9 @@ export default function AvailabilitySettings() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Weekly Schedule</CardTitle>
-          <CardDescription>Toggle days and set available hours.</CardDescription>
+          <CardDescription>
+            Toggle days and set available hours.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {DAYS.map(({ key, label }) => {
@@ -131,19 +144,25 @@ export default function AvailabilitySettings() {
                     <Input
                       type="time"
                       value={slot.start}
-                      onChange={(e) => updateDaySlot(key, "start", e.target.value)}
+                      onChange={(e) =>
+                        updateDaySlot(key, "start", e.target.value)
+                      }
                       className="w-32"
                     />
                     <span className="text-muted-foreground">to</span>
                     <Input
                       type="time"
                       value={slot.end}
-                      onChange={(e) => updateDaySlot(key, "end", e.target.value)}
+                      onChange={(e) =>
+                        updateDaySlot(key, "end", e.target.value)
+                      }
                       className="w-32"
                     />
                   </div>
                 ) : (
-                  <span className="text-sm text-muted-foreground">Unavailable</span>
+                  <span className="text-sm text-muted-foreground">
+                    Unavailable
+                  </span>
                 )}
               </div>
             );

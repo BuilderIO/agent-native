@@ -8,9 +8,7 @@ export interface QueryMetricsResult {
   schema?: { name: string; type: string }[];
 }
 
-export async function queryMetrics(
-  sql: string
-): Promise<QueryMetricsResult> {
+export async function queryMetrics(sql: string): Promise<QueryMetricsResult> {
   const token = await getIdToken();
   const res = await fetch("/api/query", {
     method: "POST",
@@ -50,7 +48,7 @@ export function useMetricsQuery(
   options?: {
     enabled?: boolean;
     refetchInterval?: number;
-  }
+  },
 ) {
   return useQuery<QueryMetricsResult>({
     queryKey,
