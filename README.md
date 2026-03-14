@@ -60,7 +60,7 @@ Create and edit Remotion video compositions with agent assistance.
 
 **Calendar**
 
-<a href="https://agent-native.com/templates/calendar"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcalendar-template-screenshot?format=webp&width=800" alt="Calendar template" width="100%" /></a>
+<a href="https://agent-native.com/templates/calendar"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7f5a10a8029b4895ad02276da0f5071b?format=webp&width=800" alt="Calendar template" width="100%" /></a>
 
 **AI-Native Google Calendar, Calendly**
 

@@ -61,7 +61,7 @@ export const templates = [
     description:
       'Manage events, sync with Google Calendar, and share a public booking page — all with an AI agent that handles scheduling.',
     color: '#10b981',
-    screenshot: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcalendar-template-screenshot?format=webp&width=800',
+    screenshot: 'https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7f5a10a8029b4895ad02276da0f5071b?format=webp&width=800',
   },
 ]
 
