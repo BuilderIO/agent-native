@@ -1,0 +1,15 @@
+{
+  "name": "My Brand",
+  "description": "",
+  "colors": {
+    "primary": "#1a1a2e",
+    "secondary": "#16213e",
+    "accent": "#e94560",
+    "background": "#0f3460",
+    "text": "#ffffff"
+  },
+  "fonts": {
+    "heading": "Inter",
+    "body": "Inter"
+  }
+}
