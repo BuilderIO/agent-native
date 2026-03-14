@@ -35,13 +35,13 @@ export default defineConfig({
     strictPort: true,
     proxy: Object.fromEntries(
       apps.flatMap(({ name, appPort, wsPort }) => [
-        // WebSocket for Claude terminal
+        // WebSocket for CLI terminal
         [
           `/ws/${name}`,
           {
             target: `ws://localhost:${wsPort}`,
             ws: true,
-            rewrite: () => "/ws",
+            rewrite: (p: string) => p.replace(`/ws/${name}`, "/ws"),
           },
         ],
         // App API routes

@@ -173,18 +173,22 @@ export function useTerminal() {
 
       ws.onclose = () => {
         setConnected(false);
-        // Only reconnect if this is still the current connection
-        if (connectionId.current === thisConnectionId) {
-          term.write(
-            "\r\n\x1b[31m[harness] Connection closed. Reconnecting in 3s...\x1b[0m\r\n"
-          );
-          setTimeout(() => {
-            // Double-check we're still the current connection before reconnecting
-            if (connectionId.current === thisConnectionId) {
-              connect(settings, appName);
-            }
-          }, 3000);
-        }
+        // Don't reconnect if install failed — user must click Retry
+        setSetupStatus((prev) => {
+          if (prev.status === "failed" || prev.status === "not-found") return prev;
+          // Only reconnect if this is still the current connection
+          if (connectionId.current === thisConnectionId) {
+            term.write(
+              "\r\n\x1b[31m[harness] Connection closed. Reconnecting in 3s...\x1b[0m\r\n"
+            );
+            setTimeout(() => {
+              if (connectionId.current === thisConnectionId) {
+                connect(settings, appName);
+              }
+            }, 3000);
+          }
+          return prev;
+        });
       };
 
       ws.onerror = () => ws.close();
