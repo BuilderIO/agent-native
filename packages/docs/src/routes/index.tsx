@@ -195,70 +195,6 @@ function Home() {
         <TerminalCommand />
       </section>
 
-      {/* SaaS vs Agents comparison */}
-      <section className="border-t border-[var(--border)] py-20">
-        <div className="mb-12 text-center">
-          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-            SaaS Tools vs Raw AI Agents
-          </h2>
-          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-            Both existing approaches fall short. SaaS tools give you a polished UI but lock you into rigid workflows. Raw AI agents are powerful but leave your team staring at a blank chat prompt.
-          </p>
-        </div>
-
-        <div className="approaches-table-wrapper">
-          <div className="approaches-table-scroll">
-            <table className="approaches-table">
-              <thead>
-                <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
-                  <th className="approaches-th approaches-col-dim">Dimension</th>
-                  <th className="approaches-th approaches-col-saas">
-                    <span className="approaches-col-label--bad">SaaS Tools</span>
-                  </th>
-                  <th className="approaches-th approaches-col-agent">
-                    <span className="approaches-col-label--bad">Raw AI Agents</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="border-b border-[var(--border)]">
-                  <td className="approaches-td approaches-td--dim">UI</td>
-                  <td className="approaches-td">Polished but rigid</td>
-                  <td className="approaches-td">None</td>
-                </tr>
-                <tr className="border-b border-[var(--border)]">
-                  <td className="approaches-td approaches-td--dim">AI</td>
-                  <td className="approaches-td">Bolted on</td>
-                  <td className="approaches-td">Powerful, no guardrails</td>
-                </tr>
-                <tr className="border-b border-[var(--border)]">
-                  <td className="approaches-td approaches-td--dim">Customization</td>
-                  <td className="approaches-td">Can't</td>
-                  <td className="approaches-td">Prompt-only</td>
-                </tr>
-                <tr className="border-b border-[var(--border)]">
-                  <td className="approaches-td approaches-td--dim">Ownership</td>
-                  <td className="approaches-td">Rented</td>
-                  <td className="approaches-td">N/A</td>
-                </tr>
-                <tr>
-                  <td className="approaches-td approaches-td--dim">Non-dev friendly</td>
-                  <td className="approaches-td">Yes</td>
-                  <td className="approaches-td">No</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="approaches-solution">
-          <div className="approaches-solution-badge">The solution</div>
-          <p className="approaches-solution-tagline">Agent + UI + Computer</p>
-          <p className="approaches-solution-desc">
-            Agent-native apps combine a polished, guided UI with a powerful AI agent that can customize and evolve the app itself — giving your whole team the best of both worlds.
-          </p>
-        </div>
-      </section>
 
       </main>
 
@@ -322,59 +258,69 @@ function Home() {
             The best of both worlds
           </h2>
           <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-            SaaS tools are rigid and bolting AI on as an afterthought. Raw AI agents are powerful but have no UI — throw your team at a chat interface and they don't know what to prompt. Agent-native apps combine both.
+            SaaS tools are rigid and bolting AI on as an afterthought. Raw AI agents are powerful but have no UI. Agent-native apps combine both.
           </p>
         </div>
 
-        <div className="mx-auto max-w-3xl overflow-hidden rounded-xl border border-[var(--border)]">
-          <table className="comparison-table w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
-                <th className="px-5 py-3 text-left font-semibold text-red-400">SaaS Tools</th>
-                <th className="px-5 py-3 text-left font-semibold text-red-400">Raw AI Agents</th>
-                <th className="px-5 py-3 text-left font-semibold text-red-400">Internal Tools</th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--accent)]">Agent-Native</th>
-              </tr>
-            </thead>
-            <tbody className="text-[var(--fg-secondary)]">
-              <tr className="border-b border-[var(--border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">UI</td>
-                <td className="px-5 py-3">Polished but rigid</td>
-                <td className="px-5 py-3">None</td>
-                <td className="px-5 py-3">Months to build</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Full UI, fork &amp; go</td>
-              </tr>
-              <tr className="border-b border-[var(--border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">AI</td>
-                <td className="px-5 py-3">Bolted on</td>
-                <td className="px-5 py-3">Powerful, no guardrails</td>
-                <td className="px-5 py-3">Disconnected</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Agent-first, deeply integrated</td>
-              </tr>
-              <tr className="border-b border-[var(--border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">Customization</td>
-                <td className="px-5 py-3">Can't</td>
-                <td className="px-5 py-3">Prompt-only</td>
-                <td className="px-5 py-3">Full but slow</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Agent modifies the app</td>
-              </tr>
-              <tr className="border-b border-[var(--border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">Ownership</td>
-                <td className="px-5 py-3">Rented</td>
-                <td className="px-5 py-3">N/A</td>
-                <td className="px-5 py-3">Yours but costly</td>
-                <td className="px-5 py-3 text-[var(--fg)]">You own the code</td>
-              </tr>
-              <tr>
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">Non-dev friendly</td>
-                <td className="px-5 py-3">Yes</td>
-                <td className="px-5 py-3">No</td>
-                <td className="px-5 py-3">Rarely</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Guided UI + agent</td>
-              </tr>
-            </tbody>
-          </table>
+        <div className="approaches-table-wrapper">
+          <div className="approaches-table-scroll">
+            <table className="approaches-table">
+              <thead>
+                <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
+                  <th className="approaches-th approaches-col-dim"></th>
+                  <th className="approaches-th"><span className="approaches-col-label--bad">SaaS Tools</span></th>
+                  <th className="approaches-th"><span className="approaches-col-label--bad">Raw AI Agents</span></th>
+                  <th className="approaches-th"><span className="approaches-col-label--bad">Internal Tools</span></th>
+                  <th className="approaches-th approaches-col-highlight">Agent-Native</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-[var(--border)]">
+                  <td className="approaches-td approaches-td--dim">UI</td>
+                  <td className="approaches-td">Polished but rigid</td>
+                  <td className="approaches-td">None</td>
+                  <td className="approaches-td">Months to build</td>
+                  <td className="approaches-td approaches-td--highlight">Full UI, fork &amp; go</td>
+                </tr>
+                <tr className="border-b border-[var(--border)]">
+                  <td className="approaches-td approaches-td--dim">AI</td>
+                  <td className="approaches-td">Bolted on</td>
+                  <td className="approaches-td">Powerful, no guardrails</td>
+                  <td className="approaches-td">Disconnected</td>
+                  <td className="approaches-td approaches-td--highlight">Agent-first, integrated</td>
+                </tr>
+                <tr className="border-b border-[var(--border)]">
+                  <td className="approaches-td approaches-td--dim">Customization</td>
+                  <td className="approaches-td">Can't</td>
+                  <td className="approaches-td">Prompt-only</td>
+                  <td className="approaches-td">Full but slow</td>
+                  <td className="approaches-td approaches-td--highlight">Agent modifies the app</td>
+                </tr>
+                <tr className="border-b border-[var(--border)]">
+                  <td className="approaches-td approaches-td--dim">Ownership</td>
+                  <td className="approaches-td">Rented</td>
+                  <td className="approaches-td">N/A</td>
+                  <td className="approaches-td">Yours but costly</td>
+                  <td className="approaches-td approaches-td--highlight">You own the code</td>
+                </tr>
+                <tr>
+                  <td className="approaches-td approaches-td--dim">Non-dev friendly</td>
+                  <td className="approaches-td">Yes</td>
+                  <td className="approaches-td">No</td>
+                  <td className="approaches-td">Rarely</td>
+                  <td className="approaches-td approaches-td--highlight">Guided UI + agent</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="approaches-solution">
+          <div className="approaches-solution-badge">The solution</div>
+          <p className="approaches-solution-tagline">Agent + UI + Computer</p>
+          <p className="approaches-solution-desc">
+            Agent-native apps combine a polished, guided UI with a powerful AI agent that can customize and evolve the app itself.
+          </p>
         </div>
       </section>
 
