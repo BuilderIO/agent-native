@@ -11,7 +11,7 @@ Agent-Native is an open source framework for building full-featured applications
 - **Agent Updates Code**: The agent can modify the app itself. Your tools get better over time.
 - **Real-time Sync**: File watcher streams changes via SSE. When the agent writes a file, the UI updates instantly.
 - **Scripts System**: Agent-callable scripts via `pnpm script <name>` for complex operations.
-- **Harnesses**: Apps run inside a harness (Claude Code CLI or Builder.io Cloud) that provides the AI agent alongside your UI.
+- **Harnesses**: Apps run inside a harness (CLI harness supporting Claude Code, Codex, Gemini, OpenCode — or Builder.io Cloud) that provides the AI agent alongside your UI.
 
 ## Quick Start
 

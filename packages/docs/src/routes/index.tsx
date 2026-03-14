@@ -460,7 +460,7 @@ function Home() {
               <h3 className="text-base font-semibold">Local / Open Source</h3>
             </div>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
-              <li>Run with Claude Code CLI or any local harness</li>
+              <li>Run with Claude Code, Codex, Gemini CLI, or OpenCode</li>
               <li>Full permissions, full control</li>
               <li>Free and open source</li>
               <li>Solo development and testing</li>

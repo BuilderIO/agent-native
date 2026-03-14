@@ -239,11 +239,11 @@ await sync.initFileSync();
 
 Apps run inside a **harness** — a host that provides the AI agent alongside your app UI.
 
-## Claude Code Harness (Local, Open Source)
+## CLI Harness (Local, Open Source)
 
 - xterm.js terminal + app iframe
-- Powered by Claude Code CLI via node-pty
-- Settings panel for launch flags
+- Supports Claude Code, Codex, Gemini CLI, OpenCode — switchable from settings
+- Auto-installs missing CLIs, per-CLI launch flags
 - Best for: solo development, testing
 
 ## Builder Harness (Cloud)
@@ -260,7 +260,7 @@ Apps run inside a **harness** — a host that provides the AI agent alongside yo
 3. **File watching** — SSE keeps UI in sync
 4. **Script system** — `pnpm script <name>` dispatches to scripts
 
-App code is identical regardless of harness.
+App code is identical regardless of harness or CLI.
 
 ---
 
