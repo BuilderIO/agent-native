@@ -1,6 +1,6 @@
 /**
  * Logo lookup using Logo.dev API (replacement for deprecated Clearbit Logo API)
- * Usage: pnpm script logo-lookup --domain intuit.com [--size 128]
+ * Usage: pnpm script logo-lookup --domain acme.com [--size 128]
  *
  * Logo.dev API: https://img.logo.dev/{domain}?token={key}
  * - Free tier with generous monthly requests (sign up at https://logo.dev/signup)
@@ -32,8 +32,8 @@ export default async function main(args: string[]) {
   const { domain, size = 128, format, greyscale } = parseArgs(args);
 
   if (!domain) {
-    console.error("Usage: pnpm script logo-lookup --domain intuit.com [--size 128] [--greyscale]");
-    console.error("       pnpm script logo-lookup intuit.com");
+    console.error("Usage: pnpm script logo-lookup --domain acme.com [--size 128] [--greyscale]");
+    console.error("       pnpm script logo-lookup acme.com");
     console.error("\nRequires LOGO_DEV_TOKEN env var. Sign up free at https://logo.dev/signup");
     process.exit(1);
   }
