@@ -1,6 +1,6 @@
 # Dashboard Metadata Guide
 
-All dashboards and ad-hoc analyses **MUST** include author and last updated metadata.
+All dashboards **MUST** include author and last updated metadata.
 
 ## ⚠️ IMPORTANT: Author Must Be Manually Provided
 
@@ -26,17 +26,9 @@ Every dashboard in `client/pages/adhoc/registry.ts` requires:
 - **`author`**: **YOUR name or email** - the person creating this dashboard (e.g., "jane@builder.io" or "Jane Doe")
 - **`lastUpdated`**: Last modification date in `YYYY-MM-DD` format (typically today's date when creating)
 
-### For Ad-Hoc Analyses
-
-Ad-hoc analyses require all dashboard fields PLUS:
-
-- **`description`**: Brief description of what the analysis covers
-- **`dateCreated`**: When the analysis was originally created (`YYYY-MM-DD`)
-- **`category: 'adhoc'`**: Marks it as an ad-hoc analysis
-
 ## Examples
 
-### Regular Dashboard
+### Dashboard
 
 ```typescript
 {
@@ -44,20 +36,6 @@ Ad-hoc analyses require all dashboard fields PLUS:
   name: "Key Metrics",
   author: "jane@builder.io",
   lastUpdated: "2026-03-12"
-}
-```
-
-### Ad-Hoc Analysis
-
-```typescript
-{
-  id: "conversion-analysis",
-  name: "Traffic to Signup Conversion Analysis",
-  description: "Deep dive into declining conversion rates with funnel analysis",
-  dateCreated: "2026-03-11",
-  author: "team@builder.io",
-  lastUpdated: "2026-03-11",
-  category: 'adhoc'
 }
 ```
 
@@ -114,4 +92,4 @@ When you modify a dashboard:
 - **Accountability**: Know who created/owns each dashboard
 - **Freshness**: See when data was last reviewed/updated
 - **Maintenance**: Identify stale dashboards that need updates
-- **Documentation**: Provide context for ad-hoc analyses
+- **Documentation**: Provide context for dashboards

@@ -29,6 +29,3 @@ dist-ssr
 # Generated chart images (ephemeral)
 media/*.png
 media/theme.json
-
-# Data dictionary (synced from Notion on startup)
-docs/data-dictionary.md

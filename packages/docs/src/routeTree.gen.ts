@@ -17,6 +17,7 @@ import { Route as TemplatesVideoRouteImport } from './routes/templates/video'
 import { Route as TemplatesSlidesRouteImport } from './routes/templates/slides'
 import { Route as TemplatesContentRouteImport } from './routes/templates/content'
 import { Route as TemplatesCalendarRouteImport } from './routes/templates/calendar'
+import { Route as TemplatesBrandImageGeneratorRouteImport } from './routes/templates/brand-image-generator'
 import { Route as TemplatesAnalyticsRouteImport } from './routes/templates/analytics'
 import { Route as DocsServerRouteImport } from './routes/docs/server'
 import { Route as DocsScriptsRouteImport } from './routes/docs/scripts'
@@ -67,6 +68,12 @@ const TemplatesCalendarRoute = TemplatesCalendarRouteImport.update({
   path: '/calendar',
   getParentRoute: () => TemplatesRoute,
 } as any)
+const TemplatesBrandImageGeneratorRoute =
+  TemplatesBrandImageGeneratorRouteImport.update({
+    id: '/brand-image-generator',
+    path: '/brand-image-generator',
+    getParentRoute: () => TemplatesRoute,
+  } as any)
 const TemplatesAnalyticsRoute = TemplatesAnalyticsRouteImport.update({
   id: '/analytics',
   path: '/analytics',
@@ -125,6 +132,7 @@ export interface FileRoutesByFullPath {
   '/docs/scripts': typeof DocsScriptsRoute
   '/docs/server': typeof DocsServerRoute
   '/templates/analytics': typeof TemplatesAnalyticsRoute
+  '/templates/brand-image-generator': typeof TemplatesBrandImageGeneratorRoute
   '/templates/calendar': typeof TemplatesCalendarRoute
   '/templates/content': typeof TemplatesContentRoute
   '/templates/slides': typeof TemplatesSlidesRoute
@@ -143,6 +151,7 @@ export interface FileRoutesByTo {
   '/docs/scripts': typeof DocsScriptsRoute
   '/docs/server': typeof DocsServerRoute
   '/templates/analytics': typeof TemplatesAnalyticsRoute
+  '/templates/brand-image-generator': typeof TemplatesBrandImageGeneratorRoute
   '/templates/calendar': typeof TemplatesCalendarRoute
   '/templates/content': typeof TemplatesContentRoute
   '/templates/slides': typeof TemplatesSlidesRoute
@@ -163,6 +172,7 @@ export interface FileRoutesById {
   '/docs/scripts': typeof DocsScriptsRoute
   '/docs/server': typeof DocsServerRoute
   '/templates/analytics': typeof TemplatesAnalyticsRoute
+  '/templates/brand-image-generator': typeof TemplatesBrandImageGeneratorRoute
   '/templates/calendar': typeof TemplatesCalendarRoute
   '/templates/content': typeof TemplatesContentRoute
   '/templates/slides': typeof TemplatesSlidesRoute
@@ -184,6 +194,7 @@ export interface FileRouteTypes {
     | '/docs/scripts'
     | '/docs/server'
     | '/templates/analytics'
+    | '/templates/brand-image-generator'
     | '/templates/calendar'
     | '/templates/content'
     | '/templates/slides'
@@ -202,6 +213,7 @@ export interface FileRouteTypes {
     | '/docs/scripts'
     | '/docs/server'
     | '/templates/analytics'
+    | '/templates/brand-image-generator'
     | '/templates/calendar'
     | '/templates/content'
     | '/templates/slides'
@@ -221,6 +233,7 @@ export interface FileRouteTypes {
     | '/docs/scripts'
     | '/docs/server'
     | '/templates/analytics'
+    | '/templates/brand-image-generator'
     | '/templates/calendar'
     | '/templates/content'
     | '/templates/slides'
@@ -301,6 +314,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TemplatesCalendarRouteImport
       parentRoute: typeof TemplatesRoute
     }
+    '/templates/brand-image-generator': {
+      id: '/templates/brand-image-generator'
+      path: '/brand-image-generator'
+      fullPath: '/templates/brand-image-generator'
+      preLoaderRoute: typeof TemplatesBrandImageGeneratorRouteImport
+      parentRoute: typeof TemplatesRoute
+    }
     '/templates/analytics': {
       id: '/templates/analytics'
       path: '/analytics'
@@ -369,6 +389,7 @@ declare module '@tanstack/react-router' {
 
 interface TemplatesRouteChildren {
   TemplatesAnalyticsRoute: typeof TemplatesAnalyticsRoute
+  TemplatesBrandImageGeneratorRoute: typeof TemplatesBrandImageGeneratorRoute
   TemplatesCalendarRoute: typeof TemplatesCalendarRoute
   TemplatesContentRoute: typeof TemplatesContentRoute
   TemplatesSlidesRoute: typeof TemplatesSlidesRoute
@@ -378,6 +399,7 @@ interface TemplatesRouteChildren {
 
 const TemplatesRouteChildren: TemplatesRouteChildren = {
   TemplatesAnalyticsRoute: TemplatesAnalyticsRoute,
+  TemplatesBrandImageGeneratorRoute: TemplatesBrandImageGeneratorRoute,
   TemplatesCalendarRoute: TemplatesCalendarRoute,
   TemplatesContentRoute: TemplatesContentRoute,
   TemplatesSlidesRoute: TemplatesSlidesRoute,

@@ -16,7 +16,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CHART_COLORS, formatDate } from "../types";
-import { MetricValidationButton } from "@/components/MetricValidationButton";
 
 type ChartType = "stacked-area" | "stacked-bar" | "line";
 
@@ -148,17 +147,6 @@ export function DynamicChart({
     return CHART_COLORS[idx % CHART_COLORS.length];
   };
 
-  // Calculate total value for validation
-  const totalValue = useMemo(() => {
-    return data.reduce((sum, row) => {
-      const rowSum = visibleSeries.reduce(
-        (s, series) => s + (Number(row[series]) || 0),
-        0,
-      );
-      return sum + rowSum;
-    }, 0);
-  }, [data, visibleSeries]);
-
   return (
     <Card className="bg-card border-border/50">
       <CardHeader
@@ -175,14 +163,6 @@ export function DynamicChart({
             {title}
           </CardTitle>
         </div>
-        {!collapsed && !isLoading && (
-          <MetricValidationButton
-            metricName={title}
-            metricValue={totalValue}
-            variant="ghost"
-            size="icon"
-          />
-        )}
       </CardHeader>
       {!collapsed && (
         <CardContent>

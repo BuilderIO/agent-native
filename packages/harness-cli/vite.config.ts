@@ -9,6 +9,11 @@ const apps: Array<{ name: string; appPort: number; wsPort: number }> =
       '[{"name":"default","appPort":8081,"wsPort":3341}]',
   );
 
+// Optional docs port for single-port mode (set by dev-all-single-port.mjs)
+const docsPort = process.env.VITE_DOCS_PORT
+  ? parseInt(process.env.VITE_DOCS_PORT, 10)
+  : null;
+
 export default defineConfig({
   plugins: [
     react(),
@@ -35,8 +40,8 @@ export default defineConfig({
   server: {
     port: parseInt(process.env.PORT || "3334", 10),
     strictPort: true,
-    proxy: Object.fromEntries(
-      apps.flatMap(({ name, appPort, wsPort }) => [
+    proxy: Object.fromEntries([
+      ...apps.flatMap(({ name, appPort, wsPort }) => [
         // WebSocket for CLI terminal
         [
           `/ws/${name}`,
@@ -66,7 +71,20 @@ export default defineConfig({
           },
         ],
       ]),
-    ),
+      // Docs site proxy (single-port mode only)
+      ...(docsPort
+        ? [
+            [
+              "/docs",
+              {
+                target: `http://localhost:${docsPort}`,
+                changeOrigin: true,
+                ws: true,
+              },
+            ],
+          ]
+        : []),
+    ]),
   },
   build: {
     outDir: "dist/client",

@@ -68,6 +68,18 @@ export const templates = [
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7f5a10a8029b4895ad02276da0f5071b?format=webp&width=800",
   },
+  {
+    name: "Brand Image Generator",
+    slug: "brand-image-generator",
+    replaces: "Replaces or augments Canva, Brandmark",
+    cliCommand:
+      "npx @agent-native/core create my-app --template brand-image-generator",
+    description:
+      "Upload your brand assets and generate on-brand images with AI style matching. The agent analyzes your visual identity and creates consistent imagery.",
+    color: "#8b5cf6",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7f5a10a8029b4895ad02276da0f5071b?format=webp&width=800",
+  },
 ];
 
 export type Template = (typeof templates)[number];

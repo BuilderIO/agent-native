@@ -55,6 +55,10 @@ Optional: `--references file1.png,file2.png`
 
 The UI handles config changes directly via API. No agent action needed unless the user asks for suggestions.
 
+## TypeScript Everywhere
+
+All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`, or `.mjs` files. Node 22+ runs `.ts` files natively, so no compilation step is needed for scripts. Use ESM imports (`import`), not CommonJS (`require`).
+
 ## Environment
 
 - `GEMINI_API_KEY` — Required for style analysis and image generation

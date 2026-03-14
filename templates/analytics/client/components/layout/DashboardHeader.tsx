@@ -1,7 +1,7 @@
 import { User, Calendar } from "lucide-react";
 import { useMemo } from "react";
 import { useParams } from "react-router-dom";
-import { dashboards, adHocAnalyses } from "@/pages/adhoc/registry";
+import { dashboards } from "@/pages/adhoc/registry";
 
 interface DashboardHeaderProps {
   title?: string;
@@ -17,8 +17,7 @@ export function DashboardHeader({
   const { id } = useParams<{ id: string }>();
 
   const metadata = useMemo(() => {
-    const allDashboards = [...dashboards, ...adHocAnalyses];
-    return allDashboards.find((d) => d.id === id);
+    return dashboards.find((d) => d.id === id);
   }, [id]);
 
   const displayTitle = title || metadata?.name || "Dashboard";
