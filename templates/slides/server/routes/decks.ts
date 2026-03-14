@@ -120,7 +120,7 @@ decksRouter.get("/", (_req: Request, res: Response) => {
 
 // GET /api/decks/:id — get a specific deck
 decksRouter.get("/:id", (req: Request, res: Response) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
   const deck = readDeckFile(id);
   if (deck) {
     res.json(deck);
@@ -131,7 +131,7 @@ decksRouter.get("/:id", (req: Request, res: Response) => {
 
 // PUT /api/decks/:id — create or update a deck
 decksRouter.put("/:id", (req: Request, res: Response) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
   const deck = req.body;
 
   if (!deck || typeof deck !== "object") {
@@ -168,7 +168,7 @@ decksRouter.post("/", (req: Request, res: Response) => {
 
 // DELETE /api/decks/:id — delete a deck
 decksRouter.delete("/:id", (req: Request, res: Response) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
 
   const deleted = deleteDeckFile(id);
   if (deleted) {
