@@ -92,88 +92,6 @@ cd my-app
 pnpm install
 pnpm dev`;
 
-function TemplateCarousel() {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(true);
-
-  function updateScrollState() {
-    const el = scrollRef.current;
-    if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 4);
-    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4);
-  }
-
-  function scroll(dir: "left" | "right") {
-    const el = scrollRef.current;
-    if (!el) return;
-    const cardWidth = 380 + 16; // card + gap
-    el.scrollBy({
-      left: dir === "left" ? -cardWidth : cardWidth,
-      behavior: "smooth",
-    });
-  }
-
-  return (
-    <div className="flex items-center gap-3">
-      <button
-        onClick={() => scroll("left")}
-        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg)] text-[var(--fg-secondary)] shadow-sm transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)] ${canScrollLeft ? "opacity-100" : "pointer-events-none opacity-0"}`}
-        aria-label="Scroll left"
-      >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <polyline points="15 18 9 12 15 6" />
-        </svg>
-      </button>
-
-      <div
-        ref={scrollRef}
-        onScroll={updateScrollState}
-        className="min-w-0 flex-1 overflow-x-auto pb-4 scrollbar-hide"
-      >
-        <div className="flex gap-4" style={{ width: "max-content" }}>
-          {templates.map((t) => (
-            <div
-              key={t.name}
-              className="w-[calc((1200px-2*16px)/3)] max-w-[380px] min-w-[300px] shrink-0"
-            >
-              <TemplateCard template={t} />
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <button
-        onClick={() => scroll("right")}
-        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg)] text-[var(--fg-secondary)] shadow-sm transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)] ${canScrollRight ? "opacity-100" : "pointer-events-none opacity-0"}`}
-        aria-label="Scroll right"
-      >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
-      </button>
-    </div>
-  );
-}
-
 function TerminalCommand() {
   const [copied, setCopied] = useState(false);
   const command = "npx @agent-native/core create my-app";
@@ -252,7 +170,7 @@ function Home() {
           <div className="flex items-center justify-center gap-4">
             <Link
               to="/templates"
-              className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:bg-gray-200 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+              className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
             >
               Launch a Template
               <svg
@@ -304,29 +222,10 @@ function Home() {
           </p>
         </div>
 
-        {/* Mobile: vertical stack */}
-        <div className="md:hidden">
-          <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5">
-            {templates.map((t) => (
-              <TemplateCard key={t.name} template={t} />
-            ))}
-          </div>
-        </div>
-
-        {/* Tablet/desktop carousel */}
-        <div className="hidden md:block 2xl:hidden">
-          <div className="mx-auto max-w-[1200px]">
-            <TemplateCarousel />
-          </div>
-        </div>
-
-        {/* Ultra-wide: 5-column grid */}
-        <div className="hidden 2xl:block">
-          <div className="mx-auto grid max-w-[1920px] grid-cols-5 gap-5">
-            {templates.map((t) => (
-              <TemplateCard key={t.name} template={t} />
-            ))}
-          </div>
+        <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-4">
+          {templates.map((t) => (
+            <TemplateCard key={t.name} template={t} />
+          ))}
         </div>
 
         <div className="mt-8 text-center">
@@ -714,10 +613,10 @@ function Home() {
             workflow, and let the agent keep evolving it. Open source. Forkable.
             Yours.
           </p>
-          <div className="flex items-center justify-center gap-4">
+          <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
               to="/templates"
-              className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:bg-gray-200 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+              className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
             >
               Launch a Template
               <svg
