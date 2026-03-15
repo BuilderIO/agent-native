@@ -10,17 +10,25 @@
 /* ─── Design tokens ──────────────────────────────────────────── */
 :root {
   --sidebar-width: 72px;
-  --sidebar-bg: #161623;
+  --tabbar-height: 38px;
+  --sidebar-bg: #141414;
   --sidebar-border: rgba(255, 255, 255, 0.06);
   --item-hover-bg: rgba(255, 255, 255, 0.05);
-  --icon-inactive: #3d3d60;
+  --icon-inactive: #555;
   --icon-hover: rgba(255, 255, 255, 0.55);
   --icon-active: #ffffff;
-  --label-inactive: #2e2e50;
+  --label-inactive: #444;
   --label-hover: rgba(255, 255, 255, 0.4);
   --label-active: rgba(255, 255, 255, 0.7);
-  --shell-bg: #0e0e1a;
-  --separator: rgba(255, 255, 255, 0.05);
+  --shell-bg: #111111;
+  --separator: rgba(255, 255, 255, 0.06);
+  --tabbar-bg: #191919;
+  --tab-bg: transparent;
+  --tab-active-bg: #222222;
+  --tab-hover-bg: rgba(255, 255, 255, 0.04);
+  --tab-text: #666;
+  --tab-active-text: #ccc;
+  --tab-close-hover: rgba(255, 255, 255, 0.1);
 
   /* Transition */
   --ease: 0.15s ease;
@@ -134,7 +142,7 @@ body {
   width: 3px;
   height: 0;
   border-radius: 0 3px 3px 0;
-  background: var(--item-accent, #7c6af7);
+  background: var(--item-accent, #888);
   transition: height var(--ease);
 }
 
@@ -163,7 +171,7 @@ body {
 
 .sidebar-item.sidebar-item--active .icon-wrapper {
   /* Subtle tinted background matching the app accent color */
-  background: color-mix(in srgb, var(--item-accent, #7c6af7) 15%, transparent);
+  background: color-mix(in srgb, var(--item-accent, #888) 15%, transparent);
   color: var(--icon-active);
 }
 
@@ -225,21 +233,147 @@ body {
   background: #28c840;
 }
 
+/* ─── Main content (tab bar + webview) ───────────────────────── */
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
+/* ─── Tab bar ────────────────────────────────────────────────── */
+.tabbar {
+  height: var(--tabbar-height);
+  min-height: var(--tabbar-height);
+  background: var(--tabbar-bg);
+  border-bottom: 1px solid var(--separator);
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-app-region: drag;
+}
+
+.tabbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* macOS: offset tab bar for traffic lights */
+.platform-darwin .tabbar {
+  padding-left: 0;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  height: 100%;
+  background: var(--tab-bg);
+  border: none;
+  border-right: 1px solid var(--separator);
+  color: var(--tab-text);
+  font-size: 12px;
+  font-weight: 450;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--ease),
+    color var(--ease);
+  -webkit-app-region: no-drag;
+  min-width: 0;
+  max-width: 200px;
+}
+
+.tab:hover {
+  background: var(--tab-hover-bg);
+  color: var(--tab-active-text);
+}
+
+.tab--active {
+  background: var(--tab-active-bg);
+  color: var(--tab-active-text);
+}
+
+.tab-icon {
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+.tab--active .tab-icon {
+  opacity: 0.8;
+}
+
+.tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-close {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--ease),
+    background var(--ease);
+}
+
+.tab:hover .tab-close,
+.tab--active .tab-close {
+  opacity: 0.5;
+}
+
+.tab-close:hover {
+  opacity: 1 !important;
+  background: var(--tab-close-hover);
+}
+
+.tab-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-width: 32px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--tab-text);
+  cursor: pointer;
+  transition:
+    background var(--ease),
+    color var(--ease);
+  -webkit-app-region: no-drag;
+}
+
+.tab-new:hover {
+  background: var(--tab-hover-bg);
+  color: var(--tab-active-text);
+}
+
 /* ─── Content area ───────────────────────────────────────────── */
 .content-area {
   flex: 1;
-  height: 100%;
   position: relative;
   overflow: hidden;
   background: var(--shell-bg);
+  min-height: 0;
 }
 
 /* ─── Webview slot ───────────────────────────────────────────── */
 .webview-slot {
   position: absolute;
   inset: 0;
-  display: flex;
-  flex-direction: column;
 }
 
 /* Hidden slots are invisible and non-interactive but still mounted,
@@ -249,12 +383,24 @@ body {
   pointer-events: none;
 }
 
-/* The <webview> fills the entire slot */
-webview {
-  flex: 1;
+/* The <webview> fills the entire slot via absolute positioning.
+   Electron's <webview> custom element doesn't participate in flex layout,
+   so we position it absolutely to guarantee full coverage. */
+.webview-el {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  /* Webview must be visible even when overlay (loading/error) is shown */
+  height: 100%;
   display: block;
+  border: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.webview-el--ready {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* ─── Loading overlay ────────────────────────────────────────── */
@@ -274,7 +420,7 @@ webview {
   width: 28px;
   height: 28px;
   border: 2px solid rgba(255, 255, 255, 0.08);
-  border-top-color: var(--app-color, #7c6af7);
+  border-top-color: var(--app-color, #888);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }

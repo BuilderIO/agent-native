@@ -158,14 +158,14 @@ export function GoogleConnectBanner() {
   if (dismissed || googleStatus.data?.connected) return null;
 
   return (
-    <div className="border-b border-border bg-gradient-to-r from-primary/8 via-primary/4 to-transparent">
+    <div className="border-b border-border/30 bg-[hsl(220,6%,11%)]">
       {/* Compact banner row */}
-      <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+      <div className="flex items-center justify-between gap-3 px-4 py-2">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/15">
-            <Mail className="h-3.5 w-3.5 text-primary" />
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-primary/10">
+            <Mail className="h-3 w-3 text-primary/70" />
           </div>
-          <p className="text-sm font-medium leading-tight">
+          <p className="text-[13px] font-medium leading-tight text-foreground/80">
             Connect Google to send and receive real email
           </p>
         </div>
@@ -288,16 +288,22 @@ export function GoogleConnectBanner() {
                               variant="outline"
                               size="sm"
                               className="gap-1.5 text-xs h-7"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                window.open(step.url, "_blank");
-                                if (i < STEPS.length - 1) {
-                                  setCurrentStep(i + 1);
-                                }
-                              }}
+                              asChild
                             >
-                              <ExternalLink className="h-3 w-3" />
-                              {step.linkText}
+                              <a
+                                href={step.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (i < STEPS.length - 1) {
+                                    setCurrentStep(i + 1);
+                                  }
+                                }}
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                {step.linkText}
+                              </a>
                             </Button>
                           )}
 
@@ -307,12 +313,12 @@ export function GoogleConnectBanner() {
                               onClick={(e) => e.stopPropagation()}
                             >
                               <div className="space-y-1.5">
-                                <Label
+                                <label
                                   htmlFor="mail-client-id"
-                                  className="text-xs text-muted-foreground"
+                                  className="text-xs text-muted-foreground font-medium"
                                 >
                                   Client ID
-                                </Label>
+                                </label>
                                 <Input
                                   id="mail-client-id"
                                   value={clientId}
@@ -322,12 +328,12 @@ export function GoogleConnectBanner() {
                                 />
                               </div>
                               <div className="space-y-1.5">
-                                <Label
+                                <label
                                   htmlFor="mail-client-secret"
-                                  className="text-xs text-muted-foreground"
+                                  className="text-xs text-muted-foreground font-medium"
                                 >
                                   Client Secret
-                                </Label>
+                                </label>
                                 <Input
                                   id="mail-client-secret"
                                   type="password"

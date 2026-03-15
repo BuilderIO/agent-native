@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   CalendarDays,
@@ -6,10 +6,26 @@ import {
   Users,
   Settings,
   ExternalLink,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
+import {
+  startOfMonth,
+  endOfMonth,
+  startOfWeek,
+  endOfWeek,
+  addDays,
+  addMonths,
+  subMonths,
+  isSameMonth,
+  isSameDay,
+  isToday,
+  format,
+} from "date-fns";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useGoogleAuthStatus, useGoogleAuthUrl } from "@/hooks/use-google-auth";
+import { useCalendarContext } from "./AppLayout";
 
 const navItems = [
   { path: "/", label: "Calendar", icon: CalendarDays },
@@ -21,6 +37,106 @@ const navItems = [
 interface SidebarProps {
   open: boolean;
   onClose: () => void;
+}
+
+function MiniCalendar({
+  selectedDate,
+  onDateSelect,
+}: {
+  selectedDate: Date;
+  onDateSelect: (date: Date) => void;
+}) {
+  const [viewMonth, setViewMonth] = useState(() => startOfMonth(selectedDate));
+
+  // Sync viewMonth when selectedDate changes to a different month
+  useEffect(() => {
+    if (!isSameMonth(viewMonth, selectedDate)) {
+      setViewMonth(startOfMonth(selectedDate));
+    }
+  }, [selectedDate]);
+
+  const days = useMemo(() => {
+    const monthStart = startOfMonth(viewMonth);
+    const monthEnd = endOfMonth(viewMonth);
+    const calStart = startOfWeek(monthStart);
+    const calEnd = endOfWeek(monthEnd);
+
+    const result: Date[] = [];
+    let current = calStart;
+    while (current <= calEnd) {
+      result.push(current);
+      current = addDays(current, 1);
+    }
+    return result;
+  }, [viewMonth]);
+
+  const weekdays = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+  return (
+    <div className="px-3 py-3">
+      {/* Month header with navigation */}
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs font-medium text-foreground">
+          {format(viewMonth, "MMMM yyyy")}
+        </span>
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => setViewMonth(subMonths(viewMonth, 1))}
+            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ChevronUp className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMonth(addMonths(viewMonth, 1))}
+            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ChevronDown className="h-3 w-3" />
+          </button>
+        </div>
+      </div>
+
+      {/* Weekday headers */}
+      <div className="mb-0.5 grid grid-cols-7">
+        {weekdays.map((d) => (
+          <div
+            key={d}
+            className="flex h-6 items-center justify-center text-[10px] font-medium text-muted-foreground"
+          >
+            {d}
+          </div>
+        ))}
+      </div>
+
+      {/* Date grid */}
+      <div className="grid grid-cols-7">
+        {days.map((day) => {
+          const inMonth = isSameMonth(day, viewMonth);
+          const today = isToday(day);
+          const selected = isSameDay(day, selectedDate);
+
+          return (
+            <button
+              key={day.toISOString()}
+              type="button"
+              onClick={() => onDateSelect(day)}
+              className={cn(
+                "flex h-6 w-full items-center justify-center rounded-full text-[11px] transition-colors",
+                !inMonth && "text-muted-foreground/40",
+                inMonth && !today && !selected && "text-foreground/80 hover:bg-accent",
+                today && !selected && "bg-primary font-semibold text-primary-foreground",
+                selected && !today && "ring-1 ring-primary font-semibold text-primary",
+                selected && today && "bg-primary font-semibold text-primary-foreground ring-1 ring-primary ring-offset-1 ring-offset-card",
+              )}
+            >
+              {format(day, "d")}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function GoogleConnectSidebarButton() {
@@ -50,7 +166,7 @@ function GoogleConnectSidebarButton() {
           disabled={authUrl.isLoading || authUrl.isFetching}
         >
           <ExternalLink className="h-3 w-3" />
-          {authUrl.isLoading ? "Connecting…" : "Connect"}
+          {authUrl.isLoading ? "Connecting..." : "Connect"}
         </Button>
       </div>
     </div>
@@ -59,6 +175,7 @@ function GoogleConnectSidebarButton() {
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation();
+  const { selectedDate, setSelectedDate } = useCalendarContext();
   const googleStatus = useGoogleAuthStatus();
   const isConnected = googleStatus.data?.connected ?? false;
 
@@ -74,7 +191,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
       <aside
         className={cn(
-          "fixed left-0 top-0 z-50 flex h-full w-60 flex-col border-r border-border bg-card transition-transform duration-200 lg:static lg:translate-x-0",
+          "fixed left-0 top-0 z-50 flex h-full w-56 flex-col border-r border-border bg-card transition-transform duration-200 lg:static lg:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full",
         )}
       >
@@ -88,8 +205,11 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           </span>
         </div>
 
+        {/* Mini calendar */}
+        <MiniCalendar selectedDate={selectedDate} onDateSelect={setSelectedDate} />
+
         {/* Nav */}
-        <nav className="flex-1 space-y-0.5 p-2.5">
+        <nav className="flex-1 space-y-0.5 border-t border-border p-2.5">
           {navItems.map((item) => {
             const isActive =
               item.path === "/"

@@ -6,6 +6,8 @@ import {
   GalleryHorizontal,
   Settings,
   Layers,
+  Video,
+  Image,
   type LucideProps,
 } from "lucide-react";
 import type { AppDefinition } from "@shared/app-registry";
@@ -19,6 +21,8 @@ const ICON_MAP: Record<string, React.ComponentType<LucideProps>> = {
   GalleryHorizontal,
   Layers,
   Settings,
+  Video,
+  Image,
 };
 
 interface SidebarProps {

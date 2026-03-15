@@ -1,2 +1,2 @@
 import { defineConfig } from "@agent-native/core/vite";
-export default defineConfig();
+export default defineConfig({ port: 8085 });
