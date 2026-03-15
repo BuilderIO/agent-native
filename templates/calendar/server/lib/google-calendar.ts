@@ -8,7 +8,6 @@ const SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
 ];
 
-const REDIRECT_URI = "http://localhost:5173/api/google/callback";
 const TOKENS_PATH = path.join(process.cwd(), "data", "google-auth.json");
 
 interface GoogleTokens {
@@ -19,7 +18,7 @@ interface GoogleTokens {
   scope?: string;
 }
 
-function createOAuth2Client() {
+function createOAuth2Client(origin?: string) {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
@@ -27,11 +26,12 @@ function createOAuth2Client() {
       "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in environment",
     );
   }
-  return new google.auth.OAuth2(clientId, clientSecret, REDIRECT_URI);
+  const redirectUri = `${origin || "http://localhost:8080"}/api/google/callback`;
+  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
-export function getAuthUrl(): string {
-  const client = createOAuth2Client();
+export function getAuthUrl(origin?: string): string {
+  const client = createOAuth2Client(origin);
   return client.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
@@ -39,8 +39,11 @@ export function getAuthUrl(): string {
   });
 }
 
-export async function exchangeCode(code: string): Promise<void> {
-  const client = createOAuth2Client();
+export async function exchangeCode(
+  code: string,
+  origin?: string,
+): Promise<void> {
+  const client = createOAuth2Client(origin);
   const { tokens } = await client.getToken(code);
   writeJsonFile(TOKENS_PATH, tokens);
 }
