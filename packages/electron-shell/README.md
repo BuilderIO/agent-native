@@ -187,23 +187,23 @@ window.electronAPI.interApp.on((from, event, data) => {
 
 ## Port assignments
 
-| App        | Dev port |
-|------------|----------|
-| mail       | 8081 (placeholder) |
-| calendar   | 8082 |
-| content    | 8083 |
-| analytics  | 8084 |
-| slides     | 8085 |
+| App       | Dev port           |
+| --------- | ------------------ |
+| mail      | 8081 (placeholder) |
+| calendar  | 8082               |
+| content   | 8083               |
+| analytics | 8084               |
+| slides    | 8085               |
 
 ---
 
 ## Platform differences
 
-| Feature | macOS | Windows / Linux |
-|---------|-------|-----------------|
-| Window controls | Native traffic lights (red/yellow/green) | Custom colored dots in sidebar |
-| Title bar drag | Top of sidebar is draggable | Top of sidebar is draggable |
-| Sidebar top padding | 48 px (clears traffic lights) | 8 px |
+| Feature             | macOS                                    | Windows / Linux                |
+| ------------------- | ---------------------------------------- | ------------------------------ |
+| Window controls     | Native traffic lights (red/yellow/green) | Custom colored dots in sidebar |
+| Title bar drag      | Top of sidebar is draggable              | Top of sidebar is draggable    |
+| Sidebar top padding | 48 px (clears traffic lights)            | 8 px                           |
 
 ---
 
@@ -214,6 +214,7 @@ pnpm --filter @agent-native/electron-shell build
 ```
 
 This outputs:
+
 - `dist/main/` — compiled main process (CJS)
 - `dist/preload/` — compiled preload script (CJS)
 - `dist/renderer/` — built React SPA

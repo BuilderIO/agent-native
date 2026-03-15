@@ -16,5 +16,10 @@
     "resolveJsonModule": true,
     "esModuleInterop": true
   },
-  "include": ["src/**/*", "shared/**/*", "electron.vite.config.ts", "index.html"]
+  "include": [
+    "src/**/*",
+    "shared/**/*",
+    "electron.vite.config.ts",
+    "index.html"
+  ]
 }

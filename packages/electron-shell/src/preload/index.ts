@@ -41,15 +41,11 @@ const electronAPI = {
     on: (
       cb: (from: string, event: string, data: unknown) => void,
     ): (() => void) => {
-      const handler = (
-        _: Electron.IpcRendererEvent,
-        msg: InterAppMessage,
-      ) => {
+      const handler = (_: Electron.IpcRendererEvent, msg: InterAppMessage) => {
         cb(msg.from, msg.event, msg.data);
       };
       ipcRenderer.on(IPC.INTER_APP_MESSAGE, handler);
-      return () =>
-        ipcRenderer.removeListener(IPC.INTER_APP_MESSAGE, handler);
+      return () => ipcRenderer.removeListener(IPC.INTER_APP_MESSAGE, handler);
     },
   },
 };

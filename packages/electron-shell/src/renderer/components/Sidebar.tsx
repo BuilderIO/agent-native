@@ -67,7 +67,11 @@ export default function Sidebar({
 
       {/* Settings pinned at the bottom */}
       <div className="sidebar-footer">
-        <SidebarIconButton icon={Settings} label="Settings" onClick={() => {}} />
+        <SidebarIconButton
+          icon={Settings}
+          label="Settings"
+          onClick={() => {}}
+        />
       </div>
     </aside>
   );
@@ -113,7 +117,11 @@ interface SidebarIconButtonProps {
   onClick: () => void;
 }
 
-function SidebarIconButton({ icon: Icon, label, onClick }: SidebarIconButtonProps) {
+function SidebarIconButton({
+  icon: Icon,
+  label,
+  onClick,
+}: SidebarIconButtonProps) {
   return (
     <button
       className="sidebar-item"

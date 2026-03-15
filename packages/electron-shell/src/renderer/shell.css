@@ -36,8 +36,9 @@ body,
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
-    "Helvetica Neue", sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Helvetica Neue",
+    sans-serif;
   background: var(--shell-bg);
   color: #fff;
   /* Disable text selection in the shell chrome */
@@ -150,7 +151,9 @@ body {
   justify-content: center;
   border-radius: 11px;
   color: var(--icon-inactive);
-  transition: background var(--ease), color var(--ease);
+  transition:
+    background var(--ease),
+    color var(--ease);
 }
 
 .sidebar-item:hover .icon-wrapper {
@@ -328,7 +331,9 @@ webview {
   color: rgba(255, 255, 255, 0.4);
   font-size: 11px;
   cursor: pointer;
-  transition: background var(--ease), color var(--ease);
+  transition:
+    background var(--ease),
+    color var(--ease);
   -webkit-app-region: no-drag;
 }
 
