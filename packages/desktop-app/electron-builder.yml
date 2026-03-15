@@ -1,0 +1,27 @@
+appId: com.agentnative.desktop
+productName: Agent Native
+
+directories:
+  buildResources: build
+  output: dist
+
+files:
+  - out/**
+  - "!node_modules/**"
+  - "!src/**"
+  - "!shared/**"
+  - "!electron.vite.config.*"
+  - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
+  - "!{tsconfig.json,tsconfig.*.json}"
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - universal
+
+dmg:
+  artifactName: ${productName}-${version}.${ext}
+
+npmRebuild: false

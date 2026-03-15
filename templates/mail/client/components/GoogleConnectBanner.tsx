@@ -31,16 +31,14 @@ const STEPS = [
   {
     title: "Configure OAuth consent screen",
     description:
-      'Set the app name to anything (e.g. "My Mail"), choose "External" user type, and add your email as a test user. If you get redirected to an overview page, consent is already configured — skip to the next step.',
-    url: "https://console.cloud.google.com/apis/credentials/consent",
-    linkText: "Configure consent screen",
+      'Open the link below, set the app name to anything (e.g. "My Mail"), choose "External" user type, and add your email as a test user. If you see an overview page, consent is already configured — skip to the next step.',
+    copyUrl: "https://console.cloud.google.com/apis/credentials/consent",
   },
   {
     title: "Create OAuth credentials",
     description:
-      'Click "+ Create Credentials" → "OAuth client ID", choose "Web application", and add this redirect URI:',
-    url: "https://console.cloud.google.com/apis/credentials",
-    linkText: "Create credentials",
+      'Open the link below, click "+ Create Credentials" → "OAuth client ID", choose "Web application", and add this redirect URI:',
+    copyUrl: "https://console.cloud.google.com/apis/credentials",
     showRedirectUri: true,
   },
   {
@@ -65,7 +63,7 @@ export function GoogleConnectBanner() {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [envStatus, setEnvStatus] = useState<EnvKeyStatus[]>([]);
-  const [copied, setCopied] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const redirectUri = `${window.location.origin}/api/google/callback`;
 
@@ -150,10 +148,10 @@ export function GoogleConnectBanner() {
     }
   }
 
-  function copyRedirectUri() {
-    navigator.clipboard.writeText(redirectUri);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  function copyToClipboard(text: string, key: string) {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
   }
 
   if (dismissed || googleStatus.data?.connected) return null;
@@ -265,9 +263,38 @@ export function GoogleConnectBanner() {
                             {step.description}
                           </p>
 
+                          {step.copyUrl && (
+                            <div className="flex items-center gap-2">
+                              <code className="flex-1 rounded bg-muted px-2 py-1.5 text-xs font-mono break-all select-all">
+                                {step.copyUrl}
+                              </code>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="shrink-0 text-xs h-7"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  copyToClipboard(step.copyUrl!, `url-${i}`);
+                                  if (i < STEPS.length - 1) {
+                                    setCurrentStep(i + 1);
+                                  }
+                                }}
+                              >
+                                {copiedKey === `url-${i}` ? (
+                                  <>
+                                    <Check className="h-3 w-3" />
+                                    Copied
+                                  </>
+                                ) : (
+                                  "Copy link"
+                                )}
+                              </Button>
+                            </div>
+                          )}
+
                           {step.showRedirectUri && (
                             <div className="flex items-center gap-2">
-                              <code className="flex-1 rounded bg-muted px-2 py-1.5 text-xs font-mono break-all">
+                              <code className="flex-1 rounded bg-muted px-2 py-1.5 text-xs font-mono break-all select-all">
                                 {redirectUri}
                               </code>
                               <Button
@@ -276,10 +303,10 @@ export function GoogleConnectBanner() {
                                 className="shrink-0 text-xs h-7"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  copyRedirectUri();
+                                  copyToClipboard(redirectUri, "redirect");
                                 }}
                               >
-                                {copied ? (
+                                {copiedKey === "redirect" ? (
                                   <>
                                     <Check className="h-3 w-3" />
                                     Copied
