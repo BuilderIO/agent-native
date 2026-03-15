@@ -1,6 +1,12 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { formatDistanceToNow, format, isToday, isYesterday, isThisYear } from "date-fns";
+import {
+  formatDistanceToNow,
+  format,
+  isToday,
+  isYesterday,
+  isThisYear,
+} from "date-fns";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -64,5 +70,8 @@ export function isMac(): boolean {
 
 export function formatShortcut(key: string): string {
   const mod = isMac() ? "⌘" : "Ctrl";
-  return key.replace("cmd", mod).replace("ctrl", "Ctrl").replace("alt", isMac() ? "⌥" : "Alt");
+  return key
+    .replace("cmd", mod)
+    .replace("ctrl", "Ctrl")
+    .replace("alt", isMac() ? "⌥" : "Alt");
 }

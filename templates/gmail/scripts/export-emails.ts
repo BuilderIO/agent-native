@@ -20,7 +20,9 @@ export default async function main(): Promise<void> {
   let filtered = emails;
   switch (view) {
     case "inbox":
-      filtered = emails.filter((e) => !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent);
+      filtered = emails.filter(
+        (e) => !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
+      );
       break;
     case "starred":
       filtered = emails.filter((e) => e.isStarred && !e.isTrashed);
@@ -40,12 +42,16 @@ export default async function main(): Promise<void> {
     case "all":
       break;
     default:
-      fatal(`Unknown view "${view}". Valid: inbox, starred, sent, drafts, archive, trash, all`);
+      fatal(
+        `Unknown view "${view}". Valid: inbox, starred, sent, drafts, archive, trash, all`,
+      );
   }
 
   if (outputPath) {
     fs.writeFileSync(outputPath, JSON.stringify(filtered, null, 2));
-    console.error(`✓ Exported ${filtered.length} email(s) from "${view}" to ${outputPath}`);
+    console.error(
+      `✓ Exported ${filtered.length} email(s) from "${view}" to ${outputPath}`,
+    );
   } else {
     output(filtered);
   }

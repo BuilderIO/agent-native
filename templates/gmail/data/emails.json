@@ -44,7 +44,12 @@
     "isTrashed": false,
     "labelIds": ["inbox"],
     "attachments": [
-      { "id": "att-001", "filename": "tokens-v2.json", "mimeType": "application/json", "size": 24560 }
+      {
+        "id": "att-001",
+        "filename": "tokens-v2.json",
+        "mimeType": "application/json",
+        "size": 24560
+      }
     ]
   },
   {
@@ -62,7 +67,12 @@
     "isTrashed": false,
     "labelIds": ["inbox", "finance"],
     "attachments": [
-      { "id": "att-002", "filename": "invoice-july-2025.pdf", "mimeType": "application/pdf", "size": 89320 }
+      {
+        "id": "att-002",
+        "filename": "invoice-july-2025.pdf",
+        "mimeType": "application/pdf",
+        "size": 89320
+      }
     ]
   },
   {

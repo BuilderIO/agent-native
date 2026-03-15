@@ -6,7 +6,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { EmailListItem } from "./EmailListItem";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
-import { useEmails, useMarkRead, useToggleStar, useArchiveEmail, useTrashEmail } from "@/hooks/use-emails";
+import {
+  useEmails,
+  useMarkRead,
+  useToggleStar,
+  useArchiveEmail,
+  useTrashEmail,
+} from "@/hooks/use-emails";
 import type { EmailMessage } from "@shared/types";
 import { toast } from "sonner";
 
@@ -17,11 +23,18 @@ interface EmailListProps {
 
 export function EmailList({ focusedId, setFocusedId }: EmailListProps) {
   const navigate = useNavigate();
-  const { view = "inbox", threadId } = useParams<{ view: string; threadId: string }>();
+  const { view = "inbox", threadId } = useParams<{
+    view: string;
+    threadId: string;
+  }>();
   const [searchParams] = useSearchParams();
   const searchQuery = searchParams.get("q") ?? undefined;
 
-  const { data: emails = [], isLoading, refetch } = useEmails(view, searchQuery);
+  const {
+    data: emails = [],
+    isLoading,
+    refetch,
+  } = useEmails(view, searchQuery);
   const markRead = useMarkRead();
   const toggleStar = useToggleStar();
   const archiveEmail = useArchiveEmail();
@@ -31,14 +44,23 @@ export function EmailList({ focusedId, setFocusedId }: EmailListProps) {
 
   const focusedIndex = emails.findIndex((e) => e.id === focusedId);
 
-  const moveFocus = useCallback((delta: number) => {
-    if (emails.length === 0) return;
-    const next = Math.max(0, Math.min(emails.length - 1, (focusedIndex === -1 ? 0 : focusedIndex) + delta));
-    setFocusedId(emails[next].id);
-    // Scroll focused row into view
-    const rows = containerRef.current?.querySelectorAll("[role='row']");
-    rows?.[next]?.scrollIntoView({ block: "nearest" });
-  }, [emails, focusedIndex, setFocusedId]);
+  const moveFocus = useCallback(
+    (delta: number) => {
+      if (emails.length === 0) return;
+      const next = Math.max(
+        0,
+        Math.min(
+          emails.length - 1,
+          (focusedIndex === -1 ? 0 : focusedIndex) + delta,
+        ),
+      );
+      setFocusedId(emails[next].id);
+      // Scroll focused row into view
+      const rows = containerRef.current?.querySelectorAll("[role='row']");
+      rows?.[next]?.scrollIntoView({ block: "nearest" });
+    },
+    [emails, focusedIndex, setFocusedId],
+  );
 
   const openFocused = useCallback(() => {
     if (!focusedId) return;
@@ -115,10 +137,15 @@ export function EmailList({ focusedId, setFocusedId }: EmailListProps) {
     trash: "Trash",
     all: "All Mail",
   };
-  const viewTitle = viewLabels[view] ?? (view.startsWith("label:") ? view.replace("label:", "") : view);
+  const viewTitle =
+    viewLabels[view] ??
+    (view.startsWith("label:") ? view.replace("label:", "") : view);
 
   return (
-    <div className="flex h-full flex-col border-r border-border" ref={containerRef}>
+    <div
+      className="flex h-full flex-col border-r border-border"
+      ref={containerRef}
+    >
       {/* List header */}
       <div className="flex h-11 shrink-0 items-center justify-between px-4">
         <h2 className="text-sm font-semibold text-foreground">{viewTitle}</h2>
@@ -135,7 +162,9 @@ export function EmailList({ focusedId, setFocusedId }: EmailListProps) {
             onClick={() => refetch()}
             title="Refresh (R)"
           >
-            <RefreshCw className={cn("h-3.5 w-3.5", isLoading && "animate-spin")} />
+            <RefreshCw
+              className={cn("h-3.5 w-3.5", isLoading && "animate-spin")}
+            />
           </Button>
         </div>
       </div>
@@ -157,15 +186,21 @@ export function EmailList({ focusedId, setFocusedId }: EmailListProps) {
           </div>
         ) : emails.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 pt-20 text-center px-8">
-            {searchQuery
-              ? <Search className="h-10 w-10 text-muted-foreground/40" />
-              : <Inbox className="h-10 w-10 text-muted-foreground/40" />}
+            {searchQuery ? (
+              <Search className="h-10 w-10 text-muted-foreground/40" />
+            ) : (
+              <Inbox className="h-10 w-10 text-muted-foreground/40" />
+            )}
             <div>
               <p className="text-sm font-medium text-foreground">
-                {searchQuery ? `No results for "${searchQuery}"` : `${viewTitle} is empty`}
+                {searchQuery
+                  ? `No results for "${searchQuery}"`
+                  : `${viewTitle} is empty`}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                {searchQuery ? "Try different keywords" : "You're all caught up!"}
+                {searchQuery
+                  ? "Try different keywords"
+                  : "You're all caught up!"}
               </p>
             </div>
           </div>
@@ -188,11 +223,21 @@ export function EmailList({ focusedId, setFocusedId }: EmailListProps) {
       {/* Keyboard hint bar */}
       {emails.length > 0 && (
         <div className="hidden md:flex shrink-0 items-center gap-3 border-t border-border px-4 py-1.5 text-xs text-muted-foreground">
-          <span><kbd className="kbd-hint">J/K</kbd> navigate</span>
-          <span><kbd className="kbd-hint">Enter</kbd> open</span>
-          <span><kbd className="kbd-hint">E</kbd> archive</span>
-          <span><kbd className="kbd-hint">D</kbd> trash</span>
-          <span><kbd className="kbd-hint">U</kbd> mark read</span>
+          <span>
+            <kbd className="kbd-hint">J/K</kbd> navigate
+          </span>
+          <span>
+            <kbd className="kbd-hint">Enter</kbd> open
+          </span>
+          <span>
+            <kbd className="kbd-hint">E</kbd> archive
+          </span>
+          <span>
+            <kbd className="kbd-hint">D</kbd> trash
+          </span>
+          <span>
+            <kbd className="kbd-hint">U</kbd> mark read
+          </span>
         </div>
       )}
     </div>

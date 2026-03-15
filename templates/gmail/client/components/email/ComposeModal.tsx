@@ -1,9 +1,22 @@
 import { useState, useEffect, useRef } from "react";
-import { X, Minus, Maximize2, Send, Bold, Italic, Link, Paperclip } from "lucide-react";
+import {
+  X,
+  Minus,
+  Maximize2,
+  Send,
+  Bold,
+  Italic,
+  Link,
+  Paperclip,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useSendEmail } from "@/hooks/use-emails";
 import { toast } from "sonner";
 import type { EmailMessage } from "@shared/types";
@@ -15,7 +28,12 @@ interface ComposeModalProps {
   mode?: "compose" | "reply" | "forward";
 }
 
-export function ComposeModal({ open, onOpenChange, replyTo, mode = "compose" }: ComposeModalProps) {
+export function ComposeModal({
+  open,
+  onOpenChange,
+  replyTo,
+  mode = "compose",
+}: ComposeModalProps) {
   const [to, setTo] = useState("");
   const [cc, setCc] = useState("");
   const [showCc, setShowCc] = useState(false);
@@ -31,18 +49,38 @@ export function ComposeModal({ open, onOpenChange, replyTo, mode = "compose" }: 
   // Pre-fill for reply/forward
   useEffect(() => {
     if (!open || !replyTo) {
-      setTo(""); setCc(""); setBcc(""); setSubject(""); setBody("");
-      setShowCc(false); setShowBcc(false);
+      setTo("");
+      setCc("");
+      setBcc("");
+      setSubject("");
+      setBody("");
+      setShowCc(false);
+      setShowBcc(false);
       return;
     }
 
     if (mode === "reply") {
       setTo(replyTo.from.email);
-      setSubject(replyTo.subject.startsWith("Re:") ? replyTo.subject : `Re: ${replyTo.subject}`);
-      setBody(`\n\n— On ${new Date(replyTo.date).toLocaleDateString()}, ${replyTo.from.name || replyTo.from.email} wrote:\n\n${replyTo.body.split("\n").map((l) => `> ${l}`).join("\n")}`);
+      setSubject(
+        replyTo.subject.startsWith("Re:")
+          ? replyTo.subject
+          : `Re: ${replyTo.subject}`,
+      );
+      setBody(
+        `\n\n— On ${new Date(replyTo.date).toLocaleDateString()}, ${replyTo.from.name || replyTo.from.email} wrote:\n\n${replyTo.body
+          .split("\n")
+          .map((l) => `> ${l}`)
+          .join("\n")}`,
+      );
     } else if (mode === "forward") {
-      setSubject(replyTo.subject.startsWith("Fwd:") ? replyTo.subject : `Fwd: ${replyTo.subject}`);
-      setBody(`\n\n— Forwarded message —\nFrom: ${replyTo.from.name} <${replyTo.from.email}>\n\n${replyTo.body}`);
+      setSubject(
+        replyTo.subject.startsWith("Fwd:")
+          ? replyTo.subject
+          : `Fwd: ${replyTo.subject}`,
+      );
+      setBody(
+        `\n\n— Forwarded message —\nFrom: ${replyTo.from.name} <${replyTo.from.email}>\n\n${replyTo.body}`,
+      );
     }
   }, [open, replyTo, mode]);
 
@@ -60,7 +98,14 @@ export function ComposeModal({ open, onOpenChange, replyTo, mode = "compose" }: 
     }
 
     sendEmail.mutate(
-      { to, cc: cc || undefined, bcc: bcc || undefined, subject, body, replyToId: replyTo?.id },
+      {
+        to,
+        cc: cc || undefined,
+        bcc: bcc || undefined,
+        subject,
+        body,
+        replyToId: replyTo?.id,
+      },
       {
         onSuccess: () => {
           toast.success("Email sent!");
@@ -84,7 +129,8 @@ export function ComposeModal({ open, onOpenChange, replyTo, mode = "compose" }: 
 
   if (!open) return null;
 
-  const title = mode === "reply" ? "Reply" : mode === "forward" ? "Forward" : "New message";
+  const title =
+    mode === "reply" ? "Reply" : mode === "forward" ? "Forward" : "New message";
 
   return (
     <div
@@ -122,7 +168,9 @@ export function ComposeModal({ open, onOpenChange, replyTo, mode = "compose" }: 
           {/* Header fields */}
           <div className="border-b border-border">
             <div className="flex items-center border-b border-border px-4">
-              <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">To</span>
+              <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
+                To
+              </span>
               <input
                 type="text"
                 value={to}
@@ -133,17 +181,29 @@ export function ComposeModal({ open, onOpenChange, replyTo, mode = "compose" }: 
               />
               <div className="flex gap-2 text-xs text-muted-foreground">
                 {!showCc && (
-                  <button onClick={() => setShowCc(true)} className="hover:text-foreground transition-colors">Cc</button>
+                  <button
+                    onClick={() => setShowCc(true)}
+                    className="hover:text-foreground transition-colors"
+                  >
+                    Cc
+                  </button>
                 )}
                 {!showBcc && (
-                  <button onClick={() => setShowBcc(true)} className="hover:text-foreground transition-colors">Bcc</button>
+                  <button
+                    onClick={() => setShowBcc(true)}
+                    className="hover:text-foreground transition-colors"
+                  >
+                    Bcc
+                  </button>
                 )}
               </div>
             </div>
 
             {showCc && (
               <div className="flex items-center border-b border-border px-4">
-                <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">Cc</span>
+                <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
+                  Cc
+                </span>
                 <input
                   type="text"
                   value={cc}
@@ -156,7 +216,9 @@ export function ComposeModal({ open, onOpenChange, replyTo, mode = "compose" }: 
 
             {showBcc && (
               <div className="flex items-center border-b border-border px-4">
-                <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">Bcc</span>
+                <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
+                  Bcc
+                </span>
                 <input
                   type="text"
                   value={bcc}
@@ -168,7 +230,9 @@ export function ComposeModal({ open, onOpenChange, replyTo, mode = "compose" }: 
             )}
 
             <div className="flex items-center px-4">
-              <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">Sub</span>
+              <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
+                Sub
+              </span>
               <input
                 type="text"
                 value={subject}
@@ -227,7 +291,8 @@ export function ComposeModal({ open, onOpenChange, replyTo, mode = "compose" }: 
 
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground hidden sm:block">
-                <kbd className="kbd-hint">⌘</kbd> <kbd className="kbd-hint">↵</kbd> to send
+                <kbd className="kbd-hint">⌘</kbd>{" "}
+                <kbd className="kbd-hint">↵</kbd> to send
               </span>
               <Button
                 size="sm"

@@ -1,13 +1,31 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Inbox, Star, Send, FileText, Archive, Trash2,
-  Search, PenLine, Settings, Moon, Sun,
-  RefreshCw, CornerUpLeft, Tag, Keyboard,
+  Inbox,
+  Star,
+  Send,
+  FileText,
+  Archive,
+  Trash2,
+  Search,
+  PenLine,
+  Settings,
+  Moon,
+  Sun,
+  RefreshCw,
+  CornerUpLeft,
+  Tag,
+  Keyboard,
 } from "lucide-react";
 import {
-  CommandDialog, CommandEmpty, CommandGroup,
-  CommandInput, CommandItem, CommandList, CommandShortcut, CommandSeparator,
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandShortcut,
+  CommandSeparator,
 } from "@/components/ui/command";
 import { useTheme } from "next-themes";
 
@@ -28,14 +46,22 @@ const navCommands = [
   { label: "Settings", icon: Settings, route: "/settings" },
 ];
 
-export function CommandPalette({ open, onOpenChange, onCompose, onReply }: CommandPaletteProps) {
+export function CommandPalette({
+  open,
+  onOpenChange,
+  onCompose,
+  onReply,
+}: CommandPaletteProps) {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
 
-  const run = useCallback((fn: () => void) => {
-    onOpenChange(false);
-    setTimeout(fn, 50);
-  }, [onOpenChange]);
+  const run = useCallback(
+    (fn: () => void) => {
+      onOpenChange(false);
+      setTimeout(fn, 50);
+    },
+    [onOpenChange],
+  );
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
@@ -71,10 +97,15 @@ export function CommandPalette({ open, onOpenChange, onCompose, onReply }: Comma
 
         <CommandGroup heading="Navigate">
           {navCommands.map((cmd) => (
-            <CommandItem key={cmd.route} onSelect={() => run(() => navigate(cmd.route))}>
+            <CommandItem
+              key={cmd.route}
+              onSelect={() => run(() => navigate(cmd.route))}
+            >
               <cmd.icon className="mr-2 h-4 w-4" />
               {cmd.label}
-              {cmd.shortcut && <CommandShortcut>{cmd.shortcut}</CommandShortcut>}
+              {cmd.shortcut && (
+                <CommandShortcut>{cmd.shortcut}</CommandShortcut>
+              )}
             </CommandItem>
           ))}
         </CommandGroup>
@@ -82,10 +113,16 @@ export function CommandPalette({ open, onOpenChange, onCompose, onReply }: Comma
         <CommandSeparator />
 
         <CommandGroup heading="Appearance">
-          <CommandItem onSelect={() => run(() => setTheme(theme === "dark" ? "light" : "dark"))}>
-            {theme === "dark"
-              ? <Sun className="mr-2 h-4 w-4" />
-              : <Moon className="mr-2 h-4 w-4" />}
+          <CommandItem
+            onSelect={() =>
+              run(() => setTheme(theme === "dark" ? "light" : "dark"))
+            }
+          >
+            {theme === "dark" ? (
+              <Sun className="mr-2 h-4 w-4" />
+            ) : (
+              <Moon className="mr-2 h-4 w-4" />
+            )}
             Toggle {theme === "dark" ? "light" : "dark"} mode
           </CommandItem>
         </CommandGroup>

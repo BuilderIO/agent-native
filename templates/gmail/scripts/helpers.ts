@@ -1,7 +1,9 @@
 import "dotenv/config";
 
 /** Parse CLI args like --key=value or --flag into a Record */
-export function parseArgs(argv = process.argv.slice(2)): Record<string, string> {
+export function parseArgs(
+  argv = process.argv.slice(2),
+): Record<string, string> {
   const args: Record<string, string> = {};
   for (const arg of argv.filter((a) => a !== "--")) {
     const match = arg.match(/^--(\w[\w-]*)=(.*)$/);
@@ -22,7 +24,11 @@ export function output(data: unknown): void {
   const args = parseArgs();
   let result = data;
   if (args.grep) result = grepFilter(result, args.grep);
-  if (args.fields) result = pickFields(result, args.fields.split(",").map((f) => f.trim()));
+  if (args.fields)
+    result = pickFields(
+      result,
+      args.fields.split(",").map((f) => f.trim()),
+    );
   console.log(JSON.stringify(result, null, 2));
 }
 
@@ -37,15 +43,19 @@ function matchesGrep(obj: unknown, term: string): boolean {
   if (typeof obj === "string") return obj.toLowerCase().includes(lower);
   if (typeof obj === "number") return String(obj).includes(lower);
   if (Array.isArray(obj)) return obj.some((item) => matchesGrep(item, term));
-  if (obj && typeof obj === "object") return Object.values(obj).some((v) => matchesGrep(v, term));
+  if (obj && typeof obj === "object")
+    return Object.values(obj).some((v) => matchesGrep(v, term));
   return false;
 }
 
 function grepFilter(data: unknown, term: string): unknown {
-  if (Array.isArray(data)) return data.filter((item) => matchesGrep(item, term));
+  if (Array.isArray(data))
+    return data.filter((item) => matchesGrep(item, term));
   if (data && typeof data === "object") {
     const filtered: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+    for (const [key, value] of Object.entries(
+      data as Record<string, unknown>,
+    )) {
       if (Array.isArray(value)) {
         const matches = value.filter((item) => matchesGrep(item, term));
         if (matches.length > 0) filtered[key] = matches;
@@ -63,7 +73,8 @@ function pickFields(data: unknown, fields: string[]): unknown {
     if (!obj || typeof obj !== "object" || Array.isArray(obj)) return obj;
     const picked: Record<string, unknown> = {};
     for (const f of fields) {
-      if (f in (obj as Record<string, unknown>)) picked[f] = (obj as Record<string, unknown>)[f];
+      if (f in (obj as Record<string, unknown>))
+        picked[f] = (obj as Record<string, unknown>)[f];
     }
     return picked;
   };

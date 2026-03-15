@@ -31,11 +31,11 @@ This is an **agent-native** Gmail-style email client built with `@agent-native/c
 
 All state is in JSON files in `data/`:
 
-| File              | Contents                                |
-|-------------------|-----------------------------------------|
+| File                 | Contents                                       |
+| -------------------- | ---------------------------------------------- |
 | `data/emails.json`   | All email messages (inbox, sent, drafts, etc.) |
-| `data/labels.json`   | System and user labels with unread counts |
-| `data/settings.json` | User profile and app settings           |
+| `data/labels.json`   | System and user labels with unread counts      |
+| `data/settings.json` | User profile and app settings                  |
 
 ### Email object shape
 
@@ -64,6 +64,7 @@ All state is in JSON files in `data/`:
 ## Agent Operations
 
 The agent can directly edit `data/emails.json` to:
+
 - Add new email messages (simulating incoming mail)
 - Change `isRead`, `isStarred`, `isArchived`, `isTrashed` flags
 - Move emails between views by changing `labelIds`
@@ -95,34 +96,36 @@ Edit `data/emails.json` and append:
 
 Run agent scripts with `pnpm script <name> [--args]`.
 
-| Script             | Args                                    | Purpose                           |
-|--------------------|-----------------------------------------|-----------------------------------|
-| `seed-emails`      | `--count <n>`                           | Generate n demo emails            |
-| `bulk-archive`     | `--older-than <days>`                   | Archive emails older than N days  |
-| `export-emails`    | `--view <inbox\|sent\|...> --output <file>` | Export emails to JSON file    |
+| Script          | Args                                        | Purpose                          |
+| --------------- | ------------------------------------------- | -------------------------------- |
+| `seed-emails`   | `--count <n>`                               | Generate n demo emails           |
+| `bulk-archive`  | `--older-than <days>`                       | Archive emails older than N days |
+| `export-emails` | `--view <inbox\|sent\|...> --output <file>` | Export emails to JSON file       |
 
 ### Adding new scripts
 
 1. Create `scripts/my-script.ts` with:
+
 ```typescript
 export default async function main(args: string[]): Promise<void> {
   // parse args, read/write data/ files
 }
 ```
+
 2. Register in `scripts/run.ts`.
 3. Run with `pnpm script my-script`.
 
 ## API Routes
 
 | Method | Route                        | Description                     |
-|--------|------------------------------|---------------------------------|
+| ------ | ---------------------------- | ------------------------------- |
 | GET    | `/api/emails?view=inbox&q=…` | List emails for a view/search   |
 | GET    | `/api/emails/:id`            | Get a single email              |
 | PATCH  | `/api/emails/:id/read`       | Toggle read state               |
 | PATCH  | `/api/emails/:id/star`       | Toggle starred                  |
 | PATCH  | `/api/emails/:id/archive`    | Archive email                   |
 | PATCH  | `/api/emails/:id/trash`      | Trash email                     |
-| DELETE | `/api/emails/:id`            | Permanently delete               |
+| DELETE | `/api/emails/:id`            | Permanently delete              |
 | POST   | `/api/emails/send`           | Send (create sent email)        |
 | GET    | `/api/labels`                | List all labels + unread counts |
 | GET    | `/api/settings`              | Get user settings               |
@@ -130,26 +133,26 @@ export default async function main(args: string[]): Promise<void> {
 
 ## Keyboard Shortcuts
 
-| Key        | Action                          |
-|------------|---------------------------------|
-| `J`        | Next email                      |
-| `K`        | Previous email                  |
-| `↑` / `↓` | Same as J/K                     |
-| `Enter`    | Open focused email              |
-| `E`        | Archive email/thread            |
-| `D`        | Trash email/thread              |
-| `S`        | Star/unstar (in thread view)    |
-| `R`        | Reply                           |
-| `U`        | Toggle read/unread              |
-| `C`        | Compose new email               |
-| `/`        | Focus search bar                |
-| `⌘K`       | Open command palette            |
-| `G then I` | Go to Inbox                     |
-| `G then S` | Go to Starred                   |
-| `G then T` | Go to Sent                      |
-| `G then D` | Go to Drafts                    |
-| `G then A` | Go to Archive                   |
-| `Esc`      | Close thread / clear search     |
+| Key        | Action                       |
+| ---------- | ---------------------------- |
+| `J`        | Next email                   |
+| `K`        | Previous email               |
+| `↑` / `↓`  | Same as J/K                  |
+| `Enter`    | Open focused email           |
+| `E`        | Archive email/thread         |
+| `D`        | Trash email/thread           |
+| `S`        | Star/unstar (in thread view) |
+| `R`        | Reply                        |
+| `U`        | Toggle read/unread           |
+| `C`        | Compose new email            |
+| `/`        | Focus search bar             |
+| `⌘K`       | Open command palette         |
+| `G then I` | Go to Inbox                  |
+| `G then S` | Go to Starred                |
+| `G then T` | Go to Sent                   |
+| `G then D` | Go to Drafts                 |
+| `G then A` | Go to Archive                |
+| `Esc`      | Close thread / clear search  |
 
 ## Project Structure
 

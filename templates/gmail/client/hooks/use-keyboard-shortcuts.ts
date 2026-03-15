@@ -30,8 +30,13 @@ export function useKeyboardShortcuts(shortcuts: Shortcut[], enabled = true) {
 
         const keyMatch = e.key.toLowerCase() === shortcut.key.toLowerCase();
         const modMatch = shortcut.meta
-          ? (e.metaKey || e.ctrlKey) && !e.altKey && (shortcut.shift ? e.shiftKey : !e.shiftKey)
-          : !e.metaKey && !e.ctrlKey && !e.altKey && (shortcut.shift ? e.shiftKey : !e.shiftKey);
+          ? (e.metaKey || e.ctrlKey) &&
+            !e.altKey &&
+            (shortcut.shift ? e.shiftKey : !e.shiftKey)
+          : !e.metaKey &&
+            !e.ctrlKey &&
+            !e.altKey &&
+            (shortcut.shift ? e.shiftKey : !e.shiftKey);
 
         if (keyMatch && modMatch) {
           e.preventDefault();
