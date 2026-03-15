@@ -16,11 +16,14 @@
     "snippet": "Hi team, I've finalized the Q3 roadmap doc. Key highlights: shipping the new onboarding flow in July, analytics dashboard in August...",
     "body": "Hi team,\n\nI've finalized the Q3 roadmap doc. Key highlights:\n\n- Shipping the new onboarding flow in July\n- Analytics dashboard in August\n- Mobile app refresh in September\n\nPlease review and leave comments by EOD Friday. I'll incorporate all feedback before the all-hands on Monday.\n\nDrive link: https://docs.google.com/document/d/roadmap-q3\n\nThanks,\nSarah",
     "date": "2025-07-14T09:23:00Z",
-    "isRead": false,
+    "isRead": true,
     "isStarred": true,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": ["inbox", "important"]
+    "labelIds": [
+      "inbox",
+      "important"
+    ]
   },
   {
     "id": "msg-002",
@@ -43,7 +46,9 @@
     "isStarred": false,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": ["inbox"]
+    "labelIds": [
+      "inbox"
+    ]
   },
   {
     "id": "msg-003",
@@ -66,7 +71,9 @@
     "isStarred": false,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": ["inbox"],
+    "labelIds": [
+      "inbox"
+    ],
     "attachments": [
       {
         "id": "att-001",
@@ -97,7 +104,10 @@
     "isStarred": false,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": ["inbox", "finance"],
+    "labelIds": [
+      "inbox",
+      "finance"
+    ],
     "attachments": [
       {
         "id": "att-002",
@@ -128,7 +138,10 @@
     "isStarred": true,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": ["inbox", "important"]
+    "labelIds": [
+      "inbox",
+      "important"
+    ]
   },
   {
     "id": "msg-006",
@@ -151,7 +164,9 @@
     "isStarred": false,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": ["inbox"]
+    "labelIds": [
+      "inbox"
+    ]
   },
   {
     "id": "msg-007",
@@ -180,7 +195,10 @@
     "isStarred": true,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": ["inbox", "team"]
+    "labelIds": [
+      "inbox",
+      "team"
+    ]
   },
   {
     "id": "msg-008",
@@ -203,7 +221,9 @@
     "isStarred": false,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": ["inbox"]
+    "labelIds": [
+      "inbox"
+    ]
   },
   {
     "id": "msg-009",
@@ -226,7 +246,9 @@
     "isStarred": false,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": ["inbox"]
+    "labelIds": [
+      "inbox"
+    ]
   },
   {
     "id": "msg-010",
@@ -249,7 +271,9 @@
     "isStarred": false,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": ["inbox"]
+    "labelIds": [
+      "inbox"
+    ]
   },
   {
     "id": "msg-011",
@@ -273,7 +297,9 @@
     "isArchived": false,
     "isTrashed": false,
     "isSent": true,
-    "labelIds": ["sent"]
+    "labelIds": [
+      "sent"
+    ]
   },
   {
     "id": "msg-012",
@@ -297,6 +323,8 @@
     "isArchived": false,
     "isTrashed": false,
     "isDraft": true,
-    "labelIds": ["drafts"]
+    "labelIds": [
+      "drafts"
+    ]
   }
 ]

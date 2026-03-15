@@ -1,6 +1,6 @@
 # Mail — Agent Guide
 
-This is an **agent-native** Gmail-style email client built with `@agent-native/core`. All email state lives in `data/emails.json` — the agent reads and writes this file directly to add emails, change state, and more.
+This is an **agent-native** email client built with `@agent-native/core`. All email state lives in `data/emails.json` — the agent reads and writes this file directly to add emails, change state, and more.
 
 ## Architecture
 

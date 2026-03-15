@@ -19,7 +19,7 @@ export const APP_REGISTRY: AppDefinition[] = [
     id: "mail",
     name: "Mail",
     icon: "Mail",
-    description: "Gmail client",
+    description: "Email client",
     devPort: 8081,
     color: "#3B82F6",
     colorRgb: "59 130 246",

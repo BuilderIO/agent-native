@@ -3,7 +3,7 @@
     "id": "inbox",
     "name": "Inbox",
     "type": "system",
-    "unreadCount": 2
+    "unreadCount": 1
   },
   {
     "id": "starred",
@@ -40,7 +40,7 @@
     "name": "Important",
     "type": "user",
     "color": "#4A90D9",
-    "unreadCount": 1
+    "unreadCount": 0
   },
   {
     "id": "finance",
