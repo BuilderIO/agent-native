@@ -1,9 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { RefreshCw, Search, Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Button } from "@/components/ui/button";
 import { EmailListItem } from "./EmailListItem";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
@@ -128,118 +125,103 @@ export function EmailList({ focusedId, setFocusedId }: EmailListProps) {
     toggleStar.mutate({ id: email.id, isStarred: !email.isStarred });
   };
 
-  const viewLabels: Record<string, string> = {
-    inbox: "Inbox",
-    starred: "Starred",
-    sent: "Sent",
-    drafts: "Drafts",
-    archive: "Archive",
-    trash: "Trash",
-    all: "All Mail",
-  };
-  const viewTitle =
-    viewLabels[view] ??
-    (view.startsWith("label:") ? view.replace("label:", "") : view);
-
-  return (
-    <div
-      className="flex h-full flex-col border-r border-border"
-      ref={containerRef}
-    >
-      {/* List header */}
-      <div className="flex h-11 shrink-0 items-center justify-between px-4">
-        <h2 className="text-sm font-semibold text-foreground">{viewTitle}</h2>
-        <div className="flex items-center gap-1">
-          {searchQuery && (
-            <span className="text-xs text-muted-foreground">
-              {emails.length} result{emails.length !== 1 ? "s" : ""}
-            </span>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => refetch()}
-            title="Refresh (R)"
-          >
-            <RefreshCw
-              className={cn("h-3.5 w-3.5", isLoading && "animate-spin")}
-            />
-          </Button>
+  // Loading skeleton — Superhuman-style single-line rows
+  if (isLoading) {
+    return (
+      <div className="flex h-full flex-col" ref={containerRef}>
+        <div className="flex-1 overflow-y-auto">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 px-4 h-[38px]">
+              <div className="h-2 w-2 rounded-full bg-muted animate-pulse" />
+              <div className="h-3 w-28 rounded bg-muted animate-pulse" />
+              <div className="h-3 w-48 rounded bg-muted animate-pulse flex-1" />
+              <div className="h-3 w-12 rounded bg-muted animate-pulse" />
+            </div>
+          ))}
         </div>
       </div>
+    );
+  }
 
-      {/* Email list */}
-      <ScrollArea className="flex-1">
-        {isLoading ? (
-          <div className="flex flex-col gap-2 p-4">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="flex items-start gap-3 py-2">
-                <div className="h-8 w-8 rounded-full bg-muted animate-pulse" />
-                <div className="flex-1 space-y-1.5">
-                  <div className="h-3 w-1/3 rounded bg-muted animate-pulse" />
-                  <div className="h-3 w-2/3 rounded bg-muted animate-pulse" />
-                  <div className="h-3 w-1/2 rounded bg-muted animate-pulse" />
-                </div>
+  // Empty state — Superhuman "Inbox Zero" style
+  if (emails.length === 0) {
+    return (
+      <div className="flex h-full flex-col" ref={containerRef}>
+        <div className="flex flex-1 flex-col items-center justify-center">
+          {searchQuery ? (
+            <div className="text-center px-8">
+              <div className="mb-4">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                  className="h-12 w-12 text-muted-foreground/30 mx-auto"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607z"
+                  />
+                </svg>
               </div>
-            ))}
-          </div>
-        ) : emails.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 pt-20 text-center px-8">
-            {searchQuery ? (
-              <Search className="h-10 w-10 text-muted-foreground/40" />
-            ) : (
-              <Inbox className="h-10 w-10 text-muted-foreground/40" />
-            )}
-            <div>
-              <p className="text-sm font-medium text-foreground">
-                {searchQuery
-                  ? `No results for "${searchQuery}"`
-                  : `${viewTitle} is empty`}
+              <p className="text-sm font-medium text-foreground/80">
+                No results for &ldquo;{searchQuery}&rdquo;
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                {searchQuery
-                  ? "Try different keywords"
-                  : "You're all caught up!"}
+                Try different keywords
               </p>
             </div>
-          </div>
-        ) : (
-          <div>
-            {emails.map((email) => (
-              <EmailListItem
-                key={email.id}
-                email={email}
-                isSelected={email.id === threadId}
-                isFocused={email.id === focusedId}
-                onSelect={() => handleSelect(email)}
-                onStar={(e) => handleStar(e, email)}
-              />
-            ))}
-          </div>
-        )}
-      </ScrollArea>
-
-      {/* Keyboard hint bar */}
-      {emails.length > 0 && (
-        <div className="hidden md:flex shrink-0 items-center gap-3 border-t border-border px-4 py-1.5 text-xs text-muted-foreground">
-          <span>
-            <kbd className="kbd-hint">J/K</kbd> navigate
-          </span>
-          <span>
-            <kbd className="kbd-hint">Enter</kbd> open
-          </span>
-          <span>
-            <kbd className="kbd-hint">E</kbd> archive
-          </span>
-          <span>
-            <kbd className="kbd-hint">D</kbd> trash
-          </span>
-          <span>
-            <kbd className="kbd-hint">U</kbd> mark read
-          </span>
+          ) : (
+            <div className="text-center px-8">
+              {/* Gradient landscape placeholder */}
+              <div className="relative w-full max-w-md h-48 rounded-xl overflow-hidden mb-6 mx-auto">
+                <div className="absolute inset-0 bg-gradient-to-br from-[hsl(220,10%,18%)] via-[hsl(220,8%,15%)] to-[hsl(220,6%,10%)]" />
+                <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-[hsl(220,6%,10%)] to-transparent" />
+                {/* Stylized mountain silhouette */}
+                <svg
+                  viewBox="0 0 400 120"
+                  className="absolute bottom-0 left-0 right-0 w-full"
+                  preserveAspectRatio="none"
+                >
+                  <path
+                    d="M0 120 L0 80 L80 40 L130 65 L200 20 L260 55 L320 30 L400 70 L400 120 Z"
+                    fill="hsl(220,6%,10%)"
+                    opacity="0.8"
+                  />
+                  <path
+                    d="M0 120 L0 90 L60 60 L120 80 L180 45 L250 70 L340 50 L400 85 L400 120 Z"
+                    fill="hsl(220,6%,10%)"
+                  />
+                </svg>
+              </div>
+              <p className="text-lg font-medium text-foreground/90">
+                You&rsquo;ve hit Inbox Zero
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                You&rsquo;re all caught up
+              </p>
+            </div>
+          )}
         </div>
-      )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full flex-col" ref={containerRef}>
+      <div className="flex-1 overflow-y-auto">
+        {emails.map((email) => (
+          <EmailListItem
+            key={email.id}
+            email={email}
+            isSelected={email.id === threadId}
+            isFocused={email.id === focusedId}
+            onSelect={() => handleSelect(email)}
+            onStar={(e) => handleStar(e, email)}
+          />
+        ))}
+      </div>
     </div>
   );
 }

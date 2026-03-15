@@ -26,7 +26,7 @@ function createWindow(): BrowserWindow {
     ...(isMac && { trafficLightPosition: { x: 16, y: 18 } }),
     frame: !isMac ? false : undefined,
 
-    backgroundColor: "#161623",
+    backgroundColor: "#111111",
     show: false,
 
     webPreferences: {

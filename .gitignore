@@ -3,6 +3,8 @@ dist
 .superpowers
 docs/superpowers
 
+/*.png
+
 # Playwright MCP logs
 .playwright-mcp/
 

@@ -79,16 +79,7 @@ export default function AppWebview({ app, isActive }: AppWebviewProps) {
         <webview
           ref={webviewRef}
           src={getAppUrl(app)}
-          style={{
-            // Keep webview mounted but visually hidden behind overlays until ready
-            opacity: status === "ready" ? 1 : 0,
-            pointerEvents: status === "ready" ? "auto" : "none",
-            transition: "opacity 0.2s ease",
-            flex: 1,
-            width: "100%",
-            height: "100%",
-            display: "block",
-          }}
+          className={`webview-el${status === "ready" ? " webview-el--ready" : ""}`}
           allowpopups=""
           webpreferences="contextIsolation=false"
         />

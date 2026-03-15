@@ -5,65 +5,36 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 221 83% 53%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 221 83% 53%;
-    --radius: 0.5rem;
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 222 47% 20%;
-    --sidebar-primary: 221 83% 53%;
-    --sidebar-primary-foreground: 210 40% 98%;
-    --sidebar-accent: 210 40% 94%;
-    --sidebar-accent-foreground: 222 47% 11%;
-    --sidebar-border: 214 32% 91%;
-    --sidebar-ring: 221 83% 53%;
-  }
-
+  :root,
   .dark {
-    --background: 224 14% 8%;
-    --foreground: 210 40% 96%;
-    --card: 224 14% 10%;
-    --card-foreground: 210 40% 96%;
-    --popover: 224 14% 10%;
-    --popover-foreground: 210 40% 96%;
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 11%;
-    --secondary: 217 19% 18%;
-    --secondary-foreground: 210 40% 96%;
-    --muted: 217 19% 15%;
-    --muted-foreground: 215 20% 55%;
-    --accent: 217 19% 18%;
-    --accent-foreground: 210 40% 96%;
+    --background: 220 6% 10%;
+    --foreground: 0 0% 90%;
+    --card: 220 5% 13%;
+    --card-foreground: 0 0% 90%;
+    --popover: 220 5% 13%;
+    --popover-foreground: 0 0% 90%;
+    --primary: 0 0% 75%;
+    --primary-foreground: 220 6% 10%;
+    --secondary: 220 4% 16%;
+    --secondary-foreground: 0 0% 90%;
+    --muted: 220 4% 14%;
+    --muted-foreground: 220 4% 50%;
+    --accent: 220 4% 17%;
+    --accent-foreground: 0 0% 90%;
     --destructive: 0 63% 51%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217 19% 17%;
-    --input: 217 19% 17%;
-    --ring: 217 91% 60%;
-    --sidebar-background: 224 14% 7%;
-    --sidebar-foreground: 215 20% 68%;
-    --sidebar-primary: 217 91% 60%;
-    --sidebar-primary-foreground: 222 47% 11%;
-    --sidebar-accent: 217 19% 14%;
-    --sidebar-accent-foreground: 210 40% 96%;
-    --sidebar-border: 217 19% 14%;
-    --sidebar-ring: 217 91% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 4% 18%;
+    --input: 220 4% 18%;
+    --ring: 0 0% 60%;
+    --radius: 0.5rem;
+    --sidebar-background: 220 6% 8%;
+    --sidebar-foreground: 220 4% 50%;
+    --sidebar-primary: 0 0% 75%;
+    --sidebar-primary-foreground: 220 6% 10%;
+    --sidebar-accent: 220 4% 14%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 220 4% 14%;
+    --sidebar-ring: 0 0% 60%;
   }
 }
 
@@ -131,10 +102,18 @@
   letter-spacing: 0;
 }
 
-/* Highlight focused email row */
+/* Highlight focused email row — left border like Superhuman */
 .email-list-row.focused {
-  background: hsl(var(--accent));
-  outline: none;
+  background: hsl(220 5% 14%);
+  border-left: 3px solid hsl(210 50% 50%);
+  padding-left: calc(0.75rem - 3px);
+}
+
+/* Selected email row — stronger highlight */
+.email-list-row.selected {
+  background: hsl(220 6% 16%);
+  border-left: 3px solid hsl(210 50% 50%);
+  padding-left: calc(0.75rem - 3px);
 }
 
 /* Smooth panel transitions */
@@ -145,6 +124,32 @@
 /* Compose modal animations */
 .compose-window {
   box-shadow:
-    0 20px 60px rgba(0, 0, 0, 0.4),
+    0 20px 60px rgba(0, 0, 0, 0.5),
     0 0 0 1px hsl(var(--border));
+}
+
+/* Label badge colors */
+.label-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 3px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+/* Hover action icons on email rows */
+.email-list-row .hover-actions {
+  display: none;
+}
+.email-list-row:hover .hover-actions {
+  display: flex;
+}
+.email-list-row:hover .row-time {
+  display: none;
 }
