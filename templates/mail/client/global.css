@@ -1,0 +1,155 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root,
+  .dark {
+    --background: 220 6% 10%;
+    --foreground: 0 0% 90%;
+    --card: 220 5% 13%;
+    --card-foreground: 0 0% 90%;
+    --popover: 220 5% 13%;
+    --popover-foreground: 0 0% 90%;
+    --primary: 0 0% 75%;
+    --primary-foreground: 220 6% 10%;
+    --secondary: 220 4% 16%;
+    --secondary-foreground: 0 0% 90%;
+    --muted: 220 4% 14%;
+    --muted-foreground: 220 4% 50%;
+    --accent: 220 4% 17%;
+    --accent-foreground: 0 0% 90%;
+    --destructive: 0 63% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 4% 18%;
+    --input: 220 4% 18%;
+    --ring: 0 0% 60%;
+    --radius: 0.5rem;
+    --sidebar-background: 220 6% 8%;
+    --sidebar-foreground: 220 4% 50%;
+    --sidebar-primary: 0 0% 75%;
+    --sidebar-primary-foreground: 220 6% 10%;
+    --sidebar-accent: 220 4% 14%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 220 4% 14%;
+    --sidebar-ring: 0 0% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Inter", sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  /* Prevent text selection on double-click for keyboard nav UX */
+  .email-list-row {
+    user-select: none;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* Email body prose reset */
+.email-body-content {
+  font-size: 0.9375rem;
+  line-height: 1.7;
+  color: hsl(var(--foreground));
+}
+.email-body-content a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.email-body-content p {
+  margin-bottom: 0.75rem;
+}
+
+/* Keyboard shortcut hint badges */
+.kbd-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-family: ui-monospace, monospace;
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
+  border-radius: 3px;
+  color: hsl(var(--muted-foreground));
+  letter-spacing: 0;
+}
+
+/* Highlight focused email row — left border like Superhuman */
+.email-list-row.focused {
+  background: hsl(220 5% 14%);
+  border-left: 3px solid hsl(210 50% 50%);
+  padding-left: calc(0.75rem - 3px);
+}
+
+/* Selected email row — stronger highlight */
+.email-list-row.selected {
+  background: hsl(220 6% 16%);
+  border-left: 3px solid hsl(210 50% 50%);
+  padding-left: calc(0.75rem - 3px);
+}
+
+/* Smooth panel transitions */
+.panel-slide-in {
+  animation: slide-in-right 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Compose modal animations */
+.compose-window {
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.5),
+    0 0 0 1px hsl(var(--border));
+}
+
+/* Label badge colors */
+.label-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 3px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+/* Hover action icons on email rows */
+.email-list-row .hover-actions {
+  display: none;
+}
+.email-list-row:hover .hover-actions {
+  display: flex;
+}
+.email-list-row:hover .row-time {
+  display: none;
+}

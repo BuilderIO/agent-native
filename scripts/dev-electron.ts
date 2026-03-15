@@ -11,12 +11,15 @@ import { spawn, execSync } from "child_process";
 import path from "path";
 
 // ── App port assignments (must match shared/app-registry.ts) ──
+// Must match dev-all.ts: alphabetical sort of templates starting at 8081
 const PORT_MAP: Record<string, number> = {
   analytics: 8081,
   calendar: 8082,
   content: 8083,
-  slides: 8084,
-  videos: 8085,
+  imagegen: 8084,
+  mail: 8085,
+  slides: 8086,
+  videos: 8087,
 };
 
 // ── Parse --apps flag ──────────────────────────────────────────
@@ -68,7 +71,7 @@ requestedApps.forEach((appName, i) => {
 
 // Electron shell dev (starts electron-vite which starts renderer + main + Electron)
 names.push("electron");
-commands.push("pnpm --filter @agent-native/electron-shell dev");
+commands.push("pnpm --filter @agent-native/desktop-app dev");
 colors.push("yellow");
 
 console.log(`\x1b[36m[dev-electron]\x1b[0m Starting: ${names.join(", ")}`);

@@ -17,12 +17,18 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Plus,
   Keyboard,
   Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -32,26 +38,32 @@ import {
 import { MonthView } from "@/components/calendar/MonthView";
 import { WeekView } from "@/components/calendar/WeekView";
 import { DayView } from "@/components/calendar/DayView";
-import { EventDialog } from "@/components/calendar/EventDialog";
+import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
 import { CreateEventDialog } from "@/components/calendar/CreateEventDialog";
 import { GoogleSyncButton } from "@/components/calendar/GoogleSyncButton";
 import { CommandPalette } from "@/components/calendar/CommandPalette";
 import { KeyboardShortcutsHelp } from "@/components/calendar/KeyboardShortcutsHelp";
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
-import { useEvents, useUpdateEvent } from "@/hooks/use-events";
+import { useCalendarContext } from "@/components/layout/AppLayout";
+import { useEvents, useUpdateEvent, useDeleteEvent } from "@/hooks/use-events";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { toast } from "sonner";
 import type { CalendarEvent } from "@shared/api";
 
 type ViewMode = "month" | "week" | "day";
 
+const viewModeLabels: Record<ViewMode, string> = {
+  month: "Month",
+  week: "Week",
+  day: "Day",
+};
+
 export default function CalendarView() {
-  const [viewMode, setViewMode] = useState<ViewMode>("month");
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const { selectedDate, setSelectedDate } = useCalendarContext();
+  const [viewMode, setViewMode] = useState<ViewMode>("week");
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(
     null,
   );
-  const [eventDialogOpen, setEventDialogOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
@@ -59,6 +71,7 @@ export default function CalendarView() {
   const googleStatus = useGoogleAuthStatus();
   const isGoogleConnected = googleStatus.data?.connected ?? false;
   const updateEvent = useUpdateEvent();
+  const deleteEvent = useDeleteEvent();
 
   // Compute date range for query based on view
   const { from, to } = useMemo(() => {
@@ -103,7 +116,7 @@ export default function CalendarView() {
       direction === "next"
         ? { month: addMonths, week: addWeeks, day: addDays }
         : { month: subMonths, week: subWeeks, day: subDays };
-    setSelectedDate((d) => fns[viewMode](d, 1));
+    setSelectedDate(fns[viewMode](selectedDate, 1));
   }
 
   function handleToday() {
@@ -112,7 +125,6 @@ export default function CalendarView() {
 
   function handleEventClick(event: CalendarEvent) {
     setSelectedEvent(event);
-    setEventDialogOpen(true);
   }
 
   function handleDateSelect(date: Date) {
@@ -125,6 +137,27 @@ export default function CalendarView() {
   function handleGoToDate(date: Date) {
     setSelectedDate(date);
     setViewMode("day");
+  }
+
+  function handleCloseDetail() {
+    setSelectedEvent(null);
+  }
+
+  function handleEditEvent(event: CalendarEvent) {
+    // Close detail panel and open create dialog with event data
+    // For now, keep as a simple close — the CreateEventDialog can be extended for editing
+    setSelectedEvent(null);
+    setCreateDialogOpen(true);
+  }
+
+  function handleDeleteEvent(eventId: string) {
+    deleteEvent.mutate(eventId, {
+      onSuccess: () => {
+        toast.success("Event deleted");
+        setSelectedEvent(null);
+      },
+      onError: () => toast.error("Failed to delete event"),
+    });
   }
 
   // Move event to a new date (drag-and-drop from MonthView)
@@ -173,7 +206,7 @@ export default function CalendarView() {
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // ⌘K / Ctrl+K — always open command palette
+      // Cmd+K / Ctrl+K — always open command palette
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setCommandPaletteOpen(true);
@@ -182,7 +215,7 @@ export default function CalendarView() {
 
       // Skip all other shortcuts when typing or when a dialog is open
       if (isTypingInInput(e)) return;
-      if (eventDialogOpen || createDialogOpen || shortcutsHelpOpen) return;
+      if (createDialogOpen || shortcutsHelpOpen) return;
 
       switch (e.key) {
         case "j":
@@ -217,15 +250,20 @@ export default function CalendarView() {
         case "?":
           setShortcutsHelpOpen(true);
           break;
+        case "Escape":
+          if (selectedEvent) {
+            setSelectedEvent(null);
+          }
+          break;
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
-    eventDialogOpen,
     createDialogOpen,
     shortcutsHelpOpen,
+    selectedEvent,
     isTypingInInput,
     viewMode,
   ]);
@@ -237,7 +275,7 @@ export default function CalendarView() {
       case "week": {
         const ws = startOfWeek(selectedDate);
         const we = endOfWeek(selectedDate);
-        return `${format(ws, "MMM d")} – ${format(we, "MMM d, yyyy")}`;
+        return `${format(ws, "MMM d")} – ${format(we, "d, yyyy")}`;
       }
       case "day":
         return format(selectedDate, "EEEE, MMMM d, yyyy");
@@ -246,22 +284,59 @@ export default function CalendarView() {
 
   return (
     <TooltipProvider delayDuration={500}>
-      <div className="dark flex h-full flex-col gap-3">
-        {/* Google Calendar primary CTA — shown when not connected */}
+      <div className="flex h-full flex-col">
+        {/* Google Calendar connect banner */}
         {!googleStatus.isLoading && googleStatus.data && !isGoogleConnected && (
           <GoogleConnectBanner />
         )}
 
-        {/* Toolbar */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
+        {/* Top bar */}
+        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
+          {/* Left: view mode dropdown */}
+          <div className="flex items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 gap-1 px-2.5 text-sm font-semibold"
+                >
+                  {viewModeLabels[viewMode]}
+                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={() => setViewMode("day")}>
+                  Day
+                  <kbd className="ml-auto text-[10px] text-muted-foreground">
+                    D
+                  </kbd>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setViewMode("week")}>
+                  Week
+                  <kbd className="ml-auto text-[10px] text-muted-foreground">
+                    W
+                  </kbd>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setViewMode("month")}>
+                  Month
+                  <kbd className="ml-auto text-[10px] text-muted-foreground">
+                    M
+                  </kbd>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          {/* Center: today, nav arrows, date label */}
+          <div className="flex items-center gap-1">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={handleToday}
-                  className="h-8 font-medium"
+                  className="h-7 px-2.5 text-xs font-medium"
                 >
                   Today
                 </Button>
@@ -276,71 +351,22 @@ export default function CalendarView() {
               </TooltipContent>
             </Tooltip>
 
-            <div className="flex items-center">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleNavigate("prev")}
-                    className="h-8 w-8"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>
-                    Previous{" "}
-                    <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                      K
-                    </kbd>
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleNavigate("next")}
-                    className="h-8 w-8"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>
-                    Next{" "}
-                    <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                      J
-                    </kbd>
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-
-            <h2 className="text-base font-semibold">{headerLabel}</h2>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {isGoogleConnected && <GoogleSyncButton />}
-
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8"
-                  onClick={() => setCommandPaletteOpen(true)}
+                  onClick={() => handleNavigate("prev")}
+                  className="h-7 w-7"
                 >
-                  <Search className="h-4 w-4" />
+                  <ChevronLeft className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">
                 <p>
-                  Search{" "}
+                  Previous{" "}
                   <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                    ⌘K
+                    K
                   </kbd>
                 </p>
               </TooltipContent>
@@ -351,7 +377,56 @@ export default function CalendarView() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8"
+                  onClick={() => handleNavigate("next")}
+                  className="h-7 w-7"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>
+                  Next{" "}
+                  <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                    J
+                  </kbd>
+                </p>
+              </TooltipContent>
+            </Tooltip>
+
+            <span className="ml-1 text-sm font-semibold">{headerLabel}</span>
+          </div>
+
+          {/* Right: search, shortcuts, google sync, new event */}
+          <div className="flex items-center gap-1">
+            {isGoogleConnected && <GoogleSyncButton />}
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => setCommandPaletteOpen(true)}
+                >
+                  <Search className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>
+                  Search{" "}
+                  <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                    /
+                  </kbd>
+                </p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
                   onClick={() => setShortcutsHelpOpen(true)}
                 >
                   <Keyboard className="h-4 w-4" />
@@ -367,32 +442,15 @@ export default function CalendarView() {
               </TooltipContent>
             </Tooltip>
 
-            <Tabs
-              value={viewMode}
-              onValueChange={(v) => setViewMode(v as ViewMode)}
-            >
-              <TabsList className="h-8">
-                <TabsTrigger value="month" className="h-6 px-3 text-xs">
-                  Month
-                </TabsTrigger>
-                <TabsTrigger value="week" className="h-6 px-3 text-xs">
-                  Week
-                </TabsTrigger>
-                <TabsTrigger value="day" className="h-6 px-3 text-xs">
-                  Day
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   size="sm"
                   onClick={() => setCreateDialogOpen(true)}
-                  className="h-8 gap-1.5"
+                  className="ml-1 h-7 gap-1.5 px-2.5 text-xs"
                 >
-                  <Plus className="h-4 w-4" />
-                  New Event
+                  <Plus className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">New Event</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">
@@ -407,43 +465,46 @@ export default function CalendarView() {
           </div>
         </div>
 
-        {/* Calendar view */}
-        <div className="flex-1 overflow-hidden rounded-xl border border-border bg-card">
-          {viewMode === "month" && (
-            <MonthView
-              events={events}
-              selectedDate={selectedDate}
-              onDateSelect={handleDateSelect}
-              onEventClick={handleEventClick}
-              onEventDrop={handleEventDrop}
-            />
-          )}
-          {viewMode === "week" && (
-            <WeekView
-              events={events}
-              selectedDate={selectedDate}
-              onDateSelect={handleDateSelect}
-              onEventClick={handleEventClick}
-            />
-          )}
-          {viewMode === "day" && (
-            <DayView
-              events={dayEvents}
-              date={selectedDate}
-              onEventClick={handleEventClick}
-            />
-          )}
+        {/* Main content: calendar grid + detail panel */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Calendar grid */}
+          <div className="flex-1 overflow-hidden">
+            {viewMode === "month" && (
+              <MonthView
+                events={events}
+                selectedDate={selectedDate}
+                onDateSelect={handleDateSelect}
+                onEventClick={handleEventClick}
+                onEventDrop={handleEventDrop}
+              />
+            )}
+            {viewMode === "week" && (
+              <WeekView
+                events={events}
+                selectedDate={selectedDate}
+                onDateSelect={handleDateSelect}
+                onEventClick={handleEventClick}
+              />
+            )}
+            {viewMode === "day" && (
+              <DayView
+                events={dayEvents}
+                date={selectedDate}
+                onEventClick={handleEventClick}
+              />
+            )}
+          </div>
+
+          {/* Event detail side panel */}
+          <EventDetailPanel
+            event={selectedEvent}
+            onClose={handleCloseDetail}
+            onEdit={handleEditEvent}
+            onDelete={handleDeleteEvent}
+          />
         </div>
 
         {/* Dialogs */}
-        <EventDialog
-          event={selectedEvent}
-          open={eventDialogOpen}
-          onClose={() => {
-            setEventDialogOpen(false);
-            setSelectedEvent(null);
-          }}
-        />
         <CreateEventDialog
           open={createDialogOpen}
           onClose={() => setCreateDialogOpen(false)}

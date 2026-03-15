@@ -18,7 +18,7 @@ Start from a production-ready template. Each one replaces tools you're paying fo
 
 <a href="https://agent-native.com/templates/mail"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7f5a10a8029b4895ad02276da0f5071b?format=webp&width=800" alt="Mail template" width="100%" /></a>
 
-**AI-Native Gmail, Superhuman**
+**AI-Native Mail, Superhuman**
 
 Superhuman-style email client with keyboard shortcuts, AI triage, and a fully customizable inbox you own.
 

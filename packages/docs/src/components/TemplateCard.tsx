@@ -16,7 +16,7 @@ export const templates = [
   {
     name: "Mail",
     slug: "mail",
-    replaces: "Replaces or augments Gmail, Superhuman",
+    replaces: "Replaces or augments Superhuman, Gmail",
     cliCommand: "npx @agent-native/core create my-app --template mail",
     description:
       "Superhuman-style email client with keyboard shortcuts, AI triage, and a fully customizable interface. Own your inbox workflow.",

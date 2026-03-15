@@ -1,8 +1,52 @@
-import { useState, useEffect } from "react";
-import { CalendarCheck, ExternalLink, X } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import {
+  CalendarCheck,
+  X,
+  ExternalLink,
+  Check,
+  Circle,
+  Loader2,
+  ChevronUp,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useGoogleAuthUrl } from "@/hooks/use-google-auth";
-import { toast } from "sonner";
+
+interface EnvKeyStatus {
+  key: string;
+  label: string;
+  required: boolean;
+  configured: boolean;
+}
+
+const STEPS = [
+  {
+    title: "Enable the Google Calendar API",
+    description:
+      "Open Google Cloud Console and click 'Enable' on the Calendar API.",
+    url: "https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com",
+    linkText: "Enable Calendar API",
+  },
+  {
+    title: "Configure OAuth consent screen",
+    description:
+      'Open the link below, set the app name to anything (e.g. "My Calendar"), choose "External" user type, and add your email as a test user. If you see an overview page, consent is already configured — skip to the next step.',
+    copyUrl: "https://console.cloud.google.com/apis/credentials/consent",
+  },
+  {
+    title: "Create OAuth credentials",
+    description:
+      'Open the link below, click "+ Create Credentials" → "OAuth client ID", choose "Web application", and add this redirect URI:',
+    copyUrl: "https://console.cloud.google.com/apis/credentials",
+    showRedirectUri: true,
+  },
+  {
+    title: "Paste your credentials",
+    description: "Copy the Client ID and Client Secret from the previous step.",
+    showInputs: true,
+  },
+];
 
 interface GoogleConnectBannerProps {
   variant?: "banner" | "hero";
@@ -13,8 +57,38 @@ export function GoogleConnectBanner({
 }: GoogleConnectBannerProps) {
   const [wantAuthUrl, setWantAuthUrl] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
   const authUrl = useGoogleAuthUrl(wantAuthUrl);
 
+  // Wizard state
+  const [currentStep, setCurrentStep] = useState(0);
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [envStatus, setEnvStatus] = useState<EnvKeyStatus[]>([]);
+
+  const redirectUri = `${window.location.origin}/api/google/callback`;
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/env-status");
+      if (res.ok) {
+        const data: EnvKeyStatus[] = await res.json();
+        setEnvStatus(data);
+        const allConfigured = data.every((k) => k.configured);
+        if (allConfigured && data.length > 0) {
+          setSaved(true);
+          setCurrentStep(STEPS.length - 1);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // When auth URL is ready, open it
   useEffect(() => {
     if (authUrl.data?.url) {
       window.open(authUrl.data.url, "_blank");
@@ -22,12 +96,63 @@ export function GoogleConnectBanner({
     }
   }, [authUrl.data]);
 
+  // When auth URL fails with missing credentials, show wizard
   useEffect(() => {
     if (authUrl.error) {
-      toast.error(authUrl.error.message);
       setWantAuthUrl(false);
+      setShowWizard(true);
+      fetchStatus();
     }
-  }, [authUrl.error]);
+  }, [authUrl.error, fetchStatus]);
+
+  const allConfigured =
+    envStatus.length > 0 && envStatus.every((k) => k.configured);
+
+  function handleConnect() {
+    setWantAuthUrl(true);
+  }
+
+  async function handleSave() {
+    if (!clientId.trim() || !clientSecret.trim()) return;
+
+    setSaving(true);
+    setSaveError(null);
+
+    try {
+      const res = await fetch("/api/env-vars", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vars: [
+            { key: "GOOGLE_CLIENT_ID", value: clientId.trim() },
+            { key: "GOOGLE_CLIENT_SECRET", value: clientSecret.trim() },
+          ],
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to save credentials");
+      }
+
+      setSaved(true);
+      setClientId("");
+      setClientSecret("");
+      await fetchStatus();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  function copyToClipboard(text: string, key: string) {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
+  }
 
   if (dismissed) return null;
 
@@ -47,11 +172,15 @@ export function GoogleConnectBanner({
         <Button
           size="lg"
           className="mt-8 gap-2.5 px-6 font-semibold"
-          onClick={() => setWantAuthUrl(true)}
+          onClick={handleConnect}
           disabled={authUrl.isLoading || authUrl.isFetching}
         >
           <GoogleIcon />
-          {authUrl.isLoading ? "Connecting…" : "Connect Google Calendar"}
+          {authUrl.isLoading
+            ? "Connecting…"
+            : allConfigured
+              ? "Connect Google Calendar"
+              : "Set up Google Calendar"}
         </Button>
         <p className="mt-4 text-xs text-muted-foreground">
           Or press{" "}
@@ -60,13 +189,36 @@ export function GoogleConnectBanner({
           </kbd>{" "}
           to add events manually
         </p>
+
+        {/* Inline wizard for hero variant */}
+        {showWizard && !allConfigured && (
+          <div className="mt-8 w-full max-w-lg text-left">
+            <SetupWizard
+              currentStep={currentStep}
+              setCurrentStep={setCurrentStep}
+              saved={saved}
+              allConfigured={allConfigured}
+              redirectUri={redirectUri}
+              clientId={clientId}
+              setClientId={setClientId}
+              clientSecret={clientSecret}
+              setClientSecret={setClientSecret}
+              saving={saving}
+              saveError={saveError}
+              handleSave={handleSave}
+              copiedKey={copiedKey}
+              copyToClipboard={copyToClipboard}
+            />
+          </div>
+        )}
       </div>
     );
   }
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-primary/20 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent px-5 py-3.5">
-      <div className="flex items-center justify-between gap-4">
+    <div className="relative overflow-hidden rounded-xl border border-primary/20 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent">
+      {/* Compact banner row */}
+      <div className="flex items-center justify-between gap-4 px-5 py-3.5">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/20">
             <CalendarCheck className="h-4.5 w-4.5 text-primary" />
@@ -83,15 +235,31 @@ export function GoogleConnectBanner({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <Button
-            size="sm"
-            className="gap-2 font-semibold"
-            onClick={() => setWantAuthUrl(true)}
-            disabled={authUrl.isLoading || authUrl.isFetching}
-          >
-            <GoogleIcon className="h-3.5 w-3.5" />
-            {authUrl.isLoading ? "Connecting…" : "Connect Google Calendar"}
-          </Button>
+          {showWizard && !allConfigured ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 font-medium"
+              onClick={() => setShowWizard(false)}
+            >
+              <ChevronUp className="h-3.5 w-3.5" />
+              Hide setup
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              className="gap-2 font-semibold"
+              onClick={handleConnect}
+              disabled={authUrl.isLoading || authUrl.isFetching}
+            >
+              <GoogleIcon className="h-3.5 w-3.5" />
+              {authUrl.isLoading
+                ? "Connecting…"
+                : allConfigured
+                  ? "Connect Google Calendar"
+                  : "Set up Google Calendar"}
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -102,6 +270,269 @@ export function GoogleConnectBanner({
           </Button>
         </div>
       </div>
+
+      {/* Inline setup wizard */}
+      {showWizard && !allConfigured && (
+        <div className="px-5 pb-4 pt-1 max-w-2xl">
+          <p className="text-xs text-muted-foreground mb-3">
+            Follow these steps to connect your Google account. Takes about 3
+            minutes.
+          </p>
+          <SetupWizard
+            currentStep={currentStep}
+            setCurrentStep={setCurrentStep}
+            saved={saved}
+            allConfigured={allConfigured}
+            redirectUri={redirectUri}
+            clientId={clientId}
+            setClientId={setClientId}
+            clientSecret={clientSecret}
+            setClientSecret={setClientSecret}
+            saving={saving}
+            saveError={saveError}
+            handleSave={handleSave}
+            copiedKey={copiedKey}
+            copyToClipboard={copyToClipboard}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SetupWizard({
+  currentStep,
+  setCurrentStep,
+  saved,
+  allConfigured,
+  redirectUri,
+  clientId,
+  setClientId,
+  clientSecret,
+  setClientSecret,
+  saving,
+  saveError,
+  handleSave,
+  copiedKey,
+  copyToClipboard,
+}: {
+  currentStep: number;
+  setCurrentStep: (i: number) => void;
+  saved: boolean;
+  allConfigured: boolean;
+  redirectUri: string;
+  clientId: string;
+  setClientId: (v: string) => void;
+  clientSecret: string;
+  setClientSecret: (v: string) => void;
+  saving: boolean;
+  saveError: string | null;
+  handleSave: () => void;
+  copiedKey: string | null;
+  copyToClipboard: (text: string, key: string) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      {STEPS.map((step, i) => {
+        const isActive = i === currentStep;
+        const isCompleted =
+          i < currentStep || (i === STEPS.length - 1 && saved);
+
+        return (
+          <div
+            key={i}
+            role="button"
+            tabIndex={0}
+            className={`w-full text-left rounded-lg border p-3 transition-colors cursor-pointer ${
+              isActive
+                ? "border-primary/40 bg-primary/5"
+                : isCompleted
+                  ? "border-green-500/20 bg-green-500/5"
+                  : "border-border/50 opacity-50"
+            }`}
+            onClick={() => !saved && setCurrentStep(i)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                !saved && setCurrentStep(i);
+              }
+            }}
+          >
+            <div className="flex items-start gap-2.5">
+              <div className="mt-0.5 shrink-0">
+                {isCompleted ? (
+                  <Check className="h-3.5 w-3.5 text-green-500" />
+                ) : isActive ? (
+                  <Circle className="h-3.5 w-3.5 text-primary fill-primary" />
+                ) : (
+                  <Circle className="h-3.5 w-3.5 text-muted-foreground" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">
+                  <span className="text-muted-foreground mr-1.5">{i + 1}.</span>
+                  {step.title}
+                </p>
+
+                {isActive && (
+                  <div className="mt-2 space-y-2.5">
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      {step.description}
+                    </p>
+
+                    {step.copyUrl && (
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 rounded bg-muted px-2 py-1.5 text-xs font-mono break-all select-all">
+                          {step.copyUrl}
+                        </code>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0 text-xs h-7"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            copyToClipboard(step.copyUrl!, `url-${i}`);
+                            if (i < STEPS.length - 1) {
+                              setCurrentStep(i + 1);
+                            }
+                          }}
+                        >
+                          {copiedKey === `url-${i}` ? (
+                            <>
+                              <Check className="h-3 w-3" />
+                              Copied
+                            </>
+                          ) : (
+                            "Copy link"
+                          )}
+                        </Button>
+                      </div>
+                    )}
+
+                    {step.showRedirectUri && (
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 rounded bg-muted px-2 py-1.5 text-xs font-mono break-all select-all">
+                          {redirectUri}
+                        </code>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0 text-xs h-7"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            copyToClipboard(redirectUri, "redirect");
+                          }}
+                        >
+                          {copiedKey === "redirect" ? (
+                            <>
+                              <Check className="h-3 w-3" />
+                              Copied
+                            </>
+                          ) : (
+                            "Copy"
+                          )}
+                        </Button>
+                      </div>
+                    )}
+
+                    {step.url && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 text-xs h-7"
+                        asChild
+                      >
+                        <a
+                          href={step.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (i < STEPS.length - 1) {
+                              setCurrentStep(i + 1);
+                            }
+                          }}
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          {step.linkText}
+                        </a>
+                      </Button>
+                    )}
+
+                    {step.showInputs && !allConfigured && (
+                      <div
+                        className="space-y-2.5"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="space-y-1.5">
+                          <Label
+                            htmlFor="client-id"
+                            className="text-xs text-muted-foreground"
+                          >
+                            Client ID
+                          </Label>
+                          <Input
+                            id="client-id"
+                            value={clientId}
+                            onChange={(e) => setClientId(e.target.value)}
+                            placeholder="123456789.apps.googleusercontent.com"
+                            className="text-xs h-8 font-mono"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label
+                            htmlFor="client-secret"
+                            className="text-xs text-muted-foreground"
+                          >
+                            Client Secret
+                          </Label>
+                          <Input
+                            id="client-secret"
+                            type="password"
+                            value={clientSecret}
+                            onChange={(e) => setClientSecret(e.target.value)}
+                            placeholder="GOCSPX-..."
+                            className="text-xs h-8 font-mono"
+                          />
+                        </div>
+                        {saveError && (
+                          <p className="text-xs text-destructive">
+                            {saveError}
+                          </p>
+                        )}
+                        <Button
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSave();
+                          }}
+                          disabled={
+                            saving || !clientId.trim() || !clientSecret.trim()
+                          }
+                        >
+                          {saving && (
+                            <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                          )}
+                          {saving ? "Saving..." : "Save credentials"}
+                        </Button>
+                      </div>
+                    )}
+
+                    {step.showInputs && allConfigured && (
+                      <div className="flex items-center gap-2 text-xs text-green-500">
+                        <Check className="h-3.5 w-3.5" />
+                        Credentials configured. Click "Connect Google Calendar"
+                        above to sign in.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
