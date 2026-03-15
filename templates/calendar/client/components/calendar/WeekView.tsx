@@ -69,9 +69,7 @@ export function WeekView({
   const allDayEvents = events.filter((e) => e.allDay);
 
   function getEventsForDay(day: Date) {
-    return events.filter(
-      (e) => !e.allDay && isSameDay(parseISO(e.start), day),
-    );
+    return events.filter((e) => !e.allDay && isSameDay(parseISO(e.start), day));
   }
 
   function getAllDayForDay(day: Date) {
@@ -91,8 +89,7 @@ export function WeekView({
   }
 
   // Current time indicator position
-  const nowMinutes =
-    (now.getHours() - START_HOUR) * 60 + now.getMinutes();
+  const nowMinutes = (now.getHours() - START_HOUR) * 60 + now.getMinutes();
   const nowTop = (nowMinutes / 60) * HOUR_HEIGHT;
   const showNowIndicator =
     nowMinutes >= 0 && nowMinutes <= (END_HOUR - START_HOUR) * 60;
@@ -213,9 +210,7 @@ export function WeekView({
                     key={hour.toISOString()}
                     className={cn(
                       "border-b border-border",
-                      i % 2 === 0
-                        ? "border-border"
-                        : "border-border/40",
+                      i % 2 === 0 ? "border-border" : "border-border/40",
                     )}
                     style={{ height: `${HOUR_HEIGHT}px` }}
                   />
