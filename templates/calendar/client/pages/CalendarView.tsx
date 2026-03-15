@@ -289,6 +289,14 @@ export default function CalendarView() {
           <GoogleConnectBanner />
         )}
 
+        {/* Error banner */}
+        {eventsError && (
+          <div className="shrink-0 border-b border-red-500/20 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
+            <span className="font-medium">Failed to load events:</span>{" "}
+            {eventsError.message}
+          </div>
+        )}
+
         {/* Top bar */}
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
           {/* Left: view mode dropdown */}
@@ -397,7 +405,6 @@ export default function CalendarView() {
 
           {/* Right: search, shortcuts, new event */}
           <div className="flex items-center gap-1">
-
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

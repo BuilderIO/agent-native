@@ -167,9 +167,7 @@ export function GoogleConnectBanner({
       setSaved(true);
       await fetchStatus();
     } catch (err) {
-      setSaveError(
-        err instanceof Error ? err.message : "Failed to parse JSON"
-      );
+      setSaveError(err instanceof Error ? err.message : "Failed to parse JSON");
     } finally {
       setSaving(false);
     }

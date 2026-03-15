@@ -188,7 +188,6 @@ export function AppLayout({ children }: AppLayoutProps) {
 
         {/* Page content */}
         <main className="flex flex-1 overflow-hidden">{children}</main>
-
       </div>
 
       <ComposeModal open={composeOpen} onOpenChange={setComposeOpen} />
