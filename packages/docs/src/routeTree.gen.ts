@@ -15,6 +15,7 @@ import { Route as TemplatesIndexRouteImport } from './routes/templates/index'
 import { Route as DocsIndexRouteImport } from './routes/docs/index'
 import { Route as TemplatesVideoRouteImport } from './routes/templates/video'
 import { Route as TemplatesSlidesRouteImport } from './routes/templates/slides'
+import { Route as TemplatesMailRouteImport } from './routes/templates/mail'
 import { Route as TemplatesContentRouteImport } from './routes/templates/content'
 import { Route as TemplatesCalendarRouteImport } from './routes/templates/calendar'
 import { Route as TemplatesBrandImageGeneratorRouteImport } from './routes/templates/brand-image-generator'
@@ -56,6 +57,11 @@ const TemplatesVideoRoute = TemplatesVideoRouteImport.update({
 const TemplatesSlidesRoute = TemplatesSlidesRouteImport.update({
   id: '/slides',
   path: '/slides',
+  getParentRoute: () => TemplatesRoute,
+} as any)
+const TemplatesMailRoute = TemplatesMailRouteImport.update({
+  id: '/mail',
+  path: '/mail',
   getParentRoute: () => TemplatesRoute,
 } as any)
 const TemplatesContentRoute = TemplatesContentRouteImport.update({
@@ -135,6 +141,7 @@ export interface FileRoutesByFullPath {
   '/templates/brand-image-generator': typeof TemplatesBrandImageGeneratorRoute
   '/templates/calendar': typeof TemplatesCalendarRoute
   '/templates/content': typeof TemplatesContentRoute
+  '/templates/mail': typeof TemplatesMailRoute
   '/templates/slides': typeof TemplatesSlidesRoute
   '/templates/video': typeof TemplatesVideoRoute
   '/docs/': typeof DocsIndexRoute
@@ -154,6 +161,7 @@ export interface FileRoutesByTo {
   '/templates/brand-image-generator': typeof TemplatesBrandImageGeneratorRoute
   '/templates/calendar': typeof TemplatesCalendarRoute
   '/templates/content': typeof TemplatesContentRoute
+  '/templates/mail': typeof TemplatesMailRoute
   '/templates/slides': typeof TemplatesSlidesRoute
   '/templates/video': typeof TemplatesVideoRoute
   '/docs': typeof DocsIndexRoute
@@ -175,6 +183,7 @@ export interface FileRoutesById {
   '/templates/brand-image-generator': typeof TemplatesBrandImageGeneratorRoute
   '/templates/calendar': typeof TemplatesCalendarRoute
   '/templates/content': typeof TemplatesContentRoute
+  '/templates/mail': typeof TemplatesMailRoute
   '/templates/slides': typeof TemplatesSlidesRoute
   '/templates/video': typeof TemplatesVideoRoute
   '/docs/': typeof DocsIndexRoute
@@ -197,6 +206,7 @@ export interface FileRouteTypes {
     | '/templates/brand-image-generator'
     | '/templates/calendar'
     | '/templates/content'
+    | '/templates/mail'
     | '/templates/slides'
     | '/templates/video'
     | '/docs/'
@@ -216,6 +226,7 @@ export interface FileRouteTypes {
     | '/templates/brand-image-generator'
     | '/templates/calendar'
     | '/templates/content'
+    | '/templates/mail'
     | '/templates/slides'
     | '/templates/video'
     | '/docs'
@@ -236,6 +247,7 @@ export interface FileRouteTypes {
     | '/templates/brand-image-generator'
     | '/templates/calendar'
     | '/templates/content'
+    | '/templates/mail'
     | '/templates/slides'
     | '/templates/video'
     | '/docs/'
@@ -298,6 +310,13 @@ declare module '@tanstack/react-router' {
       path: '/slides'
       fullPath: '/templates/slides'
       preLoaderRoute: typeof TemplatesSlidesRouteImport
+      parentRoute: typeof TemplatesRoute
+    }
+    '/templates/mail': {
+      id: '/templates/mail'
+      path: '/mail'
+      fullPath: '/templates/mail'
+      preLoaderRoute: typeof TemplatesMailRouteImport
       parentRoute: typeof TemplatesRoute
     }
     '/templates/content': {
@@ -392,6 +411,7 @@ interface TemplatesRouteChildren {
   TemplatesBrandImageGeneratorRoute: typeof TemplatesBrandImageGeneratorRoute
   TemplatesCalendarRoute: typeof TemplatesCalendarRoute
   TemplatesContentRoute: typeof TemplatesContentRoute
+  TemplatesMailRoute: typeof TemplatesMailRoute
   TemplatesSlidesRoute: typeof TemplatesSlidesRoute
   TemplatesVideoRoute: typeof TemplatesVideoRoute
   TemplatesIndexRoute: typeof TemplatesIndexRoute
@@ -402,6 +422,7 @@ const TemplatesRouteChildren: TemplatesRouteChildren = {
   TemplatesBrandImageGeneratorRoute: TemplatesBrandImageGeneratorRoute,
   TemplatesCalendarRoute: TemplatesCalendarRoute,
   TemplatesContentRoute: TemplatesContentRoute,
+  TemplatesMailRoute: TemplatesMailRoute,
   TemplatesSlidesRoute: TemplatesSlidesRoute,
   TemplatesVideoRoute: TemplatesVideoRoute,
   TemplatesIndexRoute: TemplatesIndexRoute,

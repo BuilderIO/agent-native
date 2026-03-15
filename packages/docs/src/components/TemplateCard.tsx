@@ -14,15 +14,26 @@ export function trackEvent(action: string, params: Record<string, string>) {
 
 export const templates = [
   {
-    name: "Analytics",
-    slug: "analytics",
-    replaces: "Replaces or augments Amplitude, Mixpanel",
-    cliCommand: "npx @agent-native/core create my-app --template analytics",
+    name: "Mail",
+    slug: "mail",
+    replaces: "Replaces or augments Gmail, Superhuman",
+    cliCommand: "npx @agent-native/core create my-app --template mail",
     description:
-      "Connect any data source, prompt for any chart. Build reusable dashboards — not throwaway Q&A. No SQL required.",
-    color: "var(--accent)",
+      "Superhuman-style email client with keyboard shortcuts, AI triage, and a fully customizable interface. Own your inbox workflow.",
+    color: "#0ea5e9",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7f5a10a8029b4895ad02276da0f5071b?format=webp&width=800",
+  },
+  {
+    name: "Calendar",
+    slug: "calendar",
+    replaces: "Replaces or augments Google Calendar, Calendly",
+    cliCommand: "npx @agent-native/core create my-app --template calendar",
+    description:
+      "Manage events, sync with Google Calendar, and share a public booking page — all with an AI agent that handles scheduling.",
+    color: "#10b981",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7f5a10a8029b4895ad02276da0f5071b?format=webp&width=800",
   },
   {
     name: "Content",
@@ -58,27 +69,15 @@ export const templates = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b8bfcc18a1d4c47a491da3b2d4148a4?format=webp&width=800",
   },
   {
-    name: "Calendar",
-    slug: "calendar",
-    replaces: "Replaces or augments Google Calendar, Calendly",
-    cliCommand: "npx @agent-native/core create my-app --template calendar",
+    name: "Analytics",
+    slug: "analytics",
+    replaces: "Replaces or augments Amplitude, Mixpanel",
+    cliCommand: "npx @agent-native/core create my-app --template analytics",
     description:
-      "Manage events, sync with Google Calendar, and share a public booking page — all with an AI agent that handles scheduling.",
-    color: "#10b981",
+      "Connect any data source, prompt for any chart. Build reusable dashboards — not throwaway Q&A. No SQL required.",
+    color: "var(--accent)",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7f5a10a8029b4895ad02276da0f5071b?format=webp&width=800",
-  },
-  {
-    name: "Brand Image Generator",
-    slug: "brand-image-generator",
-    replaces: "Replaces or augments Canva, Brandmark",
-    cliCommand:
-      "npx @agent-native/core create my-app --template brand-image-generator",
-    description:
-      "Upload your brand assets and generate on-brand images with AI style matching. The agent analyzes your visual identity and creates consistent imagery.",
-    color: "#8b5cf6",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7f5a10a8029b4895ad02276da0f5071b?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800",
   },
 ];
 

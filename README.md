@@ -14,53 +14,13 @@ Start from a production-ready template. Each one replaces tools you're paying fo
 <tr>
 <td width="33%" align="center" valign="top">
 
-**Analytics**
+**Mail**
 
-<a href="https://agent-native.com/templates/analytics"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800" alt="Analytics template" width="100%" /></a>
+<a href="https://agent-native.com/templates/mail"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7f5a10a8029b4895ad02276da0f5071b?format=webp&width=800" alt="Mail template" width="100%" /></a>
 
-**AI-Native Amplitude, Mixpanel**
+**AI-Native Gmail, Superhuman**
 
-Connect any data source, prompt for any chart. Build reusable dashboards, not throwaway Q&A.
-
-</td>
-<td width="33%" align="center" valign="top">
-
-**Content**
-
-<a href="https://agent-native.com/templates/content"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800" alt="Content template" width="100%" /></a>
-
-**AI-Native Notion, Google Docs**
-
-Write and organize content with an agent that knows your brand and publishing workflow.
-
-</td>
-<td width="33%" align="center" valign="top">
-
-**Slides**
-
-<a href="https://agent-native.com/templates/slides"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c09b451d40c4a74a89a38d69170c2d8?format=webp&width=800" alt="Slides template" width="100%" /></a>
-
-**AI-Native Google Slides, Pitch**
-
-Generate and edit React-based presentations via prompt or point-and-click.
-
-</td>
-</tr>
-<tr>
-<td align="center"><a href="https://agent-native.com/templates/analytics"><img src=".github/assets/launch-button.svg" alt="Launch Analytics" height="36" /></a></td>
-<td align="center"><a href="https://agent-native.com/templates/content"><img src=".github/assets/launch-button.svg" alt="Launch Content" height="36" /></a></td>
-<td align="center"><a href="https://agent-native.com/templates/slides"><img src=".github/assets/launch-button.svg" alt="Launch Slides" height="36" /></a></td>
-</tr>
-<tr>
-<td width="33%" align="center" valign="top">
-
-**Video**
-
-<a href="https://agent-native.com/templates/video"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b8bfcc18a1d4c47a491da3b2d4148a4?format=webp&width=800" alt="Video template" width="100%" /></a>
-
-**AI-Native video editing**
-
-Create and edit Remotion video compositions with agent assistance.
+Superhuman-style email client with keyboard shortcuts, AI triage, and a fully customizable inbox you own.
 
 </td>
 <td width="33%" align="center" valign="top">
@@ -76,20 +36,60 @@ Manage events, sync with Google Calendar, and share a public booking page with A
 </td>
 <td width="33%" align="center" valign="top">
 
-**Brand Image Generator**
+**Content**
 
-<a href="https://agent-native.com/templates/brand-image-generator"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7f5a10a8029b4895ad02276da0f5071b?format=webp&width=800" alt="Brand Image Generator template" width="100%" /></a>
+<a href="https://agent-native.com/templates/content"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800" alt="Content template" width="100%" /></a>
 
-**AI-Native Brand Asset Manager**
+**AI-Native Notion, Google Docs**
 
-Upload your brand assets and generate on-brand images with AI style matching.
+Write and organize content with an agent that knows your brand and publishing workflow.
 
 </td>
 </tr>
 <tr>
-<td align="center"><a href="https://agent-native.com/templates/video"><img src=".github/assets/launch-button.svg" alt="Launch Video" height="36" /></a></td>
+<td align="center"><a href="https://agent-native.com/templates/mail"><img src=".github/assets/launch-button.svg" alt="Launch Mail" height="36" /></a></td>
 <td align="center"><a href="https://agent-native.com/templates/calendar"><img src=".github/assets/launch-button.svg" alt="Launch Calendar" height="36" /></a></td>
-<td align="center"><a href="https://agent-native.com/templates/brand-image-generator"><img src=".github/assets/launch-button.svg" alt="Launch Brand Image Generator" height="36" /></a></td>
+<td align="center"><a href="https://agent-native.com/templates/content"><img src=".github/assets/launch-button.svg" alt="Launch Content" height="36" /></a></td>
+</tr>
+<tr>
+<td width="33%" align="center" valign="top">
+
+**Slides**
+
+<a href="https://agent-native.com/templates/slides"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c09b451d40c4a74a89a38d69170c2d8?format=webp&width=800" alt="Slides template" width="100%" /></a>
+
+**AI-Native Google Slides, Pitch**
+
+Generate and edit React-based presentations via prompt or point-and-click.
+
+</td>
+<td width="33%" align="center" valign="top">
+
+**Video**
+
+<a href="https://agent-native.com/templates/video"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b8bfcc18a1d4c47a491da3b2d4148a4?format=webp&width=800" alt="Video template" width="100%" /></a>
+
+**AI-Native video editing**
+
+Create and edit Remotion video compositions with agent assistance.
+
+</td>
+<td width="33%" align="center" valign="top">
+
+**Analytics**
+
+<a href="https://agent-native.com/templates/analytics"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800" alt="Analytics template" width="100%" /></a>
+
+**AI-Native Amplitude, Mixpanel**
+
+Connect any data source, prompt for any chart. Build reusable dashboards, not throwaway Q&A.
+
+</td>
+</tr>
+<tr>
+<td align="center"><a href="https://agent-native.com/templates/slides"><img src=".github/assets/launch-button.svg" alt="Launch Slides" height="36" /></a></td>
+<td align="center"><a href="https://agent-native.com/templates/video"><img src=".github/assets/launch-button.svg" alt="Launch Video" height="36" /></a></td>
+<td align="center"><a href="https://agent-native.com/templates/analytics"><img src=".github/assets/launch-button.svg" alt="Launch Analytics" height="36" /></a></td>
 </tr>
 </table>
 
