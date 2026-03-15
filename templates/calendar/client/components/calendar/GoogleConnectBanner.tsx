@@ -148,8 +148,12 @@ export function GoogleConnectBanner({
     }
   }
 
+  const [copied, setCopied] = useState(false);
+
   function copyRedirectUri() {
     navigator.clipboard.writeText(redirectUri);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   if (dismissed) return null;
@@ -204,6 +208,7 @@ export function GoogleConnectBanner({
               saving={saving}
               saveError={saveError}
               handleSave={handleSave}
+              copied={copied}
               copyRedirectUri={copyRedirectUri}
             />
           </div>
@@ -309,6 +314,7 @@ function SetupWizard({
   saving,
   saveError,
   handleSave,
+  copied,
   copyRedirectUri,
 }: {
   currentStep: number;
@@ -323,6 +329,7 @@ function SetupWizard({
   saving: boolean;
   saveError: string | null;
   handleSave: () => void;
+  copied: boolean;
   copyRedirectUri: () => void;
 }) {
   return (
@@ -388,7 +395,14 @@ function SetupWizard({
                             copyRedirectUri();
                           }}
                         >
-                          Copy
+                          {copied ? (
+                            <>
+                              <Check className="h-3 w-3" />
+                              Copied
+                            </>
+                          ) : (
+                            "Copy"
+                          )}
                         </Button>
                       </div>
                     )}
