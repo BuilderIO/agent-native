@@ -3,7 +3,6 @@ import { IconRefresh } from "@tabler/icons-react";
 import { type LaunchSettings } from "../lib/settings";
 import { useHarnessConfig, type HarnessConfig } from "../lib/config";
 
-
 interface SettingsPanelProps {
   settings: LaunchSettings;
   onChange: (s: LaunchSettings) => void;

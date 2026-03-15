@@ -89,7 +89,10 @@ export default defineConfig({
               port: targetApp.appPort,
               path: req.url,
               method: req.method,
-              headers: { ...req.headers, host: `localhost:${targetApp.appPort}` },
+              headers: {
+                ...req.headers,
+                host: `localhost:${targetApp.appPort}`,
+              },
             },
             (proxyRes) => {
               res.writeHead(proxyRes.statusCode || 500, proxyRes.headers);
