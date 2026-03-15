@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import {
   Dialog,
@@ -38,6 +38,20 @@ export function CreateEventDialog({
   const [allDay, setAllDay] = useState(false);
 
   const createEvent = useCreateEvent();
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // ⌘+Enter to submit
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        formRef.current?.requestSubmit();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
 
   function resetForm() {
     setTitle("");
@@ -91,7 +105,7 @@ export function CreateEventDialog({
           <DialogTitle>New Event</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="event-title">Title</Label>
             <Input
@@ -162,12 +176,19 @@ export function CreateEventDialog({
             />
           </div>
 
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={onClose}>
+          <DialogFooter className="items-center gap-2">
+            <p className="mr-auto text-xs text-muted-foreground/60">
+              Press{" "}
+              <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                ⌘↵
+              </kbd>{" "}
+              to save
+            </p>
+            <Button type="button" variant="ghost" size="sm" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={createEvent.isPending}>
-              {createEvent.isPending ? "Creating..." : "Create Event"}
+            <Button type="submit" size="sm" disabled={createEvent.isPending}>
+              {createEvent.isPending ? "Creating…" : "Create Event"}
             </Button>
           </DialogFooter>
         </form>
