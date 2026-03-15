@@ -10,7 +10,7 @@ export const claudeCodeConfig: HarnessConfig = {
       flag: "--dangerously-skip-permissions",
       label: "--dangerously-skip-permissions",
       description: "Auto-accept all tool use (no confirmation prompts)",
-      defaultValue: true,
+      defaultValue: false,
     },
     {
       key: "resume",
