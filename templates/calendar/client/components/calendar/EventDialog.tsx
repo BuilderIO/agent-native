@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { format, parseISO } from "date-fns";
-import { MapPin, Clock, Trash2 } from "lucide-react";
+import { MapPin, Clock, Edit2, Trash2, ExternalLink, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -22,6 +22,11 @@ interface EventDialogProps {
   onClose: () => void;
 }
 
+function getEventColor(event: CalendarEvent) {
+  if (event.color) return event.color;
+  return event.source === "google" ? "#10b981" : null;
+}
+
 export function EventDialog({ event, open, onClose }: EventDialogProps) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState("");
@@ -38,13 +43,59 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
       setTitle(event.title);
       setDescription(event.description);
       setLocation(event.location);
-      setStartTime(event.start.slice(0, 16)); // yyyy-MM-ddTHH:mm
+      setStartTime(event.start.slice(0, 16));
       setEndTime(event.end.slice(0, 16));
       setEditing(false);
     }
   }, [event]);
 
+  // Keyboard shortcuts inside the dialog
+  const isTyping = useCallback((e: KeyboardEvent) => {
+    const target = e.target as HTMLElement;
+    return (
+      target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.isContentEditable
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!open || !event) return;
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (!event) return;
+      // Edit shortcut
+      if (e.key === "e" && !editing && !isTyping(e)) {
+        e.preventDefault();
+        if (!isGoogle) setEditing(true);
+        return;
+      }
+      // Delete shortcut
+      if (
+        (e.key === "Delete" || e.key === "Backspace") &&
+        !editing &&
+        !isTyping(e)
+      ) {
+        e.preventDefault();
+        if (!isGoogle) handleDelete();
+        return;
+      }
+      // Save with Cmd/Ctrl+Enter when editing
+      if (editing && (e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        handleSave();
+        return;
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, event, editing, isTyping]);
+
   if (!event) return null;
+
+  const isGoogle = event.source === "google";
+  const color = getEventColor(event);
 
   function handleSave() {
     if (!event) return;
@@ -79,30 +130,46 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
     });
   }
 
-  const isGoogle = event.source === "google";
-
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="dark sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle>{editing ? "Edit Event" : event.title}</DialogTitle>
+        {/* Color accent strip */}
+        {color && (
+          <div
+            className="absolute top-0 left-0 right-0 h-1 rounded-t-lg"
+            style={{ backgroundColor: color }}
+          />
+        )}
+
+        <DialogHeader className="pt-1">
+          <div className="flex items-start justify-between gap-2">
+            {editing ? (
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="text-lg font-semibold"
+                autoFocus
+              />
+            ) : (
+              <DialogTitle className="text-lg leading-tight pr-8">
+                {event.title}
+              </DialogTitle>
+            )}
+          </div>
         </DialogHeader>
 
         {editing ? (
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Title</Label>
-              <Input value={title} onChange={(e) => setTitle(e.target.value)} />
-            </div>
-            <div className="space-y-2">
               <Label>Description</Label>
               <Textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
+                placeholder="Add a description…"
                 rows={3}
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Start</Label>
                 <Input
@@ -125,59 +192,101 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
               <Input
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
+                placeholder="Add a location…"
               />
             </div>
+            <p className="text-xs text-muted-foreground">
+              Press{" "}
+              <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                ⌘↵
+              </kbd>{" "}
+              to save
+            </p>
           </div>
         ) : (
           <div className="space-y-3">
-            {event.description && (
-              <p className="text-sm text-muted-foreground">
-                {event.description}
-              </p>
-            )}
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Clock className="h-4 w-4" />
+            {/* Time */}
+            <div className="flex items-start gap-2.5 text-sm text-muted-foreground">
+              <Clock className="mt-0.5 h-4 w-4 shrink-0" />
               {event.allDay ? (
                 <span>
-                  All day - {format(parseISO(event.start), "MMMM d, yyyy")}
+                  All day · {format(parseISO(event.start), "MMMM d, yyyy")}
                 </span>
               ) : (
                 <span>
-                  {format(parseISO(event.start), "MMM d, yyyy h:mm a")} -{" "}
+                  {format(parseISO(event.start), "EEEE, MMMM d, yyyy")}
+                  <br />
+                  {format(parseISO(event.start), "h:mm a")} –{" "}
                   {format(parseISO(event.end), "h:mm a")}
                 </span>
               )}
             </div>
+
+            {/* Location */}
             {event.location && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <MapPin className="h-4 w-4" />
+              <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+                <MapPin className="h-4 w-4 shrink-0" />
                 <span>{event.location}</span>
               </div>
             )}
+
+            {/* Description */}
+            {event.description && (
+              <p className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground">
+                {event.description}
+              </p>
+            )}
+
+            {/* Google Calendar badge */}
             {isGoogle && (
-              <div className="rounded-md bg-green-500/10 px-3 py-2 text-xs text-green-400">
-                Synced from Google Calendar
+              <div className="flex items-center gap-2 rounded-md bg-emerald-500/10 px-3 py-2 text-xs text-emerald-400">
+                <ExternalLink className="h-3.5 w-3.5" />
+                <span>Synced from Google Calendar</span>
               </div>
+            )}
+
+            {/* Keyboard hint */}
+            {!isGoogle && (
+              <p className="text-xs text-muted-foreground/60">
+                Press{" "}
+                <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                  E
+                </kbd>{" "}
+                to edit ·{" "}
+                <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                  Del
+                </kbd>{" "}
+                to delete
+              </p>
             )}
           </div>
         )}
 
-        <DialogFooter>
+        <DialogFooter className="gap-2">
           {editing ? (
             <>
-              <Button variant="ghost" onClick={() => setEditing(false)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setEditing(false)}
+              >
                 Cancel
               </Button>
-              <Button onClick={handleSave} disabled={updateEvent.isPending}>
-                {updateEvent.isPending ? "Saving..." : "Save"}
+              <Button
+                size="sm"
+                onClick={handleSave}
+                disabled={updateEvent.isPending}
+              >
+                {updateEvent.isPending ? "Saving…" : "Save changes"}
               </Button>
             </>
           ) : (
             <>
               {!isGoogle && (
                 <Button
-                  variant="destructive"
+                  variant="ghost"
                   size="sm"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
                   onClick={handleDelete}
                   disabled={deleteEvent.isPending}
                 >
@@ -185,10 +294,19 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
                   Delete
                 </Button>
               )}
+              <div className="flex-1" />
               {!isGoogle && (
-                <Button onClick={() => setEditing(true)}>Edit</Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditing(true)}
+                >
+                  <Edit2 className="mr-1.5 h-3.5 w-3.5" />
+                  Edit
+                </Button>
               )}
-              <Button variant="outline" onClick={onClose}>
+              <Button variant="ghost" size="sm" onClick={onClose}>
+                <X className="mr-1.5 h-3.5 w-3.5" />
                 Close
               </Button>
             </>

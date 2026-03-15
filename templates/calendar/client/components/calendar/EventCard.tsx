@@ -1,4 +1,3 @@
-import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent } from "@shared/api";
 
@@ -6,19 +5,56 @@ interface EventCardProps {
   event: CalendarEvent;
   onClick?: () => void;
   compact?: boolean;
+  draggable?: boolean;
+  onDragStart?: (id: string) => void;
+  onDragEnd?: () => void;
+  dimmed?: boolean;
 }
 
-export function EventCard({ event, onClick, compact = false }: EventCardProps) {
-  const colorClass = event.source === "google" ? "bg-green-500" : "bg-primary";
+function getEventAccentColor(event: CalendarEvent): string {
+  if (event.color) return event.color;
+  return event.source === "google" ? "#10b981" : "hsl(var(--primary))";
+}
+
+export function EventCard({
+  event,
+  onClick,
+  compact = false,
+  draggable = false,
+  onDragStart,
+  onDragEnd,
+  dimmed = false,
+}: EventCardProps) {
+  const accentColor = getEventAccentColor(event);
+
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData("text/plain", event.id);
+    e.dataTransfer.effectAllowed = "move";
+    onDragStart?.(event.id);
+  };
 
   if (compact) {
     return (
       <button
         onClick={onClick}
-        className="flex w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-xs hover:bg-accent transition-colors truncate"
+        draggable={draggable}
+        onDragStart={draggable ? handleDragStart : undefined}
+        onDragEnd={draggable ? onDragEnd : undefined}
+        className={cn(
+          "flex w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-xs transition-all hover:brightness-110",
+          draggable && "cursor-grab active:cursor-grabbing",
+          dimmed && "opacity-40",
+        )}
+        style={{
+          backgroundColor: `${accentColor}20`,
+          color: accentColor,
+        }}
       >
-        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", colorClass)} />
-        <span className="truncate">{event.title}</span>
+        <span
+          className="h-1.5 w-1.5 shrink-0 rounded-full"
+          style={{ backgroundColor: accentColor }}
+        />
+        <span className="truncate font-medium">{event.title}</span>
       </button>
     );
   }
@@ -26,15 +62,27 @@ export function EventCard({ event, onClick, compact = false }: EventCardProps) {
   return (
     <button
       onClick={onClick}
+      draggable={draggable}
+      onDragStart={draggable ? handleDragStart : undefined}
+      onDragEnd={draggable ? onDragEnd : undefined}
       className={cn(
-        "flex w-full flex-col gap-0.5 rounded-md border-l-2 px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent",
-        event.source === "google" ? "border-l-green-500" : "border-l-primary",
+        "flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-xs transition-all hover:brightness-110",
+        draggable && "cursor-grab active:cursor-grabbing",
+        dimmed && "opacity-40",
       )}
+      style={{
+        backgroundColor: `${accentColor}18`,
+        borderLeft: `2px solid ${accentColor}`,
+        color: accentColor,
+      }}
     >
-      <span className="font-medium truncate">{event.title}</span>
+      <span className="truncate font-medium">{event.title}</span>
       {!event.allDay && (
-        <span className="text-muted-foreground">
-          {format(parseISO(event.start), "h:mm a")}
+        <span className="opacity-70">
+          {new Date(event.start).toLocaleTimeString([], {
+            hour: "numeric",
+            minute: "2-digit",
+          })}
         </span>
       )}
     </button>
