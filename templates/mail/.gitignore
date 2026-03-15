@@ -24,7 +24,7 @@ dist-ssr
 *.sw?
 
 .config/
-!.env
+.env
 
 # Google OAuth tokens (sensitive, never commit)
 data/google-auth.json

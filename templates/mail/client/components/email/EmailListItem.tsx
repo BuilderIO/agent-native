@@ -144,38 +144,6 @@ export function EmailListItem({
       {/* Hover actions — replace time on hover */}
       <div className="hover-actions items-center gap-0.5 ml-3 shrink-0">
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            // Archive action
-          }}
-          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-          title="Done"
-        >
-          <svg viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
-            <path
-              fillRule="evenodd"
-              d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207z"
-              clipRule="evenodd"
-            />
-          </svg>
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            // Snooze action
-          }}
-          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-          title="Remind me"
-        >
-          <svg viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
-            <path
-              fillRule="evenodd"
-              d="M1 8a7 7 0 1 1 14 0A7 7 0 0 1 1 8zm7.75-4.25a.75.75 0 0 0-1.5 0V8c0 .414.336.75.75.75h3.25a.75.75 0 0 0 0-1.5h-2.5v-3.5z"
-              clipRule="evenodd"
-            />
-          </svg>
-        </button>
-        <button
           onClick={onStar}
           className={cn(
             "flex h-6 w-6 items-center justify-center rounded transition-colors",
