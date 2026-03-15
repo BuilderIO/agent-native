@@ -15,6 +15,7 @@
     "@agent-native/core": "workspace:*",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
+    "googleapis": "^148.0.0",
     "nanoid": "^4.0.2",
     "serverless-http": "^3.2.0",
     "zod": "^3.25.76"

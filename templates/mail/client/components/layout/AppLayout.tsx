@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useTheme } from "next-themes";
 import { Sun, Moon, Monitor } from "lucide-react";
+import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -180,6 +181,8 @@ export function AppLayout({ children }: AppLayoutProps) {
             </DropdownMenu>
           </div>
         </header>
+
+        <GoogleConnectBanner />
 
         {/* Page content */}
         <main className="flex flex-1 overflow-hidden">{children}</main>

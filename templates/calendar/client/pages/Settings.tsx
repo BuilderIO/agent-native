@@ -12,7 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { ApiKeySettings } from "@agent-native/core/client";
+import { GoogleSetupWizard } from "@/components/calendar/GoogleSetupWizard";
 import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import {
   useGoogleAuthStatus,
@@ -143,18 +143,21 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      {/* API Key Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">API Keys</CardTitle>
-          <CardDescription>
-            Manage OAuth credentials for Google Calendar integration.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ApiKeySettings />
-        </CardContent>
-      </Card>
+      {/* Google Setup Wizard */}
+      {!googleStatus.data?.connected && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Setup Google Calendar</CardTitle>
+            <CardDescription>
+              Follow these steps to connect your Google account. Takes about 3
+              minutes.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <GoogleSetupWizard />
+          </CardContent>
+        </Card>
+      )}
 
       <Separator />
 
