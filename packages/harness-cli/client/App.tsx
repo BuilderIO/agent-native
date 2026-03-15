@@ -12,6 +12,8 @@ import {
   IconMessageReport,
   IconTerminal2,
   IconDeviceDesktop,
+  IconMaximize,
+  IconMinimize,
 } from "@tabler/icons-react";
 import { useTerminal } from "./hooks/useTerminal";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -38,6 +40,18 @@ const APP_CONFIG: Array<{ name: string; appPort: number; wsPort: number }> =
     { name: "default", appPort: 8081, wsPort: 3341 },
   ];
 
+/** Read ?app= query param to auto-select an app (used by electron shell) */
+function getInitialApp(configFallback: string): string {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const appParam = params.get("app");
+    if (appParam && APP_CONFIG.find((a) => a.name === appParam)) {
+      return appParam;
+    }
+  } catch {}
+  return configFallback;
+}
+
 export function App() {
   const config = useHarnessConfig();
   const { configs, switchHarness } = useHarnessConfigs();
@@ -47,20 +61,19 @@ export function App() {
   );
   const [showSettings, setShowSettings] = useState(false);
   const [showShareMenu, setShowShareMenu] = useState(false);
-  const settingsRef = useRef<HTMLDivElement>(null);
-  const shareRef = useRef<HTMLDivElement>(null);
 
   const [activeApp, setActiveApp] = useState(() => {
     const saved = loadSettings(config).activeApp;
-    return (
+    const fallback =
       APP_CONFIG.find((a) => a.name === saved)?.name ||
       APP_CONFIG[0]?.name ||
-      "default"
-    );
+      "default";
+    return getInitialApp(fallback);
   });
 
   const [mobileTab, setMobileTab] = useState<"agent" | "interact">("interact");
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const activeAppConfig = APP_CONFIG.find((a) => a.name === activeApp);
   const appUrl = activeAppConfig
@@ -105,18 +118,9 @@ export function App() {
     [activeApp, settings, updateSettings, restart],
   );
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (
-        settingsRef.current &&
-        !settingsRef.current.contains(e.target as Node)
-      )
-        setShowSettings(false);
-      if (shareRef.current && !shareRef.current.contains(e.target as Node))
-        setShowShareMenu(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+  const dismissPopovers = useCallback(() => {
+    setShowSettings(false);
+    setShowShareMenu(false);
   }, []);
 
   // Desktop resize
@@ -173,16 +177,21 @@ export function App() {
     setShowShareMenu(false);
   };
 
+  const showPopoverBackdrop = showSettings || showShareMenu;
+
   // Terminal header — lives inside the terminal pane only
   const terminalHeader = (
     <div className="flex items-center gap-2 px-3 h-10 shrink-0">
       <span className="text-[13px] font-medium text-white/90">{activeApp}</span>
       <span className="flex-1" />
 
-      <div ref={settingsRef} className="relative">
+      <div className="relative">
         <Tooltip label="Settings">
           <button
-            onClick={() => setShowSettings((v) => !v)}
+            onClick={() => {
+              setShowShareMenu(false);
+              setShowSettings((v) => !v);
+            }}
             className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
           >
             <IconSettings size={14} stroke={1.5} />
@@ -205,10 +214,13 @@ export function App() {
         )}
       </div>
 
-      <div ref={shareRef} className="relative">
+      <div className="relative">
         <Tooltip label="Share">
           <button
-            onClick={() => setShowShareMenu((v) => !v)}
+            onClick={() => {
+              setShowSettings(false);
+              setShowShareMenu((v) => !v);
+            }}
             className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
           >
             <IconShare size={14} stroke={1.5} />
@@ -242,6 +254,19 @@ export function App() {
           </div>
         )}
       </div>
+
+      <Tooltip label={isFullscreen ? "Show terminal" : "Fullscreen preview"}>
+        <button
+          onClick={() => setIsFullscreen((v) => !v)}
+          className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
+        >
+          {isFullscreen ? (
+            <IconMinimize size={14} stroke={1.5} />
+          ) : (
+            <IconMaximize size={14} stroke={1.5} />
+          )}
+        </button>
+      </Tooltip>
 
       <Tooltip label="Feedback">
         <a
@@ -311,19 +336,28 @@ export function App() {
     <div
       className={`h-screen bg-[#1e1e1e] ${isMobile ? "flex flex-col" : "flex"}`}
     >
+      {/* Backdrop — dismisses popovers when clicking anywhere, including over iframe */}
+      {showPopoverBackdrop && (
+        <div className="fixed inset-0 z-40" onClick={dismissPopovers} />
+      )}
+
       {/* Terminal pane */}
       <div
         className={
           isMobile
             ? `flex flex-col ${mobileTab === "agent" ? "flex-1 min-h-0" : "absolute inset-0 invisible"}`
-            : "flex flex-col min-h-0"
+            : isFullscreen
+              ? "flex flex-col min-h-0 w-0 overflow-hidden"
+              : "flex flex-col min-h-0"
         }
         style={
-          isMobile ? undefined : { width: termWidth ?? "36%", flexShrink: 0 }
+          isMobile || isFullscreen
+            ? undefined
+            : { width: termWidth ?? "36%", flexShrink: 0 }
         }
       >
         {/* Header inside terminal pane */}
-        {terminalHeader}
+        {!isFullscreen && terminalHeader}
 
         {/* Terminal */}
         <div className="flex-1 min-h-0 relative">
@@ -332,8 +366,8 @@ export function App() {
         </div>
       </div>
 
-      {/* Drag handle — desktop only */}
-      {!isMobile && (
+      {/* Drag handle — desktop only, not in fullscreen */}
+      {!isMobile && !isFullscreen && (
         <div
           onMouseDown={onMouseDown}
           className="w-1 cursor-col-resize flex items-center justify-center hover:bg-blue-500/30 transition-colors"
@@ -342,7 +376,7 @@ export function App() {
         </div>
       )}
 
-      {/* Preview pane — full height, no header */}
+      {/* Preview pane — full height */}
       <div
         className={
           isMobile
@@ -350,8 +384,25 @@ export function App() {
             : "flex-1 flex flex-col min-h-0 p-2 pl-0"
         }
       >
+        {/* Fullscreen header — only shown when terminal is hidden */}
+        {isFullscreen && !isMobile && (
+          <div className="flex items-center gap-2 px-3 h-10 shrink-0">
+            <span className="text-[13px] font-medium text-white/90">
+              {activeApp}
+            </span>
+            <span className="flex-1" />
+            <Tooltip label="Show terminal">
+              <button
+                onClick={() => setIsFullscreen(false)}
+                className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
+              >
+                <IconMinimize size={14} stroke={1.5} />
+              </button>
+            </Tooltip>
+          </div>
+        )}
         <div
-          className={`flex-1 overflow-hidden bg-black ${isMobile ? "" : "rounded-xl"}`}
+          className={`flex-1 overflow-hidden bg-black ${isMobile ? "" : isFullscreen ? "rounded-xl m-2 mt-0" : "rounded-xl"}`}
         >
           <iframe
             ref={iframeRef}

@@ -1,0 +1,59 @@
+[
+  {
+    "id": "inbox",
+    "name": "Inbox",
+    "type": "system",
+    "unreadCount": 1
+  },
+  {
+    "id": "starred",
+    "name": "Starred",
+    "type": "system",
+    "unreadCount": 0
+  },
+  {
+    "id": "sent",
+    "name": "Sent",
+    "type": "system",
+    "unreadCount": 0
+  },
+  {
+    "id": "drafts",
+    "name": "Drafts",
+    "type": "system",
+    "unreadCount": 0
+  },
+  {
+    "id": "archive",
+    "name": "Archive",
+    "type": "system",
+    "unreadCount": 0
+  },
+  {
+    "id": "trash",
+    "name": "Trash",
+    "type": "system",
+    "unreadCount": 0
+  },
+  {
+    "id": "important",
+    "name": "Important",
+    "type": "user",
+    "color": "#4A90D9",
+    "unreadCount": 0
+  },
+  {
+    "id": "finance",
+    "name": "Finance",
+    "type": "user",
+    "color": "#27AE60",
+    "unreadCount": 0
+  },
+  {
+    "id": "team",
+    "name": "Team",
+    "type": "user",
+    "color": "#8E44AD",
+    "unreadCount": 0
+  }
+]

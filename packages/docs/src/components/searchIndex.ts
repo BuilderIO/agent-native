@@ -304,9 +304,9 @@ export const searchIndex: SearchEntry[] = [
   },
   {
     page: "Brand Image Generator Template",
-    path: "/templates/brand-image-generator",
+    path: "/templates/imagegen",
     section: "AI-Native Brand Image Generator",
     sectionId: "",
-    text: "Open source alternative to Canva Brandmark. AI-native brand asset manager. Upload brand logos colors fonts style reference images. AI style profiling analyzes reference images extracts color palettes textures mood composition patterns. On-brand image generation from text prompts matching brand visual style. Batch variations 1-8 style-consistent variations per prompt. Gallery browse download manage generated images. Gemini API powered. npx @agent-native/core create my-app --template brand-image-generator",
+    text: "Open source alternative to Canva Brandmark. AI-native brand asset manager. Upload brand logos colors fonts style reference images. AI style profiling analyzes reference images extracts color palettes textures mood composition patterns. On-brand image generation from text prompts matching brand visual style. Batch variations 1-8 style-consistent variations per prompt. Gallery browse download manage generated images. Gemini API powered. npx @agent-native/core create my-app --template imagegen",
   },
 ];
