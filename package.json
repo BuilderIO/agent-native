@@ -12,6 +12,7 @@
     "fmt:check": "prettier --check .",
     "test": "pnpm --filter @agent-native/core test && pnpm --filter @agent-native/docs test",
     "lint": "pnpm fmt:check && pnpm typecheck",
+    "check": "concurrently -n fmt,types,test -c blue,cyan,green \"pnpm fmt\" \"pnpm typecheck\" \"pnpm test\"",
     "dev:all": "pnpm --filter @agent-native/core build && node scripts/dev-all.ts",
     "dev:all:single-port": "pnpm --filter @agent-native/core build && node scripts/dev-all-single-port.ts",
     "dev:docs": "pnpm --filter @agent-native/docs dev",

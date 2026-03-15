@@ -44,7 +44,7 @@ export default function TabBar({
     <div className="tabbar">
       {tabs.map((tab) => {
         const app = APP_REGISTRY.find((a) => a.id === tab.appId);
-        const Icon = app ? ICON_MAP[app.icon] ?? Layers : Layers;
+        const Icon = app ? (ICON_MAP[app.icon] ?? Layers) : Layers;
         const isActive = tab.id === activeTabId;
 
         return (

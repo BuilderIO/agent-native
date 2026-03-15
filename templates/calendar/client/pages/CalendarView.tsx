@@ -308,15 +308,21 @@ export default function CalendarView() {
               <DropdownMenuContent align="start">
                 <DropdownMenuItem onClick={() => setViewMode("day")}>
                   Day
-                  <kbd className="ml-auto text-[10px] text-muted-foreground">D</kbd>
+                  <kbd className="ml-auto text-[10px] text-muted-foreground">
+                    D
+                  </kbd>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setViewMode("week")}>
                   Week
-                  <kbd className="ml-auto text-[10px] text-muted-foreground">W</kbd>
+                  <kbd className="ml-auto text-[10px] text-muted-foreground">
+                    W
+                  </kbd>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setViewMode("month")}>
                   Month
-                  <kbd className="ml-auto text-[10px] text-muted-foreground">M</kbd>
+                  <kbd className="ml-auto text-[10px] text-muted-foreground">
+                    M
+                  </kbd>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

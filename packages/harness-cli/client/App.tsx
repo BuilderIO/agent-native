@@ -338,10 +338,7 @@ export function App() {
     >
       {/* Backdrop — dismisses popovers when clicking anywhere, including over iframe */}
       {showPopoverBackdrop && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={dismissPopovers}
-        />
+        <div className="fixed inset-0 z-40" onClick={dismissPopovers} />
       )}
 
       {/* Terminal pane */}

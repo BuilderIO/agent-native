@@ -14,7 +14,8 @@ interface EnvKeyStatus {
 const STEPS = [
   {
     title: "Enable the Google Calendar API",
-    description: "Open Google Cloud Console and click 'Enable' on the Calendar API.",
+    description:
+      "Open Google Cloud Console and click 'Enable' on the Calendar API.",
     url: "https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com",
     linkText: "Enable Calendar API",
   },
@@ -117,7 +118,8 @@ export function GoogleSetupWizard() {
     <div className="space-y-4">
       {STEPS.map((step, i) => {
         const isActive = i === currentStep;
-        const isCompleted = i < currentStep || (i === STEPS.length - 1 && saved);
+        const isCompleted =
+          i < currentStep || (i === STEPS.length - 1 && saved);
 
         return (
           <div
@@ -151,9 +153,7 @@ export function GoogleSetupWizard() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium">
-                  <span className="text-muted-foreground mr-1.5">
-                    {i + 1}.
-                  </span>
+                  <span className="text-muted-foreground mr-1.5">{i + 1}.</span>
                   {step.title}
                 </p>
 
@@ -247,9 +247,7 @@ export function GoogleSetupWizard() {
                             handleSave();
                           }}
                           disabled={
-                            saving ||
-                            !clientId.trim() ||
-                            !clientSecret.trim()
+                            saving || !clientId.trim() || !clientSecret.trim()
                           }
                         >
                           {saving && (

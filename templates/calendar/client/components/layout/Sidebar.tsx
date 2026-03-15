@@ -124,10 +124,19 @@ function MiniCalendar({
               className={cn(
                 "flex h-6 w-full items-center justify-center rounded-full text-[11px] transition-colors",
                 !inMonth && "text-muted-foreground/40",
-                inMonth && !today && !selected && "text-foreground/80 hover:bg-accent",
-                today && !selected && "bg-primary font-semibold text-primary-foreground",
-                selected && !today && "ring-1 ring-primary font-semibold text-primary",
-                selected && today && "bg-primary font-semibold text-primary-foreground ring-1 ring-primary ring-offset-1 ring-offset-card",
+                inMonth &&
+                  !today &&
+                  !selected &&
+                  "text-foreground/80 hover:bg-accent",
+                today &&
+                  !selected &&
+                  "bg-primary font-semibold text-primary-foreground",
+                selected &&
+                  !today &&
+                  "ring-1 ring-primary font-semibold text-primary",
+                selected &&
+                  today &&
+                  "bg-primary font-semibold text-primary-foreground ring-1 ring-primary ring-offset-1 ring-offset-card",
               )}
             >
               {format(day, "d")}
@@ -206,7 +215,10 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         </div>
 
         {/* Mini calendar */}
-        <MiniCalendar selectedDate={selectedDate} onDateSelect={setSelectedDate} />
+        <MiniCalendar
+          selectedDate={selectedDate}
+          onDateSelect={setSelectedDate}
+        />
 
         {/* Nav */}
         <nav className="flex-1 space-y-0.5 border-t border-border p-2.5">
