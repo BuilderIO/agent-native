@@ -21,5 +21,16 @@
   "devDependencies": {
     "concurrently": "^9.1.0",
     "prettier": "^3.6.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "@types/react": "^18.3.23",
+      "@types/react-dom": "^18.3.7"
+    },
+    "onlyBuiltDependencies": [
+      "node-pty",
+      "esbuild",
+      "lightningcss"
+    ]
   }
 }
