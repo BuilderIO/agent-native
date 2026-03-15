@@ -65,6 +65,7 @@ export function GoogleConnectBanner() {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [envStatus, setEnvStatus] = useState<EnvKeyStatus[]>([]);
+  const [copied, setCopied] = useState(false);
 
   const redirectUri = `${window.location.origin}/api/google/callback`;
 
@@ -151,6 +152,8 @@ export function GoogleConnectBanner() {
 
   function copyRedirectUri() {
     navigator.clipboard.writeText(redirectUri);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   if (dismissed || googleStatus.data?.connected) return null;
@@ -276,7 +279,14 @@ export function GoogleConnectBanner() {
                                   copyRedirectUri();
                                 }}
                               >
-                                Copy
+                                {copied ? (
+                                  <>
+                                    <Check className="h-3 w-3" />
+                                    Copied
+                                  </>
+                                ) : (
+                                  "Copy"
+                                )}
                               </Button>
                             </div>
                           )}
