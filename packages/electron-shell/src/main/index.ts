@@ -80,14 +80,11 @@ ipcMain.handle(
 // ---------- IPC: Inter-app message relay ----------
 // Routes messages from one app to all renderer windows so webviews can forward them.
 
-ipcMain.on(
-  IPC.INTER_APP_SEND,
-  (event: IpcMainEvent, msg: InterAppMessage) => {
-    BrowserWindow.getAllWindows().forEach((win) => {
-      win.webContents.send(IPC.INTER_APP_MESSAGE, msg);
-    });
-  },
-);
+ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
+  BrowserWindow.getAllWindows().forEach((win) => {
+    win.webContents.send(IPC.INTER_APP_MESSAGE, msg);
+  });
+});
 
 // ---------- App lifecycle ----------
 

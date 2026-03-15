@@ -75,7 +75,9 @@ console.log(`\x1b[36m[dev-electron]\x1b[0m Starting: ${names.join(", ")}`);
 requestedApps.forEach((app) => {
   const port = PORT_MAP[app];
   if (port) {
-    console.log(`\x1b[36m[dev-electron]\x1b[0m  ${app}: http://localhost:${port}`);
+    console.log(
+      `\x1b[36m[dev-electron]\x1b[0m  ${app}: http://localhost:${port}`,
+    );
   }
 });
 

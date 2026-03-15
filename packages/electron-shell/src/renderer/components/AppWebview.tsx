@@ -62,9 +62,7 @@ export default function AppWebview({ app, isActive }: AppWebviewProps) {
   return (
     <div className={`webview-slot${isActive ? "" : " webview-slot--hidden"}`}>
       {/* Placeholder: app not yet implemented */}
-      {app.placeholder && (
-        <PlaceholderScreen app={app} />
-      )}
+      {app.placeholder && <PlaceholderScreen app={app} />}
 
       {/* Loading state */}
       {!app.placeholder && status === "loading" && (
@@ -110,7 +108,10 @@ function LoadingScreen({
 }) {
   return (
     <div className="loading-overlay">
-      <div className="spinner" style={{ "--app-color": appColor } as React.CSSProperties} />
+      <div
+        className="spinner"
+        style={{ "--app-color": appColor } as React.CSSProperties}
+      />
       <span className="loading-label">Starting {appName}…</span>
     </div>
   );
@@ -132,7 +133,10 @@ function ErrorScreen({
       <p className="error-hint">
         Make sure the dev server is running on port {app.devPort}.
         <br />
-        Run: <code>pnpm --filter {app.id} exec vite --port {app.devPort}</code>
+        Run:{" "}
+        <code>
+          pnpm --filter {app.id} exec vite --port {app.devPort}
+        </code>
       </p>
       <button className="retry-button" onClick={onRetry}>
         <RefreshCw size={11} style={{ display: "inline", marginRight: 5 }} />
