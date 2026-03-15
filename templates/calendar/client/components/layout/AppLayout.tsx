@@ -28,10 +28,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <CalendarContext.Provider value={{ selectedDate, setSelectedDate }}>
       <div className="dark flex h-screen overflow-hidden bg-background">
-        <Sidebar
-          open={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-        />
+        <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Mobile header */}

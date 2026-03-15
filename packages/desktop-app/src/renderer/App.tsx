@@ -40,7 +40,8 @@ export default function App() {
     APP_REGISTRY.find((a) => !a.placeholder) ?? APP_REGISTRY[0];
 
   const [activeSidebarAppId, setActiveSidebarAppId] = useState(defaultApp.id);
-  const [appTabs, setAppTabs] = useState<Record<string, AppTabState>>(initAppTabs);
+  const [appTabs, setAppTabs] =
+    useState<Record<string, AppTabState>>(initAppTabs);
 
   const currentAppTabs = appTabs[activeSidebarAppId];
 
@@ -115,8 +116,7 @@ export default function App() {
       allWebviews.push({
         tab,
         app,
-        isActive:
-          app.id === activeSidebarAppId && tab.id === state.activeTabId,
+        isActive: app.id === activeSidebarAppId && tab.id === state.activeTabId,
       });
     }
   }

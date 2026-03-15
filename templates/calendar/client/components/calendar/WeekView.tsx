@@ -41,20 +41,15 @@ function formatEventTime(start: Date, end: Date): string {
     (start.getHours() < 12 && end.getHours() < 12) ||
     (start.getHours() >= 12 && end.getHours() >= 12);
 
-  const startStr = startMin === 0
-    ? format(start, "h")
-    : format(start, "h:mm");
+  const startStr = startMin === 0 ? format(start, "h") : format(start, "h:mm");
 
-  const endStr = endMin === 0
-    ? format(end, "h a")
-    : format(end, "h:mm a");
+  const endStr = endMin === 0 ? format(end, "h a") : format(end, "h:mm a");
 
   if (sameAmPm) {
     return `${startStr}\u2013${endStr}`;
   }
-  const startWithAmPm = startMin === 0
-    ? format(start, "h a")
-    : format(start, "h:mm a");
+  const startWithAmPm =
+    startMin === 0 ? format(start, "h a") : format(start, "h:mm a");
   return `${startWithAmPm}\u2013${endStr}`;
 }
 
@@ -71,7 +66,9 @@ function computeOverlaps(dayEvents: CalendarEvent[]): Map<string, OverlapInfo> {
   const sorted = [...dayEvents].sort((a, b) => {
     const aStart = parseISO(a.start).getTime();
     const bStart = parseISO(b.start).getTime();
-    return aStart - bStart || parseISO(a.end).getTime() - parseISO(b.end).getTime();
+    return (
+      aStart - bStart || parseISO(a.end).getTime() - parseISO(b.end).getTime()
+    );
   });
 
   // Build overlap groups using a sweep approach
@@ -162,19 +159,14 @@ export function WeekView({
   });
 
   // Separate all-day and timed events
-  const allDayEvents = useMemo(
-    () => events.filter((e) => e.allDay),
-    [events],
-  );
+  const allDayEvents = useMemo(() => events.filter((e) => e.allDay), [events]);
 
-  const timedEvents = useMemo(
-    () => events.filter((e) => !e.allDay),
-    [events],
-  );
+  const timedEvents = useMemo(() => events.filter((e) => !e.allDay), [events]);
 
   // Pre-compute all-day event spans
   const allDaySpans = useMemo(() => {
-    const spans: { event: CalendarEvent; startCol: number; endCol: number }[] = [];
+    const spans: { event: CalendarEvent; startCol: number; endCol: number }[] =
+      [];
     for (const ev of allDayEvents) {
       const span = getAllDaySpan(ev, days);
       if (span) {
@@ -230,7 +222,8 @@ export function WeekView({
       for (const row of rows) {
         const hasConflict = row.some(
           (existing) =>
-            span.startCol <= existing.endCol && span.endCol >= existing.startCol,
+            span.startCol <= existing.endCol &&
+            span.endCol >= existing.startCol,
         );
         if (!hasConflict) {
           row.push(span);
@@ -255,7 +248,8 @@ export function WeekView({
       for (let r = 0; r < rows.length; r++) {
         const hasConflict = rows[r].some(
           (existing) =>
-            span.startCol <= existing.endCol && span.endCol >= existing.startCol,
+            span.startCol <= existing.endCol &&
+            span.endCol >= existing.startCol,
         );
         if (!hasConflict) {
           rows[r].push({ ...span, id: span.event.id });
@@ -280,9 +274,11 @@ export function WeekView({
   // Timezone abbreviation
   const tzAbbr = useMemo(() => {
     try {
-      return new Intl.DateTimeFormat("en-US", { timeZoneName: "short" })
-        .formatToParts(now)
-        .find((p) => p.type === "timeZoneName")?.value ?? "";
+      return (
+        new Intl.DateTimeFormat("en-US", { timeZoneName: "short" })
+          .formatToParts(now)
+          .find((p) => p.type === "timeZoneName")?.value ?? ""
+      );
     } catch {
       return "";
     }
@@ -319,9 +315,7 @@ export function WeekView({
               <span
                 className={cn(
                   "flex h-7 w-7 items-center justify-center rounded-full text-sm font-semibold",
-                  isToday(day)
-                    ? "bg-red-500 text-white"
-                    : "text-foreground",
+                  isToday(day) ? "bg-red-500 text-white" : "text-foreground",
                 )}
               >
                 {format(day, "d")}
@@ -375,7 +369,9 @@ export function WeekView({
                       left: `${leftPct}%`,
                       width: `calc(${widthPct}% - 4px)`,
                       height: `${allDayRowHeight - 4}px`,
-                      backgroundColor: color ? `${color}40` : "hsl(var(--primary) / 0.2)",
+                      backgroundColor: color
+                        ? `${color}40`
+                        : "hsl(var(--primary) / 0.2)",
                       color: color ?? "hsl(var(--primary))",
                       borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
                       marginLeft: "2px",

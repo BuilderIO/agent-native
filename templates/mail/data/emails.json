@@ -20,10 +20,7 @@
     "isStarred": true,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": [
-      "inbox",
-      "important"
-    ]
+    "labelIds": ["inbox", "important"]
   },
   {
     "id": "msg-002",
@@ -46,9 +43,7 @@
     "isStarred": false,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": [
-      "inbox"
-    ]
+    "labelIds": ["inbox"]
   },
   {
     "id": "msg-003",
@@ -71,9 +66,7 @@
     "isStarred": false,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": [
-      "inbox"
-    ],
+    "labelIds": ["inbox"],
     "attachments": [
       {
         "id": "att-001",
@@ -104,10 +97,7 @@
     "isStarred": false,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": [
-      "inbox",
-      "finance"
-    ],
+    "labelIds": ["inbox", "finance"],
     "attachments": [
       {
         "id": "att-002",
@@ -138,10 +128,7 @@
     "isStarred": true,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": [
-      "inbox",
-      "important"
-    ]
+    "labelIds": ["inbox", "important"]
   },
   {
     "id": "msg-006",
@@ -164,9 +151,7 @@
     "isStarred": false,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": [
-      "inbox"
-    ]
+    "labelIds": ["inbox"]
   },
   {
     "id": "msg-007",
@@ -195,10 +180,7 @@
     "isStarred": true,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": [
-      "inbox",
-      "team"
-    ]
+    "labelIds": ["inbox", "team"]
   },
   {
     "id": "msg-008",
@@ -221,9 +203,7 @@
     "isStarred": false,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": [
-      "inbox"
-    ]
+    "labelIds": ["inbox"]
   },
   {
     "id": "msg-009",
@@ -246,9 +226,7 @@
     "isStarred": false,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": [
-      "inbox"
-    ]
+    "labelIds": ["inbox"]
   },
   {
     "id": "msg-010",
@@ -271,9 +249,7 @@
     "isStarred": false,
     "isArchived": false,
     "isTrashed": false,
-    "labelIds": [
-      "inbox"
-    ]
+    "labelIds": ["inbox"]
   },
   {
     "id": "msg-011",
@@ -297,9 +273,7 @@
     "isArchived": false,
     "isTrashed": false,
     "isSent": true,
-    "labelIds": [
-      "sent"
-    ]
+    "labelIds": ["sent"]
   },
   {
     "id": "msg-012",
@@ -323,8 +297,6 @@
     "isArchived": false,
     "isTrashed": false,
     "isDraft": true,
-    "labelIds": [
-      "drafts"
-    ]
+    "labelIds": ["drafts"]
   }
 ]

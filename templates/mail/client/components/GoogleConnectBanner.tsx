@@ -11,10 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  useGoogleAuthStatus,
-  useGoogleAuthUrl,
-} from "@/hooks/use-google-auth";
+import { useGoogleAuthStatus, useGoogleAuthUrl } from "@/hooks/use-google-auth";
 
 interface EnvKeyStatus {
   key: string;
@@ -26,7 +23,8 @@ interface EnvKeyStatus {
 const STEPS = [
   {
     title: "Enable the Gmail API",
-    description: "Open Google Cloud Console and click 'Enable' on the Gmail API.",
+    description:
+      "Open Google Cloud Console and click 'Enable' on the Gmail API.",
     url: "https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com",
     linkText: "Enable Gmail API",
   },
@@ -34,14 +32,14 @@ const STEPS = [
     title: "Configure OAuth consent screen",
     description:
       'Set the app name to anything (e.g. "My Mail"), choose "External" user type, and add your email as a test user.',
-    url: "https://console.cloud.google.com/auth/branding",
+    url: "https://console.cloud.google.com/apis/credentials/consent",
     linkText: "Configure consent screen",
   },
   {
     title: "Create OAuth credentials",
     description:
       'Click "Create OAuth client", choose "Web application", and add this redirect URI:',
-    url: "https://console.cloud.google.com/apis/credentials/oauthclient",
+    url: "https://console.cloud.google.com/apis/credentials",
     linkText: "Create credentials",
     showRedirectUri: true,
   },

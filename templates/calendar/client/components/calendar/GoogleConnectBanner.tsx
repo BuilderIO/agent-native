@@ -32,14 +32,14 @@ const STEPS = [
     title: "Configure OAuth consent screen",
     description:
       'Set the app name to anything (e.g. "My Calendar"), choose "External" user type, and add your email as a test user.',
-    url: "https://console.cloud.google.com/auth/branding",
+    url: "https://console.cloud.google.com/apis/credentials/consent",
     linkText: "Configure consent screen",
   },
   {
     title: "Create OAuth credentials",
     description:
       'Click "Create OAuth client", choose "Web application", and add this redirect URI:',
-    url: "https://console.cloud.google.com/apis/credentials/oauthclient",
+    url: "https://console.cloud.google.com/apis/credentials",
     linkText: "Create credentials",
     showRedirectUri: true,
   },
@@ -364,9 +364,7 @@ function SetupWizard({
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium">
-                  <span className="text-muted-foreground mr-1.5">
-                    {i + 1}.
-                  </span>
+                  <span className="text-muted-foreground mr-1.5">{i + 1}.</span>
                   {step.title}
                 </p>
 
@@ -468,9 +466,7 @@ function SetupWizard({
                             handleSave();
                           }}
                           disabled={
-                            saving ||
-                            !clientId.trim() ||
-                            !clientSecret.trim()
+                            saving || !clientId.trim() || !clientSecret.trim()
                           }
                         >
                           {saving && (

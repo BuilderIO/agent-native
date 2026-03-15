@@ -1,4 +1,9 @@
-import { format, parseISO, differenceInMinutes, differenceInHours } from "date-fns";
+import {
+  format,
+  parseISO,
+  differenceInMinutes,
+  differenceInHours,
+} from "date-fns";
 import { X, Clock, MapPin, Trash2, Edit2, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -38,7 +43,7 @@ export function EventDetailPanel({
     <div
       className={cn(
         "shrink-0 overflow-hidden transition-[width] duration-200 ease-in-out",
-        isOpen ? "w-80" : "w-0"
+        isOpen ? "w-80" : "w-0",
       )}
     >
       <div className="h-full w-80 border-l border-border bg-card flex flex-col">

@@ -34,9 +34,7 @@ function createOAuth2Client(redirectUri?: string) {
 }
 
 export function getAuthUrl(origin?: string): string {
-  const redirectUri = origin
-    ? `${origin}/api/google/callback`
-    : undefined;
+  const redirectUri = origin ? `${origin}/api/google/callback` : undefined;
   const client = createOAuth2Client(redirectUri);
   return client.generateAuthUrl({
     access_type: "offline",
@@ -49,9 +47,7 @@ export async function exchangeCode(
   code: string,
   origin?: string,
 ): Promise<void> {
-  const redirectUri = origin
-    ? `${origin}/api/google/callback`
-    : undefined;
+  const redirectUri = origin ? `${origin}/api/google/callback` : undefined;
   const client = createOAuth2Client(redirectUri);
   const { tokens } = await client.getToken(code);
   writeJsonFile(TOKENS_PATH, tokens);
