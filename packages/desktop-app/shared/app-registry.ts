@@ -87,8 +87,12 @@ export const APP_REGISTRY: AppDefinition[] = [
   },
 ];
 
+/** Harness UI port — must match dev-all.ts UI_PORT */
+export const HARNESS_PORT = 3334;
+
+/** Returns the harness URL for the given app (terminal + iframe) */
 export function getAppUrl(app: AppDefinition): string {
-  return `http://localhost:${app.devPort}`;
+  return `http://localhost:${HARNESS_PORT}?app=${app.id}`;
 }
 
 export function getAppById(id: string): AppDefinition | undefined {

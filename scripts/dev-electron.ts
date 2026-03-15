@@ -71,7 +71,7 @@ requestedApps.forEach((appName, i) => {
 
 // Electron shell dev (starts electron-vite which starts renderer + main + Electron)
 names.push("electron");
-commands.push("pnpm --filter @agent-native/electron-shell dev");
+commands.push("pnpm --filter @agent-native/desktop-app dev");
 colors.push("yellow");
 
 console.log(`\x1b[36m[dev-electron]\x1b[0m Starting: ${names.join(", ")}`);
