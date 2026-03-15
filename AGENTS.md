@@ -68,3 +68,20 @@ All code in this project — including standalone scripts in `scripts/` — must
 ## Image Output
 
 Never save screenshots, images, or other binary artifacts to the repository root or directly inside package directories. Save them to a temporary directory or use an ephemeral path.
+
+## Skills
+
+Agent skills in `.agents/skills/` provide detailed guidance for architectural rules and design patterns. Read the relevant skill before making changes.
+
+| Skill                 | When to use                                          |
+| --------------------- | ---------------------------------------------------- |
+| `delegate-to-agent`   | Delegating AI work from UI or scripts to the agent   |
+| `files-as-database`   | Storing or reading app state                         |
+| `scripts`             | Creating or running agent scripts                    |
+| `sse-file-watcher`    | Wiring up real-time UI sync                          |
+| `self-modifying-code` | Editing app source, components, or styles            |
+| `create-skill`        | Adding new skills for the agent                      |
+| `capture-learnings`   | Recording corrections and patterns                   |
+| `frontend-design`     | Building or styling any web UI, components, or pages |
+
+The **`frontend-design`** skill (sourced from [Anthropic's skills library](https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md)) applies whenever the agent generates or modifies UI. It enforces distinctive, production-grade aesthetics — avoiding generic AI-generated design patterns like purple gradients, overused fonts, and cookie-cutter layouts.
