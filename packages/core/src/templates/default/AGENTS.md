@@ -38,14 +38,14 @@ data/            # App data files (watched by SSE)
 
 Skills in `.agents/skills/` provide detailed guidance for each architectural rule. Read them before making changes.
 
-| Skill | When to read |
-| --- | --- |
-| `files-as-database` | Before storing or reading any app state |
-| `delegate-to-agent` | Before adding LLM calls or AI delegation |
-| `scripts` | Before creating or modifying scripts |
-| `sse-file-watcher` | Before wiring up real-time UI sync |
-| `self-modifying-code` | Before editing source, components, or styles |
-| `frontend-design` | Before building or restyling any UI component, page, or layout |
+| Skill                 | When to read                                                   |
+| --------------------- | -------------------------------------------------------------- |
+| `files-as-database`   | Before storing or reading any app state                        |
+| `delegate-to-agent`   | Before adding LLM calls or AI delegation                       |
+| `scripts`             | Before creating or modifying scripts                           |
+| `sse-file-watcher`    | Before wiring up real-time UI sync                             |
+| `self-modifying-code` | Before editing source, components, or styles                   |
+| `frontend-design`     | Before building or restyling any UI component, page, or layout |
 
 The **`frontend-design`** skill (sourced from [Anthropic's skills library](https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md)) enforces distinctive, production-grade aesthetics — committing to a clear visual direction and avoiding generic patterns like purple gradients, overused fonts, and cookie-cutter layouts.
 
