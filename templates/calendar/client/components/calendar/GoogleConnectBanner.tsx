@@ -31,14 +31,14 @@ const STEPS = [
   {
     title: "Configure OAuth consent screen",
     description:
-      'Set the app name to anything (e.g. "My Calendar"), choose "External" user type, and add your email as a test user.',
+      'Set the app name to anything (e.g. "My Calendar"), choose "External" user type, and add your email as a test user. If you get redirected to an overview page, consent is already configured — skip to the next step.',
     url: "https://console.cloud.google.com/apis/credentials/consent",
     linkText: "Configure consent screen",
   },
   {
     title: "Create OAuth credentials",
     description:
-      'Click "Create OAuth client", choose "Web application", and add this redirect URI:',
+      'Click "+ Create Credentials" → "OAuth client ID", choose "Web application", and add this redirect URI:',
     url: "https://console.cloud.google.com/apis/credentials",
     linkText: "Create credentials",
     showRedirectUri: true,
