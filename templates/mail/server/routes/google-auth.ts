@@ -38,7 +38,12 @@ export async function handleGoogleCallback(
       return;
     }
     await exchangeCode(code, getOrigin(req));
-    res.redirect("/settings?connected=true");
+    // Send a page that closes itself — the app polls for connection status
+    res.send(`<!DOCTYPE html><html><body><script>
+      window.close();
+      // If window.close() is blocked, show a message
+      document.body.innerHTML = '<p style="font-family:system-ui;text-align:center;margin-top:40vh">Connected! You can close this tab.</p>';
+    </script></body></html>`);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

@@ -106,7 +106,7 @@ function SidebarItem({ app, isActive, onClick }: SidebarItemProps) {
       aria-current={isActive ? "page" : undefined}
     >
       <span className="icon-wrapper">
-        <Icon size={20} strokeWidth={1.75} />
+        <Icon size={18} strokeWidth={1.75} />
       </span>
       <span className="item-label">{app.name}</span>
     </button>
@@ -134,7 +134,7 @@ function SidebarIconButton({
       aria-label={label}
     >
       <span className="icon-wrapper">
-        <Icon size={20} strokeWidth={1.75} />
+        <Icon size={18} strokeWidth={1.75} />
       </span>
       <span className="item-label">{label}</span>
     </button>

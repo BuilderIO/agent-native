@@ -16,12 +16,35 @@ function eventPath(id: string): string {
   return path.join(EVENTS_DIR, `${id}.json`);
 }
 
-export function listEvents(req: Request, res: Response): void {
+export async function listEvents(req: Request, res: Response): Promise<void> {
   try {
-    let events = listJsonFiles<CalendarEvent>(EVENTS_DIR);
-
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
+    const connected = googleCalendar.isConnected();
+
+    // If Google is connected, fetch Google events (skip local demo data)
+    if (connected && from && to) {
+      const googleEvents = await googleCalendar.listEvents(from, to);
+
+      let events = googleEvents;
+      if (from) {
+        const fromDate = new Date(from);
+        events = events.filter((e) => new Date(e.end) >= fromDate);
+      }
+      if (to) {
+        const toDate = new Date(to);
+        events = events.filter((e) => new Date(e.start) <= toDate);
+      }
+
+      events.sort(
+        (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
+      );
+      res.json(events);
+      return;
+    }
+
+    // Not connected — show local events
+    let events = listJsonFiles<CalendarEvent>(EVENTS_DIR);
 
     if (from) {
       const fromDate = new Date(from);
@@ -37,6 +60,7 @@ export function listEvents(req: Request, res: Response): void {
     );
     res.json(events);
   } catch (error: any) {
+    console.error("[listEvents] Error:", error.message);
     res.status(500).json({ error: error.message });
   }
 }

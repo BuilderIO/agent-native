@@ -20,11 +20,11 @@ function createWindow(): BrowserWindow {
     minWidth: 960,
     minHeight: 600,
 
-    // macOS: use hidden inset title bar so native traffic lights appear over content
+    // macOS: hidden title bar with traffic lights positioned in the tab bar
     // Windows/Linux: fully frameless, custom controls in renderer
-    titleBarStyle: isMac ? "hiddenInset" : "hidden",
-    ...(isMac && { trafficLightPosition: { x: 16, y: 18 } }),
-    frame: !isMac ? false : undefined,
+    titleBarStyle: "hidden",
+    // Traffic lights in the far top-left of the tab bar
+    ...(isMac && { trafficLightPosition: { x: 14, y: 12 } }),
 
     backgroundColor: "#111111",
     show: false,

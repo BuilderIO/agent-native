@@ -72,6 +72,11 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     server: {
       host: "::",
       port: options.port ?? 8080,
+      watch: {
+        // Ignore .env changes — env vars are applied via process.env directly
+        // without needing a server restart, so this avoids disruptive reloads
+        ignored: ["**/.env"],
+      },
       fs: {
         allow: [".", ...(options.fsAllow ?? [])],
         deny: [

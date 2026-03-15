@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Mail,
   X,
@@ -8,9 +8,9 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useGoogleAuthStatus, useGoogleAuthUrl } from "@/hooks/use-google-auth";
 
 interface EnvKeyStatus {
@@ -31,20 +31,23 @@ const STEPS = [
   {
     title: "Configure OAuth consent screen",
     description:
-      'Open the link below, set the app name to anything (e.g. "My Mail"), choose "External" user type, and add your email as a test user. If you see an overview page, consent is already configured — skip to the next step.',
-    copyUrl: "https://console.cloud.google.com/apis/credentials/consent",
+      'Set the app name to anything (e.g. "My Mail"), choose "External" user type, and add your email as a test user. If you see an overview page, consent is already configured — skip to the next step.',
+    url: "https://console.cloud.google.com/apis/credentials/consent",
+    linkText: "Configure consent screen",
   },
   {
     title: "Create OAuth credentials",
     description:
-      'Open the link below, click "+ Create Credentials" → "OAuth client ID", choose "Web application", and add this redirect URI:',
-    copyUrl: "https://console.cloud.google.com/apis/credentials",
+      '1) Click "+ Create Credentials" → "OAuth client ID"\n2) Choose "Web application"\n3) Add this redirect URI:',
+    url: "https://console.cloud.google.com/apis/credentials",
+    linkText: "Create credentials",
     showRedirectUri: true,
   },
   {
-    title: "Paste your credentials",
-    description: "Copy the Client ID and Client Secret from the previous step.",
-    showInputs: true,
+    title: "Upload credentials JSON",
+    description:
+      'Click "Download JSON" on the credentials page, then upload it here.',
+    showUpload: true,
   },
 ];
 
@@ -57,13 +60,12 @@ export function GoogleConnectBanner() {
 
   // Wizard state
   const [currentStep, setCurrentStep] = useState(0);
-  const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [envStatus, setEnvStatus] = useState<EnvKeyStatus[]>([]);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const redirectUri = `${window.location.origin}/api/google/callback`;
 
@@ -84,11 +86,30 @@ export function GoogleConnectBanner() {
     }
   }, []);
 
-  // When auth URL is ready, open it
+  // Check if credentials are already configured on mount
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
+
+  // When auth URL is ready, open it and poll for connection
   useEffect(() => {
     if (authUrl.data?.url) {
       window.open(authUrl.data.url, "_blank");
       setWantAuthUrl(false);
+
+      // Poll for connection status while user completes OAuth in other tab
+      const interval = setInterval(async () => {
+        const res = await fetch("/api/google/status").catch(() => null);
+        if (res?.ok) {
+          const data = await res.json();
+          if (data.connected) {
+            clearInterval(interval);
+            googleStatus.refetch();
+          }
+        }
+      }, 2000);
+
+      return () => clearInterval(interval);
     }
   }, [authUrl.data]);
 
@@ -114,20 +135,30 @@ export function GoogleConnectBanner() {
     }
   }
 
-  async function handleSave() {
-    if (!clientId.trim() || !clientSecret.trim()) return;
-
+  async function handleJsonUpload(file: File) {
     setSaving(true);
     setSaveError(null);
 
     try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+
+      // Google's downloaded JSON has the credentials nested under "web" or "installed"
+      const creds = json.web || json.installed || json;
+      const clientId = creds.client_id;
+      const clientSecret = creds.client_secret;
+
+      if (!clientId || !clientSecret) {
+        throw new Error("Could not find client_id and client_secret in JSON");
+      }
+
       const res = await fetch("/api/env-vars", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           vars: [
-            { key: "GOOGLE_CLIENT_ID", value: clientId.trim() },
-            { key: "GOOGLE_CLIENT_SECRET", value: clientSecret.trim() },
+            { key: "GOOGLE_CLIENT_ID", value: clientId },
+            { key: "GOOGLE_CLIENT_SECRET", value: clientSecret },
           ],
         }),
       });
@@ -138,11 +169,11 @@ export function GoogleConnectBanner() {
       }
 
       setSaved(true);
-      setClientId("");
-      setClientSecret("");
       await fetchStatus();
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save");
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to parse JSON"
+      );
     } finally {
       setSaving(false);
     }
@@ -165,7 +196,9 @@ export function GoogleConnectBanner() {
             <Mail className="h-3 w-3 text-primary/70" />
           </div>
           <p className="text-[13px] font-medium leading-tight text-foreground/80">
-            Connect Google to send and receive real email
+            {allConfigured
+              ? "Ready to connect — sign in with your Google account"
+              : "Connect Google to send and receive real email"}
           </p>
         </div>
 
@@ -180,19 +213,25 @@ export function GoogleConnectBanner() {
               <ChevronUp className="h-3 w-3" />
               Hide setup
             </Button>
-          ) : (
+          ) : allConfigured ? (
             <Button
               size="sm"
-              className="gap-1.5 text-xs h-7 font-medium"
+              className="gap-1.5 text-xs h-7 font-medium bg-white text-black hover:bg-white/90"
               onClick={handleConnect}
               disabled={authUrl.isLoading || authUrl.isFetching}
             >
               <GoogleIcon className="h-3 w-3" />
-              {authUrl.isFetching
-                ? "Connecting..."
-                : allConfigured
-                  ? "Connect Google"
-                  : "Set up Google"}
+              {authUrl.isFetching ? "Connecting..." : "Sign in with Google"}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-xs h-7 font-medium"
+              onClick={handleConnect}
+              disabled={authUrl.isLoading || authUrl.isFetching}
+            >
+              {authUrl.isFetching ? "..." : "Set up Google"}
             </Button>
           )}
           <Button
@@ -259,7 +298,7 @@ export function GoogleConnectBanner() {
 
                       {isActive && (
                         <div className="mt-2 space-y-2.5">
-                          <p className="text-xs text-muted-foreground leading-relaxed">
+                          <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
                             {step.description}
                           </p>
 
@@ -275,9 +314,6 @@ export function GoogleConnectBanner() {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   copyToClipboard(step.copyUrl!, `url-${i}`);
-                                  if (i < STEPS.length - 1) {
-                                    setCurrentStep(i + 1);
-                                  }
                                 }}
                               >
                                 {copiedKey === `url-${i}` ? (
@@ -342,44 +378,21 @@ export function GoogleConnectBanner() {
                             </Button>
                           )}
 
-                          {step.showInputs && !allConfigured && (
+                          {step.showUpload && !allConfigured && (
                             <div
                               className="space-y-2.5"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <div className="space-y-1.5">
-                                <label
-                                  htmlFor="mail-client-id"
-                                  className="text-xs text-muted-foreground font-medium"
-                                >
-                                  Client ID
-                                </label>
-                                <Input
-                                  id="mail-client-id"
-                                  value={clientId}
-                                  onChange={(e) => setClientId(e.target.value)}
-                                  placeholder="123456789.apps.googleusercontent.com"
-                                  className="text-xs h-8 font-mono"
-                                />
-                              </div>
-                              <div className="space-y-1.5">
-                                <label
-                                  htmlFor="mail-client-secret"
-                                  className="text-xs text-muted-foreground font-medium"
-                                >
-                                  Client Secret
-                                </label>
-                                <Input
-                                  id="mail-client-secret"
-                                  type="password"
-                                  value={clientSecret}
-                                  onChange={(e) =>
-                                    setClientSecret(e.target.value)
-                                  }
-                                  placeholder="GOCSPX-..."
-                                  className="text-xs h-8 font-mono"
-                                />
-                              </div>
+                              <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept=".json"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleJsonUpload(file);
+                                }}
+                              />
                               {saveError && (
                                 <p className="text-xs text-destructive">
                                   {saveError}
@@ -387,26 +400,24 @@ export function GoogleConnectBanner() {
                               )}
                               <Button
                                 size="sm"
-                                className="h-7 text-xs"
+                                className="h-7 text-xs gap-1.5"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleSave();
+                                  fileInputRef.current?.click();
                                 }}
-                                disabled={
-                                  saving ||
-                                  !clientId.trim() ||
-                                  !clientSecret.trim()
-                                }
+                                disabled={saving}
                               >
-                                {saving && (
-                                  <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                                {saving ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Upload className="h-3 w-3" />
                                 )}
-                                {saving ? "Saving..." : "Save credentials"}
+                                {saving ? "Saving..." : "Upload JSON"}
                               </Button>
                             </div>
                           )}
 
-                          {step.showInputs && allConfigured && (
+                          {step.showUpload && allConfigured && (
                             <div className="flex items-center gap-2 text-xs text-green-500">
                               <Check className="h-3.5 w-3.5" />
                               Credentials configured. Click "Connect Google"

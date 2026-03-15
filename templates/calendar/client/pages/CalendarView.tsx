@@ -40,7 +40,6 @@ import { WeekView } from "@/components/calendar/WeekView";
 import { DayView } from "@/components/calendar/DayView";
 import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
 import { CreateEventDialog } from "@/components/calendar/CreateEventDialog";
-import { GoogleSyncButton } from "@/components/calendar/GoogleSyncButton";
 import { CommandPalette } from "@/components/calendar/CommandPalette";
 import { KeyboardShortcutsHelp } from "@/components/calendar/KeyboardShortcutsHelp";
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
@@ -100,7 +99,7 @@ export default function CalendarView() {
     }
   }, [viewMode, selectedDate]);
 
-  const { data: events = [] } = useEvents(from, to);
+  const { data: events = [], error: eventsError } = useEvents(from, to);
 
   // Filter events for day view
   const dayEvents = useMemo(
@@ -396,9 +395,8 @@ export default function CalendarView() {
             <span className="ml-1 text-sm font-semibold">{headerLabel}</span>
           </div>
 
-          {/* Right: search, shortcuts, google sync, new event */}
+          {/* Right: search, shortcuts, new event */}
           <div className="flex items-center gap-1">
-            {isGoogleConnected && <GoogleSyncButton />}
 
             <Tooltip>
               <TooltipTrigger asChild>

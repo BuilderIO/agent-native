@@ -38,7 +38,10 @@ export async function handleGoogleCallback(
       return;
     }
     await exchangeCode(code, getOrigin(req));
-    res.redirect("/settings?connected=true");
+    res.send(`<!DOCTYPE html><html><body><script>
+      window.close();
+      document.body.innerHTML = '<p style="font-family:system-ui;text-align:center;margin-top:40vh">Connected! You can close this tab.</p>';
+    </script></body></html>`);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
