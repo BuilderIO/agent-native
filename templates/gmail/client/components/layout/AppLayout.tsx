@@ -7,12 +7,19 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Sidebar } from "./Sidebar";
 import { CommandPalette } from "./CommandPalette";
 import { ComposeModal } from "@/components/email/ComposeModal";
-import { useKeyboardShortcuts, useSequenceShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import {
+  useKeyboardShortcuts,
+  useSequenceShortcuts,
+} from "@/hooks/use-keyboard-shortcuts";
 import { useSettings } from "@/hooks/use-emails";
 import { getInitials, getAvatarColor } from "@/lib/utils";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useTheme } from "next-themes";
 import { Sun, Moon, Monitor } from "lucide-react";
@@ -41,15 +48,26 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   // Global keyboard shortcuts
   useKeyboardShortcuts([
-    { key: "k", meta: true, handler: () => setPaletteOpen(true), skipInInput: false },
-    { key: "/", handler: () => {
-      document.getElementById("mail-search")?.focus();
-    }},
+    {
+      key: "k",
+      meta: true,
+      handler: () => setPaletteOpen(true),
+      skipInInput: false,
+    },
+    {
+      key: "/",
+      handler: () => {
+        document.getElementById("mail-search")?.focus();
+      },
+    },
     { key: "c", handler: handleCompose },
-    { key: "Escape", handler: () => {
-      setSearchQuery("");
-      (document.getElementById("mail-search") as HTMLInputElement)?.blur();
-    }},
+    {
+      key: "Escape",
+      handler: () => {
+        setSearchQuery("");
+        (document.getElementById("mail-search") as HTMLInputElement)?.blur();
+      },
+    },
   ]);
 
   // Sequence shortcuts (g + i = go inbox, etc.)
@@ -127,7 +145,9 @@ export function AppLayout({ children }: AppLayoutProps) {
               <DropdownMenuTrigger asChild>
                 <button className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   <Avatar className="h-8 w-8">
-                    <AvatarFallback className={`${avatarColor} text-white text-xs`}>
+                    <AvatarFallback
+                      className={`${avatarColor} text-white text-xs`}
+                    >
                       {userInitials}
                     </AvatarFallback>
                   </Avatar>
@@ -135,8 +155,12 @@ export function AppLayout({ children }: AppLayoutProps) {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52">
                 <DropdownMenuLabel className="font-normal">
-                  <p className="text-sm font-medium">{settings?.name ?? "Alex Johnson"}</p>
-                  <p className="text-xs text-muted-foreground">{settings?.email ?? "me@example.com"}</p>
+                  <p className="text-sm font-medium">
+                    {settings?.name ?? "Alex Johnson"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {settings?.email ?? "me@example.com"}
+                  </p>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => setTheme("light")}>

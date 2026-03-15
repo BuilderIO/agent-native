@@ -13,14 +13,20 @@ export default async function main(): Promise<void> {
   const args = parseArgs();
   const days = args["older-than"] ? parseInt(args["older-than"], 10) : 30;
 
-  if (isNaN(days) || days < 1) fatal("--older-than must be a positive integer (days)");
+  if (isNaN(days) || days < 1)
+    fatal("--older-than must be a positive integer (days)");
 
   const emails: any[] = JSON.parse(fs.readFileSync(EMAILS_FILE, "utf-8"));
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
 
   let archived = 0;
   const updated = emails.map((email) => {
-    if (!email.isArchived && !email.isTrashed && !email.isDraft && new Date(email.date).getTime() < cutoff) {
+    if (
+      !email.isArchived &&
+      !email.isTrashed &&
+      !email.isDraft &&
+      new Date(email.date).getTime() < cutoff
+    ) {
       archived++;
       return {
         ...email,

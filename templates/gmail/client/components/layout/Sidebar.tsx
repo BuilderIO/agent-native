@@ -1,7 +1,16 @@
 import { Link, useParams } from "react-router-dom";
 import {
-  Inbox, Star, Send, FileText, Archive, Trash2,
-  Tag, Plus, Settings, ChevronDown, ChevronRight,
+  Inbox,
+  Star,
+  Send,
+  FileText,
+  Archive,
+  Trash2,
+  Tag,
+  Plus,
+  Settings,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -61,7 +70,10 @@ export function Sidebar({ open, onClose, onCompose }: SidebarProps) {
         {/* Compose button */}
         <div className="px-3 pb-3">
           <Button
-            onClick={() => { onCompose(); onClose(); }}
+            onClick={() => {
+              onCompose();
+              onClose();
+            }}
             className="w-full justify-start gap-2 rounded-2xl font-medium"
             size="sm"
           >
@@ -92,10 +104,12 @@ export function Sidebar({ open, onClose, onCompose }: SidebarProps) {
                   {item.label}
                 </span>
                 {label?.unreadCount ? (
-                  <span className={cn(
-                    "text-xs font-semibold tabular-nums",
-                    isActive ? "text-primary" : "text-muted-foreground",
-                  )}>
+                  <span
+                    className={cn(
+                      "text-xs font-semibold tabular-nums",
+                      isActive ? "text-primary" : "text-muted-foreground",
+                    )}
+                  >
                     {label.unreadCount}
                   </span>
                 ) : null}
@@ -110,14 +124,19 @@ export function Sidebar({ open, onClose, onCompose }: SidebarProps) {
                 onClick={() => setLabelsExpanded(!labelsExpanded)}
                 className="flex w-full items-center gap-1 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
               >
-                {labelsExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                {labelsExpanded ? (
+                  <ChevronDown className="h-3 w-3" />
+                ) : (
+                  <ChevronRight className="h-3 w-3" />
+                )}
                 Labels
               </button>
 
               {labelsExpanded && (
                 <div className="mt-1 space-y-0.5">
                   {userLabels.map((label) => {
-                    const isActive = view === `label:${label.id}` || view === label.id;
+                    const isActive =
+                      view === `label:${label.id}` || view === label.id;
                     return (
                       <Link
                         key={label.id}

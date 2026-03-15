@@ -38,7 +38,10 @@ export function useMarkRead() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, isRead }: { id: string; isRead: boolean }) =>
-      apiFetch(`/api/emails/${id}/read`, { method: "PATCH", body: JSON.stringify({ isRead }) }),
+      apiFetch(`/api/emails/${id}/read`, {
+        method: "PATCH",
+        body: JSON.stringify({ isRead }),
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
   });
 }
@@ -47,7 +50,10 @@ export function useToggleStar() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, isStarred }: { id: string; isStarred: boolean }) =>
-      apiFetch(`/api/emails/${id}/star`, { method: "PATCH", body: JSON.stringify({ isStarred }) }),
+      apiFetch(`/api/emails/${id}/star`, {
+        method: "PATCH",
+        body: JSON.stringify({ isStarred }),
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
   });
 }
@@ -80,7 +86,11 @@ export function useSendEmail() {
       subject: string;
       body: string;
       replyToId?: string;
-    }) => apiFetch("/api/emails/send", { method: "POST", body: JSON.stringify(data) }),
+    }) =>
+      apiFetch("/api/emails/send", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
   });
 }
@@ -88,7 +98,8 @@ export function useSendEmail() {
 export function useDeleteEmail() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => apiFetch(`/api/emails/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) =>
+      apiFetch(`/api/emails/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
   });
 }
@@ -117,7 +128,10 @@ export function useUpdateSettings() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: Partial<UserSettings>) =>
-      apiFetch("/api/settings", { method: "PATCH", body: JSON.stringify(data) }),
+      apiFetch("/api/settings", {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
   });
 }

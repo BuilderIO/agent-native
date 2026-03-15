@@ -1,5 +1,11 @@
 import { Star, Paperclip } from "lucide-react";
-import { cn, formatEmailDate, getInitials, getAvatarColor, truncate } from "@/lib/utils";
+import {
+  cn,
+  formatEmailDate,
+  getInitials,
+  getAvatarColor,
+  truncate,
+} from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { EmailMessage } from "@shared/types";
 
@@ -11,7 +17,13 @@ interface EmailListItemProps {
   onStar: (e: React.MouseEvent) => void;
 }
 
-export function EmailListItem({ email, isSelected, isFocused, onSelect, onStar }: EmailListItemProps) {
+export function EmailListItem({
+  email,
+  isSelected,
+  isFocused,
+  onSelect,
+  onStar,
+}: EmailListItemProps) {
   const senderName = email.from.name || email.from.email;
   const initials = getInitials(senderName);
   const avatarColor = getAvatarColor(senderName);
@@ -32,14 +44,14 @@ export function EmailListItem({ email, isSelected, isFocused, onSelect, onStar }
     >
       {/* Unread dot */}
       <div className="mt-1.5 flex w-2 shrink-0 items-center justify-center">
-        {!email.isRead && (
-          <div className="h-2 w-2 rounded-full bg-primary" />
-        )}
+        {!email.isRead && <div className="h-2 w-2 rounded-full bg-primary" />}
       </div>
 
       {/* Avatar */}
       <Avatar className="mt-0.5 h-8 w-8 shrink-0">
-        <AvatarFallback className={cn(avatarColor, "text-white text-xs font-semibold")}>
+        <AvatarFallback
+          className={cn(avatarColor, "text-white text-xs font-semibold")}
+        >
           {initials}
         </AvatarFallback>
       </Avatar>
@@ -47,10 +59,14 @@ export function EmailListItem({ email, isSelected, isFocused, onSelect, onStar }
       {/* Content */}
       <div className="min-w-0 flex-1 overflow-hidden">
         <div className="flex items-baseline justify-between gap-2">
-          <span className={cn(
-            "truncate text-sm",
-            email.isRead ? "font-medium text-foreground/80" : "font-semibold text-foreground",
-          )}>
+          <span
+            className={cn(
+              "truncate text-sm",
+              email.isRead
+                ? "font-medium text-foreground/80"
+                : "font-semibold text-foreground",
+            )}
+          >
             {senderName}
           </span>
           <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
@@ -59,10 +75,14 @@ export function EmailListItem({ email, isSelected, isFocused, onSelect, onStar }
         </div>
 
         <div className="flex items-center gap-1.5">
-          <p className={cn(
-            "truncate text-sm",
-            email.isRead ? "text-muted-foreground" : "font-medium text-foreground/90",
-          )}>
+          <p
+            className={cn(
+              "truncate text-sm",
+              email.isRead
+                ? "text-muted-foreground"
+                : "font-medium text-foreground/90",
+            )}
+          >
             {email.subject}
           </p>
         </div>

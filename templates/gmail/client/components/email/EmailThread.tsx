@@ -1,27 +1,56 @@
 import { useState, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  ArrowLeft, Archive, Trash2, Star, CornerUpLeft,
-  MoreHorizontal, Paperclip,
-  ChevronDown, ChevronUp, Forward,
+  ArrowLeft,
+  Archive,
+  Trash2,
+  Star,
+  CornerUpLeft,
+  MoreHorizontal,
+  Paperclip,
+  ChevronDown,
+  ChevronUp,
+  Forward,
 } from "lucide-react";
-import { cn, formatEmailDateFull, getInitials, getAvatarColor, formatFileSize } from "@/lib/utils";
+import {
+  cn,
+  formatEmailDateFull,
+  getInitials,
+  getAvatarColor,
+  formatFileSize,
+} from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuSeparator, DropdownMenuTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ComposeModal } from "./ComposeModal";
-import { useEmail, useArchiveEmail, useTrashEmail, useToggleStar, useMarkRead } from "@/hooks/use-emails";
+import {
+  useEmail,
+  useArchiveEmail,
+  useTrashEmail,
+  useToggleStar,
+  useMarkRead,
+} from "@/hooks/use-emails";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { toast } from "sonner";
 import type { EmailMessage } from "@shared/types";
 
 export function EmailThread() {
-  const { view = "inbox", threadId } = useParams<{ view: string; threadId: string }>();
+  const { view = "inbox", threadId } = useParams<{
+    view: string;
+    threadId: string;
+  }>();
   const navigate = useNavigate();
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyEmail, setReplyEmail] = useState<EmailMessage | null>(null);
@@ -38,14 +67,20 @@ export function EmailThread() {
   const handleArchive = useCallback(() => {
     if (!email) return;
     archiveEmail.mutate(email.id, {
-      onSuccess: () => { toast.success("Archived"); goBack(); },
+      onSuccess: () => {
+        toast.success("Archived");
+        goBack();
+      },
     });
   }, [email, archiveEmail, goBack]);
 
   const handleTrash = useCallback(() => {
     if (!email) return;
     trashEmail.mutate(email.id, {
-      onSuccess: () => { toast.success("Moved to trash"); goBack(); },
+      onSuccess: () => {
+        toast.success("Moved to trash");
+        goBack();
+      },
     });
   }, [email, trashEmail, goBack]);
 
@@ -54,23 +89,32 @@ export function EmailThread() {
     toggleStar.mutate({ id: email.id, isStarred: !email.isStarred });
   }, [email, toggleStar]);
 
-  const handleReply = useCallback((msg?: EmailMessage) => {
-    setReplyEmail(msg ?? email ?? null);
-    setReplyOpen(true);
-  }, [email]);
+  const handleReply = useCallback(
+    (msg?: EmailMessage) => {
+      setReplyEmail(msg ?? email ?? null);
+      setReplyOpen(true);
+    },
+    [email],
+  );
 
   // Keyboard shortcuts (active when thread is open)
-  useKeyboardShortcuts([
-    { key: "Escape", handler: goBack },
-    { key: "e", handler: handleArchive },
-    { key: "d", handler: handleTrash },
-    { key: "s", handler: handleStar },
-    { key: "r", handler: () => handleReply() },
-    { key: "u", handler: () => {
-      if (!email) return;
-      markRead.mutate({ id: email.id, isRead: !email.isRead });
-    }},
-  ], !!threadId);
+  useKeyboardShortcuts(
+    [
+      { key: "Escape", handler: goBack },
+      { key: "e", handler: handleArchive },
+      { key: "d", handler: handleTrash },
+      { key: "s", handler: handleStar },
+      { key: "r", handler: () => handleReply() },
+      {
+        key: "u",
+        handler: () => {
+          if (!email) return;
+          markRead.mutate({ id: email.id, isRead: !email.isRead });
+        },
+      },
+    ],
+    !!threadId,
+  );
 
   if (!threadId) return null;
 
@@ -86,7 +130,11 @@ export function EmailThread() {
         </div>
         <div className="flex-1 p-6 space-y-3">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-3 rounded bg-muted animate-pulse" style={{ width: `${60 + Math.random() * 30}%` }} />
+            <div
+              key={i}
+              className="h-3 rounded bg-muted animate-pulse"
+              style={{ width: `${60 + Math.random() * 30}%` }}
+            />
           ))}
         </div>
       </div>
@@ -111,55 +159,100 @@ export function EmailThread() {
       <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-3">
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={goBack}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={goBack}
+            >
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="bottom">Back <kbd className="kbd-hint ml-1">Esc</kbd></TooltipContent>
+          <TooltipContent side="bottom">
+            Back <kbd className="kbd-hint ml-1">Esc</kbd>
+          </TooltipContent>
         </Tooltip>
 
         <div className="flex items-center gap-1 ml-1">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleArchive}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={handleArchive}
+              >
                 <Archive className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Archive <kbd className="kbd-hint ml-1">E</kbd></TooltipContent>
+            <TooltipContent side="bottom">
+              Archive <kbd className="kbd-hint ml-1">E</kbd>
+            </TooltipContent>
           </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleTrash}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={handleTrash}
+              >
                 <Trash2 className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Delete <kbd className="kbd-hint ml-1">D</kbd></TooltipContent>
+            <TooltipContent side="bottom">
+              Delete <kbd className="kbd-hint ml-1">D</kbd>
+            </TooltipContent>
           </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleStar}>
-                <Star className={cn("h-4 w-4", email.isStarred && "fill-amber-400 text-amber-400")} />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={handleStar}
+              >
+                <Star
+                  className={cn(
+                    "h-4 w-4",
+                    email.isStarred && "fill-amber-400 text-amber-400",
+                  )}
+                />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Star <kbd className="kbd-hint ml-1">S</kbd></TooltipContent>
+            <TooltipContent side="bottom">
+              Star <kbd className="kbd-hint ml-1">S</kbd>
+            </TooltipContent>
           </Tooltip>
         </div>
 
         <div className="ml-auto flex items-center gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleReply()}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => handleReply()}
+              >
                 <CornerUpLeft className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Reply <kbd className="kbd-hint ml-1">R</kbd></TooltipContent>
+            <TooltipContent side="bottom">
+              Reply <kbd className="kbd-hint ml-1">R</kbd>
+            </TooltipContent>
           </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setForwardOpen(true)}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setForwardOpen(true)}
+              >
                 <Forward className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
@@ -173,11 +266,18 @@ export function EmailThread() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => markRead.mutate({ id: email.id, isRead: !email.isRead })}>
+              <DropdownMenuItem
+                onClick={() =>
+                  markRead.mutate({ id: email.id, isRead: !email.isRead })
+                }
+              >
                 Mark as {email.isRead ? "unread" : "read"}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive" onClick={handleTrash}>
+              <DropdownMenuItem
+                className="text-destructive"
+                onClick={handleTrash}
+              >
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -206,7 +306,9 @@ export function EmailThread() {
                 >
                   <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <span className="text-foreground">{att.filename}</span>
-                  <span className="text-muted-foreground text-xs">{formatFileSize(att.size)}</span>
+                  <span className="text-muted-foreground text-xs">
+                    {formatFileSize(att.size)}
+                  </span>
                 </div>
               ))}
             </div>
@@ -219,7 +321,8 @@ export function EmailThread() {
           >
             <CornerUpLeft className="h-4 w-4 text-muted-foreground shrink-0" />
             <span className="text-sm text-muted-foreground">
-              Reply to {email.from.name || email.from.email}… <kbd className="kbd-hint">R</kbd>
+              Reply to {email.from.name || email.from.email}…{" "}
+              <kbd className="kbd-hint">R</kbd>
             </span>
           </div>
         </div>
@@ -242,7 +345,13 @@ export function EmailThread() {
   );
 }
 
-function EmailMessageCard({ email, onReply }: { email: EmailMessage; onReply: () => void }) {
+function EmailMessageCard({
+  email,
+  onReply,
+}: {
+  email: EmailMessage;
+  onReply: () => void;
+}) {
   const [expanded, setExpanded] = useState(true);
   const senderName = email.from.name || email.from.email;
   const initials = getInitials(senderName);
@@ -256,14 +365,18 @@ function EmailMessageCard({ email, onReply }: { email: EmailMessage; onReply: ()
         onClick={() => setExpanded(!expanded)}
       >
         <Avatar className="h-9 w-9 shrink-0">
-          <AvatarFallback className={cn(avatarColor, "text-white text-xs font-semibold")}>
+          <AvatarFallback
+            className={cn(avatarColor, "text-white text-xs font-semibold")}
+          >
             {initials}
           </AvatarFallback>
         </Avatar>
 
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="text-sm font-semibold text-foreground">{senderName}</span>
+            <span className="text-sm font-semibold text-foreground">
+              {senderName}
+            </span>
             <span className="shrink-0 text-xs text-muted-foreground">
               {formatEmailDateFull(email.date)}
             </span>
@@ -271,7 +384,9 @@ function EmailMessageCard({ email, onReply }: { email: EmailMessage; onReply: ()
           <div className="text-xs text-muted-foreground mt-0.5">
             to {email.to.map((r) => r.name || r.email).join(", ")}
             {email.cc?.length ? (
-              <span className="ml-1">cc {email.cc.map((r) => r.name || r.email).join(", ")}</span>
+              <span className="ml-1">
+                cc {email.cc.map((r) => r.name || r.email).join(", ")}
+              </span>
             ) : null}
           </div>
         </div>
@@ -281,13 +396,18 @@ function EmailMessageCard({ email, onReply }: { email: EmailMessage; onReply: ()
             variant="ghost"
             size="icon"
             className="h-7 w-7 shrink-0"
-            onClick={(e) => { e.stopPropagation(); onReply(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onReply();
+            }}
           >
             <CornerUpLeft className="h-3.5 w-3.5" />
           </Button>
-          {expanded
-            ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
-            : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+          {expanded ? (
+            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          )}
         </div>
       </div>
 

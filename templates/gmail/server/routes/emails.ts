@@ -51,10 +51,17 @@ function readSettings(): UserSettings {
   }
 }
 
-function recomputeUnreadCounts(emails: EmailMessage[], labels: Label[]): Label[] {
+function recomputeUnreadCounts(
+  emails: EmailMessage[],
+  labels: Label[],
+): Label[] {
   return labels.map((label) => {
     const unread = emails.filter(
-      (e) => !e.isRead && !e.isArchived && !e.isTrashed && e.labelIds.includes(label.id),
+      (e) =>
+        !e.isRead &&
+        !e.isArchived &&
+        !e.isTrashed &&
+        e.labelIds.includes(label.id),
     ).length;
     return { ...label, unreadCount: unread };
   });
@@ -69,7 +76,9 @@ export function listEmails(req: Request, res: Response) {
   // Filter by view
   switch (view) {
     case "inbox":
-      emails = emails.filter((e) => !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent);
+      emails = emails.filter(
+        (e) => !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
+      );
       break;
     case "starred":
       emails = emails.filter((e) => e.isStarred && !e.isTrashed);
@@ -90,8 +99,12 @@ export function listEmails(req: Request, res: Response) {
       break;
     default:
       // label: prefixed or raw label id
-      const labelId = view.startsWith("label:") ? view.replace("label:", "") : view;
-      emails = emails.filter((e) => e.labelIds.includes(labelId) && !e.isTrashed);
+      const labelId = view.startsWith("label:")
+        ? view.replace("label:", "")
+        : view;
+      emails = emails.filter(
+        (e) => e.labelIds.includes(labelId) && !e.isTrashed,
+      );
   }
 
   // Full-text search
@@ -108,7 +121,9 @@ export function listEmails(req: Request, res: Response) {
   }
 
   // Sort by date descending
-  emails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  emails.sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+  );
 
   res.json(emails);
 }
@@ -160,7 +175,11 @@ export function archiveEmail(req: Request, res: Response) {
   const idx = emails.findIndex((e) => e.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: "Email not found" });
 
-  emails[idx] = { ...emails[idx], isArchived: true, labelIds: emails[idx].labelIds.filter((l) => l !== "inbox") };
+  emails[idx] = {
+    ...emails[idx],
+    isArchived: true,
+    labelIds: emails[idx].labelIds.filter((l) => l !== "inbox"),
+  };
   writeEmails(emails);
 
   const labels = recomputeUnreadCounts(emails, readLabels());
@@ -190,7 +209,8 @@ export function trashEmail(req: Request, res: Response) {
 export function deleteEmail(req: Request, res: Response) {
   const emails = readEmails();
   const filtered = emails.filter((e) => e.id !== req.params.id);
-  if (filtered.length === emails.length) return res.status(404).json({ error: "Email not found" });
+  if (filtered.length === emails.length)
+    return res.status(404).json({ error: "Email not found" });
   writeEmails(filtered);
   res.json({ ok: true });
 }
@@ -202,7 +222,9 @@ export function sendEmail(req: Request, res: Response) {
   const { to, cc, bcc, subject, body, replyToId } = req.body;
 
   if (!to || !subject === undefined || body === undefined) {
-    return res.status(400).json({ error: "Missing required fields: to, subject, body" });
+    return res
+      .status(400)
+      .json({ error: "Missing required fields: to, subject, body" });
   }
 
   const emails = readEmails();
@@ -210,15 +232,28 @@ export function sendEmail(req: Request, res: Response) {
   const newEmail: EmailMessage = {
     id: `msg-${nanoid(8)}`,
     threadId: replyToId
-      ? (emails.find((e) => e.id === replyToId)?.threadId ?? `thread-${nanoid(8)}`)
+      ? (emails.find((e) => e.id === replyToId)?.threadId ??
+        `thread-${nanoid(8)}`)
       : `thread-${nanoid(8)}`,
     from: { name: settings.name, email: settings.email },
     to: (to as string).split(",").map((t: string) => {
       const trimmed = t.trim();
       return { name: trimmed, email: trimmed };
     }),
-    ...(cc ? { cc: (cc as string).split(",").map((t: string) => ({ name: t.trim(), email: t.trim() })) } : {}),
-    ...(bcc ? { bcc: (bcc as string).split(",").map((t: string) => ({ name: t.trim(), email: t.trim() })) } : {}),
+    ...(cc
+      ? {
+          cc: (cc as string)
+            .split(",")
+            .map((t: string) => ({ name: t.trim(), email: t.trim() })),
+        }
+      : {}),
+    ...(bcc
+      ? {
+          bcc: (bcc as string)
+            .split(",")
+            .map((t: string) => ({ name: t.trim(), email: t.trim() })),
+        }
+      : {}),
     subject,
     snippet: body.slice(0, 120).replace(/\n/g, " "),
     body,
