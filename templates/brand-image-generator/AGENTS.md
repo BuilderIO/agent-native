@@ -4,6 +4,18 @@
 
 This app manages brand assets and generates on-brand images using Gemini. The agent's role is to analyze brand references, build style profiles, and generate images that match the brand's visual style.
 
+## Agent Skills
+
+See `.agents/skills/` for the framework rules that apply to all agent-native apps:
+
+- **files-as-database** — All state is files. No databases, no localStorage.
+- **delegate-to-agent** — UI never calls an LLM directly. All AI goes through the agent chat.
+- **scripts** — Complex operations are scripts in `scripts/`, run via `pnpm script <name>`.
+- **sse-file-watcher** — UI stays in sync with agent changes via SSE.
+- **frontend-design** — Build distinctive, production-grade UI. Read this skill before creating or restyling any component, page, or layout.
+
+---
+
 ## Architecture
 
 Files are the database. All state lives in `data/`:
