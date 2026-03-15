@@ -1,6 +1,12 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { CalendarDays, Clock, Users, Settings, ExternalLink } from "lucide-react";
+import {
+  CalendarDays,
+  Clock,
+  Users,
+  Settings,
+  ExternalLink,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useGoogleAuthStatus, useGoogleAuthUrl } from "@/hooks/use-google-auth";

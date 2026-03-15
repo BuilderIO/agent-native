@@ -114,11 +114,8 @@ export function MonthView({
                 <span
                   className={cn(
                     "flex h-7 w-7 items-center justify-center rounded-full text-sm font-medium transition-colors",
-                    today &&
-                      "bg-primary text-primary-foreground font-semibold",
-                    selected &&
-                      !today &&
-                      "bg-accent text-accent-foreground",
+                    today && "bg-primary text-primary-foreground font-semibold",
+                    selected && !today && "bg-accent text-accent-foreground",
                     !today && !selected && "text-foreground",
                   )}
                 >

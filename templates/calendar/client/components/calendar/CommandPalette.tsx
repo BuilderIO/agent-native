@@ -75,10 +75,7 @@ export function CommandPalette({
     const q = query.toLowerCase();
     return events
       .filter((e) => e.title.toLowerCase().includes(q))
-      .sort(
-        (a, b) =>
-          new Date(a.start).getTime() - new Date(b.start).getTime(),
-      )
+      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
       .slice(0, 6);
   }, [query, events]);
 
