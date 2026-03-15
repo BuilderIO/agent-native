@@ -1,4 +1,3 @@
 packages:
   - "packages/*"
   - "templates/*"
-onlyBuiltDependencies: ["node-pty", "esbuild", "lightningcss"]

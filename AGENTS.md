@@ -65,6 +65,16 @@ Run with: `pnpm script my-script --name foo`
 
 All code in this project — including standalone scripts in `scripts/` — must be TypeScript (`.ts`). Never use `.js` or `.mjs` files. Node 22+ runs `.ts` files natively via type stripping (`node scripts/foo.ts`), so no compilation step or `tsx` is needed for scripts.
 
+## Prettier After Writing Files
+
+After writing or modifying any source file (`.ts`, `.tsx`, `.js`, `.jsx`, `.json`, `.css`, `.md`, `.yaml`, `.yml`, `.html`), always run Prettier on those specific files before committing:
+
+```bash
+npx prettier --write path/to/file1.ts path/to/file2.tsx
+```
+
+This keeps CI green — the `fmt:check` step in CI will reject unformatted code. Run Prettier on the specific files you changed, not the entire repo.
+
 ## Image Output
 
 Never save screenshots, images, or other binary artifacts to the repository root or directly inside package directories. Save them to a temporary directory or use an ephemeral path.

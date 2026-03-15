@@ -1,5 +1,6 @@
 node_modules
 dist
+.netlify
 pnpm-lock.yaml
 **/SKILL.md
 **/routeTree.gen.ts
