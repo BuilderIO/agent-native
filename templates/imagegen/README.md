@@ -1,4 +1,4 @@
-# Brand Image Generator — AI-Native Brand Asset Manager
+# ImageGen — AI-Native Brand Asset Manager
 
 Manage your brand assets and generate on-brand images with AI. Upload your brand's logos, colors, and style reference images. The agent analyzes your visual style and generates new images that stay on-brand.
 

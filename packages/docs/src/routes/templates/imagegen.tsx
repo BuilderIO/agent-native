@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { templates, trackEvent } from "../../components/TemplateCard";
 
-export const Route = createFileRoute("/templates/brand-image-generator")({
+export const Route = createFileRoute("/templates/imagegen")({
   component: BrandImageGeneratorTemplate,
   head: () => ({
     meta: [
@@ -34,7 +34,7 @@ export const Route = createFileRoute("/templates/brand-image-generator")({
   }),
 });
 
-const template = templates.find((t) => t.slug === "brand-image-generator")!;
+const template = templates.find((t) => t.slug === "imagegen")!;
 
 function CliCopy() {
   const [copied, setCopied] = useState(false);
