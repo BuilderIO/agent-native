@@ -1,0 +1,374 @@
+/* ─── Reset ─────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* ─── Design tokens ──────────────────────────────────────────── */
+:root {
+  --sidebar-width: 72px;
+  --sidebar-bg: #161623;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --item-hover-bg: rgba(255, 255, 255, 0.05);
+  --icon-inactive: #3d3d60;
+  --icon-hover: rgba(255, 255, 255, 0.55);
+  --icon-active: #ffffff;
+  --label-inactive: #2e2e50;
+  --label-hover: rgba(255, 255, 255, 0.4);
+  --label-active: rgba(255, 255, 255, 0.7);
+  --shell-bg: #0e0e1a;
+  --separator: rgba(255, 255, 255, 0.05);
+
+  /* Transition */
+  --ease: 0.15s ease;
+}
+
+/* ─── Base ───────────────────────────────────────────────────── */
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Helvetica Neue",
+    sans-serif;
+  background: var(--shell-bg);
+  color: #fff;
+  /* Disable text selection in the shell chrome */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ─── Shell layout ───────────────────────────────────────────── */
+.shell {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+/* ─── Sidebar ────────────────────────────────────────────────── */
+.sidebar {
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
+  height: 100%;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Sidebar is draggable (moves the window) except for interactive elements */
+  -webkit-app-region: drag;
+}
+
+/* macOS: reserve space at top for native traffic lights */
+.platform-darwin .sidebar {
+  padding-top: 48px;
+}
+
+/* Windows / Linux: compact top padding, custom controls appear in .win-controls */
+.platform-win32 .sidebar,
+.platform-linux .sidebar {
+  padding-top: 8px;
+}
+
+.sidebar-nav {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Hide scrollbar visually */
+  scrollbar-width: none;
+}
+
+.sidebar-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.sidebar-footer {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 0 12px;
+  border-top: 1px solid var(--separator);
+}
+
+/* ─── Sidebar item ───────────────────────────────────────────── */
+.sidebar-item {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 0;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+  /* Interactive elements must not be draggable */
+  -webkit-app-region: no-drag;
+}
+
+/* Active indicator — colored pill on the left edge */
+.sidebar-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 0;
+  border-radius: 0 3px 3px 0;
+  background: var(--item-accent, #7c6af7);
+  transition: height var(--ease);
+}
+
+.sidebar-item.sidebar-item--active::before {
+  height: 28px;
+}
+
+/* ─── Icon wrapper ───────────────────────────────────────────── */
+.icon-wrapper {
+  width: 42px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  color: var(--icon-inactive);
+  transition:
+    background var(--ease),
+    color var(--ease);
+}
+
+.sidebar-item:hover .icon-wrapper {
+  background: var(--item-hover-bg);
+  color: var(--icon-hover);
+}
+
+.sidebar-item.sidebar-item--active .icon-wrapper {
+  /* Subtle tinted background matching the app accent color */
+  background: color-mix(in srgb, var(--item-accent, #7c6af7) 15%, transparent);
+  color: var(--icon-active);
+}
+
+/* ─── Item label ─────────────────────────────────────────────── */
+.item-label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--label-inactive);
+  line-height: 1;
+  transition: color var(--ease);
+}
+
+.sidebar-item:hover .item-label {
+  color: var(--label-hover);
+}
+
+.sidebar-item.sidebar-item--active .item-label {
+  color: var(--label-active);
+}
+
+/* ─── Windows/Linux custom window controls ───────────────────── */
+.win-controls {
+  display: none;
+}
+
+.platform-win32 .win-controls,
+.platform-linux .win-controls {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 0 4px;
+  -webkit-app-region: no-drag;
+}
+
+.win-btn {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  transition: opacity var(--ease);
+}
+
+.win-btn:hover {
+  opacity: 0.85;
+}
+
+.win-btn--close {
+  background: #ff5f57;
+}
+
+.win-btn--minimize {
+  background: #febc2e;
+}
+
+.win-btn--maximize {
+  background: #28c840;
+}
+
+/* ─── Content area ───────────────────────────────────────────── */
+.content-area {
+  flex: 1;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  background: var(--shell-bg);
+}
+
+/* ─── Webview slot ───────────────────────────────────────────── */
+.webview-slot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Hidden slots are invisible and non-interactive but still mounted,
+   which preserves webview state (login sessions, scroll position, etc.) */
+.webview-slot--hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* The <webview> fills the entire slot */
+webview {
+  flex: 1;
+  width: 100%;
+  /* Webview must be visible even when overlay (loading/error) is shown */
+  display: block;
+}
+
+/* ─── Loading overlay ────────────────────────────────────────── */
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: var(--shell-bg);
+  z-index: 10;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  border-top-color: var(--app-color, #7c6af7);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.25);
+}
+
+/* ─── Error overlay ──────────────────────────────────────────── */
+.error-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--shell-bg);
+  z-index: 10;
+}
+
+.error-icon {
+  color: rgba(255, 255, 255, 0.15);
+  margin-bottom: 4px;
+}
+
+.error-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.error-hint {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.2);
+  text-align: center;
+  max-width: 260px;
+  line-height: 1.6;
+}
+
+.retry-button {
+  margin-top: 6px;
+  padding: 6px 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    background var(--ease),
+    color var(--ease);
+  -webkit-app-region: no-drag;
+}
+
+.retry-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* ─── Placeholder screen (app not yet implemented) ───────────── */
+.placeholder-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--shell-bg);
+}
+
+.placeholder-icon {
+  color: rgba(255, 255, 255, 0.12);
+  margin-bottom: 4px;
+}
+
+.placeholder-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.placeholder-subtitle {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.2);
+  text-align: center;
+  max-width: 280px;
+  line-height: 1.6;
+}
