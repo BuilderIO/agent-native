@@ -69,6 +69,13 @@ export default function Settings() {
     }
   }, [authUrl.data]);
 
+  useEffect(() => {
+    if (authUrl.error) {
+      toast.error(authUrl.error.message);
+      setWantAuthUrl(false);
+    }
+  }, [authUrl.error]);
+
   function handleDisconnect() {
     disconnectGoogle.mutate(undefined, {
       onSuccess: () => toast.success("Google Calendar disconnected"),

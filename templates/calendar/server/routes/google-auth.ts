@@ -6,9 +6,21 @@ import {
   disconnect,
 } from "../lib/google-calendar.js";
 
-export function getGoogleAuthUrl(_req: Request, res: Response): void {
+function getOrigin(req: Request): string {
+  return `${req.protocol}://${req.get("host")}`;
+}
+
+export function getGoogleAuthUrl(req: Request, res: Response): void {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    res.status(422).json({
+      error: "missing_credentials",
+      message:
+        "Google OAuth credentials are not configured. Add your Client ID and Secret in Settings → API Keys.",
+    });
+    return;
+  }
   try {
-    const url = getAuthUrl();
+    const url = getAuthUrl(getOrigin(req));
     res.json({ url });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -25,7 +37,7 @@ export async function handleGoogleCallback(
       res.status(400).json({ error: "Missing authorization code" });
       return;
     }
-    await exchangeCode(code);
+    await exchangeCode(code, getOrigin(req));
     res.redirect("/settings?connected=true");
   } catch (error: any) {
     res.status(500).json({ error: error.message });

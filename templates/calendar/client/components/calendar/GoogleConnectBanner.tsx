@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { CalendarCheck, ExternalLink, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useGoogleAuthUrl } from "@/hooks/use-google-auth";
+import { toast } from "sonner";
 
 interface GoogleConnectBannerProps {
   variant?: "banner" | "hero";
@@ -20,6 +21,13 @@ export function GoogleConnectBanner({
       setWantAuthUrl(false);
     }
   }, [authUrl.data]);
+
+  useEffect(() => {
+    if (authUrl.error) {
+      toast.error(authUrl.error.message);
+      setWantAuthUrl(false);
+    }
+  }, [authUrl.error]);
 
   if (dismissed) return null;
 
