@@ -1,50 +1,37 @@
-// @agent-native/pinpoint — SVG icons
-// MIT License
+// @agent-native/pinpoint — SVG icons from Tabler Icons (MIT)
+// https://github.com/tabler/tabler-icons
 //
-// All icons: 24x24 viewBox, rendered at 16x16, strokeWidth 1.5,
-// strokeLinecap round, strokeLinejoin round. Consistent optical weight.
+// All icons: 24x24 viewBox, stroke-width 2, stroke-linecap round,
+// stroke-linejoin round. Rendered at 16x16 for our UI.
 
-const S = 'width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"';
+const S = 'width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
 
 export const icons = {
-  // Pin/marker icon
-  pin: `<svg ${S}><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`,
+  pin: `<svg ${S}><path d="M15 4.5l-4 4l-4 1.5l-1.5 1.5l7 7l1.5 -1.5l1.5 -4l4 -4"/><path d="M9 15l-4.5 4.5"/><path d="M14.5 4l5.5 5.5"/></svg>`,
 
-  // Crosshair/target for selection mode
-  crosshair: `<svg ${S}><circle cx="12" cy="12" r="8"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>`,
+  crosshair: `<svg ${S}><path d="M4 8v-2a2 2 0 0 1 2 -2h2"/><path d="M4 16v2a2 2 0 0 0 2 2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M16 20h2a2 2 0 0 0 2 -2v-2"/><path d="M9 12l6 0"/><path d="M12 9l0 6"/></svg>`,
 
-  // Send/paper plane
-  send: `<svg ${S}><path d="M9.875 14.125L12.35 19.695a.88.88 0 0 0 1.66-.076L18.814 6.46a.88.88 0 0 0-1.113-1.114L4.543 10.15a.88.88 0 0 0-.076 1.66l5.408 2.315z"/><path d="M9.875 14.125l3.5-3.5"/></svg>`,
+  send: `<svg ${S}><path d="M10 14l11 -11"/><path d="M21 3l-6.5 18a.55 .55 0 0 1 -1 0l-3.5 -7l-7 -3.5a.55 .55 0 0 1 0 -1l18 -6.5"/></svg>`,
 
-  // Copy (two overlapping rectangles)
-  copy: `<svg ${S}><path d="M4.75 11.25c0-.828.672-1.5 1.5-1.5h6.5c.828 0 1.5.672 1.5 1.5v6.5c0 .828-.672 1.5-1.5 1.5h-6.5c-.828 0-1.5-.672-1.5-1.5v-6.5z"/><path d="M9.75 6.75v-.5c0-.828.672-1.5 1.5-1.5h6.5c.828 0 1.5.672 1.5 1.5v6.5c0 .828-.672 1.5-1.5 1.5h-.5"/></svg>`,
+  copy: `<svg ${S}><path d="M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667z"/><path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1"/></svg>`,
 
-  // Trash can
-  trash: `<svg ${S}><path d="M4 7h16"/><path d="M6 7v11a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>`,
+  trash: `<svg ${S}><path d="M4 7l16 0"/><path d="M10 11l0 6"/><path d="M14 11l0 6"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12"/><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3"/></svg>`,
 
-  // Settings gear
-  settings: `<svg ${S}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`,
+  settings: `<svg ${S}><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065"/><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"/></svg>`,
 
-  // Close X
-  x: `<svg ${S}><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg>`,
+  x: `<svg ${S}><path d="M18 6l-12 12"/><path d="M6 6l12 12"/></svg>`,
 
-  // Chevron down
-  chevronDown: `<svg ${S}><path d="m6 9 6 6 6-6"/></svg>`,
+  chevronDown: `<svg ${S}><path d="M6 9l6 6l6 -6"/></svg>`,
 
-  // Checkmark
-  check: `<svg ${S}><path d="M20 6 9 17l-5-5"/></svg>`,
+  check: `<svg ${S}><path d="M5 12l5 5l10 -10"/></svg>`,
 
-  // Chat/message bubble
-  messageSquare: `<svg ${S}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
+  messageSquare: `<svg ${S}><path d="M8 9h8"/><path d="M8 13h6"/><path d="M18 4a3 3 0 0 1 3 3v8a3 3 0 0 1 -3 3h-5l-5 3v-3h-2a3 3 0 0 1 -3 -3v-8a3 3 0 0 1 3 -3h12"/></svg>`,
 
-  // Eye
-  eye: `<svg ${S}><path d="M3.92 12.75a1 1 0 0 1 0-.7C5.06 9.73 7.73 5.5 12 5.5s6.94 4.23 8.08 6.55a1 1 0 0 1 0 .7C18.94 14.27 16.27 18.5 12 18.5S5.06 14.27 3.92 12.75z"/><circle cx="12" cy="12" r="3"/></svg>`,
+  eye: `<svg ${S}><path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0"/><path d="M21 12c-2.4 4 -5.4 6 -9 6c-3.6 0 -6.6 -2 -9 -6c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6"/></svg>`,
 
-  // File with code brackets
-  fileCode: `<svg ${S}><path d="M10 12.5 8 15l2 2.5"/><path d="m14 12.5 2 2.5-2 2.5"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/></svg>`,
+  fileCode: `<svg ${S}><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2"/><path d="M10 13l-1 2l1 2"/><path d="M14 13l1 2l-1 2"/></svg>`,
 
-  // History/clock
-  history: `<svg ${S}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>`,
+  history: `<svg ${S}><path d="M12 8l0 4l2 2"/><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"/></svg>`,
 } as const;
 
 export type IconName = keyof typeof icons;
