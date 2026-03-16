@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
+import http from "http";
 
 // App config: array of { name, appPort, wsPort }
 // Set by dev-all.mjs, or defaults to a single app
@@ -30,6 +31,81 @@ export default defineConfig({
             }
           }
           next();
+        });
+      },
+    },
+    // Set a cookie when an app iframe loads so we know which app is active
+    {
+      name: "active-app-cookie",
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          for (const app of apps) {
+            if (req.url?.startsWith(`/app/${app.name}`)) {
+              res.setHeader(
+                "Set-Cookie",
+                `active_app=${app.name}; Path=/; SameSite=Lax`,
+              );
+              break;
+            }
+          }
+          next();
+        });
+      },
+    },
+    // Proxy bare /api/* requests to the correct app based on Referer header.
+    // When the iframe loads via /app/<name>/, its fetch("/api/...") calls
+    // hit the harness origin. This middleware detects which app made the
+    // request and proxies it to the right app server.
+    {
+      name: "api-proxy-by-referer",
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          if (!req.url?.startsWith("/api/")) return next();
+
+          // Skip if this is already a per-app API route like /api/mail/...
+          for (const app of apps) {
+            if (req.url.startsWith(`/api/${app.name}`)) return next();
+          }
+
+          // Determine target app from Referer header or cookie
+          const referer = req.headers.referer || "";
+          const cookieMatch = (req.headers.cookie || "").match(
+            /active_app=(\w+)/,
+          );
+          let targetApp = apps[0];
+          for (const app of apps) {
+            if (
+              referer.includes(`/app/${app.name}`) ||
+              cookieMatch?.[1] === app.name
+            ) {
+              targetApp = app;
+              break;
+            }
+          }
+
+          const proxyReq = http.request(
+            {
+              hostname: "localhost",
+              port: targetApp.appPort,
+              path: req.url,
+              method: req.method,
+              headers: {
+                ...req.headers,
+                host: `localhost:${targetApp.appPort}`,
+              },
+            },
+            (proxyRes) => {
+              res.writeHead(proxyRes.statusCode || 500, proxyRes.headers);
+              proxyRes.pipe(res);
+            },
+          );
+
+          proxyReq.on("error", (err) => {
+            res.writeHead(502, { "Content-Type": "text/plain" });
+            res.end("Proxy error: " + err.message);
+          });
+
+          req.pipe(proxyReq);
         });
       },
     },

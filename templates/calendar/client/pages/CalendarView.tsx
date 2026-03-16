@@ -40,7 +40,6 @@ import { WeekView } from "@/components/calendar/WeekView";
 import { DayView } from "@/components/calendar/DayView";
 import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
 import { CreateEventDialog } from "@/components/calendar/CreateEventDialog";
-import { GoogleSyncButton } from "@/components/calendar/GoogleSyncButton";
 import { CommandPalette } from "@/components/calendar/CommandPalette";
 import { KeyboardShortcutsHelp } from "@/components/calendar/KeyboardShortcutsHelp";
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
@@ -100,7 +99,7 @@ export default function CalendarView() {
     }
   }, [viewMode, selectedDate]);
 
-  const { data: events = [] } = useEvents(from, to);
+  const { data: events = [], error: eventsError } = useEvents(from, to);
 
   // Filter events for day view
   const dayEvents = useMemo(
@@ -290,6 +289,14 @@ export default function CalendarView() {
           <GoogleConnectBanner />
         )}
 
+        {/* Error banner */}
+        {eventsError && (
+          <div className="shrink-0 border-b border-red-500/20 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
+            <span className="font-medium">Failed to load events:</span>{" "}
+            {eventsError.message}
+          </div>
+        )}
+
         {/* Top bar */}
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
           {/* Left: view mode dropdown */}
@@ -396,10 +403,8 @@ export default function CalendarView() {
             <span className="ml-1 text-sm font-semibold">{headerLabel}</span>
           </div>
 
-          {/* Right: search, shortcuts, google sync, new event */}
+          {/* Right: search, shortcuts, new event */}
           <div className="flex items-center gap-1">
-            {isGoogleConnected && <GoogleSyncButton />}
-
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

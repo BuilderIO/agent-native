@@ -11,9 +11,13 @@ export function useEvents(from?: string, to?: string) {
     queryKey: ["events", from, to],
     queryFn: async () => {
       const res = await fetch(`/api/events${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new Error("Failed to fetch events");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to fetch events");
+      }
       return res.json();
     },
+    retry: false,
   });
 }
 

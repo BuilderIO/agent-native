@@ -7,9 +7,6 @@ import {
 } from "react";
 import {
   IconSettings,
-  IconShare,
-  IconExternalLink,
-  IconMessageReport,
   IconTerminal2,
   IconDeviceDesktop,
   IconMaximize,
@@ -60,7 +57,6 @@ export function App() {
     loadSettings(config),
   );
   const [showSettings, setShowSettings] = useState(false);
-  const [showShareMenu, setShowShareMenu] = useState(false);
 
   const [activeApp, setActiveApp] = useState(() => {
     const saved = loadSettings(config).activeApp;
@@ -113,14 +109,20 @@ export function App() {
       if (name === activeApp) return;
       setActiveApp(name);
       updateSettings({ ...settings, activeApp: name });
+      // Reset iframe to root when switching apps
+      if (iframeRef.current) {
+        const appConfig = APP_CONFIG.find((a) => a.name === name);
+        if (appConfig) {
+          iframeRef.current.src = `http://localhost:${appConfig.appPort}`;
+        }
+      }
       restart(settings, name);
     },
-    [activeApp, settings, updateSettings, restart],
+    [activeApp, settings, updateSettings, restart, iframeRef],
   );
 
   const dismissPopovers = useCallback(() => {
     setShowSettings(false);
-    setShowShareMenu(false);
   }, []);
 
   // Desktop resize
@@ -172,12 +174,7 @@ export function App() {
     return () => window.removeEventListener("resize", handler);
   }, [fit]);
 
-  const copyUrl = () => {
-    navigator.clipboard.writeText(`${location.origin}${appUrl}`);
-    setShowShareMenu(false);
-  };
-
-  const showPopoverBackdrop = showSettings || showShareMenu;
+  const showPopoverBackdrop = showSettings;
 
   // Terminal header — lives inside the terminal pane only
   const terminalHeader = (
@@ -185,13 +182,19 @@ export function App() {
       <span className="text-[13px] font-medium text-white/90">{activeApp}</span>
       <span className="flex-1" />
 
+      <a
+        href="https://docs.google.com/forms/d/e/1FAIpQLSfI7sc2egh0vLBgzOy5tEEZF0e4PdXsQRNsZhX_yR2vx0m8ig/viewform?usp=publish-editor"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-[11px] text-white/30 hover:text-white/60 transition-colors"
+      >
+        feedback
+      </a>
+
       <div className="relative">
         <Tooltip label="Settings">
           <button
-            onClick={() => {
-              setShowShareMenu(false);
-              setShowSettings((v) => !v);
-            }}
+            onClick={() => setShowSettings((v) => !v)}
             className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
           >
             <IconSettings size={14} stroke={1.5} />
@@ -214,47 +217,6 @@ export function App() {
         )}
       </div>
 
-      <div className="relative">
-        <Tooltip label="Share">
-          <button
-            onClick={() => {
-              setShowSettings(false);
-              setShowShareMenu((v) => !v);
-            }}
-            className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
-          >
-            <IconShare size={14} stroke={1.5} />
-          </button>
-        </Tooltip>
-        {showShareMenu && (
-          <div className="absolute top-8 right-0 bg-[#2a2a2a] border border-white/10 rounded-lg p-3 z-50 min-w-[260px] shadow-2xl">
-            <h3 className="text-[13px] font-semibold text-white/90 mb-2">
-              Share
-            </h3>
-            <button
-              onClick={copyUrl}
-              className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded text-xs text-white/60 hover:text-white/90 hover:bg-white/5 transition-colors"
-            >
-              <IconExternalLink size={13} stroke={1.5} />
-              Copy local URL
-            </button>
-            <div className="border-t border-white/10 my-2" />
-            <p className="text-[11px] text-white/40 leading-relaxed">
-              Need sharing, collaboration, or remote access? Use the{" "}
-              <a
-                href="https://www.builder.io"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-400 hover:text-blue-300"
-              >
-                Builder harness
-              </a>{" "}
-              for real-time multiplayer, cloud deployment, and shareable links.
-            </p>
-          </div>
-        )}
-      </div>
-
       <Tooltip label={isFullscreen ? "Show terminal" : "Fullscreen preview"}>
         <button
           onClick={() => setIsFullscreen((v) => !v)}
@@ -266,17 +228,6 @@ export function App() {
             <IconMaximize size={14} stroke={1.5} />
           )}
         </button>
-      </Tooltip>
-
-      <Tooltip label="Feedback">
-        <a
-          href="https://docs.google.com/forms/d/e/1FAIpQLSfI7sc2egh0vLBgzOy5tEEZF0e4PdXsQRNsZhX_yR2vx0m8ig/viewform?usp=publish-editor"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors block"
-        >
-          <IconMessageReport size={14} stroke={1.5} />
-        </a>
       </Tooltip>
     </div>
   );
@@ -341,77 +292,74 @@ export function App() {
         <div className="fixed inset-0 z-40" onClick={dismissPopovers} />
       )}
 
-      {/* Terminal pane */}
-      <div
-        className={
-          isMobile
-            ? `flex flex-col ${mobileTab === "agent" ? "flex-1 min-h-0" : "absolute inset-0 invisible"}`
-            : isFullscreen
-              ? "flex flex-col min-h-0 w-0 overflow-hidden"
-              : "flex flex-col min-h-0"
-        }
-        style={
-          isMobile || isFullscreen
-            ? undefined
-            : { width: termWidth ?? "36%", flexShrink: 0 }
-        }
-      >
-        {/* Header inside terminal pane */}
-        {!isFullscreen && terminalHeader}
+      {/* Terminal pane — hidden when fullscreen */}
+      {!isFullscreen && (
+        <>
+          <div
+            className={
+              isMobile
+                ? `flex flex-col ${mobileTab === "agent" ? "flex-1 min-h-0" : "absolute inset-0 invisible"}`
+                : "flex flex-col min-h-0"
+            }
+            style={
+              isMobile
+                ? undefined
+                : { width: termWidth ?? "36%", flexShrink: 0 }
+            }
+          >
+            {terminalHeader}
 
-        {/* Terminal */}
-        <div className="flex-1 min-h-0 relative">
-          <div ref={termRef} className="w-full h-full py-1 pl-3 pr-1" />
-          {setupOverlay}
-        </div>
-      </div>
+            {/* Terminal */}
+            <div className="flex-1 min-h-0 relative">
+              <div ref={termRef} className="w-full h-full py-1 pl-3 pr-1" />
+              {setupOverlay}
+            </div>
+          </div>
 
-      {/* Drag handle — desktop only, not in fullscreen */}
-      {!isMobile && !isFullscreen && (
-        <div
-          onMouseDown={onMouseDown}
-          className="w-1 cursor-col-resize flex items-center justify-center hover:bg-blue-500/30 transition-colors"
-        >
-          <div className="w-px h-8 bg-white/10 rounded-full" />
-        </div>
+          {/* Drag handle — desktop only */}
+          {!isMobile && (
+            <div
+              onMouseDown={onMouseDown}
+              className="w-1 cursor-col-resize flex items-center justify-center hover:bg-blue-500/30 transition-colors"
+            >
+              <div className="w-px h-8 bg-white/10 rounded-full" />
+            </div>
+          )}
+        </>
       )}
 
-      {/* Preview pane — full height */}
+      {/* Preview pane — goes fullscreen (fixed inset-0) or inline */}
       <div
         className={
-          isMobile
-            ? `flex flex-col ${mobileTab === "interact" ? "flex-1 min-h-0" : "absolute inset-0 invisible"}`
-            : "flex-1 flex flex-col min-h-0 p-2 pl-0"
+          isFullscreen && !isMobile
+            ? "fixed inset-0 z-50 bg-black"
+            : isMobile
+              ? `flex flex-col ${mobileTab === "interact" ? "flex-1 min-h-0" : "absolute inset-0 invisible"}`
+              : "flex-1 flex flex-col min-h-0 p-2 pl-0"
         }
       >
-        {/* Fullscreen header — only shown when terminal is hidden */}
-        {isFullscreen && !isMobile && (
-          <div className="flex items-center gap-2 px-3 h-10 shrink-0">
-            <span className="text-[13px] font-medium text-white/90">
-              {activeApp}
-            </span>
-            <span className="flex-1" />
-            <Tooltip label="Show terminal">
-              <button
-                onClick={() => setIsFullscreen(false)}
-                className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
-              >
-                <IconMinimize size={14} stroke={1.5} />
-              </button>
-            </Tooltip>
-          </div>
-        )}
         <div
-          className={`flex-1 overflow-hidden bg-black ${isMobile ? "" : isFullscreen ? "rounded-xl m-2 mt-0" : "rounded-xl"}`}
+          className={`flex-1 overflow-hidden bg-black ${isFullscreen ? "" : isMobile ? "" : "rounded-xl"}`}
         >
           <iframe
             ref={iframeRef}
             src={appUrl}
             className="w-full h-full border-none"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-presentation"
-            allow="fullscreen"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-presentation allow-downloads"
+            allow="clipboard-read; clipboard-write; fullscreen; camera; microphone; geolocation; display-capture"
           />
         </div>
+
+        {/* Floating back-to-agent button — bottom left, fullscreen only */}
+        {isFullscreen && !isMobile && (
+          <button
+            onClick={() => setIsFullscreen(false)}
+            className="fixed bottom-4 left-4 z-[51] flex items-center gap-2 px-3 py-2 rounded-lg bg-black/70 backdrop-blur-sm border border-white/10 text-white/60 hover:text-white hover:bg-black/90 transition-all text-xs font-medium shadow-lg"
+          >
+            <IconTerminal2 size={14} stroke={1.5} />
+            Agent
+          </button>
+        )}
       </div>
 
       {/* Mobile bottom tab bar */}
