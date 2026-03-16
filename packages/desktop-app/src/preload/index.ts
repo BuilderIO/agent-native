@@ -31,6 +31,18 @@ const electronAPI = {
       ipcRenderer.on("shortcut:close-tab", handler);
       return () => ipcRenderer.removeListener("shortcut:close-tab", handler);
     },
+
+    /** Generic shortcut forwarding from webview guests */
+    onKeydown: (
+      cb: (info: { key: string; shiftKey: boolean }) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        info: { key: string; shiftKey: boolean },
+      ) => cb(info);
+      ipcRenderer.on("shortcut:keydown", handler);
+      return () => ipcRenderer.removeListener("shortcut:keydown", handler);
+    },
   },
 
   /** Inter-app communication — relay messages between loaded apps */
