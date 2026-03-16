@@ -43,7 +43,7 @@ export function mountPinpoint(
   const container = document.createElement("div");
   container.id = CONTAINER_ID;
   container.style.cssText =
-    "position:fixed;top:0;left:0;width:0;height:0;z-index:2147483646;pointer-events:none;";
+    "position:fixed;top:0;left:0;width:0;height:0;z-index:2147483647;pointer-events:none;";
   target.appendChild(container);
 
   // Create Shadow DOM
