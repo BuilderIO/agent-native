@@ -160,9 +160,6 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
                       </div>
                       <div class="pp-pin-item__comment">{pin.comment}</div>
                     </div>
-                    <span
-                      class={`pp-pin-item__status pp-pin-item__status--${pin.status.state}`}
-                    />
                     <button
                       class="pp-btn--icon"
                       onClick={() => props.onRemovePin(pin.id)}

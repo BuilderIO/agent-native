@@ -53,24 +53,22 @@ export const OverlayCanvas: Component<OverlayCanvasProps> = (props) => {
     const dpr = window.devicePixelRatio || 1;
     ctx.clearRect(0, 0, canvasRef.width / dpr, canvasRef.height / dpr);
 
-    if (!props.active) {
-      animFrameId = requestAnimationFrame(draw);
-      return;
-    }
+    // Always draw pin outlines, even when not in selection mode
+    // Only skip hover/drag visuals when inactive
 
-    // Draw hover highlight with LERP interpolation
-    if (props.hoveredRect) {
+    // Draw hover highlight with LERP interpolation (only when active)
+    if (props.active && props.hoveredRect) {
       targetRect = {
         x: props.hoveredRect.x,
         y: props.hoveredRect.y,
         width: props.hoveredRect.width,
         height: props.hoveredRect.height,
       };
-    } else {
+    } else if (props.active) {
       targetRect = null;
     }
 
-    if (targetRect) {
+    if (props.active && targetRect) {
       currentRect.x = lerp(currentRect.x, targetRect.x, LERP_SPEED);
       currentRect.y = lerp(currentRect.y, targetRect.y, LERP_SPEED);
       currentRect.width = lerp(currentRect.width, targetRect.width, LERP_SPEED);
@@ -101,8 +99,8 @@ export const OverlayCanvas: Component<OverlayCanvasProps> = (props) => {
       );
     }
 
-    // Draw drag selection rectangle
-    if (props.dragRect) {
+    // Draw drag selection rectangle (only when active)
+    if (props.active && props.dragRect) {
       ctx.strokeStyle = "rgba(59, 130, 246, 0.6)";
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]);
@@ -122,24 +120,52 @@ export const OverlayCanvas: Component<OverlayCanvasProps> = (props) => {
       );
     }
 
-    // Draw pin outlines for annotated elements
+    // Draw pin outlines + numbered badges for annotated elements
     for (let i = 0; i < props.pins.length; i++) {
       const pin = props.pins[i];
       const el = document.querySelector(pin.element.selector);
       if (!el) continue;
 
       const rect = el.getBoundingClientRect();
-      const statusColor =
-        pin.status.state === "resolved"
-          ? "rgba(34, 197, 94, 0.6)"
-          : pin.status.state === "acknowledged"
-            ? "rgba(234, 179, 8, 0.6)"
-            : "rgba(239, 68, 68, 0.6)";
 
-      ctx.strokeStyle = statusColor;
+      // Skip if element is off-screen
+      if (
+        rect.bottom < 0 ||
+        rect.top > window.innerHeight ||
+        rect.right < 0 ||
+        rect.left > window.innerWidth
+      )
+        continue;
+
+      // Outline
+      ctx.strokeStyle = "rgba(59, 130, 246, 0.7)";
       ctx.lineWidth = 1.5;
       ctx.setLineDash([]);
       ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+
+      // Numbered badge at top-right corner
+      const badgeSize = 20;
+      const badgeX = rect.right - badgeSize / 2;
+      const badgeY = rect.top - badgeSize / 2;
+      const num = String(i + 1);
+
+      // Badge circle
+      ctx.beginPath();
+      ctx.arc(badgeX, badgeY, badgeSize / 2, 0, Math.PI * 2);
+      ctx.fillStyle = "#3b82f6";
+      ctx.fill();
+
+      // Badge border for contrast
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Badge number
+      ctx.fillStyle = "#fff";
+      ctx.font = "bold 11px -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(num, badgeX, badgeY + 0.5);
     }
 
     animFrameId = requestAnimationFrame(draw);
