@@ -20,6 +20,7 @@ export interface ElementPickerOptions {
 
 export class ElementPicker {
   private active = false;
+  private paused = false;
   private hoveredElement: Element | null = null;
   private rafId: number | null = null;
   private stableTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -34,7 +35,8 @@ export class ElementPicker {
     this.options = options;
 
     this.handleMouseMove = (e: MouseEvent) => {
-      if (!this.active) return;
+      if (!this.active || this.paused) return;
+      if (this.isOwnUI(e)) return;
       // rAF-gated throttling for 60fps
       if (this.rafId !== null) return;
       this.rafId = requestAnimationFrame(() => {
@@ -44,7 +46,11 @@ export class ElementPicker {
     };
 
     this.handleClick = (e: MouseEvent) => {
-      if (!this.active) return;
+      if (!this.active || this.paused) return;
+
+      // Don't intercept clicks on our own UI (Shadow DOM overlay)
+      if (this.isOwnUI(e)) return;
+
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
@@ -64,7 +70,33 @@ export class ElementPicker {
     };
   }
 
+  /**
+   * Check if an event originates from Pinpoint's own UI.
+   * Uses composedPath() to cross Shadow DOM boundaries.
+   */
+  private isOwnUI(e: Event): boolean {
+    const path = e.composedPath();
+    for (const node of path) {
+      if (node instanceof HTMLElement) {
+        if (node.id === "pinpoint-root") return true;
+        if (node.hasAttribute?.("data-pinpoint-marker")) return true;
+      }
+    }
+    return false;
+  }
+
   private shouldIgnore(element: Element): boolean {
+    // Check if element is inside our Shadow DOM
+    const root = element.getRootNode();
+    if (root instanceof ShadowRoot) {
+      const host = root.host;
+      if (host.id === "pinpoint-root") return true;
+    }
+
+    // Check if it's a pinpoint marker
+    if (element.hasAttribute("data-pinpoint-marker")) return true;
+    if (element.closest?.("[data-pinpoint-marker]")) return true;
+
     if (!this.options.ignoreSelector) return false;
     return (
       element.closest(this.options.ignoreSelector) !== null ||
@@ -162,6 +194,24 @@ export class ElementPicker {
     }
 
     this.options.onHover?.(null, null);
+  }
+
+  /** Pause picking without removing listeners (e.g., while popup is open) */
+  pause(): void {
+    this.paused = true;
+    this.hoveredElement = null;
+    this.lastTarget = null;
+    this.clearStableTimeout();
+    this.options.onHover?.(null, null);
+  }
+
+  /** Resume picking after pause */
+  resume(): void {
+    this.paused = false;
+  }
+
+  isPaused(): boolean {
+    return this.paused;
   }
 
   isActive(): boolean {
