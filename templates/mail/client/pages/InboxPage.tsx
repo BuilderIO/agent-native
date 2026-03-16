@@ -1,9 +1,15 @@
 import { useState, useCallback } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
+import { cn } from "@/lib/utils";
 import { EmailList } from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
-import { ComposeModal } from "@/components/email/ComposeModal";
-import { useEmail, useEmails, useUnarchiveEmail } from "@/hooks/use-emails";
+import { useComposeState } from "@/hooks/use-compose-state";
+import {
+  useEmail,
+  useEmails,
+  useMarkRead,
+  useUnarchiveEmail,
+} from "@/hooks/use-emails";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { toast } from "sonner";
 import { truncate } from "@/lib/utils";
@@ -128,15 +134,70 @@ function ContactPanel({ emailId }: { emailId: string | undefined }) {
   );
 }
 
+function ThreadListSidebar({
+  emails,
+  activeThreadId,
+  view,
+}: {
+  emails: EmailMessage[];
+  activeThreadId: string;
+  view: string;
+}) {
+  const navigate = useNavigate();
+  const markRead = useMarkRead();
+
+  return (
+    <div className="w-[220px] shrink-0 flex flex-col border-r border-border/30 bg-[hsl(220,6%,9%)] overflow-hidden">
+      <div className="flex-1 overflow-y-auto">
+        {emails.map((email) => {
+          const isActive = email.id === activeThreadId;
+          const senderName = email.from.name || email.from.email;
+          return (
+            <button
+              key={email.id}
+              onClick={() => {
+                if (!email.isRead)
+                  markRead.mutate({ id: email.id, isRead: true });
+                navigate(`/${view}/${email.id}`);
+              }}
+              className={cn(
+                "w-full text-left px-3 py-2 border-b border-border/10 transition-colors",
+                isActive ? "bg-primary/10" : "hover:bg-[hsl(220,5%,13%)]",
+              )}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                {!email.isRead && (
+                  <div className="h-[5px] w-[5px] rounded-full bg-primary shrink-0" />
+                )}
+                <span
+                  className={cn(
+                    "text-[12px] truncate",
+                    email.isRead
+                      ? "text-foreground/60"
+                      : "font-semibold text-foreground",
+                  )}
+                >
+                  {senderName}
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground/50 truncate mt-0.5 pl-0">
+                {email.subject}
+              </p>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function InboxPage() {
   const { view = "inbox", threadId } = useParams<{
     view: string;
     threadId: string;
   }>();
   const [focusedId, setFocusedId] = useState<string | null>(null);
-  const [composeEmail, setComposeEmail] = useState<EmailMessage | null>(null);
-  const [composeMode, setComposeMode] = useState<"reply" | "forward">("reply");
-  const [composeOpen, setComposeOpen] = useState(false);
+  const compose = useComposeState();
   const [lastArchivedId, setLastArchivedId] = useState<string | null>(null);
   const unarchiveEmail = useUnarchiveEmail();
   const { data: emails = [] } = useEmails(view);
@@ -166,11 +227,34 @@ export function InboxPage() {
 
   const handleCompose = useCallback(
     (email: EmailMessage, mode: "reply" | "forward") => {
-      setComposeEmail(email);
-      setComposeMode(mode);
-      setComposeOpen(true);
+      if (mode === "reply") {
+        compose.open({
+          to: email.from.email,
+          subject: email.subject.startsWith("Re:")
+            ? email.subject
+            : `Re: ${email.subject}`,
+          body: `\n\n— On ${new Date(email.date).toLocaleDateString()}, ${email.from.name || email.from.email} wrote:\n\n${email.body
+            .split("\n")
+            .map((l) => `> ${l}`)
+            .join("\n")}`,
+          mode: "reply",
+          replyToId: email.id,
+          replyToThreadId: email.threadId,
+        });
+      } else {
+        compose.open({
+          to: "",
+          subject: email.subject.startsWith("Fwd:")
+            ? email.subject
+            : `Fwd: ${email.subject}`,
+          body: `\n\n— Forwarded message —\nFrom: ${email.from.name} <${email.from.email}>\n\n${email.body}`,
+          mode: "forward",
+          replyToId: email.id,
+          replyToThreadId: email.threadId,
+        });
+      }
     },
-    [],
+    [compose],
   );
 
   const hasThread = !!threadId;
@@ -180,7 +264,16 @@ export function InboxPage() {
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      {/* Center area — email list OR thread view (Superhuman replaces, not side by side) */}
+      {/* Thin email list sidebar — shown when viewing a thread */}
+      {hasThread && (
+        <ThreadListSidebar
+          emails={emails}
+          activeThreadId={threadId!}
+          view={view}
+        />
+      )}
+
+      {/* Center area — email list OR thread view */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {hasThread ? (
           <EmailThread onArchived={setLastArchivedId} emailIds={emailIds} />
@@ -195,18 +288,12 @@ export function InboxPage() {
         )}
       </div>
 
-      {/* Right contact panel */}
-      <div className="hidden lg:flex w-[260px] shrink-0 flex-col border-l border-border/30 bg-[hsl(220,6%,9%)]">
-        <ContactPanel emailId={contactEmailId} />
-      </div>
-
-      {/* Compose from list shortcuts */}
-      <ComposeModal
-        open={composeOpen}
-        onOpenChange={setComposeOpen}
-        replyTo={composeEmail ?? undefined}
-        mode={composeMode}
-      />
+      {/* Right contact panel — only when viewing list */}
+      {!hasThread && (
+        <div className="hidden lg:flex w-[260px] shrink-0 flex-col border-l border-border/30 bg-[hsl(220,6%,9%)]">
+          <ContactPanel emailId={contactEmailId} />
+        </div>
+      )}
     </div>
   );
 }
