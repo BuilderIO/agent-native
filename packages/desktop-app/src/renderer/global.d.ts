@@ -12,6 +12,9 @@ interface ElectronAPI {
 
   shortcuts: {
     onCloseTab(cb: () => void): () => void;
+    onKeydown(
+      cb: (info: { key: string; shiftKey: boolean }) => void,
+    ): () => void;
   };
 
   interApp: {

@@ -101,17 +101,32 @@ app.on("web-contents-created", (_event, contents) => {
     return { action: "deny" };
   });
 
-  // Forward Cmd+W from focused webview guests to the shell renderer
-  // so tab-close works even when a webview has keyboard focus.
+  // Forward keyboard shortcuts from focused webview guests to the shell
+  // renderer so they work even when a webview has keyboard focus.
   contents.on("before-input-event", (event, input) => {
-    if (
-      (input.meta || input.control) &&
-      input.key.toLowerCase() === "w" &&
-      input.type === "keyDown"
-    ) {
+    if (!(input.meta || input.control) || input.type !== "keyDown") return;
+
+    const key = input.key.toLowerCase();
+    const win = BrowserWindow.getAllWindows()[0];
+    if (!win) return;
+
+    // Cmd+W — close tab (dedicated channel for backwards compat)
+    if (key === "w") {
       event.preventDefault();
-      const win = BrowserWindow.getAllWindows()[0];
-      if (win) win.webContents.send("shortcut:close-tab");
+      win.webContents.send("shortcut:close-tab");
+      return;
+    }
+
+    // Forward other Cmd+ shortcuts: T, Shift+T, 1-9, [, ]
+    const isShortcut =
+      key === "t" || key === "[" || key === "]" || (key >= "1" && key <= "9");
+
+    if (isShortcut) {
+      event.preventDefault();
+      win.webContents.send("shortcut:keydown", {
+        key: input.key,
+        shiftKey: input.shift,
+      });
     }
   });
 });

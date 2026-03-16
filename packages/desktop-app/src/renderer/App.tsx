@@ -132,50 +132,59 @@ export default function App() {
     }));
   }, [activeSidebarAppId]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (!e.metaKey && !e.ctrlKey) return;
+  // Shared shortcut handler used by both the native keydown listener
+  // (fires when the shell has focus) and the IPC forwarder (fires when
+  // a webview guest has focus).
+  const handleShortcut = useCallback(
+    (key: string, shiftKey: boolean) => {
+      const k = key.toLowerCase();
 
-      // Cmd+T — new tab, Cmd+Shift+T — reopen closed tab
-      if (e.key.toLowerCase() === "t") {
-        e.preventDefault();
-        if (e.shiftKey) {
-          handleReopenTab();
-        } else {
-          handleNewTab();
-        }
+      if (k === "t") {
+        if (shiftKey) handleReopenTab();
+        else handleNewTab();
         return;
       }
 
-      // Cmd+1 through Cmd+9
-      const digit = parseInt(e.key, 10);
+      const digit = parseInt(key, 10);
       if (digit >= 1 && digit <= 9) {
-        const idx = digit - 1;
-        if (idx < APP_REGISTRY.length) {
-          e.preventDefault();
-          setActiveSidebarAppId(APP_REGISTRY[idx].id);
+        if (digit - 1 < APP_REGISTRY.length) {
+          setActiveSidebarAppId(APP_REGISTRY[digit - 1].id);
         }
         return;
       }
 
-      // Cmd+[ / Cmd+] to go prev/next app
-      if (e.key === "[" || e.key === "]") {
-        e.preventDefault();
+      if (key === "[" || key === "]") {
         setActiveSidebarAppId((current) => {
           const idx = APP_REGISTRY.findIndex((a) => a.id === current);
           const next =
-            e.key === "]"
+            key === "]"
               ? (idx + 1) % APP_REGISTRY.length
               : (idx - 1 + APP_REGISTRY.length) % APP_REGISTRY.length;
           return APP_REGISTRY[next].id;
         });
       }
-    };
+    },
+    [handleNewTab, handleReopenTab],
+  );
 
+  // Keyboard shortcuts — shell has focus
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.metaKey && !e.ctrlKey) return;
+      e.preventDefault();
+      handleShortcut(e.key, e.shiftKey);
+    };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [handleNewTab, handleReopenTab]);
+  }, [handleShortcut]);
+
+  // Keyboard shortcuts — forwarded from webview guests via main process IPC
+  useEffect(() => {
+    if (!window.electronAPI?.shortcuts?.onKeydown) return;
+    return window.electronAPI.shortcuts.onKeydown(({ key, shiftKey }) => {
+      handleShortcut(key, shiftKey);
+    });
+  }, [handleShortcut]);
 
   // Cmd+W — close active tab (intercepted by main process, forwarded via IPC)
   const activeTabIdRef = useRef(currentAppTabs?.activeTabId ?? "");
