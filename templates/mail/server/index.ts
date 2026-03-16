@@ -6,6 +6,7 @@ import {
   markRead,
   toggleStar,
   archiveEmail,
+  unarchiveEmail,
   trashEmail,
   deleteEmail,
   sendEmail,
@@ -40,6 +41,7 @@ export function createAppServer() {
   app.patch("/api/emails/:id/read", markRead);
   app.patch("/api/emails/:id/star", toggleStar);
   app.patch("/api/emails/:id/archive", archiveEmail);
+  app.patch("/api/emails/:id/unarchive", unarchiveEmail);
   app.patch("/api/emails/:id/trash", trashEmail);
   app.delete("/api/emails/:id", deleteEmail);
   app.post("/api/emails/send", sendEmail);

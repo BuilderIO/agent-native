@@ -3,7 +3,9 @@ import { useParams } from "react-router-dom";
 import { EmailList } from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
 import { ComposeModal } from "@/components/email/ComposeModal";
-import { useEmail, useEmails } from "@/hooks/use-emails";
+import { useEmail, useEmails, useUnarchiveEmail } from "@/hooks/use-emails";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { toast } from "sonner";
 import { truncate } from "@/lib/utils";
 import type { EmailMessage } from "@shared/types";
 
@@ -127,11 +129,40 @@ function ContactPanel({ emailId }: { emailId: string | undefined }) {
 }
 
 export function InboxPage() {
-  const { threadId } = useParams<{ view: string; threadId: string }>();
+  const { view = "inbox", threadId } = useParams<{
+    view: string;
+    threadId: string;
+  }>();
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [composeEmail, setComposeEmail] = useState<EmailMessage | null>(null);
   const [composeMode, setComposeMode] = useState<"reply" | "forward">("reply");
   const [composeOpen, setComposeOpen] = useState(false);
+  const [lastArchivedId, setLastArchivedId] = useState<string | null>(null);
+  const unarchiveEmail = useUnarchiveEmail();
+  const { data: emails = [] } = useEmails(view);
+  const emailIds = emails.map((e) => e.id);
+
+  const undoArchive = useCallback(
+    (id: string) => {
+      unarchiveEmail.mutate(id, {
+        onSuccess: () => {
+          toast("Undone.");
+          setLastArchivedId(null);
+        },
+      });
+    },
+    [unarchiveEmail],
+  );
+
+  // Global "z" shortcut for undo archive
+  useKeyboardShortcuts([
+    {
+      key: "z",
+      handler: () => {
+        if (lastArchivedId) undoArchive(lastArchivedId);
+      },
+    },
+  ]);
 
   const handleCompose = useCallback(
     (email: EmailMessage, mode: "reply" | "forward") => {
@@ -152,12 +183,14 @@ export function InboxPage() {
       {/* Center area — email list OR thread view (Superhuman replaces, not side by side) */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {hasThread ? (
-          <EmailThread />
+          <EmailThread onArchived={setLastArchivedId} emailIds={emailIds} />
         ) : (
           <EmailList
             focusedId={focusedId}
             setFocusedId={setFocusedId}
             onCompose={handleCompose}
+            onArchived={setLastArchivedId}
+            undoArchive={undoArchive}
           />
         )}
       </div>

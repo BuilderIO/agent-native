@@ -333,11 +333,7 @@ export function ComposeModal({
                     Generate
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent
-                  side="top"
-                  align="start"
-                  className="w-80 p-3"
-                >
+                <PopoverContent side="top" align="start" className="w-80 p-3">
                   <div className="flex flex-col gap-2">
                     <label className="text-xs font-medium text-muted-foreground">
                       What should the agent write?

@@ -23,7 +23,7 @@ const App = () => (
       disableTransitionOnChange
     >
       <TooltipProvider delayDuration={300}>
-        <Toaster richColors position="bottom-right" />
+        <Toaster position="bottom-left" closeButton />
         <BrowserRouter>
           <AppLayout>
             <Routes>
