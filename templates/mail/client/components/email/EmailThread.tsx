@@ -382,15 +382,29 @@ function HtmlEmailBody({ html }: { html: string }) {
     html, body {
       margin: 0;
       padding: 0;
-      background: transparent;
-      color: #e4e4e7;
+      background: transparent !important;
+      color: #e4e4e7 !important;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 14px;
       line-height: 1.6;
       overflow: hidden;
     }
-    a { color: #818cf8; }
+    * {
+      background-color: transparent !important;
+      border-color: rgba(255,255,255,0.1) !important;
+    }
+    body, td, th, div, p, span, li, blockquote {
+      color: #e4e4e7 !important;
+    }
+    h1, h2, h3, h4, h5, h6, strong, b {
+      color: #f4f4f5 !important;
+    }
+    .muted, .secondary, .text-muted, [style*="color: #"] {
+      color: #a1a1aa !important;
+    }
+    a { color: #818cf8 !important; }
     img { max-width: 100%; height: auto; }
+    hr { border-color: rgba(255,255,255,0.1) !important; }
   </style>
 </head>
 <body>${html}</body>

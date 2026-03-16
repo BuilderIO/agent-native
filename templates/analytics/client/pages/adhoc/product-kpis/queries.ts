@@ -1,9 +1,9 @@
 import type { DateCadence } from "./types";
 
-const PRODUCT_SIGNUPS = "`builder-3b0a2.dbt_analytics.product_signups`";
-const ACTIVE_USERS = "`builder-3b0a2.dbt_analytics.active_users`";
-const DAILY_ARR = "`builder-3b0a2.dbt_analytics.daily_arr_by_subscriptions`";
-const RETENTION = "`builder-3b0a2.dbt_mart.fact_account_active_retention`";
+const PRODUCT_SIGNUPS = "`your-gcp-project-id.dbt_analytics.product_signups`";
+const ACTIVE_USERS = "`your-gcp-project-id.dbt_analytics.active_users`";
+const DAILY_ARR = "`your-gcp-project-id.dbt_analytics.daily_arr_by_subscriptions`";
+const RETENTION = "`your-gcp-project-id.dbt_mart.fact_account_active_retention`";
 
 function cadenceToTrunc(cadence: DateCadence): string {
   switch (cadence) {

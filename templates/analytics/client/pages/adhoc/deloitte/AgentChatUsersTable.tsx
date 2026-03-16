@@ -18,7 +18,7 @@ export function AgentChatUsersTable({
     [dateStart, dateEnd],
   );
   const { data, isLoading } = useMetricsQuery(
-    ["deloitte-agent-chat-users", sql],
+    ["customer-agent-chat-users", sql],
     sql,
   );
 
@@ -32,7 +32,7 @@ export function AgentChatUsersTable({
       <Card className="bg-card border-border/50">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium">
-            Deloitte Users Ranked by Agent Chat Messages
+            Customer Users Ranked by Agent Chat Messages
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -44,7 +44,7 @@ export function AgentChatUsersTable({
             </p>
           ) : rows.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4 text-center">
-              No agent chat activity from Deloitte users in this period
+              No agent chat activity from Customer users in this period
             </p>
           ) : (
             <div className="overflow-x-auto">

@@ -5,7 +5,7 @@ The `query-metrics` API allows querying BigQuery analytics data via validated SQ
 ## Endpoint
 
 ```
-POST https://cdn.builder.io/api/v1/query-metrics?apiKey=<publicApiKey>
+POST https://your-api-host.example.com/api/v1/query-metrics?apiKey=<publicApiKey>
 ```
 
 ## Authentication
@@ -104,4 +104,4 @@ POST /api/query
 Body: { query, apiKey, privateKey, table? }
 ```
 
-The server proxy forwards to `cdn.builder.io/api/v1/query-metrics` with proper auth headers.
+The server proxy forwards to the query-metrics API endpoint with proper auth headers.

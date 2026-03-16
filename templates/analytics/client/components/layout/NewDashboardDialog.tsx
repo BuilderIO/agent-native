@@ -73,7 +73,7 @@ export function NewDashboardDialog() {
               type="text"
               value={authorName}
               onChange={(e) => setAuthorName(e.target.value)}
-              placeholder='e.g. "jane@builder.io" or "Jane Doe"'
+              placeholder='e.g. "jane@example.com" or "Jane Doe"'
               className={cn(
                 "mt-1.5 flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm",
                 "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",

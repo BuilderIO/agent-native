@@ -17,7 +17,7 @@ import {
 type Granularity = "daily" | "weekly";
 
 const QUARTER_START = "2026-02-01";
-const ARR_TABLE = "`builder-3b0a2.finance.arr_revenue_tracker_latest`";
+const ARR_TABLE = "`your-gcp-project-id.finance.arr_revenue_tracker_latest`";
 
 function revenueOverTimeSql(granularity: Granularity) {
   const trunc = granularity === "weekly" ? "WEEK(MONDAY)" : "DAY";

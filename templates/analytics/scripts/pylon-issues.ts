@@ -4,7 +4,7 @@
  *
  * Usage:
  *   pnpm script pylon-issues
- *   pnpm script pylon-issues --account=Deloitte
+ *   pnpm script pylon-issues --account=Acme
  *   pnpm script pylon-issues --state=open
  *   pnpm script pylon-issues --query=billing
  *   pnpm script pylon-issues --accounts   (list accounts only)

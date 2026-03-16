@@ -17,7 +17,7 @@ export function SalesRecommendations() {
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium">Who to Contact</CardTitle>
           <CardDescription>
-            Recommendations to drive Fusion adoption at Deloitte
+            Recommendations to drive agent chat adoption at the customer
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -28,11 +28,11 @@ export function SalesRecommendations() {
               </Badge>
               <div className="flex-1">
                 <p className="text-sm font-medium">
-                  Activate dormant Builder users
+                  Activate dormant platform users
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Deloitte has 439 users with Builder accounts but minimal
-                  Fusion usage. Run a Fusion demo/training session to drive
+                  the customer has 439 users with platform accounts but minimal
+                  agent chat usage. Run a agent chat demo/training session to drive
                   adoption across teams.
                 </p>
               </div>
@@ -44,10 +44,10 @@ export function SalesRecommendations() {
               </Badge>
               <div className="flex-1">
                 <p className="text-sm font-medium">
-                  Re-engage sayarra@deloitte.com
+                  Re-engage user@example.com
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  This user tried Fusion (Dec 2025) but hasn't returned. Check
+                  This user tried agent chat (Dec 2025) but hasn't returned. Check
                   in to understand their experience and address any blockers
                   preventing continued use.
                 </p>
@@ -65,7 +65,7 @@ export function SalesRecommendations() {
                 <p className="text-xs text-muted-foreground mt-1">
                   Review the 517 HubSpot contacts to find technical leaders
                   (Engineering Manager, Tech Lead, VP Engineering) who could
-                  advocate for Fusion adoption internally.
+                  advocate for agent chat adoption internally.
                 </p>
               </div>
             </div>
@@ -74,7 +74,7 @@ export function SalesRecommendations() {
           <div className="mt-4 p-3 bg-muted/50 rounded-lg">
             <p className="text-xs font-medium">Key Insight</p>
             <p className="text-xs text-muted-foreground mt-1">
-              With minimal Fusion adoption across 439 Builder users, Deloitte
+              With minimal agent chat adoption across 439 platform users, the customer
               represents a high-value expansion opportunity. Low engagement
               suggests lack of awareness or potential onboarding/training gaps.
             </p>

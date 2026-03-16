@@ -1,7 +1,7 @@
-const ARR_TABLE = "`builder-3b0a2.finance.arr_revenue_tracker_latest`";
-const STRIPE_CUSTOMERS = "`builder-3b0a2.polytomic.stripe_customers`";
-const DIM_DATE = "`builder-3b0a2.dbt_mart.dim_date`";
-const PRODUCT_PROXY = "`builder-3b0a2.dbt_mapping.legacy_product_proxy`";
+const ARR_TABLE = "`your-gcp-project-id.finance.arr_revenue_tracker_latest`";
+const STRIPE_CUSTOMERS = "`your-gcp-project-id.polytomic.stripe_customers`";
+const DIM_DATE = "`your-gcp-project-id.dbt_mart.dim_date`";
+const PRODUCT_PROXY = "`your-gcp-project-id.dbt_mapping.legacy_product_proxy`";
 
 type Cadence = "Daily" | "Weekly" | "Monthly" | "Quarterly";
 
@@ -35,7 +35,7 @@ function baseCte(): string {
     ) AS customer_name,
     CASE
       WHEN arr.product = 'Shopify' THEN 'Shopify'
-      WHEN arr.product IN ('CMS', 'VCP', 'Develop') THEN 'Publish + Fusion'
+      WHEN arr.product IN ('CMS', 'VCP', 'Develop') THEN 'CMS + AI'
       ELSE 'unknown'
     END AS product_group,
     arr.ingestion_time,
@@ -54,7 +54,7 @@ function baseCte(): string {
     arr.plan,
     CASE
       WHEN arr.product = 'CMS' THEN 'Publish'
-      WHEN arr.product = 'Develop' THEN 'Fusion'
+      WHEN arr.product = 'Develop' THEN 'AI'
       ELSE arr.product
     END AS product,
     pp.product_proxy,
@@ -177,7 +177,7 @@ GROUP BY product_group
 ORDER BY net DESC`;
 }
 
-/** Breakdown by product (CMS→Publish, Develop→Fusion, etc.) */
+/** Breakdown by product (CMS→Publish, Develop→AI, etc.) */
 export function productDetailBreakdownQuery(fiscalYear: number): string {
   return `WITH ${baseCte()}
 SELECT
