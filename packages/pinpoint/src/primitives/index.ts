@@ -17,6 +17,5 @@ export {
 // Re-export freeze primitives (lazy — don't patch anything until called)
 export { freeze, unfreeze, isFreezeActive } from "../freeze/controller.js";
 
-// Re-export storage for direct pin access
-export { FileStore } from "../storage/file-store.js";
+// Re-export browser-safe storage for direct pin access
 export { MemoryStore } from "../storage/memory-store.js";
