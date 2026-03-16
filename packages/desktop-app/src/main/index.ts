@@ -96,8 +96,16 @@ app.on("web-contents-created", (_event, contents) => {
   if (contents.getType() !== "webview") return;
 
   contents.setWindowOpenHandler(({ url }) => {
-    // Open in system browser — OAuth polling in the app will detect completion
-    shell.openExternal(url);
+    // Only allow http/https URLs to prevent protocol-handler attacks
+    // (e.g. ms-msdt:, file://, etc.)
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+        shell.openExternal(url);
+      }
+    } catch {
+      // malformed URL — ignore
+    }
     return { action: "deny" };
   });
 
