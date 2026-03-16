@@ -38,11 +38,21 @@ function getAccountFiles(): string[] {
 
 /**
  * Migrate legacy single-token file to multi-account format.
- * If `data/google-auth.json` exists, reads it, fetches the email via the
- * Gmail API, saves to `data/google-accounts/{email}.json`, then deletes the
- * old file.
+ * Uses a module-level promise to ensure only one migration runs at a time.
  */
+let migrationPromise: Promise<void> | null = null;
+
 async function migrateLegacyTokens(): Promise<void> {
+  if (!fs.existsSync(LEGACY_TOKENS_PATH)) return;
+  if (!migrationPromise) {
+    migrationPromise = doMigrateLegacyTokens().finally(() => {
+      migrationPromise = null;
+    });
+  }
+  return migrationPromise;
+}
+
+async function doMigrateLegacyTokens(): Promise<void> {
   const tokens = readJsonFile<GoogleTokens>(LEGACY_TOKENS_PATH);
   if (!tokens) return;
 
@@ -139,8 +149,8 @@ export async function getClient(
   client.setCredentials(tokens);
 
   client.on("tokens", (newTokens) => {
-    const merged = { ...tokens, ...newTokens };
-    writeJsonFile(tokenFile, merged);
+    const current = readJsonFile<GoogleTokens>(tokenFile) ?? {};
+    writeJsonFile(tokenFile, { ...current, ...newTokens });
   });
 
   return client;
@@ -163,8 +173,8 @@ export async function getClients(): Promise<
     client.setCredentials(tokens);
 
     client.on("tokens", (newTokens) => {
-      const merged = { ...tokens, ...newTokens };
-      writeJsonFile(file, merged);
+      const current = readJsonFile<GoogleTokens>(file) ?? {};
+      writeJsonFile(file, { ...current, ...newTokens });
     });
 
     results.push({ email, client });
@@ -220,10 +230,11 @@ export async function getAuthStatus(): Promise<GoogleAuthStatus> {
 
 export function disconnect(email?: string): void {
   if (email) {
-    const filePath = path.join(ACCOUNTS_DIR, `${email}.json`);
-    deleteJsonFile(filePath);
+    // Validate against known account files to prevent path traversal
+    const files = getAccountFiles();
+    const match = files.find((f) => path.basename(f, ".json") === email);
+    if (match) deleteJsonFile(match);
   } else {
-    // Remove all accounts
     const files = getAccountFiles();
     for (const file of files) {
       deleteJsonFile(file);

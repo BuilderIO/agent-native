@@ -49,11 +49,13 @@ export async function handleGoogleCallback(
     const redirectUri =
       lastRedirectUri || `${getOrigin(req)}/api/google/callback`;
     const email = await exchangeCode(code, undefined, redirectUri);
-    // Send a page that closes itself — the app polls for connection status
+    const safeEmail = JSON.stringify(email);
     res.send(`<!DOCTYPE html><html><body><script>
       window.close();
-      // If window.close() is blocked, show a message
-      document.body.innerHTML = '<p style="font-family:system-ui;text-align:center;margin-top:40vh">Connected ${email}! You can close this tab.</p>';
+      var p = document.createElement('p');
+      p.style.cssText = 'font-family:system-ui;text-align:center;margin-top:40vh';
+      p.textContent = 'Connected ' + ${safeEmail} + '! You can close this tab.';
+      document.body.appendChild(p);
     </script></body></html>`);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
