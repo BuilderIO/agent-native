@@ -241,7 +241,10 @@ export function disconnect(email?: string): void {
 export async function listEvents(
   timeMin: string,
   timeMax: string,
-): Promise<{ events: CalendarEvent[]; errors: Array<{ email: string; error: string }> }> {
+): Promise<{
+  events: CalendarEvent[];
+  errors: Array<{ email: string; error: string }>;
+}> {
   const clients = await getClients();
   if (clients.length === 0) return { events: [], errors: [] };
 
