@@ -55,7 +55,7 @@ export class PinMarkerManager {
       marker.setAttribute("data-pinpoint-marker", pin.id);
       marker.style.cssText = `
         position: fixed;
-        z-index: 2147483647;
+        z-index: 2147483646;
         pointer-events: auto;
         width: 22px;
         height: 22px;
