@@ -120,29 +120,8 @@ export const OverlayCanvas: Component<OverlayCanvasProps> = (props) => {
       );
     }
 
-    // Draw pin outlines + numbered badges for annotated elements
-    for (let i = 0; i < props.pins.length; i++) {
-      const pin = props.pins[i];
-      const el = document.querySelector(pin.element.selector);
-      if (!el) continue;
-
-      const rect = el.getBoundingClientRect();
-
-      // Skip if element is off-screen
-      if (
-        rect.bottom < 0 ||
-        rect.top > window.innerHeight ||
-        rect.right < 0 ||
-        rect.left > window.innerWidth
-      )
-        continue;
-
-      // Outline only — numbered badges are DOM elements (PinMarkerManager)
-      ctx.strokeStyle = "rgba(59, 130, 246, 0.7)";
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([]);
-      ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-    }
+    // No permanent outlines for pins — badges (DOM) are sufficient.
+    // Outlines only appear during hover via the LERP highlight above.
 
     animFrameId = requestAnimationFrame(draw);
   }
