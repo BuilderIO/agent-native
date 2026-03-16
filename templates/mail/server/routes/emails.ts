@@ -3,8 +3,10 @@ import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
 import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
+import { google } from "googleapis";
 import {
   isConnected,
+  getClient,
   listGmailMessages,
   gmailToEmailMessage,
 } from "../lib/google-auth.js";
@@ -167,25 +169,73 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
 
 // ─── Single email ─────────────────────────────────────────────────────────────
 
-export function getEmail(req: Request, res: Response) {
+export async function getEmail(req: Request, res: Response): Promise<void> {
+  if (isConnected()) {
+    try {
+      const client = await getClient();
+      if (client) {
+        const gmail = google.gmail({ version: "v1", auth: client });
+        const msg = await gmail.users.messages.get({
+          userId: "me",
+          id: req.params.id as string,
+          format: "full",
+        });
+        res.json(gmailToEmailMessage((msg as any).data));
+        return;
+      }
+    } catch (error: any) {
+      console.error("[getEmail] Gmail error:", error.message);
+      res.status(500).json({ error: error.message });
+      return;
+    }
+  }
+
   const emails = readEmails();
   const email = emails.find((e) => e.id === req.params.id);
-  if (!email) return res.status(404).json({ error: "Email not found" });
+  if (!email) {
+    res.status(404).json({ error: "Email not found" });
+    return;
+  }
   res.json(email);
 }
 
 // ─── Mark read ────────────────────────────────────────────────────────────────
 
-export function markRead(req: Request, res: Response) {
+export async function markRead(req: Request, res: Response): Promise<void> {
   const { isRead } = req.body;
+
+  if (isConnected()) {
+    try {
+      const client = await getClient();
+      if (client) {
+        const gmail = google.gmail({ version: "v1", auth: client });
+        await gmail.users.messages.modify({
+          userId: "me",
+          id: req.params.id as string,
+          requestBody: isRead
+            ? { removeLabelIds: ["UNREAD"] }
+            : { addLabelIds: ["UNREAD"] },
+        });
+        res.json({ id: req.params.id, isRead });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[markRead] Gmail error:", error.message);
+      res.status(500).json({ error: error.message });
+      return;
+    }
+  }
+
   const emails = readEmails();
   const idx = emails.findIndex((e) => e.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: "Email not found" });
+  if (idx === -1) {
+    res.status(404).json({ error: "Email not found" });
+    return;
+  }
 
   emails[idx] = { ...emails[idx], isRead };
   writeEmails(emails);
 
-  // Update label unread counts
   const labels = recomputeUnreadCounts(emails, readLabels());
   writeLabels(labels);
 

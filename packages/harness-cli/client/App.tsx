@@ -179,7 +179,9 @@ export function App() {
   // Terminal header — lives inside the terminal pane only
   const terminalHeader = (
     <div className="flex items-center gap-2 px-3 h-10 shrink-0">
-      <span className="text-[13px] font-medium text-white/90">{activeApp}</span>
+      <span className="text-[13px] font-medium text-white/90">
+        {activeApp.charAt(0).toUpperCase() + activeApp.slice(1)}
+      </span>
       <span className="flex-1" />
 
       <a

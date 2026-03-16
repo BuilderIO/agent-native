@@ -10,6 +10,8 @@ function getOrigin(req: Request): string {
   return `${req.protocol}://${req.get("host")}`;
 }
 
+let lastRedirectUri: string | undefined;
+
 export function getGoogleAuthUrl(req: Request, res: Response): void {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
     res.status(422).json({
@@ -20,7 +22,11 @@ export function getGoogleAuthUrl(req: Request, res: Response): void {
     return;
   }
   try {
-    const url = getAuthUrl(getOrigin(req));
+    const redirectUri =
+      (req.query.redirect_uri as string) ||
+      `${getOrigin(req)}/api/google/callback`;
+    lastRedirectUri = redirectUri;
+    const url = getAuthUrl(undefined, redirectUri);
     res.json({ url });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -37,7 +43,9 @@ export async function handleGoogleCallback(
       res.status(400).json({ error: "Missing authorization code" });
       return;
     }
-    await exchangeCode(code, getOrigin(req));
+    const redirectUri =
+      lastRedirectUri || `${getOrigin(req)}/api/google/callback`;
+    await exchangeCode(code, undefined, redirectUri);
     res.send(`<!DOCTYPE html><html><body><script>
       window.close();
       document.body.innerHTML = '<p style="font-family:system-ui;text-align:center;margin-top:40vh">Connected! You can close this tab.</p>';

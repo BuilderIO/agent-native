@@ -38,6 +38,19 @@ export function SettingsPanel({
   const updateOption = (key: string, value: boolean) =>
     onChange({ ...settings, options: { ...settings.options, [key]: value } });
 
+  const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+  // Sort apps: mail, calendar first, then alphabetical
+  const PREFERRED = ["mail", "calendar"];
+  const sortedApps = [...apps].sort((a, b) => {
+    const ai = PREFERRED.indexOf(a.name.toLowerCase());
+    const bi = PREFERRED.indexOf(b.name.toLowerCase());
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.name.localeCompare(b.name);
+  });
+
   return (
     <div className="absolute top-9 left-0 bg-[#2a2a2a] border border-white/10 rounded-lg p-3 z-50 min-w-[300px] max-h-[calc(100vh-60px)] overflow-y-auto shadow-2xl">
       {/* Template Picker */}
@@ -47,7 +60,7 @@ export function SettingsPanel({
             Template
           </h3>
           <div className="flex flex-wrap gap-1 mb-2">
-            {apps.map((app) => (
+            {sortedApps.map((app) => (
               <button
                 key={app.name}
                 onClick={() => onSwitchApp(app.name)}
@@ -57,7 +70,7 @@ export function SettingsPanel({
                     : "bg-white/[0.04] text-white/50 hover:text-white/80 hover:bg-white/[0.08] border border-transparent"
                 }`}
               >
-                {app.name}
+                {capitalize(app.name)}
               </button>
             ))}
           </div>
