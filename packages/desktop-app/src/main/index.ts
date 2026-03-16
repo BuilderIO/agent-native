@@ -100,6 +100,20 @@ app.on("web-contents-created", (_event, contents) => {
     shell.openExternal(url);
     return { action: "deny" };
   });
+
+  // Forward Cmd+W from focused webview guests to the shell renderer
+  // so tab-close works even when a webview has keyboard focus.
+  contents.on("before-input-event", (event, input) => {
+    if (
+      (input.meta || input.control) &&
+      input.key.toLowerCase() === "w" &&
+      input.type === "keyDown"
+    ) {
+      event.preventDefault();
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win) win.webContents.send("shortcut:close-tab");
+    }
+  });
 });
 
 // ---------- App lifecycle ----------

@@ -66,18 +66,21 @@ export default function App() {
 
   const handleTabClose = useCallback(
     (tabId: string) => {
-      setAppTabs((prev) => {
-        const appState = prev[activeSidebarAppId];
-        const closedTab = appState.tabs.find((t) => t.id === tabId);
-        if (closedTab) {
-          closedTabsRef.current.push({
-            tab: closedTab,
-            appId: activeSidebarAppId,
-          });
-        }
+      // Push to closed-tabs stack outside the updater to avoid
+      // double-push in React 18 StrictMode (updaters must be pure).
+      const appState = appTabs[activeSidebarAppId];
+      const closedTab = appState?.tabs.find((t) => t.id === tabId);
+      if (closedTab) {
+        closedTabsRef.current.push({
+          tab: closedTab,
+          appId: activeSidebarAppId,
+        });
+      }
 
-        const idx = appState.tabs.findIndex((t) => t.id === tabId);
-        const next = appState.tabs.filter((t) => t.id !== tabId);
+      setAppTabs((prev) => {
+        const prevAppState = prev[activeSidebarAppId];
+        const idx = prevAppState.tabs.findIndex((t) => t.id === tabId);
+        const next = prevAppState.tabs.filter((t) => t.id !== tabId);
 
         if (next.length === 0) {
           const app = APP_REGISTRY.find((a) => a.id === activeSidebarAppId)!;
@@ -88,8 +91,8 @@ export default function App() {
           };
         }
 
-        let newActiveId = appState.activeTabId;
-        if (tabId === appState.activeTabId) {
+        let newActiveId = prevAppState.activeTabId;
+        if (tabId === prevAppState.activeTabId) {
           const newIdx = Math.min(idx, next.length - 1);
           newActiveId = next[newIdx].id;
         }
@@ -100,7 +103,7 @@ export default function App() {
         };
       });
     },
-    [activeSidebarAppId],
+    [activeSidebarAppId, appTabs],
   );
 
   const handleReopenTab = useCallback(() => {

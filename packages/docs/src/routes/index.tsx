@@ -87,7 +87,7 @@ const principles = [
 ];
 
 const quickStartCode = `# Fork a template and start building
-npx @agent-native/core create my-app --template analytics
+npx @agent-native/core create my-app --template mail
 cd my-app
 pnpm install
 pnpm dev`;
@@ -168,21 +168,7 @@ function Home() {
           </p>
 
           <div className="flex items-center justify-center gap-4">
-            <a
-              href="#templates"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                borderRadius: "9999px",
-                backgroundColor: "#000",
-                padding: "12px 24px",
-                fontSize: "14px",
-                fontWeight: 500,
-                color: "#fff",
-                textDecoration: "none",
-              }}
-            >
+            <a href="#templates" className="primary-button">
               Launch a Template
               <svg
                 width="16"
@@ -614,21 +600,7 @@ function Home() {
             Yours.
           </p>
           <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <a
-              href="#templates"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                borderRadius: "9999px",
-                backgroundColor: "#000",
-                padding: "12px 24px",
-                fontSize: "14px",
-                fontWeight: 500,
-                color: "#fff",
-                textDecoration: "none",
-              }}
-            >
+            <a href="#templates" className="primary-button">
               Launch a Template
               <svg
                 width="16"
