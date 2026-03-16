@@ -94,6 +94,55 @@ Edit `data/emails.json` and append:
 }
 ```
 
+## Application State
+
+Ephemeral UI state lives in `application-state/` as JSON files. These files are gitignored but visible to agent tools (via `.ignore`). Write to these files to trigger UI actions.
+
+### Compose emails
+
+Write `application-state/compose.json` to open the compose window with pre-filled content:
+
+```json
+{
+  "to": "alice@example.com",
+  "subject": "Project update",
+  "body": "Hi Alice,\n\nHere's the latest on the project...",
+  "mode": "compose"
+}
+```
+
+The compose window opens automatically when this file exists. The user can edit the draft and send it.
+
+To update an in-progress draft (e.g., user asks "make this more formal"):
+
+1. Read `application-state/compose.json`
+2. Modify the fields you want to change
+3. Write the file back
+
+The UI will pick up the changes automatically (via SSE).
+
+#### Compose state shape
+
+| Field             | Type   | Required | Description                         |
+| ----------------- | ------ | -------- | ----------------------------------- |
+| `to`              | string | yes      | Comma-separated recipient emails    |
+| `cc`              | string | no       | Comma-separated CC emails           |
+| `bcc`             | string | no       | Comma-separated BCC emails          |
+| `subject`         | string | yes      | Email subject line                  |
+| `body`            | string | yes      | Email body (plain text)             |
+| `mode`            | string | yes      | `"compose"`, `"reply"`, `"forward"` |
+| `replyToId`       | string | no       | ID of email being replied to        |
+| `replyToThreadId` | string | no       | Thread ID for grouping              |
+
+#### Common tasks
+
+| User request                      | What to do                                                                  |
+| --------------------------------- | --------------------------------------------------------------------------- |
+| "Draft an email to Alice about X" | Write `application-state/compose.json` with to, subject, body, mode=compose |
+| "Make this draft more formal"     | Read compose.json, rewrite body, write back                                 |
+| "Change the subject to Y"         | Read compose.json, update subject, write back                               |
+| "Reply to this email saying Z"    | Read the email from data/emails.json, write compose.json with mode=reply    |
+
 ## Scripts
 
 Run agent scripts with `pnpm script <name> [--args]`.
@@ -107,13 +156,14 @@ Run agent scripts with `pnpm script <name> [--args]`.
 
 ### Common tasks
 
-| User request                        | What to do                                                        |
-| ----------------------------------- | ----------------------------------------------------------------- |
-| "Summarize my unread emails"        | `pnpm script list-emails --view=unread` then summarize the output |
-| "What emails do I have from Alice?" | `pnpm script list-emails --q=alice`                               |
-| "Archive old emails"                | `pnpm script bulk-archive --older-than=30`                        |
-| "Star this email" / manage emails   | Edit `data/emails.json` directly (change flags)                   |
-| "Send an email to ..."              | Edit `data/emails.json` to add a sent email                       |
+| User request                        | What to do                                                             |
+| ----------------------------------- | ---------------------------------------------------------------------- |
+| "Summarize my unread emails"        | `pnpm script list-emails --view=unread` then summarize the output      |
+| "What emails do I have from Alice?" | `pnpm script list-emails --q=alice`                                    |
+| "Archive old emails"                | `pnpm script bulk-archive --older-than=30`                             |
+| "Star this email" / manage emails   | Edit `data/emails.json` directly (change flags)                        |
+| "Send an email to ..."              | Edit `data/emails.json` to add a sent email                            |
+| "Draft an email to ..."             | Write `application-state/compose.json` (see Application State section) |
 
 ### Adding new scripts
 
