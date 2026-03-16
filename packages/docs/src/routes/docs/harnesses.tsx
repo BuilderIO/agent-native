@@ -9,7 +9,7 @@ export const Route = createFileRoute("/docs/harnesses")({
 const TOC = [
   { id: "cli-harness", label: "CLI Harness" },
   { id: "supported-clis", label: "Supported CLIs" },
-  { id: "builder-harness", label: "Builder Harness" },
+  { id: "cloud-harness", label: "Cloud Harness" },
   { id: "feature-comparison", label: "Feature Comparison" },
   { id: "how-it-works", label: "How It Works" },
 ];
@@ -87,10 +87,9 @@ pnpm dev:harness`}
         options.
       </p>
 
-      <h2 id="builder-harness">Builder Harness (Cloud)</h2>
+      <h2 id="cloud-harness">Cloud Harness</h2>
       <ul className="list-disc space-y-1 pl-5">
-        <li>Provided by Builder.io — available at builder.io</li>
-        <li>Runs locally or in the cloud</li>
+        <li>Deploy to any cloud infrastructure</li>
         <li>
           Real-time collaboration — multiple users can watch/interact
           simultaneously
@@ -109,7 +108,7 @@ pnpm dev:harness`}
           <tr>
             <th>Feature</th>
             <th>CLI Harness</th>
-            <th>Builder Harness</th>
+            <th>Cloud Harness</th>
           </tr>
         </thead>
         <tbody>

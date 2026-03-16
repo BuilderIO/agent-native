@@ -11,7 +11,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getCallbackOrigin } from "@agent-native/core/client";
-import { useGoogleAuthUrl } from "@/hooks/use-google-auth";
+import {
+  useGoogleAuthStatus,
+  useGoogleAuthUrl,
+  useDisconnectGoogle,
+} from "@/hooks/use-google-auth";
 
 interface EnvKeyStatus {
   key: string;
@@ -61,7 +65,12 @@ export function GoogleConnectBanner({
   const [wantAuthUrl, setWantAuthUrl] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
+  const googleStatus = useGoogleAuthStatus();
   const authUrl = useGoogleAuthUrl(wantAuthUrl);
+  const disconnectGoogle = useDisconnectGoogle();
+
+  const accounts = googleStatus.data?.accounts ?? [];
+  const hasAccounts = accounts.length > 0;
 
   // Wizard state
   const [currentStep, setCurrentStep] = useState(0);
@@ -208,10 +217,31 @@ export function GoogleConnectBanner({
           <GoogleIcon className="h-3.5 w-3.5" />
           {authUrl.isLoading
             ? "Connecting..."
-            : allConfigured
-              ? "Connect Google"
-              : "Set up Google"}
+            : hasAccounts
+              ? "Add account"
+              : allConfigured
+                ? "Connect Google"
+                : "Set up Google"}
         </Button>
+
+        {hasAccounts && (
+          <div className="mt-4 flex items-center gap-2 flex-wrap justify-center">
+            {accounts.map((account) => (
+              <div
+                key={account.email}
+                className="group flex items-center gap-1.5 text-xs text-white/50"
+              >
+                <span>{account.email}</span>
+                <button
+                  onClick={() => disconnectGoogle.mutate(account.email)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-white/25 hover:text-white/50"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {showWizard && !allConfigured && (
           <div className="mt-8 w-full max-w-lg text-left">
@@ -234,6 +264,48 @@ export function GoogleConnectBanner({
     );
   }
 
+  // Connected with accounts — show compact account strip
+  if (hasAccounts && allConfigured) {
+    return (
+      <div className="border-b border-border/30 bg-[hsl(220,6%,11%)]">
+        <div className="flex items-center justify-between gap-3 px-4 py-1.5">
+          <div className="flex items-center gap-2 min-w-0">
+            {accounts.map((account) => (
+              <div
+                key={account.email}
+                className="group flex items-center gap-1.5 text-xs text-foreground/60"
+              >
+                <span className="truncate">{account.email}</span>
+                <button
+                  onClick={() => disconnectGoogle.mutate(account.email)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/30 hover:text-foreground/60"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={handleConnect}
+              disabled={authUrl.isLoading || authUrl.isFetching}
+              className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors whitespace-nowrap"
+            >
+              + Add account
+            </button>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+            onClick={() => setDismissed(true)}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Not connected or not configured — show setup banner
   return (
     <div className="border-b border-border/30 bg-[hsl(220,6%,11%)]">
       {/* Compact banner row */}

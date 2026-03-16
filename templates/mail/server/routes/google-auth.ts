@@ -48,12 +48,14 @@ export async function handleGoogleCallback(
     // Use the same redirect URI that was used to generate the auth URL
     const redirectUri =
       lastRedirectUri || `${getOrigin(req)}/api/google/callback`;
-    await exchangeCode(code, undefined, redirectUri);
-    // Send a page that closes itself — the app polls for connection status
+    const email = await exchangeCode(code, undefined, redirectUri);
+    const safeEmail = JSON.stringify(email);
     res.send(`<!DOCTYPE html><html><body><script>
       window.close();
-      // If window.close() is blocked, show a message
-      document.body.innerHTML = '<p style="font-family:system-ui;text-align:center;margin-top:40vh">Connected! You can close this tab.</p>';
+      var p = document.createElement('p');
+      p.style.cssText = 'font-family:system-ui;text-align:center;margin-top:40vh';
+      p.textContent = 'Connected ' + ${safeEmail} + '! You can close this tab.';
+      document.body.appendChild(p);
     </script></body></html>`);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -72,9 +74,10 @@ export async function getGoogleStatus(
   }
 }
 
-export function disconnectGoogle(_req: Request, res: Response): void {
+export function disconnectGoogle(req: Request, res: Response): void {
   try {
-    disconnect();
+    const email = req.body?.email as string | undefined;
+    disconnect(email);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });

@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useRef } from "react";
+import { useState } from "react";
 import CodeBlock from "../components/CodeBlock";
 import { templates, TemplateCard } from "../components/TemplateCard";
 
@@ -349,15 +349,6 @@ function Home() {
               </div>
             </div>
           </div>
-
-          <div className="approaches-solution">
-            <div className="approaches-solution-badge">The solution</div>
-            <p className="approaches-solution-tagline">Agent + UI + Computer</p>
-            <p className="approaches-solution-desc">
-              Agent-native apps combine a polished, guided UI with a powerful AI
-              agent that can customize and evolve the app itself.
-            </p>
-          </div>
         </section>
 
         {/* The Trio */}
@@ -524,8 +515,8 @@ function Home() {
             </h2>
             <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
               Agent-native apps run inside a harness — a host that provides the
-              AI agent alongside your app UI. Run locally with open-source tools
-              or in the cloud with Builder for collaboration and team features.
+              AI agent alongside your app UI. Run locally with open-source CLI
+              tools, or deploy to any cloud infrastructure.
             </p>
           </div>
 
@@ -546,43 +537,42 @@ function Home() {
                   <line x1="8" y1="21" x2="16" y2="21" />
                   <line x1="12" y1="17" x2="12" y2="21" />
                 </svg>
-                <h3 className="text-base font-semibold">Local / Open Source</h3>
+                <h3 className="text-base font-semibold">CLI Harness</h3>
               </div>
               <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
                 <li>Run with Claude Code, Codex, Gemini CLI, or OpenCode</li>
                 <li>Full permissions, full control</li>
                 <li>Free and open source</li>
-                <li>Solo development and testing</li>
+                <li>Great for development, testing, and solo use</li>
               </ul>
             </div>
-            <div className="rounded-xl border-2 border-[var(--accent)] p-6">
+            <div className="rounded-xl border border-[var(--border)] p-6">
               <div className="mb-3 flex items-center gap-2">
                 <svg
                   width="20"
                   height="20"
                   viewBox="0 0 24 24"
                   fill="none"
-                  stroke="var(--accent)"
+                  stroke="currentColor"
                   strokeWidth="1.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
                   <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
                 </svg>
-                <h3 className="text-base font-semibold">Builder.io Cloud</h3>
+                <h3 className="text-base font-semibold">Cloud Harness</h3>
               </div>
               <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
-                <li>One-click launch from templates</li>
+                <li>Deploy to any cloud infrastructure</li>
                 <li>Real-time multiplayer collaboration</li>
                 <li>Visual editing, roles and permissions</li>
-                <li>Cloud computers for every user</li>
+                <li>Great for teams and production use</li>
               </ul>
             </div>
           </div>
 
           <p className="mt-6 text-center text-sm text-[var(--fg-secondary)]">
-            Your app code is identical regardless of harness. Start local, go to
-            cloud when you need teams.
+            Your app code is identical regardless of harness.
           </p>
         </section>
 
@@ -593,8 +583,7 @@ function Home() {
               Launch in minutes
             </h2>
             <p className="mx-auto max-w-xl text-base text-[var(--fg-secondary)]">
-              One command to fork a template locally. Or click to launch in
-              Builder — no setup required.
+              One command to fork a template and start building locally.
             </p>
           </div>
 
