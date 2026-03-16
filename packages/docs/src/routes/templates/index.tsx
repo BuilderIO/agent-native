@@ -35,9 +35,7 @@ function TemplatesPage() {
           and share their own.
         </p>
         <a
-          href="https://builder.io"
-          target="_blank"
-          rel="noopener noreferrer"
+          href="/docs"
           onClick={() =>
             trackEvent("create_your_own", { location: "templates_index" })
           }

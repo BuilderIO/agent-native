@@ -193,32 +193,6 @@ function TemplateLaunchButton({ template }: { template: Template }) {
 
   return (
     <div className="mt-auto flex flex-col gap-2 pt-3">
-      <a
-        href="https://builder.io"
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={() =>
-          trackEvent("launch_template_cloud", {
-            template: template.slug,
-            location: "card",
-          })
-        }
-        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-      >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
-        </svg>
-        Launch
-      </a>
       <button
         ref={buttonRef}
         onClick={() => {
@@ -229,7 +203,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
             });
           setShowCli(!showCli);
         }}
-        className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-transparent px-4 py-2 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
       >
         <svg
           width="14"
@@ -244,7 +218,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
           <polyline points="4 17 10 11 4 5" />
           <line x1="12" y1="19" x2="20" y2="19" />
         </svg>
-        Run locally
+        Get Started
       </button>
       {showCli && (
         <CliPopover

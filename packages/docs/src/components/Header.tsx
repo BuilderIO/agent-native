@@ -3,18 +3,6 @@ import ThemeToggle from "./ThemeToggle";
 import { useSearchModal, SearchModal } from "./SearchModal";
 import { useState } from "react";
 
-const BUILDER_LOGO = (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 231 260"
-    fill="currentColor"
-    xmlns="http://www.w3.org/2000/svg"
-  >
-    <path d="M230.28 78C230.28 34.73 195.16 0 152.28 0H20.53C9.15003 0 0 9.24004 0 20.54C0 41.59 44.5701 57.5598 44.5701 130C44.5701 202.44 0 218.42 0 239.46C0 250.76 9.15003 260 20.53 260H152.28C195.16 260 230.28 225.27 230.28 182C230.28 150.2 211.17 130.83 210.43 130C211.17 129.17 230.28 109.8 230.28 78ZM27.17 22.29H152.28C167.16 22.29 181.15 28.0799 191.68 38.6099C202.2 49.1299 208 63.12 208 78.01C208 92.9 202.52 106.02 192.75 116.31L27.17 22.29ZM191.67 221.4C181.15 231.92 167.16 237.72 152.27 237.72H27.16L192.74 143.7C202.51 153.99 207.99 167.6 207.99 182C207.99 196.4 202.19 210.87 191.67 221.4ZM51.41 198.32C52.73 195.55 66.85 168.15 66.85 130C66.85 91.8498 52.73 64.4499 51.41 61.6799L171.73 130L51.41 198.32Z" />
-  </svg>
-);
-
 function SearchTrigger({ onClick }: { onClick: () => void }) {
   return (
     <button
@@ -128,17 +116,6 @@ export default function Header() {
             <SearchTrigger onClick={() => setOpen(true)} />
             <ThemeToggle />
 
-            {/* Desktop Cloud CTA */}
-            <a
-              href="https://builder.io"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hidden sm:inline-flex items-center gap-2 rounded-lg bg-black px-3 py-1.5 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-            >
-              {BUILDER_LOGO}
-              Cloud
-            </a>
-
             {/* Mobile hamburger */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -177,15 +154,6 @@ export default function Header() {
               className="header-link"
             >
               GitHub
-            </a>
-            <a
-              href="https://builder.io"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mobile-cloud-link"
-            >
-              {BUILDER_LOGO}
-              Builder Cloud
             </a>
           </div>
         )}
