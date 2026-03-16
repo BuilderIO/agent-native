@@ -247,7 +247,10 @@ export function disconnect(email?: string): void {
 export async function listGmailMessages(
   query?: string,
   maxResults = 50,
-): Promise<{ messages: any[]; errors: Array<{ email: string; error: string }> }> {
+): Promise<{
+  messages: any[];
+  errors: Array<{ email: string; error: string }>;
+}> {
   const clients = await getClients();
   if (clients.length === 0) return { messages: [], errors: [] };
 

@@ -24,15 +24,15 @@ export async function listEvents(req: Request, res: Response): Promise<void> {
 
     // If Google is connected, fetch Google events (skip local demo data)
     if (connected && from && to) {
-      const { events: googleEvents, errors } =
-        await googleCalendar.listEvents(from, to);
+      const { events: googleEvents, errors } = await googleCalendar.listEvents(
+        from,
+        to,
+      );
 
       if (googleEvents.length === 0 && errors.length > 0) {
-        res
-          .status(502)
-          .json({
-            error: errors.map((e) => `${e.email}: ${e.error}`).join("; "),
-          });
+        res.status(502).json({
+          error: errors.map((e) => `${e.email}: ${e.error}`).join("; "),
+        });
         return;
       }
 
