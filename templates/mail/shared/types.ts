@@ -30,6 +30,7 @@ export type EmailMessage = {
   isTrashed: boolean;
   labelIds: string[];
   attachments?: Attachment[];
+  accountEmail?: string;
 };
 
 export type EmailThread = {

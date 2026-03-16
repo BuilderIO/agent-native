@@ -12,7 +12,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getCallbackOrigin } from "@agent-native/core/client";
-import { useGoogleAuthStatus, useGoogleAuthUrl } from "@/hooks/use-google-auth";
+import {
+  useGoogleAuthStatus,
+  useGoogleAuthUrl,
+  useDisconnectGoogle,
+} from "@/hooks/use-google-auth";
 
 interface EnvKeyStatus {
   key: string;
@@ -58,6 +62,10 @@ export function GoogleConnectBanner() {
   const [showWizard, setShowWizard] = useState(false);
   const googleStatus = useGoogleAuthStatus();
   const authUrl = useGoogleAuthUrl(wantAuthUrl);
+  const disconnectGoogle = useDisconnectGoogle();
+
+  const accounts = googleStatus.data?.accounts ?? [];
+  const hasAccounts = accounts.length > 0;
 
   // Wizard state
   const [currentStep, setCurrentStep] = useState(0);
@@ -186,9 +194,50 @@ export function GoogleConnectBanner() {
     setTimeout(() => setCopiedKey(null), 2000);
   }
 
-  // Hide banner only if connected AND env vars are configured
-  if (dismissed || (googleStatus.data?.connected && allConfigured)) return null;
+  if (dismissed) return null;
 
+  // Connected with accounts — show compact account strip
+  if (hasAccounts && allConfigured) {
+    return (
+      <div className="border-b border-border/30 bg-[hsl(220,6%,11%)]">
+        <div className="flex items-center justify-between gap-3 px-4 py-1.5">
+          <div className="flex items-center gap-2 min-w-0">
+            {accounts.map((account) => (
+              <div
+                key={account.email}
+                className="group flex items-center gap-1.5 text-xs text-foreground/60"
+              >
+                <span className="truncate">{account.email}</span>
+                <button
+                  onClick={() => disconnectGoogle.mutate(account.email)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/30 hover:text-foreground/60"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={handleConnect}
+              disabled={authUrl.isLoading || authUrl.isFetching}
+              className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors whitespace-nowrap"
+            >
+              + Add account
+            </button>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+            onClick={() => setDismissed(true)}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Not connected or not configured — show setup banner
   return (
     <div className="border-b border-border/30 bg-[hsl(220,6%,11%)]">
       {/* Compact banner row */}

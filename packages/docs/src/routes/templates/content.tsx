@@ -135,32 +135,6 @@ function ContentTemplate() {
             </p>
 
             <div className="mb-8 flex flex-col items-start gap-3">
-              <a
-                href="https://builder.io"
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() =>
-                  trackEvent("launch_template_cloud", {
-                    template: template.slug,
-                    location: "hero",
-                  })
-                }
-                className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
-                </svg>
-                Launch in Cloud
-              </a>
               <CliCopy />
             </div>
           </div>
@@ -493,20 +467,12 @@ function ContentTemplate() {
           Fork the template, connect your CMS, start writing with AI.
         </p>
         <div className="flex items-center justify-center gap-4">
-          <a
-            href="https://builder.io"
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() =>
-              trackEvent("launch_template_cloud", {
-                template: template.slug,
-                location: "bottom_cta",
-              })
-            }
+          <Link
+            to="/docs"
             className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
-            Launch in Cloud
-          </a>
+            Get Started
+          </Link>
           <Link
             to="/templates"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"

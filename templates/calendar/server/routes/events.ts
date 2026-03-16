@@ -24,7 +24,17 @@ export async function listEvents(req: Request, res: Response): Promise<void> {
 
     // If Google is connected, fetch Google events (skip local demo data)
     if (connected && from && to) {
-      const googleEvents = await googleCalendar.listEvents(from, to);
+      const { events: googleEvents, errors } = await googleCalendar.listEvents(
+        from,
+        to,
+      );
+
+      if (googleEvents.length === 0 && errors.length > 0) {
+        res.status(502).json({
+          error: errors.map((e) => `${e.email}: ${e.error}`).join("; "),
+        });
+        return;
+      }
 
       let events = googleEvents;
       if (from) {
@@ -39,6 +49,9 @@ export async function listEvents(req: Request, res: Response): Promise<void> {
       events.sort(
         (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
       );
+      if (errors.length > 0) {
+        res.setHeader("X-Account-Errors", JSON.stringify(errors));
+      }
       res.json(events);
       return;
     }
@@ -125,7 +138,7 @@ export async function updateEvent(req: Request, res: Response): Promise<void> {
     // Sync update to Google if connected
     if (updated.googleEventId && googleCalendar.isConnected()) {
       try {
-        await googleCalendar.updateEvent(updated.googleEventId, req.body);
+        await googleCalendar.updateEvent(updated.googleEventId, updated);
       } catch {
         // Continue even if Google update fails
       }
@@ -150,7 +163,10 @@ export async function deleteEvent(req: Request, res: Response): Promise<void> {
     // Delete from Google if connected
     if (existing.googleEventId && googleCalendar.isConnected()) {
       try {
-        await googleCalendar.deleteEvent(existing.googleEventId);
+        await googleCalendar.deleteEvent(
+          existing.googleEventId,
+          existing.accountEmail,
+        );
       } catch {
         // Continue even if Google delete fails
       }

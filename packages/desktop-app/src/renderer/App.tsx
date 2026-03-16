@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { APP_REGISTRY, type AppDefinition } from "@shared/app-registry";
 import Sidebar from "./components/Sidebar.js";
 import TabBar from "./components/TabBar.js";
@@ -106,6 +106,40 @@ export default function App() {
       },
     }));
   }, [activeSidebarAppId]);
+
+  // Keyboard shortcuts: Cmd+1-9 to switch apps, Cmd+[/] to go prev/next
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.metaKey && !e.ctrlKey) return;
+
+      // Cmd+1 through Cmd+9
+      const digit = parseInt(e.key, 10);
+      if (digit >= 1 && digit <= 9) {
+        const idx = digit - 1;
+        if (idx < APP_REGISTRY.length) {
+          e.preventDefault();
+          setActiveSidebarAppId(APP_REGISTRY[idx].id);
+        }
+        return;
+      }
+
+      // Cmd+[ / Cmd+] to go prev/next app
+      if (e.key === "[" || e.key === "]") {
+        e.preventDefault();
+        setActiveSidebarAppId((current) => {
+          const idx = APP_REGISTRY.findIndex((a) => a.id === current);
+          const next =
+            e.key === "]"
+              ? (idx + 1) % APP_REGISTRY.length
+              : (idx - 1 + APP_REGISTRY.length) % APP_REGISTRY.length;
+          return APP_REGISTRY[next].id;
+        });
+      }
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   // Collect all mounted webviews across all apps
   const allWebviews: { tab: Tab; app: AppDefinition; isActive: boolean }[] = [];

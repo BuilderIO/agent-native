@@ -7,6 +7,7 @@ import { google } from "googleapis";
 import {
   isConnected,
   getClient,
+  getClients,
   listGmailMessages,
   gmailToEmailMessage,
 } from "../lib/google-auth.js";
@@ -95,12 +96,23 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
       let searchQuery = gmailQuery[view] ?? `label:${view}`;
       if (q) searchQuery += ` ${q}`;
 
-      const messages = await listGmailMessages(searchQuery);
-      const emails = messages.map(gmailToEmailMessage);
+      const { messages, errors } = await listGmailMessages(searchQuery);
+      if (messages.length === 0 && errors.length > 0) {
+        // All accounts failed — surface as error
+        res.status(502).json({
+          error: errors.map((e) => `${e.email}: ${e.error}`).join("; "),
+        });
+        return;
+      }
+      const emails = messages.map((m) => gmailToEmailMessage(m));
       emails.sort(
         (a: any, b: any) =>
           new Date(b.date).getTime() - new Date(a.date).getTime(),
       );
+      // If some accounts failed but others succeeded, add warning header
+      if (errors.length > 0) {
+        res.setHeader("X-Account-Errors", JSON.stringify(errors));
+      }
       res.json(emails);
       return;
     } catch (error: any) {
@@ -171,21 +183,30 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
 
 export async function getEmail(req: Request, res: Response): Promise<void> {
   if (isConnected()) {
-    try {
-      const client = await getClient();
-      if (client) {
+    const clients = await getClients();
+    for (const { email, client } of clients) {
+      try {
         const gmail = google.gmail({ version: "v1", auth: client });
         const msg = await gmail.users.messages.get({
           userId: "me",
           id: req.params.id as string,
           format: "full",
         });
-        res.json(gmailToEmailMessage((msg as any).data));
+        res.json(gmailToEmailMessage((msg as any).data, email));
+        return;
+      } catch (error: any) {
+        const status =
+          typeof error?.response?.status === "number"
+            ? error.response.status
+            : undefined;
+        if (status === 404) continue;
+        console.error("[getEmail] Gmail error:", error.message);
+        res.status(status || 502).json({ error: error.message });
         return;
       }
-    } catch (error: any) {
-      console.error("[getEmail] Gmail error:", error.message);
-      res.status(500).json({ error: error.message });
+    }
+    if (clients.length > 0) {
+      res.status(404).json({ error: "Message not found in any account" });
       return;
     }
   }
@@ -202,11 +223,12 @@ export async function getEmail(req: Request, res: Response): Promise<void> {
 // ─── Mark read ────────────────────────────────────────────────────────────────
 
 export async function markRead(req: Request, res: Response): Promise<void> {
-  const { isRead } = req.body;
+  const { isRead, accountEmail } = req.body;
 
   if (isConnected()) {
     try {
-      const client = await getClient();
+      // Route to specific account if provided, otherwise try first client
+      const client = await getClient(accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
         await gmail.users.messages.modify({

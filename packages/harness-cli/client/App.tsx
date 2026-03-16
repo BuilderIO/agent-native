@@ -9,8 +9,8 @@ import {
   IconSettings,
   IconTerminal2,
   IconDeviceDesktop,
-  IconMaximize,
-  IconMinimize,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
 } from "@tabler/icons-react";
 import { useTerminal } from "./hooks/useTerminal";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -224,18 +224,7 @@ export function App() {
         )}
       </div>
 
-      <Tooltip label={isFullscreen ? "Show terminal" : "Fullscreen preview"}>
-        <button
-          onClick={() => setIsFullscreen((v) => !v)}
-          className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
-        >
-          {isFullscreen ? (
-            <IconMinimize size={14} stroke={1.5} />
-          ) : (
-            <IconMaximize size={14} stroke={1.5} />
-          )}
-        </button>
-      </Tooltip>
+      {/* Sidebar collapse button moved to bottom-left of terminal pane */}
     </div>
   );
 
@@ -243,7 +232,7 @@ export function App() {
   const setupOverlay = (setupStatus.status === "installing" ||
     setupStatus.status === "not-found" ||
     setupStatus.status === "failed") && (
-    <div className="absolute inset-0 bg-[#1e1e1e]/95 flex items-center justify-center z-10">
+    <div className="absolute inset-0 bg-black/95 flex items-center justify-center z-10">
       <div className="text-center max-w-sm px-6">
         {setupStatus.status === "installing" ? (
           <>
@@ -291,9 +280,7 @@ export function App() {
   );
 
   return (
-    <div
-      className={`h-screen bg-[#1e1e1e] ${isMobile ? "flex flex-col" : "flex"}`}
-    >
+    <div className={`h-screen bg-black ${isMobile ? "flex flex-col" : "flex"}`}>
       {/* Backdrop — dismisses popovers when clicking anywhere, including over iframe */}
       {showPopoverBackdrop && (
         <div className="fixed inset-0 z-40" onClick={dismissPopovers} />
@@ -321,6 +308,20 @@ export function App() {
               <div ref={termRef} className="w-full h-full py-1 pl-3 pr-1" />
               {setupOverlay}
             </div>
+
+            {/* Sidebar collapse button */}
+            {!isMobile && (
+              <div className="shrink-0 px-3 py-2">
+                <Tooltip label="Collapse sidebar">
+                  <button
+                    onClick={() => setIsFullscreen(true)}
+                    className="p-1.5 rounded text-white/30 hover:text-white/60 hover:bg-white/5 transition-colors"
+                  >
+                    <IconLayoutSidebarLeftCollapse size={16} stroke={1.5} />
+                  </button>
+                </Tooltip>
+              </div>
+            )}
           </div>
 
           {/* Drag handle — desktop only */}
@@ -342,12 +343,10 @@ export function App() {
             ? "fixed inset-0 z-50 bg-black"
             : isMobile
               ? `flex flex-col ${mobileTab === "interact" ? "flex-1 min-h-0" : "absolute inset-0 invisible"}`
-              : "flex-1 flex flex-col min-h-0 p-2 pl-0"
+              : "flex-1 flex flex-col min-h-0"
         }
       >
-        <div
-          className={`flex-1 overflow-hidden bg-black ${isFullscreen ? "" : isMobile ? "" : "rounded-xl"}`}
-        >
+        <div className="flex-1 overflow-hidden bg-black">
           <iframe
             ref={iframeRef}
             src={appUrl}
@@ -366,14 +365,13 @@ export function App() {
           />
         </div>
 
-        {/* Floating back-to-agent button — bottom left, fullscreen only */}
+        {/* Floating expand-sidebar button — bottom left, fullscreen only */}
         {isFullscreen && !isMobile && (
           <button
             onClick={() => setIsFullscreen(false)}
-            className="fixed bottom-4 left-4 z-[51] flex items-center gap-2 px-3 py-2 rounded-lg bg-black/70 backdrop-blur-sm border border-white/10 text-white/60 hover:text-white hover:bg-black/90 transition-all text-xs font-medium shadow-lg"
+            className="fixed bottom-4 left-4 z-[51] p-2 rounded-lg bg-black/70 backdrop-blur-sm border border-white/10 text-white/40 hover:text-white hover:bg-black/90 transition-all shadow-lg"
           >
-            <IconTerminal2 size={14} stroke={1.5} />
-            Agent
+            <IconLayoutSidebarLeftExpand size={18} stroke={1.5} />
           </button>
         )}
       </div>

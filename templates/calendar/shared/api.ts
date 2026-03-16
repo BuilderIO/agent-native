@@ -8,6 +8,7 @@ export interface CalendarEvent {
   allDay: boolean;
   source: "local" | "google";
   googleEventId?: string;
+  accountEmail?: string;
   color?: string;
   createdAt: string;
   updatedAt: string;
@@ -55,8 +56,7 @@ export interface Booking {
 
 export interface GoogleAuthStatus {
   connected: boolean;
-  email?: string;
-  expiresAt?: string;
+  accounts: Array<{ email: string; expiresAt?: string }>;
 }
 
 export interface Settings {

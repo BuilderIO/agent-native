@@ -113,8 +113,8 @@ function KeyConceptsDocs() {
         The app runs inside a <strong>harness</strong> — a host environment that
         provides the agent alongside the app UI. The simplest harness is a
         terminal on the left (running Claude Code) and your app iframe on the
-        right. Builder.io provides a cloud harness with collaboration, visual
-        editing, and managed infrastructure.
+        right. Cloud harnesses add collaboration, visual editing, and managed
+        infrastructure for teams.
       </p>
       <p>Five rules govern the architecture:</p>
       <ol className="list-decimal space-y-2 pl-5">
@@ -328,13 +328,11 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`}
             locally. Free. Best for solo development.
           </p>
         </div>
-        <div className="rounded-xl border-2 border-[var(--accent)] p-5">
-          <div className="mb-2 text-sm font-semibold">
-            Builder Harness (Cloud)
-          </div>
+        <div className="rounded-xl border border-[var(--border)] p-5">
+          <div className="mb-2 text-sm font-semibold">Cloud Harness</div>
           <p className="m-0 text-sm text-[var(--fg-secondary)]">
-            Cloud-hosted with real-time collaboration, visual editing, roles and
-            permissions, managed infrastructure. Best for teams.
+            Deploy to any cloud with real-time collaboration, visual editing,
+            roles and permissions. Best for teams.
           </p>
         </div>
       </div>
@@ -490,9 +488,8 @@ export default async function(args: string[]) {
       <p>
         This works because the agent has your full codebase. It can read your
         components, understand your patterns, and make changes that fit.
-        Combined with git-based workflows, roles, and ACLs (in the Builder
-        harness), you get the power of custom development with the safety of
-        code review.
+        Combined with git-based workflows, roles, and ACLs, you get the power of
+        custom development with the safety of code review.
       </p>
     </DocsLayout>
   );
