@@ -299,10 +299,33 @@ export function toggleStar(req: Request, res: Response) {
 
 // ─── Archive ──────────────────────────────────────────────────────────────────
 
-export function archiveEmail(req: Request, res: Response) {
+export async function archiveEmail(req: Request, res: Response): Promise<void> {
+  if (isConnected()) {
+    try {
+      const client = await getClient();
+      if (client) {
+        const gmail = google.gmail({ version: "v1", auth: client });
+        await gmail.users.messages.modify({
+          userId: "me",
+          id: req.params.id as string,
+          requestBody: { removeLabelIds: ["INBOX"] },
+        });
+        res.json({ id: req.params.id, isArchived: true });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[archiveEmail] Gmail error:", error.message);
+      res.status(500).json({ error: error.message });
+      return;
+    }
+  }
+
   const emails = readEmails();
   const idx = emails.findIndex((e) => e.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: "Email not found" });
+  if (idx === -1) {
+    res.status(404).json({ error: "Email not found" });
+    return;
+  }
 
   emails[idx] = {
     ...emails[idx],
@@ -317,12 +340,82 @@ export function archiveEmail(req: Request, res: Response) {
   res.json(emails[idx]);
 }
 
-// ─── Trash ────────────────────────────────────────────────────────────────────
+// ─── Unarchive ───────────────────────────────────────────────────────────────
 
-export function trashEmail(req: Request, res: Response) {
+export async function unarchiveEmail(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  if (isConnected()) {
+    try {
+      const client = await getClient();
+      if (client) {
+        const gmail = google.gmail({ version: "v1", auth: client });
+        await gmail.users.messages.modify({
+          userId: "me",
+          id: req.params.id as string,
+          requestBody: { addLabelIds: ["INBOX"] },
+        });
+        res.json({ id: req.params.id, isArchived: false });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[unarchiveEmail] Gmail error:", error.message);
+      res.status(500).json({ error: error.message });
+      return;
+    }
+  }
+
   const emails = readEmails();
   const idx = emails.findIndex((e) => e.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: "Email not found" });
+  if (idx === -1) {
+    res.status(404).json({ error: "Email not found" });
+    return;
+  }
+
+  emails[idx] = {
+    ...emails[idx],
+    isArchived: false,
+    labelIds: emails[idx].labelIds.includes("inbox")
+      ? emails[idx].labelIds
+      : ["inbox", ...emails[idx].labelIds],
+  };
+  writeEmails(emails);
+
+  const labels = recomputeUnreadCounts(emails, readLabels());
+  writeLabels(labels);
+
+  res.json(emails[idx]);
+}
+
+// ─── Trash ────────────────────────────────────────────────────────────────────
+
+export async function trashEmail(req: Request, res: Response): Promise<void> {
+  if (isConnected()) {
+    try {
+      const client = await getClient();
+      if (client) {
+        const gmail = google.gmail({ version: "v1", auth: client });
+        await gmail.users.messages.trash({
+          userId: "me",
+          id: req.params.id as string,
+        });
+        res.json({ id: req.params.id, isTrashed: true });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[trashEmail] Gmail error:", error.message);
+      res.status(500).json({ error: error.message });
+      return;
+    }
+  }
+
+  const emails = readEmails();
+  const idx = emails.findIndex((e) => e.id === req.params.id);
+  if (idx === -1) {
+    res.status(404).json({ error: "Email not found" });
+    return;
+  }
 
   emails[idx] = { ...emails[idx], isTrashed: true, isArchived: false };
   writeEmails(emails);

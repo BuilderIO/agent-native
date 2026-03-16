@@ -24,7 +24,7 @@ interface EventDialogProps {
 
 function getEventColor(event: CalendarEvent) {
   if (event.color) return event.color;
-  return event.source === "google" ? "#10b981" : null;
+  return event.source === "google" ? "#5085C0" : null;
 }
 
 export function EventDialog({ event, open, onClose }: EventDialogProps) {
@@ -239,7 +239,7 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
 
             {/* Google Calendar badge */}
             {isGoogle && (
-              <div className="flex items-center gap-2 rounded-md bg-emerald-500/10 px-3 py-2 text-xs text-emerald-400">
+              <div className="flex items-center gap-2 rounded-md bg-blue-500/10 px-3 py-2 text-xs text-blue-400">
                 <ExternalLink className="h-3.5 w-3.5" />
                 <span>Synced from Google Calendar</span>
               </div>

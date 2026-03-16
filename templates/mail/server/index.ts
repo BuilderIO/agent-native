@@ -1,4 +1,8 @@
-import { createServer } from "@agent-native/core";
+import {
+  createServer,
+  createFileWatcher,
+  createSSEHandler,
+} from "@agent-native/core";
 import type { EnvKeyConfig } from "@agent-native/core/server";
 import {
   listEmails,
@@ -13,6 +17,11 @@ import {
   getSettings,
   updateSettings,
 } from "./routes/emails.js";
+import {
+  getComposeState,
+  putComposeState,
+  deleteComposeState,
+} from "./routes/application-state.js";
 import {
   getGoogleAuthUrl,
   handleGoogleCallback,
@@ -31,6 +40,7 @@ const envKeys: EnvKeyConfig[] = [
 
 export function createAppServer() {
   const app = createServer({ envKeys });
+  const watcher = createFileWatcher(["./data", "./application-state"]);
 
   app.get("/api/ping", (_req, res) => res.json({ ok: true }));
 
@@ -51,11 +61,19 @@ export function createAppServer() {
   app.get("/api/settings", getSettings);
   app.patch("/api/settings", updateSettings);
 
+  // Application state
+  app.get("/api/application-state/compose", getComposeState);
+  app.put("/api/application-state/compose", putComposeState);
+  app.delete("/api/application-state/compose", deleteComposeState);
+
   // Google Auth
   app.get("/api/google/auth-url", getGoogleAuthUrl);
   app.get("/api/google/callback", handleGoogleCallback);
   app.get("/api/google/status", getGoogleStatus);
   app.post("/api/google/disconnect", disconnectGoogle);
+
+  // SSE events (keep last)
+  app.get("/api/events", createSSEHandler(watcher));
 
   return app;
 }

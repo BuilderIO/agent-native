@@ -56,12 +56,13 @@ export type Label = {
   unreadCount?: number;
 };
 
-export type ComposeData = {
+export type ComposeState = {
   to: string;
   cc?: string;
   bcc?: string;
   subject: string;
   body: string;
+  mode: "compose" | "reply" | "forward";
   replyToId?: string;
   replyToThreadId?: string;
 };

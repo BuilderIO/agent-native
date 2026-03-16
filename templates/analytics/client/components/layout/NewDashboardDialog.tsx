@@ -11,12 +11,11 @@ import { cn } from "@/lib/utils";
 export function NewDashboardDialog() {
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
-  const [authorName, setAuthorName] = useState("");
   const [isGenerating] = useAgentChatGenerating();
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!prompt.trim() || !authorName.trim() || isGenerating) return;
+    if (!prompt.trim() || isGenerating) return;
 
     const today = new Date().toISOString().slice(0, 10);
 
@@ -24,7 +23,7 @@ export function NewDashboardDialog() {
       message: prompt.trim(),
       context:
         "The user wants to create a new analytics dashboard. " +
-        `REQUIRED: Set author="${authorName.trim()}" and lastUpdated="${today}" in the registry entry. ` +
+        `REQUIRED: Set lastUpdated="${today}" in the registry entry. ` +
         "Create a new dashboard page in client/pages/adhoc/ with the appropriate charts and data. " +
         "Register it in client/pages/adhoc/registry.ts (both the dashboards array and dashboardComponents map). " +
         "Use DashboardHeader component at the top. " +
@@ -34,7 +33,6 @@ export function NewDashboardDialog() {
     });
 
     setPrompt("");
-    setAuthorName("");
     setOpen(false);
   }
 
@@ -59,67 +57,29 @@ export function NewDashboardDialog() {
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-96 p-4" side="right" align="start">
-        <p className="text-sm font-medium mb-3">New Dashboard</p>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <label
-              htmlFor="author-name"
-              className="text-xs text-muted-foreground"
-            >
-              Your Name or Email <span className="text-destructive">*</span>
-            </label>
-            <input
-              id="author-name"
-              type="text"
-              value={authorName}
-              onChange={(e) => setAuthorName(e.target.value)}
-              placeholder='e.g. "jane@example.com" or "Jane Doe"'
-              className={cn(
-                "mt-1.5 flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm",
-                "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
-              )}
-              autoFocus
-              required
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="dashboard-prompt"
-              className="text-xs text-muted-foreground"
-            >
-              Describe the dashboard you want to create{" "}
-              <span className="text-destructive">*</span>
-            </label>
-            <textarea
-              id="dashboard-prompt"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder='e.g. "Show weekly signup trends by attribution channel"'
-              className={cn(
-                "mt-1.5 flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm",
-                "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
-                "min-h-[120px] resize-y",
-              )}
-              required
-              onKeyDown={(e) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                  e.preventDefault();
-                  if (prompt.trim() && authorName.trim()) handleSubmit(e);
-                }
-              }}
-            />
-          </div>
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent transition-colors"
-            >
-              Cancel
-            </button>
+        <form onSubmit={handleSubmit}>
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Describe the dashboard you want to create..."
+            className={cn(
+              "flex w-full rounded-md border border-input bg-background px-3 py-3 text-sm",
+              "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
+              "min-h-[140px] resize-y",
+            )}
+            autoFocus
+            required
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                e.preventDefault();
+                if (prompt.trim()) handleSubmit(e);
+              }
+            }}
+          />
+          <div className="flex justify-end mt-3">
             <button
               type="submit"
-              disabled={!prompt.trim() || !authorName.trim() || isGenerating}
+              disabled={!prompt.trim() || isGenerating}
               className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isGenerating ? (
@@ -128,7 +88,7 @@ export function NewDashboardDialog() {
                   Generating...
                 </span>
               ) : (
-                "Create with AI"
+                "Create"
               )}
             </button>
           </div>

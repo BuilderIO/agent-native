@@ -11,8 +11,14 @@ import {
   IconDeviceDesktop,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconPlus,
+  IconX,
 } from "@tabler/icons-react";
-import { useTerminal } from "./hooks/useTerminal";
+import {
+  TerminalTab,
+  type TerminalTabHandle,
+  type SetupStatus,
+} from "./components/TerminalTab";
 import { SettingsPanel } from "./components/SettingsPanel";
 import {
   loadSettings,
@@ -49,6 +55,17 @@ function getInitialApp(configFallback: string): string {
   return configFallback;
 }
 
+interface Tab {
+  id: string;
+  label: string;
+}
+
+let nextTabId = 0;
+function createTab(): Tab {
+  const id = String(nextTabId++);
+  return { id, label: id };
+}
+
 export function App() {
   const config = useHarnessConfig();
   const { configs, switchHarness } = useHarnessConfigs();
@@ -71,6 +88,20 @@ export function App() {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
+  // Tab management
+  const [tabs, setTabs] = useState<Tab[]>(() => [createTab()]);
+  const [activeTabId, setActiveTabId] = useState(() => tabs[0].id);
+  const tabRefs = useRef<Map<string, TerminalTabHandle>>(new Map());
+
+  // Track active tab's connection state
+  const [activeConnected, setActiveConnected] = useState(false);
+  const [activeSetupStatus, setActiveSetupStatus] = useState<SetupStatus>({
+    status: "none",
+    message: "",
+  });
+
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
   const activeAppConfig = APP_CONFIG.find((a) => a.name === activeApp);
   const appUrl = activeAppConfig
     ? `http://localhost:${activeAppConfig.appPort}`
@@ -81,25 +112,17 @@ export function App() {
     document.cookie = `active_app=${activeApp}; path=/; SameSite=Lax`;
   }, [activeApp]);
 
-  const { termRef, iframeRef, connected, setupStatus, connect, restart, fit } =
-    useTerminal();
-
-  // On first mount, connect
-  useEffect(() => {
-    connect(settings, activeApp);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // When harness config changes (user switched CLI), reload settings and restart
+  // When harness config changes (user switched CLI), reload settings and restart active tab
   const prevCommand = useRef(config.command);
   useEffect(() => {
     if (prevCommand.current !== config.command) {
       prevCommand.current = config.command;
       const newSettings = loadSettings(config);
       setSettings(newSettings);
-      restart(newSettings, activeApp);
+      const handle = tabRefs.current.get(activeTabId);
+      handle?.restart(newSettings, activeApp);
     }
-  }, [config, activeApp, restart]);
+  }, [config, activeApp, activeTabId]);
 
   const updateSettings = useCallback(
     (s: LaunchSettings) => {
@@ -121,14 +144,46 @@ export function App() {
           iframeRef.current.src = `http://localhost:${appConfig.appPort}`;
         }
       }
-      restart(settings, name);
+      // Restart active tab with new app
+      const handle = tabRefs.current.get(activeTabId);
+      handle?.restart(settings, name);
     },
-    [activeApp, settings, updateSettings, restart, iframeRef],
+    [activeApp, settings, updateSettings, activeTabId],
   );
 
   const dismissPopovers = useCallback(() => {
     setShowSettings(false);
   }, []);
+
+  // Tab actions
+  const addTab = useCallback(() => {
+    const tab = createTab();
+    setTabs((prev) => [...prev, tab]);
+    setActiveTabId(tab.id);
+  }, []);
+
+  const closeTab = useCallback(
+    (tabId: string) => {
+      setTabs((prev) => {
+        if (prev.length <= 1) return prev; // Can't close last tab
+        const idx = prev.findIndex((t) => t.id === tabId);
+        const next = prev.filter((t) => t.id !== tabId);
+        // If closing the active tab, switch to adjacent
+        if (tabId === activeTabId) {
+          const newIdx = Math.min(idx, next.length - 1);
+          setActiveTabId(next[newIdx].id);
+        }
+        return next;
+      });
+      tabRefs.current.delete(tabId);
+    },
+    [activeTabId],
+  );
+
+  const fit = useCallback(() => {
+    const handle = tabRefs.current.get(activeTabId);
+    handle?.fit();
+  }, [activeTabId]);
 
   // Desktop resize
   const [termWidth, setTermWidth] = useState<number | null>(() => {
@@ -142,7 +197,7 @@ export function App() {
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
     if (iframeRef.current) iframeRef.current.style.pointerEvents = "none";
-  }, [iframeRef]);
+  }, []);
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
@@ -168,7 +223,7 @@ export function App() {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
     };
-  }, [fit, iframeRef, termWidth]);
+  }, [fit, termWidth]);
 
   useEffect(() => {
     const handler = () => {
@@ -180,25 +235,68 @@ export function App() {
   }, [fit]);
 
   const showPopoverBackdrop = showSettings;
+  const showTabs = tabs.length > 1;
 
-  // Terminal header — lives inside the terminal pane only
+  // Terminal header
   const terminalHeader = (
-    <div className="flex items-center gap-2 px-3 h-10 shrink-0">
-      <span className="text-[13px] font-medium text-white/90">
+    <div className="flex items-center gap-1.5 px-3 h-10 shrink-0 min-w-0">
+      <span className="text-[13px] font-medium text-white/90 shrink-0">
         {activeApp.charAt(0).toUpperCase() + activeApp.slice(1)}
       </span>
-      <span className="flex-1" />
+
+      {/* Tabs — shown when there are 2+ tabs */}
+      {showTabs && (
+        <div className="flex items-center gap-0.5 ml-1.5 min-w-0 overflow-x-auto scrollbar-none">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTabId(tab.id)}
+              className={`group/tab flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors shrink-0 ${
+                tab.id === activeTabId
+                  ? "bg-white/10 text-white/90"
+                  : "text-white/40 hover:text-white/70 hover:bg-white/5"
+              }`}
+            >
+              <span>{tab.label}</span>
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closeTab(tab.id);
+                }}
+                className={`rounded p-px transition-colors ${
+                  tab.id === activeTabId
+                    ? "text-white/30 hover:text-white/70 hover:bg-white/10"
+                    : "text-transparent group-hover/tab:text-white/30 hover:!text-white/70 hover:!bg-white/10"
+                }`}
+              >
+                <IconX size={10} stroke={2} />
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <span className="flex-1 min-w-0" />
 
       <a
         href="https://docs.google.com/forms/d/e/1FAIpQLSfI7sc2egh0vLBgzOy5tEEZF0e4PdXsQRNsZhX_yR2vx0m8ig/viewform?usp=publish-editor"
         target="_blank"
         rel="noopener noreferrer"
-        className="text-[11px] text-white/50 hover:text-white/80 transition-colors leading-none"
+        className="text-[11px] text-white/50 hover:text-white/80 transition-colors leading-none shrink-0"
       >
         feedback
       </a>
 
-      <div className="relative">
+      <Tooltip label="New tab">
+        <button
+          onClick={addTab}
+          className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors shrink-0"
+        >
+          <IconPlus size={14} stroke={1.5} />
+        </button>
+      </Tooltip>
+
+      <div className="relative shrink-0">
         <Tooltip label="Settings">
           <button
             onClick={() => setShowSettings((v) => !v)}
@@ -211,10 +309,13 @@ export function App() {
           <SettingsPanel
             settings={settings}
             onChange={updateSettings}
-            onRestart={() => restart(settings, activeApp)}
+            onRestart={() => {
+              const handle = tabRefs.current.get(activeTabId);
+              handle?.restart(settings, activeApp);
+            }}
             appUrl={appUrl}
             iframeRef={iframeRef}
-            connected={connected}
+            connected={activeConnected}
             apps={APP_CONFIG}
             activeApp={activeApp}
             onSwitchApp={switchApp}
@@ -223,18 +324,16 @@ export function App() {
           />
         )}
       </div>
-
-      {/* Sidebar collapse button moved to bottom-left of terminal pane */}
     </div>
   );
 
-  // Setup overlay
-  const setupOverlay = (setupStatus.status === "installing" ||
-    setupStatus.status === "not-found" ||
-    setupStatus.status === "failed") && (
+  // Setup overlay — for active tab
+  const setupOverlay = (activeSetupStatus.status === "installing" ||
+    activeSetupStatus.status === "not-found" ||
+    activeSetupStatus.status === "failed") && (
     <div className="absolute inset-0 bg-black/95 flex items-center justify-center z-10">
       <div className="text-center max-w-sm px-6">
-        {setupStatus.status === "installing" ? (
+        {activeSetupStatus.status === "installing" ? (
           <>
             <div className="w-8 h-8 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin mx-auto mb-4" />
             <h3 className="text-sm font-medium text-white/90 mb-2">
@@ -259,7 +358,7 @@ export function App() {
               {config.name} Not Found
             </h3>
             <p className="text-xs text-white/50 leading-relaxed mb-4">
-              {setupStatus.message}
+              {activeSetupStatus.message}
             </p>
             <p className="text-xs text-white/40 leading-relaxed">
               Install manually:
@@ -268,7 +367,10 @@ export function App() {
               npx --yes {config.installPackage}
             </code>
             <button
-              onClick={() => restart(settings, activeApp)}
+              onClick={() => {
+                const handle = tabRefs.current.get(activeTabId);
+                handle?.restart(settings, activeApp);
+              }}
               className="mt-4 px-3 py-1.5 text-xs bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 rounded transition-colors"
             >
               Retry
@@ -303,9 +405,31 @@ export function App() {
           >
             {terminalHeader}
 
-            {/* Terminal */}
+            {/* Terminal tabs */}
             <div className="flex-1 min-h-0 relative">
-              <div ref={termRef} className="w-full h-full py-1 pl-3 pr-1" />
+              {tabs.map((tab) => (
+                <TerminalTab
+                  key={tab.id}
+                  ref={(handle) => {
+                    if (handle) {
+                      tabRefs.current.set(tab.id, handle);
+                    } else {
+                      tabRefs.current.delete(tab.id);
+                    }
+                  }}
+                  active={tab.id === activeTabId}
+                  config={config}
+                  settings={settings}
+                  appName={activeApp}
+                  iframeRef={iframeRef}
+                  onConnectedChange={
+                    tab.id === activeTabId ? setActiveConnected : undefined
+                  }
+                  onSetupStatusChange={
+                    tab.id === activeTabId ? setActiveSetupStatus : undefined
+                  }
+                />
+              ))}
               {setupOverlay}
             </div>
 

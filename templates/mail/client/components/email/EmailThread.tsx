@@ -8,55 +8,98 @@ import {
   formatFileSize,
   formatEmailDate,
 } from "@/lib/utils";
-import { ComposeModal } from "./ComposeModal";
+import { useComposeState } from "@/hooks/use-compose-state";
 import {
   useEmail,
   useArchiveEmail,
   useTrashEmail,
   useToggleStar,
   useMarkRead,
+  useUnarchiveEmail,
 } from "@/hooks/use-emails";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { toast } from "sonner";
 import type { EmailMessage } from "@shared/types";
 
-export function EmailThread() {
+export function EmailThread({
+  onArchived,
+  emailIds = [],
+}: {
+  onArchived?: (id: string) => void;
+  emailIds?: string[];
+}) {
   const { view = "inbox", threadId } = useParams<{
     view: string;
     threadId: string;
   }>();
   const navigate = useNavigate();
-  const [replyOpen, setReplyOpen] = useState(false);
-  const [replyEmail, setReplyEmail] = useState<EmailMessage | null>(null);
-  const [forwardOpen, setForwardOpen] = useState(false);
+  const compose = useComposeState();
 
   const { data: email, isLoading } = useEmail(threadId);
   const archiveEmail = useArchiveEmail();
+  const unarchiveEmail = useUnarchiveEmail();
   const trashEmail = useTrashEmail();
   const toggleStar = useToggleStar();
   const markRead = useMarkRead();
 
   const goBack = useCallback(() => navigate(`/${view}`), [navigate, view]);
 
+  const goToSibling = useCallback(
+    (delta: number) => {
+      if (!threadId || emailIds.length === 0) return;
+      const idx = emailIds.indexOf(threadId);
+      if (idx === -1) return;
+      const nextIdx = idx + delta;
+      if (nextIdx < 0 || nextIdx >= emailIds.length) return;
+      navigate(`/${view}/${emailIds[nextIdx]}`);
+    },
+    [threadId, emailIds, view, navigate],
+  );
+
+  const advanceOrGoBack = useCallback(() => {
+    if (!threadId || emailIds.length === 0) {
+      goBack();
+      return;
+    }
+    const idx = emailIds.indexOf(threadId);
+    // Try next email, then previous, then go back to list
+    if (idx !== -1 && idx + 1 < emailIds.length) {
+      navigate(`/${view}/${emailIds[idx + 1]}`, { replace: true });
+    } else if (idx !== -1 && idx - 1 >= 0) {
+      navigate(`/${view}/${emailIds[idx - 1]}`, { replace: true });
+    } else {
+      goBack();
+    }
+  }, [threadId, emailIds, view, navigate, goBack]);
+
   const handleArchive = useCallback(() => {
     if (!email) return;
-    archiveEmail.mutate(email.id, {
+    const id = email.id;
+    archiveEmail.mutate(id, {
       onSuccess: () => {
-        toast.success("Archived");
-        goBack();
+        onArchived?.(id);
+        toast("Marked as Done.", {
+          action: {
+            label: "UNDO",
+            onClick: () => {
+              unarchiveEmail.mutate(id);
+            },
+          },
+        });
+        advanceOrGoBack();
       },
     });
-  }, [email, archiveEmail, goBack]);
+  }, [email, archiveEmail, unarchiveEmail, advanceOrGoBack, onArchived]);
 
   const handleTrash = useCallback(() => {
     if (!email) return;
     trashEmail.mutate(email.id, {
       onSuccess: () => {
-        toast.success("Moved to trash");
-        goBack();
+        toast("Moved to Trash.");
+        advanceOrGoBack();
       },
     });
-  }, [email, trashEmail, goBack]);
+  }, [email, trashEmail, advanceOrGoBack]);
 
   const handleStar = useCallback(() => {
     if (!email) return;
@@ -65,22 +108,47 @@ export function EmailThread() {
 
   const handleReply = useCallback(
     (msg?: EmailMessage) => {
-      setReplyEmail(msg ?? email ?? null);
-      setReplyOpen(true);
+      const target = msg ?? email;
+      if (!target) return;
+      compose.open({
+        to: target.from.email,
+        subject: target.subject.startsWith("Re:")
+          ? target.subject
+          : `Re: ${target.subject}`,
+        body: `\n\n— On ${new Date(target.date).toLocaleDateString()}, ${target.from.name || target.from.email} wrote:\n\n${target.body
+          .split("\n")
+          .map((l) => `> ${l}`)
+          .join("\n")}`,
+        mode: "reply",
+        replyToId: target.id,
+        replyToThreadId: target.threadId,
+      });
     },
-    [email],
+    [email, compose],
   );
 
   const handleForward = useCallback(() => {
     if (!email) return;
-    setReplyEmail(email);
-    setForwardOpen(true);
-  }, [email]);
+    compose.open({
+      to: "",
+      subject: email.subject.startsWith("Fwd:")
+        ? email.subject
+        : `Fwd: ${email.subject}`,
+      body: `\n\n— Forwarded message —\nFrom: ${email.from.name} <${email.from.email}>\n\n${email.body}`,
+      mode: "forward",
+      replyToId: email.id,
+      replyToThreadId: email.threadId,
+    });
+  }, [email, compose]);
 
   // Keyboard shortcuts — Gmail / Superhuman standard (active when thread is open)
   useKeyboardShortcuts(
     [
       { key: "Escape", handler: goBack },
+      { key: "j", handler: () => goToSibling(1) },
+      { key: "ArrowDown", handler: () => goToSibling(1) },
+      { key: "k", handler: () => goToSibling(-1) },
+      { key: "ArrowUp", handler: () => goToSibling(-1) },
       { key: "e", handler: handleArchive },
       { key: "d", handler: handleTrash },
       { key: "#", handler: handleTrash, shift: true },
@@ -343,20 +411,6 @@ export function EmailThread() {
           </button>
         </div>
       </div>
-
-      {/* Reply compose */}
-      <ComposeModal
-        open={replyOpen}
-        onOpenChange={setReplyOpen}
-        replyTo={replyEmail ?? undefined}
-        mode="reply"
-      />
-      <ComposeModal
-        open={forwardOpen}
-        onOpenChange={setForwardOpen}
-        replyTo={email}
-        mode="forward"
-      />
     </div>
   );
 }
@@ -382,7 +436,7 @@ function HtmlEmailBody({ html }: { html: string }) {
     html, body {
       margin: 0;
       padding: 0;
-      background: transparent !important;
+      background: #151618 !important;
       color: #e4e4e7 !important;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 14px;
@@ -390,7 +444,7 @@ function HtmlEmailBody({ html }: { html: string }) {
       overflow: hidden;
     }
     * {
-      background-color: transparent !important;
+      background-color: #151618 !important;
       border-color: rgba(255,255,255,0.1) !important;
     }
     body, td, th, div, p, span, li, blockquote {
@@ -411,6 +465,24 @@ function HtmlEmailBody({ html }: { html: string }) {
 </html>`);
     doc.close();
 
+    // Forward keyboard events from iframe to parent so shortcuts work
+    const forwardKey = (e: KeyboardEvent) => {
+      const forwarded = new KeyboardEvent(e.type, {
+        key: e.key,
+        code: e.code,
+        keyCode: e.keyCode,
+        which: e.which,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        altKey: e.altKey,
+        shiftKey: e.shiftKey,
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(forwarded);
+    };
+    doc.addEventListener("keydown", forwardKey);
+
     // Auto-resize iframe to fit content
     const resize = () => {
       if (doc.body) {
@@ -429,6 +501,7 @@ function HtmlEmailBody({ html }: { html: string }) {
     const timer2 = setTimeout(resize, 500);
 
     return () => {
+      doc.removeEventListener("keydown", forwardKey);
       clearTimeout(timer);
       clearTimeout(timer2);
       images.forEach((img) => img.removeEventListener("load", resize));
@@ -443,7 +516,7 @@ function HtmlEmailBody({ html }: { html: string }) {
         width: "100%",
         height: `${height}px`,
         border: "none",
-        background: "transparent",
+        background: "#151618",
         colorScheme: "dark",
       }}
       title="Email content"

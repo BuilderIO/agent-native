@@ -37,6 +37,21 @@ A file watcher (`createFileWatcher`) streams changes to the UI via Server-Sent E
 
 The agent can edit the app's own source code — components, routes, styles, scripts. This is a feature. Design your app expecting this.
 
+### 6. Application state as files
+
+Ephemeral UI state lives in `application-state/` as JSON files. Both the agent and the UI can read and write these files. When the agent writes a file (e.g., `application-state/compose.json`), the UI reacts via SSE and updates accordingly. When the user interacts with the UI, changes are written back to the same file so the agent can read them.
+
+**Do:** Use `application-state/` for UI state the agent needs to trigger or modify (compose windows, search state, wizard steps).
+**Don't:** Use `application-state/` for persistent data — that belongs in `data/`. Don't store secrets or credentials here.
+
+**Rules:**
+
+- Always gitignored — this is per-instance runtime state, not persisted across clones
+- Always in `.ignore` with negation (`!application-state/`) so agent tools (ripgrep, glob) can see the files
+- JSON files, one per state concern (e.g., `compose.json`, `search.json`)
+- File existence = state is active. Deleting the file = clearing the state.
+- The SSE file watcher watches `application-state/` alongside `data/`
+
 ## Project Structure
 
 ```
