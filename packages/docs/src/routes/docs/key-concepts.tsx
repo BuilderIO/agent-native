@@ -329,9 +329,7 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`}
           </p>
         </div>
         <div className="rounded-xl border border-[var(--border)] p-5">
-          <div className="mb-2 text-sm font-semibold">
-            Cloud Harness
-          </div>
+          <div className="mb-2 text-sm font-semibold">Cloud Harness</div>
           <p className="m-0 text-sm text-[var(--fg-secondary)]">
             Deploy to any cloud with real-time collaboration, visual editing,
             roles and permissions. Best for teams.
@@ -490,8 +488,8 @@ export default async function(args: string[]) {
       <p>
         This works because the agent has your full codebase. It can read your
         components, understand your patterns, and make changes that fit.
-        Combined with git-based workflows, roles, and ACLs, you get the power
-        of custom development with the safety of code review.
+        Combined with git-based workflows, roles, and ACLs, you get the power of
+        custom development with the safety of code review.
       </p>
     </DocsLayout>
   );

@@ -349,7 +349,6 @@ function Home() {
               </div>
             </div>
           </div>
-
         </section>
 
         {/* The Trio */}
