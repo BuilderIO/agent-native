@@ -2,9 +2,10 @@
 // MIT License
 //
 // Collapsed: small pill with pin count. Expanded: annotation controls.
+// Expanding auto-activates selection mode.
 
-import { createSignal, For, type Component } from "solid-js";
-import type { Pin } from "../../types/index.js";
+import { createSignal, Show, For, type Component } from "solid-js";
+import type { Pin, OutputFormat } from "../../types/index.js";
 import { icons } from "../icons/index.js";
 
 interface ToolbarProps {
@@ -13,25 +14,36 @@ interface ToolbarProps {
   pins: Pin[];
   position?: { x: number; y: number };
   author?: string;
+  showSettings: boolean;
+  outputFormat: OutputFormat;
+  clearOnSend: boolean;
+  blockInteractions: boolean;
+  autoSubmit: boolean;
+  webhookUrl?: string;
   onToggleExpand: () => void;
-  onToggleActive: () => void;
   onSend: () => void;
   onCopy: () => void;
   onClear: () => void;
   onRemovePin: (id: string) => void;
-  onShowSettings: () => void;
+  onToggleSettings: () => void;
+  onOutputFormatChange: (format: OutputFormat) => void;
+  onClearOnSendChange: (value: boolean) => void;
+  onBlockInteractionsChange: (value: boolean) => void;
+  onAutoSubmitChange: (value: boolean) => void;
 }
 
 export const Toolbar: Component<ToolbarProps> = (props) => {
   const [pos, setPos] = createSignal(
-    props.position || { x: window.innerWidth - 80, y: window.innerHeight - 60 },
+    props.position || {
+      x: window.innerWidth - 80,
+      y: window.innerHeight - 60,
+    },
   );
   const [dragging, setDragging] = createSignal(false);
   const [dragOffset, setDragOffset] = createSignal({ x: 0, y: 0 });
 
-  // Drag to reposition toolbar
   function handleMouseDown(e: MouseEvent) {
-    if (props.expanded) return; // Only drag when collapsed
+    if (props.expanded) return;
     setDragging(true);
     setDragOffset({ x: e.clientX - pos().x, y: e.clientY - pos().y });
 
@@ -96,7 +108,10 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
               <span class="pp-toolbar__title">Pinpoint</span>
               {props.author && (
                 <span
-                  style={{ "font-size": "11px", color: "var(--pp-text-muted)" }}
+                  style={{
+                    "font-size": "11px",
+                    color: "var(--pp-text-muted)",
+                  }}
                 >
                   {props.author}
                 </span>
@@ -105,7 +120,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
             <div style={{ display: "flex", gap: "2px" }}>
               <button
                 class="pp-btn--icon"
-                onClick={props.onShowSettings}
+                onClick={props.onToggleSettings}
                 title="Settings"
                 innerHTML={icons.settings}
               />
@@ -118,17 +133,19 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
             </div>
           </div>
 
-          {/* Select mode toggle */}
-          <button
-            class={`pp-btn ${props.active ? "pp-btn--primary" : ""}`}
-            onClick={props.onToggleActive}
+          {/* Active indicator */}
+          <div
+            style={{
+              "font-size": "11px",
+              color: "var(--pp-accent)",
+              display: "flex",
+              "align-items": "center",
+              gap: "4px",
+            }}
           >
             <span innerHTML={icons.crosshair} />
-            {props.active ? "Selecting..." : "Select Element"}
-            <span class="pp-kbd">
-              {navigator.platform.includes("Mac") ? "\u2318" : "Ctrl"}+\u21E7+.
-            </span>
-          </button>
+            Click any element to annotate
+          </div>
 
           {/* Pin list */}
           {props.pins.length > 0 && (
@@ -159,26 +176,87 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
             </div>
           )}
 
-          {/* Actions */}
+          {/* Icon-only action buttons */}
           <div class="pp-actions">
-            <button class="pp-btn pp-btn--primary" onClick={props.onSend}>
-              <span innerHTML={icons.send} />
-              Send
-              <span class="pp-kbd">
-                {navigator.platform.includes("Mac") ? "\u2318" : "Ctrl"}
-                +\u21E7+\u23CE
-              </span>
-            </button>
-            <button class="pp-btn" onClick={props.onCopy}>
-              <span innerHTML={icons.copy} />
-              Copy
-            </button>
+            <button
+              class="pp-btn--icon"
+              onClick={props.onSend}
+              title="Send to agent"
+              innerHTML={icons.send}
+            />
+            <button
+              class="pp-btn--icon"
+              onClick={props.onCopy}
+              title="Copy to clipboard"
+              innerHTML={icons.copy}
+            />
             {props.pins.length > 0 && (
-              <button class="pp-btn" onClick={props.onClear}>
-                <span innerHTML={icons.trash} />
-              </button>
+              <button
+                class="pp-btn--icon"
+                onClick={props.onClear}
+                title="Clear all"
+                innerHTML={icons.trash}
+              />
             )}
           </div>
+
+          {/* Settings panel (inline, inside the toolbar) */}
+          <Show when={props.showSettings}>
+            <div class="pp-settings">
+              <div class="pp-settings__row">
+                <span class="pp-settings__label">Output detail</span>
+                <select
+                  style={{
+                    background: "var(--pp-bg-solid)",
+                    color: "var(--pp-text)",
+                    border: "1px solid var(--pp-border)",
+                    "border-radius": "var(--pp-radius-sm)",
+                    padding: "2px 6px",
+                    "font-size": "11px",
+                  }}
+                  value={props.outputFormat}
+                  onChange={(e) =>
+                    props.onOutputFormatChange(
+                      e.currentTarget.value as OutputFormat,
+                    )
+                  }
+                >
+                  <option value="compact">Compact</option>
+                  <option value="standard">Standard</option>
+                  <option value="detailed">Detailed</option>
+                </select>
+              </div>
+              <div class="pp-settings__row">
+                <span class="pp-settings__label">Auto-submit</span>
+                <div
+                  class={`pp-toggle ${props.autoSubmit ? "pp-toggle--active" : ""}`}
+                  onClick={() => props.onAutoSubmitChange(!props.autoSubmit)}
+                >
+                  <div class="pp-toggle__thumb" />
+                </div>
+              </div>
+              <div class="pp-settings__row">
+                <span class="pp-settings__label">Clear on send</span>
+                <div
+                  class={`pp-toggle ${props.clearOnSend ? "pp-toggle--active" : ""}`}
+                  onClick={() => props.onClearOnSendChange(!props.clearOnSend)}
+                >
+                  <div class="pp-toggle__thumb" />
+                </div>
+              </div>
+              <div class="pp-settings__row">
+                <span class="pp-settings__label">Block page clicks</span>
+                <div
+                  class={`pp-toggle ${props.blockInteractions ? "pp-toggle--active" : ""}`}
+                  onClick={() =>
+                    props.onBlockInteractionsChange(!props.blockInteractions)
+                  }
+                >
+                  <div class="pp-toggle__thumb" />
+                </div>
+              </div>
+            </div>
+          </Show>
         </>
       )}
     </div>

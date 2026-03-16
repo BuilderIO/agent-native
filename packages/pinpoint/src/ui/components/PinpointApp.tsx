@@ -27,7 +27,7 @@ import { PinMarkerManager } from "./PinMarker.js";
 import { ContextMenu } from "./ContextMenu.js";
 import { SelectionLabel } from "./SelectionLabel.js";
 import { PromptMode } from "./PromptMode.js";
-import { SettingsPanel } from "./SettingsPanel.js";
+// SettingsPanel is now inline in Toolbar
 import { MemoryStore } from "../../storage/memory-store.js";
 import { RestClient } from "../../storage/rest-client.js";
 import type { PinStorage } from "../../types/index.js";
@@ -351,13 +351,31 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
         pins={pins()}
         position={props.config.position}
         author={props.config.author}
-        onToggleExpand={() => setExpanded(!expanded())}
-        onToggleActive={toggleActive}
+        showSettings={showSettings()}
+        outputFormat={outputFormat()}
+        clearOnSend={clearOnSend()}
+        blockInteractions={blockInteractions()}
+        autoSubmit={autoSubmit()}
+        webhookUrl={props.config.webhookUrl}
+        onToggleExpand={() => {
+          const willExpand = !expanded();
+          setExpanded(willExpand);
+          if (willExpand) {
+            activateSelection();
+          } else {
+            deactivateSelection();
+            setShowSettings(false);
+          }
+        }}
         onSend={sendPins}
         onCopy={copyPins}
         onClear={clearPins}
         onRemovePin={removePin}
-        onShowSettings={() => setShowSettings(!showSettings())}
+        onToggleSettings={() => setShowSettings(!showSettings())}
+        onOutputFormatChange={setOutputFormat}
+        onClearOnSendChange={setClearOnSend}
+        onBlockInteractionsChange={setBlockInteractions}
+        onAutoSubmitChange={setAutoSubmit}
       />
 
       {/* Pin popup for annotation */}
@@ -433,22 +451,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
         />
       )}
 
-      {/* Settings panel */}
-      {showSettings() && (
-        <SettingsPanel
-          outputFormat={outputFormat()}
-          clearOnSend={clearOnSend()}
-          blockInteractions={blockInteractions()}
-          autoSubmit={autoSubmit()}
-          markerColor={props.config.markerColor}
-          webhookUrl={props.config.webhookUrl}
-          onOutputFormatChange={setOutputFormat}
-          onClearOnSendChange={setClearOnSend}
-          onBlockInteractionsChange={setBlockInteractions}
-          onAutoSubmitChange={setAutoSubmit}
-          onClose={() => setShowSettings(false)}
-        />
-      )}
+      {/* Settings panel is now inline in Toolbar */}
     </>
   );
 };
