@@ -1,7 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import CodeBlock from "../components/CodeBlock";
-import { templates, TemplateCard } from "../components/TemplateCard";
+import {
+  templates,
+  TemplateCard,
+  trackEvent,
+} from "../components/TemplateCard";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -99,6 +103,7 @@ function TerminalCommand() {
   function handleCopy() {
     navigator.clipboard.writeText(command);
     setCopied(true);
+    trackEvent("copy_cli_command", { location: "hero" });
     setTimeout(() => setCopied(false), 2000);
   }
 
@@ -168,7 +173,16 @@ function Home() {
           </p>
 
           <div className="flex items-center justify-center gap-4">
-            <a href="#templates" className="primary-button">
+            <a
+              href="#templates"
+              className="primary-button"
+              onClick={() =>
+                trackEvent("click_cta", {
+                  label: "launch_a_template",
+                  location: "hero",
+                })
+              }
+            >
               Launch a Template
               <svg
                 width="16"
@@ -189,6 +203,9 @@ function Home() {
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+              onClick={() =>
+                trackEvent("click_cta", { label: "github", location: "hero" })
+              }
             >
               <svg
                 width="16"
@@ -229,6 +246,12 @@ function Home() {
           <Link
             to="/templates"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+            onClick={() =>
+              trackEvent("click_cta", {
+                label: "view_all_templates",
+                location: "templates_section",
+              })
+            }
           >
             View all templates
             <svg
@@ -600,7 +623,16 @@ function Home() {
             Yours.
           </p>
           <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <a href="#templates" className="primary-button">
+            <a
+              href="#templates"
+              className="primary-button"
+              onClick={() =>
+                trackEvent("click_cta", {
+                  label: "launch_a_template",
+                  location: "footer",
+                })
+              }
+            >
               Launch a Template
               <svg
                 width="16"
@@ -619,6 +651,12 @@ function Home() {
             <Link
               to="/docs"
               className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+              onClick={() =>
+                trackEvent("click_cta", {
+                  label: "read_the_docs",
+                  location: "footer",
+                })
+              }
             >
               Read the Docs
             </Link>
@@ -627,6 +665,9 @@ function Home() {
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+              onClick={() =>
+                trackEvent("click_cta", { label: "github", location: "footer" })
+              }
             >
               View on GitHub
             </a>
