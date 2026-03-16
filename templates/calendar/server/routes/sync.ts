@@ -25,7 +25,7 @@ export async function syncGoogleCalendar(
     const from = (req.body.from as string) || defaultFrom.toISOString();
     const to = (req.body.to as string) || defaultTo.toISOString();
 
-    const googleEvents = await googleCalendar.listEvents(from, to);
+    const { events: googleEvents } = await googleCalendar.listEvents(from, to);
 
     // Get existing events to check for duplicates
     const existingEvents = listJsonFiles<CalendarEvent>(EVENTS_DIR);
@@ -36,7 +36,7 @@ export async function syncGoogleCalendar(
     let synced = 0;
     for (const event of googleEvents) {
       if (event.googleEventId && existingGoogleIds.has(event.googleEventId)) {
-        continue; // Skip already synced events
+        continue;
       }
 
       const filePath = path.join(EVENTS_DIR, `${event.id}.json`);
