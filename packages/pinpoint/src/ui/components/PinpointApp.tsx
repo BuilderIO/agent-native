@@ -308,14 +308,19 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
   }
 
   function openEditPopup(pin: Pin) {
-    // Find the element on the page to position the popup
-    const el = document.querySelector(pin.element.selector);
-    setEditingPin(pin);
-    setSelectedContext(
-      buildElementContext(el || document.body, pin.framework),
-    );
-    setShowPopup(true);
-    picker.pause();
+    // Close first so SolidJS re-creates the component with fresh props
+    setShowPopup(false);
+
+    // Use microtask to ensure the close renders before reopening
+    queueMicrotask(() => {
+      const el = document.querySelector(pin.element.selector);
+      setEditingPin(pin);
+      setSelectedContext(
+        buildElementContext(el || document.body, pin.framework),
+      );
+      setShowPopup(true);
+      picker.pause();
+    });
   }
 
   function updatePin(comment: string) {
