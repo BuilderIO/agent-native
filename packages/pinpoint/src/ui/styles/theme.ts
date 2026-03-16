@@ -279,6 +279,9 @@ export const overlayStyles = `
   font-size: 11px;
   color: var(--pp-text-muted);
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .pp-popup__source:hover {
