@@ -236,7 +236,7 @@ function Home() {
           </p>
         </div>
 
-        <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-4">
+        <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
           {templates.map((t) => (
             <TemplateCard key={t.name} template={t} />
           ))}

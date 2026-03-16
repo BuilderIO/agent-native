@@ -120,41 +120,14 @@ Agent-native apps follow five rules:
 
 Agent-native apps run inside a **harness** — a host that provides the AI agent alongside your app UI.
 
-|                   | Local / Open Source                  | Builder Cloud                       |
-| ----------------- | ------------------------------------ | ----------------------------------- |
-| **Run**           | Claude Code CLI or any local harness | One-click launch from templates     |
-| **Collaboration** | Solo                                 | Real-time multiplayer               |
-| **Features**      | Full permissions, full control       | Visual editing, roles & permissions |
-| **Best for**      | Solo dev, local testing, OSS         | Teams, production                   |
+| | Local / Open Source | Builder Cloud |
+|---|---|---|
+| **Run** | Claude Code CLI or any local harness | One-click launch from templates |
+| **Collaboration** | Solo | Real-time multiplayer |
+| **Features** | Full permissions, full control | Visual editing, roles & permissions |
+| **Best for** | Solo dev, local testing, OSS | Teams, production |
 
 Your app code is identical regardless of harness. Start local, go to cloud when you need teams.
-
-## Skills
-
-Agent-native ships with built-in **skills** — structured guidance files in `.agents/skills/` that teach the AI agent how to work within the framework. Every new app created with `npx @agent-native/core create` includes them automatically.
-
-| Skill                 | Purpose                                |
-| --------------------- | -------------------------------------- |
-| `files-as-database`   | Store and read all state as files      |
-| `delegate-to-agent`   | Route AI work through the agent chat   |
-| `scripts`             | Create and run agent-callable scripts  |
-| `sse-file-watcher`    | Keep the UI in sync via SSE            |
-| `self-modifying-code` | Safely edit app source and components  |
-| `create-skill`        | Add new skills to the agent            |
-| `capture-learnings`   | Record corrections and patterns        |
-| `frontend-design`     | Build distinctive, production-grade UI |
-
-### Frontend Design Skill
-
-The **`frontend-design`** skill (sourced from [Anthropic's skills library](https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md)) is active across all templates and new apps. It guides the agent to produce visually striking, memorable interfaces — committing to a clear aesthetic direction rather than defaulting to generic AI-generated patterns.
-
-Key principles it enforces:
-
-- **Typography**: Distinctive, characterful font pairings — never Arial, Inter, or system defaults
-- **Color**: Cohesive palettes with dominant colors and sharp accents
-- **Motion**: High-impact animations and micro-interactions via CSS or Framer Motion
-- **Spatial composition**: Asymmetry, overlap, and unexpected layouts over predictable grids
-- **Backgrounds**: Gradient meshes, noise textures, and layered effects over flat solid colors
 
 ## Docs
 
