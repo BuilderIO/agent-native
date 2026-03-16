@@ -10,6 +10,10 @@ interface ElectronAPI {
     onMaximizedChange(cb: (isMaximized: boolean) => void): () => void;
   };
 
+  shortcuts: {
+    onCloseTab(cb: () => void): () => void;
+  };
+
   interApp: {
     send(targetAppId: string, event: string, data: unknown): void;
     on(cb: (from: string, event: string, data: unknown) => void): () => void;

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { APP_REGISTRY, type AppDefinition } from "@shared/app-registry";
 import Sidebar from "./components/Sidebar.js";
 import TabBar from "./components/TabBar.js";
@@ -43,6 +43,8 @@ export default function App() {
   const [appTabs, setAppTabs] =
     useState<Record<string, AppTabState>>(initAppTabs);
 
+  const closedTabsRef = useRef<{ tab: Tab; appId: string }[]>([]);
+
   const currentAppTabs = appTabs[activeSidebarAppId];
 
   const handleSidebarTabChange = useCallback((appId: string) => {
@@ -66,11 +68,15 @@ export default function App() {
     (tabId: string) => {
       setAppTabs((prev) => {
         const appState = prev[activeSidebarAppId];
+        const closedTab = appState.tabs.find((t) => t.id === tabId);
+        if (closedTab) {
+          closedTabsRef.current.push({ tab: closedTab, appId: activeSidebarAppId });
+        }
+
         const idx = appState.tabs.findIndex((t) => t.id === tabId);
         const next = appState.tabs.filter((t) => t.id !== tabId);
 
         if (next.length === 0) {
-          // Always keep at least one tab per app
           const app = APP_REGISTRY.find((a) => a.id === activeSidebarAppId)!;
           const tab = createTab(app);
           return {
@@ -94,6 +100,19 @@ export default function App() {
     [activeSidebarAppId],
   );
 
+  const handleReopenTab = useCallback(() => {
+    const entry = closedTabsRef.current.pop();
+    if (!entry) return;
+    setActiveSidebarAppId(entry.appId);
+    setAppTabs((prev) => ({
+      ...prev,
+      [entry.appId]: {
+        tabs: [...prev[entry.appId].tabs, entry.tab],
+        activeTabId: entry.tab.id,
+      },
+    }));
+  }, []);
+
   const handleNewTab = useCallback(() => {
     const app = APP_REGISTRY.find((a) => a.id === activeSidebarAppId);
     if (!app) return;
@@ -107,10 +126,21 @@ export default function App() {
     }));
   }, [activeSidebarAppId]);
 
-  // Keyboard shortcuts: Cmd+1-9 to switch apps, Cmd+[/] to go prev/next
+  // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!e.metaKey && !e.ctrlKey) return;
+
+      // Cmd+T — new tab, Cmd+Shift+T — reopen closed tab
+      if (e.key.toLowerCase() === "t") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleReopenTab();
+        } else {
+          handleNewTab();
+        }
+        return;
+      }
 
       // Cmd+1 through Cmd+9
       const digit = parseInt(e.key, 10);
@@ -139,7 +169,20 @@ export default function App() {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [handleNewTab, handleReopenTab]);
+
+  // Cmd+W — close active tab (intercepted by main process, forwarded via IPC)
+  const activeTabIdRef = useRef(currentAppTabs?.activeTabId ?? "");
+  activeTabIdRef.current = currentAppTabs?.activeTabId ?? "";
+
+  useEffect(() => {
+    if (!window.electronAPI?.shortcuts?.onCloseTab) return;
+    return window.electronAPI.shortcuts.onCloseTab(() => {
+      if (activeTabIdRef.current) {
+        handleTabClose(activeTabIdRef.current);
+      }
+    });
+  }, [handleTabClose]);
 
   // Collect all mounted webviews across all apps
   const allWebviews: { tab: Tab; app: AppDefinition; isActive: boolean }[] = [];

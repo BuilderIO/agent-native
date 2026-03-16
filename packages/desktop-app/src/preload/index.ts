@@ -24,6 +24,15 @@ const electronAPI = {
     },
   },
 
+  /** Shortcuts forwarded from the main process */
+  shortcuts: {
+    onCloseTab: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on("shortcut:close-tab", handler);
+      return () => ipcRenderer.removeListener("shortcut:close-tab", handler);
+    },
+  },
+
   /** Inter-app communication — relay messages between loaded apps */
   interApp: {
     /** Send a message to a specific app (or broadcast with targetAppId = "*") */
