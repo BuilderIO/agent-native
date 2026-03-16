@@ -129,6 +129,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
       setSelectedElement(element);
       setSelectedContext(context);
       setShowPopup(true);
+      picker.pause(); // Pause picking while popup is open
     },
   });
 
@@ -183,7 +184,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     // Esc → Close popup/collapse toolbar
     if (e.key === "Escape") {
       if (showPopup()) {
-        setShowPopup(false);
+        closePopup();
       } else if (showContextMenu()) {
         setShowContextMenu(false);
       } else if (showPrompt()) {
@@ -253,6 +254,11 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     setSelectionLabelInfo(null);
   }
 
+  function closePopup() {
+    setShowPopup(false);
+    picker.resume();
+  }
+
   function addPin(element: Element, comment: string) {
     const framework = detectFramework();
     const frameworkInfo = (() => {
@@ -285,7 +291,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
 
     setPins((prev) => [...prev, pin]);
     storage.save(pin);
-    setShowPopup(false);
+    closePopup();
   }
 
   async function copyPins() {
@@ -360,7 +366,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
           context={selectedContext()!}
           author={props.config.author}
           onAdd={(comment) => addPin(selectedElement()!, comment)}
-          onCancel={() => setShowPopup(false)}
+          onCancel={() => closePopup()}
         />
       )}
 
@@ -387,6 +393,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
             })();
             setSelectedContext(buildElementContext(el, frameworkInfo));
             setShowPopup(true);
+            picker.pause();
           }}
           onCopyContext={async () => {
             const el = selectedElement()!;
