@@ -29,8 +29,8 @@ export function ActivityCharts({ dateStart, dateEnd }: ActivityChartsProps) {
       <h2 className="text-lg font-semibold mt-2">Activity</h2>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <KpiChart
-          title="Fusion Messages"
-          subtitle="Daily chat messages sent across all Macy's spaces"
+          title="Agent Chat Messages"
+          subtitle="Daily chat messages sent across all customer spaces"
           rows={msgData.data?.rows ?? []}
           dataKey="messages"
           chartType="bar"
@@ -39,8 +39,8 @@ export function ActivityCharts({ dateStart, dateEnd }: ActivityChartsProps) {
           error={msgData.data?.error}
         />
         <KpiChart
-          title="Active Users (Fusion)"
-          subtitle="Daily unique users sending Fusion messages"
+          title="Active Users (Agent Chat)"
+          subtitle="Daily unique users sending agent chat messages"
           rows={msgData.data?.rows ?? []}
           dataKey="unique_users"
           chartType="bar"
@@ -49,8 +49,8 @@ export function ActivityCharts({ dateStart, dateEnd }: ActivityChartsProps) {
           error={msgData.data?.error}
         />
         <KpiChart
-          title="All Builder Events"
-          subtitle="Daily total Builder events from Macy's orgs"
+          title="All Events"
+          subtitle="Daily total events from customer orgs"
           rows={eventsData.data?.rows ?? []}
           dataKey="events"
           chartType="area"
@@ -60,7 +60,7 @@ export function ActivityCharts({ dateStart, dateEnd }: ActivityChartsProps) {
         />
         <KpiChart
           title="Active Users (All)"
-          subtitle="Daily unique users across all Builder events"
+          subtitle="Daily unique users across all events"
           rows={eventsData.data?.rows ?? []}
           dataKey="unique_users"
           chartType="area"

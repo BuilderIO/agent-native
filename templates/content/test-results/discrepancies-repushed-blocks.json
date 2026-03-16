@@ -20,7 +20,7 @@
     "component": {
       "name": "Text",
       "options": {
-        "text": "<h2>builder: title: Claude Code for Designers handle: claude-code-for-designers blurb: Discover how designers can use Claude Code and Figma to iterate faster, build higher-fidelity UI, and safely ship changes without breaking production. metaTitle: \"\" date: 2026-02-25 readTime: 17 tags: - AI - Design - claude code topic: AI hideImage: false authorId: 724dd11feeb549f0b6fc12b6e4741c19 image: <a href=\"https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fee75e1acef2644baa6cce0023fc72c1a\">https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fee75e1acef2644baa6cce0023fc72c1a</a> published: false hero_image: <a href=\"https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fee75e1acef2644baa6cce0023fc72c1a\">https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fee75e1acef2644baa6cce0023fc72c1a</a></h2>"
+        "text": "<h2>builder: title: Claude Code for Designers handle: claude-code-for-designers blurb: Discover how designers can use Claude Code and Figma to iterate faster, build higher-fidelity UI, and safely ship changes without breaking production. metaTitle: \"\" date: 2026-02-25 readTime: 17 tags: - AI - Design - claude code topic: AI hideImage: false authorId: 724dd11feeb549f0b6fc12b6e4741c19 image: <a href=\"https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2Fee75e1acef2644baa6cce0023fc72c1a\">https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2Fee75e1acef2644baa6cce0023fc72c1a</a> published: false hero_image: <a href=\"https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2Fee75e1acef2644baa6cce0023fc72c1a\">https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2Fee75e1acef2644baa6cce0023fc72c1a</a></h2>"
       }
     },
     "responsiveStyles": {
@@ -215,7 +215,7 @@
     "component": {
       "name": "Video",
       "options": {
-        "video": "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7ddda66a58a44d29951708f98b534fc6?alt=media&token=0de6b3c5-11b7-46db-865e-c9b9211d63fc&apiKey=YJIGb4i01jvw0SRdL5Bt",
+        "video": "https://cdn.builder.io/o/assets%2FYOUR_API_KEY%2F7ddda66a58a44d29951708f98b534fc6?alt=media&token=0de6b3c5-11b7-46db-865e-c9b9211d63fc&apiKey=YOUR_API_KEY",
         "aspectRatio": 0.5625,
         "autoPlay": true,
         "muted": true,
@@ -282,7 +282,7 @@
     "component": {
       "name": "Image",
       "options": {
-        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F258e1c75f29346caa5bc9f597e8a14d6?width=776",
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2F258e1c75f29346caa5bc9f597e8a14d6?width=776",
         "aspectRatio": 0.75,
         "altText": "The Claude Code tab open in the Claude Desktop app.",
         "backgroundSize": "cover",
@@ -498,7 +498,7 @@
     "component": {
       "name": "Image",
       "options": {
-        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3247fa6376974f5c953a11bb39686292?width=776",
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2F3247fa6376974f5c953a11bb39686292?width=776",
         "aspectRatio": 0.75,
         "altText": "The steps of this tutorial: clone the repo, start local dev, preview the app, pick a tiny scope, describe your change, and see it live.",
         "backgroundSize": "cover",
@@ -924,7 +924,7 @@
     "component": {
       "name": "Image",
       "options": {
-        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffc4e0c1c6f4a4374b2c748f7fe92b86f?width=776",
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2Ffc4e0c1c6f4a4374b2c748f7fe92b86f?width=776",
         "aspectRatio": 0.75,
         "altText": "A web app running in Claude Desktop.",
         "backgroundSize": "cover",
@@ -1440,7 +1440,7 @@
     "component": {
       "name": "Video",
       "options": {
-        "video": "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc7976744bcae4209b97dd0e7f4d0f4ec?alt=media&token=437cddfd-7d9e-415f-957d-eb19a196dd9b&apiKey=YJIGb4i01jvw0SRdL5Bt",
+        "video": "https://cdn.builder.io/o/assets%2FYOUR_API_KEY%2Fc7976744bcae4209b97dd0e7f4d0f4ec?alt=media&token=437cddfd-7d9e-415f-957d-eb19a196dd9b&apiKey=YOUR_API_KEY",
         "aspectRatio": 0.5625,
         "autoPlay": true,
         "muted": true,
@@ -1792,7 +1792,7 @@
     "component": {
       "name": "Image",
       "options": {
-        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F33bc7c13ccf945f1b2dac055e7e8d78a?width=776",
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2F33bc7c13ccf945f1b2dac055e7e8d78a?width=776",
         "aspectRatio": 0.75,
         "altText": "Pirates of the Carribean \"first time\" meme with James Franco on the noose.",
         "backgroundSize": "cover",
@@ -1933,7 +1933,7 @@
     "component": {
       "name": "Video",
       "options": {
-        "video": "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1a442b49e72d4a839df803279a9c23e1?alt=media&token=475dc290-12b0-4de2-b794-b784f31399ae&apiKey=YJIGb4i01jvw0SRdL5Bt",
+        "video": "https://cdn.builder.io/o/assets%2FYOUR_API_KEY%2F1a442b49e72d4a839df803279a9c23e1?alt=media&token=475dc290-12b0-4de2-b794-b784f31399ae&apiKey=YOUR_API_KEY",
         "aspectRatio": 0.5625,
         "autoPlay": true,
         "muted": true,
@@ -2045,7 +2045,7 @@
     "component": {
       "name": "Video",
       "options": {
-        "video": "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd1d3b9f1b7634040b61039eff1f50cc9?alt=media&token=f6966016-67b5-4c1d-baef-e26b997af3c1&apiKey=YJIGb4i01jvw0SRdL5Bt",
+        "video": "https://cdn.builder.io/o/assets%2FYOUR_API_KEY%2Fd1d3b9f1b7634040b61039eff1f50cc9?alt=media&token=f6966016-67b5-4c1d-baef-e26b997af3c1&apiKey=YOUR_API_KEY",
         "aspectRatio": 0.5625,
         "autoPlay": true,
         "muted": true,

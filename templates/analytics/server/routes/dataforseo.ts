@@ -6,7 +6,7 @@ import {
   getAllTopBlogKeywords,
 } from "../lib/dataforseo";
 
-// GET /api/seo/blog-pages — returns SEO data for all builder.io/blog pages
+// GET /api/seo/blog-pages — returns SEO data for all blog pages
 export const handleBlogPagesSeo: RequestHandler = async (_req, res) => {
   if (requireEnvKey(res, "DATAFORSEO_LOGIN", "DataForSEO")) return;
   try {

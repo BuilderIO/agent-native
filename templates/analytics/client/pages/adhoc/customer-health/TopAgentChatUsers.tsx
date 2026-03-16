@@ -35,7 +35,7 @@ export function TopAgentChatUsers({
           Top Agent Chat Users
         </CardTitle>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Ranked by message count (excludes @builder.io)
+          Ranked by message count (excludes internal users)
         </p>
       </CardHeader>
       <CardContent>

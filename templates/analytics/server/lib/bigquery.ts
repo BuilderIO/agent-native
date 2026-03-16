@@ -1,7 +1,7 @@
 import { BigQuery } from "@google-cloud/bigquery";
 import { createHash } from "crypto";
 
-const PROJECT_ID = process.env.BIGQUERY_PROJECT_ID || "builder-3b0a2";
+const PROJECT_ID = process.env.BIGQUERY_PROJECT_ID || "your-gcp-project-id";
 
 let bigqueryClient: BigQuery | null = null;
 

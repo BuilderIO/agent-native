@@ -1,17 +1,17 @@
 // BigQuery table references
-const ALL_PAGEVIEWS = "`builder-3b0a2.dbt_intermediate.all_pageviews`";
-const PRODUCT_SIGNUPS = "`builder-3b0a2.dbt_analytics.product_signups`";
-const SUBS = "`builder-3b0a2.dbt_mart.dim_subscriptions`";
-const AMPLITUDE_EVENTS = "`builder-3b0a2.amplitude.EVENTS_182198`";
-const EVENTS_PARTITIONED = "`builder-3b0a2.analytics.events_partitioned`";
+const ALL_PAGEVIEWS = "`your-gcp-project-id.dbt_intermediate.all_pageviews`";
+const PRODUCT_SIGNUPS = "`your-gcp-project-id.dbt_analytics.product_signups`";
+const SUBS = "`your-gcp-project-id.dbt_mart.dim_subscriptions`";
+const AMPLITUDE_EVENTS = "`your-gcp-project-id.amplitude.EVENTS_182198`";
+const EVENTS_PARTITIONED = "`your-gcp-project-id.analytics.events_partitioned`";
 
 // Helper to extract email from Amplitude user_properties JSON
 function excludeInternalEmails(includeQQcom = false): string {
   const emailCheck = `COALESCE(JSON_VALUE(user_properties, '$.email'), '')`;
   if (includeQQcom) {
-    return `${emailCheck} NOT LIKE '%@builder.io' AND ${emailCheck} NOT LIKE '%@qq.com'`;
+    return `${emailCheck} NOT LIKE '%@your-company.com' AND ${emailCheck} NOT LIKE '%@qq.com'`;
   }
-  return `${emailCheck} NOT LIKE '%@builder.io'`;
+  return `${emailCheck} NOT LIKE '%@your-company.com'`;
 }
 
 // Helper to exclude India from Amplitude events
@@ -61,12 +61,12 @@ export function siteTrafficAmplitudeQuery(
   const dateTrunc = getDateTrunc("createddate", cadence);
   return `SELECT
   ${dateTrunc} AS period,
-  COUNT(DISTINCT CASE WHEN url NOT LIKE '%builder.io/blog%' THEN json_extract_scalar(data, '$.visitorId') END) AS not_blog,
-  COUNT(DISTINCT CASE WHEN url LIKE '%builder.io/blog%' THEN json_extract_scalar(data, '$.visitorId') END) AS blog
+  COUNT(DISTINCT CASE WHEN url NOT LIKE '%/blog%' THEN json_extract_scalar(data, '$.visitorId') END) AS not_blog,
+  COUNT(DISTINCT CASE WHEN url LIKE '%/blog%' THEN json_extract_scalar(data, '$.visitorId') END) AS blog
 FROM ${EVENTS_PARTITIONED}
 WHERE DATE(createddate) BETWEEN '${dateStart}' AND '${dateEnd}'
   AND event = 'pageView'
-  AND COALESCE(json_extract_scalar(data, '$.userEmail'), '') NOT LIKE '%@builder.io'
+  AND COALESCE(json_extract_scalar(data, '$.userEmail'), '') NOT LIKE '%@your-company.com'
 GROUP BY period
 ORDER BY period`;
 }
@@ -82,7 +82,7 @@ export function dailySignupsQuery(
   const dateTrunc = getDateTrunc("user_create_d", cadence);
   return `SELECT
   ${dateTrunc} AS period,
-  COUNTIF(IFNULL(referrer, '') NOT LIKE '%@builder.io%') AS signups
+  COUNTIF(IFNULL(referrer, '') NOT LIKE '%@your-company.com%') AS signups
 FROM ${PRODUCT_SIGNUPS}
 WHERE DATE(user_create_d) BETWEEN '${dateStart}' AND '${dateEnd}'
 GROUP BY period

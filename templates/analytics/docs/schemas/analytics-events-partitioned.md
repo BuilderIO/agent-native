@@ -1,6 +1,6 @@
 # analytics.events_partitioned
 
-BigQuery table for **app-level events** (signups, pageViews, interactions, fusion chat, etc.).
+BigQuery table for **app-level events** (signups, pageViews, interactions, agent chat, etc.).
 
 **Full path**: `<project_id>.analytics.events_partitioned`
 **Query-metrics placeholder**: `@app_events`
@@ -10,7 +10,7 @@ BigQuery table for **app-level events** (signups, pageViews, interactions, fusio
 | Column           | Type      | Description                                                              |
 | ---------------- | --------- | ------------------------------------------------------------------------ |
 | `event`          | STRING    | Event category: `impression`, `interaction`, `signup`, `pageView`        |
-| `name`           | STRING    | Event name/label (e.g. `authorize cli`, `fusion chat message submitted`) |
+| `name`           | STRING    | Event name/label (e.g. `authorize cli`, `agent chat message submitted`) |
 | `data`           | STRING    | JSON blob with all tracked properties (see below)                        |
 | `timestamp`      | TIMESTAMP | Event timestamp                                                          |
 | `url`            | STRING    | Full URL where event occurred                                            |
@@ -79,7 +79,7 @@ GROUP BY day
 ORDER BY day DESC
 ```
 
-### Fusion chat messages over time
+### Agent chat messages over time
 
 ```sql
 SELECT
@@ -87,7 +87,7 @@ SELECT
   COUNT(*) AS messages
 FROM @app_events
 WHERE
-  name = "fusion chat message submitted"
+  name = "agent chat message submitted"
   AND createdDate >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
 GROUP BY day
 ORDER BY day DESC

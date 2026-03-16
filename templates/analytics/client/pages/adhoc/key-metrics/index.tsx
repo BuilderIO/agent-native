@@ -363,25 +363,25 @@ export default function KeyMetricsDashboard() {
       <div className="rounded-lg border border-border/50 p-3 text-xs text-muted-foreground space-y-1">
         <p>
           <span className="font-medium text-foreground">Site traffic</span> —
-          Unique page views on builder.io, segmented by blog vs non-blog pages.
-          Excludes internal @builder.io users.
+          Unique page views on your site, segmented by blog vs non-blog pages.
+          Excludes internal @your-company.com users.
         </p>
         <p>
           <span className="font-medium text-foreground">Daily Signups</span> —
-          Account signup events per day. Excludes @builder.io emails and
+          Account signup events per day. Excludes @your-company.com emails and
           India-based signups.
         </p>
         <p>
           <span className="font-medium text-foreground">Hourly Signups</span> —
           Account signup events aggregated by hour for the last 7 days. Excludes
-          @builder.io emails and India-based signups.
+          @your-company.com emails and India-based signups.
         </p>
         <p>
           <span className="font-medium text-foreground">
             New subs vs cancelled
           </span>{" "}
           — Daily count of new subscription payment successes vs subscription
-          plan cancellations. Excludes @builder.io, qq.com emails and
+          plan cancellations. Excludes @your-company.com, qq.com emails and
           India-based events.
         </p>
       </div>

@@ -40,7 +40,7 @@ pnpm script generate-chart --type=bar --title="Title" --labels='["A","B","C"]' -
 
 | Color        | Hex       | Use                                |
 | ------------ | --------- | ---------------------------------- |
-| Builder blue | `#18B4F4` | **Default/primary for all charts** |
+| Blue         | `#18B4F4` | **Default/primary for all charts** |
 | Purple       | `#8b5cf6` | Secondary                          |
 | Green        | `#22c55e` | Tertiary                           |
 | Amber        | `#f59e0b` |                                    |
@@ -60,8 +60,8 @@ pnpm script generate-chart --type=bar --title="Title" --labels='["A","B","C"]' -
 ### Good pattern:
 
 ```markdown
-**Macy's Fusion — Last 30 Days**
-![chart](https://...fly.dev/api/media/chart.png?v=123)
+**Acme Corp Product Usage — Last 30 Days**
+![chart](https://...your-app.example.com/api/media/chart.png?v=123)
 **528 messages** over 18 active days | Peak: **89** (Feb 14)
 ```
 
@@ -74,7 +74,7 @@ When using QuickChart (`https://quickchart.io/chart/create`) with Chart.js v2:
 - Axis ticks: `#52525b`, 11px
 - Title: `#fafafa`, 16px bold
 - Legend: `#a1a1aa`, 11px
-- Default bar/line color: `#18B4F4` (Builder blue)
+- Default bar/line color: `#18B4F4` (primary blue)
 - Tooltips: bg `#09090b`, border `#27272a`, text `#fafafa`
 
 ## Multi-Series & Stacked Charts

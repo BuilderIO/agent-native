@@ -1,7 +1,7 @@
 ---
 name: github
 description: >
-  Search and read GitHub PRs, issues, and code across the BuilderIO org.
+  Search and read GitHub PRs, issues, and code across the YourOrg org.
   Use this skill when the user asks about pull requests, code reviews, or GitHub issues.
 ---
 
@@ -28,7 +28,7 @@ description: >
 | `getPR(owner, repo, number)`    | Full PR detail — commits, reviews, files (4 parallel API calls) |
 | `getIssue(owner, repo, number)` | Issue detail with labels, assignees                             |
 | `listPRs(owner, repo, opts)`    | List repo PRs by state (open/closed/all)                        |
-| `searchOrgPRs(opts)`            | Convenience wrapper — prepends `org:BuilderIO is:pr`            |
+| `searchOrgPRs(opts)`            | Convenience wrapper — prepends `org:YourOrg is:pr`            |
 | `runGraphQL(query, variables?)` | Raw GraphQL query                                               |
 
 ### API Routes
@@ -39,24 +39,24 @@ description: >
 | `GET /api/github/pr?owner=...&repo=...&number=...`                       | PR detail with commits, reviews, files |
 | `GET /api/github/issue?owner=...&repo=...&number=...`                    | Issue detail                           |
 | `GET /api/github/prs?owner=...&repo=...&state=open\|closed\|all`         | List repo PRs                          |
-| `GET /api/github/org-prs?org=BuilderIO&q=...&state=OPEN\|CLOSED\|MERGED` | Org-wide PR search                     |
+| `GET /api/github/org-prs?org=YourOrg&q=...&state=OPEN\|CLOSED\|MERGED` | Org-wide PR search                     |
 | `POST /api/github/graphql` body: `{ query, variables? }`                 | Raw GraphQL                            |
 
 ## Script Usage
 
 ```bash
-# Search open PRs in BuilderIO org
+# Search open PRs in YourOrg org
 pnpm script github-prs
-pnpm script github-prs --org=BuilderIO --query="is:open label:bug"
+pnpm script github-prs --org=YourOrg --query="is:open label:bug"
 
 # List PRs for a specific repo
-pnpm script github-prs --repo=BuilderIO/qwik --state=open
+pnpm script github-prs --repo=YourOrg/qwik --state=open
 
 # Get full PR detail (commits, reviews, files)
-pnpm script github-prs --pr=BuilderIO/qwik/1234
+pnpm script github-prs --pr=YourOrg/qwik/1234
 
 # Get issue detail
-pnpm script github-prs --issue=BuilderIO/qwik/567
+pnpm script github-prs --issue=YourOrg/qwik/567
 
 # Full GitHub search syntax (works across all orgs/repos)
 pnpm script github-prs --search="fix authentication is:pr is:merged"
@@ -66,15 +66,15 @@ pnpm script github-prs --search="memory leak" --type=issue
 pnpm script github-prs --graphql='{ viewer { login } }'
 
 # Filtering with built-in helpers
-pnpm script github-prs --org=BuilderIO --grep="auth" --fields=number,title,state,url
+pnpm script github-prs --org=YourOrg --grep="auth" --fields=number,title,state,url
 ```
 
 ## Key Patterns & Gotchas
 
 ### GitHub search qualifiers (useful for --search and --query)
 
-- `org:BuilderIO` — all repos in org
-- `repo:BuilderIO/qwik` — specific repo
+- `org:YourOrg` — all repos in org
+- `repo:YourOrg/qwik` — specific repo
 - `is:pr is:open` / `is:pr is:merged` / `is:pr is:closed`
 - `is:issue is:open` / `is:issue is:closed`
 - `author:username` — PRs/issues by author
@@ -87,7 +87,7 @@ pnpm script github-prs --org=BuilderIO --grep="auth" --fields=number,title,state
 
 ### Implementation Notes
 
-- `searchOrgPRs()` is a convenience wrapper that prepends `org:BuilderIO is:pr` — use `searchPRs()` / `searchIssues()` directly for full control
+- `searchOrgPRs()` is a convenience wrapper that prepends `org:YourOrg is:pr` — use `searchPRs()` / `searchIssues()` directly for full control
 - The REST search API returns up to 100 results per call; paginated list endpoints use `restGetPaginated()` with Link header traversal
 - `getPR()` makes 4 parallel API calls: PR data, commits, reviews, files — provides a complete picture in one shot
 - 5-minute in-memory cache on all requests

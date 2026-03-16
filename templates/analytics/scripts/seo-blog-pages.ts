@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Get SEO metrics for all builder.io/blog/ pages.
+ * Get SEO metrics for all blog pages.
  *
  * Usage:
  *   npx tsx scripts/run.ts seo-blog-pages

@@ -19,7 +19,7 @@ import { EventsTable } from "./EventsTable";
 type Cadence = "Daily" | "Weekly" | "Monthly" | "Quarterly";
 
 const CADENCES: Cadence[] = ["Monthly", "Weekly", "Daily", "Quarterly"];
-const PRODUCT_GROUPS = ["All", "Publish + Fusion", "Shopify"];
+const PRODUCT_GROUPS = ["All", "CMS + AI", "Shopify"];
 const FISCAL_YEARS = [2026, 2025, 2024, 2023];
 
 function useUrlParam(
@@ -173,7 +173,7 @@ export default function ArrRevenueDashboard() {
         </p>
         <p>
           <span className="font-medium text-foreground">Product Groups</span>{" "}
-          &mdash; "Publish + Fusion" includes CMS, VCP, and Develop products.
+          &mdash; "CMS + AI" includes CMS, VCP, and Develop products.
           "Shopify" is Shopify-sourced revenue.
         </p>
         <p>

@@ -13,7 +13,7 @@ SELECT
   MIN(event_time) as first_seen,
   MAX(event_time) as last_seen
 FROM
-  \`builder-3b0a2.amplitude.EVENTS_182198\`
+  \`your-gcp-project-id.amplitude.EVENTS_182198\`
 WHERE
   event_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL ${days} DAY)
   AND event_type IS NOT NULL
