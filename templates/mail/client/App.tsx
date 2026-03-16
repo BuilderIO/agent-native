@@ -1,19 +1,43 @@
 import "./global.css";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { InboxPage } from "@/pages/InboxPage";
 import { NotFound } from "@/pages/NotFound";
+import { useFileWatcher } from "@agent-native/core";
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { staleTime: 30_000, retry: 1 },
   },
 });
+
+function FileWatcherSetup() {
+  const qc = useQueryClient();
+  useFileWatcher({
+    queryClient: qc,
+    queryKeys: [], // We handle invalidation in onEvent
+    onEvent: (data: { type: string; path: string }) => {
+      if (data.path?.includes("application-state")) {
+        qc.invalidateQueries({ queryKey: ["compose-state"] });
+      } else {
+        qc.invalidateQueries({ queryKey: ["emails"] });
+        qc.invalidateQueries({ queryKey: ["email"] });
+        qc.invalidateQueries({ queryKey: ["labels"] });
+        qc.invalidateQueries({ queryKey: ["settings"] });
+      }
+    },
+  });
+  return null;
+}
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -24,6 +48,7 @@ const App = () => (
     >
       <TooltipProvider delayDuration={300}>
         <Toaster richColors position="bottom-right" />
+        <FileWatcherSetup />
         <BrowserRouter>
           <AppLayout>
             <Routes>

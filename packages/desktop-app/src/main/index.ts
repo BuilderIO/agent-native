@@ -4,6 +4,7 @@ import {
   ipcMain,
   session,
   shell,
+  webContents,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
@@ -46,13 +47,31 @@ function createWindow(): BrowserWindow {
   // In dev, load from the Vite dev server; in prod, load built files
   if (IS_DEV && process.env["ELECTRON_RENDERER_URL"]) {
     win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
-    // Open DevTools in a detached window during development
-    win.webContents.openDevTools({ mode: "detach" });
+    // DevTools will be opened for the active webview via Cmd+Option+I
   } else {
     win.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
 
   return win;
+}
+
+// ---------- DevTools: target the active app webview ----------
+
+function toggleWebviewDevTools() {
+  const allContents = webContents.getAllWebContents();
+  const webviewContents = allContents.filter(
+    (wc) => wc.getType() === "webview",
+  );
+  // Prefer the focused webview, fall back to the first one
+  const target =
+    webviewContents.find((wc) => wc.isFocused()) || webviewContents[0];
+  if (target) {
+    if (target.isDevToolsOpened()) {
+      target.closeDevTools();
+    } else {
+      target.openDevTools({ mode: "detach" });
+    }
+  }
 }
 
 // ---------- IPC: Window controls ----------
@@ -115,6 +134,18 @@ app.on("web-contents-created", (_event, contents) => {
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
 
     const key = input.key.toLowerCase();
+
+    // Cmd+Option+I — toggle devtools for this webview
+    if (key === "i" && input.alt) {
+      event.preventDefault();
+      if (contents.isDevToolsOpened()) {
+        contents.closeDevTools();
+      } else {
+        contents.openDevTools({ mode: "detach" });
+      }
+      return;
+    }
+
     const win = BrowserWindow.getAllWindows()[0];
     if (!win) return;
 
@@ -158,13 +189,20 @@ app.whenReady().then(() => {
 
   const win = createWindow();
 
-  // Intercept Cmd+W so it closes a tab instead of the window
+  // Intercept keyboard shortcuts on the shell renderer
   win.webContents.on("before-input-event", (_event, input) => {
-    if (
-      (input.meta || input.control) &&
-      input.key.toLowerCase() === "w" &&
-      input.type === "keyDown"
-    ) {
+    if (!(input.meta || input.control) || input.type !== "keyDown") return;
+    const key = input.key.toLowerCase();
+
+    // Cmd+Option+I — open devtools for the active webview, not the shell
+    if (key === "i" && input.alt) {
+      _event.preventDefault();
+      toggleWebviewDevTools();
+      return;
+    }
+
+    // Cmd+W — close tab instead of window
+    if (key === "w") {
       _event.preventDefault();
       win.webContents.send("shortcut:close-tab");
     }

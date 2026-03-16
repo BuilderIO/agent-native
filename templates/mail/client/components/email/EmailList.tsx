@@ -18,12 +18,16 @@ interface EmailListProps {
   focusedId: string | null;
   setFocusedId: (id: string | null) => void;
   onCompose?: (email: EmailMessage, mode: "reply" | "forward") => void;
+  onArchived?: (id: string) => void;
+  undoArchive?: (id: string) => void;
 }
 
 export function EmailList({
   focusedId,
   setFocusedId,
   onCompose,
+  onArchived,
+  undoArchive,
 }: EmailListProps) {
   const navigate = useNavigate();
   const { view = "inbox", threadId } = useParams<{
@@ -76,19 +80,26 @@ export function EmailList({
 
   const archiveFocused = useCallback(() => {
     if (!focusedId) return;
-    archiveEmail.mutate(focusedId, {
+    const id = focusedId;
+    archiveEmail.mutate(id, {
       onSuccess: () => {
-        toast.success("Archived");
+        onArchived?.(id);
+        toast("Marked as Done.", {
+          action: {
+            label: "UNDO",
+            onClick: () => undoArchive?.(id),
+          },
+        });
         moveFocus(0);
       },
     });
-  }, [focusedId, archiveEmail, moveFocus]);
+  }, [focusedId, archiveEmail, moveFocus, onArchived, undoArchive]);
 
   const trashFocused = useCallback(() => {
     if (!focusedId) return;
     trashEmail.mutate(focusedId, {
       onSuccess: () => {
-        toast.success("Moved to trash");
+        toast("Moved to Trash.");
         moveFocus(0);
       },
     });
