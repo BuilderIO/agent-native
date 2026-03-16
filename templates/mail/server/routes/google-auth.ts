@@ -7,8 +7,12 @@ import {
 } from "../lib/google-auth.js";
 
 function getOrigin(req: Request): string {
-  return `${req.protocol}://${req.get("host")}`;
+  const host = req.get("x-forwarded-host") || req.get("host");
+  return `${req.protocol}://${host}`;
 }
+
+// Track the redirect URI used for auth so the callback can match it
+let lastRedirectUri: string | undefined;
 
 export function getGoogleAuthUrl(req: Request, res: Response): void {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -20,7 +24,11 @@ export function getGoogleAuthUrl(req: Request, res: Response): void {
     return;
   }
   try {
-    const url = getAuthUrl(getOrigin(req));
+    const redirectUri =
+      (req.query.redirect_uri as string) ||
+      `${getOrigin(req)}/api/google/callback`;
+    lastRedirectUri = redirectUri;
+    const url = getAuthUrl(undefined, redirectUri);
     res.json({ url });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -37,7 +45,10 @@ export async function handleGoogleCallback(
       res.status(400).json({ error: "Missing authorization code" });
       return;
     }
-    await exchangeCode(code, getOrigin(req));
+    // Use the same redirect URI that was used to generate the auth URL
+    const redirectUri =
+      lastRedirectUri || `${getOrigin(req)}/api/google/callback`;
+    await exchangeCode(code, undefined, redirectUri);
     // Send a page that closes itself — the app polls for connection status
     res.send(`<!DOCTYPE html><html><body><script>
       window.close();

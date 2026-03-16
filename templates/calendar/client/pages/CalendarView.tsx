@@ -284,15 +284,15 @@ export default function CalendarView() {
   return (
     <TooltipProvider delayDuration={500}>
       <div className="flex h-full flex-col">
-        {/* Google Calendar connect banner */}
-        {!googleStatus.isLoading && googleStatus.data && !isGoogleConnected && (
+        {/* Google Calendar connect banner — show when not connected OR when there's a credentials error */}
+        {(!googleStatus.isLoading && googleStatus.data && !isGoogleConnected) ||
+        eventsError ? (
           <GoogleConnectBanner />
-        )}
+        ) : null}
 
-        {/* Error banner */}
+        {/* Error detail */}
         {eventsError && (
-          <div className="shrink-0 border-b border-red-500/20 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
-            <span className="font-medium">Failed to load events:</span>{" "}
+          <div className="shrink-0 border-b border-red-500/20 bg-red-500/[0.06] px-4 py-1.5 text-xs text-red-400/70">
             {eventsError.message}
           </div>
         )}

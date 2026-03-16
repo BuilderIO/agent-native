@@ -11,6 +11,7 @@ import {
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getCallbackOrigin } from "@agent-native/core/client";
 import { useGoogleAuthStatus, useGoogleAuthUrl } from "@/hooks/use-google-auth";
 
 interface EnvKeyStatus {
@@ -67,7 +68,7 @@ export function GoogleConnectBanner() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const redirectUri = `${window.location.origin}/api/google/callback`;
+  const redirectUri = `${getCallbackOrigin()}/api/google/callback`;
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -104,7 +105,7 @@ export function GoogleConnectBanner() {
           const data = await res.json();
           if (data.connected) {
             clearInterval(interval);
-            googleStatus.refetch();
+            window.location.reload();
           }
         }
       }, 2000);
@@ -185,7 +186,8 @@ export function GoogleConnectBanner() {
     setTimeout(() => setCopiedKey(null), 2000);
   }
 
-  if (dismissed || googleStatus.data?.connected) return null;
+  // Hide banner only if connected AND env vars are configured
+  if (dismissed || (googleStatus.data?.connected && allConfigured)) return null;
 
   return (
     <div className="border-b border-border/30 bg-[hsl(220,6%,11%)]">
