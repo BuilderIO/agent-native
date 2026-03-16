@@ -10,15 +10,21 @@ import {
   useArchiveEmail,
   useTrashEmail,
 } from "@/hooks/use-emails";
+import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import type { EmailMessage } from "@shared/types";
 import { toast } from "sonner";
 
 interface EmailListProps {
   focusedId: string | null;
   setFocusedId: (id: string | null) => void;
+  onCompose?: (email: EmailMessage, mode: "reply" | "forward") => void;
 }
 
-export function EmailList({ focusedId, setFocusedId }: EmailListProps) {
+export function EmailList({
+  focusedId,
+  setFocusedId,
+  onCompose,
+}: EmailListProps) {
   const navigate = useNavigate();
   const { view = "inbox", threadId } = useParams<{
     view: string;
@@ -88,24 +94,60 @@ export function EmailList({ focusedId, setFocusedId }: EmailListProps) {
     });
   }, [focusedId, trashEmail, moveFocus]);
 
-  const markFocusedRead = useCallback(() => {
+  const toggleFocusedRead = useCallback(() => {
     if (!focusedId) return;
     const email = emails.find((e) => e.id === focusedId);
     if (!email) return;
     markRead.mutate({ id: focusedId, isRead: !email.isRead });
   }, [focusedId, emails, markRead]);
 
-  // Keyboard navigation
+  const markFocusedRead = useCallback(() => {
+    if (!focusedId) return;
+    markRead.mutate({ id: focusedId, isRead: true });
+  }, [focusedId, markRead]);
+
+  const markFocusedUnread = useCallback(() => {
+    if (!focusedId) return;
+    markRead.mutate({ id: focusedId, isRead: false });
+  }, [focusedId, markRead]);
+
+  const starFocused = useCallback(() => {
+    if (!focusedId) return;
+    const email = emails.find((e) => e.id === focusedId);
+    if (!email) return;
+    toggleStar.mutate({ id: focusedId, isStarred: !email.isStarred });
+  }, [focusedId, emails, toggleStar]);
+
+  const replyFocused = useCallback(() => {
+    if (!focusedId || !onCompose) return;
+    const email = emails.find((e) => e.id === focusedId);
+    if (email) onCompose(email, "reply");
+  }, [focusedId, emails, onCompose]);
+
+  const forwardFocused = useCallback(() => {
+    if (!focusedId || !onCompose) return;
+    const email = emails.find((e) => e.id === focusedId);
+    if (email) onCompose(email, "forward");
+  }, [focusedId, emails, onCompose]);
+
+  // Keyboard navigation — Gmail / Superhuman standard shortcuts
   useKeyboardShortcuts([
     { key: "j", handler: () => moveFocus(1) },
     { key: "ArrowDown", handler: () => moveFocus(1) },
     { key: "k", handler: () => moveFocus(-1) },
     { key: "ArrowUp", handler: () => moveFocus(-1) },
     { key: "Enter", handler: openFocused },
+    { key: "o", handler: openFocused },
     { key: "e", handler: archiveFocused },
     { key: "d", handler: trashFocused },
-    { key: "u", handler: markFocusedRead },
-    { key: "r", handler: () => refetch() },
+    { key: "#", handler: trashFocused, shift: true },
+    { key: "u", handler: toggleFocusedRead },
+    { key: "I", handler: markFocusedRead, shift: true },
+    { key: "U", handler: markFocusedUnread, shift: true },
+    { key: "s", handler: starFocused },
+    { key: "r", handler: replyFocused },
+    { key: "f", handler: forwardFocused },
+    { key: "a", handler: replyFocused }, // reply-all (same as reply for single messages)
   ]);
 
   // Auto-focus first email when list loads
@@ -128,6 +170,18 @@ export function EmailList({ focusedId, setFocusedId }: EmailListProps) {
 
   // Error state
   if (emailsError) {
+    const needsCredentials =
+      emailsError.message?.includes("GOOGLE_CLIENT_ID") ||
+      emailsError.message?.includes("GOOGLE_CLIENT_SECRET");
+
+    if (needsCredentials) {
+      return (
+        <div className="flex h-full flex-col" ref={containerRef}>
+          <GoogleConnectBanner variant="hero" />
+        </div>
+      );
+    }
+
     return (
       <div className="flex h-full flex-col" ref={containerRef}>
         <div className="flex flex-1 flex-col items-center justify-center px-8">

@@ -1,7 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import CodeBlock from "../components/CodeBlock";
-import { templates, TemplateCard } from "../components/TemplateCard";
+import {
+  templates,
+  TemplateCard,
+  trackEvent,
+} from "../components/TemplateCard";
 
 export const Route = createFileRoute("/")({ component: Home });
 
@@ -87,7 +91,7 @@ const principles = [
 ];
 
 const quickStartCode = `# Fork a template and start building
-npx @agent-native/core create my-app --template analytics
+npx @agent-native/core create my-app --template mail
 cd my-app
 pnpm install
 pnpm dev`;
@@ -99,6 +103,7 @@ function TerminalCommand() {
   function handleCopy() {
     navigator.clipboard.writeText(command);
     setCopied(true);
+    trackEvent("copy_cli_command", { location: "hero" });
     setTimeout(() => setCopied(false), 2000);
   }
 
@@ -168,9 +173,15 @@ function Home() {
           </p>
 
           <div className="flex items-center justify-center gap-4">
-            <Link
-              to="/templates"
-              className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+            <a
+              href="#templates"
+              className="primary-button"
+              onClick={() =>
+                trackEvent("click_cta", {
+                  label: "launch_a_template",
+                  location: "hero",
+                })
+              }
             >
               Launch a Template
               <svg
@@ -186,12 +197,15 @@ function Home() {
                 <line x1="5" y1="12" x2="19" y2="12" />
                 <polyline points="12 5 19 12 12 19" />
               </svg>
-            </Link>
+            </a>
             <a
               href="https://github.com/BuilderIO/agent-native"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+              onClick={() =>
+                trackEvent("click_cta", { label: "github", location: "hero" })
+              }
             >
               <svg
                 width="16"
@@ -210,7 +224,7 @@ function Home() {
       </main>
 
       {/* Templates - breaks out of max-width on ultra-wide screens */}
-      <section className="py-20 px-6">
+      <section id="templates" className="py-20 px-6">
         <div className="mb-12 text-center">
           <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
             Start with a full featured template
@@ -232,6 +246,12 @@ function Home() {
           <Link
             to="/templates"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+            onClick={() =>
+              trackEvent("click_cta", {
+                label: "view_all_templates",
+                location: "templates_section",
+              })
+            }
           >
             View all templates
             <svg
@@ -603,9 +623,15 @@ function Home() {
             Yours.
           </p>
           <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <Link
-              to="/templates"
-              className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+            <a
+              href="#templates"
+              className="primary-button"
+              onClick={() =>
+                trackEvent("click_cta", {
+                  label: "launch_a_template",
+                  location: "footer",
+                })
+              }
             >
               Launch a Template
               <svg
@@ -621,10 +647,16 @@ function Home() {
                 <line x1="5" y1="12" x2="19" y2="12" />
                 <polyline points="12 5 19 12 12 19" />
               </svg>
-            </Link>
+            </a>
             <Link
               to="/docs"
               className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+              onClick={() =>
+                trackEvent("click_cta", {
+                  label: "read_the_docs",
+                  location: "footer",
+                })
+              }
             >
               Read the Docs
             </Link>
@@ -633,6 +665,9 @@ function Home() {
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+              onClick={() =>
+                trackEvent("click_cta", { label: "github", location: "footer" })
+              }
             >
               View on GitHub
             </a>

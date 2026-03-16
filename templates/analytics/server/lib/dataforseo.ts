@@ -82,7 +82,7 @@ interface RelevantPagesResponse {
   }[];
 }
 
-// Get SEO data for all builder.io/blog/ pages
+// Get SEO data for all your-domain.com/blog/ pages
 export async function getRelevantBlogPages(
   limit = 100,
   offset = 0,
@@ -91,7 +91,7 @@ export async function getRelevantBlogPages(
     "/dataforseo_labs/google/relevant_pages/live",
     [
       {
-        target: "builder.io",
+        target: "your-domain.com",
         language_name: "English",
         location_code: 2840,
         limit,
@@ -221,7 +221,7 @@ export async function getTopBlogKeywords(
     "/dataforseo_labs/google/ranked_keywords/live",
     [
       {
-        target: "builder.io",
+        target: "your-domain.com",
         language_name: "English",
         location_code: 2840,
         limit,
@@ -283,7 +283,7 @@ export async function getRankedKeywordsForPage(
     "/dataforseo_labs/google/ranked_keywords/live",
     [
       {
-        target: "builder.io",
+        target: "your-domain.com",
         language_name: "English",
         location_code: 2840,
         limit,

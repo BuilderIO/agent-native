@@ -28,3 +28,4 @@ dist-ssr
 
 # Google OAuth tokens (sensitive, never commit)
 data/google-auth.json
+data/google-accounts/

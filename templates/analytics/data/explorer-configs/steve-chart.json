@@ -1,8 +1,8 @@
 {
-  "name": "Steve chart",
+  "name": "Example chart",
   "events": [
     {
-      "event": "fusion chat message submitted",
+      "event": "agent chat message submitted",
       "filters": [
         {
           "property": "org_subscription",

@@ -10,6 +10,7 @@ import {
   getClients,
   listGmailMessages,
   gmailToEmailMessage,
+  fetchGmailLabelMap,
 } from "../lib/google-auth.js";
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -96,6 +97,22 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
       let searchQuery = gmailQuery[view] ?? `label:${view}`;
       if (q) searchQuery += ` ${q}`;
 
+      // Fetch label name mapping from all accounts
+      const clients = await getClients();
+      const labelMap = new Map<string, string>();
+      await Promise.all(
+        clients.map(async ({ client }) => {
+          try {
+            const map = await fetchGmailLabelMap(client);
+            for (const [id, name] of map) labelMap.set(id, name);
+          } catch (err: any) {
+            console.error(
+              "[listEmails] Failed to fetch label map:",
+              err?.message,
+            );
+          }
+        }),
+      );
       const { messages, errors } = await listGmailMessages(searchQuery);
       if (messages.length === 0 && errors.length > 0) {
         // All accounts failed — surface as error
@@ -104,7 +121,9 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
         });
         return;
       }
-      const emails = messages.map((m) => gmailToEmailMessage(m));
+      const emails = messages.map((m) =>
+        gmailToEmailMessage(m, undefined, labelMap),
+      );
       emails.sort(
         (a: any, b: any) =>
           new Date(b.date).getTime() - new Date(a.date).getTime(),
@@ -187,12 +206,13 @@ export async function getEmail(req: Request, res: Response): Promise<void> {
     for (const { email, client } of clients) {
       try {
         const gmail = google.gmail({ version: "v1", auth: client });
+        const labelMap = await fetchGmailLabelMap(client);
         const msg = await gmail.users.messages.get({
           userId: "me",
           id: req.params.id as string,
           format: "full",
         });
-        res.json(gmailToEmailMessage((msg as any).data, email));
+        res.json(gmailToEmailMessage((msg as any).data, email, labelMap));
         return;
       } catch (error: any) {
         const status =
@@ -383,7 +403,39 @@ export function sendEmail(req: Request, res: Response) {
 
 // ─── Labels ───────────────────────────────────────────────────────────────────
 
-export function listLabels(_req: Request, res: Response) {
+export async function listLabels(_req: Request, res: Response) {
+  if (isConnected()) {
+    try {
+      const clients = await getClients();
+      const labelMap = new Map<
+        string,
+        { id: string; name: string; type: "system" | "user" }
+      >();
+      await Promise.all(
+        clients.map(async ({ client }) => {
+          try {
+            const map = await fetchGmailLabelMap(client);
+            for (const [id, name] of map) {
+              const isSystem = !id.startsWith("Label_");
+              if (!labelMap.has(id)) {
+                labelMap.set(id, {
+                  id: name.toLowerCase(),
+                  name,
+                  type: isSystem ? ("system" as const) : ("user" as const),
+                });
+              }
+            }
+          } catch {}
+        }),
+      );
+      const labels: Label[] = Array.from(labelMap.values()).map((l) => ({
+        ...l,
+        unreadCount: 0,
+      }));
+      res.json(labels);
+      return;
+    } catch {}
+  }
   res.json(readLabels());
 }
 

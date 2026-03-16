@@ -1,13 +1,14 @@
 import type { DateCadence } from "../product-kpis/types";
 
 // ─── BigQuery table references ─────────────────────────────────────────
-const REVENUE_FUNNEL = "`builder-3b0a2.dbt_analytics.revenue_funnel`";
-const HS_DEALS = "`builder-3b0a2.dbt_mart.dim_hs_deals`";
-const HS_CONTACTS = "`builder-3b0a2.dbt_mart.dim_hs_contacts`";
-const ARR_TRACKER = "`builder-3b0a2.dbt_mart.dim_arr_revenue_tracker`";
-const DAILY_ARR = "`builder-3b0a2.dbt_analytics.daily_arr_by_subscriptions`";
-const PRODUCT_SIGNUPS = "`builder-3b0a2.dbt_analytics.product_signups`";
-const ACTIVE_USERS = "`builder-3b0a2.dbt_analytics.active_users`";
+const REVENUE_FUNNEL = "`your-gcp-project-id.dbt_analytics.revenue_funnel`";
+const HS_DEALS = "`your-gcp-project-id.dbt_mart.dim_hs_deals`";
+const HS_CONTACTS = "`your-gcp-project-id.dbt_mart.dim_hs_contacts`";
+const ARR_TRACKER = "`your-gcp-project-id.dbt_mart.dim_arr_revenue_tracker`";
+const DAILY_ARR =
+  "`your-gcp-project-id.dbt_analytics.daily_arr_by_subscriptions`";
+const PRODUCT_SIGNUPS = "`your-gcp-project-id.dbt_analytics.product_signups`";
+const ACTIVE_USERS = "`your-gcp-project-id.dbt_analytics.active_users`";
 
 function cadenceToTrunc(cadence: DateCadence): string {
   switch (cadence) {

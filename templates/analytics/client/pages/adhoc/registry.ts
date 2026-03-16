@@ -9,7 +9,7 @@ function validateDashboard(dashboard: DashboardMeta): void {
 
   if (!dashboard.author) {
     errors.push(
-      `Missing 'author' field - YOU MUST provide the creator's name or email (e.g., "jane@builder.io" or "Jane Doe")`,
+      `Missing 'author' field - YOU MUST provide the creator's name or email (e.g., "jane@example.com" or "Jane Doe")`,
     );
   }
 
@@ -50,7 +50,7 @@ export interface DashboardMeta {
   /**
    * REQUIRED: Email or name of the person who created this dashboard.
    * This MUST be manually provided by the creator - NOT pulled from git logs.
-   * Examples: "jane@builder.io" or "Jane Doe"
+   * Examples: "jane@example.com" or "Jane Doe"
    */
   author: string;
 
@@ -139,7 +139,7 @@ export const dashboards: DashboardMeta[] = [
   },
   {
     id: "macys",
-    name: "Macy's Account",
+    name: "Example Customer Account",
     author: "Builder Team",
     lastUpdated: "2025-02-20",
   },

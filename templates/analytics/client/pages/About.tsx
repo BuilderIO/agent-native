@@ -79,7 +79,7 @@ export default function About() {
           <h1 className="text-3xl font-bold tracking-tight">About This App</h1>
           <p className="mt-2 text-muted-foreground text-lg">
             Analytics gives you a single place to explore, visualize, and ask
-            questions across all of Builder.io's key data sources.
+            questions across all of your key data sources.
           </p>
         </header>
 
