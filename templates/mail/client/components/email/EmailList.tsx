@@ -30,6 +30,7 @@ export function EmailList({ focusedId, setFocusedId }: EmailListProps) {
   const {
     data: emails = [],
     isLoading,
+    error: emailsError,
     refetch,
   } = useEmails(view, searchQuery);
   const markRead = useMarkRead();
@@ -124,6 +125,24 @@ export function EmailList({ focusedId, setFocusedId }: EmailListProps) {
     e.stopPropagation();
     toggleStar.mutate({ id: email.id, isStarred: !email.isStarred });
   };
+
+  // Error state
+  if (emailsError) {
+    return (
+      <div className="flex h-full flex-col" ref={containerRef}>
+        <div className="flex flex-1 flex-col items-center justify-center px-8">
+          <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-6 py-4 max-w-md text-center">
+            <p className="text-sm font-medium text-red-400">
+              Failed to load emails
+            </p>
+            <p className="mt-1 text-xs text-red-400/70">
+              {emailsError.message}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Loading skeleton — Superhuman-style single-line rows
   if (isLoading) {

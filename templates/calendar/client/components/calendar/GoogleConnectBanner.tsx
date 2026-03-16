@@ -389,32 +389,6 @@ function SetupWizard({
                       {step.description}
                     </p>
 
-                    {step.copyUrl && (
-                      <div className="flex items-center gap-2">
-                        <code className="flex-1 rounded bg-muted px-2 py-1.5 text-xs font-mono break-all select-all">
-                          {step.copyUrl}
-                        </code>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="shrink-0 text-xs h-7"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            copyToClipboard(step.copyUrl!, `url-${i}`);
-                          }}
-                        >
-                          {copiedKey === `url-${i}` ? (
-                            <>
-                              <Check className="h-3 w-3" />
-                              Copied
-                            </>
-                          ) : (
-                            "Copy link"
-                          )}
-                        </Button>
-                      </div>
-                    )}
-
                     {step.showRedirectUri && (
                       <div className="flex items-center gap-2">
                         <code className="flex-1 rounded bg-muted px-2 py-1.5 text-xs font-mono break-all select-all">

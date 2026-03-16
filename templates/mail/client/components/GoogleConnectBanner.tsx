@@ -170,6 +170,8 @@ export function GoogleConnectBanner() {
 
       setSaved(true);
       await fetchStatus();
+      // Reload after a short delay to let Vite restart with new env vars
+      setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Failed to parse JSON");
     } finally {
@@ -299,32 +301,6 @@ export function GoogleConnectBanner() {
                           <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
                             {step.description}
                           </p>
-
-                          {step.copyUrl && (
-                            <div className="flex items-center gap-2">
-                              <code className="flex-1 rounded bg-muted px-2 py-1.5 text-xs font-mono break-all select-all">
-                                {step.copyUrl}
-                              </code>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="shrink-0 text-xs h-7"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  copyToClipboard(step.copyUrl!, `url-${i}`);
-                                }}
-                              >
-                                {copiedKey === `url-${i}` ? (
-                                  <>
-                                    <Check className="h-3 w-3" />
-                                    Copied
-                                  </>
-                                ) : (
-                                  "Copy link"
-                                )}
-                              </Button>
-                            </div>
-                          )}
 
                           {step.showRedirectUri && (
                             <div className="flex items-center gap-2">
