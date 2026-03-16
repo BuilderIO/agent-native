@@ -8,7 +8,7 @@ import {
   formatFileSize,
   formatEmailDate,
 } from "@/lib/utils";
-import { ComposeModal } from "./ComposeModal";
+import { useComposeState } from "@/hooks/use-compose-state";
 import {
   useEmail,
   useArchiveEmail,
@@ -33,9 +33,7 @@ export function EmailThread({
     threadId: string;
   }>();
   const navigate = useNavigate();
-  const [replyOpen, setReplyOpen] = useState(false);
-  const [replyEmail, setReplyEmail] = useState<EmailMessage | null>(null);
-  const [forwardOpen, setForwardOpen] = useState(false);
+  const compose = useComposeState();
 
   const { data: email, isLoading } = useEmail(threadId);
   const archiveEmail = useArchiveEmail();
@@ -110,17 +108,38 @@ export function EmailThread({
 
   const handleReply = useCallback(
     (msg?: EmailMessage) => {
-      setReplyEmail(msg ?? email ?? null);
-      setReplyOpen(true);
+      const target = msg ?? email;
+      if (!target) return;
+      compose.open({
+        to: target.from.email,
+        subject: target.subject.startsWith("Re:")
+          ? target.subject
+          : `Re: ${target.subject}`,
+        body: `\n\n— On ${new Date(target.date).toLocaleDateString()}, ${target.from.name || target.from.email} wrote:\n\n${target.body
+          .split("\n")
+          .map((l) => `> ${l}`)
+          .join("\n")}`,
+        mode: "reply",
+        replyToId: target.id,
+        replyToThreadId: target.threadId,
+      });
     },
-    [email],
+    [email, compose],
   );
 
   const handleForward = useCallback(() => {
     if (!email) return;
-    setReplyEmail(email);
-    setForwardOpen(true);
-  }, [email]);
+    compose.open({
+      to: "",
+      subject: email.subject.startsWith("Fwd:")
+        ? email.subject
+        : `Fwd: ${email.subject}`,
+      body: `\n\n— Forwarded message —\nFrom: ${email.from.name} <${email.from.email}>\n\n${email.body}`,
+      mode: "forward",
+      replyToId: email.id,
+      replyToThreadId: email.threadId,
+    });
+  }, [email, compose]);
 
   // Keyboard shortcuts — Gmail / Superhuman standard (active when thread is open)
   useKeyboardShortcuts(
@@ -392,20 +411,6 @@ export function EmailThread({
           </button>
         </div>
       </div>
-
-      {/* Reply compose */}
-      <ComposeModal
-        open={replyOpen}
-        onOpenChange={setReplyOpen}
-        replyTo={replyEmail ?? undefined}
-        mode="reply"
-      />
-      <ComposeModal
-        open={forwardOpen}
-        onOpenChange={setForwardOpen}
-        replyTo={email}
-        mode="forward"
-      />
     </div>
   );
 }

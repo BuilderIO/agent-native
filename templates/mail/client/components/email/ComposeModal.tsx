@@ -25,30 +25,22 @@ import {
 import { useSendEmail } from "@/hooks/use-emails";
 import { sendToAgentChat } from "@agent-native/core";
 import { toast } from "sonner";
-import type { EmailMessage } from "@shared/types";
+import type { ComposeState } from "@shared/types";
 
 interface ComposeModalProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  replyTo?: EmailMessage;
-  mode?: "compose" | "reply" | "forward";
+  composeState: ComposeState;
+  onUpdate: (partial: Partial<ComposeState>) => void;
+  onClose: () => void;
+  onFlush: () => Promise<unknown> | undefined;
 }
 
 export function ComposeModal({
-  open,
-  onOpenChange,
-  replyTo,
-  mode = "compose",
+  composeState,
+  onUpdate,
+  onClose,
+  onFlush,
 }: ComposeModalProps) {
-  const [to, setTo] = useState("");
-  const [cc, setCc] = useState("");
-  const [showCc, setShowCc] = useState(false);
-  const [bcc, setBcc] = useState("");
-  const [showBcc, setShowBcc] = useState(false);
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
   const [minimized, setMinimized] = useState(false);
-
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
 
@@ -56,50 +48,14 @@ export function ComposeModal({
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
 
-  // Pre-fill for reply/forward
-  useEffect(() => {
-    if (!open || !replyTo) {
-      setTo("");
-      setCc("");
-      setBcc("");
-      setSubject("");
-      setBody("");
-      setShowCc(false);
-      setShowBcc(false);
-      return;
-    }
+  const { to, cc, bcc, subject, body, mode } = composeState;
 
-    if (mode === "reply") {
-      setTo(replyTo.from.email);
-      setSubject(
-        replyTo.subject.startsWith("Re:")
-          ? replyTo.subject
-          : `Re: ${replyTo.subject}`,
-      );
-      setBody(
-        `\n\n— On ${new Date(replyTo.date).toLocaleDateString()}, ${replyTo.from.name || replyTo.from.email} wrote:\n\n${replyTo.body
-          .split("\n")
-          .map((l) => `> ${l}`)
-          .join("\n")}`,
-      );
-    } else if (mode === "forward") {
-      setSubject(
-        replyTo.subject.startsWith("Fwd:")
-          ? replyTo.subject
-          : `Fwd: ${replyTo.subject}`,
-      );
-      setBody(
-        `\n\n— Forwarded message —\nFrom: ${replyTo.from.name} <${replyTo.from.email}>\n\n${replyTo.body}`,
-      );
-    }
-  }, [open, replyTo, mode]);
-
-  // Focus body when reply opens
+  // Focus body when reply/forward opens
   useEffect(() => {
-    if (open && mode !== "compose") {
+    if (mode !== "compose") {
       setTimeout(() => bodyRef.current?.focus(), 100);
     }
-  }, [open, mode]);
+  }, [mode]);
 
   const handleSend = async () => {
     if (!to.trim()) {
@@ -114,12 +70,12 @@ export function ComposeModal({
         bcc: bcc || undefined,
         subject,
         body,
-        replyToId: replyTo?.id,
+        replyToId: composeState.replyToId,
       },
       {
         onSuccess: () => {
           toast.success("Email sent!");
-          onOpenChange(false);
+          onClose();
         },
         onError: () => toast.error("Failed to send email"),
       },
@@ -133,12 +89,15 @@ export function ComposeModal({
     }
     if (e.key === "Escape") {
       e.preventDefault();
-      onOpenChange(false);
+      onClose();
     }
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!generatePrompt.trim()) return;
+
+    // Flush current state to file so agent can read it
+    await onFlush();
 
     const context = [
       to && `To: ${to}`,
@@ -151,15 +110,13 @@ export function ComposeModal({
 
     sendToAgentChat({
       message: generatePrompt.trim(),
-      context: context || undefined,
+      context: `The user is composing an email. The current draft is saved in application-state/compose.json. You can read and update it directly.\n\n${context || "(empty draft)"}`,
       submit: true,
     });
 
     setGeneratePrompt("");
     setGenerateOpen(false);
   };
-
-  if (!open) return null;
 
   const title =
     mode === "reply" ? "Reply" : mode === "forward" ? "Forward" : "New message";
@@ -188,7 +145,7 @@ export function ComposeModal({
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            onClick={() => onOpenChange(false)}
+            onClick={onClose}
           >
             <X className="h-3.5 w-3.5" />
           </Button>
@@ -206,23 +163,23 @@ export function ComposeModal({
               <input
                 type="text"
                 value={to}
-                onChange={(e) => setTo(e.target.value)}
+                onChange={(e) => onUpdate({ to: e.target.value })}
                 placeholder="recipients..."
                 className="flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground"
                 autoFocus={mode === "compose"}
               />
               <div className="flex gap-2 text-xs text-muted-foreground">
-                {!showCc && (
+                {cc === undefined && (
                   <button
-                    onClick={() => setShowCc(true)}
+                    onClick={() => onUpdate({ cc: "" })}
                     className="hover:text-foreground transition-colors"
                   >
                     Cc
                   </button>
                 )}
-                {!showBcc && (
+                {bcc === undefined && (
                   <button
-                    onClick={() => setShowBcc(true)}
+                    onClick={() => onUpdate({ bcc: "" })}
                     className="hover:text-foreground transition-colors"
                   >
                     Bcc
@@ -231,30 +188,30 @@ export function ComposeModal({
               </div>
             </div>
 
-            {showCc && (
+            {cc !== undefined && (
               <div className="flex items-center border-b border-border px-4">
                 <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
                   Cc
                 </span>
                 <input
                   type="text"
-                  value={cc}
-                  onChange={(e) => setCc(e.target.value)}
+                  value={cc ?? ""}
+                  onChange={(e) => onUpdate({ cc: e.target.value })}
                   placeholder="cc recipients..."
                   className="flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground"
                 />
               </div>
             )}
 
-            {showBcc && (
+            {bcc !== undefined && (
               <div className="flex items-center border-b border-border px-4">
                 <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
                   Bcc
                 </span>
                 <input
                   type="text"
-                  value={bcc}
-                  onChange={(e) => setBcc(e.target.value)}
+                  value={bcc ?? ""}
+                  onChange={(e) => onUpdate({ bcc: e.target.value })}
                   placeholder="bcc recipients..."
                   className="flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground"
                 />
@@ -268,7 +225,7 @@ export function ComposeModal({
               <input
                 type="text"
                 value={subject}
-                onChange={(e) => setSubject(e.target.value)}
+                onChange={(e) => onUpdate({ subject: e.target.value })}
                 placeholder="Subject"
                 className="flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground"
               />
@@ -279,7 +236,7 @@ export function ComposeModal({
           <textarea
             ref={bodyRef}
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={(e) => onUpdate({ body: e.target.value })}
             placeholder="Write your message..."
             className="flex-1 resize-none bg-transparent px-4 py-3 text-sm outline-none placeholder:text-muted-foreground"
           />
