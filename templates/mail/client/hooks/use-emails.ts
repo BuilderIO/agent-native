@@ -8,7 +8,10 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error || `Request failed (${res.status})`);
+  }
   return res.json();
 }
 
@@ -23,6 +26,7 @@ export function useEmails(view: string = "inbox", search?: string) {
       return apiFetch(`/api/emails?${params}`);
     },
     staleTime: 15_000,
+    retry: false,
   });
 }
 

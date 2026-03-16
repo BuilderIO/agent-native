@@ -74,10 +74,7 @@ function recomputeUnreadCounts(
 
 // ─── Email list ───────────────────────────────────────────────────────────────
 
-export async function listEmails(
-  req: Request,
-  res: Response,
-): Promise<void> {
+export async function listEmails(req: Request, res: Response): Promise<void> {
   const { view = "inbox", q } = req.query as { view?: string; q?: string };
 
   // If Google is connected, fetch from Gmail directly (skip demo data)
