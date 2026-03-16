@@ -82,20 +82,20 @@ export class PinMarkerManager {
       const badge = document.createElement("div");
       badge.style.cssText = `
         position: absolute;
-        top: -11px;
-        right: -11px;
-        width: 22px;
-        height: 22px;
+        top: -8px;
+        right: -8px;
+        width: 16px;
+        height: 16px;
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 11px;
+        font-size: 9px;
         font-weight: 600;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         color: #fff;
         background: ${this.markerColor};
-        box-shadow: 0 2px 6px rgba(0,0,0,0.25), 0 0 0 2px rgba(255,255,255,0.9);
+        box-shadow: 0 1px 4px rgba(0,0,0,0.2);
         cursor: pointer;
         pointer-events: auto;
         transition: transform 0.1s ease;
