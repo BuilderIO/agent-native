@@ -84,10 +84,19 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
       {!props.expanded ? (
         /* Collapsed pill */
         <div
-          style={{ display: "flex", "align-items": "center", gap: "6px" }}
+          style={{
+            display: "flex",
+            "align-items": "center",
+            "justify-content": "center",
+            gap: "6px",
+            padding: "2px",
+          }}
           onClick={() => props.onToggleExpand()}
         >
-          <span innerHTML={icons.pin} />
+          <span
+            innerHTML={icons.mapPin}
+            style={{ display: "flex", "align-items": "center" }}
+          />
           {props.pins.length > 0 && (
             <span class="pp-toolbar__badge">{props.pins.length}</span>
           )}
