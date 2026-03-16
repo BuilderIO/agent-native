@@ -70,7 +70,10 @@ export default function App() {
         const appState = prev[activeSidebarAppId];
         const closedTab = appState.tabs.find((t) => t.id === tabId);
         if (closedTab) {
-          closedTabsRef.current.push({ tab: closedTab, appId: activeSidebarAppId });
+          closedTabsRef.current.push({
+            tab: closedTab,
+            appId: activeSidebarAppId,
+          });
         }
 
         const idx = appState.tabs.findIndex((t) => t.id === tabId);
