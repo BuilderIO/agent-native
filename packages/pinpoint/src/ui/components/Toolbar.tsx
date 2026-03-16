@@ -25,6 +25,7 @@ interface ToolbarProps {
   onCopy: () => void;
   onClear: () => void;
   onRemovePin: (id: string) => void;
+  onEditPin: (pin: Pin) => void;
   onToggleSettings: () => void;
   onOutputFormatChange: (format: OutputFormat) => void;
   onClearOnSendChange: (value: boolean) => void;
@@ -152,7 +153,10 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
             <div class="pp-pin-list">
               <For each={props.pins}>
                 {(pin, index) => (
-                  <div class="pp-pin-item">
+                  <div
+                    class="pp-pin-item"
+                    onClick={() => props.onEditPin(pin)}
+                  >
                     <span class="pp-pin-item__number">{index() + 1}</span>
                     <div class="pp-pin-item__content">
                       <div class="pp-pin-item__element">
@@ -162,7 +166,10 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
                     </div>
                     <button
                       class="pp-btn--icon"
-                      onClick={() => props.onRemovePin(pin.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        props.onRemovePin(pin.id);
+                      }}
                       title="Remove"
                       innerHTML={icons.x}
                       style={{ "font-size": "10px" }}

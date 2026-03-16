@@ -51,6 +51,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
   const [selectedContext, setSelectedContext] =
     createSignal<ElementContext | null>(null);
   const [showPopup, setShowPopup] = createSignal(false);
+  const [editingPin, setEditingPin] = createSignal<Pin | null>(null);
   const [showContextMenu, setShowContextMenu] = createSignal(false);
   const [contextMenuPos, setContextMenuPos] = createSignal({ x: 0, y: 0 });
   const [showSettings, setShowSettings] = createSignal(false);
@@ -256,6 +257,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
 
   function closePopup() {
     setShowPopup(false);
+    setEditingPin(null);
     picker.resume();
   }
 
@@ -291,6 +293,27 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
 
     setPins((prev) => [...prev, pin]);
     storage.save(pin);
+    closePopup();
+  }
+
+  function openEditPopup(pin: Pin) {
+    // Find the element on the page to position the popup
+    const el = document.querySelector(pin.element.selector);
+    setEditingPin(pin);
+    setSelectedContext(
+      buildElementContext(el || document.body, pin.framework),
+    );
+    setShowPopup(true);
+    picker.pause();
+  }
+
+  function updatePin(comment: string) {
+    const pin = editingPin();
+    if (!pin) return;
+    const now = new Date().toISOString();
+    const updated = { ...pin, comment, updatedAt: now };
+    setPins((prev) => prev.map((p) => (p.id === pin.id ? updated : p)));
+    storage.update(pin.id, { comment, updatedAt: now });
     closePopup();
   }
 
@@ -371,6 +394,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
         onCopy={copyPins}
         onClear={clearPins}
         onRemovePin={removePin}
+        onEditPin={openEditPopup}
         onToggleSettings={() => setShowSettings(!showSettings())}
         onOutputFormatChange={setOutputFormat}
         onClearOnSendChange={setClearOnSend}
@@ -383,7 +407,15 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
         <PinPopup
           context={selectedContext()!}
           author={props.config.author}
-          onAdd={(comment) => addPin(selectedElement()!, comment)}
+          initialComment={editingPin()?.comment}
+          isEditing={!!editingPin()}
+          onAdd={(comment) => {
+            if (editingPin()) {
+              updatePin(comment);
+            } else {
+              addPin(selectedElement()!, comment);
+            }
+          }}
           onCancel={() => closePopup()}
         />
       )}
