@@ -2,8 +2,10 @@ import type { DateCadence } from "./types";
 
 const PRODUCT_SIGNUPS = "`your-gcp-project-id.dbt_analytics.product_signups`";
 const ACTIVE_USERS = "`your-gcp-project-id.dbt_analytics.active_users`";
-const DAILY_ARR = "`your-gcp-project-id.dbt_analytics.daily_arr_by_subscriptions`";
-const RETENTION = "`your-gcp-project-id.dbt_mart.fact_account_active_retention`";
+const DAILY_ARR =
+  "`your-gcp-project-id.dbt_analytics.daily_arr_by_subscriptions`";
+const RETENTION =
+  "`your-gcp-project-id.dbt_mart.fact_account_active_retention`";
 
 function cadenceToTrunc(cadence: DateCadence): string {
   switch (cadence) {

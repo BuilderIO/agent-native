@@ -9,11 +9,7 @@ import {
 
 // Known Cloud Run services to show as fallback when service listing is denied.
 // Replace these with your own Cloud Run service names.
-const KNOWN_CLOUD_RUN_SERVICES = [
-  "api-service",
-  "web-app",
-  "worker",
-];
+const KNOWN_CLOUD_RUN_SERVICES = ["api-service", "web-app", "worker"];
 
 export const handleGCloudServices: RequestHandler = async (_req, res) => {
   if (requireEnvKey(res, "BIGQUERY_PROJECT_ID", "Google Cloud")) return;

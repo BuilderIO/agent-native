@@ -32,8 +32,8 @@ export function SalesRecommendations() {
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
                   the customer has 439 users with platform accounts but minimal
-                  agent chat usage. Run a agent chat demo/training session to drive
-                  adoption across teams.
+                  agent chat usage. Run a agent chat demo/training session to
+                  drive adoption across teams.
                 </p>
               </div>
             </div>
@@ -47,9 +47,9 @@ export function SalesRecommendations() {
                   Re-engage user@example.com
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  This user tried agent chat (Dec 2025) but hasn't returned. Check
-                  in to understand their experience and address any blockers
-                  preventing continued use.
+                  This user tried agent chat (Dec 2025) but hasn't returned.
+                  Check in to understand their experience and address any
+                  blockers preventing continued use.
                 </p>
               </div>
             </div>
@@ -74,9 +74,10 @@ export function SalesRecommendations() {
           <div className="mt-4 p-3 bg-muted/50 rounded-lg">
             <p className="text-xs font-medium">Key Insight</p>
             <p className="text-xs text-muted-foreground mt-1">
-              With minimal agent chat adoption across 439 platform users, the customer
-              represents a high-value expansion opportunity. Low engagement
-              suggests lack of awareness or potential onboarding/training gaps.
+              With minimal agent chat adoption across 439 platform users, the
+              customer represents a high-value expansion opportunity. Low
+              engagement suggests lack of awareness or potential
+              onboarding/training gaps.
             </p>
           </div>
         </CardContent>

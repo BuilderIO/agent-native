@@ -7,22 +7,22 @@ BigQuery table for **app-level events** (signups, pageViews, interactions, agent
 
 ## Columns
 
-| Column           | Type      | Description                                                              |
-| ---------------- | --------- | ------------------------------------------------------------------------ |
-| `event`          | STRING    | Event category: `impression`, `interaction`, `signup`, `pageView`        |
+| Column           | Type      | Description                                                             |
+| ---------------- | --------- | ----------------------------------------------------------------------- |
+| `event`          | STRING    | Event category: `impression`, `interaction`, `signup`, `pageView`       |
 | `name`           | STRING    | Event name/label (e.g. `authorize cli`, `agent chat message submitted`) |
-| `data`           | STRING    | JSON blob with all tracked properties (see below)                        |
-| `timestamp`      | TIMESTAMP | Event timestamp                                                          |
-| `url`            | STRING    | Full URL where event occurred                                            |
-| `organizationId` | STRING    | Builder organization/space ID                                            |
-| `sessionId`      | STRING    | User session identifier                                                  |
-| `userId`         | STRING    | Firebase user ID                                                         |
-| `visitorId`      | STRING    | Persistent visitor cookie ID                                             |
-| `type`           | STRING    | Sub-type of event (e.g. `content`, `button`)                             |
-| `kind`           | STRING    | Organization kind (e.g. `cms`, `shopify`)                                |
-| `modelName`      | STRING    | Builder model name if applicable                                         |
-| `modelId`        | STRING    | Builder model ID if applicable                                           |
-| `createdDate`    | TIMESTAMP | Partition column — always filter on this                                 |
+| `data`           | STRING    | JSON blob with all tracked properties (see below)                       |
+| `timestamp`      | TIMESTAMP | Event timestamp                                                         |
+| `url`            | STRING    | Full URL where event occurred                                           |
+| `organizationId` | STRING    | Builder organization/space ID                                           |
+| `sessionId`      | STRING    | User session identifier                                                 |
+| `userId`         | STRING    | Firebase user ID                                                        |
+| `visitorId`      | STRING    | Persistent visitor cookie ID                                            |
+| `type`           | STRING    | Sub-type of event (e.g. `content`, `button`)                            |
+| `kind`           | STRING    | Organization kind (e.g. `cms`, `shopify`)                               |
+| `modelName`      | STRING    | Builder model name if applicable                                        |
+| `modelId`        | STRING    | Builder model ID if applicable                                          |
+| `createdDate`    | TIMESTAMP | Partition column — always filter on this                                |
 
 ## Partitioning
 
