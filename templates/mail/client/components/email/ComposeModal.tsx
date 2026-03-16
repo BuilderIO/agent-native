@@ -130,7 +130,7 @@ export function ComposeModal({
       onKeyDown={handleKeyDown}
     >
       {/* Window title bar */}
-      <div className="flex h-11 shrink-0 items-center justify-between rounded-t-xl bg-foreground/10 px-4">
+      <div className="flex h-11 shrink-0 items-center justify-between rounded-t-xl px-4">
         <span className="text-sm font-semibold text-foreground">{title}</span>
         <div className="flex items-center gap-1">
           <Button
