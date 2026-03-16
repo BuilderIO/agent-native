@@ -22,8 +22,8 @@ export type {
   PinEvent,
 } from "./types/index.js";
 
-// Storage
-export { MemoryStore, RestClient, FileStore } from "./storage/index.js";
+// Storage (browser-safe only — FileStore is in @agent-native/pinpoint/server)
+export { MemoryStore, RestClient } from "./storage/index.js";
 export {
   PinSchema,
   ElementInfoSchema,
@@ -67,9 +67,8 @@ export { agentNativePlugin } from "./plugins/agent-native-plugin.js";
 // Freeze
 export { freeze, unfreeze, isFreezeActive } from "./freeze/controller.js";
 
-// Security
+// Security (browser-safe — path-validation is server-only)
 export { escapeHtml, sanitizeString } from "./security/input-sanitization.js";
-export { isValidId, isWithinDirectory } from "./security/path-validation.js";
 export { isAllowedOrigin } from "./security/origin-validation.js";
 
 // Utils
