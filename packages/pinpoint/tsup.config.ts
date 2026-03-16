@@ -1,5 +1,5 @@
 import { defineConfig } from "tsup";
-import * as solidPlugin from "esbuild-plugin-solid";
+import { solidPlugin } from "esbuild-plugin-solid";
 
 export default defineConfig([
   // Browser bundle (includes SolidJS UI)
@@ -10,10 +10,14 @@ export default defineConfig([
     sourcemap: true,
     clean: true,
     external: ["react", "react-dom", "express", "@modelcontextprotocol/sdk"],
-    esbuildPlugins: [solidPlugin.default({ solid: { generate: "dom" } })],
+    esbuildPlugins: [solidPlugin({ solid: { generate: "dom" } })],
+    esbuildOptions(options) {
+      // Ensure solid-js resolves to browser/DOM version, not server
+      options.conditions = ["browser", "solid", "import", "module"];
+    },
     banner: { js: '"use client";' },
   },
-  // Node/server bundle
+  // Node/server bundle (no SolidJS UI)
   {
     entry: {
       index: "src/index.ts",
@@ -29,18 +33,13 @@ export default defineConfig([
       "react-dom",
       "express",
       "solid-js",
+      "solid-js/web",
       "@modelcontextprotocol/sdk",
       "@agent-native/core",
+      "@medv/finder",
+      "bippy",
+      "element-source",
+      "zod",
     ],
-  },
-  // IIFE for script tag usage
-  {
-    entry: { "index.global": "src/index.browser.ts" },
-    format: ["iife"],
-    globalName: "Pinpoint",
-    sourcemap: true,
-    esbuildPlugins: [solidPlugin.default({ solid: { generate: "dom" } })],
-    noExternal: [/(.*)/],
-    external: ["react", "react-dom"],
   },
 ]);
