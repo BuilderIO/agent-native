@@ -1,6 +1,6 @@
 ---
 
-## builder: title: Claude Code for Designers handle: claude-code-for-designers blurb: Discover how designers can use Claude Code and Figma to iterate faster, build higher-fidelity UI, and safely ship changes without breaking production. metaTitle: "" date: 2026-02-25 readTime: 17 tags: - AI - Design - claude code topic: AI hideImage: false authorId: 724dd11feeb549f0b6fc12b6e4741c19 image: [https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fee75e1acef2644baa6cce0023fc72c1a](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fee75e1acef2644baa6cce0023fc72c1a) published: false hero_image: [https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fee75e1acef2644baa6cce0023fc72c1a](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fee75e1acef2644baa6cce0023fc72c1a)
+## builder: title: Claude Code for Designers handle: claude-code-for-designers blurb: Discover how designers can use Claude Code and Figma to iterate faster, build higher-fidelity UI, and safely ship changes without breaking production. metaTitle: "" date: 2026-02-25 readTime: 17 tags: - AI - Design - claude code topic: AI hideImage: false authorId: 724dd11feeb549f0b6fc12b6e4741c19 image: [https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2Fee75e1acef2644baa6cce0023fc72c1a](https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2Fee75e1acef2644baa6cce0023fc72c1a) published: false hero_image: [https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2Fee75e1acef2644baa6cce0023fc72c1a](https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2Fee75e1acef2644baa6cce0023fc72c1a)
 
 You spot a tiny UI issue on production. Fixing it in Figma takes 30 seconds, but shipping the code takes days of handoff, review cycles, and back-and-forth about design tokens.
 
@@ -32,7 +32,7 @@ That's why I'm going to show you a safe, straightforward way to use Claude Code.
 
 Claude Code is an **AI assistant that actually does the work**: instead of you trying to write code and asking an AI to fix it, you describe what you want in plain English. The agent then **explores your files, plans an approach, and makes the updates for you**—all with safety guardrails in place.
 
-<video src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7ddda66a58a44d29951708f98b534fc6?alt=media&token=0de6b3c5-11b7-46db-865e-c9b9211d63fc&apiKey=YJIGb4i01jvw0SRdL5Bt" controls=""></video>
+<video src="https://cdn.builder.io/o/assets%2FYOUR_API_KEY%2F7ddda66a58a44d29951708f98b534fc6?alt=media&token=0de6b3c5-11b7-46db-865e-c9b9211d63fc&apiKey=YOUR_API_KEY" controls=""></video>
 
 For designers, the easiest way to start is the **Claude Desktop app**. It keeps you out of the command line (that intimidating black window with scrolling text) and gives you a friendly visual interface. The app's Code tab provides:
 
@@ -45,7 +45,7 @@ For designers, the easiest way to start is the **Claude Desktop app**. It keeps 
 
 Note: You must have a paid Claude plan to even _see_ the Code tab in the Claude Desktop app.
 
-![The Claude Code tab open in the Claude Desktop app.](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F258e1c75f29346caa5bc9f597e8a14d6?width=776)
+![The Claude Code tab open in the Claude Desktop app.](https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2F258e1c75f29346caa5bc9f597e8a14d6?width=776)
 
 ## You aren't going to break production
 
@@ -75,7 +75,7 @@ This walkthrough is designed to produce a small, shippable result without requir
 
 We're letting Claude Code do all the heavy lifting.
 
-![The steps of this tutorial: clone the repo, start local dev, preview the app, pick a tiny scope, describe your change, and see it live.](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3247fa6376974f5c953a11bb39686292?width=776)
+![The steps of this tutorial: clone the repo, start local dev, preview the app, pick a tiny scope, describe your change, and see it live.](https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2F3247fa6376974f5c953a11bb39686292?width=776)
 
 ### Step 1: Tell Claude to clone the repo
 
@@ -133,7 +133,7 @@ Remember that you are talking to a smart AI, not a strict form. You don't have t
 
 Keep pushing back. Eventually, Claude will figure out the right configuration and you will be looking at a preview of your app right in the interface.
 
-![A web app running in Claude Desktop.](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffc4e0c1c6f4a4374b2c748f7fe92b86f?width=776)
+![A web app running in Claude Desktop.](https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2Ffc4e0c1c6f4a4374b2c748f7fe92b86f?width=776)
 
 **The fallback plan:** The in-app preview feature is new and, in my experience, can still be a little buggy. If you've gone back and forth with Claude and the preview _still_ isn't loading, don't sweat it.
 
@@ -212,7 +212,7 @@ Claude has a visual interface for adding integrations:
 
 That's it. Claude and Figma are now connected.
 
-<video src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc7976744bcae4209b97dd0e7f4d0f4ec?alt=media&token=437cddfd-7d9e-415f-957d-eb19a196dd9b&apiKey=YJIGb4i01jvw0SRdL5Bt" controls=""></video>
+<video src="https://cdn.builder.io/o/assets%2FYOUR_API_KEY%2Fc7976744bcae4209b97dd0e7f4d0f4ec?alt=media&token=437cddfd-7d9e-415f-957d-eb19a196dd9b&apiKey=YOUR_API_KEY" controls=""></video>
 
 ### How to use the Claude Code Figma connector
 
@@ -261,7 +261,7 @@ You have to pull those changes down to your local machine (`git pull origin main
 
 Claude Code Desktop makes the whole experience more approachable (just keep asking for help), but it doesn't magically remove company repo complexity, authentication, or the tribal knowledge required to manage a local Git environment.
 
-![Pirates of the Carribean "first time" meme with James Franco on the noose.](https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F33bc7c13ccf945f1b2dac055e7e8d78a?width=776)
+![Pirates of the Carribean "first time" meme with James Franco on the noose.](https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2F33bc7c13ccf945f1b2dac055e7e8d78a?width=776)
 
 Claude can _help_ you debug merge conflicts and commit issues, but you're still fundamentally playing the role of a junior developer managing a local repository.
 
@@ -283,7 +283,7 @@ Here is what that workflow looks like:
 4. **The Magic Button.** When you're ready to share your changes, you click **Send PR**. Builder handles all the Git complexity and creates a pull request in GitHub containing just the changed code, exactly in the format your devs need to see.
 5. **The Guardrails.** If your team prefers a stricter workflow, they can actually restrict the "Send PR" button for designers entirely. Instead, you click **Review**, select the team that needs to see it, and Builder automatically assigns it to the right person in the background to review and move it along.
 
-<video src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1a442b49e72d4a839df803279a9c23e1?alt=media&token=475dc290-12b0-4de2-b794-b784f31399ae&apiKey=YJIGb4i01jvw0SRdL5Bt" controls=""></video>
+<video src="https://cdn.builder.io/o/assets%2FYOUR_API_KEY%2F1a442b49e72d4a839df803279a9c23e1?alt=media&token=475dc290-12b0-4de2-b794-b784f31399ae&apiKey=YOUR_API_KEY" controls=""></video>
 
 No terminal. No merge conflicts. No asking an engineer for missing passwords.
 
@@ -297,7 +297,7 @@ For many teams, Builder and Figma are **side-by-side tools**: Figma for net-new 
 
 If you prefer to start in Figma, Builder's plugin supports [exporting frames and pasting them directly into a Builder Project prompt](https://www.builder.io/c/docs/import-from-figma). You can even [export from Builder _back_ to Figma](https://www.builder.io/c/docs/design-with-figma-and-fusion) if you want to update your design files after iterating in code.
 
-<video src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd1d3b9f1b7634040b61039eff1f50cc9?alt=media&token=f6966016-67b5-4c1d-baef-e26b997af3c1&apiKey=YJIGb4i01jvw0SRdL5Bt" controls=""></video>
+<video src="https://cdn.builder.io/o/assets%2FYOUR_API_KEY%2Fd1d3b9f1b7634040b61039eff1f50cc9?alt=media&token=f6966016-67b5-4c1d-baef-e26b997af3c1&apiKey=YOUR_API_KEY" controls=""></video>
 
 If your design work starts with "this part of production looks wrong," Builder's Chrome extension includes a **Copy Layout** workflow that pulls real UI from any webpage directly into Figma. You can pull the UI into Figma quickly, redesign it, and then implement it in Builder.
 

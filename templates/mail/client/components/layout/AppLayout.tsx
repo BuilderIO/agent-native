@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "./CommandPalette";
@@ -8,7 +8,13 @@ import {
   useSequenceShortcuts,
 } from "@/hooks/use-keyboard-shortcuts";
 import { useLabels, useSettings } from "@/hooks/use-emails";
+import {
+  useGoogleAuthStatus,
+  useGoogleAuthUrl,
+  useDisconnectGoogle,
+} from "@/hooks/use-google-auth";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
+import { getCallbackOrigin } from "@agent-native/core/client";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -32,6 +38,26 @@ export function AppLayout({ children }: AppLayoutProps) {
   const { view = "inbox" } = useParams<{ view: string }>();
   const { data: labels = [] } = useLabels();
   const { data: settings } = useSettings();
+  const googleStatus = useGoogleAuthStatus();
+  const accounts = googleStatus.data?.accounts ?? [];
+  const hasAccounts = accounts.length > 0;
+  const [accountPopoverOpen, setAccountPopoverOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  // Close popover on outside click
+  useEffect(() => {
+    if (!accountPopoverOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (
+        popoverRef.current &&
+        !popoverRef.current.contains(e.target as Node)
+      ) {
+        setAccountPopoverOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [accountPopoverOpen]);
 
   const handleCompose = useCallback(() => setComposeOpen(true), []);
 
@@ -66,13 +92,15 @@ export function AppLayout({ children }: AppLayoutProps) {
     },
   ]);
 
-  // Sequence shortcuts (g + i = go inbox, etc.)
+  // Sequence shortcuts (g + key = go to view)
   useSequenceShortcuts([
     { keys: ["g", "i"], handler: () => navigate("/inbox") },
     { keys: ["g", "s"], handler: () => navigate("/starred") },
     { keys: ["g", "t"], handler: () => navigate("/sent") },
     { keys: ["g", "d"], handler: () => navigate("/drafts") },
     { keys: ["g", "a"], handler: () => navigate("/archive") },
+    { keys: ["g", "e"], handler: () => navigate("/archive") },
+    { keys: ["g", "#"], handler: () => navigate("/trash") },
   ]);
 
   // Get unread counts for tabs
@@ -86,7 +114,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       {/* Main content area */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Top nav bar */}
-        <header className="flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-[hsl(220,6%,9%)] px-2">
+        <header className="flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2">
           {/* Category tabs */}
           <nav className="flex items-center gap-0.5 overflow-x-auto hide-scrollbar">
             {categoryTabs.map((tab) => {
@@ -182,12 +210,45 @@ export function AppLayout({ children }: AppLayoutProps) {
               <path d="M2.695 14.763l-1.262 3.154a.5.5 0 0 0 .65.65l3.155-1.262a4 4 0 0 0 1.343-.885L17.5 5.5a2.121 2.121 0 0 0-3-3L3.58 13.42a4 4 0 0 0-.885 1.343z" />
             </svg>
           </button>
+
+          {/* Account avatar */}
+          {hasAccounts && (
+            <div className="relative ml-1" ref={popoverRef}>
+              <button
+                onClick={() => setAccountPopoverOpen(!accountPopoverOpen)}
+                className="flex h-7 w-7 items-center justify-center rounded-full overflow-hidden hover:ring-2 hover:ring-primary/40 transition-all"
+                title="Accounts"
+              >
+                {accounts[0]?.photoUrl ? (
+                  <img
+                    src={accounts[0].photoUrl}
+                    alt=""
+                    className="h-7 w-7 rounded-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center text-[11px] font-semibold text-primary">
+                    {accounts[0]?.email?.[0]?.toUpperCase() ?? "?"}
+                  </div>
+                )}
+              </button>
+
+              {accountPopoverOpen && (
+                <AccountPopover
+                  accounts={accounts}
+                  onClose={() => setAccountPopoverOpen(false)}
+                />
+              )}
+            </div>
+          )}
         </header>
 
-        <GoogleConnectBanner />
-
-        {/* Page content */}
-        <main className="flex flex-1 overflow-hidden">{children}</main>
+        {/* Show full-page takeover when no accounts connected, otherwise content */}
+        {!googleStatus.isLoading && !hasAccounts ? (
+          <GoogleConnectBanner variant="hero" />
+        ) : (
+          <main className="flex flex-1 overflow-hidden">{children}</main>
+        )}
       </div>
 
       <ComposeModal open={composeOpen} onOpenChange={setComposeOpen} />
@@ -196,6 +257,92 @@ export function AppLayout({ children }: AppLayoutProps) {
         onOpenChange={setPaletteOpen}
         onCompose={handleCompose}
       />
+    </div>
+  );
+}
+
+function AccountPopover({
+  accounts,
+  onClose,
+}: {
+  accounts: Array<{ email: string; photoUrl?: string }>;
+  onClose: () => void;
+}) {
+  const [wantAuthUrl, setWantAuthUrl] = useState(false);
+  const authUrl = useGoogleAuthUrl(wantAuthUrl);
+  const disconnectGoogle = useDisconnectGoogle();
+
+  useEffect(() => {
+    if (authUrl.data?.url) {
+      window.open(authUrl.data.url, "_blank");
+      setWantAuthUrl(false);
+
+      const interval = setInterval(async () => {
+        const res = await fetch("/api/google/status").catch(() => null);
+        if (res?.ok) {
+          const data = await res.json();
+          if (data.accounts?.length > accounts.length) {
+            clearInterval(interval);
+            window.location.reload();
+          }
+        }
+      }, 2000);
+
+      return () => clearInterval(interval);
+    }
+  }, [authUrl.data, accounts.length]);
+
+  return (
+    <div className="absolute right-0 top-full mt-1.5 z-50 w-72 rounded-lg border border-border/50 bg-card shadow-xl">
+      <div className="px-3 py-2 border-b border-border/30">
+        <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+          Accounts
+        </p>
+      </div>
+
+      <div className="py-1">
+        {accounts.map((account) => (
+          <div
+            key={account.email}
+            className="flex items-center gap-2.5 px-3 py-2 hover:bg-accent/50 transition-colors group"
+          >
+            {account.photoUrl ? (
+              <img
+                src={account.photoUrl}
+                alt=""
+                className="h-6 w-6 rounded-full object-cover shrink-0"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-semibold text-primary shrink-0">
+                {account.email[0]?.toUpperCase()}
+              </div>
+            )}
+            <span className="text-[13px] text-foreground/80 truncate flex-1">
+              {account.email}
+            </span>
+            <button
+              onClick={() => disconnectGoogle.mutate(account.email)}
+              className="opacity-0 group-hover:opacity-100 text-[11px] text-muted-foreground hover:text-red-400 transition-all"
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div className="border-t border-border/30 px-3 py-2">
+        <button
+          onClick={() => setWantAuthUrl(true)}
+          disabled={authUrl.isLoading || authUrl.isFetching}
+          className="flex items-center gap-2 w-full text-[13px] text-muted-foreground hover:text-foreground transition-colors py-1"
+        >
+          <svg viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+            <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z" />
+          </svg>
+          {authUrl.isFetching ? "Connecting..." : "Add account"}
+        </button>
+      </div>
     </div>
   );
 }

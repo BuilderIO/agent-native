@@ -326,7 +326,7 @@ export function EditorView({ projectSlug, filePath }: EditorViewProps) {
                   )}
                 >
                   <img
-                    src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F10a6768c5ce24792b6aedbfd1a2c95c8?format=webp&width=800&height=1200"
+                    src="https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2F10a6768c5ce24792b6aedbfd1a2c95c8?format=webp&width=800&height=1200"
                     alt="Notion"
                     className="w-4 h-4 dark:invert"
                   />

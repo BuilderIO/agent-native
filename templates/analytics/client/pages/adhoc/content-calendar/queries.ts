@@ -1,8 +1,8 @@
 // Query to get signups and traffic for blog articles by handle
 // Used to enrich Notion content calendar entries with analytics data
 
-const FIRST_PV = "`builder-3b0a2.dbt_staging_bigquery.first_pageviews`";
-const SIGNUPS = "`builder-3b0a2.dbt_staging_bigquery.signups`";
+const FIRST_PV = "`your-gcp-project-id.dbt_staging_bigquery.first_pageviews`";
+const SIGNUPS = "`your-gcp-project-id.dbt_staging_bigquery.signups`";
 
 function escapeStr(s: string): string {
   return s.replace(/'/g, "\\'");

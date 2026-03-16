@@ -11,7 +11,7 @@ description: >
 
 - **Client**: `@google-cloud/bigquery` Node.js client
 - **Auth**: `GOOGLE_APPLICATION_CREDENTIALS_JSON` env var (JSON credentials string), falls back to Application Default Credentials
-- **Project**: `BIGQUERY_PROJECT_ID` env var, defaults to `builder-3b0a2`
+- **Project**: `BIGQUERY_PROJECT_ID` env var, defaults to `your-project-id`
 - **Caching**: 24-hour in-memory cache (sha256 of SQL), max 200 entries
 - **Byte limit**: `maximumBytesBilled: 750GB` per query
 
@@ -62,8 +62,8 @@ description: >
 
 | Cryptic Column | Meaning                  | Example Values                                                    |
 | -------------- | ------------------------ | ----------------------------------------------------------------- |
-| `SUOHFYGIOG`   | Blog URL                 | `https://www.builder.io/blog/mcp-apps`                            |
-| `H5YIATNDT5`   | Author                   | Alice Moore, Steve Sewell, Matt Abrams, Apoorva, Vishwas Gopinath |
+| `SUOHFYGIOG`   | Blog URL                 | `https://www.example.com/blog/sample-post`                        |
+| `H5YIATNDT5`   | Author                   | Jane Doe, Alex Chen, Sam Patel, Taylor Kim                        |
 | `ZZJ6XRJAII`   | Publish date (TIMESTAMP) |                                                                   |
 | `FTRKLGZM1R`   | Purpose                  | Acquisition, Awareness                                            |
 | `IFHWPU1IDO`   | Persona                  | Developers, Product Managers, Engineering Leaders, Designers      |
@@ -113,7 +113,7 @@ description: >
 CASE
   WHEN url LIKE '%/blog/%' THEN 'blog'
   WHEN url LIKE '%/docs/%' THEN 'docs'
-  WHEN REGEXP_CONTAINS(url, r'builder\.io/?(?:\?|$)') THEN 'marketing'
+  WHEN REGEXP_CONTAINS(url, r'example\.com/?(?:\?|$)') THEN 'marketing'
   WHEN url LIKE '%/sign-up%' THEN 'webapp'
   ELSE 'other'
 END
@@ -141,15 +141,15 @@ WHERE col IS NOT NULL AND date BETWEEN '...' AND '...'
 
 ### Event column vs Name column
 
-Fusion events use `event` column, NOT `name` column (often NULL). Use `event = 'fusion chat message submitted'`.
+Agent chat events use `event` column, NOT `name` column (often NULL). Use `event = 'agent chat message submitted'`.
 
-### Preferred table for Fusion events
+### Preferred table for agent chat events
 
 Use **Amplitude** (`amplitude.EVENTS_182198`) instead of `@app_events` — smaller, stays within byte limits:
 
 - Use `event_type` (not `event`) and `event_time` (not `createdDate`)
 - `rootOrganizationId` and `organizationId` in `event_properties` JSON
-- `builderSpaceId` is NULL for fusion events
+- `builderSpaceId` is NULL for agent chat events
 - Always use `capTo30Days()` helper for Amplitude time series
 
 ### Enterprise customer identification
@@ -157,22 +157,22 @@ Use **Amplitude** (`amplitude.EVENTS_182198`) instead of `@app_events` — small
 - `data.isEnterpriseCompany` is **unreliable** — most enterprise events have it false/missing
 - **Preferred**: JOIN to `dim_subscriptions` on rootOrganizationId, filter `LOWER(plan) = 'enterprise' AND status = 'active'`
 
-### Key Fusion event types
+### Key agent chat event types
 
 | Event                                     | Description                              |
 | ----------------------------------------- | ---------------------------------------- |
-| `fusion chat message submitted`           | User sends message in Fusion/Projects AI |
+| `agent chat message submitted`            | User sends message in AI chat            |
 | `visual editor ai chat message submitted` | User sends message in Visual Editor AI   |
-| `fusion chat message completed`           | AI response completed                    |
-| `fusion code applied`                     | User applied generated code              |
+| `agent chat message completed`            | AI response completed                    |
+| `agent chat code applied`                 | User applied generated code              |
 
-### Customer Fusion message lookup pipeline
+### Customer agent chat message lookup pipeline
 
 1. HubSpot deal → company → contacts
 2. `dim_hs_contacts` (contact_id is INT64) → `builder_user_id`
 3. `signups` → `root_organization_id`
 4. Amplitude events WHERE `JSON_VALUE(event_properties, '$.rootOrganizationId') IN (...)`
-5. **Always filter out `@builder.io` emails** — Builder SEs show up in customer org events
+5. **Always filter out internal team emails** — internal SEs show up in customer org events
 
 ## Dashboard Data Fetching (CRITICAL)
 

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   cn,
@@ -71,19 +71,44 @@ export function EmailThread() {
     [email],
   );
 
-  // Keyboard shortcuts (active when thread is open)
+  const handleForward = useCallback(() => {
+    if (!email) return;
+    setReplyEmail(email);
+    setForwardOpen(true);
+  }, [email]);
+
+  // Keyboard shortcuts — Gmail / Superhuman standard (active when thread is open)
   useKeyboardShortcuts(
     [
       { key: "Escape", handler: goBack },
       { key: "e", handler: handleArchive },
       { key: "d", handler: handleTrash },
+      { key: "#", handler: handleTrash, shift: true },
       { key: "s", handler: handleStar },
       { key: "r", handler: () => handleReply() },
+      { key: "a", handler: () => handleReply() }, // reply-all
+      { key: "f", handler: handleForward },
       {
         key: "u",
         handler: () => {
           if (!email) return;
           markRead.mutate({ id: email.id, isRead: !email.isRead });
+        },
+      },
+      {
+        key: "I",
+        shift: true,
+        handler: () => {
+          if (!email) return;
+          markRead.mutate({ id: email.id, isRead: true });
+        },
+      },
+      {
+        key: "U",
+        shift: true,
+        handler: () => {
+          if (!email) return;
+          markRead.mutate({ id: email.id, isRead: false });
         },
       },
     ],
@@ -336,6 +361,96 @@ export function EmailThread() {
   );
 }
 
+function HtmlEmailBody({ html }: { html: string }) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState(200);
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+
+    const doc = iframe.contentDocument;
+    if (!doc) return;
+
+    // Write the HTML content into the iframe with dark-mode-friendly styles
+    doc.open();
+    doc.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: transparent !important;
+      color: #e4e4e7 !important;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      overflow: hidden;
+    }
+    * {
+      background-color: transparent !important;
+      border-color: rgba(255,255,255,0.1) !important;
+    }
+    body, td, th, div, p, span, li, blockquote {
+      color: #e4e4e7 !important;
+    }
+    h1, h2, h3, h4, h5, h6, strong, b {
+      color: #f4f4f5 !important;
+    }
+    .muted, .secondary, .text-muted, [style*="color: #"] {
+      color: #a1a1aa !important;
+    }
+    a { color: #818cf8 !important; }
+    img { max-width: 100%; height: auto; }
+    hr { border-color: rgba(255,255,255,0.1) !important; }
+  </style>
+</head>
+<body>${html}</body>
+</html>`);
+    doc.close();
+
+    // Auto-resize iframe to fit content
+    const resize = () => {
+      if (doc.body) {
+        const h = doc.body.scrollHeight;
+        if (h > 0) setHeight(h);
+      }
+    };
+
+    // Resize after images load
+    const images = doc.querySelectorAll("img");
+    images.forEach((img) => img.addEventListener("load", resize));
+
+    // Initial resize with a small delay for rendering
+    resize();
+    const timer = setTimeout(resize, 100);
+    const timer2 = setTimeout(resize, 500);
+
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(timer2);
+      images.forEach((img) => img.removeEventListener("load", resize));
+    };
+  }, [html]);
+
+  return (
+    <iframe
+      ref={iframeRef}
+      sandbox="allow-same-origin allow-popups"
+      style={{
+        width: "100%",
+        height: `${height}px`,
+        border: "none",
+        background: "transparent",
+        colorScheme: "dark",
+      }}
+      title="Email content"
+    />
+  );
+}
+
 function EmailMessageCard({
   email,
   onReply,
@@ -374,13 +489,17 @@ function EmailMessageCard({
       {/* Message body */}
       {expanded && (
         <div className="px-4 pb-5 pt-1">
-          <div className="email-body-content">
-            {email.body.split("\n").map((line, i) => (
-              <p key={i} className={line === "" ? "mb-3" : "mb-0"}>
-                {line || "\u00a0"}
-              </p>
-            ))}
-          </div>
+          {email.bodyHtml ? (
+            <HtmlEmailBody html={email.bodyHtml} />
+          ) : (
+            <div className="email-body-content">
+              {email.body.split("\n").map((line, i) => (
+                <p key={i} className={line === "" ? "mb-3" : "mb-0"}>
+                  {line || "\u00a0"}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

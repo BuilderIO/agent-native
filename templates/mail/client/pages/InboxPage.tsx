@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { EmailList } from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
+import { ComposeModal } from "@/components/email/ComposeModal";
 import { useEmail, useEmails } from "@/hooks/use-emails";
 import { truncate } from "@/lib/utils";
+import type { EmailMessage } from "@shared/types";
 
 function ContactPanel({ emailId }: { emailId: string | undefined }) {
   const { data: email } = useEmail(emailId);
@@ -127,6 +129,18 @@ function ContactPanel({ emailId }: { emailId: string | undefined }) {
 export function InboxPage() {
   const { threadId } = useParams<{ view: string; threadId: string }>();
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [composeEmail, setComposeEmail] = useState<EmailMessage | null>(null);
+  const [composeMode, setComposeMode] = useState<"reply" | "forward">("reply");
+  const [composeOpen, setComposeOpen] = useState(false);
+
+  const handleCompose = useCallback(
+    (email: EmailMessage, mode: "reply" | "forward") => {
+      setComposeEmail(email);
+      setComposeMode(mode);
+      setComposeOpen(true);
+    },
+    [],
+  );
 
   const hasThread = !!threadId;
 
@@ -140,7 +154,11 @@ export function InboxPage() {
         {hasThread ? (
           <EmailThread />
         ) : (
-          <EmailList focusedId={focusedId} setFocusedId={setFocusedId} />
+          <EmailList
+            focusedId={focusedId}
+            setFocusedId={setFocusedId}
+            onCompose={handleCompose}
+          />
         )}
       </div>
 
@@ -148,6 +166,14 @@ export function InboxPage() {
       <div className="hidden lg:flex w-[260px] shrink-0 flex-col border-l border-border/30 bg-[hsl(220,6%,9%)]">
         <ContactPanel emailId={contactEmailId} />
       </div>
+
+      {/* Compose from list shortcuts */}
+      <ComposeModal
+        open={composeOpen}
+        onOpenChange={setComposeOpen}
+        replyTo={composeEmail ?? undefined}
+        mode={composeMode}
+      />
     </div>
   );
 }

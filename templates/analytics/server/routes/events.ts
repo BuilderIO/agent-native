@@ -1,7 +1,7 @@
 import { type RequestHandler } from "express";
 import { BigQuery } from "@google-cloud/bigquery";
 
-const PROJECT_ID = process.env.BIGQUERY_PROJECT_ID || "builder-3b0a2";
+const PROJECT_ID = process.env.BIGQUERY_PROJECT_ID || "your-gcp-project-id";
 const EVENTS_TABLE = `${PROJECT_ID}.analytics.events_partitioned`;
 
 let bigqueryClient: BigQuery | null = null;

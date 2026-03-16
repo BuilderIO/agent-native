@@ -132,7 +132,7 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="dark sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[500px]">
         {/* Color accent strip */}
         {color && (
           <div

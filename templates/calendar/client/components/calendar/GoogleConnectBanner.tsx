@@ -198,19 +198,18 @@ export function GoogleConnectBanner({
   if (variant === "hero") {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.06]">
-          <CalendarCheck className="h-6 w-6 text-white/40" />
+        <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-foreground/[0.06]">
+          <CalendarCheck className="h-6 w-6 text-muted-foreground" />
         </div>
-        <h2 className="text-[15px] font-medium text-white/90">
+        <h2 className="text-[15px] font-medium text-foreground">
           Connect Google Calendar
         </h2>
-        <p className="mt-2 max-w-xs text-[13px] text-white/40 leading-relaxed">
+        <p className="mt-2 max-w-xs text-[13px] text-muted-foreground leading-relaxed">
           Sync your events and manage your schedule.
         </p>
         <Button
           size="sm"
-          className="mt-6 gap-2 px-4 h-8 text-[13px] font-medium bg-white/[0.08] hover:bg-white/[0.12] text-white/80 border border-white/[0.08]"
-          variant="ghost"
+          className="mt-6 gap-2 px-4 h-8 text-[13px] font-medium"
           onClick={handleConnect}
           disabled={authUrl.isLoading || authUrl.isFetching}
         >
@@ -229,12 +228,12 @@ export function GoogleConnectBanner({
             {accounts.map((account) => (
               <div
                 key={account.email}
-                className="group flex items-center gap-1.5 text-xs text-white/50"
+                className="group flex items-center gap-1.5 text-xs text-muted-foreground"
               >
                 <span>{account.email}</span>
                 <button
                   onClick={() => disconnectGoogle.mutate(account.email)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-white/25 hover:text-white/50"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/25 hover:text-foreground/50"
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -267,7 +266,7 @@ export function GoogleConnectBanner({
   // Connected with accounts — show compact account strip
   if (hasAccounts && allConfigured) {
     return (
-      <div className="border-b border-border/30 bg-[hsl(220,6%,11%)]">
+      <div className="border-b border-border/30 bg-card">
         <div className="flex items-center justify-between gap-3 px-4 py-1.5">
           <div className="flex items-center gap-2 min-w-0">
             {accounts.map((account) => (
@@ -307,7 +306,7 @@ export function GoogleConnectBanner({
 
   // Not connected or not configured — show setup banner
   return (
-    <div className="border-b border-border/30 bg-[hsl(220,6%,11%)]">
+    <div className="border-b border-border/30 bg-card">
       {/* Compact banner row */}
       <div className="flex items-center justify-between gap-3 px-4 py-2">
         <div className="flex items-center gap-2.5">

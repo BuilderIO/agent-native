@@ -26,7 +26,7 @@ const fmtFull = (v: number) =>
   `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
 const PRODUCT_COLORS: Record<string, string> = {
-  "Publish + Fusion": "#6366f1",
+  "CMS + AI": "#6366f1",
   Shopify: "#10b981",
   unknown: "#71717a",
 };

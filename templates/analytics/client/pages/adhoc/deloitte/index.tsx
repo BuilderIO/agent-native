@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { DatePicker } from "@/components/ui/date-picker";
-import { AgentChatUsersTable } from "./FusionUsersTable";
+import { AgentChatUsersTable } from "./AgentChatUsersTable";
 import { ActivityCharts } from "./ActivityCharts";
 import { SalesRecommendations } from "./SalesRecommendations";
 
@@ -38,7 +38,7 @@ function get90DaysAgo(): string {
   return d.toISOString().slice(0, 10);
 }
 
-export default function DeloitteDashboard() {
+export default function CustomerAccountDashboard() {
   const [dateStart, setDateStart] = useUrlParam("from", get90DaysAgo());
   const [dateEnd, setDateEnd] = useUrlParam("to", getToday());
 
@@ -46,10 +46,10 @@ export default function DeloitteDashboard() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">
-          Deloitte Account Dashboard
+          Customer Account Dashboard
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Fusion usage and Builder activity for Deloitte users
+          Agent chat usage and activity for customer users
         </p>
       </div>
 

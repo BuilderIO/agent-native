@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   ipcMain,
   session,
+  shell,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
@@ -86,6 +87,58 @@ ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
   });
 });
 
+// ---------- Webview popup handling ----------
+// Open popups from webviews (e.g. OAuth flows) in the system browser
+// instead of creating broken Electron popup windows.
+
+app.on("web-contents-created", (_event, contents) => {
+  // Only intercept webview guest contents
+  if (contents.getType() !== "webview") return;
+
+  contents.setWindowOpenHandler(({ url }) => {
+    // Only allow http/https URLs to prevent protocol-handler attacks
+    // (e.g. ms-msdt:, file://, etc.)
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+        shell.openExternal(url);
+      }
+    } catch {
+      // malformed URL — ignore
+    }
+    return { action: "deny" };
+  });
+
+  // Forward keyboard shortcuts from focused webview guests to the shell
+  // renderer so they work even when a webview has keyboard focus.
+  contents.on("before-input-event", (event, input) => {
+    if (!(input.meta || input.control) || input.type !== "keyDown") return;
+
+    const key = input.key.toLowerCase();
+    const win = BrowserWindow.getAllWindows()[0];
+    if (!win) return;
+
+    // Cmd+W — close tab (dedicated channel for backwards compat)
+    if (key === "w") {
+      event.preventDefault();
+      win.webContents.send("shortcut:close-tab");
+      return;
+    }
+
+    // Forward other Cmd+ shortcuts: T, Shift+T, 1-9, [, ]
+    const isShortcut =
+      key === "t" || key === "[" || key === "]" || (key >= "1" && key <= "9");
+
+    if (isShortcut) {
+      event.preventDefault();
+      win.webContents.send("shortcut:keydown", {
+        key: input.key,
+        shiftKey: input.shift,
+      });
+    }
+  });
+});
+
 // ---------- App lifecycle ----------
 
 app.whenReady().then(() => {
@@ -104,6 +157,18 @@ app.whenReady().then(() => {
   }
 
   const win = createWindow();
+
+  // Intercept Cmd+W so it closes a tab instead of the window
+  win.webContents.on("before-input-event", (_event, input) => {
+    if (
+      (input.meta || input.control) &&
+      input.key.toLowerCase() === "w" &&
+      input.type === "keyDown"
+    ) {
+      _event.preventDefault();
+      win.webContents.send("shortcut:close-tab");
+    }
+  });
 
   // Broadcast window maximized state changes to the renderer
   const broadcastMaximized = (isMaximized: boolean) =>

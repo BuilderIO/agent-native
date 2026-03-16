@@ -41,13 +41,13 @@ function get90DaysAgo(): string {
   return d.toISOString().slice(0, 10);
 }
 
-export default function MacysDashboard() {
+export default function CustomerDashboard() {
   const [dateStart, setDateStart] = useUrlParam("from", get90DaysAgo());
   const [dateEnd, setDateEnd] = useUrlParam("to", getToday());
 
   return (
     <div className="space-y-6">
-      <DashboardHeader description="Fusion usage, Builder activity, and account details for Macy's" />
+      <DashboardHeader description="Agent chat usage, activity, and account details for this customer" />
 
       {/* Date Controls */}
       <div className="rounded-lg border border-border p-3">

@@ -9,8 +9,8 @@ description: >
 
 ## Connection
 
-- **Project**: `builder-3b0a2` (hard-coded)
-- **Service account**: `fusion-analytics@builder-3b0a2.iam.gserviceaccount.com`
+- **Project**: `your-project-id` (hard-coded)
+- **Service account**: `analytics@your-project-id.iam.gserviceaccount.com`
 - **Auth**: `GOOGLE_APPLICATION_CREDENTIALS_JSON` env var (JSON credentials string) — no ADC fallback
 - **IAM roles**: `monitoring.viewer`, `run.viewer`, `cloudfunctions.viewer`, `logging.viewer`
 - **Caching**: 5-minute in-memory cache, max 120 entries

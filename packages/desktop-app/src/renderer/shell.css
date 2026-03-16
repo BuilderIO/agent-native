@@ -11,7 +11,7 @@
 :root {
   --sidebar-width: 56px;
   --tabbar-height: 38px;
-  --sidebar-bg: #141414;
+  --sidebar-bg: #0a0a0a;
   --sidebar-border: rgba(255, 255, 255, 0.06);
   --item-hover-bg: rgba(255, 255, 255, 0.05);
   --icon-inactive: #555;
@@ -20,11 +20,11 @@
   --label-inactive: #444;
   --label-hover: rgba(255, 255, 255, 0.4);
   --label-active: rgba(255, 255, 255, 0.7);
-  --shell-bg: #111111;
+  --shell-bg: #0a0a0a;
   --separator: rgba(255, 255, 255, 0.06);
-  --tabbar-bg: #191919;
+  --tabbar-bg: #0e0e0e;
   --tab-bg: transparent;
-  --tab-active-bg: #222222;
+  --tab-active-bg: #1a1a1a;
   --tab-hover-bg: rgba(255, 255, 255, 0.04);
   --tab-text: #666;
   --tab-active-text: #ccc;

@@ -73,7 +73,7 @@ export default function SentryDashboard() {
 
   return (
     <div className="space-y-6">
-      <DashboardHeader description="Error tracking and issue monitoring across Builder.io services" />
+      <DashboardHeader description="Error tracking and issue monitoring across your services" />
 
       {/* Controls */}
       <div className="space-y-3">

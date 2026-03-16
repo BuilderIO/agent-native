@@ -506,6 +506,24 @@ html.dark .shiki span {
   }
 }
 
+/* Primary button — high contrast, flips with theme */
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 9999px;
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  background-color: var(--fg);
+  color: var(--bg);
+}
+
+.primary-button:hover {
+  opacity: 0.85;
+}
+
 /* Transitions */
 button,
 a {
