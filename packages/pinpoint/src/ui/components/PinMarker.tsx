@@ -97,10 +97,10 @@ export class PinMarkerManager {
     marker.textContent = String(number);
     marker.title = pin.comment;
 
-    // Position at top-right corner of the element
+    // Position at top-left corner, offset outside the outline
     const rect = element.getBoundingClientRect();
-    marker.style.left = `${rect.right - 11}px`;
-    marker.style.top = `${rect.top - 11}px`;
+    marker.style.left = `${rect.left - 8}px`;
+    marker.style.top = `${rect.top - 8}px`;
 
     // Hide if off-screen
     const visible =
