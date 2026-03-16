@@ -18,7 +18,9 @@ export function useGoogleAuthUrl(enabled = false) {
   const query = useQuery<{ url: string }>({
     queryKey: ["google-auth-url"],
     queryFn: async () => {
-      const res = await fetch("/api/google/auth-url");
+      const res = await fetch(
+        `/api/google/auth-url?redirect_uri=${encodeURIComponent(window.location.origin + "/api/google/callback")}`,
+      );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.message || body.error || "Failed to get auth URL");

@@ -1,5 +1,7 @@
 # Mail — Agent Guide
 
+You are the AI assistant for this email client. You can read, search, organize, and manage the user's emails. When a user asks about their emails (e.g. "summarize my unread emails", "what's new in my inbox", "find emails from Alice"), use the scripts and data files below to answer.
+
 This is an **agent-native** email client built with `@agent-native/core`. All email state lives in `data/emails.json` — the agent reads and writes this file directly to add emails, change state, and more.
 
 ## Architecture
@@ -96,11 +98,22 @@ Edit `data/emails.json` and append:
 
 Run agent scripts with `pnpm script <name> [--args]`.
 
-| Script          | Args                                        | Purpose                          |
-| --------------- | ------------------------------------------- | -------------------------------- |
-| `seed-emails`   | `--count <n>`                               | Generate n demo emails           |
-| `bulk-archive`  | `--older-than <days>`                       | Archive emails older than N days |
-| `export-emails` | `--view <inbox\|sent\|...> --output <file>` | Export emails to JSON file       |
+| Script          | Args                                                    | Purpose                          |
+| --------------- | ------------------------------------------------------- | -------------------------------- |
+| `list-emails`   | `--view <inbox\|unread\|starred\|sent\|...> --q <term>` | List and search emails           |
+| `seed-emails`   | `--count <n>`                                           | Generate n demo emails           |
+| `bulk-archive`  | `--older-than <days>`                                   | Archive emails older than N days |
+| `export-emails` | `--view <inbox\|sent\|...> --output <file>`             | Export emails to JSON file       |
+
+### Common tasks
+
+| User request                        | What to do                                                        |
+| ----------------------------------- | ----------------------------------------------------------------- |
+| "Summarize my unread emails"        | `pnpm script list-emails --view=unread` then summarize the output |
+| "What emails do I have from Alice?" | `pnpm script list-emails --q=alice`                               |
+| "Archive old emails"                | `pnpm script bulk-archive --older-than=30`                        |
+| "Star this email" / manage emails   | Edit `data/emails.json` directly (change flags)                   |
+| "Send an email to ..."              | Edit `data/emails.json` to add a sent email                       |
 
 ### Adding new scripts
 

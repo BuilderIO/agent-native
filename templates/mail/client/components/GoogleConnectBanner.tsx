@@ -185,7 +185,8 @@ export function GoogleConnectBanner() {
     setTimeout(() => setCopiedKey(null), 2000);
   }
 
-  if (dismissed || googleStatus.data?.connected) return null;
+  // Hide banner only if connected AND env vars are configured
+  if (dismissed || (googleStatus.data?.connected && allConfigured)) return null;
 
   return (
     <div className="border-b border-border/30 bg-[hsl(220,6%,11%)]">

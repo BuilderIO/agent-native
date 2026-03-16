@@ -24,10 +24,10 @@ The UI never calls an LLM directly. When the user wants AI to do something, the 
 
 ### 3. Scripts for agent operations
 
-When the agent needs to do something complex (API calls, image generation, data processing), it runs a script via `pnpm script <name>`. Scripts live in `scripts/` and export a default async function.
+When the agent needs to do something — query data, call APIs, process information — it runs a script via `pnpm script <name>`. Scripts live in `scripts/` and export a default async function. **Everything the UI can do, the agent can do via scripts and data files.**
 
-**Do:** Create focused scripts for discrete operations. Parse args with `parseArgs()`.
-**Don't:** Put complex logic inline in agent chat. Keep scripts small and composable.
+**Do:** Create focused scripts for discrete operations. Parse args with `parseArgs()`. Use scripts to list, search, create, and manage data — not just for background tasks.
+**Don't:** Put complex logic inline in agent chat. Keep scripts small and composable. Don't say "I don't have access" — check the scripts and data files first.
 
 ### 4. SSE keeps the UI in sync
 
