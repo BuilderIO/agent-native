@@ -314,9 +314,9 @@ export const overlayStyles = `
 }
 
 .pp-popup__actions .pp-btn {
-  height: 32px;
-  padding: 0 12px;
-  font-size: 13px;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 /* Selection label */
