@@ -313,6 +313,12 @@ export const overlayStyles = `
   justify-content: flex-end;
 }
 
+.pp-popup__actions .pp-btn {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
 /* Selection label */
 .pp-selection-label {
   position: fixed;
