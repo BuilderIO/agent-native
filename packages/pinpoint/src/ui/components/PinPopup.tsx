@@ -1,4 +1,4 @@
-// @agent-native/pinpoint — Pin creation popup
+// @agent-native/pinpoint — Pin creation/edit popup
 // MIT License
 
 import { createSignal, onMount, type Component } from "solid-js";
@@ -8,16 +8,24 @@ import { icons } from "../icons/index.js";
 interface PinPopupProps {
   context: ElementContext;
   author?: string;
+  /** Pre-filled comment for editing an existing pin */
+  initialComment?: string;
+  /** Whether this is editing an existing pin */
+  isEditing?: boolean;
   onAdd: (comment: string) => void;
   onCancel: () => void;
 }
 
 export const PinPopup: Component<PinPopupProps> = (props) => {
-  const [comment, setComment] = createSignal("");
+  const [comment, setComment] = createSignal(props.initialComment || "");
   let textareaRef: HTMLTextAreaElement | undefined;
 
   onMount(() => {
     textareaRef?.focus();
+    // Place cursor at end when editing
+    if (props.initialComment && textareaRef) {
+      textareaRef.selectionStart = textareaRef.value.length;
+    }
   });
 
   function handleSubmit() {
@@ -106,8 +114,8 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
           onClick={handleSubmit}
           disabled={!comment().trim()}
         >
-          <span innerHTML={icons.pin} />
-          Add Pin
+          <span innerHTML={props.isEditing ? icons.check : icons.pin} />
+          {props.isEditing ? "Save" : "Add Pin"}
         </button>
       </div>
     </div>
