@@ -53,48 +53,81 @@ function formatEventTime(start: Date, end: Date): string {
   return `${startWithAmPm}\u2013${endStr}`;
 }
 
-interface OverlapInfo {
-  index: number;
-  total: number;
+interface LayoutInfo {
+  left: number; // percentage 0-100
+  width: number; // percentage 0-100
 }
 
-/** Calculate overlap groups for a list of events in one day */
-function computeOverlaps(dayEvents: CalendarEvent[]): Map<string, OverlapInfo> {
-  const result = new Map<string, OverlapInfo>();
+/**
+ * Google Calendar-style overlap layout.
+ * Events are assigned columns. Each event spans from its column to the right
+ * edge unless a later-starting event needs the space. Events cascade/overlap
+ * rather than being squeezed into tiny equal-width slots.
+ */
+function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
+  const result = new Map<string, LayoutInfo>();
   if (dayEvents.length === 0) return result;
 
   const sorted = [...dayEvents].sort((a, b) => {
     const aStart = parseISO(a.start).getTime();
     const bStart = parseISO(b.start).getTime();
-    return (
-      aStart - bStart || parseISO(a.end).getTime() - parseISO(b.end).getTime()
-    );
+    if (aStart !== bStart) return aStart - bStart;
+    // Longer events first so they form the "background"
+    return parseISO(b.end).getTime() - parseISO(a.end).getTime();
   });
 
-  // Build overlap groups using a sweep approach
-  const groups: CalendarEvent[][] = [];
-  let currentGroup: CalendarEvent[] = [sorted[0]];
-  let groupEnd = parseISO(sorted[0].end).getTime();
+  // For each event, track its column and the events it directly collides with
+  const columns: { id: string; end: number }[][] = [];
+  const eventCol = new Map<string, number>();
 
-  for (let i = 1; i < sorted.length; i++) {
-    const evStart = parseISO(sorted[i].start).getTime();
-    if (evStart < groupEnd) {
-      // Overlaps with current group
-      currentGroup.push(sorted[i]);
-      groupEnd = Math.max(groupEnd, parseISO(sorted[i].end).getTime());
-    } else {
-      groups.push(currentGroup);
-      currentGroup = [sorted[i]];
-      groupEnd = parseISO(sorted[i].end).getTime();
+  for (const ev of sorted) {
+    const evStart = parseISO(ev.start).getTime();
+    const evEnd = parseISO(ev.end).getTime();
+
+    // Find the first column where no event overlaps
+    let placed = false;
+    for (let c = 0; c < columns.length; c++) {
+      // Column is free if all events in it have ended
+      const isFree = columns[c].every((slot) => slot.end <= evStart);
+      if (isFree) {
+        columns[c].push({ id: ev.id, end: evEnd });
+        eventCol.set(ev.id, c);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      columns.push([{ id: ev.id, end: evEnd }]);
+      eventCol.set(ev.id, columns.length - 1);
     }
   }
-  groups.push(currentGroup);
 
-  for (const group of groups) {
-    const total = group.length;
-    group.forEach((ev, idx) => {
-      result.set(ev.id, { index: idx, total });
-    });
+  // Now compute layout: each event starts at its column and expands right
+  // as far as possible (until it hits another event that starts at the same time
+  // or a column that's occupied at the same time)
+  for (const ev of sorted) {
+    const col = eventCol.get(ev.id)!;
+    const evStart = parseISO(ev.start).getTime();
+    const evEnd = parseISO(ev.end).getTime();
+    const totalCols = columns.length;
+
+    // How far right can this event expand?
+    let span = 1;
+    for (let c = col + 1; c < totalCols; c++) {
+      const isBlocked = columns[c].some((slot) => {
+        const slotEv = sorted.find((e) => e.id === slot.id)!;
+        const slotStart = parseISO(slotEv.start).getTime();
+        const slotEnd = parseISO(slotEv.end).getTime();
+        return slotStart < evEnd && slotEnd > evStart;
+      });
+      if (isBlocked) break;
+      span++;
+    }
+
+    const leftPct = (col / totalCols) * 100;
+    const widthPct = (span / totalCols) * 100;
+
+    result.set(ev.id, { left: leftPct, width: widthPct });
   }
 
   return result;
@@ -176,31 +209,29 @@ export function WeekView({
     return spans;
   }, [allDayEvents, days]);
 
-  // Pre-compute timed events per day with overlaps
+  // Pre-compute timed events per day with layout
   const dayData = useMemo(() => {
     return days.map((day) => {
       const dayEvents = timedEvents.filter((e) =>
         isSameDay(parseISO(e.start), day),
       );
-      const overlaps = computeOverlaps(dayEvents);
-      return { day, events: dayEvents, overlaps };
+      const layout = computeLayout(dayEvents);
+      return { day, events: dayEvents, layout };
     });
   }, [days, timedEvents]);
 
-  function getEventStyle(event: CalendarEvent, overlap: OverlapInfo) {
+  function getEventStyle(event: CalendarEvent, layoutInfo: LayoutInfo) {
     const start = parseISO(event.start);
     const end = parseISO(event.end);
     const dayStart = set(startOfDay(start), { hours: START_HOUR });
     const topMinutes = Math.max(0, differenceInMinutes(start, dayStart));
     const durationMinutes = Math.max(15, differenceInMinutes(end, start));
-    const widthPercent = 100 / overlap.total;
-    const leftPercent = overlap.index * widthPercent;
 
     return {
       top: `${(topMinutes / 60) * HOUR_HEIGHT}px`,
       height: `${(durationMinutes / 60) * HOUR_HEIGHT}px`,
-      left: `${leftPercent}%`,
-      width: `calc(${widthPercent}% - 2px)`,
+      left: `${layoutInfo.left}%`,
+      width: `calc(${layoutInfo.width}% - 2px)`,
     };
   }
 
@@ -409,7 +440,7 @@ export function WeekView({
           </div>
 
           {/* Day columns */}
-          {dayData.map(({ day, events: dayEvents, overlaps }) => {
+          {dayData.map(({ day, events: dayEvents, layout }) => {
             const isCurrentDay = isToday(day);
 
             return (
@@ -443,11 +474,11 @@ export function WeekView({
 
                 {/* Timed events */}
                 {dayEvents.map((event) => {
-                  const overlap = overlaps.get(event.id) ?? {
-                    index: 0,
-                    total: 1,
+                  const li = layout.get(event.id) ?? {
+                    left: 0,
+                    width: 100,
                   };
-                  const style = getEventStyle(event, overlap);
+                  const style = getEventStyle(event, li);
                   const color = getEventColor(event);
                   const start = parseISO(event.start);
                   const end = parseISO(event.end);
@@ -457,31 +488,34 @@ export function WeekView({
                     <button
                       key={event.id}
                       onClick={() => onEventClick(event)}
-                      className="absolute overflow-hidden rounded-md px-2 py-1 text-left text-xs transition-all hover:brightness-110 hover:shadow-md"
+                      className="absolute overflow-hidden rounded-md px-2 py-1 text-left text-xs transition-all hover:z-30 hover:brightness-110 hover:shadow-md"
                       style={{
                         ...style,
+                        zIndex: li.left > 0 ? Math.round(li.left) + 1 : 1,
                         backgroundColor: color
                           ? `${color}30`
                           : "hsl(var(--primary) / 0.2)",
                         borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
                       }}
                     >
-                      {durationMin < 30 ? (
-                        <div className="font-semibold leading-tight text-foreground">
-                          <span>{event.title}</span>{" "}
+                      <div
+                        className={cn(
+                          "font-semibold leading-tight text-foreground",
+                          durationMin < 90 && "truncate",
+                        )}
+                      >
+                        {event.title}
+                        {durationMin < 45 && (
                           <span className="font-normal text-foreground/60">
+                            {" "}
                             {format(start, "h:mm a")}
                           </span>
+                        )}
+                      </div>
+                      {durationMin >= 45 && (
+                        <div className="truncate text-[10px] text-foreground/60">
+                          {formatEventTime(start, end)}
                         </div>
-                      ) : (
-                        <>
-                          <div className="font-semibold leading-tight text-foreground">
-                            {event.title}
-                          </div>
-                          <div className="mt-0.5 text-[10px] text-foreground/60">
-                            {formatEventTime(start, end)}
-                          </div>
-                        </>
                       )}
                     </button>
                   );
