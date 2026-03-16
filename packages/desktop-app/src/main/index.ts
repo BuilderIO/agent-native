@@ -105,6 +105,18 @@ app.whenReady().then(() => {
 
   const win = createWindow();
 
+  // Intercept Cmd+W so it closes a tab instead of the window
+  win.webContents.on("before-input-event", (_event, input) => {
+    if (
+      (input.meta || input.control) &&
+      input.key.toLowerCase() === "w" &&
+      input.type === "keyDown"
+    ) {
+      _event.preventDefault();
+      win.webContents.send("shortcut:close-tab");
+    }
+  });
+
   // Broadcast window maximized state changes to the renderer
   const broadcastMaximized = (isMaximized: boolean) =>
     win.webContents.send(IPC.WINDOW_MAXIMIZED_CHANGED, isMaximized);

@@ -193,7 +193,7 @@ export function App() {
         href="https://docs.google.com/forms/d/e/1FAIpQLSfI7sc2egh0vLBgzOy5tEEZF0e4PdXsQRNsZhX_yR2vx0m8ig/viewform?usp=publish-editor"
         target="_blank"
         rel="noopener noreferrer"
-        className="text-[11px] text-white/30 hover:text-white/60 transition-colors"
+        className="text-[11px] text-white/50 hover:text-white/80 transition-colors leading-none"
       >
         feedback
       </a>
@@ -315,9 +315,9 @@ export function App() {
                 <Tooltip label="Collapse sidebar">
                   <button
                     onClick={() => setIsFullscreen(true)}
-                    className="p-1.5 rounded text-white/30 hover:text-white/60 hover:bg-white/5 transition-colors"
+                    className="p-1.5 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
                   >
-                    <IconLayoutSidebarLeftCollapse size={16} stroke={1.5} />
+                    <IconLayoutSidebarLeftCollapse size={18} stroke={1.5} />
                   </button>
                 </Tooltip>
               </div>
@@ -340,7 +340,7 @@ export function App() {
       <div
         className={
           isFullscreen && !isMobile
-            ? "fixed inset-0 z-50 bg-black"
+            ? "fixed inset-0 z-50 bg-black flex flex-col"
             : isMobile
               ? `flex flex-col ${mobileTab === "interact" ? "flex-1 min-h-0" : "absolute inset-0 invisible"}`
               : "flex-1 flex flex-col min-h-0"

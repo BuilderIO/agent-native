@@ -35,7 +35,7 @@ export function useTerminal() {
       fontSize: 11,
       fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
       theme: {
-        background: "#1e1e1e",
+        background: "#000000",
         foreground: "#e0e0e0",
         cursor: "#58a6ff",
         selectionBackground: "#264f78",
