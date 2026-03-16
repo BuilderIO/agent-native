@@ -137,35 +137,11 @@ export const OverlayCanvas: Component<OverlayCanvasProps> = (props) => {
       )
         continue;
 
-      // Outline
+      // Outline only — numbered badges are DOM elements (PinMarkerManager)
       ctx.strokeStyle = "rgba(59, 130, 246, 0.7)";
       ctx.lineWidth = 1.5;
       ctx.setLineDash([]);
       ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-
-      // Numbered badge at top-right corner
-      const badgeSize = 20;
-      const badgeX = rect.right - badgeSize / 2;
-      const badgeY = rect.top - badgeSize / 2;
-      const num = String(i + 1);
-
-      // Badge circle
-      ctx.beginPath();
-      ctx.arc(badgeX, badgeY, badgeSize / 2, 0, Math.PI * 2);
-      ctx.fillStyle = "#3b82f6";
-      ctx.fill();
-
-      // Badge border for contrast
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      // Badge number
-      ctx.fillStyle = "#fff";
-      ctx.font = "bold 11px -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(num, badgeX, badgeY + 0.5);
     }
 
     animFrameId = requestAnimationFrame(draw);
