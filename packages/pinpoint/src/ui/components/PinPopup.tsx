@@ -114,7 +114,6 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
           onClick={handleSubmit}
           disabled={!comment().trim()}
         >
-          <span innerHTML={props.isEditing ? icons.check : icons.pin} style={{ display: "inline-flex", "vertical-align": "middle" }} />
           {props.isEditing ? "Save" : "Add Pin"}
         </button>
       </div>
