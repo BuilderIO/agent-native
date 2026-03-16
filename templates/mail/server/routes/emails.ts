@@ -6,6 +6,7 @@ import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
 import { google } from "googleapis";
 import {
   isConnected,
+  getClient,
   getClients,
   listGmailMessages,
   gmailToEmailMessage,
@@ -95,12 +96,21 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
       let searchQuery = gmailQuery[view] ?? `label:${view}`;
       if (q) searchQuery += ` ${q}`;
 
-      const messages = await listGmailMessages(searchQuery);
+      const { messages, errors } = await listGmailMessages(searchQuery);
+      if (messages.length === 0 && errors.length > 0) {
+        // All accounts failed — surface as error
+        res.status(502).json({ error: errors.map((e) => `${e.email}: ${e.error}`).join("; ") });
+        return;
+      }
       const emails = messages.map((m) => gmailToEmailMessage(m));
       emails.sort(
         (a: any, b: any) =>
           new Date(b.date).getTime() - new Date(a.date).getTime(),
       );
+      // If some accounts failed but others succeeded, add warning header
+      if (errors.length > 0) {
+        res.setHeader("X-Account-Errors", JSON.stringify(errors));
+      }
       res.json(emails);
       return;
     } catch (error: any) {
@@ -183,12 +193,13 @@ export async function getEmail(req: Request, res: Response): Promise<void> {
         res.json(gmailToEmailMessage((msg as any).data, email));
         return;
       } catch (error: any) {
-        const status = error?.response?.status ?? error?.code;
-        // Only continue to next account on 404 (not found in this account)
+        const status =
+          typeof error?.response?.status === "number"
+            ? error.response.status
+            : undefined;
         if (status === 404) continue;
-        // Surface auth/rate-limit/other errors immediately
         console.error("[getEmail] Gmail error:", error.message);
-        res.status(status || 500).json({ error: error.message });
+        res.status(status || 502).json({ error: error.message });
         return;
       }
     }
