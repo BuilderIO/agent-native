@@ -243,6 +243,12 @@ export function TemplateCard({ template }: { template: Template }) {
       <Link
         to={`/templates/${template.slug}`}
         className="-mx-[24px] -mt-[24px] mb-1 flex aspect-[4/3] items-center justify-center overflow-hidden border-b border-[var(--border)] bg-[var(--bg-secondary)] transition hover:opacity-90"
+        onClick={() =>
+          trackEvent("click_template", {
+            template: template.slug,
+            location: "card",
+          })
+        }
       >
         <img
           src={template.screenshot}

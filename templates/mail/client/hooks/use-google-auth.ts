@@ -3,7 +3,7 @@ import { useEffect } from "react";
 
 interface GoogleAuthStatus {
   connected: boolean;
-  accounts: Array<{ email: string; expiresAt?: string }>;
+  accounts: Array<{ email: string; expiresAt?: string; photoUrl?: string }>;
 }
 
 export function useGoogleAuthStatus() {

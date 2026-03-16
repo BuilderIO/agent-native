@@ -7,6 +7,7 @@ const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/gmail.modify",
+  "https://www.googleapis.com/auth/userinfo.profile",
 ];
 
 const ACCOUNTS_DIR = path.join(process.cwd(), "data", "google-accounts");
@@ -200,7 +201,7 @@ export function getConnectedAccounts(): string[] {
 
 export interface GoogleAuthStatus {
   connected: boolean;
-  accounts: Array<{ email: string; expiresAt?: string }>;
+  accounts: Array<{ email: string; expiresAt?: string; photoUrl?: string }>;
 }
 
 export async function getAuthStatus(): Promise<GoogleAuthStatus> {
@@ -211,16 +212,32 @@ export async function getAuthStatus(): Promise<GoogleAuthStatus> {
     return { connected: false, accounts: [] };
   }
 
-  const accounts: Array<{ email: string; expiresAt?: string }> = [];
+  const accounts: Array<{
+    email: string;
+    expiresAt?: string;
+    photoUrl?: string;
+  }> = [];
   for (const file of files) {
     const tokens = readJsonFile<GoogleTokens>(file);
     if (!tokens) continue;
     const email = path.basename(file, ".json");
+    let photoUrl: string | undefined;
+    try {
+      const client = createOAuth2Client();
+      client.setCredentials(tokens);
+      const people = google.people({ version: "v1", auth: client });
+      const profile = await people.people.get({
+        resourceName: "people/me",
+        personFields: "photos",
+      });
+      photoUrl = profile.data.photos?.[0]?.url ?? undefined;
+    } catch {}
     accounts.push({
       email,
       expiresAt: tokens.expiry_date
         ? new Date(tokens.expiry_date).toISOString()
         : undefined,
+      photoUrl,
     });
   }
 
@@ -339,6 +356,24 @@ function getBody(payload: any): string {
   return "";
 }
 
+function getBodyHtml(payload: any): string | undefined {
+  if (payload.mimeType === "text/html" && payload.body?.data) {
+    return Buffer.from(payload.body.data, "base64url").toString("utf-8");
+  }
+  if (payload.parts) {
+    const htmlPart = payload.parts.find((p: any) => p.mimeType === "text/html");
+    if (htmlPart?.body?.data) {
+      return Buffer.from(htmlPart.body.data, "base64url").toString("utf-8");
+    }
+    // Recurse into multipart
+    for (const p of payload.parts) {
+      const html = getBodyHtml(p);
+      if (html) return html;
+    }
+  }
+  return undefined;
+}
+
 export async function fetchGmailLabelMap(
   client: Auth.OAuth2Client,
 ): Promise<Map<string, string>> {
@@ -375,6 +410,7 @@ export function gmailToEmailMessage(
     subject,
     snippet: msg.snippet || "",
     body: getBody(msg.payload || {}),
+    bodyHtml: getBodyHtml(msg.payload || {}),
     date: new Date(date).toISOString(),
     isRead: !labels.includes("UNREAD"),
     isStarred: labels.includes("STARRED"),
