@@ -1,39 +1,44 @@
-// @agent-native/pinpoint — Numbered markers on annotated elements
+// @agent-native/pinpoint — Pin markers: outline + numbered badge per element
 // MIT License
 //
-// Rendered OUTSIDE Shadow DOM (need to position across the whole page).
-// Real DOM elements for click interactivity (matching annotate fork pattern).
+// Each pin gets a wrapper div containing:
+//   1. An outline border div (positioned over the element)
+//   2. A numbered badge circle (at the top-right corner)
+// Both in the same stacking context so badge is always above outline.
+// Rendered outside Shadow DOM on document.body.
 
 import type { Pin } from "../../types/index.js";
 
 const MAX_MARKERS = 100;
 
+interface MarkerPair {
+  wrapper: HTMLElement;
+  outline: HTMLElement;
+  badge: HTMLElement;
+}
+
 export class PinMarkerManager {
-  private markers: Map<string, HTMLElement> = new Map();
+  private markers: Map<string, MarkerPair> = new Map();
   private updateTimer: ReturnType<typeof setInterval> | null = null;
   private onClick: ((pin: Pin) => void) | null = null;
 
   constructor(private markerColor = "#3b82f6") {}
 
-  /** Set the click handler for markers */
   setOnClick(handler: (pin: Pin) => void) {
     this.onClick = handler;
   }
 
-  /** Sync markers to the current set of pins */
   update(pins: Pin[]) {
     const visiblePins = pins.slice(0, MAX_MARKERS);
     const pinIds = new Set(visiblePins.map((p) => p.id));
 
-    // Remove markers for deleted pins
-    for (const [id, marker] of this.markers) {
+    for (const [id, pair] of this.markers) {
       if (!pinIds.has(id)) {
-        marker.remove();
+        pair.wrapper.remove();
         this.markers.delete(id);
       }
     }
 
-    // Create or update markers
     for (let i = 0; i < visiblePins.length; i++) {
       this.updateMarker(visiblePins[i], i + 1);
     }
@@ -42,21 +47,43 @@ export class PinMarkerManager {
   private updateMarker(pin: Pin, number: number) {
     const element = document.querySelector(pin.element.selector);
     if (!element) {
-      // Element no longer in DOM — hide marker
       const existing = this.markers.get(pin.id);
-      if (existing) existing.style.display = "none";
+      if (existing) existing.wrapper.style.display = "none";
       return;
     }
 
-    let marker = this.markers.get(pin.id);
+    let pair = this.markers.get(pin.id);
 
-    if (!marker) {
-      marker = document.createElement("div");
-      marker.setAttribute("data-pinpoint-marker", pin.id);
-      marker.style.cssText = `
+    if (!pair) {
+      // Wrapper — contains both outline and badge
+      const wrapper = document.createElement("div");
+      wrapper.setAttribute("data-pinpoint-marker", pin.id);
+      wrapper.style.cssText = `
         position: fixed;
         z-index: 2147483646;
-        pointer-events: auto;
+        pointer-events: none;
+      `;
+
+      // Outline — border around the annotated element
+      const outline = document.createElement("div");
+      outline.style.cssText = `
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        border: 1.5px solid ${this.markerColor};
+        border-radius: 3px;
+        pointer-events: none;
+        opacity: 0.6;
+      `;
+
+      // Badge — numbered circle at corner
+      const badge = document.createElement("div");
+      badge.style.cssText = `
+        position: absolute;
+        top: -11px;
+        right: -11px;
         width: 22px;
         height: 22px;
         border-radius: 50%;
@@ -70,66 +97,56 @@ export class PinMarkerManager {
         background: ${this.markerColor};
         box-shadow: 0 2px 6px rgba(0,0,0,0.25), 0 0 0 2px rgba(255,255,255,0.9);
         cursor: pointer;
-        transform: translate3d(0, 0, 0);
+        pointer-events: auto;
         transition: transform 0.1s ease;
         user-select: none;
+        z-index: 1;
       `;
 
-      // Click handler
-      marker.addEventListener("click", (e) => {
+      badge.addEventListener("click", (e) => {
         e.stopPropagation();
         e.preventDefault();
         this.onClick?.(pin);
       });
 
-      // Hover scale
-      marker.addEventListener("mouseenter", () => {
-        marker!.style.transform = "translate3d(0, 0, 0) scale(1.15)";
+      badge.addEventListener("mouseenter", () => {
+        badge.style.transform = "scale(1.15)";
       });
-      marker.addEventListener("mouseleave", () => {
-        marker!.style.transform = "translate3d(0, 0, 0) scale(1)";
+      badge.addEventListener("mouseleave", () => {
+        badge.style.transform = "scale(1)";
       });
 
-      document.body.appendChild(marker);
-      this.markers.set(pin.id, marker);
+      wrapper.appendChild(outline);
+      wrapper.appendChild(badge);
+      document.body.appendChild(wrapper);
+
+      pair = { wrapper, outline, badge };
+      this.markers.set(pin.id, pair);
     }
 
-    marker.textContent = String(number);
-    marker.title = pin.comment;
+    pair.badge.textContent = String(number);
+    pair.badge.title = pin.comment;
 
-    // Position at top-right corner of the element
+    // Position wrapper to cover the element
     const rect = element.getBoundingClientRect();
-    marker.style.left = `${rect.right - 11}px`;
-    marker.style.top = `${rect.top - 11}px`;
+    pair.wrapper.style.left = `${rect.left}px`;
+    pair.wrapper.style.top = `${rect.top}px`;
+    pair.wrapper.style.width = `${rect.width}px`;
+    pair.wrapper.style.height = `${rect.height}px`;
 
-    // Hide if off-screen
+    // Visibility
     const visible =
       rect.bottom > 0 &&
       rect.top < window.innerHeight &&
       rect.right > 0 &&
       rect.left < window.innerWidth;
-    marker.style.display = visible ? "flex" : "none";
+    pair.wrapper.style.display = visible ? "block" : "none";
   }
 
-  /** Start auto-updating marker positions (scroll/resize) */
   startTracking(pins: Pin[]) {
     this.stopTracking();
     this.update(pins);
     this.updateTimer = setInterval(() => this.update(pins), 200);
-  }
-
-  /** Hide all markers (e.g., when popup is open) */
-  hideAll() {
-    for (const marker of this.markers.values()) {
-      marker.style.display = "none";
-    }
-  }
-
-  /** Show all markers */
-  showAll() {
-    for (const marker of this.markers.values()) {
-      marker.style.display = "flex";
-    }
   }
 
   stopTracking() {
@@ -141,8 +158,8 @@ export class PinMarkerManager {
 
   dispose() {
     this.stopTracking();
-    for (const marker of this.markers.values()) {
-      marker.remove();
+    for (const pair of this.markers.values()) {
+      pair.wrapper.remove();
     }
     this.markers.clear();
   }
