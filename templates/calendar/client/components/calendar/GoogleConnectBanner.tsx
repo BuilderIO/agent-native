@@ -10,6 +10,7 @@ import {
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getCallbackOrigin } from "@agent-native/core/client";
 import { useGoogleAuthUrl } from "@/hooks/use-google-auth";
 
 interface EnvKeyStatus {
@@ -70,11 +71,7 @@ export function GoogleConnectBanner({
   const [envStatus, setEnvStatus] = useState<EnvKeyStatus[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const harnessOrigin = new URLSearchParams(window.location.search).get(
-    "harness_origin",
-  );
-  const callbackOrigin = harnessOrigin || window.location.origin;
-  const redirectUri = `${callbackOrigin}/api/google/callback`;
+  const redirectUri = `${getCallbackOrigin()}/api/google/callback`;
 
   const fetchStatus = useCallback(async () => {
     try {
