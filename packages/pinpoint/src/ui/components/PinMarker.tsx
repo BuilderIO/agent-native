@@ -118,6 +118,20 @@ export class PinMarkerManager {
     this.updateTimer = setInterval(() => this.update(pins), 200);
   }
 
+  /** Hide all markers (e.g., when popup is open) */
+  hideAll() {
+    for (const marker of this.markers.values()) {
+      marker.style.display = "none";
+    }
+  }
+
+  /** Show all markers */
+  showAll() {
+    for (const marker of this.markers.values()) {
+      marker.style.display = "flex";
+    }
+  }
+
   stopTracking() {
     if (this.updateTimer) {
       clearInterval(this.updateTimer);

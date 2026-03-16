@@ -240,6 +240,15 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     markerManager.update(currentPins);
   });
 
+  // Hide markers when popup is open so they don't overlap the dialog
+  createEffect(() => {
+    if (showPopup()) {
+      markerManager.hideAll();
+    } else {
+      markerManager.showAll();
+    }
+  });
+
   function toggleActive() {
     if (active()) {
       deactivateSelection();
