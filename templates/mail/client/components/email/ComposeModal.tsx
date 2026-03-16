@@ -8,16 +8,22 @@ import {
   Italic,
   Link,
   Paperclip,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useSendEmail } from "@/hooks/use-emails";
+import { sendToAgentChat } from "@agent-native/core";
 import { toast } from "sonner";
 import type { EmailMessage } from "@shared/types";
 
@@ -43,8 +49,12 @@ export function ComposeModal({
   const [body, setBody] = useState("");
   const [minimized, setMinimized] = useState(false);
 
+  const [generateOpen, setGenerateOpen] = useState(false);
+  const [generatePrompt, setGeneratePrompt] = useState("");
+
   const sendEmail = useSendEmail();
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
 
   // Pre-fill for reply/forward
   useEffect(() => {
@@ -125,6 +135,28 @@ export function ComposeModal({
       e.preventDefault();
       onOpenChange(false);
     }
+  };
+
+  const handleGenerate = () => {
+    if (!generatePrompt.trim()) return;
+
+    const context = [
+      to && `To: ${to}`,
+      cc && `Cc: ${cc}`,
+      subject && `Subject: ${subject}`,
+      body && `Current draft:\n${body}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    sendToAgentChat({
+      message: generatePrompt.trim(),
+      context: context || undefined,
+      submit: true,
+    });
+
+    setGeneratePrompt("");
+    setGenerateOpen(false);
   };
 
   if (!open) return null;
@@ -287,6 +319,64 @@ export function ComposeModal({
                 </TooltipTrigger>
                 <TooltipContent>Attach file</TooltipContent>
               </Tooltip>
+
+              <div className="mx-1 h-4 w-px bg-border" />
+
+              <Popover open={generateOpen} onOpenChange={setGenerateOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1.5 px-2 text-xs"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Generate
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="top"
+                  align="start"
+                  className="w-80 p-3"
+                >
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      What should the agent write?
+                    </label>
+                    <textarea
+                      ref={promptRef}
+                      value={generatePrompt}
+                      onChange={(e) => setGeneratePrompt(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          handleGenerate();
+                        }
+                        if (e.key === "Escape") {
+                          e.stopPropagation();
+                          setGenerateOpen(false);
+                        }
+                      }}
+                      placeholder="e.g. Write a polite follow-up..."
+                      className="min-h-[60px] w-full resize-none rounded-md border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                      autoFocus
+                    />
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-muted-foreground">
+                        <kbd className="kbd-hint">↵</kbd> to submit
+                      </span>
+                      <Button
+                        size="sm"
+                        onClick={handleGenerate}
+                        disabled={!generatePrompt.trim()}
+                        className="h-7 gap-1.5 px-3 text-xs"
+                      >
+                        <Sparkles className="h-3 w-3" />
+                        Generate
+                      </Button>
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
 
             <div className="flex items-center gap-2">
