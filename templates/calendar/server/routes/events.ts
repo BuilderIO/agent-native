@@ -150,7 +150,10 @@ export async function deleteEvent(req: Request, res: Response): Promise<void> {
     // Delete from Google if connected
     if (existing.googleEventId && googleCalendar.isConnected()) {
       try {
-        await googleCalendar.deleteEvent(existing.googleEventId);
+        await googleCalendar.deleteEvent(
+          existing.googleEventId,
+          existing.accountEmail,
+        );
       } catch {
         // Continue even if Google delete fails
       }

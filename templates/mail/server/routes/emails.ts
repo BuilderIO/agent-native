@@ -6,7 +6,7 @@ import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
 import { google } from "googleapis";
 import {
   isConnected,
-  getClient,
+  getClients,
   listGmailMessages,
   gmailToEmailMessage,
 } from "../lib/google-auth.js";
@@ -96,7 +96,7 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
       if (q) searchQuery += ` ${q}`;
 
       const messages = await listGmailMessages(searchQuery);
-      const emails = messages.map(gmailToEmailMessage);
+      const emails = messages.map((m) => gmailToEmailMessage(m));
       emails.sort(
         (a: any, b: any) =>
           new Date(b.date).getTime() - new Date(a.date).getTime(),
@@ -171,21 +171,31 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
 
 export async function getEmail(req: Request, res: Response): Promise<void> {
   if (isConnected()) {
-    try {
-      const client = await getClient();
-      if (client) {
+    const clients = await getClients();
+    let lastError: any = null;
+    for (const { email, client } of clients) {
+      try {
         const gmail = google.gmail({ version: "v1", auth: client });
         const msg = await gmail.users.messages.get({
           userId: "me",
           id: req.params.id as string,
           format: "full",
         });
-        res.json(gmailToEmailMessage((msg as any).data));
+        res.json(gmailToEmailMessage((msg as any).data, email));
         return;
+      } catch (error: any) {
+        lastError = error;
+        // Message not found in this account, try next
+        continue;
       }
-    } catch (error: any) {
-      console.error("[getEmail] Gmail error:", error.message);
-      res.status(500).json({ error: error.message });
+    }
+    if (clients.length > 0) {
+      console.error("[getEmail] Gmail error:", lastError?.message);
+      res
+        .status(500)
+        .json({
+          error: lastError?.message || "Message not found in any account",
+        });
       return;
     }
   }
@@ -205,9 +215,10 @@ export async function markRead(req: Request, res: Response): Promise<void> {
   const { isRead } = req.body;
 
   if (isConnected()) {
-    try {
-      const client = await getClient();
-      if (client) {
+    const clients = await getClients();
+    let lastError: any = null;
+    for (const { client } of clients) {
+      try {
         const gmail = google.gmail({ version: "v1", auth: client });
         await gmail.users.messages.modify({
           userId: "me",
@@ -218,10 +229,18 @@ export async function markRead(req: Request, res: Response): Promise<void> {
         });
         res.json({ id: req.params.id, isRead });
         return;
+      } catch (error: any) {
+        lastError = error;
+        continue;
       }
-    } catch (error: any) {
-      console.error("[markRead] Gmail error:", error.message);
-      res.status(500).json({ error: error.message });
+    }
+    if (clients.length > 0) {
+      console.error("[markRead] Gmail error:", lastError?.message);
+      res
+        .status(500)
+        .json({
+          error: lastError?.message || "Message not found in any account",
+        });
       return;
     }
   }

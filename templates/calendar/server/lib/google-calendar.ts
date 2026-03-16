@@ -1,4 +1,5 @@
-import { google } from "googleapis";
+import { google, type Auth } from "googleapis";
+import fs from "fs";
 import path from "path";
 import type { CalendarEvent, GoogleAuthStatus } from "../../shared/api.js";
 import { readJsonFile, writeJsonFile, deleteJsonFile } from "./data-helpers.js";
@@ -8,7 +9,8 @@ const SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
 ];
 
-const TOKENS_PATH = path.join(process.cwd(), "data", "google-auth.json");
+const ACCOUNTS_DIR = path.join(process.cwd(), "data", "google-accounts");
+const LEGACY_TOKENS_PATH = path.join(process.cwd(), "data", "google-auth.json");
 
 interface GoogleTokens {
   access_token: string;
@@ -16,6 +18,53 @@ interface GoogleTokens {
   expiry_date?: number;
   token_type?: string;
   scope?: string;
+}
+
+function ensureAccountsDir(): void {
+  fs.mkdirSync(ACCOUNTS_DIR, { recursive: true });
+}
+
+function getAccountFiles(): string[] {
+  ensureAccountsDir();
+  try {
+    return fs
+      .readdirSync(ACCOUNTS_DIR)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => path.join(ACCOUNTS_DIR, f));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Migrate legacy single-token file to multi-account format.
+ * If `data/google-auth.json` exists, reads it, fetches the email via the
+ * OAuth2 userinfo API, saves to `data/google-accounts/{email}.json`, then
+ * deletes the old file.
+ */
+async function migrateLegacyTokens(): Promise<void> {
+  const tokens = readJsonFile<GoogleTokens>(LEGACY_TOKENS_PATH);
+  if (!tokens) return;
+
+  ensureAccountsDir();
+
+  try {
+    const client = createOAuth2Client();
+    client.setCredentials(tokens);
+    const oauth2 = google.oauth2({ version: "v2", auth: client });
+    const userInfo = await oauth2.userinfo.get();
+    const email = userInfo.data.email;
+    if (email) {
+      writeJsonFile(path.join(ACCOUNTS_DIR, `${email}.json`), tokens);
+    } else {
+      writeJsonFile(path.join(ACCOUNTS_DIR, "unknown-account.json"), tokens);
+    }
+  } catch {
+    // If we can't reach Google (offline, expired), just move with a fallback name
+    writeJsonFile(path.join(ACCOUNTS_DIR, "migrated-account.json"), tokens);
+  }
+
+  deleteJsonFile(LEGACY_TOKENS_PATH);
 }
 
 function createOAuth2Client(redirectUri?: string) {
@@ -48,66 +97,186 @@ export async function exchangeCode(
   code: string,
   origin?: string,
   redirectUri?: string,
-): Promise<void> {
+): Promise<string> {
   const uri =
     redirectUri || (origin ? `${origin}/api/google/callback` : undefined);
   const client = createOAuth2Client(uri);
   const { tokens } = await client.getToken(code);
-  writeJsonFile(TOKENS_PATH, tokens);
+
+  // Determine the email address for this account
+  client.setCredentials(tokens);
+  const oauth2 = google.oauth2({ version: "v2", auth: client });
+  const userInfo = await oauth2.userinfo.get();
+  const email = userInfo.data.email || "unknown";
+
+  ensureAccountsDir();
+  writeJsonFile(path.join(ACCOUNTS_DIR, `${email}.json`), tokens);
+
+  return email;
 }
 
-export async function getClient() {
-  const tokens = readJsonFile<GoogleTokens>(TOKENS_PATH);
+export async function getClient(
+  email?: string,
+): Promise<Auth.OAuth2Client | null> {
+  await migrateLegacyTokens();
+
+  const files = getAccountFiles();
+  if (files.length === 0) return null;
+
+  let tokenFile: string | undefined;
+  if (email) {
+    tokenFile = files.find((f) => path.basename(f, ".json") === email);
+    if (!tokenFile) return null;
+  } else {
+    tokenFile = files[0];
+  }
+
+  const tokens = readJsonFile<GoogleTokens>(tokenFile);
   if (!tokens) return null;
 
   const client = createOAuth2Client();
   client.setCredentials(tokens);
 
-  // Handle token refresh
   client.on("tokens", (newTokens) => {
     const merged = { ...tokens, ...newTokens };
-    writeJsonFile(TOKENS_PATH, merged);
+    writeJsonFile(tokenFile, merged);
   });
 
   return client;
+}
+
+export async function getClients(): Promise<
+  Array<{ email: string; client: Auth.OAuth2Client }>
+> {
+  await migrateLegacyTokens();
+
+  const files = getAccountFiles();
+  const results: Array<{ email: string; client: Auth.OAuth2Client }> = [];
+
+  for (const file of files) {
+    const tokens = readJsonFile<GoogleTokens>(file);
+    if (!tokens) continue;
+
+    const email = path.basename(file, ".json");
+    const client = createOAuth2Client();
+    client.setCredentials(tokens);
+
+    client.on("tokens", (newTokens) => {
+      const merged = { ...tokens, ...newTokens };
+      writeJsonFile(file, merged);
+    });
+
+    results.push({ email, client });
+  }
+
+  return results;
+}
+
+export function isConnected(): boolean {
+  // Check for legacy file first (will be migrated on next getClient/getClients call)
+  if (fs.existsSync(LEGACY_TOKENS_PATH)) return true;
+
+  const files = getAccountFiles();
+  return files.length > 0;
+}
+
+export function getConnectedAccounts(): string[] {
+  const files = getAccountFiles();
+  return files.map((f) => path.basename(f, ".json"));
+}
+
+export async function getAuthStatus(): Promise<GoogleAuthStatus> {
+  await migrateLegacyTokens();
+
+  const files = getAccountFiles();
+  if (files.length === 0) {
+    return { connected: false, accounts: [] };
+  }
+
+  const accounts: Array<{ email: string; expiresAt?: string }> = [];
+  for (const file of files) {
+    const tokens = readJsonFile<GoogleTokens>(file);
+    if (!tokens) continue;
+    const email = path.basename(file, ".json");
+    accounts.push({
+      email,
+      expiresAt: tokens.expiry_date
+        ? new Date(tokens.expiry_date).toISOString()
+        : undefined,
+    });
+  }
+
+  return {
+    connected: accounts.length > 0,
+    accounts,
+  };
+}
+
+export function disconnect(email?: string): void {
+  if (email) {
+    const filePath = path.join(ACCOUNTS_DIR, `${email}.json`);
+    deleteJsonFile(filePath);
+  } else {
+    // Remove all accounts
+    const files = getAccountFiles();
+    for (const file of files) {
+      deleteJsonFile(file);
+    }
+  }
 }
 
 export async function listEvents(
   timeMin: string,
   timeMax: string,
 ): Promise<CalendarEvent[]> {
-  const client = await getClient();
-  if (!client) return [];
+  const clients = await getClients();
+  if (clients.length === 0) return [];
 
-  const calendar = google.calendar({ version: "v3", auth: client });
-  const response = await calendar.events.list({
-    calendarId: "primary",
-    timeMin,
-    timeMax,
-    singleEvents: true,
-    orderBy: "startTime",
-  });
+  // Fetch from all accounts in parallel
+  const allResults = await Promise.all(
+    clients.map(async ({ email, client }) => {
+      try {
+        const calendar = google.calendar({ version: "v3", auth: client });
+        const response = await calendar.events.list({
+          calendarId: "primary",
+          timeMin,
+          timeMax,
+          singleEvents: true,
+          orderBy: "startTime",
+        });
 
-  const events = response.data.items || [];
-  return events.map((event) => ({
-    id: `google-${event.id}`,
-    title: event.summary || "Untitled",
-    description: event.description || "",
-    start: event.start?.dateTime || event.start?.date || "",
-    end: event.end?.dateTime || event.end?.date || "",
-    location: event.location || "",
-    allDay: !event.start?.dateTime,
-    source: "google" as const,
-    googleEventId: event.id || undefined,
-    createdAt: event.created || new Date().toISOString(),
-    updatedAt: event.updated || new Date().toISOString(),
-  }));
+        const events = response.data.items || [];
+        return events.map((event) => ({
+          id: `google-${event.id}`,
+          title: event.summary || "Untitled",
+          description: event.description || "",
+          start: event.start?.dateTime || event.start?.date || "",
+          end: event.end?.dateTime || event.end?.date || "",
+          location: event.location || "",
+          allDay: !event.start?.dateTime,
+          source: "google" as const,
+          googleEventId: event.id || undefined,
+          accountEmail: email,
+          createdAt: event.created || new Date().toISOString(),
+          updatedAt: event.updated || new Date().toISOString(),
+        }));
+      } catch (error: any) {
+        console.error(
+          `[listEvents] Error fetching from ${email}:`,
+          error.message,
+        );
+        return [];
+      }
+    }),
+  );
+
+  return allResults.flat();
 }
 
 export async function createEvent(
   event: CalendarEvent,
 ): Promise<string | undefined> {
-  const client = await getClient();
+  const client = await getClient(event.accountEmail);
   if (!client) return undefined;
 
   const calendar = google.calendar({ version: "v3", auth: client });
@@ -133,7 +302,7 @@ export async function updateEvent(
   googleEventId: string,
   event: Partial<CalendarEvent>,
 ): Promise<void> {
-  const client = await getClient();
+  const client = await getClient(event.accountEmail);
   if (!client) return;
 
   const calendar = google.calendar({ version: "v3", auth: client });
@@ -160,8 +329,11 @@ export async function updateEvent(
   });
 }
 
-export async function deleteEvent(googleEventId: string): Promise<void> {
-  const client = await getClient();
+export async function deleteEvent(
+  googleEventId: string,
+  accountEmail?: string,
+): Promise<void> {
+  const client = await getClient(accountEmail);
   if (!client) return;
 
   const calendar = google.calendar({ version: "v3", auth: client });
@@ -169,35 +341,4 @@ export async function deleteEvent(googleEventId: string): Promise<void> {
     calendarId: "primary",
     eventId: googleEventId,
   });
-}
-
-export function isConnected(): boolean {
-  const tokens = readJsonFile<GoogleTokens>(TOKENS_PATH);
-  if (!tokens) return false;
-  if (
-    tokens.expiry_date &&
-    tokens.expiry_date < Date.now() &&
-    !tokens.refresh_token
-  ) {
-    return false;
-  }
-  return true;
-}
-
-export async function getAuthStatus(): Promise<GoogleAuthStatus> {
-  const tokens = readJsonFile<GoogleTokens>(TOKENS_PATH);
-  if (!tokens) {
-    return { connected: false };
-  }
-
-  return {
-    connected: true,
-    expiresAt: tokens.expiry_date
-      ? new Date(tokens.expiry_date).toISOString()
-      : undefined,
-  };
-}
-
-export function disconnect(): void {
-  deleteJsonFile(TOKENS_PATH);
 }
