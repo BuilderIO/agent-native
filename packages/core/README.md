@@ -47,11 +47,6 @@ Write and organize content with an agent that knows your brand and publishing wo
 </td>
 </tr>
 <tr>
-<td align="center"><a href="https://agent-native.com/templates/mail"><img src=".github/assets/launch-button.svg" alt="Launch Mail" height="36" /></a></td>
-<td align="center"><a href="https://agent-native.com/templates/calendar"><img src=".github/assets/launch-button.svg" alt="Launch Calendar" height="36" /></a></td>
-<td align="center"><a href="https://agent-native.com/templates/content"><img src=".github/assets/launch-button.svg" alt="Launch Content" height="36" /></a></td>
-</tr>
-<tr>
 <td width="33%" align="center" valign="top">
 
 **Slides**
@@ -85,11 +80,6 @@ Create and edit Remotion video compositions with agent assistance.
 Connect any data source, prompt for any chart. Build reusable dashboards, not throwaway Q&A.
 
 </td>
-</tr>
-<tr>
-<td align="center"><a href="https://agent-native.com/templates/slides"><img src=".github/assets/launch-button.svg" alt="Launch Slides" height="36" /></a></td>
-<td align="center"><a href="https://agent-native.com/templates/video"><img src=".github/assets/launch-button.svg" alt="Launch Video" height="36" /></a></td>
-<td align="center"><a href="https://agent-native.com/templates/analytics"><img src=".github/assets/launch-button.svg" alt="Launch Analytics" height="36" /></a></td>
 </tr>
 </table>
 
