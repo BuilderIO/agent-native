@@ -220,13 +220,24 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
       picker.dispose();
       dragSelect.dispose();
       textSelect.dispose();
+      markerManager.dispose();
     });
   });
+
+  // Pin marker manager (DOM badges outside Shadow DOM)
+  const markerManager = new PinMarkerManager(props.config.markerColor);
+  markerManager.setOnClick((pin) => openEditPopup(pin));
 
   // Load existing pins
   createEffect(() => {
     const pageUrl = window.location.pathname;
     storage.load(pageUrl).then((loaded) => setPins(loaded));
+  });
+
+  // Sync DOM markers whenever pins change
+  createEffect(() => {
+    const currentPins = pins();
+    markerManager.update(currentPins);
   });
 
   function toggleActive() {
