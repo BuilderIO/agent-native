@@ -89,12 +89,11 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
             "align-items": "center",
             "justify-content": "center",
             gap: "6px",
-            padding: "2px",
           }}
           onClick={() => props.onToggleExpand()}
         >
           <span
-            innerHTML={icons.mapPin}
+            innerHTML={icons.pin}
             style={{ display: "flex", "align-items": "center" }}
           />
           {props.pins.length > 0 && (

@@ -67,9 +67,10 @@ export const overlayStyles = `
 }
 
 .pp-toolbar--collapsed {
-  padding: 6px 12px;
+  padding: 10px;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   cursor: pointer;
 }
