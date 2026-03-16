@@ -7,6 +7,7 @@ import { readJsonFile, writeJsonFile, deleteJsonFile } from "./data-helpers.js";
 const SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/userinfo.email",
 ];
 
 const ACCOUNTS_DIR = path.join(process.cwd(), "data", "google-accounts");
@@ -54,7 +55,10 @@ async function migrateLegacyTokens(): Promise<void> {
 
 async function doMigrateLegacyTokens(): Promise<void> {
   const tokens = readJsonFile<GoogleTokens>(LEGACY_TOKENS_PATH);
-  if (!tokens) return;
+  if (!tokens) {
+    deleteJsonFile(LEGACY_TOKENS_PATH);
+    return;
+  }
 
   ensureAccountsDir();
 
@@ -117,7 +121,8 @@ export async function exchangeCode(
   client.setCredentials(tokens);
   const oauth2 = google.oauth2({ version: "v2", auth: client });
   const userInfo = await oauth2.userinfo.get();
-  const email = userInfo.data.email || "unknown";
+  const email = userInfo.data.email;
+  if (!email) throw new Error("Google returned no email address");
 
   ensureAccountsDir();
   writeJsonFile(path.join(ACCOUNTS_DIR, `${email}.json`), tokens);

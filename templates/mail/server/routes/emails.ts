@@ -172,7 +172,6 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
 export async function getEmail(req: Request, res: Response): Promise<void> {
   if (isConnected()) {
     const clients = await getClients();
-    let lastError: any = null;
     for (const { email, client } of clients) {
       try {
         const gmail = google.gmail({ version: "v1", auth: client });
@@ -184,18 +183,17 @@ export async function getEmail(req: Request, res: Response): Promise<void> {
         res.json(gmailToEmailMessage((msg as any).data, email));
         return;
       } catch (error: any) {
-        lastError = error;
-        // Message not found in this account, try next
-        continue;
+        const status = error?.response?.status ?? error?.code;
+        // Only continue to next account on 404 (not found in this account)
+        if (status === 404) continue;
+        // Surface auth/rate-limit/other errors immediately
+        console.error("[getEmail] Gmail error:", error.message);
+        res.status(status || 500).json({ error: error.message });
+        return;
       }
     }
     if (clients.length > 0) {
-      console.error("[getEmail] Gmail error:", lastError?.message);
-      res
-        .status(500)
-        .json({
-          error: lastError?.message || "Message not found in any account",
-        });
+      res.status(404).json({ error: "Message not found in any account" });
       return;
     }
   }
@@ -212,13 +210,13 @@ export async function getEmail(req: Request, res: Response): Promise<void> {
 // ─── Mark read ────────────────────────────────────────────────────────────────
 
 export async function markRead(req: Request, res: Response): Promise<void> {
-  const { isRead } = req.body;
+  const { isRead, accountEmail } = req.body;
 
   if (isConnected()) {
-    const clients = await getClients();
-    let lastError: any = null;
-    for (const { client } of clients) {
-      try {
+    try {
+      // Route to specific account if provided, otherwise try first client
+      const client = await getClient(accountEmail);
+      if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
         await gmail.users.messages.modify({
           userId: "me",
@@ -229,18 +227,10 @@ export async function markRead(req: Request, res: Response): Promise<void> {
         });
         res.json({ id: req.params.id, isRead });
         return;
-      } catch (error: any) {
-        lastError = error;
-        continue;
       }
-    }
-    if (clients.length > 0) {
-      console.error("[markRead] Gmail error:", lastError?.message);
-      res
-        .status(500)
-        .json({
-          error: lastError?.message || "Message not found in any account",
-        });
+    } catch (error: any) {
+      console.error("[markRead] Gmail error:", error.message);
+      res.status(500).json({ error: error.message });
       return;
     }
   }
