@@ -99,11 +99,9 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
       const { messages, errors } = await listGmailMessages(searchQuery);
       if (messages.length === 0 && errors.length > 0) {
         // All accounts failed — surface as error
-        res
-          .status(502)
-          .json({
-            error: errors.map((e) => `${e.email}: ${e.error}`).join("; "),
-          });
+        res.status(502).json({
+          error: errors.map((e) => `${e.email}: ${e.error}`).join("; "),
+        });
         return;
       }
       const emails = messages.map((m) => gmailToEmailMessage(m));
