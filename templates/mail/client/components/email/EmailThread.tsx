@@ -438,7 +438,7 @@ function HtmlEmailBody({ html }: { html: string }) {
   return (
     <iframe
       ref={iframeRef}
-      sandbox="allow-same-origin"
+      sandbox="allow-same-origin allow-popups"
       style={{
         width: "100%",
         height: `${height}px`,
