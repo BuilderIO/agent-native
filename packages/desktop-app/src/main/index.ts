@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   ipcMain,
   session,
+  shell,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
@@ -83,6 +84,21 @@ ipcMain.handle(
 ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
   BrowserWindow.getAllWindows().forEach((win) => {
     win.webContents.send(IPC.INTER_APP_MESSAGE, msg);
+  });
+});
+
+// ---------- Webview popup handling ----------
+// Open popups from webviews (e.g. OAuth flows) in the system browser
+// instead of creating broken Electron popup windows.
+
+app.on("web-contents-created", (_event, contents) => {
+  // Only intercept webview guest contents
+  if (contents.getType() !== "webview") return;
+
+  contents.setWindowOpenHandler(({ url }) => {
+    // Open in system browser — OAuth polling in the app will detect completion
+    shell.openExternal(url);
+    return { action: "deny" };
   });
 });
 

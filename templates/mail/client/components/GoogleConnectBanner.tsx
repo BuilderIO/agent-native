@@ -56,7 +56,13 @@ const STEPS = [
   },
 ];
 
-export function GoogleConnectBanner() {
+interface GoogleConnectBannerProps {
+  variant?: "banner" | "hero";
+}
+
+export function GoogleConnectBanner({
+  variant = "banner",
+}: GoogleConnectBannerProps) {
   const [wantAuthUrl, setWantAuthUrl] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
@@ -196,10 +202,204 @@ export function GoogleConnectBanner() {
 
   if (dismissed) return null;
 
+  // Full-page hero for first-time setup
+  if (variant === "hero" && !hasAccounts) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center text-center px-6">
+        <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-white/[0.06]">
+          <Mail className="h-7 w-7 text-white/40" />
+        </div>
+        <h2 className="text-lg font-semibold text-foreground">
+          Connect your Google account
+        </h2>
+        <p className="mt-2 max-w-sm text-sm text-muted-foreground leading-relaxed">
+          Send and receive real email. Connect your Gmail account to get
+          started.
+        </p>
+        <Button
+          size="sm"
+          className="mt-8 gap-2 px-5 h-9 text-sm font-medium bg-white text-black hover:bg-white/90"
+          onClick={handleConnect}
+          disabled={authUrl.isLoading || authUrl.isFetching}
+        >
+          <GoogleIcon className="h-4 w-4" />
+          {authUrl.isLoading
+            ? "Connecting..."
+            : allConfigured
+              ? "Sign in with Google"
+              : "Set up Google"}
+        </Button>
+
+        {showWizard && !allConfigured && (
+          <div className="mt-10 w-full max-w-lg text-left">
+            <p className="text-xs text-muted-foreground mb-3">
+              Follow these steps to connect your Google account. Takes about 3
+              minutes.
+            </p>
+            <div className="space-y-3">
+              {STEPS.map((step, i) => {
+                const isActive = i === currentStep;
+                const isCompleted =
+                  i < currentStep || (i === STEPS.length - 1 && saved);
+
+                return (
+                  <div
+                    key={i}
+                    role="button"
+                    tabIndex={0}
+                    className={`w-full text-left rounded-lg border p-3 transition-colors cursor-pointer ${
+                      isActive
+                        ? "border-white/20 bg-white/[0.03]"
+                        : isCompleted
+                          ? "border-green-500/20 bg-green-500/5"
+                          : "border-border/50 opacity-50"
+                    }`}
+                    onClick={() => !saved && setCurrentStep(i)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        !saved && setCurrentStep(i);
+                      }
+                    }}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <div className="mt-0.5 shrink-0">
+                        {isCompleted ? (
+                          <Check className="h-3.5 w-3.5 text-green-500" />
+                        ) : isActive ? (
+                          <Circle className="h-3.5 w-3.5 text-white fill-white" />
+                        ) : (
+                          <Circle className="h-3.5 w-3.5 text-muted-foreground" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">
+                          <span className="text-muted-foreground mr-1.5">
+                            {i + 1}.
+                          </span>
+                          {step.title}
+                        </p>
+
+                        {isActive && (
+                          <div className="mt-2 space-y-2.5">
+                            <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
+                              {step.description}
+                            </p>
+
+                            {step.showRedirectUri && (
+                              <div className="flex items-center gap-2">
+                                <code className="flex-1 rounded bg-muted px-2 py-1.5 text-xs font-mono break-all select-all">
+                                  {redirectUri}
+                                </code>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="shrink-0 text-xs h-7"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    copyToClipboard(redirectUri, "redirect");
+                                  }}
+                                >
+                                  {copiedKey === "redirect" ? (
+                                    <>
+                                      <Check className="h-3 w-3" />
+                                      Copied
+                                    </>
+                                  ) : (
+                                    "Copy"
+                                  )}
+                                </Button>
+                              </div>
+                            )}
+
+                            {step.url && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="gap-1.5 text-xs h-7"
+                                asChild
+                              >
+                                <a
+                                  href={step.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (i < STEPS.length - 1) {
+                                      setCurrentStep(i + 1);
+                                    }
+                                  }}
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  {step.linkText}
+                                </a>
+                              </Button>
+                            )}
+
+                            {step.showUpload && !allConfigured && (
+                              <div
+                                className="space-y-2.5"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <input
+                                  ref={fileInputRef}
+                                  type="file"
+                                  accept=".json"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) handleJsonUpload(file);
+                                  }}
+                                />
+                                {saveError && (
+                                  <p className="text-xs text-destructive">
+                                    {saveError}
+                                  </p>
+                                )}
+                                <Button
+                                  size="sm"
+                                  className="h-7 text-xs gap-1.5 bg-white text-black hover:bg-white/90"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    fileInputRef.current?.click();
+                                  }}
+                                  disabled={saving}
+                                >
+                                  {saving ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Upload className="h-3 w-3" />
+                                  )}
+                                  {saving ? "Saving..." : "Upload JSON"}
+                                </Button>
+                              </div>
+                            )}
+
+                            {step.showUpload && allConfigured && (
+                              <div className="flex items-center gap-2 text-xs text-green-500">
+                                <Check className="h-3.5 w-3.5" />
+                                Credentials configured. Click "Sign in with
+                                Google" above to connect.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // Connected with accounts — show compact account strip
   if (hasAccounts && allConfigured) {
     return (
-      <div className="border-b border-border/30 bg-[hsl(220,6%,11%)]">
+      <div className="border-b border-border/30 bg-card">
         <div className="flex items-center justify-between gap-3 px-4 py-1.5">
           <div className="flex items-center gap-2 min-w-0">
             {accounts.map((account) => (
@@ -239,7 +439,7 @@ export function GoogleConnectBanner() {
 
   // Not connected or not configured — show setup banner
   return (
-    <div className="border-b border-border/30 bg-[hsl(220,6%,11%)]">
+    <div className="border-b border-border/30 bg-card">
       {/* Compact banner row */}
       <div className="flex items-center justify-between gap-3 px-4 py-2">
         <div className="flex items-center gap-2.5">
@@ -277,8 +477,7 @@ export function GoogleConnectBanner() {
           ) : (
             <Button
               size="sm"
-              variant="outline"
-              className="gap-1.5 text-xs h-7 font-medium"
+              className="gap-1.5 text-xs h-7 font-medium bg-white text-black hover:bg-white/90"
               onClick={handleConnect}
               disabled={authUrl.isLoading || authUrl.isFetching}
             >

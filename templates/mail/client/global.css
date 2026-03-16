@@ -5,35 +5,65 @@
 @tailwind utilities;
 
 @layer base {
-  :root,
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 220 10% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 10% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 10% 10%;
+    --primary: 220 10% 15%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 10% 95%;
+    --secondary-foreground: 220 10% 15%;
+    --muted: 220 10% 95%;
+    --muted-foreground: 220 5% 45%;
+    --accent: 220 10% 95%;
+    --accent-foreground: 220 10% 15%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 10% 90%;
+    --input: 220 10% 90%;
+    --ring: 220 10% 40%;
+    --radius: 0.5rem;
+    --sidebar-background: 220 10% 97%;
+    --sidebar-foreground: 220 5% 45%;
+    --sidebar-primary: 220 10% 15%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 10% 95%;
+    --sidebar-accent-foreground: 220 10% 15%;
+    --sidebar-border: 220 10% 90%;
+    --sidebar-ring: 220 10% 40%;
+  }
+
   .dark {
-    --background: 220 6% 10%;
+    --background: 220 6% 6%;
     --foreground: 0 0% 90%;
-    --card: 220 5% 13%;
+    --card: 220 5% 9%;
     --card-foreground: 0 0% 90%;
-    --popover: 220 5% 13%;
+    --popover: 220 5% 9%;
     --popover-foreground: 0 0% 90%;
     --primary: 0 0% 75%;
-    --primary-foreground: 220 6% 10%;
-    --secondary: 220 4% 16%;
+    --primary-foreground: 220 6% 6%;
+    --secondary: 220 4% 12%;
     --secondary-foreground: 0 0% 90%;
-    --muted: 220 4% 14%;
+    --muted: 220 4% 10%;
     --muted-foreground: 220 4% 50%;
-    --accent: 220 4% 17%;
+    --accent: 220 4% 13%;
     --accent-foreground: 0 0% 90%;
     --destructive: 0 63% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 220 4% 18%;
-    --input: 220 4% 18%;
+    --border: 220 4% 14%;
+    --input: 220 4% 14%;
     --ring: 0 0% 60%;
     --radius: 0.5rem;
-    --sidebar-background: 220 6% 8%;
+    --sidebar-background: 220 6% 4%;
     --sidebar-foreground: 220 4% 50%;
     --sidebar-primary: 0 0% 75%;
-    --sidebar-primary-foreground: 220 6% 10%;
-    --sidebar-accent: 220 4% 14%;
+    --sidebar-primary-foreground: 220 6% 6%;
+    --sidebar-accent: 220 4% 10%;
     --sidebar-accent-foreground: 0 0% 90%;
-    --sidebar-border: 220 4% 14%;
+    --sidebar-border: 220 4% 10%;
     --sidebar-ring: 0 0% 60%;
   }
 }
@@ -104,15 +134,15 @@
 
 /* Highlight focused email row — left border like Superhuman */
 .email-list-row.focused {
-  background: hsl(220 5% 14%);
-  border-left: 3px solid hsl(210 50% 50%);
+  background: hsl(var(--accent));
+  border-left: 3px solid hsl(var(--ring));
   padding-left: calc(0.75rem - 3px);
 }
 
 /* Selected email row — stronger highlight */
 .email-list-row.selected {
-  background: hsl(220 6% 16%);
-  border-left: 3px solid hsl(210 50% 50%);
+  background: hsl(var(--secondary));
+  border-left: 3px solid hsl(var(--ring));
   padding-left: calc(0.75rem - 3px);
 }
 

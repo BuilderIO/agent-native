@@ -8,6 +8,7 @@ import {
   useSequenceShortcuts,
 } from "@/hooks/use-keyboard-shortcuts";
 import { useLabels, useSettings } from "@/hooks/use-emails";
+import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 
 interface AppLayoutProps {
@@ -32,6 +33,8 @@ export function AppLayout({ children }: AppLayoutProps) {
   const { view = "inbox" } = useParams<{ view: string }>();
   const { data: labels = [] } = useLabels();
   const { data: settings } = useSettings();
+  const googleStatus = useGoogleAuthStatus();
+  const hasAccounts = (googleStatus.data?.accounts ?? []).length > 0;
 
   const handleCompose = useCallback(() => setComposeOpen(true), []);
 
@@ -86,7 +89,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       {/* Main content area */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Top nav bar */}
-        <header className="flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-[hsl(220,6%,9%)] px-2">
+        <header className="flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2">
           {/* Category tabs */}
           <nav className="flex items-center gap-0.5 overflow-x-auto hide-scrollbar">
             {categoryTabs.map((tab) => {
@@ -184,10 +187,15 @@ export function AppLayout({ children }: AppLayoutProps) {
           </button>
         </header>
 
-        <GoogleConnectBanner />
-
-        {/* Page content */}
-        <main className="flex flex-1 overflow-hidden">{children}</main>
+        {/* Show full-page takeover when no accounts connected, otherwise inline banner + content */}
+        {!googleStatus.isLoading && !hasAccounts ? (
+          <GoogleConnectBanner variant="hero" />
+        ) : (
+          <>
+            <GoogleConnectBanner variant="banner" />
+            <main className="flex flex-1 overflow-hidden">{children}</main>
+          </>
+        )}
       </div>
 
       <ComposeModal open={composeOpen} onOpenChange={setComposeOpen} />

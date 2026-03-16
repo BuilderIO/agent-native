@@ -168,9 +168,20 @@ function Home() {
           </p>
 
           <div className="flex items-center justify-center gap-4">
-            <Link
-              to="/templates"
-              className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+            <a
+              href="#templates"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                borderRadius: "9999px",
+                backgroundColor: "#000",
+                padding: "12px 24px",
+                fontSize: "14px",
+                fontWeight: 500,
+                color: "#fff",
+                textDecoration: "none",
+              }}
             >
               Launch a Template
               <svg
@@ -186,7 +197,7 @@ function Home() {
                 <line x1="5" y1="12" x2="19" y2="12" />
                 <polyline points="12 5 19 12 12 19" />
               </svg>
-            </Link>
+            </a>
             <a
               href="https://github.com/BuilderIO/agent-native"
               target="_blank"
@@ -210,7 +221,7 @@ function Home() {
       </main>
 
       {/* Templates - breaks out of max-width on ultra-wide screens */}
-      <section className="py-20 px-6">
+      <section id="templates" className="py-20 px-6">
         <div className="mb-12 text-center">
           <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
             Start with a full featured template
@@ -603,9 +614,20 @@ function Home() {
             Yours.
           </p>
           <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <Link
-              to="/templates"
-              className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+            <a
+              href="#templates"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                borderRadius: "9999px",
+                backgroundColor: "#000",
+                padding: "12px 24px",
+                fontSize: "14px",
+                fontWeight: 500,
+                color: "#fff",
+                textDecoration: "none",
+              }}
             >
               Launch a Template
               <svg
@@ -621,7 +643,7 @@ function Home() {
                 <line x1="5" y1="12" x2="19" y2="12" />
                 <polyline points="12 5 19 12 12 19" />
               </svg>
-            </Link>
+            </a>
             <Link
               to="/docs"
               className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
