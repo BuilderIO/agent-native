@@ -173,8 +173,8 @@ export default function ArrRevenueDashboard() {
         </p>
         <p>
           <span className="font-medium text-foreground">Product Groups</span>{" "}
-          &mdash; "CMS + AI" includes CMS, VCP, and Develop products.
-          "Shopify" is Shopify-sourced revenue.
+          &mdash; "CMS + AI" includes CMS, VCP, and Develop products. "Shopify"
+          is Shopify-sourced revenue.
         </p>
         <p>
           <span className="font-medium text-foreground">Status Groups</span>{" "}

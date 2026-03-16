@@ -109,12 +109,12 @@ When investigating production issues (spikes, outages, errors, performance degra
 
 ## DevRel Team
 
-| Name           | Twitter Handle |
-| -------------- | -------------- |
-| Jane Doe       | @janedoe       |
-| Alex Chen      | @alexchen_dev  |
-| Sam Patel      | @sampateldev   |
-| Taylor Kim     | @taylorkimdev  |
+| Name       | Twitter Handle |
+| ---------- | -------------- |
+| Jane Doe   | @janedoe       |
+| Alex Chen  | @alexchen_dev  |
+| Sam Patel  | @sampateldev   |
+| Taylor Kim | @taylorkimdev  |
 
 Defined in `client/pages/adhoc/devrel-leaderboard/TwitterSection.tsx` as `DEVREL_TWITTER_USERS`.
 
@@ -178,12 +178,12 @@ AND signups.email = dim_hs_contacts.email
 
 ## Reusable Scripts
 
-| Script                       | Description                                                          |
-| ---------------------------- | -------------------------------------------------------------------- |
-| `acme-product-messages.ts`   | HubSpot → BigQuery → Amplitude pipeline for Acme Corp (`--days=N`)  |
-| `acme-users-daily.ts`        | Daily per-user breakdown for Acme Corp orgs                         |
-| `initech-users-daily.ts`     | HubSpot → BigQuery → Amplitude pipeline for Initech (`--days=N`)    |
-| `initech-chart.ts`           | Stacked bar chart of Initech product messages by user                |
-| `product-users-by-tier.ts`   | Daily unique product users by plan tier                              |
-| `product-users-by-email.ts`  | Top product users by message count                                   |
-| `globex-product-users.ts`    | HubSpot → BigQuery → Amplitude for Globex Inc                       |
+| Script                      | Description                                                        |
+| --------------------------- | ------------------------------------------------------------------ |
+| `acme-product-messages.ts`  | HubSpot → BigQuery → Amplitude pipeline for Acme Corp (`--days=N`) |
+| `acme-users-daily.ts`       | Daily per-user breakdown for Acme Corp orgs                        |
+| `initech-users-daily.ts`    | HubSpot → BigQuery → Amplitude pipeline for Initech (`--days=N`)   |
+| `initech-chart.ts`          | Stacked bar chart of Initech product messages by user              |
+| `product-users-by-tier.ts`  | Daily unique product users by plan tier                            |
+| `product-users-by-email.ts` | Top product users by message count                                 |
+| `globex-product-users.ts`   | HubSpot → BigQuery → Amplitude for Globex Inc                      |

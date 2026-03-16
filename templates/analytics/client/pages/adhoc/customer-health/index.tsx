@@ -104,8 +104,8 @@ export default function CustomerHealthDashboard() {
           </div>
           <h3 className="text-lg font-medium">Search for a customer</h3>
           <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-            Enter a company name above to load their health dashboard with
-            agent chat usage, subscriptions, and user activity.
+            Enter a company name above to load their health dashboard with agent
+            chat usage, subscriptions, and user activity.
           </p>
         </div>
       )}

@@ -5,7 +5,8 @@ const REVENUE_FUNNEL = "`your-gcp-project-id.dbt_analytics.revenue_funnel`";
 const HS_DEALS = "`your-gcp-project-id.dbt_mart.dim_hs_deals`";
 const HS_CONTACTS = "`your-gcp-project-id.dbt_mart.dim_hs_contacts`";
 const ARR_TRACKER = "`your-gcp-project-id.dbt_mart.dim_arr_revenue_tracker`";
-const DAILY_ARR = "`your-gcp-project-id.dbt_analytics.daily_arr_by_subscriptions`";
+const DAILY_ARR =
+  "`your-gcp-project-id.dbt_analytics.daily_arr_by_subscriptions`";
 const PRODUCT_SIGNUPS = "`your-gcp-project-id.dbt_analytics.product_signups`";
 const ACTIVE_USERS = "`your-gcp-project-id.dbt_analytics.active_users`";
 
