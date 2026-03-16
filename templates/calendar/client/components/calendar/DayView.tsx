@@ -181,15 +181,15 @@ export function DayView({ events, date, onEventClick }: DayViewProps) {
                   borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
                 }}
               >
-                <div className="font-semibold leading-tight text-foreground">
+                <div className="truncate font-semibold leading-tight text-foreground">
                   {event.title}
                 </div>
-                <div className="mt-0.5 text-[11px] text-foreground/60">
+                <div className="truncate mt-0.5 text-[11px] text-foreground/60">
                   {format(parseISO(event.start), "h:mm a")} –{" "}
                   {format(parseISO(event.end), "h:mm a")}
                 </div>
                 {event.location && (
-                  <div className="mt-0.5 text-[11px] text-foreground/50">
+                  <div className="truncate mt-0.5 text-[11px] text-foreground/50">
                     📍 {event.location}
                   </div>
                 )}
