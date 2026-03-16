@@ -142,19 +142,21 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
             </div>
           </div>
 
-          {/* Active indicator */}
-          <div
-            style={{
-              "font-size": "11px",
-              color: "var(--pp-accent)",
-              display: "flex",
-              "align-items": "center",
-              gap: "4px",
-            }}
-          >
-            <span innerHTML={icons.crosshair} />
-            Click any element to annotate
-          </div>
+          {/* Active indicator — only when no pins yet */}
+          {props.pins.length === 0 && (
+            <div
+              style={{
+                "font-size": "11px",
+                color: "var(--pp-accent)",
+                display: "flex",
+                "align-items": "center",
+                gap: "4px",
+              }}
+            >
+              <span innerHTML={icons.crosshair} />
+              Click any element to annotate
+            </div>
+          )}
 
           {/* Pin list */}
           {props.pins.length > 0 && (
