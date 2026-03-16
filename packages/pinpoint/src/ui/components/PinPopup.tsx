@@ -82,7 +82,7 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
             }
           }}
         >
-          <span innerHTML={icons.fileCode} />{" "}
+          <span innerHTML={icons.fileCode} style={{ display: "inline-flex", "vertical-align": "middle" }} />{" "}
           {props.context.framework.sourceFile}
         </div>
       )}
@@ -114,7 +114,7 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
           onClick={handleSubmit}
           disabled={!comment().trim()}
         >
-          <span innerHTML={props.isEditing ? icons.check : icons.pin} />
+          <span innerHTML={props.isEditing ? icons.check : icons.pin} style={{ display: "inline-flex", "vertical-align": "middle" }} />
           {props.isEditing ? "Save" : "Add Pin"}
         </button>
       </div>
