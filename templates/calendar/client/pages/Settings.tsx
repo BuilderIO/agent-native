@@ -76,11 +76,16 @@ export default function Settings() {
     }
   }, [authUrl.error]);
 
-  function handleDisconnect() {
-    disconnectGoogle.mutate(undefined, {
-      onSuccess: () => toast.success("Google Calendar disconnected"),
-      onError: () => toast.error("Failed to disconnect"),
-    });
+  async function handleDisconnect() {
+    const accounts = googleStatus.data?.accounts ?? [];
+    try {
+      for (const account of accounts) {
+        await disconnectGoogle.mutateAsync(account.email);
+      }
+      toast.success("Google Calendar disconnected");
+    } catch {
+      toast.error("Failed to disconnect");
+    }
   }
 
   return (
@@ -108,9 +113,11 @@ export default function Settings() {
                   <CheckCircle2 className="h-5 w-5 text-green-500" />
                   <div>
                     <p className="text-sm font-medium">Connected</p>
-                    {googleStatus.data.email && (
+                    {googleStatus.data.accounts?.length > 0 && (
                       <p className="text-xs text-muted-foreground">
-                        {googleStatus.data.email}
+                        {googleStatus.data.accounts
+                          .map((a) => a.email)
+                          .join(", ")}
                       </p>
                     )}
                   </div>

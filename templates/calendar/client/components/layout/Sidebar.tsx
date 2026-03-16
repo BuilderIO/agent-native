@@ -252,14 +252,16 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           <GoogleConnectSidebarButton />
         )}
 
-        {isConnected && googleStatus.data?.email && (
+        {isConnected && googleStatus.data?.accounts?.length > 0 && (
           <div className="border-t border-border px-3 py-3">
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-emerald-500" />
-              <p className="truncate text-xs text-muted-foreground">
-                {googleStatus.data.email}
-              </p>
-            </div>
+            {googleStatus.data.accounts.map((account) => (
+              <div key={account.email} className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                <p className="truncate text-xs text-muted-foreground">
+                  {account.email}
+                </p>
+              </div>
+            ))}
           </div>
         )}
       </aside>

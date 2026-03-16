@@ -45,8 +45,12 @@ export function useGoogleAuthUrl(enabled = false) {
 export function useDisconnectGoogle() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/google/disconnect", { method: "POST" });
+    mutationFn: async (email: string) => {
+      const res = await fetch("/api/google/disconnect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
       if (!res.ok) throw new Error("Failed to disconnect Google");
       return res.json();
     },

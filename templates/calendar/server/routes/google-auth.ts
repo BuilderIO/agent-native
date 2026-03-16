@@ -18,7 +18,7 @@ export function getGoogleAuthUrl(req: Request, res: Response): void {
     res.status(422).json({
       error: "missing_credentials",
       message:
-        "Google OAuth credentials are not configured. Add your Client ID and Secret in Settings → API Keys.",
+        "Google OAuth credentials are not configured. Add your Client ID and Secret in Settings.",
     });
     return;
   }
@@ -46,10 +46,10 @@ export async function handleGoogleCallback(
     }
     const redirectUri =
       lastRedirectUri || `${getOrigin(req)}/api/google/callback`;
-    await exchangeCode(code, undefined, redirectUri);
+    const email = await exchangeCode(code, undefined, redirectUri);
     res.send(`<!DOCTYPE html><html><body><script>
       window.close();
-      document.body.innerHTML = '<p style="font-family:system-ui;text-align:center;margin-top:40vh">Connected! You can close this tab.</p>';
+      document.body.innerHTML = '<p style="font-family:system-ui;text-align:center;margin-top:40vh">Connected ${email}! You can close this tab.</p>';
     </script></body></html>`);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -68,9 +68,10 @@ export async function getGoogleStatus(
   }
 }
 
-export function disconnectGoogle(_req: Request, res: Response): void {
+export function disconnectGoogle(req: Request, res: Response): void {
   try {
-    disconnect();
+    const email = req.body?.email as string | undefined;
+    disconnect(email);
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
