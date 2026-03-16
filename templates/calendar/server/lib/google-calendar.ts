@@ -70,12 +70,9 @@ async function doMigrateLegacyTokens(): Promise<void> {
     const email = userInfo.data.email;
     if (email) {
       writeJsonFile(path.join(ACCOUNTS_DIR, `${email}.json`), tokens);
-    } else {
-      writeJsonFile(path.join(ACCOUNTS_DIR, "unknown-account.json"), tokens);
     }
   } catch {
-    // If we can't reach Google (offline, expired), just move with a fallback name
-    writeJsonFile(path.join(ACCOUNTS_DIR, "migrated-account.json"), tokens);
+    // Can't reach Google (offline, expired) — don't write phantom files
   }
 
   deleteJsonFile(LEGACY_TOKENS_PATH);
@@ -244,11 +241,12 @@ export function disconnect(email?: string): void {
 export async function listEvents(
   timeMin: string,
   timeMax: string,
-): Promise<CalendarEvent[]> {
+): Promise<{ events: CalendarEvent[]; errors: Array<{ email: string; error: string }> }> {
   const clients = await getClients();
-  if (clients.length === 0) return [];
+  if (clients.length === 0) return { events: [], errors: [] };
 
-  // Fetch from all accounts in parallel
+  const errors: Array<{ email: string; error: string }> = [];
+
   const allResults = await Promise.all(
     clients.map(async ({ email, client }) => {
       try {
@@ -281,12 +279,13 @@ export async function listEvents(
           `[listEvents] Error fetching from ${email}:`,
           error.message,
         );
+        errors.push({ email, error: error.message });
         return [];
       }
     }),
   );
 
-  return allResults.flat();
+  return { events: allResults.flat(), errors };
 }
 
 export async function createEvent(
