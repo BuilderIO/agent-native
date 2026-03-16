@@ -339,7 +339,25 @@ function getBody(payload: any): string {
   return "";
 }
 
-export function gmailToEmailMessage(msg: any, accountEmail?: string): any {
+export async function fetchGmailLabelMap(
+  client: Auth.OAuth2Client,
+): Promise<Map<string, string>> {
+  const gmail = google.gmail({ version: "v1", auth: client });
+  const res = await gmail.users.labels.list({ userId: "me" });
+  const map = new Map<string, string>();
+  for (const label of res.data.labels || []) {
+    if (label.id && label.name) {
+      map.set(label.id, label.name);
+    }
+  }
+  return map;
+}
+
+export function gmailToEmailMessage(
+  msg: any,
+  accountEmail?: string,
+  labelMap?: Map<string, string>,
+): any {
   const headers = msg.payload?.headers || [];
   const from = parseEmailAddress(getHeader(headers, "From"));
   const to = parseAddressList(getHeader(headers, "To"));
@@ -382,7 +400,13 @@ export function gmailToEmailMessage(msg: any, accountEmail?: string): any {
             "CATEGORY_FORUMS",
           ].includes(l),
       )
-      .map((l: string) => l.toLowerCase()),
+      .map((l: string) => {
+        let name = labelMap?.get(l) || l;
+        // Use last segment of nested labels (e.g. "[Superhuman]/AI/Respond" → "Respond")
+        const lastSlash = name.lastIndexOf("/");
+        if (lastSlash >= 0) name = name.slice(lastSlash + 1);
+        return name.replace(/_/g, " ").toLowerCase();
+      }),
     accountEmail: accountEmail || msg._accountEmail,
   };
 }

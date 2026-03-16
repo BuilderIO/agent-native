@@ -100,7 +100,7 @@ export function CreateEventDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="dark sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>New Event</DialogTitle>
         </DialogHeader>
