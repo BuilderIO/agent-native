@@ -1,7 +1,7 @@
 // @agent-native/pinpoint — Pin creation/edit popup
 // MIT License
 
-import { createSignal, onMount, type Component } from "solid-js";
+import { createSignal, onMount, onCleanup, type Component } from "solid-js";
 import type { ElementContext } from "../../types/index.js";
 import { icons } from "../icons/index.js";
 
@@ -22,10 +22,19 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
 
   onMount(() => {
     textareaRef?.focus();
-    // Place cursor at end when editing
     if (props.initialComment && textareaRef) {
       textareaRef.selectionStart = textareaRef.value.length;
     }
+
+    // Global Escape listener (works even when textarea isn't focused)
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        props.onCancel();
+      }
+    };
+    document.addEventListener("keydown", onEsc, true);
+    onCleanup(() => document.removeEventListener("keydown", onEsc, true));
   });
 
   function handleSubmit() {
