@@ -76,6 +76,11 @@ export function App() {
     ? `http://localhost:${activeAppConfig.appPort}`
     : `http://localhost:8081`;
 
+  // Set cookie so the harness API proxy knows which app to route to
+  useEffect(() => {
+    document.cookie = `active_app=${activeApp}; path=/; SameSite=Lax`;
+  }, [activeApp]);
+
   const { termRef, iframeRef, connected, setupStatus, connect, restart, fit } =
     useTerminal();
 
@@ -179,7 +184,9 @@ export function App() {
   // Terminal header — lives inside the terminal pane only
   const terminalHeader = (
     <div className="flex items-center gap-2 px-3 h-10 shrink-0">
-      <span className="text-[13px] font-medium text-white/90">{activeApp}</span>
+      <span className="text-[13px] font-medium text-white/90">
+        {activeApp.charAt(0).toUpperCase() + activeApp.slice(1)}
+      </span>
       <span className="flex-1" />
 
       <a
@@ -347,6 +354,15 @@ export function App() {
             className="w-full h-full border-none"
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-presentation allow-downloads"
             allow="clipboard-read; clipboard-write; fullscreen; camera; microphone; geolocation; display-capture"
+            onLoad={() => {
+              iframeRef.current?.contentWindow?.postMessage(
+                {
+                  type: "builder.harnessOrigin",
+                  origin: window.location.origin,
+                },
+                "*",
+              );
+            }}
           />
         </div>
 

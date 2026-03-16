@@ -39,6 +39,40 @@ export function onHarnessMessage(
 }
 
 // ---------------------------------------------------------------------------
+// Harness Origin
+// ---------------------------------------------------------------------------
+
+let _harnessOrigin: string | null = null;
+
+// Listen for harness origin message and cache it
+if (typeof window !== "undefined") {
+  window.addEventListener("message", (event: MessageEvent) => {
+    if (event.data?.type === "builder.harnessOrigin" && event.data.origin) {
+      _harnessOrigin = event.data.origin;
+    }
+  });
+}
+
+/**
+ * Get the harness origin (e.g. "http://localhost:3334").
+ * Returns null if not running inside a harness iframe.
+ */
+export function getHarnessOrigin(): string | null {
+  return _harnessOrigin;
+}
+
+/**
+ * Get the best origin for OAuth callbacks — harness origin if available,
+ * otherwise the current window origin.
+ */
+export function getCallbackOrigin(): string {
+  return (
+    _harnessOrigin ||
+    (typeof window !== "undefined" ? window.location.origin : "")
+  );
+}
+
+// ---------------------------------------------------------------------------
 // User Info
 // ---------------------------------------------------------------------------
 

@@ -138,6 +138,12 @@ export function EmailList({ focusedId, setFocusedId }: EmailListProps) {
             <p className="mt-1 text-xs text-red-400/70">
               {emailsError.message}
             </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-3 text-xs text-foreground/60 hover:text-foreground underline underline-offset-2"
+            >
+              Reload page
+            </button>
           </div>
         </div>
       </div>

@@ -1,5 +1,7 @@
 # Calendar — Agent Guide
 
+You are the AI assistant for this calendar app. You can view, create, update, and manage the user's calendar events, bookings, and availability. When a user asks about their schedule (e.g. "what's on my calendar today", "find a free slot", "create a meeting"), use the scripts and data files below to answer.
+
 This is an **agent-native** app built with `@agent-native/core`. See `.agents/skills/` for the framework rules that apply to all agent-native apps:
 
 - **files-as-database** — All state is files. No databases, no localStorage.

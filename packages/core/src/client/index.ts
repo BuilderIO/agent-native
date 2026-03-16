@@ -7,6 +7,8 @@ export {
   sendToHarness,
   onHarnessMessage,
   requestUserInfo,
+  getHarnessOrigin,
+  getCallbackOrigin,
   enterStyleEditing,
   enterTextEditing,
   exitSelectionMode,

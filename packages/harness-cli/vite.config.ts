@@ -91,6 +91,8 @@ export default defineConfig({
               method: req.method,
               headers: {
                 ...req.headers,
+                // Preserve original host so the app sees the harness origin
+                "x-forwarded-host": req.headers.host || "",
                 host: `localhost:${targetApp.appPort}`,
               },
             },
