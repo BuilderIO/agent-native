@@ -816,6 +816,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@agent-native/pinpoint':
+        specifier: workspace:*
+        version: link:../../packages/pinpoint
       '@google/genai':
         specifier: ^1.41.0
         version: 1.44.0(@modelcontextprotocol/sdk@1.27.1(zod@3.25.76))

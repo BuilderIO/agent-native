@@ -7,6 +7,7 @@ import type { FSWatcher } from "chokidar";
 import path from "path";
 import crypto from "crypto";
 import { createServer } from "@agent-native/core/server";
+import { pageSignalRoutes } from "@agent-native/pinpoint/server";
 import { envKeys } from "./lib/env-config.js";
 import {
   listProjects,
@@ -326,6 +327,9 @@ export function createAppServer() {
 
     next();
   });
+
+  // Pinpoint annotations
+  app.use("/api/signals", pageSignalRoutes());
 
   // Pages API (unified page tree)
   app.get("/api/pages", getPageTree);

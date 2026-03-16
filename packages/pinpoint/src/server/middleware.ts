@@ -4,7 +4,7 @@
 // REST routes: GET (list), GET/:id, POST, PATCH/:id, DELETE/:id
 // Path traversal validation on all IDs.
 
-import type { Router, Request, Response } from "express";
+import { Router, type Request, type Response } from "express";
 import { FileStore } from "../storage/file-store.js";
 import { PinSchema } from "../storage/schemas.js";
 
@@ -29,10 +29,7 @@ export interface SignalRoutesOptions {
  * ```
  */
 export function pageSignalRoutes(options: SignalRoutesOptions = {}): Router {
-  // Dynamic import to avoid hard express dependency
-  const { Router: createRouter } =
-    require("express") as typeof import("express");
-  const router = createRouter();
+  const router = Router();
   const store = new FileStore(options.dataDir || "data/pins");
 
   // GET / — List all pins, optionally filtered
