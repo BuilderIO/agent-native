@@ -72,8 +72,9 @@ export function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const activeAppConfig = APP_CONFIG.find((a) => a.name === activeApp);
+  const harnessOrigin = window.location.origin;
   const appUrl = activeAppConfig
-    ? `http://localhost:${activeAppConfig.appPort}`
+    ? `http://localhost:${activeAppConfig.appPort}?harness_origin=${encodeURIComponent(harnessOrigin)}`
     : `http://localhost:8081`;
 
   const { termRef, iframeRef, connected, setupStatus, connect, restart, fit } =

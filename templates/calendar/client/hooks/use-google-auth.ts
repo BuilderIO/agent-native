@@ -18,8 +18,12 @@ export function useGoogleAuthUrl(enabled = false) {
   const query = useQuery<{ url: string }>({
     queryKey: ["google-auth-url"],
     queryFn: async () => {
+      const harnessOrigin = new URLSearchParams(window.location.search).get(
+        "harness_origin",
+      );
+      const callbackOrigin = harnessOrigin || window.location.origin;
       const res = await fetch(
-        `/api/google/auth-url?redirect_uri=${encodeURIComponent(window.location.origin + "/api/google/callback")}`,
+        `/api/google/auth-url?redirect_uri=${encodeURIComponent(callbackOrigin + "/api/google/callback")}`,
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));

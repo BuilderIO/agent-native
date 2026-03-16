@@ -67,7 +67,11 @@ export function GoogleConnectBanner() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const redirectUri = `${window.location.origin}/api/google/callback`;
+  const harnessOrigin = new URLSearchParams(window.location.search).get(
+    "harness_origin",
+  );
+  const callbackOrigin = harnessOrigin || window.location.origin;
+  const redirectUri = `${callbackOrigin}/api/google/callback`;
 
   const fetchStatus = useCallback(async () => {
     try {
