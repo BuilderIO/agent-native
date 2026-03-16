@@ -59,7 +59,9 @@ function createWindow(): BrowserWindow {
 
 function toggleWebviewDevTools() {
   const allContents = webContents.getAllWebContents();
-  const webviewContents = allContents.filter((wc) => wc.getType() === "webview");
+  const webviewContents = allContents.filter(
+    (wc) => wc.getType() === "webview",
+  );
   // Prefer the focused webview, fall back to the first one
   const target =
     webviewContents.find((wc) => wc.isFocused()) || webviewContents[0];

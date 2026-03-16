@@ -30,7 +30,7 @@ const GUTTER_WIDTH = 60;
 
 function getEventColor(event: CalendarEvent) {
   if (event.color) return event.color;
-  return event.source === "google" ? "#10b981" : null;
+  return event.source === "google" ? "#5085C0" : null;
 }
 
 /** Format an event's time range in compact Notion style: "8–10:30 AM" or "9 AM" */
@@ -363,16 +363,15 @@ export function WeekView({
                   <button
                     key={event.id}
                     onClick={() => onEventClick(event)}
-                    className="absolute truncate rounded px-2 py-0.5 text-left text-xs font-medium transition-opacity hover:opacity-80"
+                    className="absolute truncate rounded px-2 py-0.5 text-left text-xs font-medium text-foreground transition-opacity hover:opacity-80"
                     style={{
                       top: `${rowIdx * allDayRowHeight + 4}px`,
                       left: `${leftPct}%`,
                       width: `calc(${widthPct}% - 4px)`,
                       height: `${allDayRowHeight - 4}px`,
                       backgroundColor: color
-                        ? `${color}40`
-                        : "hsl(var(--primary) / 0.2)",
-                      color: color ?? "hsl(var(--primary))",
+                        ? `${color}30`
+                        : "hsl(var(--primary) / 0.15)",
                       borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
                       marginLeft: "2px",
                     }}
@@ -462,19 +461,27 @@ export function WeekView({
                       style={{
                         ...style,
                         backgroundColor: color
-                          ? `${color}4D`
-                          : "hsl(var(--primary) / 0.3)",
+                          ? `${color}30`
+                          : "hsl(var(--primary) / 0.2)",
                         borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
-                        color: color ?? "hsl(var(--primary))",
                       }}
                     >
-                      <div className="truncate font-semibold leading-tight">
-                        {event.title}
-                      </div>
-                      {durationMin >= 30 && (
-                        <div className="mt-0.5 truncate text-[10px] opacity-75">
-                          {formatEventTime(start, end)}
+                      {durationMin < 30 ? (
+                        <div className="font-semibold leading-tight text-foreground">
+                          <span>{event.title}</span>{" "}
+                          <span className="font-normal text-foreground/60">
+                            {format(start, "h:mm a")}
+                          </span>
                         </div>
+                      ) : (
+                        <>
+                          <div className="font-semibold leading-tight text-foreground">
+                            {event.title}
+                          </div>
+                          <div className="mt-0.5 text-[10px] text-foreground/60">
+                            {formatEventTime(start, end)}
+                          </div>
+                        </>
                       )}
                     </button>
                   );

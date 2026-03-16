@@ -71,6 +71,15 @@ export function useArchiveEmail() {
   });
 }
 
+export function useUnarchiveEmail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/api/emails/${id}/unarchive`, { method: "PATCH" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+  });
+}
+
 export function useTrashEmail() {
   const qc = useQueryClient();
   return useMutation({
