@@ -9,7 +9,7 @@
 
 /* ─── Design tokens ──────────────────────────────────────────── */
 :root {
-  --sidebar-width: 72px;
+  --sidebar-width: 56px;
   --tabbar-height: 38px;
   --sidebar-bg: #141414;
   --sidebar-border: rgba(255, 255, 255, 0.06);
@@ -49,200 +49,26 @@ body {
     sans-serif;
   background: var(--shell-bg);
   color: #fff;
-  /* Disable text selection in the shell chrome */
   user-select: none;
   -webkit-user-select: none;
 }
 
 /* ─── Shell layout ───────────────────────────────────────────── */
+/* New layout: tab bar full width on top, sidebar + content below */
 .shell {
   display: flex;
+  flex-direction: column;
   width: 100%;
   height: 100%;
 }
 
-/* ─── Sidebar ────────────────────────────────────────────────── */
-.sidebar {
-  width: var(--sidebar-width);
-  min-width: var(--sidebar-width);
-  height: 100%;
-  background: var(--sidebar-bg);
-  border-right: 1px solid var(--sidebar-border);
+.shell-body {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  /* Sidebar is draggable (moves the window) except for interactive elements */
-  -webkit-app-region: drag;
+  height: calc(100vh - var(--tabbar-height));
+  overflow: hidden;
 }
 
-/* macOS: reserve space at top for native traffic lights */
-.platform-darwin .sidebar {
-  padding-top: 48px;
-}
-
-/* Windows / Linux: compact top padding, custom controls appear in .win-controls */
-.platform-win32 .sidebar,
-.platform-linux .sidebar {
-  padding-top: 8px;
-}
-
-.sidebar-nav {
-  flex: 1;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 8px 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  /* Hide scrollbar visually */
-  scrollbar-width: none;
-}
-
-.sidebar-nav::-webkit-scrollbar {
-  display: none;
-}
-
-.sidebar-footer {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 8px 0 12px;
-  border-top: 1px solid var(--separator);
-}
-
-/* ─── Sidebar item ───────────────────────────────────────────── */
-.sidebar-item {
-  position: relative;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 8px 0;
-  cursor: pointer;
-  border: none;
-  background: none;
-  color: inherit;
-  /* Interactive elements must not be draggable */
-  -webkit-app-region: no-drag;
-}
-
-/* Active indicator — colored pill on the left edge */
-.sidebar-item::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 0;
-  border-radius: 0 3px 3px 0;
-  background: var(--item-accent, #888);
-  transition: height var(--ease);
-}
-
-.sidebar-item.sidebar-item--active::before {
-  height: 28px;
-}
-
-/* ─── Icon wrapper ───────────────────────────────────────────── */
-.icon-wrapper {
-  width: 42px;
-  height: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 11px;
-  color: var(--icon-inactive);
-  transition:
-    background var(--ease),
-    color var(--ease);
-}
-
-.sidebar-item:hover .icon-wrapper {
-  background: var(--item-hover-bg);
-  color: var(--icon-hover);
-}
-
-.sidebar-item.sidebar-item--active .icon-wrapper {
-  /* Subtle tinted background matching the app accent color */
-  background: color-mix(in srgb, var(--item-accent, #888) 15%, transparent);
-  color: var(--icon-active);
-}
-
-/* ─── Item label ─────────────────────────────────────────────── */
-.item-label {
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  color: var(--label-inactive);
-  line-height: 1;
-  transition: color var(--ease);
-}
-
-.sidebar-item:hover .item-label {
-  color: var(--label-hover);
-}
-
-.sidebar-item.sidebar-item--active .item-label {
-  color: var(--label-active);
-}
-
-/* ─── Windows/Linux custom window controls ───────────────────── */
-.win-controls {
-  display: none;
-}
-
-.platform-win32 .win-controls,
-.platform-linux .win-controls {
-  display: flex;
-  width: 100%;
-  justify-content: center;
-  gap: 8px;
-  padding: 10px 0 4px;
-  -webkit-app-region: no-drag;
-}
-
-.win-btn {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: none;
-  cursor: pointer;
-  transition: opacity var(--ease);
-}
-
-.win-btn:hover {
-  opacity: 0.85;
-}
-
-.win-btn--close {
-  background: #ff5f57;
-}
-
-.win-btn--minimize {
-  background: #febc2e;
-}
-
-.win-btn--maximize {
-  background: #28c840;
-}
-
-/* ─── Main content (tab bar + webview) ───────────────────────── */
-.main-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-width: 0;
-}
-
-/* ─── Tab bar ────────────────────────────────────────────────── */
+/* ─── Tab bar (full width, top of window) ────────────────────── */
 .tabbar {
   height: var(--tabbar-height);
   min-height: var(--tabbar-height);
@@ -260,9 +86,9 @@ body {
   display: none;
 }
 
-/* macOS: offset tab bar for traffic lights */
+/* macOS: pad for traffic lights in the far top-left */
 .platform-darwin .tabbar {
-  padding-left: 0;
+  padding-left: 78px;
 }
 
 .tab {
@@ -361,79 +187,199 @@ body {
   color: var(--tab-active-text);
 }
 
+/* ─── Sidebar ────────────────────────────────────────────────── */
+.sidebar {
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 8px;
+  /* Sidebar is draggable (moves the window) except for interactive elements */
+  -webkit-app-region: drag;
+}
+
+.sidebar-nav {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+
+.sidebar-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.sidebar-footer {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 0 12px;
+  border-top: 1px solid var(--separator);
+}
+
+/* ─── Sidebar item ───────────────────────────────────────────── */
+.sidebar-item {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 6px 0;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+  -webkit-app-region: no-drag;
+}
+
+/* Active indicator — colored pill on the left edge */
+.sidebar-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 0;
+  border-radius: 0 3px 3px 0;
+  background: var(--item-accent, #888);
+  transition: height var(--ease);
+}
+
+.sidebar-item.sidebar-item--active::before {
+  height: 28px;
+}
+
+/* ─── Icon wrapper ───────────────────────────────────────────── */
+.icon-wrapper {
+  width: 36px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  color: var(--icon-inactive);
+  transition:
+    background var(--ease),
+    color var(--ease);
+}
+
+.sidebar-item:hover .icon-wrapper {
+  background: var(--item-hover-bg);
+  color: var(--icon-hover);
+}
+
+.sidebar-item.sidebar-item--active .icon-wrapper {
+  background: color-mix(in srgb, var(--item-accent, #888) 15%, transparent);
+  color: var(--icon-active);
+}
+
+/* ─── Item label ─────────────────────────────────────────────── */
+.item-label {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--label-inactive);
+  line-height: 1;
+  transition: color var(--ease);
+}
+
+.sidebar-item:hover .item-label {
+  color: var(--label-hover);
+}
+
+.sidebar-item.sidebar-item--active .item-label {
+  color: var(--label-active);
+}
+
+/* ─── Windows/Linux custom window controls ───────────────────── */
+.win-controls {
+  display: none;
+}
+
+.platform-win32 .win-controls,
+.platform-linux .win-controls {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 0 4px;
+  -webkit-app-region: no-drag;
+}
+
+.win-btn {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  transition: opacity var(--ease);
+}
+
+.win-btn:hover {
+  opacity: 0.85;
+}
+
+.win-btn--close {
+  background: #ff5f57;
+}
+
+.win-btn--minimize {
+  background: #febc2e;
+}
+
+.win-btn--maximize {
+  background: #28c840;
+}
+
 /* ─── Content area ───────────────────────────────────────────── */
 .content-area {
   flex: 1;
   position: relative;
   overflow: hidden;
   background: var(--shell-bg);
-  min-height: 0;
+  height: 100%;
+  min-width: 0;
 }
 
 /* ─── Webview slot ───────────────────────────────────────────── */
+/* Each slot is absolutely positioned so they stack on top of each
+   other. The webview inside uses flex:1 in a flex-column container
+   to fill the full height. visibility:hidden on the slot hides
+   inactive tabs without removing them from DOM. */
 .webview-slot {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-/* Hidden slots are invisible and non-interactive but still mounted,
-   which preserves webview state (login sessions, scroll position, etc.) */
 .webview-slot--hidden {
   visibility: hidden;
   pointer-events: none;
 }
 
-/* The <webview> fills the entire slot via absolute positioning.
-   Electron's <webview> custom element doesn't participate in flex layout,
-   so we position it absolutely to guarantee full coverage. */
-.webview-el {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
+/* Electron's <webview> uses display:flex internally — never set
+   display:block. Use flex:1 so it fills the slot container. */
+.app-webview {
+  flex: 1 1 auto;
   border: none;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease;
-}
-
-.webview-el--ready {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* ─── Loading overlay ────────────────────────────────────────── */
-.loading-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  background: var(--shell-bg);
-  z-index: 10;
-}
-
-.spinner {
-  width: 28px;
-  height: 28px;
-  border: 2px solid rgba(255, 255, 255, 0.08);
-  border-top-color: var(--app-color, #888);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.loading-label {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.25);
 }
 
 /* ─── Error overlay ──────────────────────────────────────────── */
@@ -488,7 +434,7 @@ body {
   color: rgba(255, 255, 255, 0.65);
 }
 
-/* ─── Placeholder screen (app not yet implemented) ───────────── */
+/* ─── Placeholder screen ─────────────────────────────────────── */
 .placeholder-overlay {
   position: absolute;
   inset: 0;

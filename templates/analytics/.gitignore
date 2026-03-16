@@ -24,7 +24,7 @@ dist-ssr
 *.sw?
 
 .config/
-!.env
+.env
 
 # Generated chart images (ephemeral)
 media/*.png

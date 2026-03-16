@@ -3,6 +3,11 @@ import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
 import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
+import {
+  isConnected,
+  listGmailMessages,
+  gmailToEmailMessage,
+} from "../lib/google-auth.js";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const EMAILS_FILE = path.join(DATA_DIR, "emails.json");
@@ -69,8 +74,40 @@ function recomputeUnreadCounts(
 
 // ─── Email list ───────────────────────────────────────────────────────────────
 
-export function listEmails(req: Request, res: Response) {
+export async function listEmails(req: Request, res: Response): Promise<void> {
   const { view = "inbox", q } = req.query as { view?: string; q?: string };
+
+  // If Google is connected, fetch from Gmail directly (skip demo data)
+  if (isConnected()) {
+    try {
+      // Map view to Gmail search query
+      const gmailQuery: Record<string, string> = {
+        inbox: "in:inbox",
+        starred: "is:starred",
+        sent: "in:sent",
+        drafts: "in:drafts",
+        archive: "-in:inbox -in:sent -in:drafts -in:trash",
+        trash: "in:trash",
+        all: "",
+      };
+      let searchQuery = gmailQuery[view] ?? `label:${view}`;
+      if (q) searchQuery += ` ${q}`;
+
+      const messages = await listGmailMessages(searchQuery);
+      const emails = messages.map(gmailToEmailMessage);
+      emails.sort(
+        (a: any, b: any) =>
+          new Date(b.date).getTime() - new Date(a.date).getTime(),
+      );
+      res.json(emails);
+      return;
+    } catch (error: any) {
+      console.error("[listEmails] Gmail error:", error.message);
+      res.status(500).json({ error: error.message });
+      return;
+    }
+  }
+
   let emails = readEmails();
 
   // Filter by view

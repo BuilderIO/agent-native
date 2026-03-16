@@ -3,8 +3,6 @@ import { AlertCircle, RefreshCw } from "lucide-react";
 import type { AppDefinition } from "@shared/app-registry";
 import { getAppUrl } from "@shared/app-registry";
 
-type LoadStatus = "loading" | "ready" | "error";
-
 interface AppWebviewProps {
   app: AppDefinition;
   isActive: boolean;
@@ -12,9 +10,7 @@ interface AppWebviewProps {
 
 export default function AppWebview({ app, isActive }: AppWebviewProps) {
   const webviewRef = useRef<ElectronWebviewElement>(null);
-  const [status, setStatus] = useState<LoadStatus>(
-    app.placeholder ? "ready" : "loading",
-  );
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     if (app.placeholder) return;
@@ -22,37 +18,31 @@ export default function AppWebview({ app, isActive }: AppWebviewProps) {
     const wv = webviewRef.current;
     if (!wv) return;
 
-    const onFinished = () => setStatus("ready");
+    const onReady = () => setError(false);
     const onFailed = (e: Event) => {
-      // Error code -3 = "aborted" — happens on redirects, not a real error
-      const errorCode = (e as CustomEvent<{ errorCode: number }>).detail
-        ?.errorCode;
-      if (errorCode !== undefined && errorCode === -3) return;
-      setStatus("error");
+      const errorCode = (e as any).errorCode;
+      if (errorCode === -3) return;
+      setError(true);
     };
-    const onStarted = () => setStatus("loading");
 
-    wv.addEventListener("did-finish-load", onFinished);
+    wv.addEventListener("dom-ready", onReady);
     wv.addEventListener("did-fail-load", onFailed);
-    wv.addEventListener("did-start-loading", onStarted);
 
     return () => {
-      wv.removeEventListener("did-finish-load", onFinished);
+      wv.removeEventListener("dom-ready", onReady);
       wv.removeEventListener("did-fail-load", onFailed);
-      wv.removeEventListener("did-start-loading", onStarted);
     };
   }, [app.placeholder]);
 
-  // When this tab is re-activated after an error, retry loading
   useEffect(() => {
-    if (isActive && status === "error" && !app.placeholder) {
+    if (isActive && error && !app.placeholder) {
       handleRetry();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isActive]);
 
   function handleRetry() {
-    setStatus("loading");
+    setError(false);
     const wv = webviewRef.current;
     if (wv) {
       wv.src = getAppUrl(app);
@@ -61,25 +51,17 @@ export default function AppWebview({ app, isActive }: AppWebviewProps) {
 
   return (
     <div className={`webview-slot${isActive ? "" : " webview-slot--hidden"}`}>
-      {/* Placeholder: app not yet implemented */}
       {app.placeholder && <PlaceholderScreen app={app} />}
 
-      {/* Loading state */}
-      {!app.placeholder && status === "loading" && (
-        <LoadingScreen appName={app.name} appColor={app.color} />
-      )}
-
-      {/* Error state */}
-      {!app.placeholder && status === "error" && (
+      {!app.placeholder && error && (
         <ErrorScreen app={app} onRetry={handleRetry} />
       )}
 
-      {/* The actual webview — always rendered (but invisible when loading/error overlay is shown) */}
       {!app.placeholder && (
         <webview
           ref={webviewRef}
           src={getAppUrl(app)}
-          className={`webview-el${status === "ready" ? " webview-el--ready" : ""}`}
+          className="app-webview"
           allowpopups=""
           webpreferences="contextIsolation=false"
         />
@@ -87,28 +69,6 @@ export default function AppWebview({ app, isActive }: AppWebviewProps) {
     </div>
   );
 }
-
-// ─── Loading screen ───────────────────────────────────────────────────────────
-
-function LoadingScreen({
-  appName,
-  appColor,
-}: {
-  appName: string;
-  appColor: string;
-}) {
-  return (
-    <div className="loading-overlay">
-      <div
-        className="spinner"
-        style={{ "--app-color": appColor } as React.CSSProperties}
-      />
-      <span className="loading-label">Starting {appName}…</span>
-    </div>
-  );
-}
-
-// ─── Error screen ─────────────────────────────────────────────────────────────
 
 function ErrorScreen({
   app,
@@ -136,8 +96,6 @@ function ErrorScreen({
     </div>
   );
 }
-
-// ─── Placeholder screen ───────────────────────────────────────────────────────
 
 function PlaceholderScreen({ app }: { app: AppDefinition }) {
   return (

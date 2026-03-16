@@ -123,18 +123,18 @@ export default function App() {
 
   return (
     <div className="shell">
-      <Sidebar
-        apps={APP_REGISTRY}
-        activeAppId={activeSidebarAppId}
-        onTabChange={handleSidebarTabChange}
+      <TabBar
+        tabs={currentAppTabs?.tabs ?? []}
+        activeTabId={currentAppTabs?.activeTabId ?? ""}
+        onTabSelect={handleTabSelect}
+        onTabClose={handleTabClose}
+        onNewTab={handleNewTab}
       />
-      <div className="main-area">
-        <TabBar
-          tabs={currentAppTabs?.tabs ?? []}
-          activeTabId={currentAppTabs?.activeTabId ?? ""}
-          onTabSelect={handleTabSelect}
-          onTabClose={handleTabClose}
-          onNewTab={handleNewTab}
+      <div className="shell-body">
+        <Sidebar
+          apps={APP_REGISTRY}
+          activeAppId={activeSidebarAppId}
+          onTabChange={handleSidebarTabChange}
         />
         <div className="content-area">
           {allWebviews.map(({ tab, app, isActive }) => (
