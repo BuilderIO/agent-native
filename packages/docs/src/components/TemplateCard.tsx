@@ -141,7 +141,13 @@ function CliPopover({
     <div
       ref={popoverRef}
       className="fixed z-50 rounded-lg border border-[var(--code-border)] bg-[var(--bg)] shadow-lg"
-      style={{ top: pos.top, left: pos.left, minWidth: pos.width, width: "max-content", maxWidth: "calc(100vw - 32px)" }}
+      style={{
+        top: pos.top,
+        left: pos.left,
+        minWidth: pos.width,
+        width: "max-content",
+        maxWidth: "calc(100vw - 32px)",
+      }}
     >
       <div className="flex items-center gap-2 px-3 py-2">
         <code className="block whitespace-nowrap text-xs leading-relaxed text-[var(--fg)]">
