@@ -7,7 +7,8 @@ import {
 } from "../lib/google-auth.js";
 
 function getOrigin(req: Request): string {
-  return `${req.protocol}://${req.get("host")}`;
+  const host = req.get("x-forwarded-host") || req.get("host");
+  return `${req.protocol}://${host}`;
 }
 
 // Track the redirect URI used for auth so the callback can match it

@@ -7,7 +7,8 @@ import {
 } from "../lib/google-calendar.js";
 
 function getOrigin(req: Request): string {
-  return `${req.protocol}://${req.get("host")}`;
+  const host = req.get("x-forwarded-host") || req.get("host");
+  return `${req.protocol}://${host}`;
 }
 
 let lastRedirectUri: string | undefined;

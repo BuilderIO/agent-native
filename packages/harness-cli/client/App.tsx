@@ -72,10 +72,14 @@ export function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const activeAppConfig = APP_CONFIG.find((a) => a.name === activeApp);
-  const harnessOrigin = window.location.origin;
   const appUrl = activeAppConfig
-    ? `http://localhost:${activeAppConfig.appPort}?harness_origin=${encodeURIComponent(harnessOrigin)}`
+    ? `http://localhost:${activeAppConfig.appPort}`
     : `http://localhost:8081`;
+
+  // Set cookie so the harness API proxy knows which app to route to
+  useEffect(() => {
+    document.cookie = `active_app=${activeApp}; path=/; SameSite=Lax`;
+  }, [activeApp]);
 
   const { termRef, iframeRef, connected, setupStatus, connect, restart, fit } =
     useTerminal();
@@ -350,6 +354,15 @@ export function App() {
             className="w-full h-full border-none"
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-presentation allow-downloads"
             allow="clipboard-read; clipboard-write; fullscreen; camera; microphone; geolocation; display-capture"
+            onLoad={() => {
+              iframeRef.current?.contentWindow?.postMessage(
+                {
+                  type: "builder.harnessOrigin",
+                  origin: window.location.origin,
+                },
+                "*",
+              );
+            }}
           />
         </div>
 
