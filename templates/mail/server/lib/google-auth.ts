@@ -54,7 +54,11 @@ async function migrateLegacyTokens(): Promise<void> {
 
 async function doMigrateLegacyTokens(): Promise<void> {
   const tokens = readJsonFile<GoogleTokens>(LEGACY_TOKENS_PATH);
-  if (!tokens) return;
+  if (!tokens) {
+    // Corrupt/empty file — delete so we don't retry on every request
+    deleteJsonFile(LEGACY_TOKENS_PATH);
+    return;
+  }
 
   ensureAccountsDir();
 
@@ -118,7 +122,8 @@ export async function exchangeCode(
   client.setCredentials(tokens);
   const gmail = google.gmail({ version: "v1", auth: client });
   const profile = await gmail.users.getProfile({ userId: "me" });
-  const email = profile.data.emailAddress || "unknown";
+  const email = profile.data.emailAddress;
+  if (!email) throw new Error("Google returned no email address");
 
   ensureAccountsDir();
   writeJsonFile(path.join(ACCOUNTS_DIR, `${email}.json`), tokens);
