@@ -166,6 +166,8 @@ export function GoogleConnectBanner({
 
       setSaved(true);
       await fetchStatus();
+      // Reload after a short delay to let Vite restart with new env vars
+      setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Failed to parse JSON");
     } finally {
