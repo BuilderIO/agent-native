@@ -59,7 +59,6 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [moreOpen, setMoreOpen] = useState(false);
   const navigate = useNavigate();
   const { view = "inbox", threadId } = useParams<{
     view: string;
@@ -388,51 +387,11 @@ export function AppLayout({ children }: AppLayoutProps) {
                 );
               })}
 
-              {/* If current view is hidden, show it as an active tab */}
+              {/* If navigated to an unpinned view (e.g. via keyboard shortcut), show it */}
               {currentInHidden && (
                 <span className="flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
                   {collapsibleViews.find((v) => v.id === view)?.label}
                 </span>
-              )}
-
-              {/* "More" expands hidden system views inline */}
-              {hiddenViews.length > 0 && (
-                <>
-                  {moreOpen ? (
-                    <>
-                      {hiddenViews.map((v) => {
-                        const isActive = view === v.id;
-                        return (
-                          <Link
-                            key={v.id}
-                            to={`/${v.id}`}
-                            className={cn(
-                              "flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] transition-colors",
-                              isActive
-                                ? "text-foreground font-semibold"
-                                : "text-muted-foreground font-medium hover:text-foreground/80",
-                            )}
-                          >
-                            {v.label}
-                          </Link>
-                        );
-                      })}
-                      <button
-                        onClick={() => setMoreOpen(false)}
-                        className="flex h-6 w-6 items-center justify-center rounded transition-colors text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30"
-                      >
-                        <IconChevronLeft size={18} stroke={2.5} />
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => setMoreOpen(true)}
-                      className="flex h-6 w-6 items-center justify-center rounded transition-colors text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30"
-                    >
-                      <IconChevronRight size={18} stroke={2.5} />
-                    </button>
-                  )}
-                </>
               )}
             </nav>
 
