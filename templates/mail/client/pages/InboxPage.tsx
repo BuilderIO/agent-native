@@ -24,6 +24,7 @@ import {
 
 import { IntegrationsSidebar } from "@/components/email/IntegrationsSidebar";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
+import { useAccountFilter } from "@/components/layout/AppLayout";
 import { toast } from "sonner";
 import type { EmailMessage } from "@shared/types";
 
@@ -156,6 +157,7 @@ export function InboxPage() {
   // Always fetch from the URL view (inbox, starred, etc.)
   // Label tabs use ?label= param and always fetch inbox
   const { data: rawEmails = [], isLoading, isError } = useEmails(view);
+  const { activeAccounts } = useAccountFilter();
 
   const pinnedLabels = settings?.pinnedLabels ?? [];
   const pinnedUserLabels = pinnedLabels.filter(
@@ -163,18 +165,27 @@ export function InboxPage() {
   );
 
   const emails = useMemo(() => {
+    let filtered = rawEmails;
+
+    // Filter by active accounts (empty set = all accounts, no filtering)
+    if (activeAccounts.size > 0) {
+      filtered = filtered.filter(
+        (e) => e.accountEmail && activeAccounts.has(e.accountEmail),
+      );
+    }
+
     if (activeLabel) {
       // Label tab: show only inbox emails with this label
-      return rawEmails.filter((e) => e.labelIds.includes(activeLabel));
+      return filtered.filter((e) => e.labelIds.includes(activeLabel));
     }
     if (view === "inbox" && pinnedUserLabels.length > 0) {
       // Inbox: filter out emails that belong to a pinned label
-      return rawEmails.filter(
+      return filtered.filter(
         (e) => !pinnedUserLabels.some((l) => e.labelIds.includes(l)),
       );
     }
-    return rawEmails;
-  }, [rawEmails, view, activeLabel, pinnedUserLabels]);
+    return filtered;
+  }, [rawEmails, view, activeLabel, pinnedUserLabels, activeAccounts]);
 
   // Sync current navigation state to file (write-only, so agent can read it)
   useEffect(() => {

@@ -271,25 +271,68 @@ export function EmailThread({
     toggleStar.mutate({ id: email.id, isStarred: !email.isStarred });
   }, [email, toggleStar]);
 
+  const { data: settings } = useSettings();
+  const myEmail = settings?.email?.toLowerCase() ?? "";
+
+  const buildReplyQuote = (target: EmailMessage) =>
+    `\n\n— On ${new Date(target.date).toLocaleDateString()}, ${target.from.name || target.from.email} wrote:\n\n${target.body
+      .split("\n")
+      .map((l) => `> ${l}`)
+      .join("\n")}`;
+
   const handleReply = useCallback(
     (msg?: EmailMessage) => {
       const target = msg ?? email;
       if (!target) return;
+      // If the message is from me, reply to the first "to" recipient instead
+      const isFromMe = target.from.email.toLowerCase() === myEmail;
+      const replyTo = isFromMe
+        ? (target.to[0]?.email ?? target.from.email)
+        : target.from.email;
       compose.open({
-        to: target.from.email,
+        to: replyTo,
         subject: target.subject.startsWith("Re:")
           ? target.subject
           : `Re: ${target.subject}`,
-        body: `\n\n— On ${new Date(target.date).toLocaleDateString()}, ${target.from.name || target.from.email} wrote:\n\n${target.body
-          .split("\n")
-          .map((l) => `> ${l}`)
-          .join("\n")}`,
+        body: buildReplyQuote(target),
         mode: "reply",
         replyToId: target.id,
         replyToThreadId: target.threadId,
       });
     },
-    [email, messages, compose],
+    [email, compose, myEmail],
+  );
+
+  const handleReplyAll = useCallback(
+    (msg?: EmailMessage) => {
+      const target = msg ?? email;
+      if (!target) return;
+      const isFromMe = target.from.email.toLowerCase() === myEmail;
+      // Collect all recipients, excluding myself
+      const allRecipients = [
+        ...(isFromMe ? [] : [target.from.email]),
+        ...target.to.map((r) => r.email),
+        ...(target.cc || []).map((r) => r.email),
+      ];
+      const uniqueTo = [
+        ...new Set(
+          allRecipients
+            .map((e) => e.toLowerCase())
+            .filter((e) => e !== myEmail),
+        ),
+      ];
+      compose.open({
+        to: uniqueTo.join(", "),
+        subject: target.subject.startsWith("Re:")
+          ? target.subject
+          : `Re: ${target.subject}`,
+        body: buildReplyQuote(target),
+        mode: "reply",
+        replyToId: target.id,
+        replyToThreadId: target.threadId,
+      });
+    },
+    [email, compose, myEmail],
   );
 
   const handleForward = useCallback(() => {
@@ -321,7 +364,7 @@ export function EmailThread({
       { key: "#", handler: handleTrash, shift: true },
       { key: "s", handler: handleStar },
       { key: "r", handler: () => handleReply() },
-      { key: "a", handler: () => handleReply() },
+      { key: "a", handler: () => handleReplyAll() },
       { key: "f", handler: handleForward },
       {
         key: "u",
@@ -496,6 +539,7 @@ export function EmailThread({
                   setUserToggles((prev) => ({ ...prev, [msg.id]: false }));
                 }}
                 onReply={() => handleReply(msg)}
+                onReplyAll={() => handleReplyAll(msg)}
                 onForward={() => {
                   compose.open({
                     to: "",
@@ -607,11 +651,12 @@ const ExpandedMessageCard = forwardRef<
     isFocused?: boolean;
     onCollapse: () => void;
     onReply: () => void;
+    onReplyAll: () => void;
     onForward: () => void;
     onContactSelect?: (email: string) => void;
   }
 >(function ExpandedMessageCard(
-  { email, isFocused, onCollapse, onReply, onForward, onContactSelect },
+  { email, isFocused, onCollapse, onReply, onReplyAll, onForward, onContactSelect },
   ref,
 ) {
   const [showDetails, setShowDetails] = useState(false);
@@ -767,7 +812,7 @@ const ExpandedMessageCard = forwardRef<
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onReply();
+                onReplyAll();
               }}
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
               title="Reply All"
