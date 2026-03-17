@@ -91,7 +91,12 @@ export function pagePinRoutes(options: PinRoutesOptions = {}): Router {
         res.status(400).json({ error: "Invalid pin ID" });
         return;
       }
-      await store.update(id, req.body);
+      const result = PinSchema.partial().safeParse(req.body);
+      if (!result.success) {
+        res.status(400).json({ error: "Invalid pin data", details: result.error.issues });
+        return;
+      }
+      await store.update(id, result.data);
       res.json({ ok: true });
     } catch (err) {
       res.status(500).json({ error: "Failed to update pin" });

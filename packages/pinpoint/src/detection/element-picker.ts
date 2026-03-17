@@ -196,6 +196,22 @@ export class ElementPicker {
     this.options.onHover?.(null, null);
   }
 
+  /** Update blockInteractions at runtime (called from settings toggle) */
+  setBlockInteractions(value: boolean): void {
+    const wasBlocking = this.options.blockInteractions;
+    this.options.blockInteractions = value;
+
+    if (this.active) {
+      if (value && !wasBlocking) {
+        document.body.style.pointerEvents = "none";
+        const overlay = document.getElementById("pinpoint-root");
+        if (overlay) overlay.style.pointerEvents = "auto";
+      } else if (!value && wasBlocking) {
+        document.body.style.pointerEvents = "";
+      }
+    }
+  }
+
   /** Pause picking without removing listeners (e.g., while popup is open) */
   pause(): void {
     this.paused = true;

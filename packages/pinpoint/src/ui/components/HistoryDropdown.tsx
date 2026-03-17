@@ -1,7 +1,7 @@
 // @agent-native/pinpoint — History dropdown for past annotations
 // MIT License
 
-import { For, type Component } from "solid-js";
+import { Show, For, type Component } from "solid-js";
 import type { Pin } from "../../types/index.js";
 import { icons } from "../icons/index.js";
 
@@ -17,57 +17,58 @@ export const HistoryDropdown: Component<HistoryDropdownProps> = (props) => {
       (p) => p.status.state === "resolved" || p.status.state === "dismissed",
     );
 
-  if (resolvedPins().length === 0) return null;
-
   return (
-    <div style={{ "padding-top": "4px" }}>
-      <div
-        style={{
-          display: "flex",
-          "align-items": "center",
-          "justify-content": "space-between",
-          "margin-bottom": "4px",
-        }}
-      >
-        <span
+    <Show when={resolvedPins().length > 0}>
+      <div style={{ "padding-top": "4px" }}>
+        <div
           style={{
-            "font-size": "11px",
-            color: "var(--pp-text-muted)",
             display: "flex",
             "align-items": "center",
-            gap: "4px",
+            "justify-content": "space-between",
+            "margin-bottom": "4px",
           }}
         >
-          <span innerHTML={icons.history} />
-          History ({resolvedPins().length})
-        </span>
-        <button
-          class="pp-btn--icon"
-          onClick={props.onClear}
-          title="Clear history"
-          innerHTML={icons.trash}
-          style={{ "font-size": "10px" }}
-        />
-      </div>
-      <div class="pp-pin-list" style={{ "max-height": "120px" }}>
-        <For each={resolvedPins()}>
-          {(pin) => (
-            <div
-              class="pp-pin-item"
-              onClick={() => props.onSelect(pin)}
-              style={{ opacity: "0.6" }}
-            >
-              <div class="pp-pin-item__content">
-                <div class="pp-pin-item__element">{pin.element.selector}</div>
-                <div class="pp-pin-item__comment">{pin.comment}</div>
+          <span
+            style={{
+              "font-size": "11px",
+              color: "var(--pp-text-muted)",
+              display: "flex",
+              "align-items": "center",
+              gap: "4px",
+            }}
+          >
+            <span innerHTML={icons.history} />
+            History ({resolvedPins().length})
+          </span>
+          <button
+            class="pp-btn--icon"
+            on:click={() => props.onClear()}
+            title="Clear history"
+            innerHTML={icons.trash}
+            style={{ "font-size": "10px" }}
+          />
+        </div>
+        <div class="pp-pin-list" style={{ "max-height": "120px" }}>
+          <For each={resolvedPins()}>
+            {(pin) => (
+              <div
+                class="pp-pin-item"
+                on:click={() => props.onSelect(pin)}
+                style={{ opacity: "0.6" }}
+              >
+                <div class="pp-pin-item__content">
+                  <div class="pp-pin-item__comment">
+                    {pin.comment || <span style={{ color: "var(--pp-text-muted)", "font-style": "italic" }}>No comment</span>}
+                  </div>
+                </div>
+                <span
+                  class={`pp-pin-item__status pp-pin-item__status--${pin.status.state}`}
+                />
               </div>
-              <span
-                class={`pp-pin-item__status pp-pin-item__status--${pin.status.state}`}
-              />
-            </div>
-          )}
-        </For>
+            )}
+          </For>
+        </div>
       </div>
-    </div>
+    </Show>
   );
 };
