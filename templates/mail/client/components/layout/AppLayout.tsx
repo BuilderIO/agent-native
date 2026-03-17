@@ -504,26 +504,42 @@ export function AppLayout({ children }: AppLayoutProps) {
               </svg>
             </button>
 
-            {/* Account avatar */}
+            {/* Account avatars — overlapping stack like Figma */}
             {hasAccounts && (
               <div className="relative ml-1" ref={popoverRef}>
                 <button
                   onClick={() => setAccountPopoverOpen(!accountPopoverOpen)}
-                  className="flex h-7 w-7 items-center justify-center rounded-full overflow-hidden hover:ring-2 hover:ring-primary/40 transition-all"
+                  className="flex items-center hover:opacity-90 transition-opacity"
                   title="Accounts"
                 >
-                  {accounts[0]?.photoUrl ? (
-                    <img
-                      src={accounts[0].photoUrl}
-                      alt=""
-                      className="h-7 w-7 rounded-full object-cover"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center text-[11px] font-semibold text-primary">
-                      {accounts[0]?.email?.[0]?.toUpperCase() ?? "?"}
-                    </div>
-                  )}
+                  <div
+                    className="flex items-center"
+                    style={{ marginRight: accounts.length > 1 ? 0 : undefined }}
+                  >
+                    {accounts.map((account, i) => (
+                      <div
+                        key={account.email}
+                        className="relative rounded-full ring-2 ring-card"
+                        style={{
+                          marginLeft: i === 0 ? 0 : -8,
+                          zIndex: accounts.length - i,
+                        }}
+                      >
+                        {account.photoUrl ? (
+                          <img
+                            src={account.photoUrl}
+                            alt=""
+                            className="h-7 w-7 rounded-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center text-[11px] font-semibold text-primary">
+                            {account.email[0]?.toUpperCase()}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </button>
 
                 {accountPopoverOpen && (

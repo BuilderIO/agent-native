@@ -22,12 +22,9 @@ export function useGoogleAuthUrl(enabled = false) {
   const query = useQuery<{ url: string }>({
     queryKey: ["google-auth-url"],
     queryFn: async () => {
-      // Use the app's own origin for the callback, not the harness origin.
-      // The harness doesn't proxy /api/google/callback, so the browser
-      // must redirect directly to the app's server.
-      const appOrigin = window.location.origin;
+      const { getCallbackOrigin } = await import("@agent-native/core/client");
       const res = await fetch(
-        `/api/google/auth-url?redirect_uri=${encodeURIComponent(appOrigin + "/api/google/callback")}`,
+        `/api/google/auth-url?redirect_uri=${encodeURIComponent(getCallbackOrigin() + "/api/google/callback")}`,
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
