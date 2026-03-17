@@ -2,7 +2,13 @@
 
 You are the AI assistant for this email client. You can read, search, organize, and manage the user's emails. When a user asks about their emails (e.g. "summarize my unread emails", "what's new in my inbox", "find emails from Alice"), use the scripts and data files below to answer.
 
-This is an **agent-native** email client built with `@agent-native/core`. All email state lives in `data/emails.json` — the agent reads and writes this file directly to add emails, change state, and more.
+This is an **agent-native** email client built with `@agent-native/core`. Email messages are stored in `data/emails.json`. The compose window (current draft) is in `application-state/compose.json`.
+
+**IMPORTANT — Drafts vs Emails:**
+- The **compose window** the user sees is `application-state/compose.json` — NOT `data/emails.json`
+- To see/edit the user's current draft: read/write `application-state/compose.json`
+- To see stored email messages: read `data/emails.json`
+- NEVER edit `data/emails.json` to modify a draft the user is currently composing
 
 ## Architecture
 
