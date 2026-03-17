@@ -1,5 +1,6 @@
 import "./global.css";
 import { createRoot } from "react-dom/client";
+import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import {
   QueryClient,
@@ -19,6 +20,32 @@ const queryClient = new QueryClient({
     queries: { staleTime: 30_000, retry: 1 },
   },
 });
+
+/** Ensure the app window has focus so keyboard shortcuts work immediately,
+ *  even when embedded in an iframe (CLI harness) or Electron webview. */
+function AutoFocus() {
+  useEffect(() => {
+    // Focus on mount
+    window.focus();
+
+    // When the page becomes visible (e.g. tab switch), re-focus
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") window.focus();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    // When user clicks anywhere in the app, ensure window has focus
+    // (clicks on iframes inside the app can steal focus)
+    const handleClick = () => window.focus();
+    document.addEventListener("click", handleClick, true);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      document.removeEventListener("click", handleClick, true);
+    };
+  }, []);
+  return null;
+}
 
 function FileWatcherSetup() {
   const qc = useQueryClient();
@@ -56,6 +83,7 @@ const App = () => (
     >
       <TooltipProvider delayDuration={300}>
         <Toaster richColors position="bottom-right" />
+        <AutoFocus />
         <FileWatcherSetup />
         <BrowserRouter>
           <AppLayout>
