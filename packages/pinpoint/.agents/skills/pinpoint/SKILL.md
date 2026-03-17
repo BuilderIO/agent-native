@@ -1,19 +1,10 @@
 # Pinpoint — Visual Feedback Tool
 
-You are an agent with access to Pinpoint, a visual feedback and annotation tool for web applications.
+You are an agent with access to Pinpoint, a visual feedback and annotation tool. Users annotate UI elements on web pages and send structured feedback to you.
 
-## What Pinpoint Does
+## Reading Annotations
 
-Pinpoint lets users annotate UI elements on a web page and send structured feedback to you. Annotations include:
-- CSS selector of the element
-- Component path (React, Vue)
-- Source file location
-- User's comment/feedback
-- Element metadata (styles, accessibility, position)
-
-## How to Read Annotations
-
-Annotations are stored as JSON files in `data/pins/{uuid}.json`. Each file contains a `Pin` object:
+Pins are stored as JSON files in `data/pins/{uuid}.json`:
 
 ```json
 {
@@ -27,41 +18,60 @@ Annotations are stored as JSON files in `data/pins/{uuid}.json`. Each file conta
   },
   "framework": {
     "framework": "react",
-    "componentPath": "<App> <Sidebar> <ActionButton>",
+    "componentPath": "<Sidebar> <ActionButton>",
     "sourceFile": "src/components/Sidebar.tsx:42"
   },
-  "status": {
-    "state": "open",
-    "changedBy": "user"
-  }
+  "status": { "state": "open", "changedBy": "user" }
 }
 ```
 
-## Available Scripts
+**Key fields:**
+- `sourceFile` — exact file and line number to edit
+- `componentPath` — React/Vue component hierarchy
+- `selector` — CSS selector for the DOM element
+- `comment` — what the user wants changed
 
-Run these with `pnpm script <name>`:
+## Scripts
+
+Run with `pnpm script <name>`:
 
 | Script | Purpose | Key Args |
 |--------|---------|----------|
-| `get-pins` | List annotations | `--pageUrl`, `--status` |
-| `create-pin` | Create an annotation | `--pageUrl`, `--selector`, `--comment` |
+| `get-pins` | List pins | `--pageUrl`, `--status` |
+| `create-pin` | Create a pin | `--pageUrl`, `--selector`, `--comment` |
 | `resolve-pin` | Mark as resolved | `--id`, `--message` |
-| `update-pin` | Update annotation | `--id`, `--comment`, `--status` |
-| `delete-pin` | Remove annotation | `--id` |
-| `list-sessions` | List pages with annotations | (none) |
+| `update-pin` | Update a pin | `--id`, `--comment`, `--status` |
+| `delete-pin` | Remove a pin | `--id` |
+| `list-sessions` | List pages with pins | (none) |
 
 ## Workflow
 
-1. User annotates elements in the browser UI
-2. Annotations appear in `data/pins/`
-3. You read the annotations to understand what the user wants
-4. You make the requested changes (edit source files, styles, etc.)
-5. You mark annotations as resolved: `pnpm script resolve-pin --id <uuid>`
+1. User annotates elements in the browser
+2. Read pins: `pnpm script get-pins --status open`
+3. Use `sourceFile` to locate the code and make the requested changes
+4. Mark resolved: `pnpm script resolve-pin --id <uuid>`
 
 ## Tips
 
-- Always read the `sourceFile` field — it tells you exactly where to edit
-- The `componentPath` shows the React/Vue component hierarchy
-- The `selector` helps you find the element in the DOM
-- Use `get-pins --status open` to see only unresolved annotations
-- Resolve annotations after fixing them so the user knows
+- Always check `sourceFile` first — it points directly to the code to edit
+- Use `get-pins --status open` to see only unresolved pins
+- Resolve pins after fixing them so the user gets visual confirmation
+- The `componentPath` helps you understand the component hierarchy when `sourceFile` is not available
+- Multiple pins on the same page often relate to each other — read them all before starting fixes
+
+## Adding Pinpoint to a New App
+
+If the repository does not have Pinpoint set up:
+
+1. `pnpm add @agent-native/pinpoint`
+2. Add `<Pinpoint />` component to the root React component:
+   ```tsx
+   import { Pinpoint } from "@agent-native/pinpoint/react";
+   <Pinpoint author="User" endpoint="/api/pins" autoSubmit />
+   ```
+3. Add server middleware in the Express setup:
+   ```ts
+   import { pagePinRoutes } from "@agent-native/pinpoint/server";
+   app.use("/api/pins", pagePinRoutes());
+   ```
+4. Copy scripts: `cp node_modules/@agent-native/pinpoint/src/scripts/*.ts scripts/`
