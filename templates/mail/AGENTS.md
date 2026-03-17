@@ -39,6 +39,12 @@ All state is in JSON files in `data/`:
 | `data/labels.json`   | System and user labels with unread counts      |
 | `data/settings.json` | User profile and app settings                  |
 
+### Compose Drafts (Application State)
+
+The compose window is driven by `application-state/compose.json`. Write this file to open the compose window with a draft; edit it to update a draft in progress; delete it to close the compose window. See `.agents/skills/email-drafts/SKILL.md` for full details.
+
+When the user asks you to **draft**, **compose**, or **write** an email, write `application-state/compose.json` — the UI will open the compose window automatically with your content.
+
 ### Email object shape
 
 ```typescript
