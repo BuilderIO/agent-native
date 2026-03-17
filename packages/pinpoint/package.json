@@ -14,6 +14,10 @@
       "browser": "./dist/index.browser.js",
       "default": "./dist/index.js"
     },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
     "./primitives": "./dist/primitives/index.js",
     "./server": "./dist/server/index.js",
     "./types": "./dist/types/index.js"
@@ -47,6 +51,7 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@types/express": "^5.0.3",
     "@types/node": "^24.2.1",
+    "@types/react": "^18.3.28",
     "babel-preset-solid": "^1.9.10",
     "esbuild-plugin-solid": "^0.6.0",
     "express": "^5.1.0",

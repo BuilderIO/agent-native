@@ -24,6 +24,7 @@ export default defineConfig([
       "server/index": "src/server/index.ts",
       "primitives/index": "src/primitives/index.ts",
       "types/index": "src/types/index.ts",
+      react: "src/react.tsx",
     },
     format: ["esm"],
     dts: true,

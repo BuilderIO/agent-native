@@ -14,8 +14,7 @@ import DocsIndex from "./pages/DocsIndex";
 import BuilderCallback from "./pages/BuilderCallback";
 import { BuilderAuthProvider } from "@/components/builder/BuilderAuthContext";
 import { useFileWatcher } from "./hooks/use-file-watcher";
-import { useEffect } from "react";
-import { mountPinpoint } from "@agent-native/pinpoint";
+import { Pinpoint } from "@agent-native/pinpoint/react";
 
 const queryClient = new QueryClient();
 
@@ -24,24 +23,12 @@ function FileWatcherSetup() {
   return null;
 }
 
-function PinpointSetup() {
-  useEffect(() => {
-    const { dispose } = mountPinpoint({
-      author: "Vishwas",
-      colorScheme: "auto",
-      endpoint: "/api/pins",
-      autoSubmit: true,
-    });
-    return dispose;
-  }, []);
-  return null;
-}
 
 const App = () => (
   <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
     <QueryClientProvider client={queryClient}>
       <FileWatcherSetup />
-      <PinpointSetup />
+      <Pinpoint author="Vishwas" colorScheme="auto" endpoint="/api/pins" autoSubmit />
       <BuilderAuthProvider>
         <TooltipProvider>
           <Toaster />
