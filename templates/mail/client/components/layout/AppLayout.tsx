@@ -129,10 +129,13 @@ export function AppLayout({ children }: AppLayoutProps) {
       },
     ];
 
+    const seenLabels = new Set<string>(["inbox"]);
     for (const id of pinnedLabels) {
       // Check if it's a system view
       const sysView = collapsibleViews.find((v) => v.id === id);
       if (sysView) {
+        if (seenLabels.has(sysView.label.toLowerCase())) continue;
+        seenLabels.add(sysView.label.toLowerCase());
         tabs.push({
           id: sysView.id,
           label: sysView.label,
@@ -155,6 +158,9 @@ export function AppLayout({ children }: AppLayoutProps) {
           l.name.toLowerCase() === id.toLowerCase(),
       );
       if (lbl) {
+        const displayName = shortLabelName(lbl.name).toLowerCase();
+        if (seenLabels.has(displayName)) continue;
+        seenLabels.add(displayName);
         tabs.push({
           id: lbl.id,
           label: shortLabelName(lbl.name),
@@ -652,17 +658,47 @@ export function AppLayout({ children }: AppLayoutProps) {
                 draft?.subject?.trim() ||
                 draft?.body?.trim()
               );
+              const snapshot = draft ? { ...draft } : null;
               compose.close(id);
-              if (hasContent) toast("Draft saved.");
+              if (hasContent && snapshot) {
+                toast("Draft saved.", {
+                  action: { label: "REOPEN", onClick: () => {
+                    const { id: _id, ...reopenData } = snapshot;
+                    compose.open(reopenData);
+                  }},
+                  cancel: { label: "DELETE DRAFT", onClick: () => {
+                    if (snapshot.savedDraftId) {
+                      fetch(`/api/emails/${snapshot.savedDraftId}`, { method: "DELETE" });
+                    }
+                  }},
+                });
+              }
             }}
             onCloseAll={() => {
-              const hasAnyContent = popoutDrafts.some(
+              const draftsWithContent = popoutDrafts.filter(
                 (d) =>
                   !!(d.to?.trim() || d.subject?.trim() || d.body?.trim()),
               );
+              const snapshots = draftsWithContent.map((d) => ({ ...d }));
               const ids = popoutDrafts.map((d) => d.id);
               ids.forEach((id) => compose.close(id));
-              if (hasAnyContent) toast("Drafts saved.");
+              if (snapshots.length > 0) {
+                toast(`${snapshots.length} draft(s) saved.`, {
+                  action: { label: "REOPEN", onClick: () => {
+                    for (const snap of snapshots) {
+                      const { id: _id, ...reopenData } = snap;
+                      compose.open(reopenData);
+                    }
+                  }},
+                  cancel: { label: "DELETE DRAFTS", onClick: () => {
+                    for (const snap of snapshots) {
+                      if (snap.savedDraftId) {
+                        fetch(`/api/emails/${snap.savedDraftId}`, { method: "DELETE" });
+                      }
+                    }
+                  }},
+                });
+              }
             }}
             onDiscard={compose.discard}
             onNewDraft={handleCompose}
