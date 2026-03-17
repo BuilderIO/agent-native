@@ -54,6 +54,7 @@ export type Label = {
   color?: string;
   type: "system" | "user";
   unreadCount?: number;
+  totalCount?: number;
 };
 
 export type ComposeAttachment = {
@@ -76,6 +77,8 @@ export type ComposeState = {
   replyToId?: string;
   replyToThreadId?: string;
   attachments?: ComposeAttachment[];
+  /** ID of the persistent draft email (for updating existing drafts) */
+  savedDraftId?: string;
 };
 
 export type MailboxView =

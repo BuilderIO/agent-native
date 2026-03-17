@@ -74,10 +74,7 @@ function recomputeUnreadCounts(
 ): Label[] {
   return labels.map((label) => {
     const active = emails.filter(
-      (e) =>
-        !e.isArchived &&
-        !e.isTrashed &&
-        e.labelIds.includes(label.id),
+      (e) => !e.isArchived && !e.isTrashed && e.labelIds.includes(label.id),
     );
     const unread = active.filter((e) => !e.isRead).length;
     return { ...label, unreadCount: unread, totalCount: active.length };
@@ -823,6 +820,183 @@ export function sendEmail(req: Request, res: Response) {
   writeEmails(emails);
 
   res.status(201).json(newEmail);
+}
+
+// ─── Save draft (persistent, Gmail-style) ─────────────────────────────────────
+
+export async function saveDraft(req: Request, res: Response): Promise<void> {
+  const settings = readSettings();
+  const { to, cc, bcc, subject, body, draftId, replyToId, replyToThreadId } =
+    req.body;
+
+  // If Gmail is connected, create/update a Gmail draft
+  if (isConnected()) {
+    try {
+      const client = await getClient();
+      if (client) {
+        const gmail = google.gmail({ version: "v1", auth: client });
+        const raw = buildRawEmail({
+          from: `${settings.name} <${settings.email}>`,
+          to: to || "",
+          cc: cc || "",
+          bcc: bcc || "",
+          subject: subject || "(no subject)",
+          body: body || "",
+        });
+
+        if (draftId) {
+          // Update existing Gmail draft
+          try {
+            const updated = await (gmail.users.drafts.update as any)({
+              userId: "me",
+              id: draftId,
+              requestBody: { message: { raw } },
+            });
+            res.json({ draftId: (updated as any).data.id, updated: true });
+            return;
+          } catch {
+            // Draft may have been deleted; create new
+          }
+        }
+        // Create new Gmail draft
+        const created = await (gmail.users.drafts.create as any)({
+          userId: "me",
+          requestBody: { message: { raw } },
+        });
+        res.json({ draftId: (created as any).data.id, created: true });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[saveDraft] Gmail error:", error.message);
+      // Fall through to local storage
+    }
+  }
+
+  // Local fallback: save as EmailMessage with isDraft=true
+  const emails = readEmails();
+  const existingIdx = draftId
+    ? emails.findIndex((e) => e.id === draftId && e.isDraft)
+    : -1;
+
+  const draftEmail: EmailMessage = {
+    id: existingIdx >= 0 ? emails[existingIdx].id : `draft-${nanoid(8)}`,
+    threadId:
+      existingIdx >= 0
+        ? emails[existingIdx].threadId
+        : replyToId
+          ? (emails.find((e) => e.id === replyToId)?.threadId ??
+            `thread-${nanoid(8)}`)
+          : `thread-${nanoid(8)}`,
+    from: { name: settings.name, email: settings.email },
+    to: to
+      ? (to as string)
+          .split(",")
+          .filter((t: string) => t.trim())
+          .map((t: string) => ({ name: t.trim(), email: t.trim() }))
+      : [],
+    ...(cc
+      ? {
+          cc: (cc as string)
+            .split(",")
+            .filter((t: string) => t.trim())
+            .map((t: string) => ({ name: t.trim(), email: t.trim() })),
+        }
+      : {}),
+    ...(bcc
+      ? {
+          bcc: (bcc as string)
+            .split(",")
+            .filter((t: string) => t.trim())
+            .map((t: string) => ({ name: t.trim(), email: t.trim() })),
+        }
+      : {}),
+    subject: subject || "(no subject)",
+    snippet: (body || "").slice(0, 120).replace(/\n/g, " "),
+    body: body || "",
+    date: new Date().toISOString(),
+    isRead: true,
+    isStarred: false,
+    isDraft: true,
+    isArchived: false,
+    isTrashed: false,
+    labelIds: ["drafts"],
+    ...(replyToId ? { replyToId } : {}),
+    ...(replyToThreadId ? { replyToThreadId } : {}),
+  };
+
+  if (existingIdx >= 0) {
+    emails[existingIdx] = draftEmail;
+  } else {
+    emails.push(draftEmail);
+  }
+  writeEmails(emails);
+
+  res.json({
+    draftId: draftEmail.id,
+    [existingIdx >= 0 ? "updated" : "created"]: true,
+  });
+}
+
+/** Build RFC 2822 raw email for Gmail API */
+function buildRawEmail(opts: {
+  from: string;
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  body: string;
+}): string {
+  const lines = [
+    `From: ${opts.from}`,
+    `To: ${opts.to}`,
+    ...(opts.cc ? [`Cc: ${opts.cc}`] : []),
+    ...(opts.bcc ? [`Bcc: ${opts.bcc}`] : []),
+    `Subject: ${opts.subject}`,
+    `Content-Type: text/plain; charset="UTF-8"`,
+    "",
+    opts.body,
+  ];
+  // Gmail API expects URL-safe base64
+  return Buffer.from(lines.join("\r\n"))
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+// ─── Delete draft ─────────────────────────────────────────────────────────────
+
+export async function deleteDraft(req: Request, res: Response): Promise<void> {
+  const { id } = req.params;
+
+  if (isConnected()) {
+    try {
+      const client = await getClient();
+      if (client) {
+        const gmail = google.gmail({ version: "v1", auth: client });
+        try {
+          await (gmail.users.drafts.delete as any)({
+            userId: "me",
+            id,
+          });
+        } catch {
+          // Draft may not exist in Gmail
+        }
+        res.json({ ok: true });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[deleteDraft] Gmail error:", error.message);
+    }
+  }
+
+  // Local fallback
+  const emails = readEmails();
+  const filtered = emails.filter((e) => !(e.id === id && e.isDraft));
+  if (filtered.length !== emails.length) {
+    writeEmails(filtered);
+  }
+  res.json({ ok: true });
 }
 
 // ─── Contacts (extracted from email history) ─────────────────────────────────

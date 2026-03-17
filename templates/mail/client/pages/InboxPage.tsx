@@ -412,7 +412,11 @@ export function InboxPage() {
 
   const hasThread = !!threadId;
   const isInboxZero =
-    !isLoading && !isError && !hasThread && !searchQuery && threads.length === 0;
+    !isLoading &&
+    !isError &&
+    !hasThread &&
+    !searchQuery &&
+    threads.length === 0;
   const [sidebarContactEmail, setSidebarContactEmail] = useState<
     string | undefined
   >();

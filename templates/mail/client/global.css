@@ -590,3 +590,9 @@
 .compose-editor pre code .hljs-strong {
   font-weight: 700;
 }
+
+/* Inbox Zero — make header transparent so the photo gradient shows through */
+.inbox-zero .inbox-zero-header {
+  background: transparent !important;
+  border-color: transparent !important;
+}

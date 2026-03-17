@@ -17,6 +17,8 @@ import {
   muteThread,
   deleteEmail,
   sendEmail,
+  saveDraft,
+  deleteDraft,
   listLabels,
   listContacts,
   getSettings,
@@ -78,6 +80,8 @@ export function createAppServer() {
   app.post("/api/threads/:threadId/mute", muteThread);
   app.delete("/api/emails/:id", deleteEmail);
   app.post("/api/emails/send", sendEmail);
+  app.post("/api/emails/draft", saveDraft);
+  app.delete("/api/emails/draft/:id", deleteDraft);
 
   // Labels
   app.get("/api/labels", listLabels);

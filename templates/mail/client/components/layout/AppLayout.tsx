@@ -552,8 +552,24 @@ export function AppLayout({ children }: AppLayoutProps) {
           activeDraft={compose.activeDraft}
           onSetActiveId={compose.setActiveId}
           onUpdate={compose.update}
-          onClose={compose.close}
-          onCloseAll={compose.closeAll}
+          onClose={(id) => {
+            const draft = compose.drafts.find((d) => d.id === id);
+            const hasContent = !!(
+              draft?.to?.trim() ||
+              draft?.subject?.trim() ||
+              draft?.body?.trim()
+            );
+            compose.close(id);
+            if (hasContent) toast("Draft saved.");
+          }}
+          onCloseAll={() => {
+            const hasAnyContent = compose.drafts.some(
+              (d) => !!(d.to?.trim() || d.subject?.trim() || d.body?.trim()),
+            );
+            compose.closeAll();
+            if (hasAnyContent) toast("Drafts saved.");
+          }}
+          onDiscard={compose.discard}
           onNewDraft={handleCompose}
           onFlush={compose.flush}
         />

@@ -115,9 +115,13 @@ export function ComposeBubbleToolbar({
     <BubbleMenu
       editor={editor}
       className="bubble-toolbar"
-      shouldShow={({ editor, from, to }) => {
+      shouldShow={({ editor, state, from, to }) => {
         if (!editor.isFocused) return false;
-        return from !== to;
+        if (from === to) return false;
+        // Hide for node selections (images, etc.)
+        const { selection } = state;
+        if ((selection as any).node) return false;
+        return true;
       }}
     >
       {showLinkInput ? (
