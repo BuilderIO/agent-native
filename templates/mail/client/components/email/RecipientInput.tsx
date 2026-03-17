@@ -176,7 +176,7 @@ export function RecipientInput({
                   key={contact.email}
                   type="button"
                   className={cn(
-                    "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors",
+                    "flex w-full items-center justify-between gap-4 rounded-md px-3 py-1.5 text-left text-[13px] transition-colors",
                     i === selectedIndex
                       ? "bg-accent text-accent-foreground"
                       : "hover:bg-accent/50",
@@ -187,19 +187,14 @@ export function RecipientInput({
                     addRecipient(contact);
                   }}
                 >
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-                    {contact.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium text-foreground">
-                      {contact.name}
-                    </div>
-                    {contact.name !== contact.email && (
-                      <div className="truncate text-xs text-muted-foreground">
-                        {contact.email}
-                      </div>
-                    )}
-                  </div>
+                  <span className="truncate font-medium text-foreground">
+                    {contact.name}
+                  </span>
+                  {contact.name !== contact.email && (
+                    <span className="truncate text-[12px] text-muted-foreground/60 shrink-0">
+                      {contact.email}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
