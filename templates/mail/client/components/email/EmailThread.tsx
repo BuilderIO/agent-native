@@ -120,25 +120,32 @@ export function EmailThread({
   const focusedRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Instant-scroll to bottom when thread loads or message count changes.
-  // Pin to bottom for ~800ms to handle iframe resizes / async content.
+  // Scroll so the most recent (last) message is at the top of the viewport.
+  // Pin for ~800ms to handle iframe resizes / async content.
   const scrolledForRef = useRef<string | undefined>();
+  const lastMessageRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!threadId || messages.length === 0) return;
     const key = `${threadId}:${messages.length}`;
     if (scrolledForRef.current === key) return;
     scrolledForRef.current = key;
     const el = scrollContainerRef.current;
+    const lastMsg = lastMessageRef.current;
     if (!el) return;
-    const scrollToBottom = () => {
-      el.scrollTop = el.scrollHeight;
+    const scrollToLatest = () => {
+      if (lastMsg) {
+        // Align the last message's top to the container's top
+        lastMsg.scrollIntoView({ block: "start" });
+      } else {
+        el.scrollTop = el.scrollHeight;
+      }
     };
-    scrollToBottom();
+    scrollToLatest();
     let stop = false;
     let raf: number;
     const pin = () => {
       if (!stop) {
-        scrollToBottom();
+        scrollToLatest();
         raf = requestAnimationFrame(pin);
       }
     };
@@ -462,10 +469,17 @@ export function EmailThread({
           {messages.map((msg, idx) => {
             const isExpanded = expandedIds.has(msg.id);
             const isFocused = idx === focusedIndex;
+            const isLast = idx === messages.length - 1;
             return isExpanded ? (
               <ExpandedMessageCard
                 key={msg.id}
-                ref={isFocused ? focusedRef : undefined}
+                ref={(el) => {
+                  if (isFocused)
+                    (
+                      focusedRef as React.MutableRefObject<HTMLDivElement | null>
+                    ).current = el;
+                  if (isLast) lastMessageRef.current = el;
+                }}
                 email={msg}
                 isFocused={isFocused}
                 onCollapse={() => {
@@ -489,7 +503,13 @@ export function EmailThread({
             ) : (
               <CollapsedMessageRow
                 key={msg.id}
-                ref={isFocused ? focusedRef : undefined}
+                ref={(el) => {
+                  if (isFocused)
+                    (
+                      focusedRef as React.MutableRefObject<HTMLDivElement | null>
+                    ).current = el;
+                  if (isLast) lastMessageRef.current = el;
+                }}
                 email={msg}
                 isFocused={isFocused}
                 onClick={() => {
