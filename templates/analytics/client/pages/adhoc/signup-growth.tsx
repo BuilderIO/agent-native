@@ -23,7 +23,7 @@ function signupsSql(granularity: Granularity) {
   return `SELECT
   TIMESTAMP_TRUNC(user_create_d, ${trunc}) AS day,
   COUNT(DISTINCT user_id) AS signups
-FROM \`builder-3b0a2.dbt_analytics.product_signups\`
+FROM \`your-gcp-project-id.dbt_analytics.product_signups\`
 WHERE user_create_d >= TIMESTAMP("2026-01-01")
   AND user_create_d <= CURRENT_TIMESTAMP()
 GROUP BY day ORDER BY day ASC`;

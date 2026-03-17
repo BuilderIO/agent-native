@@ -85,7 +85,7 @@ export default function BookingPage() {
     settings?.bookingPageDescription || "Pick a time that works for you.";
 
   return (
-    <div className="dark min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-lg">
         {/* Header */}
         <div className="mb-8 text-center">

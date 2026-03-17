@@ -15,7 +15,7 @@ This is an **agent-native** app built with `@agent-native/core`. See `.agents/sk
 > **Provider-specific knowledge** (BigQuery tables, API quirks, auth, script usage) lives in `.builder/skills/<provider>/SKILL.md`.
 > Read the relevant skill before querying any provider. After completing work, **update the relevant skill or learnings.md** with new discoveries.
 
-Internal analytics dashboard for Builder.io. Built with React + Express + TypeScript.
+Internal analytics dashboard. Built with React + Express + TypeScript.
 
 ## Skills
 
@@ -23,7 +23,7 @@ Provider-specific knowledge is organized as modular skill files in `.builder/ski
 
 ```
 .builder/skills/
-  github/SKILL.md       # PR & issue search across BuilderIO org
+  github/SKILL.md       # PR & issue search across your org
   bigquery/SKILL.md     # Analytics events, signups, table maps, SQL patterns
   hubspot/SKILL.md      # CRM deals, contacts, companies
   jira/SKILL.md         # Ticket search, sprint tracking, analytics
@@ -178,7 +178,7 @@ All scripts that use `output()` automatically support:
 - **`--fields=<a,b,c>`** — pluck specific fields from results
 
 ```bash
-pnpm script hubspot-deals --grep="Macy's" --fields=dealname,amount,stageLabel
+pnpm script hubspot-deals --grep="Acme" --fields=dealname,amount,stageLabel
 pnpm script seo-top-keywords --grep=remix --fields=keyword,rank_absolute,etv
 ```
 
@@ -253,7 +253,7 @@ When a user asks for a **chart, metrics view, or data breakdown** → add it to 
 3. Add entry to `dashboards` array in `client/pages/adhoc/registry.ts` with **REQUIRED fields**:
    - `id`: kebab-case identifier
    - `name`: Display name
-   - `author`: **YOUR name or email** - the person creating this dashboard (e.g., "jane@builder.io" or "Jane Doe")
+   - `author`: **YOUR name or email** - the person creating this dashboard (e.g., "jane@example.com" or "Jane Doe")
    - `lastUpdated`: Today's date in YYYY-MM-DD format
 4. Add lazy import to `dashboardComponents` in the same file
 
@@ -263,7 +263,7 @@ When a user asks for a **chart, metrics view, or data breakdown** → add it to 
 {
   id: "my-dashboard",
   name: "My Dashboard",
-  author: "jane@builder.io",  // REQUIRED: Your name/email as the creator
+  author: "jane@example.com",  // REQUIRED: Your name/email as the creator
   lastUpdated: "2026-03-12"    // REQUIRED: Today's date
 }
 ```
@@ -333,7 +333,7 @@ When the user asks a data question, **query real data first**, then present the 
 | Source                 | Server Lib                 | Scripts                         | Use For                                                        |
 | ---------------------- | -------------------------- | ------------------------------- | -------------------------------------------------------------- |
 | **BigQuery**           | `server/lib/bigquery.ts`   | ad-hoc via `runQuery()`         | Analytics events, signups, pageviews, subscriptions, user data |
-| **GitHub**             | `server/lib/github.ts`     | `github-prs`                    | PR search, issue tracking, code reviews across BuilderIO org   |
+| **GitHub**             | `server/lib/github.ts`     | `github-prs`                    | PR search, issue tracking, code reviews across your org        |
 | **HubSpot CRM**        | `server/lib/hubspot.ts`    | `hubspot-deals`                 | Deals, pipelines, contacts, sales metrics                      |
 | **Jira**               | `server/lib/jira.ts`       | `jira-search`, `jira-analytics` | Ticket search (JQL), duplicate detection, sprint tracking      |
 | **Sentry**             | `server/lib/sentry.ts`     | —                               | Error tracking, unresolved issues, error trends                |
@@ -351,17 +351,17 @@ When the user asks a data question, **query real data first**, then present the 
 ### Example script usage
 
 ```bash
-# GitHub: search open PRs in BuilderIO org
-pnpm script github-prs --org=BuilderIO --query="is:open label:bug"
+# GitHub: search open PRs in your org
+pnpm script github-prs --org=YourOrg --query="is:open label:bug"
 
 # Jira: search tickets
 pnpm script jira-search --jql="summary ~ SSO ORDER BY created DESC" --fields=key,summary,status,assignee
 
 # Support: open tickets for a customer
-pnpm script pylon-issues --account="Macy's" --state=open
+pnpm script pylon-issues --account="Acme Corp" --state=open
 
 # Sales: recent calls
-pnpm script gong-calls --company=Deloitte --days=30
+pnpm script gong-calls --company="Globex Inc" --days=30
 
 # CRM: deals
 pnpm script hubspot-deals --fields=dealname,amount,stageLabel

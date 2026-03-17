@@ -9,7 +9,7 @@ export const Route = createFileRoute("/docs/harnesses")({
 const TOC = [
   { id: "cli-harness", label: "CLI Harness" },
   { id: "supported-clis", label: "Supported CLIs" },
-  { id: "cloud-harness", label: "Cloud Harness" },
+  { id: "cloud-harness", label: "Builder.io Cloud Harness" },
   { id: "feature-comparison", label: "Feature Comparison" },
   { id: "how-it-works", label: "How It Works" },
 ];
@@ -42,7 +42,7 @@ function HarnessesDocs() {
         <li>
           Auto-detects when the agent finishes generating and notifies the app
         </li>
-        <li>Best for: solo development, local testing, open-source projects</li>
+        <li>Great for local use — individuals, development, and testing</li>
       </ul>
 
       <p>Quick start:</p>
@@ -87,19 +87,24 @@ pnpm dev:harness`}
         options.
       </p>
 
-      <h2 id="cloud-harness">Cloud Harness</h2>
+      <h2 id="cloud-harness">
+        <a
+          href="https://www.builder.io"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Builder.io Cloud Harness
+        </a>
+      </h2>
       <ul className="list-disc space-y-1 pl-5">
-        <li>Deploy to any cloud infrastructure</li>
+        <li>Runs in the cloud</li>
         <li>
           Real-time collaboration — multiple users can watch/interact
           simultaneously
         </li>
-        <li>Visual editing capabilities alongside the AI agent</li>
+        <li>Visual editing, roles and permissions</li>
         <li>Parallel agent execution for faster iteration</li>
-        <li>
-          Best for: teams, production deployments, visual editing, real-time
-          collaboration
-        </li>
+        <li>Great for team use</li>
       </ul>
 
       <h2 id="feature-comparison">Feature Comparison</h2>
@@ -108,7 +113,7 @@ pnpm dev:harness`}
           <tr>
             <th>Feature</th>
             <th>CLI Harness</th>
-            <th>Cloud Harness</th>
+            <th>Builder.io Cloud Harness</th>
           </tr>
         </thead>
         <tbody>
@@ -134,15 +139,19 @@ pnpm dev:harness`}
       </table>
 
       <h2 id="how-it-works">How It Works</h2>
-      <p>Both harnesses support the same core agent-native protocol:</p>
+      <p>
+        Both harnesses support the same core agent-native protocol. The
+        framework provides type-safe APIs so you never deal with raw messaging:
+      </p>
       <ol className="list-decimal space-y-3 pl-5">
         <li>
-          <strong>postMessage bridge</strong> — app sends{" "}
-          <code>builder.submitChat</code> messages up to the harness
+          <strong>Agent chat</strong> — use <code>sendToAgentChat()</code> to
+          send messages to the agent
         </li>
         <li>
-          <strong>Chat running events</strong> — harness sends{" "}
-          <code>builder.fusion.chatRunning</code> events down to the app
+          <strong>Generation state</strong> — use{" "}
+          <code>useAgentChatGenerating()</code> to track when the agent is
+          running
         </li>
         <li>
           <strong>File watching</strong> — SSE endpoint keeps UI in sync when

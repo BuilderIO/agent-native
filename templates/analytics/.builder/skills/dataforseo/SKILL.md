@@ -1,7 +1,7 @@
 ---
 name: dataforseo
 description: >
-  Query keyword rankings, search volume, and SEO metrics for builder.io via DataForSEO.
+  Query keyword rankings, search volume, and SEO metrics via DataForSEO.
   Use this skill when the user asks about SEO performance, keyword rankings, or organic search data.
 ---
 

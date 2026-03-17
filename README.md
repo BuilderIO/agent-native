@@ -16,7 +16,7 @@ Start from a production-ready template. Each one replaces tools you're paying fo
 
 **Mail**
 
-<a href="https://agent-native.com/templates/mail"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7f5a10a8029b4895ad02276da0f5071b?format=webp&width=800" alt="Mail template" width="100%" /></a>
+<a href="https://agent-native.com/templates/mail"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800" alt="Mail template" width="100%" /></a>
 
 **AI-Native Mail, Superhuman**
 
@@ -27,7 +27,7 @@ Superhuman-style email client with keyboard shortcuts, AI triage, and a fully cu
 
 **Calendar**
 
-<a href="https://agent-native.com/templates/calendar"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7f5a10a8029b4895ad02276da0f5071b?format=webp&width=800" alt="Calendar template" width="100%" /></a>
+<a href="https://agent-native.com/templates/calendar"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffb6c3b483ca24ab3b6c3a758aeceef4c?format=webp&width=800" alt="Calendar template" width="100%" /></a>
 
 **AI-Native Google Calendar, Calendly**
 
@@ -45,11 +45,6 @@ Manage events, sync with Google Calendar, and share a public booking page with A
 Write and organize content with an agent that knows your brand and publishing workflow.
 
 </td>
-</tr>
-<tr>
-<td align="center"><a href="https://agent-native.com/templates/mail"><img src=".github/assets/launch-button.svg" alt="Launch Mail" height="36" /></a></td>
-<td align="center"><a href="https://agent-native.com/templates/calendar"><img src=".github/assets/launch-button.svg" alt="Launch Calendar" height="36" /></a></td>
-<td align="center"><a href="https://agent-native.com/templates/content"><img src=".github/assets/launch-button.svg" alt="Launch Content" height="36" /></a></td>
 </tr>
 <tr>
 <td width="33%" align="center" valign="top">
@@ -85,11 +80,6 @@ Create and edit Remotion video compositions with agent assistance.
 Connect any data source, prompt for any chart. Build reusable dashboards, not throwaway Q&A.
 
 </td>
-</tr>
-<tr>
-<td align="center"><a href="https://agent-native.com/templates/slides"><img src=".github/assets/launch-button.svg" alt="Launch Slides" height="36" /></a></td>
-<td align="center"><a href="https://agent-native.com/templates/video"><img src=".github/assets/launch-button.svg" alt="Launch Video" height="36" /></a></td>
-<td align="center"><a href="https://agent-native.com/templates/analytics"><img src=".github/assets/launch-button.svg" alt="Launch Analytics" height="36" /></a></td>
 </tr>
 </table>
 

@@ -38,7 +38,7 @@ description: >
 
 ```bash
 # Open support tickets for a customer
-pnpm script pylon-issues --account="Macy's" --state=open
+pnpm script pylon-issues --account="Acme Corp" --state=open
 
 # All issues
 pnpm script pylon-issues --query=search_term

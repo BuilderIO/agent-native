@@ -326,7 +326,7 @@ seed_summary: # only when seed_detected: true
 
 - Content timing: `trending` (announced today, user wants speed)
 - Content goal: `awareness` (no direct Builder.io angle)
-- Builder.io relevance: `light` (Builder.io Fusion uses Anthropic models)
+- Builder.io relevance: `light` (Builder.io uses Anthropic models)
 - Post type: `tutorial` (developers want to try the new model)
 - Content pillar: `framework-integration` (closest fit)
 - Search demand: social signals strong (trending #1 on Hacker News, 500+ X posts)

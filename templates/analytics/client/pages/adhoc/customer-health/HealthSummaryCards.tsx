@@ -139,13 +139,13 @@ export function HealthSummaryCards({ companyName }: HealthSummaryCardsProps) {
       color: "bg-orange-500/10 text-orange-500",
     },
     {
-      label: "Fusion Messages (30d)",
+      label: "Agent Chat Messages (30d)",
       value: f ? Number(f.total_messages).toLocaleString() : "—",
       icon: MessageSquare,
       color: "bg-cyan-500/10 text-cyan-500",
     },
     {
-      label: "Fusion Active Users (30d)",
+      label: "Agent Chat Active Users (30d)",
       value: f ? Number(f.unique_users).toLocaleString() : "—",
       icon: UserCheck,
       color: "bg-indigo-500/10 text-indigo-500",

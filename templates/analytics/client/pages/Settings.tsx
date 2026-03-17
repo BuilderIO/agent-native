@@ -43,7 +43,7 @@ export default function Settings() {
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
             <p>
-              Analytics Dashboard is an internal tool for querying Builder.io
+              Analytics Dashboard is a tool for querying your organization's
               metrics stored in BigQuery.
             </p>
             <p>

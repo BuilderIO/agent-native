@@ -7,21 +7,9 @@ import {
   listLogEntries,
 } from "../lib/gcloud";
 
-// Known Cloud Run services to show as fallback when service listing is denied
-const KNOWN_CLOUD_RUN_SERVICES = [
-  "ai-projects",
-  "ai-service",
-  "builder-api",
-  "builder-webhooks",
-  "content-api",
-  "gen1",
-  "gen2",
-  "mitosis",
-  "qwik-api",
-  "sdks-output",
-  "visual-copilot",
-  "write-api",
-];
+// Known Cloud Run services to show as fallback when service listing is denied.
+// Replace these with your own Cloud Run service names.
+const KNOWN_CLOUD_RUN_SERVICES = ["api-service", "web-app", "worker"];
 
 export const handleGCloudServices: RequestHandler = async (_req, res) => {
   if (requireEnvKey(res, "BIGQUERY_PROJECT_ID", "Google Cloud")) return;
@@ -45,7 +33,7 @@ export const handleGCloudServices: RequestHandler = async (_req, res) => {
     if (isPermissionDenied) {
       // Return known services as fallback
       const knownCloudRun = KNOWN_CLOUD_RUN_SERVICES.map((name) => ({
-        name: `projects/builder-3b0a2/locations/us-central1/services/${name}`,
+        name: `projects/${process.env.BIGQUERY_PROJECT_ID || "your-gcp-project-id"}/locations/us-central1/services/${name}`,
         uid: "",
         displayName: name,
         uri: "",

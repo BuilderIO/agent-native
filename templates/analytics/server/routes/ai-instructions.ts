@@ -154,8 +154,10 @@ export const handleCanEditInstructions: RequestHandler = async (req, res) => {
       return;
     }
 
-    // Check if user is admin (builder.io email) or in analytics team (DATA_DICT_REVIEWERS)
-    const isAdmin = userInfo.email.toLowerCase().endsWith("@builder.io");
+    // Check if user is admin (matches ADMIN_EMAIL_DOMAIN) or in analytics team (DATA_DICT_REVIEWERS)
+    const adminDomain = process.env.ADMIN_EMAIL_DOMAIN || "";
+    const isAdmin =
+      adminDomain && userInfo.email.toLowerCase().endsWith(`@${adminDomain}`);
 
     const reviewersEnv = process.env.DATA_DICT_REVIEWERS || "";
     const allowedReviewers = reviewersEnv
@@ -188,8 +190,10 @@ export const handleSaveInstruction: RequestHandler = async (req, res) => {
       return;
     }
 
-    // Check if user is admin (builder.io email) or in analytics team (DATA_DICT_REVIEWERS)
-    const isAdmin = userInfo.email.toLowerCase().endsWith("@builder.io");
+    // Check if user is admin (matches ADMIN_EMAIL_DOMAIN) or in analytics team (DATA_DICT_REVIEWERS)
+    const adminDomain = process.env.ADMIN_EMAIL_DOMAIN || "";
+    const isAdmin =
+      adminDomain && userInfo.email.toLowerCase().endsWith(`@${adminDomain}`);
 
     const reviewersEnv = process.env.DATA_DICT_REVIEWERS || "";
     const allowedReviewers = reviewersEnv

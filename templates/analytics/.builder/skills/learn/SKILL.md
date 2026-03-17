@@ -31,8 +31,8 @@ Appends a structured entry to `docs/learnings.md`.
 ```json
 {
   "category": "User Preferences",
-  "insight": "Always filter out @builder.io emails when showing customer-specific activity",
-  "source": "User correction during Macy's dashboard session"
+  "insight": "Always filter out internal team emails when showing customer-specific activity",
+  "source": "User correction during customer dashboard session"
 }
 ```
 
@@ -69,7 +69,7 @@ When reviewing a thread, focus on:
 | Signal                   | Example                                                     |
 | ------------------------ | ----------------------------------------------------------- |
 | **User corrections**     | "No, that metric should use `signup` not `sign_up`"         |
-| **Data source mappings** | "Macy's org IDs are X, Y, Z"                                |
+| **Data source mappings** | "Acme Corp org IDs are X, Y, Z"                             |
 | **Query patterns**       | "Always join on `dim_hs_contacts` for customer lookups"     |
 | **Preferences**          | "I prefer stacked bar charts for per-user breakdowns"       |
 | **Gotchas**              | "The `data` column is JSON — use `JSON_VALUE()` to extract" |

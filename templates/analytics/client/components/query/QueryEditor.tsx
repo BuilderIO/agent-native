@@ -47,7 +47,7 @@ ORDER BY day ASC`,
   COUNT(*) AS messages
 FROM @app_events
 WHERE
-  event = "fusion chat message submitted"
+  event = "agent chat message submitted"
   AND createdDate >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
 GROUP BY day
 ORDER BY day ASC`,

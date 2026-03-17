@@ -6,7 +6,7 @@ Tracks code generation metrics.
 
 **Full path**: `<project_id>.metrics.lines_of_code`
 
-Used for tracking Fusion/AI code generation volume. Not currently accessible via query-metrics API.
+Used for tracking AI code generation volume. Not currently accessible via query-metrics API.
 
 ## metrics.nps
 

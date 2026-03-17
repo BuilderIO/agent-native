@@ -14,7 +14,7 @@ function dateFilter(range: DateRange) {
     : `AND created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL ${parseInt(range)} DAY)`;
 }
 
-const TABLE = "`builder-3b0a2.dbt_staging_firestore.pr_reviews`";
+const TABLE = "`your-gcp-project-id.dbt_staging_firestore.pr_reviews`";
 const BASE_WHERE = `WHERE created_at IS NOT NULL AND created_at <= CURRENT_TIMESTAMP()`;
 
 export function prsReviewedSql(range: DateRange) {
@@ -92,8 +92,8 @@ ${BASE_WHERE} ${dateFilter(range)}
 GROUP BY day ORDER BY day ASC`;
 }
 
-const CREDITS_TABLE = "`builder-3b0a2.logs.ai_credits_usage`";
-const VCP_TABLE = "`builder-3b0a2.dbt_staging_firestore.vcp_code_events`";
+const CREDITS_TABLE = "`your-gcp-project-id.logs.ai_credits_usage`";
+const VCP_TABLE = "`your-gcp-project-id.dbt_staging_firestore.vcp_code_events`";
 
 function creditsDateFilter(range: DateRange) {
   return range === "all"

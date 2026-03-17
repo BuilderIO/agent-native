@@ -417,7 +417,7 @@ async function getUserRank(email: string): Promise<number | null> {
  */
 async function persistValidationToBigQuery(validation: any): Promise<void> {
   const sql = `
-    INSERT INTO \`builder-3b0a2.logs.metric_validations\`
+    INSERT INTO \`your-gcp-project-id.logs.metric_validations\`
       (id, timestamp, metric_name, metric_id, user_email, user_id, rating, comment, tags, points_earned, has_data_preview, status, is_new_metric, suggested_definition, suggested_table)
     VALUES
       (

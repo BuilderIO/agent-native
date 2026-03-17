@@ -19,7 +19,7 @@ WITH
             conversion_details,
             form_type,
             form_intent
-        FROM `builder-3b0a2.dbt_intermediate.hubspot_form_submissions`
+        FROM `your-gcp-project-id.dbt_intermediate.hubspot_form_submissions`
         WHERE
             form_name IS NOT NULL
             AND (
@@ -55,13 +55,13 @@ WITH
             qf.form_name,
             qf.form_fill_date,
             qf.conversion_details
-        FROM `builder-3b0a2.dbt_mart.dim_hs_deals` d
+        FROM `your-gcp-project-id.dbt_mart.dim_hs_deals` d
         -- Join to get all contacts associated with the deal
         LEFT JOIN
-            `builder-3b0a2.dbt_mapping.hs_deals_to_contact_id` dc ON d.deal_id = dc.deal_id
+            `your-gcp-project-id.dbt_mapping.hs_deals_to_contact_id` dc ON d.deal_id = dc.deal_id
         -- Join to get contact details for matching to forms and signups
         LEFT JOIN
-            `builder-3b0a2.dbt_mart.dim_hs_contacts` c ON dc.contact_id = c.contact_id
+            `your-gcp-project-id.dbt_mart.dim_hs_contacts` c ON dc.contact_id = c.contact_id
         -- Join to qualifying forms (match by email OR visitor ID)
         -- AND form was filled BEFORE deal creation
         LEFT JOIN
@@ -77,7 +77,7 @@ WITH
         -- Join to product signups (match by email OR user_id)
         -- AND signup was BEFORE deal creation
         LEFT JOIN
-            `builder-3b0a2.dbt_analytics.product_signups` ps
+            `your-gcp-project-id.dbt_analytics.product_signups` ps
             ON (
                 LOWER(ps.email) = LOWER(c.email)
                 OR (

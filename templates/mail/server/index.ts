@@ -1,8 +1,13 @@
-import { createServer } from "@agent-native/core";
+import {
+  createServer,
+  createFileWatcher,
+  createSSEHandler,
+} from "@agent-native/core";
 import type { EnvKeyConfig } from "@agent-native/core/server";
 import {
   listEmails,
   getEmail,
+  getThreadMessages,
   markRead,
   toggleStar,
   archiveEmail,
@@ -10,15 +15,30 @@ import {
   deleteEmail,
   sendEmail,
   listLabels,
+  listContacts,
   getSettings,
   updateSettings,
 } from "./routes/emails.js";
+import {
+  getComposeState,
+  putComposeState,
+  deleteComposeState,
+  getState,
+  putState,
+  deleteState,
+} from "./routes/application-state.js";
 import {
   getGoogleAuthUrl,
   handleGoogleCallback,
   getGoogleStatus,
   disconnectGoogle,
 } from "./routes/google-auth.js";
+import {
+  apolloPersonLookup,
+  apolloStatus,
+  apolloSaveKey,
+  apolloDeleteKey,
+} from "./routes/apollo.js";
 
 const envKeys: EnvKeyConfig[] = [
   { key: "GOOGLE_CLIENT_ID", label: "Google OAuth Client ID", required: false },
@@ -31,11 +51,13 @@ const envKeys: EnvKeyConfig[] = [
 
 export function createAppServer() {
   const app = createServer({ envKeys });
+  const watcher = createFileWatcher(["./data", "./application-state"]);
 
   app.get("/api/ping", (_req, res) => res.json({ ok: true }));
 
   // Emails
   app.get("/api/emails", listEmails);
+  app.get("/api/threads/:threadId/messages", getThreadMessages);
   app.get("/api/emails/:id", getEmail);
   app.patch("/api/emails/:id/read", markRead);
   app.patch("/api/emails/:id/star", toggleStar);
@@ -47,15 +69,37 @@ export function createAppServer() {
   // Labels
   app.get("/api/labels", listLabels);
 
+  // Contacts
+  app.get("/api/contacts", listContacts);
+
   // Settings
   app.get("/api/settings", getSettings);
   app.patch("/api/settings", updateSettings);
+
+  // Application state — compose (with validation)
+  app.get("/api/application-state/compose", getComposeState);
+  app.put("/api/application-state/compose", putComposeState);
+  app.delete("/api/application-state/compose", deleteComposeState);
+
+  // Application state — generic (navigation, etc.)
+  app.get("/api/application-state/:key", getState);
+  app.put("/api/application-state/:key", putState);
+  app.delete("/api/application-state/:key", deleteState);
+
+  // Apollo
+  app.get("/api/apollo/status", apolloStatus);
+  app.put("/api/apollo/key", apolloSaveKey);
+  app.delete("/api/apollo/key", apolloDeleteKey);
+  app.get("/api/apollo/person", apolloPersonLookup);
 
   // Google Auth
   app.get("/api/google/auth-url", getGoogleAuthUrl);
   app.get("/api/google/callback", handleGoogleCallback);
   app.get("/api/google/status", getGoogleStatus);
   app.post("/api/google/disconnect", disconnectGoogle);
+
+  // SSE events (keep last)
+  app.get("/api/events", createSSEHandler(watcher));
 
   return app;
 }

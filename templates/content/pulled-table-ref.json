@@ -877,7 +877,7 @@
     "component": {
       "name": "Image",
       "options": {
-        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4244f6d47cf243f1b7ab865a802b8754?width=776",
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2F4244f6d47cf243f1b7ab865a802b8754?width=776",
         "aspectRatio": 0.294,
         "altText": "Cursor prompt box, showing a new chat screen.",
         "sizes": "(max-width: 638px) 86vw, (max-width: 998px) 57vw, 56vw",
@@ -1270,7 +1270,7 @@
     "component": {
       "name": "Video",
       "options": {
-        "video": "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F731d52e6dacb40f5b0a49218a4585a8d?alt=media&token=08455511-b565-4c56-87b7-54fd09a323ed&apiKey=YJIGb4i01jvw0SRdL5Bt",
+        "video": "https://cdn.builder.io/o/assets%2FYOUR_API_KEY%2F731d52e6dacb40f5b0a49218a4585a8d?alt=media&token=08455511-b565-4c56-87b7-54fd09a323ed&apiKey=YOUR_API_KEY",
         "autoPlay": true,
         "controls": false,
         "muted": true,
@@ -1282,7 +1282,7 @@
         "position": "center",
         "aspectRatio": 0.75,
         "lazyLoad": true,
-        "posterImage": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa05e9f4aa71342959af85eda61a9aa71"
+        "posterImage": "https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2Fa05e9f4aa71342959af85eda61a9aa71"
       },
       "isRSC": null
     },
@@ -1663,7 +1663,7 @@
     "component": {
       "name": "Image",
       "options": {
-        "image": "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F81556bd4cf9e4bcda757beebbad9699b?width=776",
+        "image": "https://cdn.builder.io/api/v1/image/assets%2FYOUR_API_KEY%2F81556bd4cf9e4bcda757beebbad9699b?width=776",
         "aspectRatio": 0.803,
         "altText": "Claude Code's new chat screen.",
         "sizes": "(max-width: 638px) 86vw, (max-width: 998px) 57vw, 56vw",
@@ -1919,7 +1919,7 @@
     "@type": "@builder.io/sdk:Element",
     "tagName": "img",
     "properties": {
-      "src": "https://cdn.builder.io/api/v1/pixel?apiKey=YJIGb4i01jvw0SRdL5Bt",
+      "src": "https://cdn.builder.io/api/v1/pixel?apiKey=YOUR_API_KEY",
       "aria-hidden": "true",
       "alt": "",
       "role": "presentation",

@@ -281,7 +281,7 @@ This folder contains a set of SQL queries designed to investigate the decline in
 ### Option 1: BigQuery Console (Recommended)
 
 1. Go to [BigQuery Console](https://console.cloud.google.com/bigquery)
-2. Select the `builder-3b0a2` project
+2. Select your project
 3. Copy and paste a query from the SQL files
 4. Click "Run"
 5. Download results as CSV for analysis in Google Sheets/Excel

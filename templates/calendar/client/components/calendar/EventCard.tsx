@@ -13,7 +13,7 @@ interface EventCardProps {
 
 function getEventAccentColor(event: CalendarEvent): string {
   if (event.color) return event.color;
-  return event.source === "google" ? "#10b981" : "hsl(var(--primary))";
+  return event.source === "google" ? "#5085C0" : "hsl(var(--primary))";
 }
 
 export function EventCard({
@@ -41,13 +41,12 @@ export function EventCard({
         onDragStart={draggable ? handleDragStart : undefined}
         onDragEnd={draggable ? onDragEnd : undefined}
         className={cn(
-          "flex w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-xs transition-all hover:brightness-110",
+          "flex w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-xs text-foreground transition-all hover:brightness-110",
           draggable && "cursor-grab active:cursor-grabbing",
           dimmed && "opacity-40",
         )}
         style={{
-          backgroundColor: `${accentColor}20`,
-          color: accentColor,
+          backgroundColor: `${accentColor}25`,
         }}
       >
         <span
@@ -66,19 +65,18 @@ export function EventCard({
       onDragStart={draggable ? handleDragStart : undefined}
       onDragEnd={draggable ? onDragEnd : undefined}
       className={cn(
-        "flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-xs transition-all hover:brightness-110",
+        "flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-all hover:brightness-110",
         draggable && "cursor-grab active:cursor-grabbing",
         dimmed && "opacity-40",
       )}
       style={{
-        backgroundColor: `${accentColor}18`,
+        backgroundColor: `${accentColor}25`,
         borderLeft: `2px solid ${accentColor}`,
-        color: accentColor,
       }}
     >
       <span className="truncate font-medium">{event.title}</span>
       {!event.allDay && (
-        <span className="opacity-70">
+        <span className="text-foreground/70">
           {new Date(event.start).toLocaleTimeString([], {
             hour: "numeric",
             minute: "2-digit",

@@ -1,7 +1,7 @@
-const AMPLITUDE = "`builder-3b0a2.amplitude.EVENTS_182198`";
-const SIGNUPS = "`builder-3b0a2.dbt_staging_bigquery.signups`";
-const DIM_HS_CONTACTS = "`builder-3b0a2.dbt_mart.dim_hs_contacts`";
-const SUBS = "`builder-3b0a2.dbt_mart.dim_subscriptions`";
+const AMPLITUDE = "`your-gcp-project-id.amplitude.EVENTS_182198`";
+const SIGNUPS = "`your-gcp-project-id.dbt_staging_bigquery.signups`";
+const DIM_HS_CONTACTS = "`your-gcp-project-id.dbt_mart.dim_hs_contacts`";
+const SUBS = "`your-gcp-project-id.dbt_mart.dim_subscriptions`";
 
 function companyOrgsCte(companyName: string): string {
   const escaped = companyName.replace(/'/g, "\\'");
@@ -55,10 +55,10 @@ SELECT
   COUNT(*) AS total_messages,
   COUNT(DISTINCT user_id) AS unique_users
 FROM ${AMPLITUDE}
-WHERE event_type = 'fusion chat message submitted'
+WHERE event_type = 'agent chat message submitted'
   AND DATE(event_time) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
   AND JSON_VALUE(event_properties, '$.rootOrganizationId') IN (SELECT root_organization_id FROM company_orgs)
-  AND COALESCE(JSON_VALUE(user_properties, '$.email'), '') NOT LIKE '%@builder.io'`;
+  AND COALESCE(JSON_VALUE(user_properties, '$.email'), '') NOT LIKE '%@your-company.com'`;
 }
 
 export function agentChatMessagesByDayQuery(
@@ -73,10 +73,10 @@ SELECT
   COUNT(*) AS messages,
   COUNT(DISTINCT user_id) AS unique_users
 FROM ${AMPLITUDE}
-WHERE event_type = 'fusion chat message submitted'
+WHERE event_type = 'agent chat message submitted'
   AND DATE(event_time) BETWEEN '${dateStart}' AND '${dateEnd}'
   AND JSON_VALUE(event_properties, '$.rootOrganizationId') IN (SELECT root_organization_id FROM company_orgs)
-  AND COALESCE(JSON_VALUE(user_properties, '$.email'), '') NOT LIKE '%@builder.io'
+  AND COALESCE(JSON_VALUE(user_properties, '$.email'), '') NOT LIKE '%@your-company.com'
 GROUP BY period
 ORDER BY period`;
 }
@@ -95,10 +95,10 @@ SELECT
   MIN(DATE(event_time)) AS first_message,
   MAX(DATE(event_time)) AS last_message
 FROM ${AMPLITUDE}
-WHERE event_type = 'fusion chat message submitted'
+WHERE event_type = 'agent chat message submitted'
   AND DATE(event_time) BETWEEN '${dateStart}' AND '${dateEnd}'
   AND JSON_VALUE(event_properties, '$.rootOrganizationId') IN (SELECT root_organization_id FROM company_orgs)
-  AND COALESCE(JSON_VALUE(user_properties, '$.email'), '') NOT LIKE '%@builder.io'
+  AND COALESCE(JSON_VALUE(user_properties, '$.email'), '') NOT LIKE '%@your-company.com'
 GROUP BY email
 ORDER BY messages DESC
 LIMIT 50`;
@@ -126,7 +126,7 @@ export function renewalDateQuery(companyName: string): string {
   hc.customer_stage,
   hc.hs_csm_sentiment AS health_status,
   hc.company_owner_name
-FROM \`builder-3b0a2.dbt_staging.hubspot_companies\` hc
+FROM \`your-gcp-project-id.dbt_staging.hubspot_companies\` hc
 WHERE LOWER(hc.company_name) LIKE '%${escaped}%'
   AND hc.upcoming_renewal_date IS NOT NULL
 ORDER BY hc.upcoming_renewal_date ASC
@@ -140,7 +140,7 @@ SELECT
   score,
   feedback,
   created_at
-FROM \`builder-3b0a2.metrics.nps\`
+FROM \`your-gcp-project-id.metrics.nps\`
 WHERE org_id IN (SELECT root_organization_id FROM company_orgs)
 ORDER BY created_at DESC
 LIMIT 10`;

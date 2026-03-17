@@ -1,7 +1,7 @@
 ---
 name: sentry
 description: >
-  Track errors and issues across Builder.io projects via Sentry.
+  Track errors and issues across your projects via Sentry.
   Use this skill when the user asks about errors, exceptions, error trends, or application health.
 ---
 

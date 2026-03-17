@@ -63,9 +63,9 @@ export interface EnrichedProperty {
   category: string;
 }
 
-const DIM_SUB = "`builder-3b0a2.dbt_mart.dim_subscriptions`";
-const DIM_ORG = "`builder-3b0a2.dbt_mart.dim_organizations`";
-const DIM_USER = "`builder-3b0a2.dbt_mart.dim_users`";
+const DIM_SUB = "`your-gcp-project-id.dbt_mart.dim_subscriptions`";
+const DIM_ORG = "`your-gcp-project-id.dbt_mart.dim_organizations`";
+const DIM_USER = "`your-gcp-project-id.dbt_mart.dim_users`";
 
 function dimValsSql(table: string, col: string): string {
   return `SELECT ${col} AS val, COUNT(*) AS cnt FROM ${table} WHERE ${col} IS NOT NULL AND ${col} != '' GROUP BY val ORDER BY cnt DESC LIMIT 50`;
@@ -302,28 +302,28 @@ export const KNOWN_EVENTS = [
   { value: "content created", label: "Content Created", category: "Content" },
   { value: "content deleted", label: "Content Deleted", category: "Content" },
 
-  // Fusion / AI
+  // Agent Chat / AI
   {
-    value: "fusion chat message submitted",
-    label: "Fusion Chat Message",
-    category: "Fusion",
+    value: "agent chat message submitted",
+    label: "Agent Chat Message",
+    category: "AI",
   },
   {
-    value: "fusion chat accepted",
-    label: "Fusion Chat Accepted",
-    category: "Fusion",
+    value: "agent chat accepted",
+    label: "Agent Chat Accepted",
+    category: "AI",
   },
   {
-    value: "fusion chat rejected",
-    label: "Fusion Chat Rejected",
-    category: "Fusion",
+    value: "agent chat rejected",
+    label: "Agent Chat Rejected",
+    category: "AI",
   },
   {
-    value: "fusion chat started",
-    label: "Fusion Chat Started",
-    category: "Fusion",
+    value: "agent chat started",
+    label: "Agent Chat Started",
+    category: "AI",
   },
-  { value: "generate", label: "Generate", category: "Fusion" },
+  { value: "generate", label: "Generate", category: "AI" },
 
   // Visual Editor
   { value: "import figma", label: "Import Figma", category: "Visual Editor" },
@@ -452,7 +452,7 @@ export const KNOWN_PROPERTIES = [
     ],
   },
   {
-    category: "Fusion / AI",
+    category: "AI",
     properties: [
       "model",
       "provider",

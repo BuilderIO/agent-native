@@ -1,7 +1,7 @@
 ---
 name: dbt
 description: >
-  dbt (data build tool) project structure, SQL patterns, and best practices for the Builder.io analytics warehouse.
+  dbt (data build tool) project structure, SQL patterns, and best practices for the analytics warehouse.
   Use this skill when working with dbt models, testing SQL queries, or creating new analytical tables.
 ---
 
@@ -186,7 +186,7 @@ WHERE ps.user_create_d IS NOT NULL
 1. Create test script in `code/scripts/test-<feature>.sql`
 2. Write BigQuery SQL with fully qualified table names:
    ```sql
-   FROM `builder-3b0a2.dbt_mart.dim_hs_deals`
+   FROM `your-project-id.dbt_mart.dim_hs_deals`
    ```
 3. Create runner script in `code/scripts/test-<feature>.ts`:
    ```typescript

@@ -1,6 +1,6 @@
 # Tracked Events Catalog
 
-Events tracked by `track.function.ts` in the Builder.io web app, stored in `analytics.events_partitioned`.
+Events tracked by `track.function.ts` in the web app, stored in `analytics.events_partitioned`.
 
 ## Event Categories (`event` column)
 
@@ -19,11 +19,11 @@ Events tracked by `track.function.ts` in the Builder.io web app, stored in `anal
 - `onboarding: cli auth` — User visits CLI auth page
 - `authorize cli` — User authorizes CLI/plugin access
 
-### Fusion / AI
+### Agent Chat / AI
 
-- `fusion chat message submitted` — User sends a Fusion chat message
-- `fusion chat message received` — Fusion responds
-- `fusion code applied` — AI-generated code applied to project
+- `agent chat message submitted` — User sends an agent chat message
+- `agent chat message received` — AI responds
+- `agent chat code applied` — AI-generated code applied to project
 
 ### Content Editing
 

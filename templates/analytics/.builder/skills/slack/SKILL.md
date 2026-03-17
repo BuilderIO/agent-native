@@ -1,7 +1,7 @@
 ---
 name: slack
 description: >
-  Search Slack messages and read channel history across Builder.io workspaces.
+  Search Slack messages and read channel history across your workspaces.
   Use this skill when the user asks about Slack conversations, channel messages, or internal communications.
 ---
 

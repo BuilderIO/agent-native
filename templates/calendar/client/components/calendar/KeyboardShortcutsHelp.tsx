@@ -54,7 +54,7 @@ export function KeyboardShortcutsHelp({
 }: KeyboardShortcutsHelpProps) {
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="dark sm:max-w-[460px]">
+      <DialogContent className="sm:max-w-[460px]">
         <DialogHeader>
           <DialogTitle>Keyboard Shortcuts</DialogTitle>
         </DialogHeader>

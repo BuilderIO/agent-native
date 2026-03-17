@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { APP_REGISTRY, type AppDefinition } from "@shared/app-registry";
 import Sidebar from "./components/Sidebar.js";
 import TabBar from "./components/TabBar.js";
@@ -43,6 +43,8 @@ export default function App() {
   const [appTabs, setAppTabs] =
     useState<Record<string, AppTabState>>(initAppTabs);
 
+  const closedTabsRef = useRef<{ tab: Tab; appId: string }[]>([]);
+
   const currentAppTabs = appTabs[activeSidebarAppId];
 
   const handleSidebarTabChange = useCallback((appId: string) => {
@@ -64,13 +66,23 @@ export default function App() {
 
   const handleTabClose = useCallback(
     (tabId: string) => {
+      // Push to closed-tabs stack outside the updater to avoid
+      // double-push in React 18 StrictMode (updaters must be pure).
+      const appState = appTabs[activeSidebarAppId];
+      const closedTab = appState?.tabs.find((t) => t.id === tabId);
+      if (closedTab) {
+        closedTabsRef.current.push({
+          tab: closedTab,
+          appId: activeSidebarAppId,
+        });
+      }
+
       setAppTabs((prev) => {
-        const appState = prev[activeSidebarAppId];
-        const idx = appState.tabs.findIndex((t) => t.id === tabId);
-        const next = appState.tabs.filter((t) => t.id !== tabId);
+        const prevAppState = prev[activeSidebarAppId];
+        const idx = prevAppState.tabs.findIndex((t) => t.id === tabId);
+        const next = prevAppState.tabs.filter((t) => t.id !== tabId);
 
         if (next.length === 0) {
-          // Always keep at least one tab per app
           const app = APP_REGISTRY.find((a) => a.id === activeSidebarAppId)!;
           const tab = createTab(app);
           return {
@@ -79,8 +91,8 @@ export default function App() {
           };
         }
 
-        let newActiveId = appState.activeTabId;
-        if (tabId === appState.activeTabId) {
+        let newActiveId = prevAppState.activeTabId;
+        if (tabId === prevAppState.activeTabId) {
           const newIdx = Math.min(idx, next.length - 1);
           newActiveId = next[newIdx].id;
         }
@@ -91,8 +103,21 @@ export default function App() {
         };
       });
     },
-    [activeSidebarAppId],
+    [activeSidebarAppId, appTabs],
   );
+
+  const handleReopenTab = useCallback(() => {
+    const entry = closedTabsRef.current.pop();
+    if (!entry) return;
+    setActiveSidebarAppId(entry.appId);
+    setAppTabs((prev) => ({
+      ...prev,
+      [entry.appId]: {
+        tabs: [...prev[entry.appId].tabs, entry.tab],
+        activeTabId: entry.tab.id,
+      },
+    }));
+  }, []);
 
   const handleNewTab = useCallback(() => {
     const app = APP_REGISTRY.find((a) => a.id === activeSidebarAppId);
@@ -107,39 +132,72 @@ export default function App() {
     }));
   }, [activeSidebarAppId]);
 
-  // Keyboard shortcuts: Cmd+1-9 to switch apps, Cmd+[/] to go prev/next
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (!e.metaKey && !e.ctrlKey) return;
+  // Shared shortcut handler used by both the native keydown listener
+  // (fires when the shell has focus) and the IPC forwarder (fires when
+  // a webview guest has focus).
+  const handleShortcut = useCallback(
+    (key: string, shiftKey: boolean) => {
+      const k = key.toLowerCase();
 
-      // Cmd+1 through Cmd+9
-      const digit = parseInt(e.key, 10);
+      if (k === "t") {
+        if (shiftKey) handleReopenTab();
+        else handleNewTab();
+        return;
+      }
+
+      const digit = parseInt(key, 10);
       if (digit >= 1 && digit <= 9) {
-        const idx = digit - 1;
-        if (idx < APP_REGISTRY.length) {
-          e.preventDefault();
-          setActiveSidebarAppId(APP_REGISTRY[idx].id);
+        if (digit - 1 < APP_REGISTRY.length) {
+          setActiveSidebarAppId(APP_REGISTRY[digit - 1].id);
         }
         return;
       }
 
-      // Cmd+[ / Cmd+] to go prev/next app
-      if (e.key === "[" || e.key === "]") {
-        e.preventDefault();
+      if (key === "[" || key === "]") {
         setActiveSidebarAppId((current) => {
           const idx = APP_REGISTRY.findIndex((a) => a.id === current);
           const next =
-            e.key === "]"
+            key === "]"
               ? (idx + 1) % APP_REGISTRY.length
               : (idx - 1 + APP_REGISTRY.length) % APP_REGISTRY.length;
           return APP_REGISTRY[next].id;
         });
       }
-    };
+    },
+    [handleNewTab, handleReopenTab],
+  );
 
+  // Keyboard shortcuts — shell has focus
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.metaKey && !e.ctrlKey) return;
+      e.preventDefault();
+      handleShortcut(e.key, e.shiftKey);
+    };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [handleShortcut]);
+
+  // Keyboard shortcuts — forwarded from webview guests via main process IPC
+  useEffect(() => {
+    if (!window.electronAPI?.shortcuts?.onKeydown) return;
+    return window.electronAPI.shortcuts.onKeydown(({ key, shiftKey }) => {
+      handleShortcut(key, shiftKey);
+    });
+  }, [handleShortcut]);
+
+  // Cmd+W — close active tab (intercepted by main process, forwarded via IPC)
+  const activeTabIdRef = useRef(currentAppTabs?.activeTabId ?? "");
+  activeTabIdRef.current = currentAppTabs?.activeTabId ?? "";
+
+  useEffect(() => {
+    if (!window.electronAPI?.shortcuts?.onCloseTab) return;
+    return window.electronAPI.shortcuts.onCloseTab(() => {
+      if (activeTabIdRef.current) {
+        handleTabClose(activeTabIdRef.current);
+      }
+    });
+  }, [handleTabClose]);
 
   // Collect all mounted webviews across all apps
   const allWebviews: { tab: Tab; app: AppDefinition; isActive: boolean }[] = [];

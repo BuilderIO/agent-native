@@ -5,8 +5,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   agentChatMessagesByUserQuery,
   agentChatEventsByTypeQuery,
-  macysUsersQuery,
-  macysSubscriptionsQuery,
+  customerUsersQuery,
+  customerSubscriptionsQuery,
 } from "./queries";
 
 interface UsersTablesProps {
@@ -95,8 +95,8 @@ export function UsersTables({ dateStart, dateEnd }: UsersTablesProps) {
     () => agentChatEventsByTypeQuery(dateStart, dateEnd),
     [dateStart, dateEnd],
   );
-  const usersSql = useMemo(() => macysUsersQuery(), []);
-  const subsSql = useMemo(() => macysSubscriptionsQuery(), []);
+  const usersSql = useMemo(() => customerUsersQuery(), []);
+  const subsSql = useMemo(() => customerSubscriptionsQuery(), []);
 
   const userMsgData = useMetricsQuery(
     ["macys-user-msgs", userMsgSql],
@@ -114,8 +114,8 @@ export function UsersTables({ dateStart, dateEnd }: UsersTablesProps) {
       <h2 className="text-lg font-semibold mt-6">Users & Breakdown</h2>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <DataTable
-          title="Fusion Messages by User"
-          subtitle="Who is sending Fusion messages in the selected period"
+          title="Agent Chat Messages by User"
+          subtitle="Who is sending agent chat messages in the selected period"
           columns={[
             { key: "user_email", label: "User" },
             { key: "messages", label: "Messages", align: "right" },
@@ -128,8 +128,8 @@ export function UsersTables({ dateStart, dateEnd }: UsersTablesProps) {
           error={userMsgData.data?.error}
         />
         <DataTable
-          title="Fusion Event Types"
-          subtitle="All fusion-related event types from Macy's orgs"
+          title="Agent Chat Event Types"
+          subtitle="All agent-chat-related event types from customer orgs"
           columns={[
             { key: "event_type", label: "Event Type" },
             { key: "event_count", label: "Count", align: "right" },
@@ -144,8 +144,8 @@ export function UsersTables({ dateStart, dateEnd }: UsersTablesProps) {
       <h2 className="text-lg font-semibold mt-6">Account Info</h2>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <DataTable
-          title="Macy's Users"
-          subtitle="All Builder accounts linked to Macy's HubSpot contacts"
+          title="Customer Users"
+          subtitle="All accounts linked to customer HubSpot contacts"
           columns={[
             { key: "email", label: "Email" },
             { key: "firstname", label: "First" },
@@ -159,7 +159,7 @@ export function UsersTables({ dateStart, dateEnd }: UsersTablesProps) {
         />
         <DataTable
           title="Subscriptions"
-          subtitle="Active and historical subscriptions across Macy's orgs"
+          subtitle="Active and historical subscriptions across customer orgs"
           columns={[
             { key: "plan", label: "Plan" },
             { key: "status", label: "Status" },

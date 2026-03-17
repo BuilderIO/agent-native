@@ -15,7 +15,7 @@ WITH user_events AS (
     JSON_VALUE(event_properties, '$.spaceKind') as space_kind,
     JSON_VALUE(user_properties, '$.plan') as plan
   FROM
-    \`builder-3b0a2.amplitude.EVENTS_182198\`
+    \`your-gcp-project-id.amplitude.EVENTS_182198\`
   WHERE
     event_time >= TIMESTAMP('${dateStart}')
     AND event_time <= TIMESTAMP_ADD(TIMESTAMP('${dateEnd}'), INTERVAL 1 DAY)
@@ -101,7 +101,7 @@ WITH user_events AS (
     event_type,
     event_time
   FROM
-    \`builder-3b0a2.amplitude.EVENTS_182198\`
+    \`your-gcp-project-id.amplitude.EVENTS_182198\`
   WHERE
     event_time >= TIMESTAMP('${dateStart}')
     AND event_time <= TIMESTAMP_ADD(TIMESTAMP('${dateEnd}'), INTERVAL 1 DAY)
@@ -163,7 +163,7 @@ WITH user_events AS (
     JSON_VALUE(event_properties, '$.spaceKind') as space_kind,
     JSON_VALUE(user_properties, '$.plan') as plan
   FROM
-    \`builder-3b0a2.amplitude.EVENTS_182198\`
+    \`your-gcp-project-id.amplitude.EVENTS_182198\`
   WHERE
     event_time >= TIMESTAMP('${dateStart}')
     AND event_time <= TIMESTAMP_ADD(TIMESTAMP('${dateEnd}'), INTERVAL 1 DAY)
@@ -215,7 +215,7 @@ WITH user_events AS (
     event_type,
     event_time
   FROM
-    \`builder-3b0a2.amplitude.EVENTS_182198\`
+    \`your-gcp-project-id.amplitude.EVENTS_182198\`
   WHERE
     event_time >= TIMESTAMP('${dateStart}')
     AND event_time <= TIMESTAMP_ADD(TIMESTAMP('${dateEnd}'), INTERVAL 1 DAY)
@@ -263,7 +263,7 @@ WITH user_events AS (
     DATE(event_time) as event_date,
     event_type
   FROM
-    \`builder-3b0a2.amplitude.EVENTS_182198\`
+    \`your-gcp-project-id.amplitude.EVENTS_182198\`
   WHERE
     event_time >= TIMESTAMP('${dateStart}')
     AND event_time <= TIMESTAMP_ADD(TIMESTAMP('${dateEnd}'), INTERVAL 1 DAY)

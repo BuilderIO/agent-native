@@ -42,7 +42,7 @@ description: >
 
 ### Dashboard
 
-- `/adhoc/fusion-eng` — Fusion Engineering dashboard (mirrors Grafana UID `134bc892-089e-4a02-a7d5-a3182dfe5549`)
+- `/adhoc/engineering` — Engineering dashboard (mirrors a Grafana dashboard by UID)
 
 ## Grafana Response Frame Format
 

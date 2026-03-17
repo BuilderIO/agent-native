@@ -8,9 +8,9 @@ export default function BlankDashboard() {
       </div>
       <h3 className="text-lg font-semibold mb-2">Empty Dashboard</h3>
       <p className="text-sm text-muted-foreground max-w-md">
-        This dashboard is empty. Tell Fusion what charts and data you want to
-        see here — for example, "show me signups by attribution source over the
-        last 90 days" — and it will populate this dashboard for you.
+        This dashboard is empty. Tell the AI assistant what charts and data you
+        want to see here — for example, "show me signups by attribution source
+        over the last 90 days" — and it will populate this dashboard for you.
       </p>
     </div>
   );

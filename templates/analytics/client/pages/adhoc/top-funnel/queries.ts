@@ -1,15 +1,15 @@
 import type { DateCadence, ViewByOption } from "./types";
 
 // ─── BigQuery table references ─────────────────────────────────────────
-const FIRST_PV = "`builder-3b0a2.dbt_staging_bigquery.first_pageviews`";
-const ALL_PV = "`builder-3b0a2.dbt_staging_bigquery.all_pageviews`";
-const SIGNUPS = "`builder-3b0a2.dbt_staging_bigquery.signups`";
-const PRODUCT_SIGNUPS = "`builder-3b0a2.dbt_analytics.product_signups`";
-const HS_CONTACTS = "`builder-3b0a2.dbt_mart.dim_hs_contacts`";
-const DEALS = "`builder-3b0a2.dbt_mart.dim_deals`";
+const FIRST_PV = "`your-gcp-project-id.dbt_staging_bigquery.first_pageviews`";
+const ALL_PV = "`your-gcp-project-id.dbt_staging_bigquery.all_pageviews`";
+const SIGNUPS = "`your-gcp-project-id.dbt_staging_bigquery.signups`";
+const PRODUCT_SIGNUPS = "`your-gcp-project-id.dbt_analytics.product_signups`";
+const HS_CONTACTS = "`your-gcp-project-id.dbt_mart.dim_hs_contacts`";
+const DEALS = "`your-gcp-project-id.dbt_mart.dim_deals`";
 const DEAL_FIRST_CONTACT =
-  "`builder-3b0a2.dbt_intermediate.deal_first_contact`";
-const SUBS = "`builder-3b0a2.dbt_mart.dim_subscriptions`";
+  "`your-gcp-project-id.dbt_intermediate.deal_first_contact`";
+const SUBS = "`your-gcp-project-id.dbt_mart.dim_subscriptions`";
 
 // Blog metadata from Sigma-materialized Google Sheet (the actual source of
 // truth for author, topic, persona, purpose, sub-type).
@@ -19,7 +19,7 @@ const SUBS = "`builder-3b0a2.dbt_mart.dim_subscriptions`";
 //   IFHWPU1IDO = persona        Z52LFY52AK = topic
 //   _DGCBJNKLE = sub-type       JQL-G1QE-B = sub-topic
 const SIGMA_BLOG =
-  "`builder-3b0a2.sigma_materialized.SIGDS_82deb8e2_40f8_4fb4_b3cb_caa011a72d29`";
+  "`your-gcp-project-id.sigma_materialized.SIGDS_82deb8e2_40f8_4fb4_b3cb_caa011a72d29`";
 
 // Deduplicated subquery — the sigma sheet has duplicate rows (http vs https).
 // We extract the slug and pick one row per slug.
@@ -89,7 +89,7 @@ const SUB_PAGE_TYPE_EXPR = `CASE
     WHEN v.url LIKE '%/account%' THEN 'account'
     WHEN v.url LIKE '%/content%' THEN 'content-list'
     WHEN v.url LIKE '%/m/%' OR v.url LIKE '%/edit/%' THEN 'visual-editor'
-    WHEN v.url LIKE '%/fusion%' THEN 'fusion'
+    WHEN v.url LIKE '%/ai%' THEN 'ai'
     ELSE 'other'
   END`;
 

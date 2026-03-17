@@ -15,7 +15,7 @@ const TIME_OPTIONS: { label: string; value: TimePeriod }[] = [
   { label: "7d", value: "7d" },
 ];
 
-const SA_EMAIL = "fusion-analytics@builder-3b0a2.iam.gserviceaccount.com";
+const SA_EMAIL = "analytics@your-gcp-project-id.iam.gserviceaccount.com";
 
 const REQUIRED_ROLES = [
   { role: "roles/monitoring.viewer", purpose: "Read metrics" },
@@ -117,7 +117,7 @@ export default function GCloudDashboard() {
 
   return (
     <div className="space-y-6">
-      <DashboardHeader description="Cloud Run and Cloud Functions metrics, health, and logs for the builder-3b0a2 project" />
+      <DashboardHeader description="Cloud Run and Cloud Functions metrics, health, and logs for your GCP project" />
 
       {/* Permission setup banner */}
       {(hasPermissionWarning || metricsBlocked) && (
@@ -148,7 +148,7 @@ export default function GCloudDashboard() {
                   <pre className="text-[11px] bg-black/40 rounded-md p-3 overflow-x-auto text-green-400 font-mono">
                     {REQUIRED_ROLES.map(
                       (r) =>
-                        `gcloud projects add-iam-policy-binding builder-3b0a2 \\\n  --member="serviceAccount:${SA_EMAIL}" \\\n  --role="${r.role}"\n`,
+                        `gcloud projects add-iam-policy-binding your-gcp-project-id \\\n  --member="serviceAccount:${SA_EMAIL}" \\\n  --role="${r.role}"\n`,
                     ).join("\n")}
                   </pre>
                   <div className="text-[10px] text-muted-foreground mt-2 space-y-0.5">

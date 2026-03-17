@@ -5,35 +5,65 @@
 @tailwind utilities;
 
 @layer base {
-  :root,
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 220 10% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 10% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 10% 10%;
+    --primary: 220 10% 15%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 10% 95%;
+    --secondary-foreground: 220 10% 15%;
+    --muted: 220 10% 95%;
+    --muted-foreground: 220 5% 45%;
+    --accent: 220 10% 95%;
+    --accent-foreground: 220 10% 15%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 10% 90%;
+    --input: 220 10% 90%;
+    --ring: 220 10% 40%;
+    --radius: 0.5rem;
+    --sidebar-background: 220 10% 97%;
+    --sidebar-foreground: 220 5% 45%;
+    --sidebar-primary: 220 10% 15%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 10% 95%;
+    --sidebar-accent-foreground: 220 10% 15%;
+    --sidebar-border: 220 10% 90%;
+    --sidebar-ring: 220 10% 40%;
+  }
+
   .dark {
-    --background: 220 6% 10%;
+    --background: 220 6% 6%;
     --foreground: 0 0% 90%;
-    --card: 220 5% 13%;
+    --card: 220 5% 6%;
     --card-foreground: 0 0% 90%;
-    --popover: 220 5% 13%;
+    --popover: 220 5% 6%;
     --popover-foreground: 0 0% 90%;
     --primary: 0 0% 75%;
-    --primary-foreground: 220 6% 10%;
-    --secondary: 220 4% 16%;
+    --primary-foreground: 220 6% 6%;
+    --secondary: 220 4% 12%;
     --secondary-foreground: 0 0% 90%;
-    --muted: 220 4% 14%;
+    --muted: 220 4% 10%;
     --muted-foreground: 220 4% 50%;
-    --accent: 220 4% 17%;
+    --accent: 220 4% 13%;
     --accent-foreground: 0 0% 90%;
     --destructive: 0 63% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 220 4% 18%;
-    --input: 220 4% 18%;
+    --border: 220 4% 14%;
+    --input: 220 4% 14%;
     --ring: 0 0% 60%;
     --radius: 0.5rem;
-    --sidebar-background: 220 6% 8%;
+    --sidebar-background: 220 6% 4%;
     --sidebar-foreground: 220 4% 50%;
     --sidebar-primary: 0 0% 75%;
-    --sidebar-primary-foreground: 220 6% 10%;
-    --sidebar-accent: 220 4% 14%;
+    --sidebar-primary-foreground: 220 6% 6%;
+    --sidebar-accent: 220 4% 10%;
     --sidebar-accent-foreground: 0 0% 90%;
-    --sidebar-border: 220 4% 14%;
+    --sidebar-border: 220 4% 10%;
     --sidebar-ring: 0 0% 60%;
   }
 }
@@ -104,15 +134,15 @@
 
 /* Highlight focused email row — left border like Superhuman */
 .email-list-row.focused {
-  background: hsl(220 5% 14%);
-  border-left: 3px solid hsl(210 50% 50%);
+  background: hsl(var(--accent));
+  border-left: 3px solid hsl(var(--ring));
   padding-left: calc(0.75rem - 3px);
 }
 
 /* Selected email row — stronger highlight */
 .email-list-row.selected {
-  background: hsl(220 6% 16%);
-  border-left: 3px solid hsl(210 50% 50%);
+  background: hsl(var(--secondary));
+  border-left: 3px solid hsl(var(--ring));
   padding-left: calc(0.75rem - 3px);
 }
 
@@ -152,4 +182,189 @@
 }
 .email-list-row:hover .row-time {
   display: none;
+}
+
+/* ===== Compose Rich Text Editor (Tiptap) ===== */
+
+.compose-editor-wrapper {
+  position: relative;
+}
+
+.compose-editor {
+  outline: none;
+  font-family: "Inter", sans-serif;
+  color: hsl(var(--foreground));
+  line-height: 1.65;
+  font-size: 0.875rem;
+}
+
+.compose-editor > *:first-child {
+  margin-top: 0;
+}
+
+/* Headings */
+.compose-editor h1 {
+  font-size: 1.5em;
+  font-weight: 700;
+  margin: 1em 0 0.25em;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.compose-editor h2 {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin: 0.8em 0 0.2em;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.compose-editor h3 {
+  font-size: 1.1em;
+  font-weight: 600;
+  margin: 0.6em 0 0.15em;
+  line-height: 1.4;
+}
+
+/* Paragraphs */
+.compose-editor p {
+  margin: 0.3em 0;
+  min-height: 1.65em;
+}
+
+/* Placeholders */
+.compose-editor p.is-editor-empty:first-child::before,
+.compose-editor p.is-empty::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: hsl(var(--muted-foreground));
+  pointer-events: none;
+  height: 0;
+}
+
+/* Lists */
+.compose-editor ul {
+  list-style-type: disc;
+  padding-left: 1.5em;
+  margin: 0.2em 0;
+}
+.compose-editor ol {
+  list-style-type: decimal;
+  padding-left: 1.5em;
+  margin: 0.2em 0;
+}
+.compose-editor li {
+  margin: 0.1em 0;
+}
+.compose-editor li p {
+  margin: 0;
+}
+
+/* Blockquote */
+.compose-editor blockquote {
+  border-left: 3px solid hsl(var(--foreground));
+  padding-left: 1em;
+  margin: 0.4em 0;
+}
+
+/* Code block */
+.compose-editor .compose-code-block,
+.compose-editor pre {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  background: hsl(var(--muted));
+  border-radius: 4px;
+  padding: 0.75em 1em;
+  margin: 0.4em 0;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+.compose-editor pre code {
+  font-family: inherit;
+  background: none;
+  padding: 0;
+  border: none;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* Inline code */
+.compose-editor code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+  background: hsl(var(--muted));
+  color: hsl(0 70% 55%);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+.dark .compose-editor code {
+  color: hsl(0 60% 65%);
+}
+
+/* Links */
+.compose-link {
+  color: hsl(var(--foreground));
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: hsl(var(--muted-foreground));
+  text-decoration-thickness: 1px;
+  cursor: pointer;
+}
+.compose-link:hover {
+  text-decoration-color: hsl(var(--foreground));
+}
+
+/* Horizontal rule */
+.compose-editor hr {
+  border: none;
+  border-top: 1px solid hsl(var(--border));
+  margin: 1em 0;
+}
+
+/* Text formatting */
+.compose-editor strong {
+  font-weight: 600;
+}
+.compose-editor em {
+  font-style: italic;
+}
+.compose-editor s {
+  text-decoration: line-through;
+}
+
+/* Selection */
+.compose-editor ::selection {
+  background: hsl(210 100% 52% / 0.2);
+}
+
+/* ===== Bubble Toolbar ===== */
+.bubble-toolbar {
+  display: flex;
+  align-items: center;
+  background: hsl(0 0% 15%);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow:
+    0 4px 20px rgb(0 0 0 / 0.25),
+    0 0 0 1px rgb(255 255 255 / 0.06);
+}
+
+/* ===== Slash Command Menu ===== */
+.slash-command-menu {
+  background: hsl(var(--popover));
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  box-shadow:
+    0 4px 24px rgb(0 0 0 / 0.12),
+    0 0 0 1px rgb(0 0 0 / 0.04);
+  min-width: 240px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.slash-command-menu button {
+  color: hsl(var(--foreground));
+}
+.slash-command-menu button:hover,
+.slash-command-menu button.active {
+  background: hsl(var(--accent));
 }

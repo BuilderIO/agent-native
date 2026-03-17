@@ -35,7 +35,7 @@ description: >
 pnpm script hubspot-deals --fields=dealname,amount,stageLabel
 
 # Search for a specific customer
-pnpm script hubspot-deals --grep="Macy's" --fields=dealname,amount,stageLabel
+pnpm script hubspot-deals --grep="Acme" --fields=dealname,amount,stageLabel
 ```
 
 ## Key Patterns & Gotchas
@@ -47,7 +47,7 @@ pnpm script hubspot-deals --grep="Macy's" --fields=dealname,amount,stageLabel
 
 ## HubSpot Company Properties (BigQuery staging table)
 
-Table: `builder-3b0a2.dbt_staging.hubspot_companies`
+Table: `your-project-id.dbt_staging.hubspot_companies`
 
 - `company_name`, `company_id`, `company_domain_name`
 - `upcoming_renewal_date`, `customer_stage`, `hs_csm_sentiment`

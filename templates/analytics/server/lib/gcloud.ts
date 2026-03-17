@@ -3,7 +3,7 @@
 
 import { GoogleAuth } from "google-auth-library";
 
-const PROJECT_ID = "builder-3b0a2";
+const PROJECT_ID = process.env.BIGQUERY_PROJECT_ID || "your-gcp-project-id";
 
 // In-memory cache
 const cache = new Map<string, { data: unknown; ts: number }>();

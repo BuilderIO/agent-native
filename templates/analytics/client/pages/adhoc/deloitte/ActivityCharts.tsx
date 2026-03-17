@@ -13,15 +13,15 @@ export function ActivityCharts({ dateStart, dateEnd }: ActivityChartsProps) {
     () => agentChatMessagesByDay(dateStart, dateEnd),
     [dateStart, dateEnd],
   );
-  const msgData = useMetricsQuery(["deloitte-agent-chat-msgs", msgSql], msgSql);
+  const msgData = useMetricsQuery(["customer-agent-chat-msgs", msgSql], msgSql);
 
   return (
     <>
-      <h2 className="text-lg font-semibold mt-2">Fusion Activity</h2>
+      <h2 className="text-lg font-semibold mt-2">Agent Chat Activity</h2>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <KpiChart
-          title="Fusion Messages"
-          subtitle="Daily chat messages from Deloitte users"
+          title="Agent Chat Messages"
+          subtitle="Daily chat messages from customer users"
           rows={msgData.data?.rows ?? []}
           dataKey="messages"
           chartType="bar"
@@ -30,8 +30,8 @@ export function ActivityCharts({ dateStart, dateEnd }: ActivityChartsProps) {
           error={msgData.data?.error}
         />
         <KpiChart
-          title="Active Users (Fusion)"
-          subtitle="Daily unique users sending Fusion messages"
+          title="Active Users (Agent Chat)"
+          subtitle="Daily unique users sending agent chat messages"
           rows={msgData.data?.rows ?? []}
           dataKey="unique_users"
           chartType="bar"

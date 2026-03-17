@@ -40,13 +40,13 @@ description: >
 pnpm script apollo-search --email=user@example.com
 
 # Search by company
-pnpm script apollo-search --company=Deloitte
+pnpm script apollo-search --company=Globex Inc
 
 # Search by domain
 pnpm script apollo-search --domain=example.com
 
 # Find decision-makers
-pnpm script apollo-search --company=Deloitte --title=CTO
+pnpm script apollo-search --company=Globex Inc --title=CTO
 
 # Search by name
 pnpm script apollo-search --name="John Smith"

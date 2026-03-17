@@ -10,7 +10,7 @@ async function main() {
       builder_user_id,
       sign_up_time_stamp,
       sign_up_time_stamp_time
-    FROM \`builder-3b0a2.dbt_mart.dim_hs_contacts\`
+    FROM \`your-gcp-project-id.dbt_mart.dim_hs_contacts\`
     WHERE sign_up_time_stamp IS NOT NULL
     ORDER BY sign_up_time_stamp DESC
     LIMIT 10

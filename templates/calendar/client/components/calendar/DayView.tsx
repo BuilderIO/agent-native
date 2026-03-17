@@ -23,7 +23,7 @@ const HOUR_HEIGHT = 72;
 
 function getEventColor(event: CalendarEvent) {
   if (event.color) return event.color;
-  return event.source === "google" ? "#10b981" : null;
+  return event.source === "google" ? "#5085C0" : null;
 }
 
 export function DayView({ events, date, onEventClick }: DayViewProps) {
@@ -107,17 +107,15 @@ export function DayView({ events, date, onEventClick }: DayViewProps) {
                 <button
                   key={event.id}
                   onClick={() => onEventClick(event)}
-                  className="block w-full rounded-md px-3 py-1.5 text-left text-sm font-medium transition-all hover:brightness-110"
+                  className="block w-full rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground transition-all hover:brightness-110"
                   style={
                     color
                       ? {
-                          backgroundColor: `${color}25`,
-                          color,
+                          backgroundColor: `${color}30`,
                           borderLeft: `3px solid ${color}`,
                         }
                       : {
-                          backgroundColor: "hsl(var(--primary) / 0.18)",
-                          color: "hsl(var(--primary))",
+                          backgroundColor: "hsl(var(--primary) / 0.15)",
                           borderLeft: "3px solid hsl(var(--primary))",
                         }
                   }
@@ -178,21 +176,20 @@ export function DayView({ events, date, onEventClick }: DayViewProps) {
                 style={{
                   ...style,
                   backgroundColor: color
-                    ? `${color}22`
+                    ? `${color}30`
                     : "hsl(var(--primary) / 0.15)",
                   borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
-                  color: color ?? "hsl(var(--primary))",
                 }}
               >
-                <div className="truncate font-semibold leading-tight">
+                <div className="truncate font-semibold leading-tight text-foreground">
                   {event.title}
                 </div>
-                <div className="mt-0.5 text-[11px] opacity-70">
+                <div className="truncate mt-0.5 text-[11px] text-foreground/60">
                   {format(parseISO(event.start), "h:mm a")} –{" "}
                   {format(parseISO(event.end), "h:mm a")}
                 </div>
                 {event.location && (
-                  <div className="mt-0.5 truncate text-[11px] opacity-60">
+                  <div className="truncate mt-0.5 text-[11px] text-foreground/50">
                     📍 {event.location}
                   </div>
                 )}

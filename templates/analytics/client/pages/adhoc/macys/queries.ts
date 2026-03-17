@@ -1,18 +1,19 @@
 // ─── BigQuery table references ─────────────────────────────────────────
-const AMPLITUDE = "`builder-3b0a2.amplitude.EVENTS_182198`";
-const SUBS = "`builder-3b0a2.dbt_mart.dim_subscriptions`";
-const SIGNUPS = "`builder-3b0a2.dbt_staging_bigquery.signups`";
-const DIM_HS_CONTACTS = "`builder-3b0a2.dbt_mart.dim_hs_contacts`";
+const AMPLITUDE = "`your-gcp-project-id.amplitude.EVENTS_182198`";
+const SUBS = "`your-gcp-project-id.dbt_mart.dim_subscriptions`";
+const SIGNUPS = "`your-gcp-project-id.dbt_staging_bigquery.signups`";
+const DIM_HS_CONTACTS = "`your-gcp-project-id.dbt_mart.dim_hs_contacts`";
 
-// Macy's root org IDs (discovered via HubSpot deal → company → contacts → signups)
-const MACYS_ORG_IDS = [
-  "ceb199b063d34a47ad2b03c9d1e019df",
-  "9060c246119d414a97029d535e99b322",
-  "42edb541a73f4cb6ba52c70092534a64",
+// Customer root org IDs (discovered via HubSpot deal -> company -> contacts -> signups)
+// Replace these with your customer's org IDs
+const CUSTOMER_ORG_IDS = [
+  "example-org-id-1",
+  "example-org-id-2",
+  "example-org-id-3",
 ];
 
 function orgIdList(): string {
-  return MACYS_ORG_IDS.map((id) => `'${id}'`).join(",");
+  return CUSTOMER_ORG_IDS.map((id) => `'${id}'`).join(",");
 }
 
 // ─── Agent Chat Messages Over Time ────────────────────────────────────
@@ -26,7 +27,7 @@ export function agentChatMessagesByDayQuery(
   COUNT(*) AS messages,
   COUNT(DISTINCT user_id) AS unique_users
 FROM ${AMPLITUDE}
-WHERE event_type = 'fusion chat message submitted'
+WHERE event_type = 'agent chat message submitted'
   AND DATE(event_time) BETWEEN '${dateStart}' AND '${dateEnd}'
   AND JSON_VALUE(event_properties, '$.rootOrganizationId') IN (${orgIdList()})
 GROUP BY period
@@ -46,7 +47,7 @@ export function agentChatMessagesByUserQuery(
   MAX(DATE(event_time)) AS last_active,
   COUNT(DISTINCT DATE(event_time)) AS active_days
 FROM ${AMPLITUDE}
-WHERE event_type = 'fusion chat message submitted'
+WHERE event_type = 'agent chat message submitted'
   AND DATE(event_time) BETWEEN '${dateStart}' AND '${dateEnd}'
   AND JSON_VALUE(event_properties, '$.rootOrganizationId') IN (${orgIdList()})
 GROUP BY user_email
@@ -66,7 +67,7 @@ export function agentChatEventsByTypeQuery(
 FROM ${AMPLITUDE}
 WHERE DATE(event_time) BETWEEN '${dateStart}' AND '${dateEnd}'
   AND JSON_VALUE(event_properties, '$.rootOrganizationId') IN (${orgIdList()})
-  AND event_type LIKE '%fusion%'
+  AND event_type LIKE '%agent chat%'
 GROUP BY event_type
 ORDER BY event_count DESC`;
 }
@@ -90,7 +91,7 @@ ORDER BY period`;
 
 // ─── Spaces / Subscriptions ────────────────────────────────────────────
 
-export function macysSubscriptionsQuery(): string {
+export function customerSubscriptionsQuery(): string {
   return `SELECT
   root_id,
   space_id,
@@ -103,9 +104,9 @@ WHERE root_id IN (${orgIdList()})
 ORDER BY start_date DESC`;
 }
 
-// ─── Known Macy's Users ────────────────────────────────────────────────
+// ─── Known Customer Users ──────────────────────────────────────────────
 
-export function macysUsersQuery(): string {
+export function customerUsersQuery(): string {
   return `SELECT
   sg.user_id,
   sg.root_organization_id AS org_id,

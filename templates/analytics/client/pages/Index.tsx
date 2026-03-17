@@ -33,7 +33,7 @@ WHERE createdDate >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL ${days} DAY)
 
 function agentChatMessagesTotalSql(days: number) {
   return `SELECT COUNT(*) AS total FROM @app_events
-WHERE event = "fusion chat message submitted"
+WHERE event = "agent chat message submitted"
   AND createdDate >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL ${days} DAY)
   AND createdDate <= CURRENT_TIMESTAMP()`;
 }
@@ -59,7 +59,7 @@ GROUP BY day ORDER BY day ASC`;
 function agentChatMessagesOverTimeSql(days: number) {
   return `SELECT TIMESTAMP_TRUNC(createdDate, DAY) AS day, COUNT(*) AS messages
 FROM @app_events
-WHERE event = "fusion chat message submitted"
+WHERE event = "agent chat message submitted"
   AND createdDate >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL ${days} DAY)
   AND createdDate <= CURRENT_TIMESTAMP()
 GROUP BY day ORDER BY day ASC`;
