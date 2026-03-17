@@ -59,6 +59,7 @@ interface ComposeModalProps {
   onDiscard: (id: string) => void;
   onNewDraft: () => void;
   onFlush: (id: string) => Promise<unknown> | undefined;
+  onReopen: (state: Omit<ComposeState, "id">) => void;
 }
 
 export function ComposeModal({
@@ -72,6 +73,7 @@ export function ComposeModal({
   onDiscard,
   onNewDraft,
   onFlush,
+  onReopen,
 }: ComposeModalProps) {
   const [minimized, setMinimized] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -83,6 +85,7 @@ export function ComposeModal({
   const sendEmail = useSendEmail();
   const editorRef = useRef<ComposeEditorHandle>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const sendingRef = useRef(false);
 
   // Reset CC/BCC visibility and quote expansion when switching tabs
   useEffect(() => {
@@ -99,36 +102,82 @@ export function ComposeModal({
 
   const handleSend = async () => {
     if (!activeDraft || !activeId) return;
+    if (sendingRef.current) return;
     if (!activeDraft.to.trim()) {
       toast.error("Please add at least one recipient");
       return;
     }
+    sendingRef.current = true;
 
-    // If this was opened from a saved draft, delete the draft after sending
-    const savedDraftId = activeDraft.savedDraftId;
+    // Snapshot draft data for potential undo
+    const draftSnapshot = { ...activeDraft };
+    const { savedDraftId } = activeDraft;
 
-    sendEmail.mutate(
-      {
-        to: activeDraft.to,
-        cc: activeDraft.cc || undefined,
-        bcc: activeDraft.bcc || undefined,
-        subject: activeDraft.subject,
-        body: activeDraft.body,
-        replyToId: activeDraft.replyToId,
-      },
-      {
-        onSuccess: () => {
-          toast.success("Email sent!");
-          // Discard (don't auto-save as draft — it's been sent)
-          onDiscard(activeId);
-          // Clean up any persistent draft
-          if (savedDraftId) {
-            fetch(`/api/emails/draft/${savedDraftId}`, { method: "DELETE" });
-          }
+    // Close composer immediately
+    onDiscard(activeId);
+
+    // Clean up any persistent draft
+    if (savedDraftId) {
+      fetch(`/api/emails/draft/${savedDraftId}`, { method: "DELETE" });
+    }
+
+    let cancelled = false;
+
+    const handleUndo = () => {
+      if (cancelled) return;
+      cancelled = true;
+      sendingRef.current = false;
+      clearTimeout(sendTimer);
+      clearTimeout(transitionTimer);
+      toast.dismiss(toastId);
+      // Reopen composer with the saved draft
+      const { id: _id, ...reopenData } = draftSnapshot;
+      onReopen(reopenData);
+    };
+
+    // Show "Sending..." toast with undo
+    const toastId = toast("Sending...", {
+      action: { label: "UNDO", onClick: handleUndo },
+      closeButton: true,
+      duration: Infinity,
+    });
+
+    // After 1.5s, transition to "Message sent."
+    const transitionTimer = setTimeout(() => {
+      if (cancelled) return;
+      toast("Message sent.", {
+        id: toastId,
+        action: { label: "UNDO", onClick: handleUndo },
+        closeButton: true,
+        duration: Infinity,
+      });
+    }, 1500);
+
+    // After 5s, actually send the email
+    const sendTimer = setTimeout(() => {
+      if (cancelled) return;
+      sendingRef.current = false;
+      toast.dismiss(toastId);
+      sendEmail.mutate(
+        {
+          to: draftSnapshot.to,
+          cc: draftSnapshot.cc || undefined,
+          bcc: draftSnapshot.bcc || undefined,
+          subject: draftSnapshot.subject,
+          body: draftSnapshot.body,
+          replyToId: draftSnapshot.replyToId,
+          accountEmail: draftSnapshot.accountEmail,
         },
-        onError: () => toast.error("Failed to send email"),
-      },
-    );
+        {
+          onError: () => {
+            toast.error("Failed to send email");
+            // Reopen composer on failure
+            const { id: _id, ...reopenData } = draftSnapshot;
+            onReopen(reopenData);
+          },
+        },
+      );
+    }, 5000);
   };
 
   const composeRef = useRef<HTMLDivElement>(null);

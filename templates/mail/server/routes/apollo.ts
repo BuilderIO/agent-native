@@ -48,6 +48,11 @@ export function apolloDeleteKey(_req: Request, res: Response) {
   res.json({ connected: false });
 }
 
+// In-memory cache for Apollo person lookups — avoids redundant API calls
+// when flipping through emails from the same person.
+const personCache = new Map<string, { data: any; expiry: number }>();
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
 // GET /api/apollo/person?email=... — look up a person
 export async function apolloPersonLookup(req: Request, res: Response) {
   const { email } = req.query;
@@ -59,6 +64,13 @@ export async function apolloPersonLookup(req: Request, res: Response) {
   const apiKey = getApolloKey();
   if (!apiKey) {
     res.status(401).json({ error: "Apollo API key not configured" });
+    return;
+  }
+
+  // Return cached result if still fresh
+  const cached = personCache.get(email);
+  if (cached && cached.expiry > Date.now()) {
+    res.json(cached.data);
     return;
   }
 
@@ -80,7 +92,12 @@ export async function apolloPersonLookup(req: Request, res: Response) {
     }
 
     const data = await response.json();
-    res.json(data.person || null);
+    const person = data.person || null;
+
+    // Cache the result
+    personCache.set(email, { data: person, expiry: Date.now() + CACHE_TTL });
+
+    res.json(person);
   } catch {
     res.status(500).json({ error: "Failed to reach Apollo API" });
   }

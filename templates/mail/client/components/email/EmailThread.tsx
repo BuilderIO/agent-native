@@ -649,27 +649,12 @@ export function EmailThread({
             </div>
           ) : (
             <div
-              className="flex items-center gap-3 rounded-lg bg-accent/40 px-4 py-2.5 cursor-text hover:bg-accent/60 transition-colors mt-3"
+              className="flex items-center rounded-lg bg-accent/40 px-4 py-2.5 cursor-text hover:bg-accent/60 transition-colors mt-3"
               onClick={() => handleReply()}
             >
-              <span className="text-[13px] text-muted-foreground/60 flex-1">
+              <span className="text-[13px] text-muted-foreground/60">
                 Reply
               </span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleReply();
-                }}
-                className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 text-primary hover:bg-primary/30 transition-colors shrink-0"
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  className="h-3.5 w-3.5"
-                >
-                  <path d="M8 14A.75.75 0 0 1 7.25 14V4.56L4.03 7.78a.75.75 0 0 1-1.06-1.06l4.5-4.5a.75.75 0 0 1 1.06 0l4.5 4.5a.75.75 0 0 1-1.06 1.06L8.75 4.56V14A.75.75 0 0 1 8 14z" />
-                </svg>
-              </button>
             </div>
           )}
         </div>
@@ -761,10 +746,8 @@ const ExpandedMessageCard = forwardRef<
     <div
       ref={ref}
       className={cn(
-        "rounded-lg bg-[hsl(220,5%,10%)] overflow-hidden border-l-2",
-        isFocused
-          ? "border-primary/70 ring-1 ring-primary/30"
-          : "border-primary/40",
+        "rounded-lg bg-[hsl(220,5%,10%)] overflow-hidden",
+        isFocused && "ring-1 ring-primary/30",
       )}
     >
       {/* Header */}
