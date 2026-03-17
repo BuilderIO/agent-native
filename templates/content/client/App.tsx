@@ -14,6 +14,7 @@ import DocsIndex from "./pages/DocsIndex";
 import BuilderCallback from "./pages/BuilderCallback";
 import { BuilderAuthProvider } from "@/components/builder/BuilderAuthContext";
 import { useFileWatcher } from "./hooks/use-file-watcher";
+import { Pinpoint } from "@agent-native/pinpoint/react";
 
 const queryClient = new QueryClient();
 
@@ -26,6 +27,12 @@ const App = () => (
   <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
     <QueryClientProvider client={queryClient}>
       <FileWatcherSetup />
+      <Pinpoint
+        author="Vishwas"
+        colorScheme="auto"
+        endpoint="/api/pins"
+        autoSubmit
+      />
       <BuilderAuthProvider>
         <TooltipProvider>
           <Toaster />

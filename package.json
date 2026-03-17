@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "pnpm --filter @agent-native/core build",
+    "postinstall": "pnpm --filter @agent-native/core build && pnpm --filter @agent-native/pinpoint build",
     "setup": "pnpm install && pnpm --filter @agent-native/core build && pnpm install",
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",
