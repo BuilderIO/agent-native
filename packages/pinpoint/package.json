@@ -11,6 +11,7 @@
   },
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "browser": "./dist/index.browser.js",
       "default": "./dist/index.js"
     },
@@ -18,9 +19,18 @@
       "types": "./dist/react.d.ts",
       "import": "./dist/react.js"
     },
-    "./primitives": "./dist/primitives/index.js",
-    "./server": "./dist/server/index.js",
-    "./types": "./dist/types/index.js"
+    "./primitives": {
+      "types": "./dist/primitives/index.d.ts",
+      "import": "./dist/primitives/index.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "import": "./dist/server/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/types/index.js"
+    }
   },
   "bin": {
     "pinpoint": "./dist/cli.js"
