@@ -32,7 +32,7 @@ function App() {
     const { dispose } = mountPinpoint({
       author: "Designer",
       colorScheme: "auto",
-      endpoint: "/api/signals", // optional: enable server persistence
+      endpoint: "/api/pins", // optional: enable server persistence
     });
     return dispose;
   }, []);
@@ -62,7 +62,7 @@ export default function App() {
   useEffect(() => {
     const { dispose } = mountPinpoint({
       author: "Designer",
-      endpoint: "/api/signals",
+      endpoint: "/api/pins",
       autoSubmit: true,
     });
     return dispose;
@@ -77,12 +77,12 @@ export default function App() {
 ```ts
 // server/index.ts
 import { createServer } from "@agent-native/core";
-import { pageSignalRoutes } from "@agent-native/pinpoint/server";
+import { pagePinRoutes } from "@agent-native/pinpoint/server";
 
 const app = createServer({
   /* ... */
 });
-app.use("/api/signals", pageSignalRoutes());
+app.use("/api/pins", pagePinRoutes());
 ```
 
 **4. Copy the agent scripts to your app's `scripts/` directory:**
@@ -91,7 +91,7 @@ app.use("/api/signals", pageSignalRoutes());
 cp node_modules/@agent-native/pinpoint/src/scripts/*.ts scripts/
 ```
 
-Now the agent can read, create, resolve, and delete annotations via `pnpm script get-signals`, `pnpm script resolve-signal --id <uuid>`, etc.
+Now the agent can read, create, resolve, and delete annotations via `pnpm script get-pins`, `pnpm script resolve-pin --id <uuid>`, etc.
 
 ### With Builder.io
 
@@ -126,7 +126,7 @@ mountPinpoint({
   author: "Designer",
 
   // REST endpoint for pin persistence (optional)
-  endpoint: "/api/signals",
+  endpoint: "/api/pins",
 
   // Color scheme: 'auto' | 'light' | 'dark'
   colorScheme: "auto",
@@ -212,11 +212,11 @@ Scripts for agent CRUD operations on annotations. Run with `pnpm script <name>`:
 
 | Script           | Description                 | Args                                   |
 | ---------------- | --------------------------- | -------------------------------------- |
-| `get-signals`    | List annotations            | `--pageUrl`, `--status`                |
-| `create-signal`  | Create an annotation        | `--pageUrl`, `--selector`, `--comment` |
-| `resolve-signal` | Mark as resolved            | `--id`, `--message`                    |
-| `update-signal`  | Update annotation           | `--id`, `--comment`, `--status`        |
-| `delete-signal`  | Remove annotation           | `--id`                                 |
+| `get-pins`    | List annotations            | `--pageUrl`, `--status`                |
+| `create-pin`  | Create an annotation        | `--pageUrl`, `--selector`, `--comment` |
+| `resolve-pin` | Mark as resolved            | `--id`, `--message`                    |
+| `update-pin`  | Update annotation           | `--id`, `--comment`, `--status`        |
+| `delete-pin`  | Remove annotation           | `--id`                                 |
 | `list-sessions`  | List pages with annotations |                                        |
 
 ## Server Middleware
@@ -224,19 +224,19 @@ Scripts for agent CRUD operations on annotations. Run with `pnpm script <name>`:
 Express middleware for pin CRUD via REST API:
 
 ```ts
-import { pageSignalRoutes } from "@agent-native/pinpoint/server";
+import { pagePinRoutes } from "@agent-native/pinpoint/server";
 
-app.use("/api/signals", pageSignalRoutes({ dataDir: "data/pins" }));
+app.use("/api/pins", pagePinRoutes({ dataDir: "data/pins" }));
 ```
 
 **Endpoints:**
 
-- `GET /api/signals` — List pins (query: `pageUrl`, `status`)
-- `GET /api/signals/:id` — Get a pin
-- `POST /api/signals` — Create a pin
-- `PATCH /api/signals/:id` — Update a pin
-- `DELETE /api/signals/:id` — Delete a pin
-- `DELETE /api/signals` — Clear pins (query: `pageUrl`)
+- `GET /api/pins` — List pins (query: `pageUrl`, `status`)
+- `GET /api/pins/:id` — Get a pin
+- `POST /api/pins` — Create a pin
+- `PATCH /api/pins/:id` — Update a pin
+- `DELETE /api/pins/:id` — Delete a pin
+- `DELETE /api/pins` — Clear pins (query: `pageUrl`)
 
 ## Plugin System
 

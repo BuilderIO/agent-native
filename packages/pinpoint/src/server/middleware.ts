@@ -14,7 +14,7 @@ function validateId(id: string): boolean {
   return VALID_ID.test(id) && id.length > 0 && id.length <= 128;
 }
 
-export interface SignalRoutesOptions {
+export interface PinRoutesOptions {
   /** Directory for pin data files. Default: data/pins */
   dataDir?: string;
 }
@@ -24,11 +24,11 @@ export interface SignalRoutesOptions {
  *
  * Usage:
  * ```ts
- * import { pageSignalRoutes } from '@agent-native/pinpoint/server';
- * app.use('/api/signals', pageSignalRoutes());
+ * import { pagePinRoutes } from '@agent-native/pinpoint/server';
+ * app.use('/api/pins', pagePinRoutes());
  * ```
  */
-export function pageSignalRoutes(options: SignalRoutesOptions = {}): Router {
+export function pagePinRoutes(options: PinRoutesOptions = {}): Router {
   const router = Router();
   const store = new FileStore(options.dataDir || "data/pins");
 
