@@ -165,6 +165,8 @@ export interface PinpointConfig {
   position?: { x: number; y: number };
   /** Marker color */
   markerColor?: string;
+  /** Compact popup — hide technical details behind a toggle (default: true) */
+  compactPopup?: boolean;
 }
 
 // Framework adapter interface

@@ -13,7 +13,10 @@ export interface AgentOutput {
 }
 
 /**
- * Format pins for agent chat, splitting into visible message + hidden context.
+ * Format pins for agent chat.
+ * The full formatted output goes into message (visible in chat UI) so the user
+ * can see exactly what context the agent is working with. Context is kept empty
+ * since all details are already in the message.
  */
 export function formatPinsForAgent(
   pins: Pin[],
@@ -23,20 +26,10 @@ export function formatPinsForAgent(
     return { message: "No annotations to send.", context: "" };
   }
 
-  const pageUrl = pins[0].pageUrl;
-  const pinCount = pins.length;
+  // Instruction + full structured output visible in chat
+  const details = formatPins(pins, format);
+  const instruction = `The user has annotated ${pins.length} element${pins.length === 1 ? "" : "s"} on the page with visual feedback. Review each annotation and make the requested changes.\n\n`;
+  const message = instruction + details;
 
-  // Message: short summary shown in chat
-  const summaries = pins
-    .slice(0, 5)
-    .map((pin, i) => `${i + 1}. ${pin.comment}`)
-    .join("\n");
-  const overflow = pinCount > 5 ? `\n...and ${pinCount - 5} more` : "";
-
-  const message = `I have ${pinCount} annotation${pinCount === 1 ? "" : "s"} on ${pageUrl}:\n${summaries}${overflow}`;
-
-  // Context: full structured output for the agent
-  const context = formatPins(pins, format);
-
-  return { message, context };
+  return { message, context: "" };
 }
