@@ -306,23 +306,30 @@ function IntegrationRow({
         </p>
       </div>
       {connected ? (
-        <button
-          onClick={() => setShowDisconnect(!showDisconnect)}
-          className="shrink-0 h-5 w-5 rounded-full bg-emerald-500/20 flex items-center justify-center"
-          title="Connected"
-        >
-          <svg
-            viewBox="0 0 16 16"
-            fill="currentColor"
-            className="h-3 w-3 text-emerald-400"
+        <div className="flex items-center gap-1 shrink-0">
+          <div className="h-5 w-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
+            <svg
+              viewBox="0 0 16 16"
+              fill="currentColor"
+              className="h-3 w-3 text-emerald-400"
+            >
+              <path
+                fillRule="evenodd"
+                d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </div>
+          <button
+            onClick={() => setShowDisconnect(!showDisconnect)}
+            className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+            title="Settings"
           >
-            <path
-              fillRule="evenodd"
-              d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z"
-              clipRule="evenodd"
-            />
-          </svg>
-        </button>
+            <svg viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+              <path fillRule="evenodd" d="M7.84 1.804A1 1 0 0 1 8.82 1h2.36a1 1 0 0 1 .98.804l.331 1.652a6.993 6.993 0 0 1 1.929 1.115l1.598-.54a1 1 0 0 1 1.186.447l1.18 2.044a1 1 0 0 1-.205 1.251l-1.267 1.113a7.047 7.047 0 0 1 0 2.228l1.267 1.113a1 1 0 0 1 .206 1.25l-1.18 2.045a1 1 0 0 1-1.187.447l-1.598-.54a6.993 6.993 0 0 1-1.929 1.115l-.33 1.652a1 1 0 0 1-.98.804H8.82a1 1 0 0 1-.98-.804l-.331-1.652a6.993 6.993 0 0 1-1.929-1.115l-1.598.54a1 1 0 0 1-1.186-.447l-1.18-2.044a1 1 0 0 1 .205-1.251l1.267-1.114a7.05 7.05 0 0 1 0-2.227L1.821 7.773a1 1 0 0 1-.206-1.25l1.18-2.045a1 1 0 0 1 1.187-.447l1.598.54A6.992 6.992 0 0 1 7.51 3.456l.33-1.652ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
       ) : (
         <button
           onClick={onConfigure}
@@ -378,7 +385,7 @@ function IntegrationKeyEntry({
           <svg viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
             <path
               fillRule="evenodd"
-              d="M11.78 9.78a.75.75 0 0 1-1.06 0L8 7.06 5.28 9.78a.75.75 0 0 1-1.06-1.06l3.25-3.25a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06Z"
+              d="M9.78 4.22a.75.75 0 0 1 0 1.06L7.06 8l2.72 2.72a.75.75 0 1 1-1.06 1.06L5.47 8.53a.75.75 0 0 1 0-1.06l3.25-3.25a.75.75 0 0 1 1.06 0Z"
               clipRule="evenodd"
             />
           </svg>
