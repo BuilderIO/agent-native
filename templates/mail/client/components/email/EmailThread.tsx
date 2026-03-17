@@ -9,6 +9,7 @@ import {
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { cn, formatEmailDate, formatFileSize } from "@/lib/utils";
 import { useComposeState } from "@/hooks/use-compose-state";
+import { useAccountFilter } from "@/components/layout/AppLayout";
 import {
   useThreadMessages,
   useArchiveEmail,
@@ -24,6 +25,10 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
 import type { EmailMessage } from "@shared/types";
+import {
+  InlineReplyComposer,
+  type InlineReplyHandle,
+} from "./InlineReplyComposer";
 
 export function EmailThread({
   onArchived,
@@ -134,8 +139,9 @@ export function EmailThread({
     if (!el) return;
     const scrollToLatest = () => {
       if (lastMsg) {
-        // Align the last message's top to the container's top
-        lastMsg.scrollIntoView({ block: "start" });
+        // Use manual scrollTop instead of scrollIntoView to avoid
+        // scrolling ancestor overflow:hidden containers (causes header cutoff)
+        el.scrollTop = lastMsg.offsetTop - el.offsetTop - 8;
       } else {
         el.scrollTop = el.scrollHeight;
       }
@@ -214,10 +220,19 @@ export function EmailThread({
           Math.min(messages.length - 1, prev + delta),
         );
         setTimeout(() => {
-          focusedRef.current?.scrollIntoView({
-            block: "nearest",
-            behavior: "smooth",
-          });
+          const container = scrollContainerRef.current;
+          const target = focusedRef.current;
+          if (container && target) {
+            const targetTop = target.offsetTop - container.offsetTop;
+            const targetBottom = targetTop + target.offsetHeight;
+            const viewTop = container.scrollTop;
+            const viewBottom = viewTop + container.clientHeight;
+            if (targetTop < viewTop) {
+              container.scrollTop = targetTop;
+            } else if (targetBottom > viewBottom) {
+              container.scrollTop = targetBottom - container.clientHeight;
+            }
+          }
         }, 50);
         return nextIdx;
       });
@@ -246,7 +261,7 @@ export function EmailThread({
       },
     });
     advanceOrGoBack();
-    archiveEmail.mutate(id);
+    archiveEmail.mutate({ id, accountEmail: email.accountEmail });
   }, [email, archiveEmail, unarchiveEmail, advanceOrGoBack, onArchived]);
 
   const handleTrash = useCallback(() => {
@@ -261,40 +276,148 @@ export function EmailThread({
     toggleStar.mutate({ id: email.id, isStarred: !email.isStarred });
   }, [email, toggleStar]);
 
+  const { data: settings } = useSettings();
+  const { allAccounts } = useAccountFilter();
+  const myEmails = useMemo(() => {
+    const emails = new Set(allAccounts.map((a) => a.email.toLowerCase()));
+    if (settings?.email) emails.add(settings.email.toLowerCase());
+    return emails;
+  }, [allAccounts, settings?.email]);
+  const myEmail = settings?.email?.toLowerCase() ?? "";
+
+  // Inline reply: find any inline draft belonging to this thread
+  const inlineReplyRef = useRef<InlineReplyHandle>(null);
+  const inlineDraft = compose.drafts.find(
+    (d) => d.inline && d.replyToThreadId === threadId,
+  );
+
+  const buildReplyQuote = (target: EmailMessage) =>
+    `\n\n— On ${new Date(target.date).toLocaleDateString()}, ${target.from.name || target.from.email} wrote:\n\n${target.body
+      .split("\n")
+      .map((l) => `> ${l}`)
+      .join("\n")}`;
+
+  // Determine which of our accounts the email was sent to (for reply-from)
+  const findReplyAccount = useCallback(
+    (target: EmailMessage): string | undefined => {
+      // First check accountEmail on the message itself
+      if (target.accountEmail) return target.accountEmail;
+      // Otherwise scan to/cc for one of our connected accounts
+      const allAddrs = [
+        ...target.to.map((r) => r.email.toLowerCase()),
+        ...(target.cc || []).map((r) => r.email.toLowerCase()),
+      ];
+      return allAddrs.find((e) => myEmails.has(e));
+    },
+    [myEmails],
+  );
+
   const handleReply = useCallback(
     (msg?: EmailMessage) => {
+      // If inline draft exists and no specific message, just focus it
+      const existing = compose.drafts.find(
+        (d) => d.inline && d.replyToThreadId === threadId,
+      );
+      if (existing && !msg) {
+        inlineReplyRef.current?.focusEditor();
+        return;
+      }
+      // Discard existing inline draft if switching to a different message
+      if (existing) compose.discard(existing.id);
+
       const target = msg ?? email;
       if (!target) return;
+      // If the message is from me, reply to the first "to" recipient instead
+      const isFromMe = myEmails.has(target.from.email.toLowerCase());
+      const replyTo = isFromMe
+        ? (target.to[0]?.email ?? target.from.email)
+        : target.from.email;
       compose.open({
-        to: target.from.email,
+        to: replyTo,
         subject: target.subject.startsWith("Re:")
           ? target.subject
           : `Re: ${target.subject}`,
-        body: `\n\n— On ${new Date(target.date).toLocaleDateString()}, ${target.from.name || target.from.email} wrote:\n\n${target.body
-          .split("\n")
-          .map((l) => `> ${l}`)
-          .join("\n")}`,
+        body: buildReplyQuote(target),
         mode: "reply",
         replyToId: target.id,
         replyToThreadId: target.threadId,
+        accountEmail: findReplyAccount(target),
+        inline: true,
       });
     },
-    [email, messages, compose],
+    [email, compose, myEmails, findReplyAccount, threadId],
+  );
+
+  const handleReplyAll = useCallback(
+    (msg?: EmailMessage) => {
+      // If inline draft exists and no specific message, just focus it
+      const existing = compose.drafts.find(
+        (d) => d.inline && d.replyToThreadId === threadId,
+      );
+      if (existing && !msg) {
+        inlineReplyRef.current?.focusEditor();
+        return;
+      }
+      if (existing) compose.discard(existing.id);
+
+      const target = msg ?? email;
+      if (!target) return;
+      const isFromMe = myEmails.has(target.from.email.toLowerCase());
+      // Collect all recipients, excluding all of my accounts
+      const allRecipients = [
+        ...(isFromMe ? [] : [target.from.email]),
+        ...target.to.map((r) => r.email),
+        ...(target.cc || []).map((r) => r.email),
+      ];
+      const uniqueTo = [
+        ...new Set(
+          allRecipients
+            .map((e) => e.toLowerCase())
+            .filter((e) => !myEmails.has(e)),
+        ),
+      ];
+      compose.open({
+        to: uniqueTo.join(", "),
+        subject: target.subject.startsWith("Re:")
+          ? target.subject
+          : `Re: ${target.subject}`,
+        body: buildReplyQuote(target),
+        mode: "reply",
+        replyToId: target.id,
+        replyToThreadId: target.threadId,
+        accountEmail: findReplyAccount(target),
+        inline: true,
+      });
+    },
+    [email, compose, myEmails, findReplyAccount, threadId],
+  );
+
+  const handleForwardMsg = useCallback(
+    (msg: EmailMessage) => {
+      const existing = compose.drafts.find(
+        (d) => d.inline && d.replyToThreadId === threadId,
+      );
+      if (existing) compose.discard(existing.id);
+      compose.open({
+        to: "",
+        subject: msg.subject.startsWith("Fwd:")
+          ? msg.subject
+          : `Fwd: ${msg.subject}`,
+        body: `\n\n— Forwarded message —\nFrom: ${msg.from.name} <${msg.from.email}>\n\n${msg.body}`,
+        mode: "forward",
+        replyToId: msg.id,
+        replyToThreadId: msg.threadId,
+        accountEmail: findReplyAccount(msg),
+        inline: true,
+      });
+    },
+    [compose, findReplyAccount, threadId],
   );
 
   const handleForward = useCallback(() => {
     if (!email) return;
-    compose.open({
-      to: "",
-      subject: email.subject.startsWith("Fwd:")
-        ? email.subject
-        : `Fwd: ${email.subject}`,
-      body: `\n\n— Forwarded message —\nFrom: ${email.from.name} <${email.from.email}>\n\n${email.body}`,
-      mode: "forward",
-      replyToId: email.id,
-      replyToThreadId: email.threadId,
-    });
-  }, [email, compose]);
+    handleForwardMsg(email);
+  }, [email, handleForwardMsg]);
 
   // Keyboard shortcuts
   useKeyboardShortcuts(
@@ -311,7 +434,7 @@ export function EmailThread({
       { key: "#", handler: handleTrash, shift: true },
       { key: "s", handler: handleStar },
       { key: "r", handler: () => handleReply() },
-      { key: "a", handler: () => handleReply() },
+      { key: "a", handler: () => handleReplyAll() },
       { key: "f", handler: handleForward },
       {
         key: "u",
@@ -373,7 +496,7 @@ export function EmailThread({
         <div className="flex items-start gap-3">
           <button
             onClick={goBack}
-            className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             title="Back (Esc)"
           >
             <svg
@@ -390,71 +513,70 @@ export function EmailThread({
           </button>
 
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-start gap-2 flex-wrap">
               <h1 className="text-lg font-semibold leading-tight text-foreground">
                 {threadSubject}
               </h1>
               {displayLabels.map((labelId) => (
                 <span
                   key={labelId}
-                  className="label-badge bg-pink-500/20 text-pink-300"
+                  className="label-badge shrink-0 bg-pink-500/20 text-pink-300 mt-1"
                 >
                   {labelId}
                 </span>
               ))}
-            </div>
-
-            {/* Action bar */}
-            <div className="flex items-center gap-0.5 mt-2">
-              <button
-                onClick={handleArchive}
-                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                title="Done (E)"
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  className="h-4 w-4"
+              {/* Action bar */}
+              <div className="flex items-center gap-0.5 ml-auto shrink-0">
+                <button
+                  onClick={handleArchive}
+                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  title="Done (E)"
                 >
-                  <path
-                    fillRule="evenodd"
-                    d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-              <button
-                onClick={() => goToSibling(-1)}
-                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  className="h-3.5 w-3.5"
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                    className="h-4 w-4"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => goToSibling(-1)}
+                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
                 >
-                  <path
-                    fillRule="evenodd"
-                    d="M11.78 9.78a.75.75 0 0 1-1.06 0L8 7.06 5.28 9.78a.75.75 0 0 1-1.06-1.06l3.25-3.25a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-              <button
-                onClick={() => goToSibling(1)}
-                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  className="h-3.5 w-3.5"
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                    className="h-3.5 w-3.5"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M11.78 9.78a.75.75 0 0 1-1.06 0L8 7.06 5.28 9.78a.75.75 0 0 1-1.06-1.06l3.25-3.25a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => goToSibling(1)}
+                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                 >
-                  <path
-                    fillRule="evenodd"
-                    d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                    className="h-3.5 w-3.5"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -465,7 +587,7 @@ export function EmailThread({
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto px-5 pb-4"
       >
-        <div className="max-w-3xl mx-auto space-y-1">
+        <div className="max-w-3xl mx-auto pt-1.5 space-y-1.5">
           {messages.map((msg, idx) => {
             const isExpanded = expandedIds.has(msg.id);
             const isFocused = idx === focusedIndex;
@@ -486,18 +608,8 @@ export function EmailThread({
                   setUserToggles((prev) => ({ ...prev, [msg.id]: false }));
                 }}
                 onReply={() => handleReply(msg)}
-                onForward={() => {
-                  compose.open({
-                    to: "",
-                    subject: msg.subject.startsWith("Fwd:")
-                      ? msg.subject
-                      : `Fwd: ${msg.subject}`,
-                    body: `\n\n— Forwarded message —\nFrom: ${msg.from.name} <${msg.from.email}>\n\n${msg.body}`,
-                    mode: "forward",
-                    replyToId: msg.id,
-                    replyToThreadId: msg.threadId,
-                  });
-                }}
+                onReplyAll={() => handleReplyAll(msg)}
+                onForward={() => handleForwardMsg(msg)}
                 onContactSelect={onContactSelect}
               />
             ) : (
@@ -519,33 +631,63 @@ export function EmailThread({
               />
             );
           })}
-        </div>
-      </div>
 
-      {/* Bottom reply input */}
-      <div className="shrink-0 border-t border-border/40 px-5 py-3">
-        <div
-          className="flex items-center gap-3 rounded-lg bg-accent/40 px-4 py-2.5 cursor-text hover:bg-accent/60 transition-colors"
-          onClick={() => handleReply()}
-        >
-          <span className="text-[13px] text-muted-foreground/60 flex-1">
-            @mention anyone and share conversation
-          </span>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleReply();
-            }}
-            className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 text-primary hover:bg-primary/30 transition-colors shrink-0"
-          >
-            <svg
-              viewBox="0 0 16 16"
-              fill="currentColor"
-              className="h-3.5 w-3.5"
+          {/* Inline reply composer */}
+          {inlineDraft ? (
+            <div className="mt-3">
+              <InlineReplyComposer
+                ref={inlineReplyRef}
+                draft={inlineDraft}
+                messages={messages}
+                onUpdate={compose.update}
+                onDiscard={compose.discard}
+                onClose={(id) => {
+                  const drafts = compose.drafts ?? [];
+                  const draft = drafts.find((d: any) => d.id === id);
+                  const hasContent = !!(
+                    draft?.to?.trim() ||
+                    draft?.subject?.trim() ||
+                    draft?.body?.trim()
+                  );
+                  const snapshot = draft ? { ...draft } : null;
+                  compose.close(id);
+                  if (hasContent && snapshot) {
+                    toast("Draft saved.", {
+                      action: {
+                        label: "REOPEN",
+                        onClick: () => {
+                          const { id: _id, ...reopenData } = snapshot;
+                          compose.open({ ...reopenData, inline: true });
+                        },
+                      },
+                      cancel: {
+                        label: "DELETE DRAFT",
+                        onClick: () => {
+                          if (snapshot.savedDraftId) {
+                            fetch(`/api/emails/${snapshot.savedDraftId}`, {
+                              method: "DELETE",
+                            });
+                          }
+                        },
+                      },
+                    });
+                  }
+                }}
+                onPopOut={(id) => compose.update(id, { inline: false })}
+                onFlush={compose.flush}
+                onReopen={(state) => compose.open({ ...state, inline: true })}
+              />
+            </div>
+          ) : (
+            <div
+              className="flex items-center rounded-lg bg-accent/40 px-4 py-2.5 cursor-text hover:bg-accent/60 transition-colors mt-3"
+              onClick={() => handleReply()}
             >
-              <path d="M8 14A.75.75 0 0 1 7.25 14V4.56L4.03 7.78a.75.75 0 0 1-1.06-1.06l4.5-4.5a.75.75 0 0 1 1.06 0l4.5 4.5a.75.75 0 0 1-1.06 1.06L8.75 4.56V14A.75.75 0 0 1 8 14z" />
-            </svg>
-          </button>
+              <span className="text-[13px] text-muted-foreground/60">
+                Reply
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -597,11 +739,20 @@ const ExpandedMessageCard = forwardRef<
     isFocused?: boolean;
     onCollapse: () => void;
     onReply: () => void;
+    onReplyAll: () => void;
     onForward: () => void;
     onContactSelect?: (email: string) => void;
   }
 >(function ExpandedMessageCard(
-  { email, isFocused, onCollapse, onReply, onForward, onContactSelect },
+  {
+    email,
+    isFocused,
+    onCollapse,
+    onReply,
+    onReplyAll,
+    onForward,
+    onContactSelect,
+  },
   ref,
 ) {
   const [showDetails, setShowDetails] = useState(false);
@@ -634,10 +785,8 @@ const ExpandedMessageCard = forwardRef<
     <div
       ref={ref}
       className={cn(
-        "rounded-lg bg-[hsl(220,5%,10%)] overflow-hidden border-l-2",
-        isFocused
-          ? "border-primary/70 ring-1 ring-primary/30"
-          : "border-primary/40",
+        "rounded-lg bg-[hsl(220,5%,10%)] overflow-hidden",
+        isFocused && "ring-1 ring-primary/30",
       )}
     >
       {/* Header */}
@@ -757,7 +906,7 @@ const ExpandedMessageCard = forwardRef<
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onReply();
+                onReplyAll();
               }}
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
               title="Reply All"
@@ -1053,29 +1202,17 @@ function HtmlEmailBody({
     html, body {
       margin: 0;
       padding: 0;
-      background: ${IFRAME_BG} !important;
-      color: #e4e4e7 !important;
+      background: ${IFRAME_BG};
+      color: #e4e4e7;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 14px;
       line-height: 1.6;
       overflow: hidden;
     }
-    * {
-      background-color: ${IFRAME_BG} !important;
-      border-color: rgba(255,255,255,0.1) !important;
-    }
-    body, td, th, div, p, span, li, blockquote {
-      color: #e4e4e7 !important;
-    }
-    h1, h2, h3, h4, h5, h6, strong, b {
-      color: #f4f4f5 !important;
-    }
-    .muted, .secondary, .text-muted, [style*="color: #"] {
-      color: #a1a1aa !important;
-    }
-    a { color: #818cf8 !important; }
+    
+    a { color: #818cf8 }
     img { max-width: 100%; height: auto; }
-    hr { border-color: rgba(255,255,255,0.1) !important; }
+    hr { border-color: rgba(255,255,255,0.1); }
     .quoted-hidden { display: none; }
     .quote-toggle {
       display: inline-block;
@@ -1137,11 +1274,123 @@ function HtmlEmailBody({
       a.setAttribute("target", "_blank");
       a.setAttribute("rel", "noopener noreferrer");
     });
+
+    // Enhance Google Calendar RSVP buttons for inline response
+    const rsvpLinks = doc.querySelectorAll(
+      'a[href*="calendar.google.com/calendar/event"]',
+    );
+    const rstMap: Record<string, { response: string; label: string }> = {
+      "1": { response: "accepted", label: "Yes" },
+      "2": { response: "declined", label: "No" },
+      "3": { response: "tentative", label: "Maybe" },
+    };
+    // Extract the event ID from any RSVP link's eid param
+    let calEventId: string | null = null;
+    rsvpLinks.forEach((a) => {
+      const href = a.getAttribute("href") || "";
+      try {
+        const url = new URL(href);
+        const eid = url.searchParams.get("eid");
+        if (eid && !calEventId) {
+          // eid is base64 — the event ID is the part before the space/email
+          try {
+            const decoded = atob(eid);
+            // Format: "eventId email" — take the first part
+            calEventId = decoded.split(" ")[0] || null;
+          } catch {
+            calEventId = eid;
+          }
+        }
+      } catch {}
+    });
+
+    if (calEventId && rsvpLinks.length > 0) {
+      const eventId = calEventId;
+      rsvpLinks.forEach((a) => {
+        const href = a.getAttribute("href") || "";
+        try {
+          const url = new URL(href);
+          const rst = url.searchParams.get("rst");
+          const info = rst ? rstMap[rst] : null;
+          if (!info) return;
+
+          // Style the button for inline RSVP
+          const el = a as HTMLElement;
+          el.style.cssText = `
+            display: inline-block !important;
+            padding: 6px 16px !important;
+            border-radius: 6px !important;
+            font-size: 13px !important;
+            font-weight: 500 !important;
+            cursor: pointer !important;
+            transition: all 0.15s !important;
+            text-decoration: none !important;
+            border: 1px solid rgba(255,255,255,0.15) !important;
+            color: #e4e4e7 !important;
+            background: rgba(255,255,255,0.05) !important;
+          `;
+        } catch {}
+      });
+
+      // Handle RSVP clicks inline
+      const handleRsvpClick = async (e: MouseEvent) => {
+        const anchor = (e.target as Element)?.closest?.(
+          'a[href*="calendar.google.com/calendar/event"]',
+        ) as HTMLElement | null;
+        if (!anchor) return;
+        const href = anchor.getAttribute("href") || "";
+        try {
+          const url = new URL(href);
+          const rst = url.searchParams.get("rst");
+          const info = rst ? rstMap[rst] : null;
+          if (!info) return;
+
+          e.preventDefault();
+          e.stopPropagation();
+
+          // Highlight the clicked button
+          anchor.style.background = "rgba(74, 222, 128, 0.15) !important";
+          anchor.style.borderColor = "rgba(74, 222, 128, 0.4) !important";
+          anchor.style.color = "#4ade80 !important";
+          anchor.textContent = `${info.label} ✓`;
+
+          // Dim the others
+          rsvpLinks.forEach((other) => {
+            if (other !== anchor) {
+              (other as HTMLElement).style.opacity = "0.3";
+              (other as HTMLElement).style.pointerEvents = "none";
+            }
+          });
+
+          // Call our API
+          try {
+            const res = await fetch("/api/calendar/rsvp", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                eventId,
+                response: info.response,
+              }),
+            });
+            if (!res.ok) {
+              // Fallback: open the original link
+              window.open(href, "_blank", "noopener,noreferrer");
+            }
+          } catch {
+            window.open(href, "_blank", "noopener,noreferrer");
+          }
+        } catch {}
+      };
+      doc.addEventListener("click", handleRsvpClick);
+    }
+
     const handleLinkClick = (e: MouseEvent) => {
       const anchor = (e.target as Element)?.closest?.("a[href]");
       if (!anchor) return;
       const href = anchor.getAttribute("href");
       if (!href || href.startsWith("#")) return;
+      // Don't handle RSVP links here — they have their own handler
+      if (href.includes("calendar.google.com/calendar/event")) return;
       e.preventDefault();
       if (isElectron && (window as any).require) {
         const { shell } = (window as any).require("electron");

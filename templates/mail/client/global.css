@@ -132,18 +132,14 @@
   letter-spacing: 0;
 }
 
-/* Highlight focused email row — left border like Superhuman */
+/* Highlight focused email row */
 .email-list-row.focused {
   background: hsl(var(--accent));
-  border-left: 3px solid hsl(var(--ring));
-  padding-left: calc(0.75rem - 3px);
 }
 
 /* Selected email row — stronger highlight */
 .email-list-row.selected {
   background: hsl(var(--secondary));
-  border-left: 3px solid hsl(var(--ring));
-  padding-left: calc(0.75rem - 3px);
 }
 
 /* Smooth panel transitions */
@@ -173,15 +169,38 @@
   max-width: 120px;
 }
 
-/* Hover action icons on email rows */
+/* Date/actions container on email rows — fixed width, no layout shift */
 .email-list-row .hover-actions {
-  display: none;
-}
-.email-list-row:hover .hover-actions {
   display: flex;
+  visibility: hidden;
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  align-items: center;
+  padding-right: 0.75rem;
 }
+.email-list-row.focused .hover-actions,
+.email-list-row:hover .hover-actions {
+  visibility: visible;
+}
+.email-list-row.focused .row-time,
 .email-list-row:hover .row-time {
-  display: none;
+  visibility: hidden;
+}
+
+/* Sonner cancel button style — match action button but muted */
+[data-sonner-toast] [data-cancel] {
+  background: transparent !important;
+  color: hsl(220, 10%, 50%) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.05em !important;
+  padding: 0 !important;
+  margin-left: 16px !important;
+}
+[data-sonner-toast] [data-cancel]:hover {
+  color: hsl(220, 10%, 70%) !important;
 }
 
 /* ===== Compose Rich Text Editor (Tiptap) ===== */

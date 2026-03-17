@@ -89,8 +89,7 @@ export function getComposeDraft(req: Request, res: Response) {
 /** PUT /api/application-state/compose/:id — create or update draft */
 export function putComposeDraft(req: Request, res: Response) {
   const id = req.params.id as string;
-  const { to, cc, bcc, subject, body, mode, replyToId, replyToThreadId } =
-    req.body;
+  const { subject, body } = req.body;
 
   if (typeof subject !== "string" || typeof body !== "string") {
     res.status(400).json({ error: "subject and body are required strings" });
@@ -99,17 +98,8 @@ export function putComposeDraft(req: Request, res: Response) {
 
   ensureStateDir();
 
-  const state = {
-    id,
-    to: to ?? "",
-    cc: cc ?? "",
-    bcc: bcc ?? "",
-    subject,
-    body,
-    mode: mode ?? "compose",
-    ...(replyToId ? { replyToId } : {}),
-    ...(replyToThreadId ? { replyToThreadId } : {}),
-  };
+  // Persist the full draft state (including inline, accountEmail, attachments, etc.)
+  const state = { ...req.body, id };
 
   fs.writeFileSync(composeFile(id), JSON.stringify(state, null, 2));
   res.json(state);

@@ -103,11 +103,26 @@ When the user asks you to **draft**, **compose**, or **write** an email, write `
 
 ## Agent Operations
 
-When a Google account is connected, use the API routes (PATCH/POST) to modify emails — these operate on the real Gmail account. When no account is connected, the agent can directly edit `data/emails.json` to:
+**Always run `pnpm script view-screen` first** before taking any action. This shows what the user is currently looking at and provides email IDs to act on. Don't skip this step — even if you think you know what's on screen.
 
-- Change `isRead`, `isStarred`, `isArchived`, `isTrashed` flags
-- Move emails between views by changing `labelIds`
-- Update `data/settings.json` to change the user profile
+**Always use `pnpm script <name>` for mail actions** — scripts call Gmail directly and do NOT require `pnpm dev` to be running. Never use `curl` or raw HTTP requests. When no script exists, use `node -e` inline JavaScript.
+
+**After any backend change** (archive, trash, star, mark-read, send, etc.) always run `pnpm script refresh-list` to update `application-state/email-list.json` and trigger the UI to refetch.
+
+Common operations:
+
+- **Archive emails:** `pnpm script archive-email --id=<id>`
+- **Trash emails:** `pnpm script trash-email --id=<id>`
+- **Mark read/unread:** `pnpm script mark-read --id=<id> [--unread]`
+- **Star emails:** `pnpm script star-email --id=<id>`
+- **Send email:** `pnpm script send-email --to=<email> --subject="..." --body="..."`
+- **See what's on screen:** `pnpm script view-screen`
+- **See compose drafts:** `pnpm script view-composer`
+- **Create/edit drafts:** `pnpm script manage-draft --action=create --to=... --subject=... --body=...`
+- **Navigate UI:** `pnpm script navigate --view=inbox` or `--threadId=...`
+- **Search:** `pnpm script search-emails --q=term`
+
+See the full Scripts section below for all available scripts and arguments.
 
 ## Application State
 
@@ -272,29 +287,66 @@ The UI will pick up the changes automatically (via SSE).
 
 ## Scripts
 
-Run agent scripts with `pnpm script <name> [--args]`. Scripts automatically use the API (Gmail when connected) and fall back to local data files.
+**IMPORTANT: Always use `pnpm script <name> [--args]` for all mail operations.** Do NOT use `curl`, `fetch`, or raw API calls — scripts handle API communication, error handling, and fallbacks automatically. Scripts work with Gmail when connected and fall back to local data when not.
+
+### Reading & Searching
 
 | Script          | Args                                                    | Purpose                                       |
 | --------------- | ------------------------------------------------------- | --------------------------------------------- |
+| `view-screen`   | `[--full]`                                              | See what the user is looking at right now     |
+| `view-composer` | `[--id=<draft-id>]`                                     | See all open compose drafts                   |
 | `list-emails`   | `--view <inbox\|unread\|starred\|sent\|...> --q <term>` | List and search emails (uses Gmail via API)   |
 | `search-emails` | `--q <term> [--view <name>]`                            | Search emails across all views (requires --q) |
-| `seed-emails`   | `--count <n>`                                           | Generate n test emails (local data only)      |
-| `bulk-archive`  | `--older-than <days>`                                   | Archive emails older than N days              |
-| `export-emails` | `--view <inbox\|sent\|...> --output <file>`             | Export emails to JSON file                    |
+| `get-email`     | `--id <email-id>`                                       | Get a single email by ID                      |
+| `get-thread`    | `--id <thread-id> [--compact]`                          | Get all messages in a thread                  |
 
-Both `list-emails` and `search-emails` support `--compact` for shorter output and `--fields=from,subject,date` to pick specific fields.
+### Actions
+
+| Script          | Args                                                   | Purpose                                       |
+| --------------- | ------------------------------------------------------ | --------------------------------------------- |
+| `archive-email` | `--id <id>[,id2,id3]`                                  | Archive one or more emails                    |
+| `trash-email`   | `--id <id>[,id2,id3]`                                  | Trash one or more emails                      |
+| `mark-read`     | `--id <id>[,id2,id3] [--unread]`                       | Mark emails as read (or unread with --unread) |
+| `star-email`    | `--id <id>[,id2,id3]`                                  | Toggle star on emails                         |
+| `send-email`    | `--to <email> --subject <s> --body <b> [--cc] [--bcc]` | Send an email                                 |
+
+### Drafts & Navigation
+
+| Script         | Args                                                                                      | Purpose                                  |
+| -------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `manage-draft` | `--action=create\|update\|delete\|delete-all [--id] [--to] [--subject] [--body] [--mode]` | Create, update, or delete compose drafts |
+| `navigate`     | `--view <name> [--threadId <id>]`                                                         | Navigate the UI to a view or thread      |
+
+### Utilities
+
+| Script          | Args                                        | Purpose                                  |
+| --------------- | ------------------------------------------- | ---------------------------------------- |
+| `seed-emails`   | `--count <n>`                               | Generate n test emails (local data only) |
+| `bulk-archive`  | `--older-than <days>`                       | Archive emails older than N days         |
+| `export-emails` | `--view <inbox\|sent\|...> --output <file>` | Export emails to JSON file               |
+
+`list-emails` and `search-emails` support `--compact` for shorter output and `--fields=from,subject,date` to pick specific fields.
 
 ### Common tasks
 
-| User request                        | What to do                                                                                               |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| "Summarize my inbox"                | Read `application-state/email-list.json` — it has the emails on screen right now                         |
-| "Summarize my unread emails"        | `pnpm script list-emails --view=unread --compact` then summarize                                         |
-| "What emails do I have from Alice?" | `pnpm script search-emails --q=alice --compact`                                                          |
-| "Find the email about X"            | `pnpm script search-emails --q=X`, then write `application-state/navigate.json` to open the matching one |
-| "Archive old emails"                | `pnpm script bulk-archive --older-than=30`                                                               |
-| "Star this email" / manage emails   | Use API: `PATCH /api/emails/:id/star`                                                                    |
-| "Draft an email to ..."             | Write `application-state/compose.json` (see Application State section)                                   |
+| User request                        | Script to run                                                                                       |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------- |
+| "What's on my screen?"              | `pnpm script view-screen`                                                                           |
+| "Summarize my inbox"                | `pnpm script view-screen` (emails are already in the response)                                      |
+| "Summarize my unread emails"        | `pnpm script list-emails --view=unread --compact`                                                   |
+| "What emails do I have from Alice?" | `pnpm script search-emails --q=alice --compact`                                                     |
+| "Archive this email"                | `pnpm script view-screen` to get ID, then `pnpm script archive-email --id=<id>`                     |
+| "Archive emails from netlify[bot]"  | `pnpm script view-screen`, find matching IDs, then `pnpm script archive-email --id=id1,id2,id3`     |
+| "Mark this as unread"               | `pnpm script mark-read --id=<id> --unread`                                                          |
+| "Star this email"                   | `pnpm script star-email --id=<id>`                                                                  |
+| "Trash this email"                  | `pnpm script trash-email --id=<id>`                                                                 |
+| "Find the email about X"            | `pnpm script search-emails --q=X`, then `pnpm script navigate --threadId=<id>`                      |
+| "Open my starred emails"            | `pnpm script navigate --view=starred`                                                               |
+| "Draft an email to Alice about X"   | `pnpm script manage-draft --action=create --to=alice@example.com --subject="X" --body="..."`        |
+| "Make this draft more formal"       | `pnpm script view-composer`, then `pnpm script manage-draft --action=update --id=<id> --body="..."` |
+| "Send this email"                   | `pnpm script send-email --to=<email> --subject="..." --body="..."`                                  |
+| "What thread am I looking at?"      | `pnpm script view-screen --full`                                                                    |
+| "Archive old emails"                | `pnpm script bulk-archive --older-than=30`                                                          |
 
 ### Adding new scripts
 
@@ -302,12 +354,11 @@ Both `list-emails` and `search-emails` support `--compact` for shorter output an
 
 ```typescript
 export default async function main(args: string[]): Promise<void> {
-  // parse args, read/write data/ files
+  // parse args, call API or read/write data/ files
 }
 ```
 
-2. Register in `scripts/run.ts`.
-3. Run with `pnpm script my-script`.
+2. Run with `pnpm script my-script` (auto-discovered, no registration needed).
 
 ## API Routes
 

@@ -79,6 +79,10 @@ export type ComposeState = {
   attachments?: ComposeAttachment[];
   /** ID of the persistent draft email (for updating existing drafts) */
   savedDraftId?: string;
+  /** Which connected account to send from (for multi-inbox reply) */
+  accountEmail?: string;
+  /** When true, render inline in the thread view instead of the popout composer */
+  inline?: boolean;
 };
 
 export type MailboxView =

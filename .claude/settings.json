@@ -27,6 +27,7 @@
       "Bash(mv *)",
       "Bash(touch *)",
       "Bash(chmod *)",
+      "Bash(cd *)",
       "Bash(node *)",
       "Bash(npx *)",
       "Bash(npm *)",

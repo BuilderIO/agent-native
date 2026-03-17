@@ -287,7 +287,11 @@ export function EmailList({
         onClick: undo,
       },
     });
-    archiveEmail.mutate(id);
+    const thread = threads.find((t) => t.latestMessage.id === id);
+    archiveEmail.mutate({
+      id,
+      accountEmail: thread?.latestMessage.accountEmail,
+    });
   }, [focusedId, threads, archiveEmail, onArchived, undoArchive, setFocusedId]);
 
   const trashFocused = useCallback(() => {
@@ -492,6 +496,7 @@ export function EmailList({
             isFocused={thread.latestMessage.id === focusedId}
             onSelect={() => handleSelect(thread)}
             onStar={(e) => handleStar(e, thread)}
+            onHover={() => setFocusedId(thread.latestMessage.id)}
           />
         ))}
       </div>

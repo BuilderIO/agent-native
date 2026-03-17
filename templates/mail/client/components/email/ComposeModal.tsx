@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   X,
   Minus,
@@ -9,6 +9,7 @@ import {
   Paperclip,
   ChevronDown,
   Loader2,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,23 @@ import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import { openFilePicker, uploadFile, formatFileSize } from "@/lib/upload";
 import type { ComposeAttachment } from "@shared/types";
 
+/**
+ * Split a compose body into the editable portion and the quoted history.
+ * Returns [editable, quoted] — quoted is empty string when there's no quote.
+ */
+function splitQuotedContent(body: string): [string, string] {
+  // Match "— On ..., ... wrote:" (reply) or "— Forwarded message —" (forward)
+  const replyMatch = body.match(/\n?\n?— On .+? wrote:\n/);
+  const fwdMatch = body.match(/\n?\n?— Forwarded message —\n/);
+
+  const match = replyMatch || fwdMatch;
+  if (!match || match.index === undefined) return [body, ""];
+
+  const editable = body.slice(0, match.index);
+  const quoted = body.slice(match.index);
+  return [editable, quoted];
+}
+
 interface ComposeModalProps {
   drafts: ComposeState[];
   activeId: string | null;
@@ -42,6 +60,7 @@ interface ComposeModalProps {
   onDiscard: (id: string) => void;
   onNewDraft: () => void;
   onFlush: (id: string) => Promise<unknown> | undefined;
+  onReopen: (state: Omit<ComposeState, "id">) => void;
 }
 
 export function ComposeModal({
@@ -55,20 +74,24 @@ export function ComposeModal({
   onDiscard,
   onNewDraft,
   onFlush,
+  onReopen,
 }: ComposeModalProps) {
   const [minimized, setMinimized] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
   const [showCcBcc, setShowCcBcc] = useState(false);
+  const [showQuoted, setShowQuoted] = useState(false);
 
   const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
   const editorRef = useRef<ComposeEditorHandle>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const sendingRef = useRef(false);
 
-  // Reset CC/BCC visibility when switching tabs
+  // Reset CC/BCC visibility and quote expansion when switching tabs
   useEffect(() => {
     setShowCcBcc(false);
+    setShowQuoted(false);
   }, [activeId]);
 
   // Focus editor when reply/forward opens
@@ -80,36 +103,80 @@ export function ComposeModal({
 
   const handleSend = async () => {
     if (!activeDraft || !activeId) return;
+    if (sendingRef.current) return;
     if (!activeDraft.to.trim()) {
       toast.error("Please add at least one recipient");
       return;
     }
+    sendingRef.current = true;
 
-    // If this was opened from a saved draft, delete the draft after sending
-    const savedDraftId = activeDraft.savedDraftId;
+    // Snapshot draft data for potential undo
+    const draftSnapshot = { ...activeDraft };
+    const { savedDraftId } = activeDraft;
 
-    sendEmail.mutate(
-      {
-        to: activeDraft.to,
-        cc: activeDraft.cc || undefined,
-        bcc: activeDraft.bcc || undefined,
-        subject: activeDraft.subject,
-        body: activeDraft.body,
-        replyToId: activeDraft.replyToId,
-      },
-      {
-        onSuccess: () => {
-          toast.success("Email sent!");
-          // Discard (don't auto-save as draft — it's been sent)
-          onDiscard(activeId);
-          // Clean up any persistent draft
-          if (savedDraftId) {
-            fetch(`/api/emails/draft/${savedDraftId}`, { method: "DELETE" });
-          }
+    // Close composer immediately
+    onDiscard(activeId);
+
+    // Clean up any persistent draft
+    if (savedDraftId) {
+      fetch(`/api/emails/draft/${savedDraftId}`, { method: "DELETE" });
+    }
+
+    let cancelled = false;
+
+    const handleUndo = () => {
+      if (cancelled) return;
+      cancelled = true;
+      sendingRef.current = false;
+      clearTimeout(sendTimer);
+      clearTimeout(transitionTimer);
+      toast.dismiss(toastId);
+      // Reopen composer with the saved draft
+      const { id: _id, ...reopenData } = draftSnapshot;
+      onReopen(reopenData);
+    };
+
+    // Show "Sending..." toast with undo
+    const toastId = toast("Sending...", {
+      action: { label: "UNDO", onClick: handleUndo },
+      duration: Infinity,
+    });
+
+    // After 1.5s, transition to "Message sent."
+    const transitionTimer = setTimeout(() => {
+      if (cancelled) return;
+      toast("Message sent.", {
+        id: toastId,
+        action: { label: "UNDO", onClick: handleUndo },
+        duration: Infinity,
+      });
+    }, 1500);
+
+    // After 5s, actually send the email
+    const sendTimer = setTimeout(() => {
+      if (cancelled) return;
+      sendingRef.current = false;
+      toast.dismiss(toastId);
+      sendEmail.mutate(
+        {
+          to: draftSnapshot.to,
+          cc: draftSnapshot.cc || undefined,
+          bcc: draftSnapshot.bcc || undefined,
+          subject: draftSnapshot.subject,
+          body: draftSnapshot.body,
+          replyToId: draftSnapshot.replyToId,
+          accountEmail: draftSnapshot.accountEmail,
         },
-        onError: () => toast.error("Failed to send email"),
-      },
-    );
+        {
+          onError: () => {
+            toast.error("Failed to send email");
+            // Reopen composer on failure
+            const { id: _id, ...reopenData } = draftSnapshot;
+            onReopen(reopenData);
+          },
+        },
+      );
+    }, 5000);
   };
 
   const composeRef = useRef<HTMLDivElement>(null);
@@ -356,28 +423,20 @@ export function ComposeModal({
           </div>
 
           {/* Body */}
-          <div
-            className="flex-1 overflow-y-auto px-4 py-3 cursor-text"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) {
-                editorRef.current?.getEditor()?.commands.focus("end");
-              }
-            }}
-          >
-            <ComposeEditor
-              ref={editorRef}
-              content={activeDraft.body}
-              onChange={(md) => onUpdate(activeId!, { body: md })}
-              onGenerate={() => setGenerateOpen(true)}
-              onSend={handleSend}
-              onClose={() => {
-                if (activeId) onClose(activeId);
-              }}
-              onFlush={() => (activeId ? onFlush(activeId) : undefined)}
-              isGenerating={isGenerating}
-              sendToAgent={sendToAgent}
-            />
-          </div>
+          <ComposeBody
+            activeDraft={activeDraft}
+            activeId={activeId!}
+            editorRef={editorRef}
+            onUpdate={onUpdate}
+            onFlush={onFlush}
+            onClose={onClose}
+            onSend={handleSend}
+            isGenerating={isGenerating}
+            sendToAgent={sendToAgent}
+            setGenerateOpen={setGenerateOpen}
+            showQuoted={showQuoted}
+            setShowQuoted={setShowQuoted}
+          />
 
           {/* Attachments */}
           {activeDraft.attachments && activeDraft.attachments.length > 0 && (
@@ -522,10 +581,13 @@ export function ComposeModal({
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground hidden sm:block">
-                <kbd className="kbd-hint">⌘</kbd>{" "}
-                <kbd className="kbd-hint">↵</kbd> to send
-              </span>
+              <button
+                onClick={() => onDiscard(activeId)}
+                className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground/40 hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                title="Delete draft"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
               <Button
                 size="sm"
                 onClick={handleSend}
@@ -537,6 +599,98 @@ export function ComposeModal({
               </Button>
             </div>
           </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Compose body area — splits quoted history from editable content.
+ * Shows "..." toggle for quoted content in reply/forward mode.
+ */
+function ComposeBody({
+  activeDraft,
+  activeId,
+  editorRef,
+  onUpdate,
+  onFlush,
+  onClose,
+  onSend,
+  isGenerating,
+  sendToAgent,
+  setGenerateOpen,
+  showQuoted,
+  setShowQuoted,
+}: {
+  activeDraft: ComposeState;
+  activeId: string;
+  editorRef: React.RefObject<ComposeEditorHandle | null>;
+  onUpdate: (id: string, partial: Partial<ComposeState>) => void;
+  onFlush: (id: string) => Promise<unknown> | undefined;
+  onClose: (id: string) => void;
+  onSend: () => void;
+  isGenerating: boolean;
+  sendToAgent: (opts: {
+    message: string;
+    context?: string;
+    submit?: boolean;
+  }) => void;
+  setGenerateOpen: (open: boolean) => void;
+  showQuoted: boolean;
+  setShowQuoted: (show: boolean) => void;
+}) {
+  const [editableContent, quotedContent] = useMemo(
+    () => splitQuotedContent(activeDraft.body),
+    [activeDraft.body],
+  );
+
+  // Store quoted content in a ref so the onChange handler always has the latest
+  const quotedRef = useRef(quotedContent);
+  quotedRef.current = quotedContent;
+
+  const hasQuote = quotedContent.length > 0;
+
+  return (
+    <div
+      className="flex-1 overflow-y-auto px-4 py-3 cursor-text"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          editorRef.current?.getEditor()?.commands.focus("end");
+        }
+      }}
+    >
+      <ComposeEditor
+        ref={editorRef}
+        content={hasQuote ? editableContent : activeDraft.body}
+        onChange={(md) => {
+          if (hasQuote) {
+            onUpdate(activeId, { body: md + quotedRef.current });
+          } else {
+            onUpdate(activeId, { body: md });
+          }
+        }}
+        onGenerate={() => setGenerateOpen(true)}
+        onSend={onSend}
+        onClose={() => onClose(activeId)}
+        onFlush={() => onFlush(activeId)}
+        isGenerating={isGenerating}
+        sendToAgent={sendToAgent}
+      />
+      {hasQuote && (
+        <>
+          <button
+            type="button"
+            onClick={() => setShowQuoted(!showQuoted)}
+            className="mt-1 text-muted-foreground/50 hover:text-muted-foreground text-[13px] tracking-[0.15em] transition-colors"
+          >
+            ···
+          </button>
+          {showQuoted && (
+            <pre className="mt-2 whitespace-pre-wrap text-[13px] text-muted-foreground/60 font-sans leading-relaxed">
+              {quotedContent.trim()}
+            </pre>
+          )}
         </>
       )}
     </div>
