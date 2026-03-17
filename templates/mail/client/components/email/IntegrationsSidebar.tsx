@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { sendToAgentChat } from "@agent-native/core";
 import {
   useIntegration,
   useAllIntegrations,
@@ -266,7 +267,84 @@ function IntegrationSetup() {
             />
           );
         })}
+        <AddIntegrationButton />
       </div>
+    </div>
+  );
+}
+
+function AddIntegrationButton() {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const handleSubmit = () => {
+    const name = value.trim();
+    if (!name) return;
+    sendToAgentChat({
+      message: `Add a ${name} integration to the sidebar`,
+      context: `The user wants to add a new integration for "${name}" to the contact sidebar. Look at the existing integrations in client/components/email/IntegrationsSidebar.tsx and the pattern in server/routes/ and client/hooks/use-integrations.ts. Add the new provider following the same pattern: server route, hook, sidebar section, and logo. Use the real brand logo SVG if possible.`,
+      submit: true,
+    });
+    setValue("");
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 w-full py-1.5 text-[11px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+      >
+        <div className="h-7 w-7 rounded-md border border-dashed border-border/40 flex items-center justify-center shrink-0">
+          <svg
+            viewBox="0 0 16 16"
+            fill="currentColor"
+            className="h-3 w-3"
+          >
+            <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z" />
+          </svg>
+        </div>
+        <span>Add integration</span>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-lg border border-border/50 bg-card shadow-xl p-2.5">
+          <p className="text-[11px] text-muted-foreground/60 mb-1.5">
+            What do you want to integrate?
+          </p>
+          <div className="flex gap-1.5">
+            <input
+              autoFocus
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSubmit();
+                if (e.key === "Escape") setOpen(false);
+              }}
+              placeholder="e.g. Salesforce, Intercom..."
+              className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
+            />
+            <button
+              onClick={handleSubmit}
+              disabled={!value.trim()}
+              className="shrink-0 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              Go
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
