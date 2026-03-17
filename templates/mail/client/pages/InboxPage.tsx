@@ -147,39 +147,45 @@ function ApolloEnrichment({ email }: { email: string }) {
     .filter(Boolean)
     .join(", ");
 
+  const name =
+    person.first_name || person.last_name
+      ? [person.first_name, person.last_name].filter(Boolean).join(" ")
+      : email;
+
   return (
     <>
-      {/* Title & photo */}
-      {(person.photo_url || person.title) && (
-        <>
-          <div className="h-px bg-border/30 mx-4" />
-          <div className="px-4 py-3 flex items-start gap-3">
-            {person.photo_url && (
-              <img
-                src={person.photo_url}
-                alt=""
-                className="h-9 w-9 rounded-full object-cover shrink-0"
-                referrerPolicy="no-referrer"
-              />
-            )}
-            <div className="min-w-0">
-              {person.title && (
-                <p className="text-[12px] text-foreground/80">{person.title}</p>
-              )}
-              {person.headline && person.headline !== person.title && (
-                <p className="text-[11px] text-muted-foreground/60 truncate">
-                  {person.headline}
-                </p>
-              )}
-              {location && (
-                <p className="text-[11px] text-muted-foreground/50 mt-0.5">
-                  {location}
-                </p>
-              )}
-            </div>
-          </div>
-        </>
-      )}
+      {/* Name, title & photo */}
+      <div className="px-4 pt-4 pb-3 flex items-start gap-3">
+        {person.photo_url && (
+          <img
+            src={person.photo_url}
+            alt=""
+            className="h-9 w-9 rounded-full object-cover shrink-0 mt-0.5"
+            referrerPolicy="no-referrer"
+          />
+        )}
+        <div className="min-w-0">
+          <h3 className="text-[14px] font-semibold text-foreground">
+            {name}
+          </h3>
+          <p className="text-[12px] text-muted-foreground">{email}</p>
+          {person.title && (
+            <p className="text-[11px] text-muted-foreground/60 mt-0.5">
+              {person.title}
+            </p>
+          )}
+          {person.headline && person.headline !== person.title && (
+            <p className="text-[11px] text-muted-foreground/50 truncate">
+              {person.headline}
+            </p>
+          )}
+          {location && (
+            <p className="text-[11px] text-muted-foreground/50">
+              {location}
+            </p>
+          )}
+        </div>
+      </div>
 
       {/* Company */}
       {person.organization && (
@@ -376,22 +382,13 @@ function ContactPanel({
     .filter((e) => e.from.email === displayEmail && e.id !== emailId)
     .slice(0, 4);
 
-  // When Apollo is connected, show the enriched view (replaces generic info)
+  // When Apollo is connected, show enriched view first, recent emails below
   if (connected) {
     return (
       <div className="flex h-full flex-col overflow-y-auto">
-        {/* Minimal header — name + email */}
-        <div className="px-4 pt-4 pb-3">
-          <h3 className="text-[14px] font-semibold text-foreground mb-1">
-            {displayName}
-          </h3>
-          {displayName !== displayEmail && (
-            <p className="text-[12px] text-muted-foreground">{displayEmail}</p>
-          )}
-          <p className="text-[11px] text-muted-foreground/50">{domain}</p>
-        </div>
+        <ApolloEnrichment email={displayEmail} />
 
-        {/* Recent emails */}
+        {/* Recent emails — below Apollo data */}
         {recentFromContact.length > 0 && (
           <>
             <div className="h-px bg-border/30 mx-4" />
@@ -410,9 +407,6 @@ function ContactPanel({
             </div>
           </>
         )}
-
-        {/* Apollo enrichment — replaces generic links/info */}
-        <ApolloEnrichment email={displayEmail} />
       </div>
     );
   }
