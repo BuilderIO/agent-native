@@ -1,4 +1,11 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+  forwardRef,
+} from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { cn, formatEmailDate, formatFileSize } from "@/lib/utils";
 import { useComposeState } from "@/hooks/use-compose-state";
@@ -19,9 +26,11 @@ import type { EmailMessage } from "@shared/types";
 export function EmailThread({
   onArchived,
   emailIds = [],
+  onContactSelect,
 }: {
   onArchived?: (id: string) => void;
   emailIds?: string[];
+  onContactSelect?: (email: string) => void;
 }) {
   const { view = "inbox", threadId } = useParams<{
     view: string;
@@ -90,14 +99,18 @@ export function EmailThread({
     return ids;
   }, [messages, userToggles]);
 
-  // Track the "focused" expanded message for keyboard nav (n/p)
-  const focusedExpanded = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (expandedIds.has(messages[i].id)) return i;
+  // Focused message index for keyboard nav (n/p) — starts on latest
+  const [focusedIndex, setFocusedIndex] = useState(-1);
+  useEffect(() => {
+    setFocusedIndex(messages.length > 0 ? messages.length - 1 : -1);
+  }, [threadId]);
+  // Update if messages grow (full thread loaded)
+  useEffect(() => {
+    if (focusedIndex === -1 && messages.length > 0) {
+      setFocusedIndex(messages.length - 1);
     }
-    return messages.length - 1;
-  }, [messages, expandedIds]);
-  const expandedRef = useRef<HTMLDivElement>(null);
+  }, [messages.length, focusedIndex]);
+  const focusedRef = useRef<HTMLDivElement>(null);
 
   const archiveEmail = useArchiveEmail();
   const unarchiveEmail = useUnarchiveEmail();
@@ -139,22 +152,30 @@ export function EmailThread({
   const focusMessage = useCallback(
     (delta: number) => {
       if (messages.length === 0) return;
-      const nextIdx = Math.max(
-        0,
-        Math.min(messages.length - 1, focusedExpanded + delta),
-      );
-      const id = messages[nextIdx].id;
-      setUserToggles((prev) => ({ ...prev, [id]: true }));
-      // Scroll into view after render
-      setTimeout(() => {
-        expandedRef.current?.scrollIntoView({
-          block: "nearest",
-          behavior: "smooth",
-        });
-      }, 50);
+      setFocusedIndex((prev) => {
+        const nextIdx = Math.max(
+          0,
+          Math.min(messages.length - 1, prev + delta),
+        );
+        setTimeout(() => {
+          focusedRef.current?.scrollIntoView({
+            block: "nearest",
+            behavior: "smooth",
+          });
+        }, 50);
+        return nextIdx;
+      });
     },
-    [messages, focusedExpanded],
+    [messages.length],
   );
+
+  // Toggle expand/collapse on focused message (Enter)
+  const toggleFocused = useCallback(() => {
+    if (focusedIndex < 0 || focusedIndex >= messages.length) return;
+    const id = messages[focusedIndex].id;
+    const isExpanded = expandedIds.has(id);
+    setUserToggles((prev) => ({ ...prev, [id]: !isExpanded }));
+  }, [focusedIndex, messages, expandedIds]);
 
   const handleArchive = useCallback(() => {
     if (!email) return;
@@ -227,6 +248,8 @@ export function EmailThread({
       { key: "k", handler: () => goToSibling(-1) },
       { key: "n", handler: () => focusMessage(1) },
       { key: "p", handler: () => focusMessage(-1) },
+      { key: "Enter", handler: toggleFocused },
+      { key: "o", handler: toggleFocused },
       { key: "e", handler: handleArchive },
       { key: "d", handler: handleTrash },
       { key: "#", handler: handleTrash, shift: true },
@@ -300,7 +323,7 @@ export function EmailThread({
             <svg
               viewBox="0 0 20 20"
               fill="currentColor"
-              className="h-[18px] w-[18px]"
+              className="h-[14px] w-[14px]"
             >
               <path
                 fillRule="evenodd"
@@ -384,13 +407,15 @@ export function EmailThread({
       {/* Thread messages */}
       <div className="flex-1 overflow-y-auto px-5 pb-4">
         <div className="max-w-3xl mx-auto space-y-1">
-          {messages.map((msg) => {
+          {messages.map((msg, idx) => {
             const isExpanded = expandedIds.has(msg.id);
+            const isFocused = idx === focusedIndex;
             return isExpanded ? (
               <ExpandedMessageCard
                 key={msg.id}
-                ref={expandedRef}
+                ref={isFocused ? focusedRef : undefined}
                 email={msg}
+                isFocused={isFocused}
                 onCollapse={() => {
                   setUserToggles((prev) => ({ ...prev, [msg.id]: false }));
                 }}
@@ -407,19 +432,17 @@ export function EmailThread({
                     replyToThreadId: msg.threadId,
                   });
                 }}
+                onContactSelect={onContactSelect}
               />
             ) : (
               <CollapsedMessageRow
                 key={msg.id}
+                ref={isFocused ? focusedRef : undefined}
                 email={msg}
+                isFocused={isFocused}
                 onClick={() => {
+                  setFocusedIndex(idx);
                   setUserToggles((prev) => ({ ...prev, [msg.id]: true }));
-                  setTimeout(() => {
-                    expandedRef.current?.scrollIntoView({
-                      block: "nearest",
-                      behavior: "smooth",
-                    });
-                  }, 50);
                 }}
               />
             );
@@ -459,19 +482,26 @@ export function EmailThread({
 
 // ─── Collapsed message row (Superhuman style) ────────────────────────────────
 
-function CollapsedMessageRow({
-  email,
-  onClick,
-}: {
-  email: EmailMessage;
-  onClick: () => void;
-}) {
+const CollapsedMessageRow = forwardRef<
+  HTMLDivElement,
+  {
+    email: EmailMessage;
+    isFocused?: boolean;
+    onClick: () => void;
+  }
+>(function CollapsedMessageRow({ email, isFocused, onClick }, ref) {
   const senderFirst = (email.from.name || email.from.email).split(" ")[0];
 
   return (
     <div
+      ref={ref}
       onClick={onClick}
-      className="flex items-center gap-3 px-3 py-2 cursor-pointer rounded hover:bg-accent/40 transition-colors"
+      className={cn(
+        "flex items-center gap-3 px-3 py-2 cursor-pointer rounded transition-colors",
+        isFocused
+          ? "bg-accent/50 ring-1 ring-primary/30"
+          : "hover:bg-accent/40",
+      )}
     >
       <span className="text-[13px] font-semibold text-foreground/80 w-[80px] shrink-0 truncate">
         {senderFirst}
@@ -484,21 +514,24 @@ function CollapsedMessageRow({
       </span>
     </div>
   );
-}
+});
 
 // ─── Expanded message card (Superhuman style) ────────────────────────────────
-
-import { forwardRef } from "react";
 
 const ExpandedMessageCard = forwardRef<
   HTMLDivElement,
   {
     email: EmailMessage;
+    isFocused?: boolean;
     onCollapse: () => void;
     onReply: () => void;
     onForward: () => void;
+    onContactSelect?: (email: string) => void;
   }
->(function ExpandedMessageCard({ email, onCollapse, onReply, onForward }, ref) {
+>(function ExpandedMessageCard(
+  { email, isFocused, onCollapse, onReply, onForward, onContactSelect },
+  ref,
+) {
   const [showDetails, setShowDetails] = useState(false);
   const senderName = email.from.name || email.from.email;
   const recipients = [
@@ -509,10 +542,31 @@ const ExpandedMessageCard = forwardRef<
   const formatContact = (c: { name: string; email: string }) =>
     c.name && c.name !== c.email ? `${c.name} <${c.email}>` : c.email;
 
+  const renderContactLink = (
+    c: { name: string; email: string },
+    i: number,
+    arr: { name: string; email: string }[],
+  ) => (
+    <span key={c.email}>
+      <button
+        onClick={() => onContactSelect?.(c.email)}
+        className="hover:underline hover:text-primary transition-colors"
+      >
+        {formatContact(c)}
+      </button>
+      {i < arr.length - 1 && ", "}
+    </span>
+  );
+
   return (
     <div
       ref={ref}
-      className="rounded-lg bg-[hsl(220,5%,10%)] overflow-hidden border-l-2 border-primary/40"
+      className={cn(
+        "rounded-lg bg-[hsl(220,5%,10%)] overflow-hidden border-l-2",
+        isFocused
+          ? "border-primary/70 ring-1 ring-primary/30"
+          : "border-primary/40",
+      )}
     >
       {/* Header */}
       {showDetails ? (
@@ -523,13 +577,18 @@ const ExpandedMessageCard = forwardRef<
                 From
               </span>
               <span className="text-foreground font-semibold">
-                {formatContact(email.from)}
+                <button
+                  onClick={() => onContactSelect?.(email.from.email)}
+                  className="hover:underline hover:text-primary transition-colors"
+                >
+                  {formatContact(email.from)}
+                </button>
               </span>
             </div>
             <div className="flex gap-3">
               <span className="w-10 shrink-0 text-muted-foreground/60">To</span>
               <span className="text-foreground">
-                {email.to.map(formatContact).join(", ")}
+                {email.to.map(renderContactLink)}
               </span>
             </div>
             {email.cc && email.cc.length > 0 && (
@@ -538,7 +597,7 @@ const ExpandedMessageCard = forwardRef<
                   Cc
                 </span>
                 <span className="text-foreground">
-                  {email.cc.map(formatContact).join(", ")}
+                  {email.cc.map(renderContactLink)}
                 </span>
               </div>
             )}
@@ -582,6 +641,7 @@ const ExpandedMessageCard = forwardRef<
             <button
               onClick={(e) => {
                 e.stopPropagation();
+                onContactSelect?.(email.from.email);
                 setShowDetails(true);
               }}
               className="text-[13px] font-semibold text-foreground shrink-0 hover:underline"
@@ -593,22 +653,49 @@ const ExpandedMessageCard = forwardRef<
             </span>
           </div>
 
-          {/* Reply / Forward buttons */}
-          <div className="flex items-center gap-1 shrink-0">
+          {/* Reply / Reply All / Forward buttons */}
+          <div className="flex items-center gap-0.5 shrink-0">
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onReply();
               }}
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors"
-              title="Reply (R)"
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+              title="Reply"
             >
               <svg
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                className="h-3.5 w-3.5 scale-x-[-1]"
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-[14px] w-[14px]"
               >
-                <path d="M1.5 1.75a.75.75 0 0 1 1.27-.53l5.25 5.25a.75.75 0 0 1 0 1.06l-5.25 5.25A.75.75 0 0 1 1.5 12.25V1.75z" />
+                <path d="M7.5 4.5L2.5 9l5 4.5" />
+                <path d="M2.5 9h10a4.5 4.5 0 0 1 0 9H14" />
+              </svg>
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onReply();
+              }}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+              title="Reply All"
+            >
+              <svg
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-[14px] w-[14px]"
+              >
+                <path d="M10 4.5L5 9l5 4.5" />
+                <path d="M5 9h8a4.5 4.5 0 0 1 0 9h-1" />
+                <path d="M6.5 4.5L1.5 9l5 4.5" />
               </svg>
             </button>
             <button
@@ -616,15 +703,20 @@ const ExpandedMessageCard = forwardRef<
                 e.stopPropagation();
                 onForward();
               }}
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors"
-              title="Forward (F)"
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+              title="Forward"
             >
               <svg
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                className="h-3.5 w-3.5"
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-[14px] w-[14px]"
               >
-                <path d="M1.5 1.75a.75.75 0 0 1 1.27-.53l5.25 5.25a.75.75 0 0 1 0 1.06l-5.25 5.25A.75.75 0 0 1 1.5 12.25V1.75z" />
+                <path d="M12.5 4.5L17.5 9l-5 4.5" />
+                <path d="M17.5 9h-10a4.5 4.5 0 0 0 0 9H6" />
               </svg>
             </button>
           </div>
@@ -640,13 +732,7 @@ const ExpandedMessageCard = forwardRef<
         {email.bodyHtml ? (
           <HtmlEmailBody html={email.bodyHtml} />
         ) : (
-          <div className="email-body-content">
-            {email.body.split("\n").map((line, i) => (
-              <p key={i} className={line === "" ? "mb-3" : "mb-0"}>
-                {line || "\u00a0"}
-              </p>
-            ))}
-          </div>
+          <PlainTextBody body={email.body} />
         )}
       </div>
 
@@ -676,6 +762,59 @@ const ExpandedMessageCard = forwardRef<
     </div>
   );
 });
+
+// ─── Plain text body with quoted text trimming ───────────────────────────────
+
+/** Detect where quoted/forwarded content begins in a plain text email */
+function findQuoteStart(lines: string[]): number {
+  for (let i = 0; i < lines.length; i++) {
+    // "On ... wrote:" pattern
+    if (/^On .+ wrote:$/i.test(lines[i].trim())) return i;
+    // "--- Original Message ---" / "--- Forwarded message ---"
+    if (/^-{2,}\s*(Original|Forwarded)\s/i.test(lines[i].trim())) return i;
+    // Block of consecutive ">" quoted lines (at least 2)
+    if (
+      lines[i].trimStart().startsWith(">") &&
+      i + 1 < lines.length &&
+      lines[i + 1].trimStart().startsWith(">")
+    ) {
+      // Walk back to include any blank line or "On ... wrote:" right before
+      let start = i;
+      if (start > 0 && lines[start - 1].trim() === "") start--;
+      if (start > 0 && /^On .+ wrote:$/i.test(lines[start - 1].trim())) start--;
+      return start;
+    }
+  }
+  return -1;
+}
+
+function PlainTextBody({ body }: { body: string }) {
+  const [showQuoted, setShowQuoted] = useState(false);
+  const lines = body.split("\n");
+  const quoteStart = findQuoteStart(lines);
+  const hasQuoted = quoteStart >= 0;
+
+  const visibleLines =
+    hasQuoted && !showQuoted ? lines.slice(0, quoteStart) : lines;
+
+  return (
+    <div className="email-body-content">
+      {visibleLines.map((line, i) => (
+        <p key={i} className={line === "" ? "mb-3" : "mb-0"}>
+          {line || "\u00a0"}
+        </p>
+      ))}
+      {hasQuoted && !showQuoted && (
+        <button
+          onClick={() => setShowQuoted(true)}
+          className="mt-1 text-[13px] text-muted-foreground/50 hover:text-muted-foreground transition-colors tracking-wider"
+        >
+          ···
+        </button>
+      )}
+    </div>
+  );
+}
 
 // ─── HTML email body (iframe) ────────────────────────────────────────────────
 
@@ -725,11 +864,51 @@ function HtmlEmailBody({ html }: { html: string }) {
     a { color: #818cf8 !important; }
     img { max-width: 100%; height: auto; }
     hr { border-color: rgba(255,255,255,0.1) !important; }
+    .quoted-hidden { display: none; }
+    .quote-toggle {
+      display: inline-block;
+      cursor: pointer;
+      color: rgba(161,161,170,0.5);
+      font-size: 13px;
+      letter-spacing: 0.15em;
+      padding: 2px 0;
+      border: none;
+      background: none;
+      margin-top: 4px;
+    }
+    .quote-toggle:hover { color: rgba(161,161,170,0.8); }
   </style>
 </head>
 <body>${html}</body>
 </html>`);
     doc.close();
+
+    // Hide quoted content (Gmail blockquotes, .gmail_quote, etc.) behind "..."
+    const quoteSelectors = [
+      ".gmail_quote",
+      ".gmail_extra",
+      'blockquote[type="cite"]',
+      ".yahoo_quoted",
+      "#appendonsend",
+      ".zmail_extra",
+      'div[id="divRplyFwdMsg"]',
+    ];
+    const quotes = doc.querySelectorAll(quoteSelectors.join(","));
+    quotes.forEach((quote) => {
+      (quote as HTMLElement).classList.add("quoted-hidden");
+      const toggle = doc.createElement("button");
+      toggle.className = "quote-toggle";
+      toggle.textContent = "···";
+      toggle.addEventListener("click", () => {
+        (quote as HTMLElement).classList.toggle("quoted-hidden");
+        toggle.style.display = (quote as HTMLElement).classList.contains(
+          "quoted-hidden",
+        )
+          ? ""
+          : "none";
+      });
+      quote.parentNode?.insertBefore(toggle, quote);
+    });
 
     // Make all links open in a new browser tab (web) or new window (Electron)
     const links = doc.querySelectorAll("a[href]");

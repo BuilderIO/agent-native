@@ -25,34 +25,90 @@ import { toast } from "sonner";
 import { truncate } from "@/lib/utils";
 import type { EmailMessage } from "@shared/types";
 
-function ApolloConnectForm() {
+function ApolloConnectCTA() {
+  const [expanded, setExpanded] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const connect = useApolloConnect();
+  const helpRef = useRef<HTMLDivElement>(null);
+
+  // Close help popover on outside click
+  useEffect(() => {
+    if (!showHelp) return;
+    const handleClick = (e: MouseEvent) => {
+      if (helpRef.current && !helpRef.current.contains(e.target as Node)) {
+        setShowHelp(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showHelp]);
+
+  if (!expanded) {
+    return (
+      <div className="px-4 py-2">
+        <button
+          onClick={() => setExpanded(true)}
+          className="text-[11px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+        >
+          Enrich with Apollo
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="px-4 py-3">
-      <div className="rounded-lg border border-border/40 bg-accent/20 p-3">
-        <h4 className="text-[13px] font-medium text-foreground mb-1">
-          Connect Apollo
-        </h4>
-        <p className="text-[11px] text-muted-foreground mb-3">
-          Add your Apollo API key to see enriched contact info.
-        </p>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[12px] text-muted-foreground">
+          Apollo API key
+        </span>
+        <div className="relative" ref={helpRef}>
+          <button
+            onClick={() => setShowHelp(!showHelp)}
+            className="flex h-4 w-4 items-center justify-center rounded-full text-[10px] text-muted-foreground/40 hover:text-muted-foreground border border-border/40 hover:border-border transition-colors"
+          >
+            ?
+          </button>
+          {showHelp && (
+            <div className="absolute right-0 top-6 z-50 w-56 rounded-lg border border-border bg-popover p-3 shadow-lg">
+              <p className="text-[11px] text-muted-foreground mb-2">
+                To get your API key:
+              </p>
+              <ol className="text-[11px] text-muted-foreground/70 space-y-1 list-decimal pl-3 mb-2">
+                <li>Log in to Apollo.io</li>
+                <li>Go to Settings &gt; Integrations &gt; API</li>
+                <li>Click "Connect" to generate a key</li>
+              </ol>
+              <a
+                href="https://app.apollo.io/#/settings/integrations/api"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[11px] text-primary hover:underline"
+              >
+                Open Apollo Settings
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex gap-1.5">
         <input
           type="password"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
-          placeholder="Apollo API key"
-          className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/50 mb-2"
+          placeholder="Paste key..."
+          autoFocus
+          className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
         />
         <button
           onClick={() => {
             if (apiKey.trim()) connect.mutate(apiKey.trim());
           }}
           disabled={!apiKey.trim() || connect.isPending}
-          className="w-full rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
         >
-          {connect.isPending ? "Connecting..." : "Connect"}
+          {connect.isPending ? "..." : "Save"}
         </button>
       </div>
     </div>
@@ -320,6 +376,48 @@ function ContactPanel({
     .filter((e) => e.from.email === displayEmail && e.id !== emailId)
     .slice(0, 4);
 
+  // When Apollo is connected, show the enriched view (replaces generic info)
+  if (connected) {
+    return (
+      <div className="flex h-full flex-col overflow-y-auto">
+        {/* Minimal header — name + email */}
+        <div className="px-4 pt-4 pb-3">
+          <h3 className="text-[14px] font-semibold text-foreground mb-1">
+            {displayName}
+          </h3>
+          {displayName !== displayEmail && (
+            <p className="text-[12px] text-muted-foreground">{displayEmail}</p>
+          )}
+          <p className="text-[11px] text-muted-foreground/50">{domain}</p>
+        </div>
+
+        {/* Recent emails */}
+        {recentFromContact.length > 0 && (
+          <>
+            <div className="h-px bg-border/30 mx-4" />
+            <div className="px-4 py-3">
+              <h4 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mb-2">
+                Recent
+              </h4>
+              {recentFromContact.map((e) => (
+                <p
+                  key={e.id}
+                  className="text-[12px] text-muted-foreground/70 truncate mb-0.5"
+                >
+                  {truncate(e.subject, 40)}
+                </p>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Apollo enrichment — replaces generic links/info */}
+        <ApolloEnrichment email={displayEmail} />
+      </div>
+    );
+  }
+
+  // Generic view (no Apollo)
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       {/* Profile header */}
@@ -353,12 +451,7 @@ function ContactPanel({
         </>
       )}
 
-      {/* Apollo enrichment or connect form */}
-      {connected ? (
-        <ApolloEnrichment email={displayEmail} />
-      ) : (
-        <ApolloConnectForm />
-      )}
+      <ApolloConnectCTA />
     </div>
   );
 }
@@ -526,6 +619,14 @@ export function InboxPage() {
   );
 
   const hasThread = !!threadId;
+  const [sidebarContactEmail, setSidebarContactEmail] = useState<
+    string | undefined
+  >();
+
+  // Reset sidebar contact when navigating away from a thread
+  useEffect(() => {
+    setSidebarContactEmail(undefined);
+  }, [threadId]);
 
   // Use the focused email ID for the contact panel, falling back to the selected thread
   const contactEmailId = threadId ?? focusedId ?? undefined;
@@ -544,7 +645,11 @@ export function InboxPage() {
       {/* Center area — email list OR thread view */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {hasThread ? (
-          <EmailThread onArchived={setLastArchivedId} emailIds={threadIds} />
+          <EmailThread
+            onArchived={setLastArchivedId}
+            emailIds={threadIds}
+            onContactSelect={setSidebarContactEmail}
+          />
         ) : (
           <EmailList
             focusedId={focusedId}
@@ -556,12 +661,13 @@ export function InboxPage() {
         )}
       </div>
 
-      {/* Right contact panel — only when viewing list */}
-      {!hasThread && (
-        <div className="hidden lg:flex w-[260px] shrink-0 flex-col border-l border-border/30 bg-[hsl(220,6%,5%)]">
-          <ContactPanel emailId={contactEmailId} />
-        </div>
-      )}
+      {/* Right contact panel */}
+      <div className="hidden lg:flex w-[260px] shrink-0 flex-col border-l border-border/30 bg-[hsl(220,6%,5%)]">
+        <ContactPanel
+          emailId={contactEmailId}
+          contactEmail={sidebarContactEmail}
+        />
+      </div>
     </div>
   );
 }
