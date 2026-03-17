@@ -55,8 +55,8 @@ function writeLabels(labels: Label[]) {
 
 function readSettings(): UserSettings {
   return readJsonWithDefaults<UserSettings>(SETTINGS_FILE, {
-    name: "Alex Johnson",
-    email: "me@example.com",
+    name: "",
+    email: "",
     theme: "dark",
     density: "comfortable",
     previewPane: "right",
@@ -780,11 +780,12 @@ export async function sendEmail(req: Request, res: Response): Promise<void> {
     try {
       const client = await getClient(accountEmail);
       if (client) {
-        // Use the specific account email as the from address when provided
-        const fromEmail = accountEmail || settings.email;
+        // Let Gmail set the From header automatically from the authenticated account
+        // (don't use settings.name which may be stale/dummy data)
+        const fromEmail = accountEmail || "me";
         const gmail = google.gmail({ version: "v1", auth: client });
         const raw = buildRawEmail({
-          from: `${settings.name} <${fromEmail}>`,
+          from: fromEmail,
           to: to || "",
           cc: cc || "",
           bcc: bcc || "",
@@ -887,8 +888,9 @@ export async function saveDraft(req: Request, res: Response): Promise<void> {
       const client = await getClient(req.body?.accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
+        const draftFrom = req.body?.accountEmail || "me";
         const raw = buildRawEmail({
-          from: `${settings.name} <${settings.email}>`,
+          from: draftFrom,
           to: to || "",
           cc: cc || "",
           bcc: bcc || "",
