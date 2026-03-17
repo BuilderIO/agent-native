@@ -185,6 +185,13 @@ export function App() {
     handle?.fit();
   }, [activeTabId]);
 
+  // Re-fit terminal when sidebar is expanded (xterm needs correct dimensions)
+  useEffect(() => {
+    if (!isFullscreen) {
+      requestAnimationFrame(() => fit());
+    }
+  }, [isFullscreen, fit]);
+
   // Desktop resize
   const [termWidth, setTermWidth] = useState<number | null>(() => {
     const saved = localStorage.getItem("harness:termWidth");
@@ -388,76 +395,74 @@ export function App() {
         <div className="fixed inset-0 z-40" onClick={dismissPopovers} />
       )}
 
-      {/* Terminal pane — hidden when fullscreen */}
-      {!isFullscreen && (
-        <>
-          <div
-            className={
-              isMobile
-                ? `flex flex-col ${mobileTab === "agent" ? "flex-1 min-h-0" : "absolute inset-0 invisible"}`
-                : "flex flex-col min-h-0"
-            }
-            style={
-              isMobile
-                ? undefined
-                : { width: termWidth ?? "36%", flexShrink: 0 }
-            }
-          >
-            {terminalHeader}
+      {/* Terminal pane — hidden when fullscreen but kept mounted to preserve state */}
+      <div
+        className={
+          isFullscreen && !isMobile
+            ? "hidden"
+            : isMobile
+              ? `flex flex-col ${mobileTab === "agent" ? "flex-1 min-h-0" : "absolute inset-0 invisible"}`
+              : "flex flex-col min-h-0"
+        }
+        style={
+          isMobile || (isFullscreen && !isMobile)
+            ? undefined
+            : { width: termWidth ?? "36%", flexShrink: 0 }
+        }
+      >
+        {terminalHeader}
 
-            {/* Terminal tabs */}
-            <div className="flex-1 min-h-0 relative">
-              {tabs.map((tab) => (
-                <TerminalTab
-                  key={tab.id}
-                  ref={(handle) => {
-                    if (handle) {
-                      tabRefs.current.set(tab.id, handle);
-                    } else {
-                      tabRefs.current.delete(tab.id);
-                    }
-                  }}
-                  active={tab.id === activeTabId}
-                  config={config}
-                  settings={settings}
-                  appName={activeApp}
-                  iframeRef={iframeRef}
-                  onConnectedChange={
-                    tab.id === activeTabId ? setActiveConnected : undefined
-                  }
-                  onSetupStatusChange={
-                    tab.id === activeTabId ? setActiveSetupStatus : undefined
-                  }
-                />
-              ))}
-              {setupOverlay}
-            </div>
+        {/* Terminal tabs */}
+        <div className="flex-1 min-h-0 relative">
+          {tabs.map((tab) => (
+            <TerminalTab
+              key={tab.id}
+              ref={(handle) => {
+                if (handle) {
+                  tabRefs.current.set(tab.id, handle);
+                } else {
+                  tabRefs.current.delete(tab.id);
+                }
+              }}
+              active={tab.id === activeTabId}
+              config={config}
+              settings={settings}
+              appName={activeApp}
+              iframeRef={iframeRef}
+              onConnectedChange={
+                tab.id === activeTabId ? setActiveConnected : undefined
+              }
+              onSetupStatusChange={
+                tab.id === activeTabId ? setActiveSetupStatus : undefined
+              }
+            />
+          ))}
+          {setupOverlay}
+        </div>
 
-            {/* Sidebar collapse button */}
-            {!isMobile && (
-              <div className="shrink-0 px-3 py-2">
-                <Tooltip label="Collapse sidebar">
-                  <button
-                    onClick={() => setIsFullscreen(true)}
-                    className="p-1.5 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
-                  >
-                    <IconLayoutSidebarLeftCollapse size={18} stroke={1.5} />
-                  </button>
-                </Tooltip>
-              </div>
-            )}
+        {/* Sidebar collapse button */}
+        {!isMobile && (
+          <div className="shrink-0 px-3 py-2">
+            <Tooltip label="Collapse sidebar">
+              <button
+                onClick={() => setIsFullscreen(true)}
+                className="p-1.5 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors"
+              >
+                <IconLayoutSidebarLeftCollapse size={18} stroke={1.5} />
+              </button>
+            </Tooltip>
           </div>
+        )}
+      </div>
 
-          {/* Drag handle — desktop only */}
-          {!isMobile && (
-            <div
-              onMouseDown={onMouseDown}
-              className="w-1 cursor-col-resize flex items-center justify-center hover:bg-blue-500/30 transition-colors"
-            >
-              <div className="w-px h-8 bg-white/10 rounded-full" />
-            </div>
-          )}
-        </>
+      {/* Drag handle — desktop only */}
+      {!isMobile && !isFullscreen && (
+        <div
+          onMouseDown={onMouseDown}
+          className="w-1 cursor-col-resize flex items-center justify-center hover:bg-blue-500/30 transition-colors"
+        >
+          <div className="w-px h-8 bg-white/10 rounded-full" />
+        </div>
       )}
 
       {/* Preview pane — goes fullscreen (fixed inset-0) or inline */}

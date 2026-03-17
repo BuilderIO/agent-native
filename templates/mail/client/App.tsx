@@ -28,6 +28,7 @@ function FileWatcherSetup() {
     onEvent: (data: { type: string; path: string }) => {
       if (data.path?.includes("application-state")) {
         qc.invalidateQueries({ queryKey: ["compose-state"] });
+        qc.invalidateQueries({ queryKey: ["navigate-command"] });
       } else {
         qc.invalidateQueries({ queryKey: ["emails"] });
         qc.invalidateQueries({ queryKey: ["email"] });

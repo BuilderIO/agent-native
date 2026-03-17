@@ -198,6 +198,84 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
   res.json(emails);
 }
 
+// ─── Thread messages ─────────────────────────────────────────────────────────
+
+export async function getThreadMessages(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const { threadId } = req.params;
+
+  if (isConnected()) {
+    try {
+      const clients = await getClients();
+      const labelMap = new Map<string, string>();
+      await Promise.all(
+        clients.map(async ({ client }) => {
+          try {
+            const map = await fetchGmailLabelMap(client);
+            for (const [id, name] of map) labelMap.set(id, name);
+          } catch {}
+        }),
+      );
+
+      // Search across all accounts for messages in this thread
+      for (const { email, client } of clients) {
+        try {
+          const gmail = google.gmail({ version: "v1", auth: client });
+          const threadRes = await (gmail.users.threads.get as any)({
+            userId: "me",
+            id: threadId,
+            format: "full",
+          });
+          const messages = ((threadRes as any).data.messages || []).map(
+            (m: any) =>
+              gmailToEmailMessage(
+                { ...m, _accountEmail: email },
+                email,
+                labelMap,
+              ),
+          );
+          // Sort oldest first
+          messages.sort(
+            (a: any, b: any) =>
+              new Date(a.date).getTime() - new Date(b.date).getTime(),
+          );
+          res.json(messages);
+          return;
+        } catch (error: any) {
+          const status = error?.response?.status;
+          if (status === 404) continue;
+          console.error("[getThreadMessages] Gmail error:", error.message);
+          res.status(status || 502).json({ error: error.message });
+          return;
+        }
+      }
+      if (clients.length > 0) {
+        res.status(404).json({ error: "Thread not found in any account" });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[getThreadMessages] error:", error.message);
+      res.status(500).json({ error: error.message });
+      return;
+    }
+  }
+
+  // Demo data: find all emails with matching threadId
+  const emails = readEmails();
+  const threadMessages = emails
+    .filter((e) => e.threadId === threadId)
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  if (threadMessages.length === 0) {
+    res.status(404).json({ error: "Thread not found" });
+    return;
+  }
+
+  res.json(threadMessages);
+}
+
 // ─── Single email ─────────────────────────────────────────────────────────────
 
 export async function getEmail(req: Request, res: Response): Promise<void> {
@@ -492,6 +570,197 @@ export function sendEmail(req: Request, res: Response) {
   writeEmails(emails);
 
   res.status(201).json(newEmail);
+}
+
+// ─── Contacts (extracted from email history) ─────────────────────────────────
+
+export async function listContacts(
+  _req: Request,
+  res: Response,
+): Promise<void> {
+  if (isConnected()) {
+    try {
+      const clients = await getClients();
+      const contactMap = new Map<
+        string,
+        { name: string; email: string; count: number }
+      >();
+
+      for (const { client } of clients) {
+        const people = google.people({ version: "v1", auth: client });
+
+        // Fetch saved contacts (People API connections)
+        try {
+          let nextPageToken: string | undefined;
+          do {
+            const resp = await people.people.connections.list({
+              resourceName: "people/me",
+              pageSize: 200,
+              personFields: "names,emailAddresses",
+              pageToken: nextPageToken,
+            });
+            for (const person of resp.data.connections || []) {
+              const emails = person.emailAddresses || [];
+              const name =
+                person.names?.[0]?.displayName || emails[0]?.value || "";
+              for (const em of emails) {
+                if (!em.value) continue;
+                const key = em.value.toLowerCase();
+                const existing = contactMap.get(key);
+                if (existing) {
+                  existing.count += 5; // boost saved contacts
+                  if (
+                    name &&
+                    name !== em.value &&
+                    existing.name === existing.email
+                  ) {
+                    existing.name = name;
+                  }
+                } else {
+                  contactMap.set(key, {
+                    name: name || em.value,
+                    email: em.value,
+                    count: 5,
+                  });
+                }
+              }
+            }
+            nextPageToken = resp.data.nextPageToken ?? undefined;
+          } while (nextPageToken);
+        } catch (err: any) {
+          console.error("[listContacts] connections error:", err.message);
+        }
+
+        // Fetch "other contacts" (people you've interacted with but haven't saved)
+        try {
+          let nextPageToken: string | undefined;
+          do {
+            const resp = await people.otherContacts.list({
+              pageSize: 200,
+              readMask: "names,emailAddresses",
+              pageToken: nextPageToken,
+            });
+            for (const person of resp.data.otherContacts || []) {
+              const emails = person.emailAddresses || [];
+              const name =
+                person.names?.[0]?.displayName || emails[0]?.value || "";
+              for (const em of emails) {
+                if (!em.value) continue;
+                const key = em.value.toLowerCase();
+                if (!contactMap.has(key)) {
+                  contactMap.set(key, {
+                    name: name || em.value,
+                    email: em.value,
+                    count: 1,
+                  });
+                }
+              }
+            }
+            nextPageToken = resp.data.nextPageToken ?? undefined;
+          } while (nextPageToken);
+        } catch (err: any) {
+          console.error("[listContacts] otherContacts error:", err.message);
+        }
+      }
+
+      // If People API returned nothing (e.g. missing scopes), extract from Gmail
+      if (contactMap.size === 0) {
+        try {
+          const { messages } = await listGmailMessages("", 100);
+          for (const msg of messages) {
+            const headers = msg.payload?.headers || [];
+            for (const field of ["From", "To", "Cc", "Bcc"]) {
+              const raw =
+                headers.find(
+                  (h: any) => h.name?.toLowerCase() === field.toLowerCase(),
+                )?.value || "";
+              if (!raw) continue;
+              for (const part of raw.split(",")) {
+                const trimmed = part.trim();
+                if (!trimmed) continue;
+                const match = trimmed.match(/^(.+?)\s*<(.+?)>$/);
+                const name = match
+                  ? match[1].trim().replace(/^"|"$/g, "")
+                  : trimmed;
+                const addr = match ? match[2].trim() : trimmed;
+                if (!addr || !addr.includes("@")) continue;
+                const key = addr.toLowerCase();
+                const existing = contactMap.get(key);
+                if (existing) {
+                  existing.count++;
+                  if (
+                    name &&
+                    name !== addr &&
+                    existing.name === existing.email
+                  ) {
+                    existing.name = name;
+                  }
+                } else {
+                  contactMap.set(key, {
+                    name: name || addr,
+                    email: addr,
+                    count: 1,
+                  });
+                }
+              }
+            }
+          }
+        } catch (err: any) {
+          console.error("[listContacts] Gmail fallback error:", err.message);
+        }
+      }
+
+      const contacts = Array.from(contactMap.values()).sort(
+        (a, b) => b.count - a.count,
+      );
+      res.json(contacts);
+      return;
+    } catch (error: any) {
+      console.error("[listContacts] error:", error.message);
+      // Fall through to demo data
+    }
+  }
+
+  const emails = readEmails();
+  const contactMap = new Map<
+    string,
+    { name: string; email: string; count: number }
+  >();
+
+  for (const email of emails) {
+    const addresses = [
+      email.from,
+      ...(email.to || []),
+      ...(email.cc || []),
+      ...(email.bcc || []),
+    ];
+    for (const addr of addresses) {
+      if (!addr?.email) continue;
+      const key = addr.email.toLowerCase();
+      const existing = contactMap.get(key);
+      if (existing) {
+        existing.count++;
+        if (
+          addr.name &&
+          addr.name !== addr.email &&
+          (!existing.name || existing.name === existing.email)
+        ) {
+          existing.name = addr.name;
+        }
+      } else {
+        contactMap.set(key, {
+          name: addr.name || addr.email,
+          email: addr.email,
+          count: 1,
+        });
+      }
+    }
+  }
+
+  const contacts = Array.from(contactMap.values()).sort(
+    (a, b) => b.count - a.count,
+  );
+  res.json(contacts);
 }
 
 // ─── Labels ───────────────────────────────────────────────────────────────────
