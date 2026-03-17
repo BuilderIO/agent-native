@@ -22,8 +22,13 @@
     "./server": "./dist/server/index.js",
     "./types": "./dist/types/index.js"
   },
+  "bin": {
+    "pinpoint": "./dist/cli.js"
+  },
   "files": [
-    "dist"
+    "dist",
+    "src/scripts",
+    ".agents"
   ],
   "scripts": {
     "build": "tsup",
