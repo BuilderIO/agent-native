@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { EmailList, groupIntoThreads } from "@/components/email/EmailList";
+import { EmailList, InboxZero, groupIntoThreads } from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
 import { useComposeState } from "@/hooks/use-compose-state";
 import {
@@ -11,6 +11,7 @@ import {
 import {
   useEmail,
   useEmails,
+  useThreadMessages,
   useMarkRead,
   useUnarchiveEmail,
   useSettings,
@@ -148,7 +149,7 @@ export function InboxPage() {
 
   // Always fetch from the URL view (inbox, starred, etc.)
   // Label tabs use ?label= param and always fetch inbox
-  const { data: rawEmails = [] } = useEmails(view);
+  const { data: rawEmails = [], isLoading } = useEmails(view);
 
   const pinnedLabels = settings?.pinnedLabels ?? [];
   const pinnedUserLabels = pinnedLabels.filter(
@@ -209,6 +210,43 @@ export function InboxPage() {
     };
   }, [emails, view, activeLabel]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Sync current thread messages to application-state so agent can read them
+  const { data: currentThreadMessages } = useThreadMessages(threadId);
+  const threadSyncRef = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    if (threadSyncRef.current) clearTimeout(threadSyncRef.current);
+    if (!threadId || !currentThreadMessages?.length) {
+      // Clear thread state when not viewing a thread
+      fetch("/api/application-state/thread", { method: "DELETE" }).catch(
+        () => {},
+      );
+      return;
+    }
+    threadSyncRef.current = setTimeout(() => {
+      fetch("/api/application-state/thread", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          threadId,
+          messages: currentThreadMessages.map((m) => ({
+            id: m.id,
+            from: m.from.name
+              ? `${m.from.name} <${m.from.email}>`
+              : m.from.email,
+            to: m.to.map((t) => (t.name ? `${t.name} <${t.email}>` : t.email)),
+            subject: m.subject,
+            body: m.body,
+            date: m.date,
+            isRead: m.isRead,
+          })),
+        }),
+      }).catch(() => {});
+    }, 500);
+    return () => {
+      if (threadSyncRef.current) clearTimeout(threadSyncRef.current);
+    };
+  }, [threadId, currentThreadMessages]);
+
   // One-shot agent navigation: agent writes navigate.json, UI reads it, navigates, deletes it
   const { data: navCommand } = navState.command;
   const lastCommandRef = useRef<string>("");
@@ -230,13 +268,13 @@ export function InboxPage() {
     // Delete the command file so it doesn't re-trigger
     navState.clearCommand();
   }, [navCommand, view, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+  const threads = useMemo(() => groupIntoThreads(emails), [emails]);
   const threadIds = useMemo(
-    () =>
-      groupIntoThreads(emails).map(
-        (t) => t.latestMessage.threadId || t.latestMessage.id,
-      ),
-    [emails],
+    () => threads.map((t) => t.latestMessage.threadId || t.latestMessage.id),
+    [threads],
   );
+
+  const searchQuery = searchParams.get("q") ?? undefined;
 
   const undoArchive = useCallback(
     (id: string) => {
@@ -283,6 +321,8 @@ export function InboxPage() {
   );
 
   const hasThread = !!threadId;
+  const isInboxZero =
+    !isLoading && !hasThread && !searchQuery && threads.length === 0;
   const [sidebarContactEmail, setSidebarContactEmail] = useState<
     string | undefined
   >();
@@ -294,6 +334,11 @@ export function InboxPage() {
 
   // Use the focused email ID for the contact panel, falling back to the selected thread
   const contactEmailId = threadId ?? focusedId ?? undefined;
+
+  // Inbox Zero — full-bleed image, no sidebar
+  if (isInboxZero) {
+    return <InboxZero />;
+  }
 
   return (
     <div className="flex flex-1 overflow-hidden">
