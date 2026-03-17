@@ -17,9 +17,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
           actionButton:
             "group-[.toast]:!bg-transparent group-[.toast]:!text-[hsl(210,80%,65%)] group-[.toast]:!text-[13px] group-[.toast]:!font-bold group-[.toast]:!tracking-wide group-[.toast]:!px-0 group-[.toast]:!ml-4 group-[.toast]:hover:!text-[hsl(210,80%,75%)]",
           cancelButton:
-            "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
-          closeButton:
-            "group-[.toast]:!text-[hsl(220,10%,50%)] group-[.toast]:hover:!text-[hsl(220,10%,70%)]",
+            "group-[.toast]:!bg-transparent group-[.toast]:!text-[hsl(220,10%,50%)] group-[.toast]:!text-[13px] group-[.toast]:!font-bold group-[.toast]:!tracking-wide group-[.toast]:!px-0 group-[.toast]:!ml-4 group-[.toast]:hover:!text-[hsl(220,10%,70%)]",
         },
       }}
       {...props}

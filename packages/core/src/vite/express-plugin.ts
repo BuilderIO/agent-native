@@ -61,11 +61,7 @@ export function expressPlugin(options: ExpressPluginOptions = {}): Plugin {
 
       // Proxy middleware — delegates to the latest Express app
       server.middlewares.use(
-        async (
-          req: IncomingMessage,
-          res: ServerResponse,
-          next: () => void,
-        ) => {
+        async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
           await ready; // wait for initial load
           if (app) {
             app(req, res, next);

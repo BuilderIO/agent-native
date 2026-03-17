@@ -139,7 +139,6 @@ export function ComposeModal({
     // Show "Sending..." toast with undo
     const toastId = toast("Sending...", {
       action: { label: "UNDO", onClick: handleUndo },
-      closeButton: true,
       duration: Infinity,
     });
 
@@ -149,7 +148,6 @@ export function ComposeModal({
       toast("Message sent.", {
         id: toastId,
         action: { label: "UNDO", onClick: handleUndo },
-        closeButton: true,
         duration: Infinity,
       });
     }, 1500);

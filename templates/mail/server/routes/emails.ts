@@ -778,37 +778,65 @@ export async function sendEmail(req: Request, res: Response): Promise<void> {
   // If Gmail is connected, send via Gmail API
   if (isConnected()) {
     try {
-      const client = await getClient(accountEmail);
-      if (client) {
-        // Let Gmail set the From header automatically from the authenticated account
-        // (don't use settings.name which may be stale/dummy data)
-        const fromEmail = accountEmail || "me";
-        const gmail = google.gmail({ version: "v1", auth: client });
+      const clients = await getClients();
+      let selectedClient = clients[0]?.client;
+      let selectedEmail = accountEmail || clients[0]?.email || "me";
+
+      let threadId: string | undefined;
+      let inReplyTo: string | undefined;
+      let references: string | undefined;
+
+      if (replyToId) {
+        // Find which account owns the original message and use that for the reply
+        for (const { email, client } of clients) {
+          try {
+            const gmail = google.gmail({ version: "v1", auth: client });
+            const original = await gmail.users.messages.get({
+              userId: "me",
+              id: replyToId,
+              format: "metadata",
+              metadataHeaders: ["Message-Id", "References"],
+            });
+            threadId = original.data.threadId ?? undefined;
+            const headers = original.data.payload?.headers || [];
+            inReplyTo =
+              headers.find((h) => h.name === "Message-Id")?.value ?? undefined;
+            const refs = headers.find((h) => h.name === "References")?.value;
+            references = [refs, inReplyTo].filter(Boolean).join(" ");
+            if (!accountEmail) {
+              selectedClient = client;
+              selectedEmail = email;
+            }
+            break;
+          } catch (err: any) {
+            if (err?.response?.status === 404) continue;
+          }
+        }
+      }
+
+      if (accountEmail) {
+        const match = clients.find((c) => c.email === accountEmail);
+        if (match) {
+          selectedClient = match.client;
+          selectedEmail = match.email;
+        }
+      }
+
+      if (selectedClient) {
+        const gmail = google.gmail({ version: "v1", auth: selectedClient });
         const raw = buildRawEmail({
-          from: fromEmail,
+          from: selectedEmail,
           to: to || "",
           cc: cc || "",
           bcc: bcc || "",
           subject: subject || "(no subject)",
           body: body || "",
+          inReplyTo,
+          references,
         });
 
-        // If replying, include threadId so Gmail threads the message
         const requestBody: any = { raw };
-        if (replyToId) {
-          try {
-            const original = await gmail.users.messages.get({
-              userId: "me",
-              id: replyToId,
-              format: "minimal",
-            });
-            if (original.data.threadId) {
-              requestBody.threadId = original.data.threadId;
-            }
-          } catch {
-            // If we can't find the original, send without threading
-          }
-        }
+        if (threadId) requestBody.threadId = threadId;
 
         const sent = await (gmail.users.messages.send as any)({
           userId: "me",
@@ -999,6 +1027,8 @@ function buildRawEmail(opts: {
   bcc: string;
   subject: string;
   body: string;
+  inReplyTo?: string;
+  references?: string;
 }): string {
   const lines = [
     `From: ${opts.from}`,
@@ -1006,6 +1036,8 @@ function buildRawEmail(opts: {
     ...(opts.cc ? [`Cc: ${opts.cc}`] : []),
     ...(opts.bcc ? [`Bcc: ${opts.bcc}`] : []),
     `Subject: ${opts.subject}`,
+    ...(opts.inReplyTo ? [`In-Reply-To: ${opts.inReplyTo}`] : []),
+    ...(opts.references ? [`References: ${opts.references}`] : []),
     `Content-Type: text/plain; charset="UTF-8"`,
     "",
     opts.body,
@@ -1304,10 +1336,7 @@ export function updateSettings(req: Request, res: Response) {
 
 // ─── Calendar RSVP ───────────────────────────────────────────────────────────
 
-export async function calendarRsvp(
-  req: Request,
-  res: Response,
-): Promise<void> {
+export async function calendarRsvp(req: Request, res: Response): Promise<void> {
   const { eventId, calendarId, response, accountEmail } = req.body as {
     eventId: string;
     calendarId?: string;

@@ -176,12 +176,34 @@ export function InboxPage() {
 
     if (activeLabel) {
       // Label tab: show only inbox emails with this label
-      return filtered.filter((e) => e.labelIds.includes(activeLabel));
+      // Match both the full label ID and the short name (last segment)
+      const shortLabel = activeLabel.includes("/")
+        ? activeLabel
+            .slice(activeLabel.lastIndexOf("/") + 1)
+            .replace(/_/g, " ")
+            .toLowerCase()
+        : activeLabel.toLowerCase();
+      return filtered.filter((e) =>
+        e.labelIds.some((l) => l === activeLabel || l === shortLabel),
+      );
     }
     if (view === "inbox" && pinnedUserLabels.length > 0) {
       // Inbox: filter out emails that belong to a pinned label
+      // Compute short names for each pinned label so we match email labelIds
+      const pinnedShortNames = pinnedUserLabels.map((l) =>
+        l.includes("/")
+          ? l
+              .slice(l.lastIndexOf("/") + 1)
+              .replace(/_/g, " ")
+              .toLowerCase()
+          : l.toLowerCase(),
+      );
       return filtered.filter(
-        (e) => !pinnedUserLabels.some((l) => e.labelIds.includes(l)),
+        (e) =>
+          !e.labelIds.some(
+            (lid) =>
+              pinnedUserLabels.includes(lid) || pinnedShortNames.includes(lid),
+          ),
       );
     }
     return filtered;

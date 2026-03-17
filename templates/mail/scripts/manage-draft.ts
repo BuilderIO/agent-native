@@ -35,7 +35,9 @@ export default async function main(): Promise<void> {
   }
 
   if (action === "delete-all") {
-    const files = fs.readdirSync(STATE_DIR).filter((f) => f.startsWith("compose-") && f.endsWith(".json"));
+    const files = fs
+      .readdirSync(STATE_DIR)
+      .filter((f) => f.startsWith("compose-") && f.endsWith(".json"));
     for (const f of files) fs.unlinkSync(path.join(STATE_DIR, f));
     console.error(`Deleted ${files.length} draft(s)`);
     output({ deleted: files.length });
@@ -87,7 +89,16 @@ export default async function main(): Promise<void> {
     }
 
     // Update only provided fields
-    for (const key of ["to", "cc", "bcc", "subject", "body", "mode", "replyToId", "replyToThreadId"]) {
+    for (const key of [
+      "to",
+      "cc",
+      "bcc",
+      "subject",
+      "body",
+      "mode",
+      "replyToId",
+      "replyToThreadId",
+    ]) {
       if (args[key] !== undefined) draft[key] = args[key];
     }
 
@@ -97,5 +108,7 @@ export default async function main(): Promise<void> {
     return;
   }
 
-  fatal(`Unknown action "${action}". Valid: create, update, delete, delete-all`);
+  fatal(
+    `Unknown action "${action}". Valid: create, update, delete, delete-all`,
+  );
 }

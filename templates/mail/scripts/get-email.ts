@@ -8,9 +8,13 @@
  *   --id    Email ID (required)
  */
 
+import { google } from "googleapis";
 import { parseArgs, output, fatal } from "./helpers.js";
-
-const API_BASE = "http://localhost:8080";
+import {
+  getClients,
+  gmailToEmailMessage,
+  fetchGmailLabelMap,
+} from "../server/lib/google-auth.js";
 
 export default async function main(): Promise<void> {
   const args = parseArgs();
@@ -19,20 +23,32 @@ export default async function main(): Promise<void> {
     fatal("--id is required. Usage: pnpm script get-email --id=msg123");
   }
 
-  try {
-    const res = await fetch(`${API_BASE}/api/emails/${args.id}`, {
-      signal: AbortSignal.timeout(5000),
-    });
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      fatal(`API error: ${body?.error || `HTTP ${res.status}`}`);
-    }
-
-    const email = await res.json();
-    console.error(`Email: ${email.subject} from ${email.from?.name || email.from?.email}`);
-    output(email);
-  } catch (err: any) {
-    fatal(`Could not connect to dev server at ${API_BASE}. Start it with: pnpm dev\n  (${err?.message})`);
+  const clients = await getClients();
+  if (clients.length === 0) {
+    fatal("No Google account connected. Connect an account in the app first.");
   }
+
+  for (const { email, client } of clients) {
+    const gmail = google.gmail({ version: "v1", auth: client });
+    try {
+      const labelMap = await fetchGmailLabelMap(client);
+      const msg = await gmail.users.messages.get({
+        userId: "me",
+        id: args.id,
+        format: "full",
+      });
+      const parsed = gmailToEmailMessage((msg as any).data, email, labelMap);
+      console.error(
+        `Email: ${parsed.subject} from ${parsed.from?.name || parsed.from?.email}`,
+      );
+      output(parsed);
+      return;
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 404) continue;
+      fatal(`Gmail error: ${err?.message}`);
+    }
+  }
+
+  fatal("Email not found in any connected account.");
 }
