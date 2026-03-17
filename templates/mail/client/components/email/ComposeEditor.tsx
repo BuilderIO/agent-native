@@ -22,13 +22,28 @@ interface ComposeEditorProps {
   onSend: () => void;
   onClose: () => void;
   onFlush: () => Promise<unknown> | undefined;
+  isGenerating: boolean;
+  sendToAgent: (opts: {
+    message: string;
+    context?: string;
+    submit?: boolean;
+  }) => void;
 }
 
 export const ComposeEditor = forwardRef<
   ComposeEditorHandle,
   ComposeEditorProps
 >(function ComposeEditor(
-  { content, onChange, onGenerate, onSend, onClose, onFlush },
+  {
+    content,
+    onChange,
+    onGenerate,
+    onSend,
+    onClose,
+    onFlush,
+    isGenerating,
+    sendToAgent,
+  },
   ref,
 ) {
   const isSettingContent = useRef(false);
@@ -134,7 +149,12 @@ export const ComposeEditor = forwardRef<
 
   return (
     <div className="compose-editor-wrapper" style={{ position: "relative" }}>
-      <ComposeBubbleToolbar editor={editor} onFlush={onFlush} />
+      <ComposeBubbleToolbar
+        editor={editor}
+        onFlush={onFlush}
+        isGenerating={isGenerating}
+        sendToAgent={sendToAgent}
+      />
       <ComposeSlashMenu editor={editor} onGenerate={onGenerate} />
       <EditorContent editor={editor} />
     </div>

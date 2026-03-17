@@ -7,19 +7,26 @@ import {
   Code,
   Link,
   Sparkles,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
-import { sendToAgentChat } from "@agent-native/core";
-
 interface ComposeBubbleToolbarProps {
   editor: Editor;
   onFlush: () => Promise<unknown> | undefined;
+  isGenerating: boolean;
+  sendToAgent: (opts: {
+    message: string;
+    context?: string;
+    submit?: boolean;
+  }) => void;
 }
 
 export function ComposeBubbleToolbar({
   editor,
   onFlush,
+  isGenerating,
+  sendToAgent,
 }: ComposeBubbleToolbarProps) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
@@ -60,7 +67,7 @@ export function ComposeBubbleToolbar({
 
     await onFlush();
 
-    sendToAgentChat({
+    sendToAgent({
       message: aiPrompt.trim(),
       context: `The user has selected text in their email draft and wants you to modify it. The current draft is saved in application-state/compose.json. You can read and update it directly.\n\nSelected text:\n"${selectedText}"`,
       submit: true,
@@ -140,35 +147,44 @@ export function ComposeBubbleToolbar({
             Apply
           </button>
         </div>
-      ) : showAiInput ? (
+      ) : showAiInput || isGenerating ? (
         <div
           className="flex items-center gap-1 px-1"
           onMouseDown={(e) => e.preventDefault()}
         >
-          <input
-            autoFocus
-            type="text"
-            placeholder="e.g. make more formal..."
-            value={aiPrompt}
-            onChange={(e) => setAiPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                void handleAiAssist();
-              }
-              if (e.key === "Escape") {
-                setShowAiInput(false);
-                setAiPrompt("");
-              }
-            }}
-            className="bg-transparent border-none outline-none text-white text-sm w-52 px-1 py-0.5 placeholder:text-gray-400"
-          />
-          <button
-            onClick={() => void handleAiAssist()}
-            className="text-xs text-blue-400 hover:text-blue-300 px-1.5 py-0.5 font-medium"
-          >
-            Send
-          </button>
+          {isGenerating ? (
+            <>
+              <Loader2 size={14} className="animate-spin text-gray-400" />
+              <span className="text-xs text-gray-400 px-1">Generating…</span>
+            </>
+          ) : (
+            <>
+              <input
+                autoFocus
+                type="text"
+                placeholder="e.g. make more formal..."
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void handleAiAssist();
+                  }
+                  if (e.key === "Escape") {
+                    setShowAiInput(false);
+                    setAiPrompt("");
+                  }
+                }}
+                className="bg-transparent border-none outline-none text-white text-sm w-52 px-1 py-0.5 placeholder:text-gray-400"
+              />
+              <button
+                onClick={() => void handleAiAssist()}
+                className="text-xs text-blue-400 hover:text-blue-300 px-1.5 py-0.5 font-medium"
+              >
+                Send
+              </button>
+            </>
+          )}
         </div>
       ) : (
         <div
