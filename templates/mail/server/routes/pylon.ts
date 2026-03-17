@@ -1,0 +1,116 @@
+import type { Request, Response } from "express";
+import fs from "fs";
+import path from "path";
+
+const STATE_DIR = path.join(process.cwd(), "application-state");
+const PYLON_FILE = path.join(STATE_DIR, "pylon.json");
+
+function getPylonKey(): string | undefined {
+  try {
+    const data = JSON.parse(fs.readFileSync(PYLON_FILE, "utf-8"));
+    return data.apiKey || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// GET /api/pylon/contact?email=...
+export async function pylonContactLookup(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const { email } = req.query;
+  if (!email || typeof email !== "string") {
+    res.status(400).json({ error: "email query param required" });
+    return;
+  }
+
+  const apiKey = getPylonKey();
+  if (!apiKey) {
+    res.status(401).json({ error: "Pylon API key not configured" });
+    return;
+  }
+
+  const headers = {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+  };
+
+  try {
+    // Search for contact by email
+    const contactRes = await fetch("https://api.usepylon.com/contacts/search", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        filters: { email: { eq: email } },
+      }),
+    });
+
+    let account: any = null;
+    let issues: any[] = [];
+
+    if (contactRes.ok) {
+      const contactData = await contactRes.json();
+      const contact = contactData.data?.[0];
+
+      if (contact?.account_id) {
+        // Fetch account details
+        try {
+          const accountRes = await fetch(
+            `https://api.usepylon.com/accounts/${contact.account_id}`,
+            { headers },
+          );
+          if (accountRes.ok) {
+            const accountData = await accountRes.json();
+            account = accountData.data;
+          }
+        } catch {}
+
+        // Search for issues related to this account
+        try {
+          const issuesRes = await fetch(
+            "https://api.usepylon.com/issues/search",
+            {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                filters: { account_id: { eq: contact.account_id } },
+                sort: { field: "created_at", direction: "desc" },
+                limit: 10,
+              }),
+            },
+          );
+          if (issuesRes.ok) {
+            const issuesData = await issuesRes.json();
+            issues = (issuesData.data || []).map((issue: any) => ({
+              id: issue.id,
+              number: issue.number,
+              title: issue.title,
+              state: issue.state,
+              created: issue.created_at,
+              updated: issue.updated_at,
+              assignee: issue.assignee?.name,
+              tags: issue.tags || [],
+            }));
+          }
+        } catch {}
+      }
+    }
+
+    res.json({
+      account: account
+        ? {
+            id: account.id,
+            name: account.name,
+            domain: account.domains?.[0],
+            type: account.type,
+            tags: account.tags || [],
+            latestActivity: account.latest_customer_activity_time,
+          }
+        : null,
+      issues,
+    });
+  } catch {
+    res.status(500).json({ error: "Failed to reach Pylon API" });
+  }
+}
