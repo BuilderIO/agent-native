@@ -104,6 +104,7 @@ Ephemeral UI state lives in `application-state/` as JSON files. These files are 
 | ------------------------------------- | ------------------------------------------- | ------------------------------------------- |
 | `application-state/navigation.json`   | Current view, open thread, focused email    | UI → Agent (read-only for agent)            |
 | `application-state/email-list.json`   | Emails currently displayed on user's screen | UI → Agent (read-only for agent)            |
+| `application-state/thread.json`       | Full messages of the open thread            | UI → Agent (read-only for agent)            |
 | `application-state/navigate.json`     | Navigate the user to a view/thread          | Agent → UI (one-shot command, auto-deleted) |
 | `application-state/compose-{id}.json` | Email draft (one file per draft tab)        | Bidirectional                               |
 
@@ -146,6 +147,40 @@ The UI automatically syncs `application-state/email-list.json` with a compact su
 ```
 
 **Do NOT write to `email-list.json`** — it is synced by the UI. To get more details about an email, use `GET /api/emails/:id` or `GET /api/threads/:threadId/messages`.
+
+### Open thread (full conversation context)
+
+When the user is viewing an email thread, the UI syncs the full messages to `application-state/thread.json`. **This is the fastest way to read the conversation** the user is looking at — including all message bodies:
+
+```json
+{
+  "threadId": "thread-xyz",
+  "messages": [
+    {
+      "id": "msg-1",
+      "from": "Alice <alice@example.com>",
+      "to": ["You <me@example.com>"],
+      "subject": "Project update",
+      "body": "Hey, here's the latest...",
+      "date": "2026-03-16T10:30:00Z",
+      "isRead": true
+    },
+    {
+      "id": "msg-2",
+      "from": "You <me@example.com>",
+      "to": ["Alice <alice@example.com>"],
+      "subject": "Re: Project update",
+      "body": "Thanks! I'll review this afternoon.",
+      "date": "2026-03-16T14:00:00Z",
+      "isRead": true
+    }
+  ]
+}
+```
+
+**Do NOT write to `thread.json`** — it is synced by the UI and deleted when the user navigates away from the thread.
+
+When the user is composing a reply and asks for help, read the compose draft (`compose-*.json`) to find `replyToThreadId`, then read `thread.json` (or fetch via API) to get the full conversation for context.
 
 ### Navigate command (control the UI)
 
@@ -217,6 +252,7 @@ The UI will pick up the changes automatically (via SSE).
 | "Make this draft more formal"     | List compose-\*.json, read the draft, rewrite body, write back                                      |
 | "Change the subject to Y"         | List compose-\*.json, read the draft, update subject, write back                                    |
 | "Reply to this email saying Z"    | Read navigation.json for threadId, fetch thread via API, write compose-{id}.json with mode=reply    |
+| "Help me write this reply"        | Read the open compose draft (compose-\*.json) → get replyToThreadId → fetch full thread via `GET /api/threads/:threadId/messages` → use the conversation context to update the draft body |
 | "What am I looking at?"           | Read navigation.json + email-list.json, then fetch thread via `GET /api/threads/:threadId/messages` |
 | "Find the email about X"          | `pnpm script search-emails --q=X`, write `application-state/navigate.json` with matching threadId   |
 | "Open my starred emails"          | Write `application-state/navigate.json` with `{"view": "starred"}`                                  |
