@@ -9,87 +9,6 @@ import {
 
 export const Route = createFileRoute("/")({ component: Home });
 
-const principles = [
-  {
-    title: "Files as Database",
-    description:
-      "All state lives in files. The agent and UI read and write the same source of truth. No traditional database needed.",
-    icon: (
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
-        <polyline points="13 2 13 9 20 9" />
-      </svg>
-    ),
-  },
-  {
-    title: "AI Through the Agent",
-    description:
-      "No inline LLM calls. The UI delegates to the agent via a chat bridge. One AI, always customizable with skills and instructions.",
-    icon: (
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      </svg>
-    ),
-  },
-  {
-    title: "Agent Updates Code",
-    description:
-      "The agent can modify the app itself. Your tools get better over time. Fork a template and keep evolving it.",
-    icon: (
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <polyline points="16 18 22 12 16 6" />
-        <polyline points="8 6 2 12 8 18" />
-      </svg>
-    ),
-  },
-  {
-    title: "Real-time Sync",
-    description:
-      "File watcher streams changes via SSE. When the agent writes a file, the UI updates instantly. No polling, no refresh.",
-    icon: (
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-      </svg>
-    ),
-  },
-];
-
 const quickStartCode = `# Fork a template and start building
 npx @agent-native/core create my-app --template mail
 cd my-app
@@ -456,77 +375,6 @@ function Home() {
           </div>
         </section>
 
-        {/* How it works */}
-        <section className="border-t border-[var(--border)] py-20">
-          <div className="mb-12 text-center">
-            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              How it works
-            </h2>
-            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              One framework, one mindset. Everything the UI can do, the agent
-              can do via natural language. Everything the agent can do, the UI
-              exposes through point-and-click interfaces.
-            </p>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {principles.map((p) => (
-              <div
-                key={p.title}
-                className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5"
-              >
-                <div className="mb-3 text-[var(--accent)]">{p.icon}</div>
-                <h3 className="mb-2 text-sm font-semibold">{p.title}</h3>
-                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                  {p.description}
-                </p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Built for teams */}
-        <section className="border-t border-[var(--border)] py-20">
-          <div className="mb-12 text-center">
-            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Built for teams
-            </h2>
-            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              Anyone on your team can customize the software to their needs
-              without piling on developers. Enterprise-grade roles, permissions,
-              and git-based workflows keep everything manageable at scale.
-            </p>
-          </div>
-
-          <div className="mx-auto grid max-w-3xl gap-4 sm:grid-cols-3">
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-              <h3 className="mb-2 text-sm font-semibold">
-                Roles &amp; Permissions
-              </h3>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                Control who can update the app, who can use it, and who can
-                modify agent behavior.
-              </p>
-            </div>
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-              <h3 className="mb-2 text-sm font-semibold">
-                Git-based Workflows
-              </h3>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                Pull requests and reviews for software changes that matter. You
-                own your repo.
-              </p>
-            </div>
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-              <h3 className="mb-2 text-sm font-semibold">Works Everywhere</h3>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                Call your agent from Slack, Telegram, or any chat interface. Set
-                up daily digests, automated workflows, and more.
-              </p>
-            </div>
-          </div>
-        </section>
-
         {/* Harnesses */}
         <section className="border-t border-[var(--border)] py-20">
           <div className="mb-12 text-center">
@@ -536,7 +384,7 @@ function Home() {
             <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
               Agent-native apps run inside a harness — a host that provides the
               AI agent alongside your app UI. Run locally with open-source CLI
-              tools, or deploy to any cloud infrastructure.
+              tools, or in the cloud with Builder.io.
             </p>
           </div>
 
@@ -560,10 +408,11 @@ function Home() {
                 <h3 className="text-base font-semibold">CLI Harness</h3>
               </div>
               <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
-                <li>Run with Claude Code, Codex, Gemini CLI, or OpenCode</li>
+                <li>Runs locally on your machine</li>
+                <li>Use Claude Code, Codex, Gemini CLI, or OpenCode</li>
                 <li>Full permissions, full control</li>
                 <li>Free and open source</li>
-                <li>Great for development, testing, and solo use</li>
+                <li>Great for local use</li>
               </ul>
             </div>
             <div className="rounded-xl border border-[var(--border)] p-6">
@@ -580,13 +429,20 @@ function Home() {
                 >
                   <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
                 </svg>
-                <h3 className="text-base font-semibold">Cloud Harness</h3>
+                <a
+                  href="https://www.builder.io"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-base font-semibold hover:underline"
+                >
+                  Builder.io Cloud Harness
+                </a>
               </div>
               <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
-                <li>Deploy to any cloud infrastructure</li>
+                <li>Runs in the cloud</li>
                 <li>Real-time multiplayer collaboration</li>
                 <li>Visual editing, roles and permissions</li>
-                <li>Great for teams and production use</li>
+                <li>Great for team use</li>
               </ul>
             </div>
           </div>

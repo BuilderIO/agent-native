@@ -8,6 +8,7 @@ import {
   useKeyboardShortcuts,
   useSequenceShortcuts,
 } from "@/hooks/use-keyboard-shortcuts";
+import { runUndo } from "@/hooks/use-undo";
 import { useLabels, useSettings } from "@/hooks/use-emails";
 import {
   useGoogleAuthStatus,
@@ -95,6 +96,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       },
     },
     { key: "c", handler: handleCompose },
+    { key: "z", handler: runUndo },
     {
       key: "Escape",
       handler: () => {

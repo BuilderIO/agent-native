@@ -110,9 +110,8 @@ function GenerateButton() {
 }`}
       />
       <p>
-        <code>isGenerating</code> turns true on send, false when the{" "}
-        <code>builder.fusion.chatRunning</code> event fires with{" "}
-        <code>isRunning: false</code>.
+        <code>isGenerating</code> turns true when you call <code>send()</code>{" "}
+        and automatically resets to false when the agent finishes generating.
       </p>
 
       <h2 id="usefilewatcher">useFileWatcher(options?)</h2>

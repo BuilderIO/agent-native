@@ -62,7 +62,7 @@ function GenerateButton() {
 }
 ```
 
-`isGenerating` turns true on send, false when the `builder.fusion.chatRunning` event fires with `isRunning: false`.
+`isGenerating` turns true when you call `send()` and automatically resets to false when the agent finishes generating.
 
 ## useFileWatcher(options?)
 

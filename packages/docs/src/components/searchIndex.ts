@@ -101,7 +101,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/client",
     section: "useAgentChatGenerating()",
     sectionId: "useagentchatgenerating",
-    text: "React hook that wraps sendToAgentChat with loading state tracking. isGenerating turns true on send false when the builder.fusion.chatRunning event fires with isRunning false.",
+    text: "React hook that wraps sendToAgentChat with loading state tracking. isGenerating turns true on send and automatically resets to false when the agent finishes generating.",
   },
   {
     page: "Client",
@@ -189,7 +189,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/harnesses",
     section: "How It Works",
     sectionId: "how-it-works",
-    text: "Both harnesses support the same core agent-native protocol. postMessage bridge app sends builder.submitChat messages up to the harness. Chat running events harness sends builder.fusion.chatRunning events down to the app. File watching SSE endpoint keeps UI in sync when the agent modifies files. Script system pnpm script dispatches to callable scripts. Your app code is identical regardless of which harness or CLI you use.",
+    text: "Both harnesses support the same core agent-native protocol. Agent chat use sendToAgentChat() to send messages to the agent. Generation state use useAgentChatGenerating() to track when the agent is running. File watching SSE endpoint keeps UI in sync when the agent modifies files. Script system pnpm script dispatches to callable scripts. Your app code is identical regardless of which harness or CLI you use.",
   },
 
   // Key Concepts
