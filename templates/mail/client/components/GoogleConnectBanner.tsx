@@ -89,8 +89,7 @@ export function GoogleConnectBanner({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Use the app's own origin for the callback, not the harness origin
-  const redirectUri = `${typeof window !== "undefined" ? window.location.origin : getCallbackOrigin()}/api/google/callback`;
+  const redirectUri = `${getCallbackOrigin()}/api/google/callback`;
 
   const fetchStatus = useCallback(async () => {
     try {

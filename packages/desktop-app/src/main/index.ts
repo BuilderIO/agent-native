@@ -10,6 +10,7 @@ import {
 } from "electron";
 import path from "path";
 import { IPC, type InterAppMessage } from "@shared/ipc-channels";
+import { APP_REGISTRY, HARNESS_PORT } from "@shared/app-registry";
 
 const IS_DEV = !app.isPackaged;
 
@@ -186,6 +187,26 @@ app.whenReady().then(() => {
       });
     });
   }
+
+  // Intercept OAuth callbacks on the harness port and redirect to the app's server.
+  // Google redirects to localhost:3334/api/google/callback but the harness doesn't
+  // serve API routes — the actual app server runs on a different port.
+  session.defaultSession.webRequest.onBeforeRequest(
+    { urls: [`http://localhost:${HARNESS_PORT}/api/google/callback*`] },
+    (details, callback) => {
+      // Find which app handles this callback (currently only mail has Google auth)
+      const mailApp = APP_REGISTRY.find((a) => a.id === "mail");
+      if (mailApp) {
+        const appUrl = details.url.replace(
+          `http://localhost:${HARNESS_PORT}`,
+          `http://localhost:${mailApp.devPort}`,
+        );
+        callback({ redirectURL: appUrl });
+      } else {
+        callback({});
+      }
+    },
+  );
 
   const win = createWindow();
 
