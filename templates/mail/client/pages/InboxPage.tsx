@@ -135,7 +135,6 @@ function ThreadListSidebar({
   );
 }
 
-
 export function InboxPage() {
   const { view = "inbox", threadId } = useParams<{
     view: string;
