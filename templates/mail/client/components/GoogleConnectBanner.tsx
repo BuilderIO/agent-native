@@ -34,6 +34,13 @@ const STEPS = [
     linkText: "Enable Gmail API",
   },
   {
+    title: "Enable the People API",
+    description:
+      "Enable the People API for contact autocomplete when composing emails.",
+    url: "https://console.cloud.google.com/flows/enableapi?apiid=people.googleapis.com",
+    linkText: "Enable People API",
+  },
+  {
     title: "Configure OAuth consent screen",
     description:
       'Set the app name to anything (e.g. "My Mail"), choose "External" user type, and add your email as a test user. If you see an overview page, consent is already configured — skip to the next step.',

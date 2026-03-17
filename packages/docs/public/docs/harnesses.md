@@ -58,8 +58,8 @@ Switch between CLIs at any time from the settings panel. The harness restarts th
 
 Both harnesses support the same core agent-native protocol:
 
-1. **postMessage bridge** — app sends `builder.submitChat` messages up to the harness
-2. **Chat running events** — harness sends `builder.fusion.chatRunning` events down to the app
+1. **Agent chat** — use `sendToAgentChat()` to send messages to the agent
+2. **Generation state** — use `useAgentChatGenerating()` to track when the agent is running
 3. **File watching** — SSE endpoint keeps UI in sync when the agent modifies files
 4. **Script system** — `pnpm script <name>` dispatches to callable scripts
 

@@ -1,5 +1,6 @@
 /**
- * Generates demo emails and appends them to data/emails.json
+ * DEV TOOL: Generates fake test emails and appends them to data/emails.json.
+ * These are NOT real emails — they are synthetic data for testing the UI without a Google account.
  * Usage: pnpm script seed-emails --count=10
  */
 
