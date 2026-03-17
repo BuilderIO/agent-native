@@ -100,12 +100,12 @@ When a Google account is connected, use the API routes (PATCH/POST) to modify em
 
 Ephemeral UI state lives in `application-state/` as JSON files. These files are gitignored but visible to agent tools (via `.ignore`). Write to these files to trigger UI actions. The UI syncs its state here so you can always see what the user is looking at.
 
-| File                                  | Purpose                                      | Direction                                   |
-| ------------------------------------- | -------------------------------------------- | ------------------------------------------- |
-| `application-state/navigation.json`   | Current view, open thread, focused email     | UI → Agent (read-only for agent)            |
-| `application-state/email-list.json`   | Emails currently displayed on user's screen  | UI → Agent (read-only for agent)            |
-| `application-state/navigate.json`     | Navigate the user to a view/thread           | Agent → UI (one-shot command, auto-deleted) |
-| `application-state/compose.json`      | Current email draft in compose window        | Bidirectional                               |
+| File                                | Purpose                                     | Direction                                   |
+| ----------------------------------- | ------------------------------------------- | ------------------------------------------- |
+| `application-state/navigation.json` | Current view, open thread, focused email    | UI → Agent (read-only for agent)            |
+| `application-state/email-list.json` | Emails currently displayed on user's screen | UI → Agent (read-only for agent)            |
+| `application-state/navigate.json`   | Navigate the user to a view/thread          | Agent → UI (one-shot command, auto-deleted) |
+| `application-state/compose.json`    | Current email draft in compose window       | Bidirectional                               |
 
 ### Navigation state (read what the user sees)
 
@@ -207,42 +207,42 @@ The UI will pick up the changes automatically (via SSE).
 
 #### Common tasks
 
-| User request                      | What to do                                                                                            |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| "Summarize my inbox"              | Read `application-state/email-list.json` — the emails on screen are already there                     |
-| "Draft an email to Alice about X" | Write `application-state/compose.json` with to, subject, body, mode=compose                           |
-| "Make this draft more formal"     | Read compose.json, rewrite body, write back                                                           |
-| "Change the subject to Y"         | Read compose.json, update subject, write back                                                         |
-| "Reply to this email saying Z"    | Read navigation.json for current threadId, fetch thread via API, write compose.json with mode=reply   |
-| "What am I looking at?"           | Read navigation.json + email-list.json, then fetch thread via `GET /api/threads/:threadId/messages`   |
-| "Find the email about X"          | `pnpm script search-emails --q=X`, write `application-state/navigate.json` with matching threadId     |
-| "Open my starred emails"          | Write `application-state/navigate.json` with `{"view": "starred"}`                                    |
+| User request                      | What to do                                                                                          |
+| --------------------------------- | --------------------------------------------------------------------------------------------------- |
+| "Summarize my inbox"              | Read `application-state/email-list.json` — the emails on screen are already there                   |
+| "Draft an email to Alice about X" | Write `application-state/compose.json` with to, subject, body, mode=compose                         |
+| "Make this draft more formal"     | Read compose.json, rewrite body, write back                                                         |
+| "Change the subject to Y"         | Read compose.json, update subject, write back                                                       |
+| "Reply to this email saying Z"    | Read navigation.json for current threadId, fetch thread via API, write compose.json with mode=reply |
+| "What am I looking at?"           | Read navigation.json + email-list.json, then fetch thread via `GET /api/threads/:threadId/messages` |
+| "Find the email about X"          | `pnpm script search-emails --q=X`, write `application-state/navigate.json` with matching threadId   |
+| "Open my starred emails"          | Write `application-state/navigate.json` with `{"view": "starred"}`                                  |
 
 ## Scripts
 
 Run agent scripts with `pnpm script <name> [--args]`. Scripts automatically use the API (Gmail when connected) and fall back to local data files.
 
-| Script           | Args                                                    | Purpose                                           |
-| ---------------- | ------------------------------------------------------- | ------------------------------------------------- |
-| `list-emails`    | `--view <inbox\|unread\|starred\|sent\|...> --q <term>` | List and search emails (uses Gmail via API)       |
-| `search-emails`  | `--q <term> [--view <name>]`                            | Search emails across all views (requires --q)     |
-| `seed-emails`    | `--count <n>`                                           | Generate n test emails (local data only)          |
-| `bulk-archive`   | `--older-than <days>`                                   | Archive emails older than N days                  |
-| `export-emails`  | `--view <inbox\|sent\|...> --output <file>`             | Export emails to JSON file                        |
+| Script          | Args                                                    | Purpose                                       |
+| --------------- | ------------------------------------------------------- | --------------------------------------------- |
+| `list-emails`   | `--view <inbox\|unread\|starred\|sent\|...> --q <term>` | List and search emails (uses Gmail via API)   |
+| `search-emails` | `--q <term> [--view <name>]`                            | Search emails across all views (requires --q) |
+| `seed-emails`   | `--count <n>`                                           | Generate n test emails (local data only)      |
+| `bulk-archive`  | `--older-than <days>`                                   | Archive emails older than N days              |
+| `export-emails` | `--view <inbox\|sent\|...> --output <file>`             | Export emails to JSON file                    |
 
 Both `list-emails` and `search-emails` support `--compact` for shorter output and `--fields=from,subject,date` to pick specific fields.
 
 ### Common tasks
 
-| User request                        | What to do                                                                                                |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| "Summarize my inbox"                | Read `application-state/email-list.json` — it has the emails on screen right now                          |
-| "Summarize my unread emails"        | `pnpm script list-emails --view=unread --compact` then summarize                                          |
-| "What emails do I have from Alice?" | `pnpm script search-emails --q=alice --compact`                                                           |
-| "Find the email about X"            | `pnpm script search-emails --q=X`, then write `application-state/navigate.json` to open the matching one  |
-| "Archive old emails"                | `pnpm script bulk-archive --older-than=30`                                                                |
-| "Star this email" / manage emails   | Use API: `PATCH /api/emails/:id/star`                                                                     |
-| "Draft an email to ..."             | Write `application-state/compose.json` (see Application State section)                                    |
+| User request                        | What to do                                                                                               |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| "Summarize my inbox"                | Read `application-state/email-list.json` — it has the emails on screen right now                         |
+| "Summarize my unread emails"        | `pnpm script list-emails --view=unread --compact` then summarize                                         |
+| "What emails do I have from Alice?" | `pnpm script search-emails --q=alice --compact`                                                          |
+| "Find the email about X"            | `pnpm script search-emails --q=X`, then write `application-state/navigate.json` to open the matching one |
+| "Archive old emails"                | `pnpm script bulk-archive --older-than=30`                                                               |
+| "Star this email" / manage emails   | Use API: `PATCH /api/emails/:id/star`                                                                    |
+| "Draft an email to ..."             | Write `application-state/compose.json` (see Application State section)                                   |
 
 ### Adding new scripts
 

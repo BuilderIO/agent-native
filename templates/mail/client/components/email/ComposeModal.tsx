@@ -8,6 +8,7 @@ import {
   Link,
   Paperclip,
   ChevronDown,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useSendEmail } from "@/hooks/use-emails";
-import { sendToAgentChat } from "@agent-native/core";
+import { useAgentChatGenerating } from "@agent-native/core";
 import { toast } from "sonner";
 import type { ComposeState } from "@shared/types";
 import { RecipientInput } from "./RecipientInput";
@@ -46,6 +47,7 @@ export function ComposeModal({
   const [generatePrompt, setGeneratePrompt] = useState("");
   const [showCcBcc, setShowCcBcc] = useState(false);
 
+  const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
   const editorRef = useRef<ComposeEditorHandle>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -110,7 +112,7 @@ export function ComposeModal({
       .filter(Boolean)
       .join("\n");
 
-    sendToAgentChat({
+    sendToAgent({
       message: generatePrompt.trim(),
       context: `The user is composing an email. The current draft is saved in application-state/compose.json. You can read and update it directly.\n\n${context || "(empty draft)"}`,
       submit: true,
@@ -231,6 +233,8 @@ export function ComposeModal({
               onSend={handleSend}
               onClose={onClose}
               onFlush={onFlush}
+              isGenerating={isGenerating}
+              sendToAgent={sendToAgent}
             />
           </div>
 
@@ -287,55 +291,62 @@ export function ComposeModal({
 
               <div className="mx-1 h-4 w-px bg-border" />
 
-              <Popover open={generateOpen} onOpenChange={setGenerateOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1.5 px-2 text-xs"
-                  >
-                    Generate
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent side="top" align="start" className="w-80 p-3">
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-medium text-muted-foreground">
-                      What should the agent write?
-                    </label>
-                    <textarea
-                      ref={promptRef}
-                      value={generatePrompt}
-                      onChange={(e) => setGeneratePrompt(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          handleGenerate();
-                        }
-                        if (e.key === "Escape") {
-                          e.stopPropagation();
-                          setGenerateOpen(false);
-                        }
-                      }}
-                      placeholder="e.g. Write a polite follow-up..."
-                      className="min-h-[60px] w-full resize-none rounded-md border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
-                      autoFocus
-                    />
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-muted-foreground">
-                        <kbd className="kbd-hint">↵</kbd> to submit
-                      </span>
-                      <Button
-                        size="sm"
-                        onClick={handleGenerate}
-                        disabled={!generatePrompt.trim()}
-                        className="h-7 gap-1.5 px-3 text-xs"
-                      >
-                        Generate
-                      </Button>
+              {isGenerating ? (
+                <div className="flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Generating…</span>
+                </div>
+              ) : (
+                <Popover open={generateOpen} onOpenChange={setGenerateOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1.5 px-2 text-xs"
+                    >
+                      Generate
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent side="top" align="start" className="w-80 p-3">
+                    <div className="flex flex-col gap-2">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        What should the agent write?
+                      </label>
+                      <textarea
+                        ref={promptRef}
+                        value={generatePrompt}
+                        onChange={(e) => setGeneratePrompt(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            handleGenerate();
+                          }
+                          if (e.key === "Escape") {
+                            e.stopPropagation();
+                            setGenerateOpen(false);
+                          }
+                        }}
+                        placeholder="e.g. Write a polite follow-up..."
+                        className="min-h-[60px] w-full resize-none rounded-md border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                        autoFocus
+                      />
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-muted-foreground">
+                          <kbd className="kbd-hint">↵</kbd> to submit
+                        </span>
+                        <Button
+                          size="sm"
+                          onClick={handleGenerate}
+                          disabled={!generatePrompt.trim()}
+                          className="h-7 gap-1.5 px-3 text-xs"
+                        >
+                          Generate
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                </PopoverContent>
-              </Popover>
+                  </PopoverContent>
+                </Popover>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
