@@ -24,15 +24,7 @@ export function useNavigationState() {
   const qc = useQueryClient();
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
-  const query = useQuery<NavigationState | undefined>({
-    queryKey: ["navigation-state"],
-    queryFn: () =>
-      apiFetch<NavigationState | undefined>(
-        "/api/application-state/navigation",
-      ),
-    staleTime: 5_000,
-  });
-
+  // Write-only: UI syncs its current state so the agent can read it
   const putMutation = useMutation({
     mutationFn: (state: NavigationState) =>
       apiFetch("/api/application-state/navigation", {
@@ -41,20 +33,39 @@ export function useNavigationState() {
       }),
   });
 
-  // Debounced sync — UI writes to file so the agent can see current state
   const sync = useCallback(
     (state: NavigationState) => {
-      qc.setQueryData<NavigationState>(["navigation-state"], state);
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
         putMutation.mutate(state);
       }, 500);
     },
-    [qc, putMutation],
+    [putMutation],
   );
 
+  // One-shot command: agent writes navigate.json, UI reads and deletes it
+  const command = useQuery<NavigationState | undefined>({
+    queryKey: ["navigate-command"],
+    queryFn: () =>
+      apiFetch<NavigationState | undefined>("/api/application-state/navigate"),
+    staleTime: 2_000,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/application-state/navigate", { method: "DELETE" }),
+    onSuccess: () => {
+      qc.setQueryData(["navigate-command"], undefined);
+    },
+  });
+
+  const clearCommand = useCallback(() => {
+    deleteMutation.mutate();
+  }, [deleteMutation]);
+
   return {
-    data: query.data,
     sync,
+    command: { data: command.data },
+    clearCommand,
   };
 }

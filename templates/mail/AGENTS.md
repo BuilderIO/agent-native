@@ -111,12 +111,13 @@ Edit `data/emails.json` and append:
 
 Ephemeral UI state lives in `application-state/` as JSON files. These files are gitignored but visible to agent tools (via `.ignore`). Write to these files to trigger UI actions. The UI syncs its state here so you can always see what the user is looking at.
 
-| File                                | Purpose                                  | Direction                                           |
-| ----------------------------------- | ---------------------------------------- | --------------------------------------------------- |
-| `application-state/navigation.json` | Current view, open thread, focused email | UI → Agent (auto-synced) AND Agent → UI (navigates) |
-| `application-state/compose.json`    | Current email draft in compose window    | Bidirectional                                       |
+| File                                | Purpose                                  | Direction                                   |
+| ----------------------------------- | ---------------------------------------- | ------------------------------------------- |
+| `application-state/navigation.json` | Current view, open thread, focused email | UI → Agent (read-only for agent)            |
+| `application-state/navigate.json`   | Navigate the user to a view/thread       | Agent → UI (one-shot command, auto-deleted) |
+| `application-state/compose.json`    | Current email draft in compose window    | Bidirectional                               |
 
-### Navigation state
+### Navigation state (read what the user sees)
 
 The UI automatically writes `application-state/navigation.json` whenever the user navigates. Read this file to see what the user is looking at:
 
@@ -128,7 +129,11 @@ The UI automatically writes `application-state/navigation.json` whenever the use
 }
 ```
 
-**To navigate the user to a specific email**, write this file:
+**Do NOT write to `navigation.json`** — it is overwritten by the UI. To navigate the user, use `navigate.json` instead.
+
+### Navigate command (control the UI)
+
+Write `application-state/navigate.json` to navigate the user to a specific email or view. The UI reads it, navigates, and deletes the file automatically:
 
 ```json
 {
@@ -137,7 +142,7 @@ The UI automatically writes `application-state/navigation.json` whenever the use
 }
 ```
 
-The UI will automatically navigate to that thread. Use this to "open" an email the user asked about.
+This is a one-shot command — the file is deleted after the UI processes it.
 
 #### Common navigation tasks
 
@@ -145,8 +150,8 @@ The UI will automatically navigate to that thread. Use this to "open" an email t
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | "What email am I looking at?"                 | Read `application-state/navigation.json` to get the threadId, then look up that thread in `data/emails.json` |
 | "Reply to this email"                         | Read navigation.json for threadId → find email in data/emails.json → write compose.json with mode=reply      |
-| "Find the email from Alice about the project" | Search data/emails.json, then write navigation.json with the matching threadId to open it                    |
-| "Open my starred emails"                      | Write navigation.json with `{"view": "starred"}`                                                             |
+| "Find the email from Alice about the project" | Search data/emails.json, then write `application-state/navigate.json` with the matching threadId to open it  |
+| "Open my starred emails"                      | Write `application-state/navigate.json` with `{"view": "starred"}`                                           |
 
 ### Compose emails
 
@@ -193,8 +198,8 @@ The UI will pick up the changes automatically (via SSE).
 | "Change the subject to Y"         | Read compose.json, update subject, write back                                                                 |
 | "Reply to this email saying Z"    | Read navigation.json for current threadId, find email in data/emails.json, write compose.json with mode=reply |
 | "What am I looking at?"           | Read navigation.json, then look up the threadId in data/emails.json                                           |
-| "Find the email about X"          | Search data/emails.json, write navigation.json with matching threadId                                         |
-| "Open my starred emails"          | Write navigation.json with `{"view": "starred"}`                                                              |
+| "Find the email about X"          | Search data/emails.json, write `application-state/navigate.json` with matching threadId                       |
+| "Open my starred emails"          | Write `application-state/navigate.json` with `{"view": "starred"}`                                            |
 
 ## Scripts
 

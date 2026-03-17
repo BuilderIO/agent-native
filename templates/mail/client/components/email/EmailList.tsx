@@ -12,6 +12,7 @@ import {
 } from "@/hooks/use-emails";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import type { EmailMessage } from "@shared/types";
+import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
 
 export interface ThreadSummary {
@@ -164,10 +165,12 @@ export function EmailList({
     if (!focusedId) return;
     const id = focusedId;
     onArchived?.(id);
+    const undo = () => undoArchive?.(id);
+    setUndoAction(undo);
     toast("Marked as Done.", {
       action: {
         label: "UNDO",
-        onClick: () => undoArchive?.(id),
+        onClick: undo,
       },
     });
     archiveEmail.mutate(id);

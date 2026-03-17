@@ -12,6 +12,7 @@ import {
 } from "@/hooks/use-emails";
 import { useQueryClient } from "@tanstack/react-query";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
 import type { EmailMessage } from "@shared/types";
 
@@ -159,10 +160,12 @@ export function EmailThread({
     if (!email) return;
     const id = email.id;
     onArchived?.(id);
+    const undo = () => unarchiveEmail.mutate(id);
+    setUndoAction(undo);
     toast("Marked as Done.", {
       action: {
         label: "UNDO",
-        onClick: () => unarchiveEmail.mutate(id),
+        onClick: undo,
       },
     });
     advanceOrGoBack();
@@ -496,11 +499,15 @@ const ExpandedMessageCard = forwardRef<
     onForward: () => void;
   }
 >(function ExpandedMessageCard({ email, onCollapse, onReply, onForward }, ref) {
+  const [showDetails, setShowDetails] = useState(false);
   const senderName = email.from.name || email.from.email;
   const recipients = [
     ...email.to.map((r) => r.name || r.email),
     ...(email.cc || []).map((r) => r.name || r.email),
   ].join(", ");
+
+  const formatContact = (c: { name: string; email: string }) =>
+    c.name && c.name !== c.email ? `${c.name} <${c.email}>` : c.email;
 
   return (
     <div
@@ -508,59 +515,125 @@ const ExpandedMessageCard = forwardRef<
       className="rounded-lg bg-[hsl(220,5%,10%)] overflow-hidden border-l-2 border-primary/40"
     >
       {/* Header */}
-      <div
-        className="flex items-center gap-3 px-4 py-3 cursor-pointer"
-        onClick={onCollapse}
-      >
-        <div className="flex-1 min-w-0 flex items-center gap-2">
-          <span className="text-[13px] font-semibold text-foreground shrink-0">
-            {senderName}
-          </span>
-          <span className="text-[12px] text-muted-foreground/50 truncate">
-            to {recipients}
+      {showDetails ? (
+        <div className="px-4 py-3">
+          <div className="flex flex-col gap-1 text-[13px]">
+            <div className="flex gap-3">
+              <span className="w-10 shrink-0 text-muted-foreground/60">
+                From
+              </span>
+              <span className="text-foreground font-semibold">
+                {formatContact(email.from)}
+              </span>
+            </div>
+            <div className="flex gap-3">
+              <span className="w-10 shrink-0 text-muted-foreground/60">To</span>
+              <span className="text-foreground">
+                {email.to.map(formatContact).join(", ")}
+              </span>
+            </div>
+            {email.cc && email.cc.length > 0 && (
+              <div className="flex gap-3">
+                <span className="w-10 shrink-0 text-muted-foreground/60">
+                  Cc
+                </span>
+                <span className="text-foreground">
+                  {email.cc.map(formatContact).join(", ")}
+                </span>
+              </div>
+            )}
+            <div className="flex items-center gap-3">
+              <span className="w-10 shrink-0" />
+              <span className="text-muted-foreground/60">
+                {new Date(email.date).toLocaleDateString("en-US", {
+                  weekday: "long",
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                })}{" "}
+                at{" "}
+                {new Date(email.date).toLocaleTimeString("en-US", {
+                  hour: "numeric",
+                  minute: "2-digit",
+                  timeZoneName: "short",
+                })}
+              </span>
+              <button
+                onClick={() => setShowDetails(false)}
+                className="text-muted-foreground/50 hover:text-foreground transition-colors"
+              >
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  className="h-3.5 w-3.5"
+                >
+                  <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div
+          className="flex items-center gap-3 px-4 py-3 cursor-pointer"
+          onClick={onCollapse}
+        >
+          <div className="flex-1 min-w-0 flex items-center gap-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowDetails(true);
+              }}
+              className="text-[13px] font-semibold text-foreground shrink-0 hover:underline"
+            >
+              {senderName}
+            </button>
+            <span className="text-[12px] text-muted-foreground/50 truncate">
+              to {recipients}
+            </span>
+          </div>
+
+          {/* Reply / Forward buttons */}
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onReply();
+              }}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors"
+              title="Reply (R)"
+            >
+              <svg
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                className="h-3.5 w-3.5 scale-x-[-1]"
+              >
+                <path d="M1.5 1.75a.75.75 0 0 1 1.27-.53l5.25 5.25a.75.75 0 0 1 0 1.06l-5.25 5.25A.75.75 0 0 1 1.5 12.25V1.75z" />
+              </svg>
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onForward();
+              }}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors"
+              title="Forward (F)"
+            >
+              <svg
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                className="h-3.5 w-3.5"
+              >
+                <path d="M1.5 1.75a.75.75 0 0 1 1.27-.53l5.25 5.25a.75.75 0 0 1 0 1.06l-5.25 5.25A.75.75 0 0 1 1.5 12.25V1.75z" />
+              </svg>
+            </button>
+          </div>
+
+          <span className="shrink-0 text-[12px] text-muted-foreground/50 tabular-nums">
+            {formatEmailDate(email.date)}
           </span>
         </div>
-
-        {/* Reply / Forward buttons */}
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onReply();
-            }}
-            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors"
-            title="Reply (R)"
-          >
-            <svg
-              viewBox="0 0 16 16"
-              fill="currentColor"
-              className="h-3.5 w-3.5 scale-x-[-1]"
-            >
-              <path d="M1.5 1.75a.75.75 0 0 1 1.27-.53l5.25 5.25a.75.75 0 0 1 0 1.06l-5.25 5.25A.75.75 0 0 1 1.5 12.25V1.75z" />
-            </svg>
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onForward();
-            }}
-            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors"
-            title="Forward (F)"
-          >
-            <svg
-              viewBox="0 0 16 16"
-              fill="currentColor"
-              className="h-3.5 w-3.5"
-            >
-              <path d="M1.5 1.75a.75.75 0 0 1 1.27-.53l5.25 5.25a.75.75 0 0 1 0 1.06l-5.25 5.25A.75.75 0 0 1 1.5 12.25V1.75z" />
-            </svg>
-          </button>
-        </div>
-
-        <span className="shrink-0 text-[12px] text-muted-foreground/50 tabular-nums">
-          {formatEmailDate(email.date)}
-        </span>
-      </div>
+      )}
 
       {/* Body */}
       <div className="px-4 pb-5 pt-1">
