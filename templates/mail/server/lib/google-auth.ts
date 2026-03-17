@@ -10,6 +10,7 @@ const SCOPES = [
   "https://www.googleapis.com/auth/userinfo.profile",
   "https://www.googleapis.com/auth/contacts.readonly",
   "https://www.googleapis.com/auth/contacts.other.readonly",
+  "https://www.googleapis.com/auth/calendar.events",
 ];
 
 const ACCOUNTS_DIR = path.join(process.cwd(), "data", "google-accounts");

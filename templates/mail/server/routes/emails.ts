@@ -766,7 +766,7 @@ export function deleteEmail(req: Request, res: Response) {
 
 export async function sendEmail(req: Request, res: Response): Promise<void> {
   const settings = readSettings();
-  const { to, cc, bcc, subject, body, replyToId } = req.body;
+  const { to, cc, bcc, subject, body, replyToId, accountEmail } = req.body;
 
   if (!to || subject === undefined || body === undefined) {
     res
@@ -778,11 +778,13 @@ export async function sendEmail(req: Request, res: Response): Promise<void> {
   // If Gmail is connected, send via Gmail API
   if (isConnected()) {
     try {
-      const client = await getClient();
+      const client = await getClient(accountEmail);
       if (client) {
+        // Use the specific account email as the from address when provided
+        const fromEmail = accountEmail || settings.email;
         const gmail = google.gmail({ version: "v1", auth: client });
         const raw = buildRawEmail({
-          from: `${settings.name} <${settings.email}>`,
+          from: `${settings.name} <${fromEmail}>`,
           to: to || "",
           cc: cc || "",
           bcc: bcc || "",
@@ -1296,4 +1298,85 @@ export function updateSettings(req: Request, res: Response) {
   const updated = { ...current, ...req.body };
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(updated, null, 2));
   res.json(updated);
+}
+
+// ─── Calendar RSVP ───────────────────────────────────────────────────────────
+
+export async function calendarRsvp(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const { eventId, calendarId, response, accountEmail } = req.body as {
+    eventId: string;
+    calendarId?: string;
+    response: "accepted" | "declined" | "tentative";
+    accountEmail?: string;
+  };
+
+  if (!eventId || !response) {
+    res.status(400).json({ error: "eventId and response are required" });
+    return;
+  }
+
+  if (!isConnected()) {
+    res.status(401).json({ error: "No Google account connected" });
+    return;
+  }
+
+  try {
+    const client = await getClient(accountEmail);
+    if (!client) {
+      res.status(401).json({ error: "Google account not found" });
+      return;
+    }
+
+    const calendar = google.calendar({ version: "v3", auth: client });
+    const calId = calendarId || "primary";
+
+    // Get the event first to preserve existing data
+    const eventRes = await calendar.events.get({
+      calendarId: calId,
+      eventId,
+    });
+
+    const event = eventRes.data;
+    if (!event) {
+      res.status(404).json({ error: "Event not found" });
+      return;
+    }
+
+    // Find the current user's attendee entry and update their response
+    const settings = readSettings();
+    const myEmail = settings.email?.toLowerCase();
+    const attendees = event.attendees || [];
+    let found = false;
+    for (const attendee of attendees) {
+      if (attendee.email?.toLowerCase() === myEmail || attendee.self) {
+        attendee.responseStatus = response;
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      // Add self as attendee with the response
+      attendees.push({
+        email: myEmail,
+        responseStatus: response,
+        self: true,
+      });
+    }
+
+    await calendar.events.patch({
+      calendarId: calId,
+      eventId,
+      sendUpdates: "all",
+      requestBody: { attendees },
+    });
+
+    res.json({ ok: true, response });
+  } catch (error: any) {
+    console.error("[calendarRsvp] error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
 }

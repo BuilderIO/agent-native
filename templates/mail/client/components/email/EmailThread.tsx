@@ -9,6 +9,7 @@ import {
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { cn, formatEmailDate, formatFileSize } from "@/lib/utils";
 import { useComposeState } from "@/hooks/use-compose-state";
+import { useAccountFilter } from "@/components/layout/AppLayout";
 import {
   useThreadMessages,
   useArchiveEmail,
@@ -24,6 +25,10 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
 import type { EmailMessage } from "@shared/types";
+import {
+  InlineReplyComposer,
+  type InlineReplyHandle,
+} from "./InlineReplyComposer";
 
 export function EmailThread({
   onArchived,
@@ -272,7 +277,19 @@ export function EmailThread({
   }, [email, toggleStar]);
 
   const { data: settings } = useSettings();
+  const { allAccounts } = useAccountFilter();
+  const myEmails = useMemo(() => {
+    const emails = new Set(allAccounts.map((a) => a.email.toLowerCase()));
+    if (settings?.email) emails.add(settings.email.toLowerCase());
+    return emails;
+  }, [allAccounts, settings?.email]);
   const myEmail = settings?.email?.toLowerCase() ?? "";
+
+  // Inline reply: find any inline draft belonging to this thread
+  const inlineReplyRef = useRef<InlineReplyHandle>(null);
+  const inlineDraft = compose.drafts.find(
+    (d) => d.inline && d.replyToThreadId === threadId,
+  );
 
   const buildReplyQuote = (target: EmailMessage) =>
     `\n\n— On ${new Date(target.date).toLocaleDateString()}, ${target.from.name || target.from.email} wrote:\n\n${target.body
@@ -280,12 +297,38 @@ export function EmailThread({
       .map((l) => `> ${l}`)
       .join("\n")}`;
 
+  // Determine which of our accounts the email was sent to (for reply-from)
+  const findReplyAccount = useCallback(
+    (target: EmailMessage): string | undefined => {
+      // First check accountEmail on the message itself
+      if (target.accountEmail) return target.accountEmail;
+      // Otherwise scan to/cc for one of our connected accounts
+      const allAddrs = [
+        ...target.to.map((r) => r.email.toLowerCase()),
+        ...(target.cc || []).map((r) => r.email.toLowerCase()),
+      ];
+      return allAddrs.find((e) => myEmails.has(e));
+    },
+    [myEmails],
+  );
+
   const handleReply = useCallback(
     (msg?: EmailMessage) => {
+      // If inline draft exists and no specific message, just focus it
+      const existing = compose.drafts.find(
+        (d) => d.inline && d.replyToThreadId === threadId,
+      );
+      if (existing && !msg) {
+        inlineReplyRef.current?.focusEditor();
+        return;
+      }
+      // Discard existing inline draft if switching to a different message
+      if (existing) compose.discard(existing.id);
+
       const target = msg ?? email;
       if (!target) return;
       // If the message is from me, reply to the first "to" recipient instead
-      const isFromMe = target.from.email.toLowerCase() === myEmail;
+      const isFromMe = myEmails.has(target.from.email.toLowerCase());
       const replyTo = isFromMe
         ? (target.to[0]?.email ?? target.from.email)
         : target.from.email;
@@ -298,17 +341,29 @@ export function EmailThread({
         mode: "reply",
         replyToId: target.id,
         replyToThreadId: target.threadId,
+        accountEmail: findReplyAccount(target),
+        inline: true,
       });
     },
-    [email, compose, myEmail],
+    [email, compose, myEmails, findReplyAccount, threadId],
   );
 
   const handleReplyAll = useCallback(
     (msg?: EmailMessage) => {
+      // If inline draft exists and no specific message, just focus it
+      const existing = compose.drafts.find(
+        (d) => d.inline && d.replyToThreadId === threadId,
+      );
+      if (existing && !msg) {
+        inlineReplyRef.current?.focusEditor();
+        return;
+      }
+      if (existing) compose.discard(existing.id);
+
       const target = msg ?? email;
       if (!target) return;
-      const isFromMe = target.from.email.toLowerCase() === myEmail;
-      // Collect all recipients, excluding myself
+      const isFromMe = myEmails.has(target.from.email.toLowerCase());
+      // Collect all recipients, excluding all of my accounts
       const allRecipients = [
         ...(isFromMe ? [] : [target.from.email]),
         ...target.to.map((r) => r.email),
@@ -318,7 +373,7 @@ export function EmailThread({
         ...new Set(
           allRecipients
             .map((e) => e.toLowerCase())
-            .filter((e) => e !== myEmail),
+            .filter((e) => !myEmails.has(e)),
         ),
       ];
       compose.open({
@@ -330,24 +385,39 @@ export function EmailThread({
         mode: "reply",
         replyToId: target.id,
         replyToThreadId: target.threadId,
+        accountEmail: findReplyAccount(target),
+        inline: true,
       });
     },
-    [email, compose, myEmail],
+    [email, compose, myEmails, findReplyAccount, threadId],
+  );
+
+  const handleForwardMsg = useCallback(
+    (msg: EmailMessage) => {
+      const existing = compose.drafts.find(
+        (d) => d.inline && d.replyToThreadId === threadId,
+      );
+      if (existing) compose.discard(existing.id);
+      compose.open({
+        to: "",
+        subject: msg.subject.startsWith("Fwd:")
+          ? msg.subject
+          : `Fwd: ${msg.subject}`,
+        body: `\n\n— Forwarded message —\nFrom: ${msg.from.name} <${msg.from.email}>\n\n${msg.body}`,
+        mode: "forward",
+        replyToId: msg.id,
+        replyToThreadId: msg.threadId,
+        accountEmail: findReplyAccount(msg),
+        inline: true,
+      });
+    },
+    [compose, findReplyAccount, threadId],
   );
 
   const handleForward = useCallback(() => {
     if (!email) return;
-    compose.open({
-      to: "",
-      subject: email.subject.startsWith("Fwd:")
-        ? email.subject
-        : `Fwd: ${email.subject}`,
-      body: `\n\n— Forwarded message —\nFrom: ${email.from.name} <${email.from.email}>\n\n${email.body}`,
-      mode: "forward",
-      replyToId: email.id,
-      replyToThreadId: email.threadId,
-    });
-  }, [email, compose]);
+    handleForwardMsg(email);
+  }, [email, handleForwardMsg]);
 
   // Keyboard shortcuts
   useKeyboardShortcuts(
@@ -540,18 +610,7 @@ export function EmailThread({
                 }}
                 onReply={() => handleReply(msg)}
                 onReplyAll={() => handleReplyAll(msg)}
-                onForward={() => {
-                  compose.open({
-                    to: "",
-                    subject: msg.subject.startsWith("Fwd:")
-                      ? msg.subject
-                      : `Fwd: ${msg.subject}`,
-                    body: `\n\n— Forwarded message —\nFrom: ${msg.from.name} <${msg.from.email}>\n\n${msg.body}`,
-                    mode: "forward",
-                    replyToId: msg.id,
-                    replyToThreadId: msg.threadId,
-                  });
-                }}
+                onForward={() => handleForwardMsg(msg)}
                 onContactSelect={onContactSelect}
               />
             ) : (
@@ -573,35 +632,54 @@ export function EmailThread({
               />
             );
           })}
+
+          {/* Inline reply composer */}
+          {inlineDraft && (
+            <div className="mt-3">
+              <InlineReplyComposer
+                ref={inlineReplyRef}
+                draft={inlineDraft}
+                messages={messages}
+                onUpdate={compose.update}
+                onDiscard={compose.discard}
+                onClose={compose.close}
+                onPopOut={(id) => compose.update(id, { inline: false })}
+                onFlush={compose.flush}
+                onReopen={(state) => compose.open({ ...state, inline: true })}
+              />
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Bottom reply input */}
-      <div className="shrink-0 border-t border-border/40 px-5 py-3">
-        <div
-          className="flex items-center gap-3 rounded-lg bg-accent/40 px-4 py-2.5 cursor-text hover:bg-accent/60 transition-colors"
-          onClick={() => handleReply()}
-        >
-          <span className="text-[13px] text-muted-foreground/60 flex-1">
-            @mention anyone and share conversation
-          </span>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleReply();
-            }}
-            className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 text-primary hover:bg-primary/30 transition-colors shrink-0"
+      {/* Bottom reply input — hidden when inline reply is open */}
+      {!inlineDraft && (
+        <div className="shrink-0 border-t border-border/40 px-5 py-3">
+          <div
+            className="flex items-center gap-3 rounded-lg bg-accent/40 px-4 py-2.5 cursor-text hover:bg-accent/60 transition-colors"
+            onClick={() => handleReply()}
           >
-            <svg
-              viewBox="0 0 16 16"
-              fill="currentColor"
-              className="h-3.5 w-3.5"
+            <span className="text-[13px] text-muted-foreground/60 flex-1">
+              @mention anyone and share conversation
+            </span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleReply();
+              }}
+              className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 text-primary hover:bg-primary/30 transition-colors shrink-0"
             >
-              <path d="M8 14A.75.75 0 0 1 7.25 14V4.56L4.03 7.78a.75.75 0 0 1-1.06-1.06l4.5-4.5a.75.75 0 0 1 1.06 0l4.5 4.5a.75.75 0 0 1-1.06 1.06L8.75 4.56V14A.75.75 0 0 1 8 14z" />
-            </svg>
-          </button>
+              <svg
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                className="h-3.5 w-3.5"
+              >
+                <path d="M8 14A.75.75 0 0 1 7.25 14V4.56L4.03 7.78a.75.75 0 0 1-1.06-1.06l4.5-4.5a.75.75 0 0 1 1.06 0l4.5 4.5a.75.75 0 0 1-1.06 1.06L8.75 4.56V14A.75.75 0 0 1 8 14z" />
+              </svg>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -1192,11 +1270,119 @@ function HtmlEmailBody({
       a.setAttribute("target", "_blank");
       a.setAttribute("rel", "noopener noreferrer");
     });
+
+    // Enhance Google Calendar RSVP buttons for inline response
+    const rsvpLinks = doc.querySelectorAll('a[href*="calendar.google.com/calendar/event"]');
+    const rstMap: Record<string, { response: string; label: string }> = {
+      "1": { response: "accepted", label: "Yes" },
+      "2": { response: "declined", label: "No" },
+      "3": { response: "tentative", label: "Maybe" },
+    };
+    // Extract the event ID from any RSVP link's eid param
+    let calEventId: string | null = null;
+    rsvpLinks.forEach((a) => {
+      const href = a.getAttribute("href") || "";
+      try {
+        const url = new URL(href);
+        const eid = url.searchParams.get("eid");
+        if (eid && !calEventId) {
+          // eid is base64 — the event ID is the part before the space/email
+          try {
+            const decoded = atob(eid);
+            // Format: "eventId email" — take the first part
+            calEventId = decoded.split(" ")[0] || null;
+          } catch {
+            calEventId = eid;
+          }
+        }
+      } catch {}
+    });
+
+    if (calEventId && rsvpLinks.length > 0) {
+      const eventId = calEventId;
+      rsvpLinks.forEach((a) => {
+        const href = a.getAttribute("href") || "";
+        try {
+          const url = new URL(href);
+          const rst = url.searchParams.get("rst");
+          const info = rst ? rstMap[rst] : null;
+          if (!info) return;
+
+          // Style the button for inline RSVP
+          const el = a as HTMLElement;
+          el.style.cssText = `
+            display: inline-block !important;
+            padding: 6px 16px !important;
+            border-radius: 6px !important;
+            font-size: 13px !important;
+            font-weight: 500 !important;
+            cursor: pointer !important;
+            transition: all 0.15s !important;
+            text-decoration: none !important;
+            border: 1px solid rgba(255,255,255,0.15) !important;
+            color: #e4e4e7 !important;
+            background: rgba(255,255,255,0.05) !important;
+          `;
+        } catch {}
+      });
+
+      // Handle RSVP clicks inline
+      const handleRsvpClick = async (e: MouseEvent) => {
+        const anchor = (e.target as Element)?.closest?.('a[href*="calendar.google.com/calendar/event"]') as HTMLElement | null;
+        if (!anchor) return;
+        const href = anchor.getAttribute("href") || "";
+        try {
+          const url = new URL(href);
+          const rst = url.searchParams.get("rst");
+          const info = rst ? rstMap[rst] : null;
+          if (!info) return;
+
+          e.preventDefault();
+          e.stopPropagation();
+
+          // Highlight the clicked button
+          anchor.style.background = "rgba(74, 222, 128, 0.15) !important";
+          anchor.style.borderColor = "rgba(74, 222, 128, 0.4) !important";
+          anchor.style.color = "#4ade80 !important";
+          anchor.textContent = `${info.label} ✓`;
+
+          // Dim the others
+          rsvpLinks.forEach((other) => {
+            if (other !== anchor) {
+              (other as HTMLElement).style.opacity = "0.3";
+              (other as HTMLElement).style.pointerEvents = "none";
+            }
+          });
+
+          // Call our API
+          try {
+            const res = await fetch("/api/calendar/rsvp", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                eventId,
+                response: info.response,
+              }),
+            });
+            if (!res.ok) {
+              // Fallback: open the original link
+              window.open(href, "_blank", "noopener,noreferrer");
+            }
+          } catch {
+            window.open(href, "_blank", "noopener,noreferrer");
+          }
+        } catch {}
+      };
+      doc.addEventListener("click", handleRsvpClick);
+    }
+
     const handleLinkClick = (e: MouseEvent) => {
       const anchor = (e.target as Element)?.closest?.("a[href]");
       if (!anchor) return;
       const href = anchor.getAttribute("href");
       if (!href || href.startsWith("#")) return;
+      // Don't handle RSVP links here — they have their own handler
+      if (href.includes("calendar.google.com/calendar/event")) return;
       e.preventDefault();
       if (isElectron && (window as any).require) {
         const { shell } = (window as any).require("electron");

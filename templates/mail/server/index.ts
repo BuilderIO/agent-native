@@ -24,6 +24,7 @@ import {
   listContacts,
   getSettings,
   updateSettings,
+  calendarRsvp,
 } from "./routes/emails.js";
 import {
   listComposeDrafts,
@@ -93,6 +94,9 @@ export function createAppServer() {
   // Settings
   app.get("/api/settings", getSettings);
   app.patch("/api/settings", updateSettings);
+
+  // Calendar RSVP
+  app.post("/api/calendar/rsvp", calendarRsvp);
 
   // Application state — compose drafts (multi-draft)
   app.get("/api/application-state/compose", listComposeDrafts);
