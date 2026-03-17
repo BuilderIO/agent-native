@@ -155,6 +155,36 @@ export function useTrashEmail() {
   });
 }
 
+export function useSaveDraft() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      to?: string;
+      cc?: string;
+      bcc?: string;
+      subject?: string;
+      body?: string;
+      draftId?: string;
+      replyToId?: string;
+      replyToThreadId?: string;
+    }) =>
+      apiFetch<{ draftId: string }>("/api/emails/draft", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+  });
+}
+
+export function useDeleteDraft() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/api/emails/draft/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+  });
+}
+
 export function useSendEmail() {
   const qc = useQueryClient();
   return useMutation({

@@ -120,14 +120,38 @@ export function EmailThread({
   const focusedRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Instant-scroll to bottom when thread first loads so the latest message is visible
-  const hasScrolledRef = useRef<string | undefined>();
+  // Instant-scroll to bottom when thread loads or message count changes.
+  // Pin to bottom for ~800ms to handle iframe resizes / async content.
+  const scrolledForRef = useRef<string | undefined>();
   useEffect(() => {
     if (!threadId || messages.length === 0) return;
-    if (hasScrolledRef.current === threadId) return;
-    hasScrolledRef.current = threadId;
+    const key = `${threadId}:${messages.length}`;
+    if (scrolledForRef.current === key) return;
+    scrolledForRef.current = key;
     const el = scrollContainerRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    const scrollToBottom = () => {
+      el.scrollTop = el.scrollHeight;
+    };
+    scrollToBottom();
+    let stop = false;
+    let raf: number;
+    const pin = () => {
+      if (!stop) {
+        scrollToBottom();
+        raf = requestAnimationFrame(pin);
+      }
+    };
+    raf = requestAnimationFrame(pin);
+    const timer = setTimeout(() => {
+      stop = true;
+      cancelAnimationFrame(raf);
+    }, 800);
+    return () => {
+      stop = true;
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+    };
   }, [threadId, messages.length]);
 
   const archiveEmail = useArchiveEmail();

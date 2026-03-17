@@ -39,6 +39,7 @@ interface ComposeModalProps {
   onUpdate: (id: string, partial: Partial<ComposeState>) => void;
   onClose: (id: string) => void;
   onCloseAll: () => void;
+  onDiscard: (id: string) => void;
   onNewDraft: () => void;
   onFlush: (id: string) => Promise<unknown> | undefined;
 }
@@ -51,6 +52,7 @@ export function ComposeModal({
   onUpdate,
   onClose,
   onCloseAll,
+  onDiscard,
   onNewDraft,
   onFlush,
 }: ComposeModalProps) {
@@ -83,6 +85,9 @@ export function ComposeModal({
       return;
     }
 
+    // If this was opened from a saved draft, delete the draft after sending
+    const savedDraftId = activeDraft.savedDraftId;
+
     sendEmail.mutate(
       {
         to: activeDraft.to,
@@ -95,7 +100,12 @@ export function ComposeModal({
       {
         onSuccess: () => {
           toast.success("Email sent!");
-          onClose(activeId);
+          // Discard (don't auto-save as draft — it's been sent)
+          onDiscard(activeId);
+          // Clean up any persistent draft
+          if (savedDraftId) {
+            fetch(`/api/emails/draft/${savedDraftId}`, { method: "DELETE" });
+          }
         },
         onError: () => toast.error("Failed to send email"),
       },

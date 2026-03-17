@@ -15,6 +15,34 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+/** Check if a compose draft has any meaningful content worth saving */
+function hasDraftContent(draft: ComposeState): boolean {
+  return !!(
+    draft.to?.trim() ||
+    draft.cc?.trim() ||
+    draft.bcc?.trim() ||
+    draft.subject?.trim() ||
+    draft.body?.trim()
+  );
+}
+
+/** Save a compose draft to persistent storage (emails with isDraft=true) */
+async function saveDraftToEmails(draft: ComposeState): Promise<void> {
+  await apiFetch("/api/emails/draft", {
+    method: "POST",
+    body: JSON.stringify({
+      to: draft.to,
+      cc: draft.cc,
+      bcc: draft.bcc,
+      subject: draft.subject,
+      body: draft.body,
+      draftId: draft.savedDraftId,
+      replyToId: draft.replyToId,
+      replyToThreadId: draft.replyToThreadId,
+    }),
+  });
+}
+
 export function useComposeState() {
   const qc = useQueryClient();
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -113,7 +141,7 @@ export function useComposeState() {
     [qc, putMutation],
   );
 
-  /** Close a single draft tab. */
+  /** Close a single draft tab — auto-saves to Drafts if it has content. */
   const close = useCallback(
     (id: string) => {
       // Clear debounce timer
@@ -121,7 +149,41 @@ export function useComposeState() {
       delete dirtyRef.current[id];
       delete debounceRef.current[id];
 
-      // Determine next active tab before removing
+      // Get the draft before removing it
+      const currentDrafts =
+        qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? [];
+      const draft = currentDrafts.find((d) => d.id === id);
+      const idx = currentDrafts.findIndex((d) => d.id === id);
+      const remaining = currentDrafts.filter((d) => d.id !== id);
+
+      // Auto-save to persistent drafts if there's any content
+      if (draft && hasDraftContent(draft)) {
+        saveDraftToEmails(draft).then(() => {
+          qc.invalidateQueries({ queryKey: ["emails"] });
+        });
+      }
+
+      if (id === resolvedActiveId) {
+        const nextDraft = remaining[Math.min(idx, remaining.length - 1)];
+        setActiveId(nextDraft?.id ?? null);
+      }
+
+      // Remove from cache
+      qc.setQueryData<ComposeState[]>(["compose-drafts"], remaining);
+
+      // Delete compose file
+      deleteMutation.mutate(id);
+    },
+    [qc, deleteMutation, resolvedActiveId],
+  );
+
+  /** Discard a single draft — closes WITHOUT saving to Drafts. */
+  const discard = useCallback(
+    (id: string) => {
+      if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
+      delete dirtyRef.current[id];
+      delete debounceRef.current[id];
+
       const currentDrafts =
         qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? [];
       const idx = currentDrafts.findIndex((d) => d.id === id);
@@ -132,17 +194,26 @@ export function useComposeState() {
         setActiveId(nextDraft?.id ?? null);
       }
 
-      // Remove from cache
       qc.setQueryData<ComposeState[]>(["compose-drafts"], remaining);
-
-      // Delete from server
       deleteMutation.mutate(id);
     },
     [qc, deleteMutation, resolvedActiveId],
   );
 
-  /** Close all drafts. */
+  /** Close all drafts — auto-saves any with content. */
   const closeAll = useCallback(() => {
+    const currentDrafts =
+      qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? [];
+
+    // Save all drafts with content
+    for (const draft of currentDrafts) {
+      if (hasDraftContent(draft)) {
+        saveDraftToEmails(draft).then(() => {
+          qc.invalidateQueries({ queryKey: ["emails"] });
+        });
+      }
+    }
+
     for (const timer of Object.values(debounceRef.current)) clearTimeout(timer);
     debounceRef.current = {};
     dirtyRef.current = {};
@@ -176,6 +247,7 @@ export function useComposeState() {
     update,
     close,
     closeAll,
+    discard,
     setActiveId,
     flush,
   };

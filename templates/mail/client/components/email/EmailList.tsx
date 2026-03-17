@@ -98,6 +98,7 @@ interface EmailListProps {
   onCompose?: (email: EmailMessage, mode: "reply" | "forward") => void;
   onArchived?: (id: string) => void;
   undoArchive?: (id: string) => void;
+  onDraftOpen?: (email: EmailMessage) => void;
 }
 
 // ─── Inbox Zero ─────────────────────────────────────────────────────────────
@@ -140,6 +141,12 @@ const INBOX_ZERO_PHOTOS = [
 export function InboxZero() {
   const [loaded, setLoaded] = useState(false);
 
+  // Toggle class on root so the header can go transparent
+  useEffect(() => {
+    document.documentElement.classList.add("inbox-zero");
+    return () => document.documentElement.classList.remove("inbox-zero");
+  }, []);
+
   // Pick a photo based on the day of the year
   const today = new Date();
   const dayOfYear = Math.floor(
@@ -162,8 +169,11 @@ export function InboxZero() {
         )}
       />
 
-      {/* Gradient overlay for text legibility */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-black/20" />
+      {/* Top gradient — darken behind the tab bar */}
+      <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/50 to-transparent" />
+
+      {/* Bottom gradient — text legibility */}
+      <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/60 to-transparent" />
 
       {/* Fallback bg while image loads */}
       <div className="absolute inset-0 bg-[hsl(220,6%,8%)] -z-10" />
@@ -190,6 +200,7 @@ export function EmailList({
   onCompose,
   onArchived,
   undoArchive,
+  onDraftOpen,
 }: EmailListProps) {
   const navigate = useNavigate();
   const { view = "inbox", threadId } = useParams<{
@@ -364,6 +375,11 @@ export function EmailList({
   const handleSelect = (thread: ThreadSummary) => {
     const email = thread.latestMessage;
     setFocusedId(email.id);
+    // Draft emails: open in compose window instead of thread view
+    if (email.isDraft && onDraftOpen) {
+      onDraftOpen(email);
+      return;
+    }
     if (!email.isRead) markRead.mutate({ id: email.id, isRead: true });
     navigate(`/${view}/${email.threadId || email.id}${labelSuffix}`);
   };

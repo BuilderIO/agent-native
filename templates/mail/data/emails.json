@@ -1,1 +1,21 @@
-[]
+[
+  {
+    "id": "draft-BCUUKi4y",
+    "threadId": "thread-TmLcwDce",
+    "from": {
+      "name": "",
+      "email": ""
+    },
+    "to": [],
+    "subject": "(no subject)",
+    "snippet": "![]()",
+    "body": "![]()",
+    "date": "2026-03-17T16:54:18.919Z",
+    "isRead": true,
+    "isStarred": false,
+    "isDraft": true,
+    "isArchived": false,
+    "isTrashed": false,
+    "labelIds": ["drafts"]
+  }
+]
