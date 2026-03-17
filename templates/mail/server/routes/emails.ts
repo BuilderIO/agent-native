@@ -20,12 +20,25 @@ const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function readEmails(): EmailMessage[] {
+/** Read a JSON file, copying from .defaults if missing */
+function readJsonWithDefaults<T>(filePath: string, fallback: T): T {
   try {
-    return JSON.parse(fs.readFileSync(EMAILS_FILE, "utf-8"));
+    return JSON.parse(fs.readFileSync(filePath, "utf-8"));
   } catch {
-    return [];
+    // Try copying from defaults file
+    const defaultsPath = filePath.replace(/\.json$/, ".defaults.json");
+    try {
+      const defaults = fs.readFileSync(defaultsPath, "utf-8");
+      fs.writeFileSync(filePath, defaults);
+      return JSON.parse(defaults);
+    } catch {
+      return fallback;
+    }
   }
+}
+
+function readEmails(): EmailMessage[] {
+  return readJsonWithDefaults<EmailMessage[]>(EMAILS_FILE, []);
 }
 
 function writeEmails(emails: EmailMessage[]) {
@@ -33,11 +46,7 @@ function writeEmails(emails: EmailMessage[]) {
 }
 
 function readLabels(): Label[] {
-  try {
-    return JSON.parse(fs.readFileSync(LABELS_FILE, "utf-8"));
-  } catch {
-    return [];
-  }
+  return readJsonWithDefaults<Label[]>(LABELS_FILE, []);
 }
 
 function writeLabels(labels: Label[]) {
@@ -45,27 +54,15 @@ function writeLabels(labels: Label[]) {
 }
 
 function readSettings(): UserSettings {
-  try {
-    return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf-8"));
-  } catch {
-    // Copy defaults on first run
-    const defaultsFile = path.join(DATA_DIR, "settings.defaults.json");
-    try {
-      const defaults = fs.readFileSync(defaultsFile, "utf-8");
-      fs.writeFileSync(SETTINGS_FILE, defaults);
-      return JSON.parse(defaults);
-    } catch {
-      return {
-        name: "Alex Johnson",
-        email: "me@example.com",
-        theme: "dark",
-        density: "comfortable",
-        previewPane: "right",
-        sendAndArchive: false,
-        undoSendDelay: 5,
-      };
-    }
-  }
+  return readJsonWithDefaults<UserSettings>(SETTINGS_FILE, {
+    name: "Alex Johnson",
+    email: "me@example.com",
+    theme: "dark",
+    density: "comfortable",
+    previewPane: "right",
+    sendAndArchive: false,
+    undoSendDelay: 5,
+  });
 }
 
 function recomputeUnreadCounts(

@@ -26,8 +26,10 @@ dist-ssr
 .config/
 .env
 
-# User settings (use settings.defaults.json for tracked defaults)
+# User data (gitignored, defaults copied on first run)
 data/settings.json
+data/emails.json
+data/labels.json
 
 # Google OAuth tokens (sensitive, never commit)
 data/google-auth.json
