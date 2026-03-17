@@ -11,6 +11,7 @@ import {
   Quote,
   Minus,
   Sparkles,
+  ImageIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -94,6 +95,18 @@ function createCommands(onGenerate: () => void): CommandItem[] {
       icon: Minus,
       category: "basic",
       action: (editor) => editor.chain().focus().setHorizontalRule().run(),
+    },
+    {
+      title: "Image",
+      description: "Insert image by URL",
+      icon: ImageIcon,
+      category: "media",
+      action: (editor) => {
+        const url = window.prompt("Image URL:");
+        if (url?.trim()) {
+          editor.chain().focus().setImage({ src: url.trim() }).run();
+        }
+      },
     },
     {
       title: "Generate",
@@ -225,7 +238,8 @@ export function ComposeSlashMenu({
 
   if (!isOpen || !position || filteredCommands.length === 0) return null;
 
-  const basicCommands = filteredCommands.filter((c) => c.category !== "ai");
+  const basicCommands = filteredCommands.filter((c) => c.category === "basic");
+  const mediaCommands = filteredCommands.filter((c) => c.category === "media");
   const aiCommands = filteredCommands.filter((c) => c.category === "ai");
 
   return (
@@ -246,6 +260,25 @@ export function ComposeSlashMenu({
               Blocks
             </div>
             {basicCommands.map((cmd) => {
+              const globalIndex = filteredCommands.indexOf(cmd);
+              return (
+                <CommandButton
+                  key={cmd.title}
+                  cmd={cmd}
+                  isSelected={globalIndex === selectedIndex}
+                  onExecute={() => executeCommand(cmd)}
+                  onHover={() => setSelectedIndex(globalIndex)}
+                />
+              );
+            })}
+          </>
+        )}
+        {mediaCommands.length > 0 && (
+          <>
+            <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Media
+            </div>
+            {mediaCommands.map((cmd) => {
               const globalIndex = filteredCommands.indexOf(cmd);
               return (
                 <CommandButton

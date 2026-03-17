@@ -2,10 +2,16 @@ import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
+import Image from "@tiptap/extension-image";
+import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import { common, createLowlight } from "lowlight";
 import { Markdown } from "tiptap-markdown";
 import { useEffect, useRef, useImperativeHandle, forwardRef } from "react";
 import { ComposeSlashMenu } from "./ComposeSlashMenu";
 import { ComposeBubbleToolbar } from "./ComposeBubbleToolbar";
+import { CodeBlockLangPicker } from "./CodeBlockLangPicker";
+
+const lowlight = createLowlight(common);
 
 export interface ComposeEditorHandle {
   toggleBold: () => void;
@@ -54,10 +60,17 @@ export const ComposeEditor = forwardRef<
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
-        codeBlock: {
-          HTMLAttributes: { class: "compose-code-block" },
-        },
+        codeBlock: false,
         dropcursor: { color: "hsl(220 10% 40%)", width: 2 },
+      }),
+      CodeBlockLowlight.configure({
+        lowlight,
+        HTMLAttributes: { class: "compose-code-block" },
+      }),
+      Image.configure({
+        inline: false,
+        allowBase64: true,
+        HTMLAttributes: { class: "compose-image" },
       }),
       Placeholder.configure({
         placeholder: "Write your message...",
@@ -156,6 +169,7 @@ export const ComposeEditor = forwardRef<
         sendToAgent={sendToAgent}
       />
       <ComposeSlashMenu editor={editor} onGenerate={onGenerate} />
+      <CodeBlockLangPicker editor={editor} />
       <EditorContent editor={editor} />
     </div>
   );

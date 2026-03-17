@@ -273,11 +273,13 @@
   font-family: ui-monospace, monospace;
   font-size: 0.8rem;
   background: hsl(var(--muted));
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 0.75em 1em;
+  padding-top: 1.75em;
   margin: 0.4em 0;
   overflow-x: auto;
   line-height: 1.5;
+  position: relative;
 }
 .compose-editor pre code {
   font-family: inherit;
@@ -286,6 +288,13 @@
   border: none;
   font-size: inherit;
   color: inherit;
+}
+
+/* Images */
+.compose-editor .compose-image {
+  max-width: 100%;
+  border-radius: 4px;
+  margin: 0.5em 0;
 }
 
 /* Inline code */

@@ -94,9 +94,18 @@ export function AppLayout({ children }: AppLayoutProps) {
         });
         continue;
       }
-      // Check if it's a user label
+      // Check if it's a user label (handle old nested-path IDs like "[superhuman]/ai/pitch")
+      const normalizedId = id.includes("/")
+        ? id
+            .slice(id.lastIndexOf("/") + 1)
+            .replace(/_/g, " ")
+            .toLowerCase()
+        : id.toLowerCase();
       const lbl = labels.find(
-        (l) => l.id === id || l.name.toLowerCase() === id.toLowerCase(),
+        (l) =>
+          l.id === normalizedId ||
+          l.id === id ||
+          l.name.toLowerCase() === id.toLowerCase(),
       );
       if (lbl) {
         tabs.push({
