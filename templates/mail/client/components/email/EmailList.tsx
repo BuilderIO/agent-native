@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { EmailListItem } from "./EmailListItem";
@@ -98,6 +98,89 @@ interface EmailListProps {
   onArchived?: (id: string) => void;
   undoArchive?: (id: string) => void;
 }
+
+// ─── Inbox Zero ─────────────────────────────────────────────────────────────
+
+// Curated collection of stunning landscape/nature photos from Unsplash.
+// Using direct Unsplash photo IDs for reliable, high-quality images.
+const INBOX_ZERO_PHOTOS = [
+  "photo-1506744038136-46273834b3fb", // Yosemite valley
+  "photo-1470071459604-3b5ec3a7fe05", // Misty green mountains
+  "photo-1441974231531-c6227db76b6e", // Forest sunlight
+  "photo-1469474968028-56623f02e42e", // Golden sunset coast
+  "photo-1472214103451-9374bd1c798e", // Green rolling hills
+  "photo-1500534314263-0869cef46947", // Aurora borealis
+  "photo-1507525428034-b723cf961d3e", // Tropical beach
+  "photo-1505765050516-f72dcac9c60e", // Mountain reflection lake
+  "photo-1464822759023-fed622ff2c3b", // Snow-capped mountain
+  "photo-1433086966358-54859d0ed716", // Waterfall in forest
+  "photo-1501854140801-50d01698950b", // Aerial forest
+  "photo-1518173946687-a24f76e138a6", // Pink sky desert
+  "photo-1502082553048-f009c37129b9", // Sun through trees
+  "photo-1536431311719-398b6704d4cc", // Dramatic clouds
+  "photo-1475924156734-496f6cac6ec1", // Northern lights
+  "photo-1540202404-a2f29016b523", // Lavender fields
+  "photo-1494500764479-0c8f2919a3d8", // Redwood forest
+  "photo-1509316975850-ff9c5deb0cd9", // Cherry blossoms
+  "photo-1508739773434-c26b3d09e071", // Sunset over ocean
+  "photo-1476610182048-b716b8518aae", // Lightning storm
+  "photo-1490730141103-6cac27aaab94", // Sunrise mountains
+  "photo-1527489377706-5bf97e608852", // Blue ice cave
+  "photo-1504701954957-2010ec3bcec1", // Starry night sky
+  "photo-1542224566-6e85f2e6772f", // Autumn forest path
+  "photo-1501785888041-af3ef285b470", // Italian coast
+  "photo-1523712999610-f77fbcfc3843", // Foggy forest
+  "photo-1419242902214-272b3f66ee7a", // Milky way
+  "photo-1468276311594-df7cb65d8df6", // Tropical ocean
+  "photo-1531366936337-7c912a4589a7", // Volcanic landscape
+  "photo-1552083375-1447ce886485", // Japanese garden
+];
+
+function InboxZero() {
+  const [loaded, setLoaded] = useState(false);
+
+  // Pick a photo based on the day of the year
+  const today = new Date();
+  const dayOfYear = Math.floor(
+    (today.getTime() - new Date(today.getFullYear(), 0, 0).getTime()) /
+      86400000,
+  );
+  const photoId = INBOX_ZERO_PHOTOS[dayOfYear % INBOX_ZERO_PHOTOS.length];
+  const imageUrl = `https://images.unsplash.com/${photoId}?w=1920&q=80&fit=crop`;
+
+  return (
+    <div className="relative flex h-full w-full flex-col overflow-hidden">
+      {/* Background image */}
+      <img
+        src={imageUrl}
+        alt=""
+        onLoad={() => setLoaded(true)}
+        className={cn(
+          "absolute inset-0 h-full w-full object-cover transition-opacity duration-700",
+          loaded ? "opacity-100" : "opacity-0",
+        )}
+      />
+
+      {/* Gradient overlay for text legibility */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-black/20" />
+
+      {/* Fallback bg while image loads */}
+      <div className="absolute inset-0 bg-[hsl(220,6%,8%)] -z-10" />
+
+      {/* Bottom text */}
+      <div className="relative mt-auto px-6 pb-6">
+        <p className="text-[15px] font-medium text-white/90 drop-shadow-lg">
+          You&rsquo;ve hit Inbox Zero
+        </p>
+        <p className="text-[13px] text-white/60 drop-shadow-lg mt-0.5">
+          You&rsquo;re all caught up
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Email List ─────────────────────────────────────────────────────────────
 
 export function EmailList({
   focusedId,
@@ -315,12 +398,12 @@ export function EmailList({
     );
   }
 
-  // Empty state — Superhuman "Inbox Zero" style
+  // Empty state
   if (threads.length === 0) {
-    return (
-      <div className="flex h-full flex-col" ref={containerRef}>
-        <div className="flex flex-1 flex-col items-center justify-center">
-          {searchQuery ? (
+    if (searchQuery) {
+      return (
+        <div className="flex h-full flex-col" ref={containerRef}>
+          <div className="flex flex-1 flex-col items-center justify-center">
             <div className="text-center px-8">
               <div className="mb-4">
                 <svg
@@ -344,40 +427,11 @@ export function EmailList({
                 Try different keywords
               </p>
             </div>
-          ) : (
-            <div className="text-center px-8">
-              {/* Gradient landscape placeholder */}
-              <div className="relative w-full max-w-md h-48 rounded-xl overflow-hidden mb-6 mx-auto">
-                <div className="absolute inset-0 bg-gradient-to-br from-[hsl(220,10%,18%)] via-[hsl(220,8%,15%)] to-[hsl(220,6%,10%)]" />
-                <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-[hsl(220,6%,10%)] to-transparent" />
-                {/* Stylized mountain silhouette */}
-                <svg
-                  viewBox="0 0 400 120"
-                  className="absolute bottom-0 left-0 right-0 w-full"
-                  preserveAspectRatio="none"
-                >
-                  <path
-                    d="M0 120 L0 80 L80 40 L130 65 L200 20 L260 55 L320 30 L400 70 L400 120 Z"
-                    fill="hsl(220,6%,10%)"
-                    opacity="0.8"
-                  />
-                  <path
-                    d="M0 120 L0 90 L60 60 L120 80 L180 45 L250 70 L340 50 L400 85 L400 120 Z"
-                    fill="hsl(220,6%,10%)"
-                  />
-                </svg>
-              </div>
-              <p className="text-lg font-medium text-foreground/90">
-                You&rsquo;ve hit Inbox Zero
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">
-                You&rsquo;re all caught up
-              </p>
-            </div>
-          )}
+          </div>
         </div>
-      </div>
-    );
+      );
+    }
+    return <InboxZero />;
   }
 
   return (

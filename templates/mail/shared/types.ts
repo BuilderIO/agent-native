@@ -87,6 +87,7 @@ export type UserSettings = {
   previewPane: "right" | "bottom" | "off";
   sendAndArchive: boolean;
   undoSendDelay: number;
+  pinnedLabels?: string[];
 };
 
 export type ApolloPersonResult = {

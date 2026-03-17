@@ -889,6 +889,13 @@ function HtmlEmailBody({ html }: { html: string }) {
 </html>`);
     doc.close();
 
+    const resize = () => {
+      if (doc.body) {
+        const h = doc.body.scrollHeight;
+        if (h > 0) setHeight(h);
+      }
+    };
+
     // Hide quoted content (Gmail blockquotes, .gmail_quote, etc.) behind "..."
     const quoteSelectors = [
       ".gmail_quote",
@@ -906,12 +913,13 @@ function HtmlEmailBody({ html }: { html: string }) {
       toggle.className = "quote-toggle";
       toggle.textContent = "···";
       toggle.addEventListener("click", () => {
-        (quote as HTMLElement).classList.toggle("quoted-hidden");
-        toggle.style.display = (quote as HTMLElement).classList.contains(
+        const wasHidden = (quote as HTMLElement).classList.contains(
           "quoted-hidden",
-        )
-          ? ""
-          : "none";
+        );
+        (quote as HTMLElement).classList.toggle("quoted-hidden");
+        toggle.style.display = wasHidden ? "none" : "";
+        // Recalculate iframe height after expanding/collapsing quoted content
+        requestAnimationFrame(resize);
       });
       quote.parentNode?.insertBefore(toggle, quote);
     });
@@ -955,13 +963,6 @@ function HtmlEmailBody({ html }: { html: string }) {
       window.dispatchEvent(forwarded);
     };
     doc.addEventListener("keydown", forwardKey);
-
-    const resize = () => {
-      if (doc.body) {
-        const h = doc.body.scrollHeight;
-        if (h > 0) setHeight(h);
-      }
-    };
 
     const images = doc.querySelectorAll("img");
     images.forEach((img) => img.addEventListener("load", resize));
