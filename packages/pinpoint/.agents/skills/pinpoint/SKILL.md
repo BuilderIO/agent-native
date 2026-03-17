@@ -43,11 +43,11 @@ Run these with `pnpm script <name>`:
 
 | Script | Purpose | Key Args |
 |--------|---------|----------|
-| `get-signals` | List annotations | `--pageUrl`, `--status` |
-| `create-signal` | Create an annotation | `--pageUrl`, `--selector`, `--comment` |
-| `resolve-signal` | Mark as resolved | `--id`, `--message` |
-| `update-signal` | Update annotation | `--id`, `--comment`, `--status` |
-| `delete-signal` | Remove annotation | `--id` |
+| `get-pins` | List annotations | `--pageUrl`, `--status` |
+| `create-pin` | Create an annotation | `--pageUrl`, `--selector`, `--comment` |
+| `resolve-pin` | Mark as resolved | `--id`, `--message` |
+| `update-pin` | Update annotation | `--id`, `--comment`, `--status` |
+| `delete-pin` | Remove annotation | `--id` |
 | `list-sessions` | List pages with annotations | (none) |
 
 ## Workflow
@@ -56,12 +56,12 @@ Run these with `pnpm script <name>`:
 2. Annotations appear in `data/pins/`
 3. You read the annotations to understand what the user wants
 4. You make the requested changes (edit source files, styles, etc.)
-5. You mark annotations as resolved: `pnpm script resolve-signal --id <uuid>`
+5. You mark annotations as resolved: `pnpm script resolve-pin --id <uuid>`
 
 ## Tips
 
 - Always read the `sourceFile` field — it tells you exactly where to edit
 - The `componentPath` shows the React/Vue component hierarchy
 - The `selector` helps you find the element in the DOM
-- Use `get-signals --status open` to see only unresolved annotations
+- Use `get-pins --status open` to see only unresolved annotations
 - Resolve annotations after fixing them so the user knows

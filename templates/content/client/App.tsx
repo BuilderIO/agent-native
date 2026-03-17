@@ -29,7 +29,7 @@ function PinpointSetup() {
     const { dispose } = mountPinpoint({
       author: "Vishwas",
       colorScheme: "auto",
-      endpoint: "/api/signals",
+      endpoint: "/api/pins",
       autoSubmit: true,
     });
     return dispose;
