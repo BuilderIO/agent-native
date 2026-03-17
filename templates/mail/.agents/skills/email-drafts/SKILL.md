@@ -25,16 +25,16 @@ application-state/compose.json
 
 ### Fields
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `to` | string | yes | Comma-separated recipient email addresses |
-| `cc` | string | no | Comma-separated CC addresses |
-| `bcc` | string | no | Comma-separated BCC addresses |
-| `subject` | string | yes | Email subject line |
-| `body` | string | yes | Email body (plain text) |
-| `mode` | string | yes | One of: `"compose"`, `"reply"`, `"forward"` |
-| `replyToId` | string | no | Message ID being replied to (for reply/forward) |
-| `replyToThreadId` | string | no | Thread ID for grouping (for reply/forward) |
+| Field             | Type   | Required | Description                                     |
+| ----------------- | ------ | -------- | ----------------------------------------------- |
+| `to`              | string | yes      | Comma-separated recipient email addresses       |
+| `cc`              | string | no       | Comma-separated CC addresses                    |
+| `bcc`             | string | no       | Comma-separated BCC addresses                   |
+| `subject`         | string | yes      | Email subject line                              |
+| `body`            | string | yes      | Email body (plain text)                         |
+| `mode`            | string | yes      | One of: `"compose"`, `"reply"`, `"forward"`     |
+| `replyToId`       | string | no       | Message ID being replied to (for reply/forward) |
+| `replyToThreadId` | string | no       | Thread ID for grouping (for reply/forward)      |
 
 ## How It Works
 

@@ -10,13 +10,22 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+// Uses the generic application-state endpoints which write to
+// application-state/apollo.json — the same file the server-side
+// Apollo person lookup reads from.
+
 export function useApolloStatus() {
-  const { data } = useQuery<{ connected: boolean }>({
+  const { data } = useQuery<{ apiKey?: string } | null>({
     queryKey: ["apollo-status"],
-    queryFn: () => apiFetch("/api/apollo/status"),
+    queryFn: async () => {
+      const res = await fetch("/api/application-state/apollo");
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`${res.status}`);
+      return res.json();
+    },
     staleTime: 30_000,
   });
-  return { connected: data?.connected ?? false };
+  return { connected: !!data?.apiKey };
 }
 
 export function useApolloConnect() {
@@ -24,7 +33,7 @@ export function useApolloConnect() {
 
   return useMutation({
     mutationFn: async (apiKey: string) => {
-      await apiFetch("/api/apollo/key", {
+      await apiFetch("/api/application-state/apollo", {
         method: "PUT",
         body: JSON.stringify({ apiKey }),
       });
@@ -41,7 +50,7 @@ export function useApolloDisconnect() {
 
   return useMutation({
     mutationFn: async () => {
-      await apiFetch("/api/apollo/key", { method: "DELETE" });
+      await apiFetch("/api/application-state/apollo", { method: "DELETE" });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["apollo-status"] });

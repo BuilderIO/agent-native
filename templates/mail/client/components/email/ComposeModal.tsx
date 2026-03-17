@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from "react";
 import {
   X,
   Minus,
-  Maximize2,
   Send,
   Bold,
   Italic,
@@ -27,6 +26,7 @@ import { sendToAgentChat } from "@agent-native/core";
 import { toast } from "sonner";
 import type { ComposeState } from "@shared/types";
 import { RecipientInput } from "./RecipientInput";
+import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 
 interface ComposeModalProps {
   composeState: ComposeState;
@@ -47,15 +47,15 @@ export function ComposeModal({
   const [showCcBcc, setShowCcBcc] = useState(false);
 
   const sendEmail = useSendEmail();
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<ComposeEditorHandle>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
 
   const { to, cc, bcc, subject, body, mode } = composeState;
 
-  // Focus body when reply/forward opens
+  // Focus editor when reply/forward opens
   useEffect(() => {
     if (mode !== "compose") {
-      setTimeout(() => bodyRef.current?.focus(), 100);
+      setTimeout(() => editorRef.current?.getEditor()?.commands.focus(), 100);
     }
   }, [mode]);
 
@@ -222,20 +222,29 @@ export function ComposeModal({
           </div>
 
           {/* Body */}
-          <textarea
-            ref={bodyRef}
-            value={body}
-            onChange={(e) => onUpdate({ body: e.target.value })}
-            placeholder="Write your message..."
-            className="flex-1 resize-none bg-transparent px-4 py-3 text-sm outline-none placeholder:text-muted-foreground"
-          />
+          <div className="flex-1 overflow-y-auto px-4 py-3">
+            <ComposeEditor
+              ref={editorRef}
+              content={body}
+              onChange={(md) => onUpdate({ body: md })}
+              onGenerate={() => setGenerateOpen(true)}
+              onSend={handleSend}
+              onClose={onClose}
+              onFlush={onFlush}
+            />
+          </div>
 
           {/* Toolbar */}
           <div className="flex shrink-0 items-center justify-between border-t border-border px-3 py-2">
             <div className="flex items-center gap-0.5">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-7 w-7">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => editorRef.current?.toggleBold()}
+                  >
                     <Bold className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
@@ -243,7 +252,12 @@ export function ComposeModal({
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-7 w-7">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => editorRef.current?.toggleItalic()}
+                  >
                     <Italic className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
@@ -251,7 +265,12 @@ export function ComposeModal({
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-7 w-7">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => editorRef.current?.setLink()}
+                  >
                     <Link className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
