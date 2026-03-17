@@ -808,9 +808,14 @@ export async function listLabels(_req: Request, res: Response) {
             for (const [id, name] of map) {
               const isSystem = !id.startsWith("Label_");
               if (!labelMap.has(id)) {
+                // Derive short name: last segment of nested labels, underscores → spaces
+                let shortName = name;
+                const lastSlash = shortName.lastIndexOf("/");
+                if (lastSlash >= 0) shortName = shortName.slice(lastSlash + 1);
+                shortName = shortName.replace(/_/g, " ");
                 labelMap.set(id, {
-                  id: name.toLowerCase(),
-                  name,
+                  id: shortName.toLowerCase(),
+                  name: shortName,
                   type: isSystem ? ("system" as const) : ("user" as const),
                 });
               }

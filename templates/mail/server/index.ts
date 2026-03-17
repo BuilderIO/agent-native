@@ -39,6 +39,8 @@ import {
   apolloSaveKey,
   apolloDeleteKey,
 } from "./routes/apollo.js";
+import { hubspotContactLookup } from "./routes/hubspot.js";
+import { gongCallsLookup } from "./routes/gong.js";
 
 const envKeys: EnvKeyConfig[] = [
   { key: "GOOGLE_CLIENT_ID", label: "Google OAuth Client ID", required: false },
@@ -91,6 +93,12 @@ export function createAppServer() {
   app.put("/api/apollo/key", apolloSaveKey);
   app.delete("/api/apollo/key", apolloDeleteKey);
   app.get("/api/apollo/person", apolloPersonLookup);
+
+  // HubSpot
+  app.get("/api/hubspot/contact", hubspotContactLookup);
+
+  // Gong
+  app.get("/api/gong/calls", gongCallsLookup);
 
   // Google Auth
   app.get("/api/google/auth-url", getGoogleAuthUrl);
