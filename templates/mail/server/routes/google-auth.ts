@@ -58,7 +58,19 @@ export async function handleGoogleCallback(
       document.body.appendChild(p);
     </script></body></html>`);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    const msg = error.message || "Unknown error";
+    const isPermission =
+      msg.includes("Insufficient Permission") ||
+      msg.includes("insufficient_scope");
+    const userMessage = isPermission
+      ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
+      : `Connection failed: ${msg}`;
+    res.send(`<!DOCTYPE html><html><body>
+      <div style="font-family:system-ui;max-width:420px;margin:30vh auto;text-align:center">
+        <p style="font-size:15px;color:#e55">${userMessage}</p>
+        <p style="margin-top:16px;font-size:13px;color:#888">You can close this tab and try again.</p>
+      </div>
+    </body></html>`);
   }
 }
 
