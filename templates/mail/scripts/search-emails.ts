@@ -1,8 +1,5 @@
 /**
- * Search emails across all views.
- *
- * Convenience wrapper around list-emails with --view=all.
- * Searches across subject, body, sender name, and sender email.
+ * Search emails across all views using Gmail search syntax.
  *
  * Usage:
  *   pnpm script search-emails --q=meeting
@@ -11,7 +8,7 @@
  *   pnpm script search-emails --q=receipt --compact
  *
  * Options:
- *   --q        Search query (required)
+ *   --q        Search query (required) — supports Gmail search operators
  *   --view     Limit search to a view (default: all)
  *   --limit    Max results (default: 25)
  *   --compact  Output compact summary
@@ -20,36 +17,25 @@
  */
 
 import { parseArgs, output, fatal } from "./helpers.js";
+import {
+  listGmailMessages,
+  gmailToEmailMessage,
+  fetchGmailLabelMap,
+  getClients,
+} from "../server/lib/google-auth.js";
 
-const API_BASE = "http://localhost:8080";
+const VIEW_QUERIES: Record<string, string> = {
+  inbox: "in:inbox",
+  unread: "is:unread in:inbox",
+  starred: "is:starred",
+  sent: "in:sent",
+  drafts: "in:drafts",
+  archive: "-in:inbox -in:sent -in:drafts -in:trash",
+  trash: "in:trash",
+  all: "",
+};
 
-interface EmailMessage {
-  id: string;
-  threadId: string;
-  from: { name: string; email: string };
-  to: { name: string; email: string }[];
-  subject: string;
-  snippet: string;
-  body: string;
-  date: string;
-  isRead: boolean;
-  isStarred: boolean;
-  isDraft?: boolean;
-  isSent?: boolean;
-  isArchived: boolean;
-  isTrashed: boolean;
-  labelIds: string[];
-}
-
-function toCompact(emails: EmailMessage[]): {
-  id: string;
-  threadId: string;
-  from: string;
-  subject: string;
-  snippet: string;
-  date: string;
-  isRead: boolean;
-}[] {
+function toCompact(emails: any[]): any[] {
   return emails.map((e) => ({
     id: e.id,
     threadId: e.threadId,
@@ -72,29 +58,40 @@ export default async function main(): Promise<void> {
     fatal("--q is required. Usage: pnpm script search-emails --q=meeting");
   }
 
-  try {
-    const params = new URLSearchParams({ view, q: query });
-    const res = await fetch(`${API_BASE}/api/emails?${params}`, {
-      signal: AbortSignal.timeout(5000),
-    });
+  const clients = await getClients();
+  if (clients.length === 0) {
+    fatal("No Google account connected. Connect an account in the app first.");
+  }
 
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      fatal(
-        `API error: ${body?.error || res.status}. Is the dev server running? (pnpm dev)`,
-      );
-    }
+  const viewPrefix = VIEW_QUERIES[view] ?? `label:${view}`;
+  const gmailQuery = viewPrefix ? `${viewPrefix} ${query}` : query;
 
-    let emails = (await res.json()) as EmailMessage[];
-    emails = emails.slice(0, limit);
+  const labelMap = new Map<string, string>();
+  await Promise.all(
+    clients.map(async ({ client }) => {
+      try {
+        const map = await fetchGmailLabelMap(client);
+        for (const [id, name] of map) labelMap.set(id, name);
+      } catch {}
+    }),
+  );
 
-    console.error(
-      `Found ${emails.length} result(s) for "${query}" in "${view}"`,
-    );
-    output(compact ? toCompact(emails) : emails);
-  } catch (err: any) {
+  const { messages, errors } = await listGmailMessages(gmailQuery, limit);
+
+  if (errors.length > 0 && messages.length === 0) {
     fatal(
-      `Could not connect to dev server at ${API_BASE}. Start it with: pnpm dev\n  (${err?.message})`,
+      `Gmail error: ${errors.map((e) => `${e.email}: ${e.error}`).join("; ")}`,
     );
   }
+
+  const emails = messages
+    .map((m) => gmailToEmailMessage(m, m._accountEmail, labelMap))
+    .sort(
+      (a: any, b: any) =>
+        new Date(b.date).getTime() - new Date(a.date).getTime(),
+    )
+    .slice(0, limit);
+
+  console.error(`Found ${emails.length} result(s) for "${query}" in "${view}"`);
+  output(compact ? toCompact(emails) : emails);
 }

@@ -1,8 +1,7 @@
 /**
  * List emails with filtering and search.
  *
- * Fetches from the running dev server API (which uses Gmail when connected).
- * Falls back to reading data/emails.json directly if the server is not running.
+ * Fetches directly from Gmail API. Falls back to data/emails.json if no account is connected.
  *
  * Usage:
  *   pnpm script list-emails
@@ -23,137 +22,35 @@
 
 import fs from "fs";
 import path from "path";
-import { parseArgs, output, fatal } from "./helpers.js";
+import { parseArgs, output } from "./helpers.js";
+import {
+  getClients,
+  listGmailMessages,
+  gmailToEmailMessage,
+  fetchGmailLabelMap,
+  isConnected,
+} from "../server/lib/google-auth.js";
 
 const EMAILS_FILE = path.join(process.cwd(), "data", "emails.json");
-const API_BASE = "http://localhost:8080";
 
-interface EmailMessage {
-  id: string;
-  threadId: string;
-  from: { name: string; email: string };
-  to: { name: string; email: string }[];
-  subject: string;
-  snippet: string;
-  body: string;
-  date: string;
-  isRead: boolean;
-  isStarred: boolean;
-  isDraft?: boolean;
-  isSent?: boolean;
-  isArchived: boolean;
-  isTrashed: boolean;
-  labelIds: string[];
-}
+const VIEW_QUERIES: Record<string, string> = {
+  inbox: "in:inbox",
+  unread: "is:unread in:inbox",
+  starred: "is:starred",
+  sent: "in:sent",
+  drafts: "in:drafts",
+  archive: "-in:inbox -in:sent -in:drafts -in:trash",
+  trash: "in:trash",
+  all: "",
+};
 
-async function fetchFromAPI(
-  view: string,
-  query?: string,
-): Promise<{ emails: EmailMessage[] | null; error?: string }> {
-  try {
-    const params = new URLSearchParams({ view });
-    if (query) params.set("q", query);
-    const res = await fetch(`${API_BASE}/api/emails?${params}`, {
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      return {
-        emails: null,
-        error: body?.error || `API returned ${res.status}`,
-      };
-    }
-    return { emails: (await res.json()) as EmailMessage[] };
-  } catch (err: any) {
-    return {
-      emails: null,
-      error: err?.message || "Failed to connect to dev server",
-    };
-  }
-}
-
-function readFromFile(view: string, query?: string): EmailMessage[] {
-  let emails: EmailMessage[];
-  try {
-    emails = JSON.parse(fs.readFileSync(EMAILS_FILE, "utf-8"));
-  } catch {
-    return [];
-  }
-
-  if (emails.length === 0) return [];
-
-  // Filter by view
-  let filtered = emails;
-  switch (view) {
-    case "inbox":
-      filtered = emails.filter(
-        (e) => !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
-      );
-      break;
-    case "unread":
-      filtered = emails.filter(
-        (e) =>
-          !e.isRead && !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
-      );
-      break;
-    case "starred":
-      filtered = emails.filter((e) => e.isStarred && !e.isTrashed);
-      break;
-    case "sent":
-      filtered = emails.filter((e) => e.isSent && !e.isTrashed);
-      break;
-    case "drafts":
-      filtered = emails.filter((e) => e.isDraft);
-      break;
-    case "archive":
-      filtered = emails.filter((e) => e.isArchived && !e.isTrashed);
-      break;
-    case "trash":
-      filtered = emails.filter((e) => e.isTrashed);
-      break;
-    case "all":
-      break;
-    default:
-      filtered = emails.filter(
-        (e) => e.labelIds.includes(view) && !e.isTrashed,
-      );
-  }
-
-  // Full-text search
-  if (query) {
-    const q = query.toLowerCase();
-    filtered = filtered.filter(
-      (e) =>
-        e.subject.toLowerCase().includes(q) ||
-        e.snippet.toLowerCase().includes(q) ||
-        e.body.toLowerCase().includes(q) ||
-        e.from.name.toLowerCase().includes(q) ||
-        e.from.email.toLowerCase().includes(q),
-    );
-  }
-
-  // Sort by date descending (newest first)
-  filtered.sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-  );
-
-  return filtered;
-}
-
-function toCompact(emails: EmailMessage[]): {
-  id: string;
-  threadId: string;
-  from: string;
-  subject: string;
-  snippet: string;
-  date: string;
-  isRead: boolean;
-  isStarred: boolean;
-}[] {
+function toCompact(emails: any[]): any[] {
   return emails.map((e) => ({
     id: e.id,
     threadId: e.threadId,
-    from: e.from.name ? `${e.from.name} <${e.from.email}>` : e.from.email,
+    from: e.from?.name
+      ? `${e.from.name} <${e.from.email}>`
+      : (e.from?.email ?? e.from),
     subject: e.subject,
     snippet: e.snippet,
     date: e.date,
@@ -169,40 +66,104 @@ export default async function main(): Promise<void> {
   const limit = args.limit ? parseInt(args.limit, 10) : 50;
   const compact = args.compact === "true";
 
-  // Try the API first (uses Gmail when connected)
-  const { emails: apiEmails, error: apiError } = await fetchFromAPI(
-    view,
-    query,
-  );
-  let emails: EmailMessage[];
-  let source: string;
-
-  if (apiEmails !== null) {
-    emails = apiEmails;
-    source = "api";
-  } else {
-    // Server not running or errored — fall back to local file
-    console.error(
-      `API unavailable (${apiError}), falling back to local data...`,
+  if (isConnected()) {
+    const clients = await getClients();
+    const labelMap = new Map<string, string>();
+    await Promise.all(
+      clients.map(async ({ client }) => {
+        try {
+          const map = await fetchGmailLabelMap(client);
+          for (const [id, name] of map) labelMap.set(id, name);
+        } catch {}
+      }),
     );
-    emails = readFromFile(view, query);
-    source = "local";
-    if (emails.length === 0) {
+
+    const viewPrefix = VIEW_QUERIES[view] ?? `label:${view}`;
+    const gmailQuery = [viewPrefix, query].filter(Boolean).join(" ");
+
+    const { messages, errors } = await listGmailMessages(
+      gmailQuery || "in:inbox",
+      limit,
+    );
+
+    if (errors.length > 0 && messages.length === 0) {
       console.error(
-        "No emails found. The dev server is not running and data/emails.json is empty.",
+        `Gmail error: ${errors.map((e) => `${e.email}: ${e.error}`).join("; ")}`,
       );
-      console.error(
-        "Start the dev server (pnpm dev) and connect a Google account to see real emails.",
-      );
-      return;
+      process.exit(1);
     }
+
+    const emails = messages
+      .map((m) => gmailToEmailMessage(m, m._accountEmail, labelMap))
+      .sort(
+        (a: any, b: any) =>
+          new Date(b.date).getTime() - new Date(a.date).getTime(),
+      )
+      .slice(0, limit);
+
+    console.error(
+      `Found ${emails.length} email(s) in "${view}" (source: gmail)`,
+    );
+    output(compact ? toCompact(emails) : emails);
+    return;
   }
 
-  // Apply limit
-  emails = emails.slice(0, limit);
+  // Fallback: local data/emails.json
+  let emails: any[] = [];
+  try {
+    emails = JSON.parse(fs.readFileSync(EMAILS_FILE, "utf-8"));
+  } catch {
+    console.error(
+      "No emails found. Connect a Google account in the app to see real emails.",
+    );
+    return;
+  }
 
-  console.error(
-    `Found ${emails.length} email(s) in "${view}" (source: ${source})`,
-  );
+  switch (view) {
+    case "inbox":
+      emails = emails.filter(
+        (e) => !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
+      );
+      break;
+    case "unread":
+      emails = emails.filter(
+        (e) =>
+          !e.isRead && !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
+      );
+      break;
+    case "starred":
+      emails = emails.filter((e) => e.isStarred && !e.isTrashed);
+      break;
+    case "sent":
+      emails = emails.filter((e) => e.isSent && !e.isTrashed);
+      break;
+    case "drafts":
+      emails = emails.filter((e) => e.isDraft);
+      break;
+    case "archive":
+      emails = emails.filter((e) => e.isArchived && !e.isTrashed);
+      break;
+    case "trash":
+      emails = emails.filter((e) => e.isTrashed);
+      break;
+  }
+
+  if (query) {
+    const q = query.toLowerCase();
+    emails = emails.filter(
+      (e) =>
+        e.subject?.toLowerCase().includes(q) ||
+        e.snippet?.toLowerCase().includes(q) ||
+        e.body?.toLowerCase().includes(q) ||
+        e.from?.name?.toLowerCase().includes(q) ||
+        e.from?.email?.toLowerCase().includes(q),
+    );
+  }
+
+  emails = emails
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, limit);
+
+  console.error(`Found ${emails.length} email(s) in "${view}" (source: local)`);
   output(compact ? toCompact(emails) : emails);
 }

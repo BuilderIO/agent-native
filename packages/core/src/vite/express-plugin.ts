@@ -1,4 +1,5 @@
-import type { Plugin } from "vite";
+import type { Plugin, ViteDevServer } from "vite";
+import type { IncomingMessage, ServerResponse } from "http";
 
 export interface ExpressPluginOptions {
   /** Path to the module that exports createServer(). Default: "./server" */
@@ -8,6 +9,9 @@ export interface ExpressPluginOptions {
 /**
  * Vite plugin that mounts the Express app as middleware during dev.
  * Only active in serve mode (not during build).
+ *
+ * The Express app is re-created when server files change so you don't
+ * have to manually restart `pnpm dev` after editing server code.
  */
 export function expressPlugin(options: ExpressPluginOptions = {}): Plugin {
   const serverEntry = options.serverEntry ?? "./server";
@@ -15,20 +19,57 @@ export function expressPlugin(options: ExpressPluginOptions = {}): Plugin {
   return {
     name: "agent-native-express",
     apply: "serve",
-    async configureServer(server) {
-      const mod = await server.ssrLoadModule(serverEntry);
-      const createServer =
-        mod.createServer ?? mod.createAppServer ?? mod.default;
+    configureServer(server) {
+      let app: any = null;
 
-      if (typeof createServer !== "function") {
-        throw new Error(
-          `[@agent-native/core] Could not find createServer export in "${serverEntry}". ` +
-            `Export a createServer() function that returns an Express app.`,
-        );
+      async function loadApp() {
+        // Invalidate the module graph so we get fresh code
+        const resolved = await server.moduleGraph.resolveUrl(serverEntry);
+        if (resolved) {
+          const mod = server.moduleGraph.getModuleById(resolved[1]);
+          if (mod) server.moduleGraph.invalidateModule(mod);
+        }
+
+        const ssrMod = await server.ssrLoadModule(serverEntry);
+        const createServer =
+          ssrMod.createServer ?? ssrMod.createAppServer ?? ssrMod.default;
+
+        if (typeof createServer !== "function") {
+          throw new Error(
+            `[@agent-native/core] Could not find createServer export in "${serverEntry}". ` +
+              `Export a createServer() function that returns an Express app.`,
+          );
+        }
+
+        app = createServer();
       }
 
-      const app = createServer();
-      server.middlewares.use(app);
+      // Initial load
+      const ready = loadApp();
+
+      // Re-create the app when any server file changes
+      server.watcher.on("change", (file: string) => {
+        if (file.includes("/server/") || file.includes("\\server\\")) {
+          console.log(
+            `[agent-native] Server file changed, reloading: ${file.split("/server/").pop()}`,
+          );
+          loadApp().catch((err) =>
+            console.error("[agent-native] Failed to reload server:", err),
+          );
+        }
+      });
+
+      // Proxy middleware — delegates to the latest Express app
+      server.middlewares.use(
+        async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
+          await ready; // wait for initial load
+          if (app) {
+            app(req, res, next);
+          } else {
+            next();
+          }
+        },
+      );
     },
   };
 }

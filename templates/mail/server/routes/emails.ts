@@ -55,8 +55,8 @@ function writeLabels(labels: Label[]) {
 
 function readSettings(): UserSettings {
   return readJsonWithDefaults<UserSettings>(SETTINGS_FILE, {
-    name: "Alex Johnson",
-    email: "me@example.com",
+    name: "",
+    email: "",
     theme: "dark",
     density: "comfortable",
     previewPane: "right",
@@ -389,7 +389,7 @@ export function toggleStar(req: Request, res: Response) {
 export async function archiveEmail(req: Request, res: Response): Promise<void> {
   if (isConnected()) {
     try {
-      const client = await getClient();
+      const client = await getClient(req.body?.accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
         await gmail.users.messages.modify({
@@ -442,7 +442,7 @@ export async function unarchiveEmail(
 ): Promise<void> {
   if (isConnected()) {
     try {
-      const client = await getClient();
+      const client = await getClient(req.body?.accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
         await gmail.users.messages.modify({
@@ -494,7 +494,7 @@ export async function unarchiveEmail(
 export async function trashEmail(req: Request, res: Response): Promise<void> {
   if (isConnected()) {
     try {
-      const client = await getClient();
+      const client = await getClient(req.body?.accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
         await gmail.users.messages.trash({
@@ -764,16 +764,100 @@ export function deleteEmail(req: Request, res: Response) {
 
 // ─── Send / compose ───────────────────────────────────────────────────────────
 
-export function sendEmail(req: Request, res: Response) {
+export async function sendEmail(req: Request, res: Response): Promise<void> {
   const settings = readSettings();
-  const { to, cc, bcc, subject, body, replyToId } = req.body;
+  const { to, cc, bcc, subject, body, replyToId, accountEmail } = req.body;
 
-  if (!to || !subject === undefined || body === undefined) {
-    return res
+  if (!to || subject === undefined || body === undefined) {
+    res
       .status(400)
       .json({ error: "Missing required fields: to, subject, body" });
+    return;
   }
 
+  // If Gmail is connected, send via Gmail API
+  if (isConnected()) {
+    try {
+      const clients = await getClients();
+      let selectedClient = clients[0]?.client;
+      let selectedEmail = accountEmail || clients[0]?.email || "me";
+
+      let threadId: string | undefined;
+      let inReplyTo: string | undefined;
+      let references: string | undefined;
+
+      if (replyToId) {
+        // Find which account owns the original message and use that for the reply
+        for (const { email, client } of clients) {
+          try {
+            const gmail = google.gmail({ version: "v1", auth: client });
+            const original = await gmail.users.messages.get({
+              userId: "me",
+              id: replyToId,
+              format: "metadata",
+              metadataHeaders: ["Message-Id", "References"],
+            });
+            threadId = original.data.threadId ?? undefined;
+            const headers = original.data.payload?.headers || [];
+            inReplyTo =
+              headers.find((h) => h.name === "Message-Id")?.value ?? undefined;
+            const refs = headers.find((h) => h.name === "References")?.value;
+            references = [refs, inReplyTo].filter(Boolean).join(" ");
+            if (!accountEmail) {
+              selectedClient = client;
+              selectedEmail = email;
+            }
+            break;
+          } catch (err: any) {
+            if (err?.response?.status === 404) continue;
+          }
+        }
+      }
+
+      if (accountEmail) {
+        const match = clients.find((c) => c.email === accountEmail);
+        if (match) {
+          selectedClient = match.client;
+          selectedEmail = match.email;
+        }
+      }
+
+      if (selectedClient) {
+        const gmail = google.gmail({ version: "v1", auth: selectedClient });
+        const raw = buildRawEmail({
+          from: selectedEmail,
+          to: to || "",
+          cc: cc || "",
+          bcc: bcc || "",
+          subject: subject || "(no subject)",
+          body: body || "",
+          inReplyTo,
+          references,
+        });
+
+        const requestBody: any = { raw };
+        if (threadId) requestBody.threadId = threadId;
+
+        const sent = await (gmail.users.messages.send as any)({
+          userId: "me",
+          requestBody,
+        });
+
+        res.status(201).json({
+          id: sent.data.id,
+          threadId: sent.data.threadId,
+          labelIds: sent.data.labelIds || ["SENT"],
+        });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[sendEmail] Gmail API error:", error.message);
+      res.status(500).json({ error: "Failed to send email via Gmail" });
+      return;
+    }
+  }
+
+  // Local fallback: store as sent email
   const emails = readEmails();
 
   const newEmail: EmailMessage = {
@@ -829,11 +913,12 @@ export async function saveDraft(req: Request, res: Response): Promise<void> {
   // If Gmail is connected, create/update a Gmail draft
   if (isConnected()) {
     try {
-      const client = await getClient();
+      const client = await getClient(req.body?.accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
+        const draftFrom = req.body?.accountEmail || "me";
         const raw = buildRawEmail({
-          from: `${settings.name} <${settings.email}>`,
+          from: draftFrom,
           to: to || "",
           cc: cc || "",
           bcc: bcc || "",
@@ -942,6 +1027,8 @@ function buildRawEmail(opts: {
   bcc: string;
   subject: string;
   body: string;
+  inReplyTo?: string;
+  references?: string;
 }): string {
   const lines = [
     `From: ${opts.from}`,
@@ -949,6 +1036,8 @@ function buildRawEmail(opts: {
     ...(opts.cc ? [`Cc: ${opts.cc}`] : []),
     ...(opts.bcc ? [`Bcc: ${opts.bcc}`] : []),
     `Subject: ${opts.subject}`,
+    ...(opts.inReplyTo ? [`In-Reply-To: ${opts.inReplyTo}`] : []),
+    ...(opts.references ? [`References: ${opts.references}`] : []),
     `Content-Type: text/plain; charset="UTF-8"`,
     "",
     opts.body,
@@ -968,7 +1057,7 @@ export async function deleteDraft(req: Request, res: Response): Promise<void> {
 
   if (isConnected()) {
     try {
-      const client = await getClient();
+      const client = await getClient(req.body?.accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
         try {
@@ -1243,4 +1332,82 @@ export function updateSettings(req: Request, res: Response) {
   const updated = { ...current, ...req.body };
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(updated, null, 2));
   res.json(updated);
+}
+
+// ─── Calendar RSVP ───────────────────────────────────────────────────────────
+
+export async function calendarRsvp(req: Request, res: Response): Promise<void> {
+  const { eventId, calendarId, response, accountEmail } = req.body as {
+    eventId: string;
+    calendarId?: string;
+    response: "accepted" | "declined" | "tentative";
+    accountEmail?: string;
+  };
+
+  if (!eventId || !response) {
+    res.status(400).json({ error: "eventId and response are required" });
+    return;
+  }
+
+  if (!isConnected()) {
+    res.status(401).json({ error: "No Google account connected" });
+    return;
+  }
+
+  try {
+    const client = await getClient(accountEmail);
+    if (!client) {
+      res.status(401).json({ error: "Google account not found" });
+      return;
+    }
+
+    const calendar = google.calendar({ version: "v3", auth: client });
+    const calId = calendarId || "primary";
+
+    // Get the event first to preserve existing data
+    const eventRes = await calendar.events.get({
+      calendarId: calId,
+      eventId,
+    });
+
+    const event = eventRes.data;
+    if (!event) {
+      res.status(404).json({ error: "Event not found" });
+      return;
+    }
+
+    // Find the current user's attendee entry and update their response
+    const settings = readSettings();
+    const myEmail = settings.email?.toLowerCase();
+    const attendees = event.attendees || [];
+    let found = false;
+    for (const attendee of attendees) {
+      if (attendee.email?.toLowerCase() === myEmail || attendee.self) {
+        attendee.responseStatus = response;
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      // Add self as attendee with the response
+      attendees.push({
+        email: myEmail,
+        responseStatus: response,
+        self: true,
+      });
+    }
+
+    await calendar.events.patch({
+      calendarId: calId,
+      eventId,
+      sendUpdates: "all",
+      requestBody: { attendees },
+    });
+
+    res.json({ ok: true, response });
+  } catch (error: any) {
+    console.error("[calendarRsvp] error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
 }
