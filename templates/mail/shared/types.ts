@@ -88,3 +88,38 @@ export type UserSettings = {
   sendAndArchive: boolean;
   undoSendDelay: number;
 };
+
+export type ApolloPersonResult = {
+  id?: string;
+  first_name?: string;
+  last_name?: string;
+  name?: string;
+  title?: string;
+  headline?: string;
+  photo_url?: string;
+  linkedin_url?: string;
+  twitter_url?: string;
+  github_url?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  email?: string;
+  phone_numbers?: { raw_number: string; type?: string }[];
+  employment_history?: {
+    organization_name?: string;
+    title?: string;
+    start_date?: string;
+    end_date?: string;
+    current?: boolean;
+  }[];
+  organization?: {
+    name?: string;
+    website_url?: string;
+    linkedin_url?: string;
+    logo_url?: string;
+    industry?: string;
+    estimated_num_employees?: number;
+    short_description?: string;
+    founded_year?: number;
+  };
+};

@@ -8,7 +8,7 @@ import {
   Italic,
   Link,
   Paperclip,
-  Sparkles,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ import { useSendEmail } from "@/hooks/use-emails";
 import { sendToAgentChat } from "@agent-native/core";
 import { toast } from "sonner";
 import type { ComposeState } from "@shared/types";
+import { RecipientInput } from "./RecipientInput";
 
 interface ComposeModalProps {
   composeState: ComposeState;
@@ -43,6 +44,7 @@ export function ComposeModal({
   const [minimized, setMinimized] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
+  const [showCcBcc, setShowCcBcc] = useState(false);
 
   const sendEmail = useSendEmail();
   const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -160,68 +162,55 @@ export function ComposeModal({
               <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
                 To
               </span>
-              <input
-                type="text"
+              <RecipientInput
                 value={to}
-                onChange={(e) => onUpdate({ to: e.target.value })}
-                placeholder="recipients..."
-                className="flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground"
+                onChange={(val) => onUpdate({ to: val })}
                 autoFocus={mode === "compose"}
               />
-              <div className="flex gap-2 text-xs text-muted-foreground">
-                {cc === undefined && (
-                  <button
-                    onClick={() => onUpdate({ cc: "" })}
-                    className="hover:text-foreground transition-colors"
-                  >
-                    Cc
-                  </button>
-                )}
-                {bcc === undefined && (
-                  <button
-                    onClick={() => onUpdate({ bcc: "" })}
-                    className="hover:text-foreground transition-colors"
-                  >
-                    Bcc
-                  </button>
-                )}
-              </div>
+              <button
+                onClick={() => {
+                  const next = !showCcBcc;
+                  setShowCcBcc(next);
+                  if (next) {
+                    if (cc === undefined) onUpdate({ cc: "" });
+                    if (bcc === undefined) onUpdate({ bcc: "" });
+                  }
+                }}
+                className="text-muted-foreground hover:text-foreground transition-colors p-1"
+              >
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 transition-transform",
+                    showCcBcc && "rotate-180",
+                  )}
+                />
+              </button>
             </div>
 
-            {cc !== undefined && (
-              <div className="flex items-center border-b border-border px-4">
-                <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-                  Cc
-                </span>
-                <input
-                  type="text"
-                  value={cc ?? ""}
-                  onChange={(e) => onUpdate({ cc: e.target.value })}
-                  placeholder="cc recipients..."
-                  className="flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground"
-                />
-              </div>
-            )}
-
-            {bcc !== undefined && (
-              <div className="flex items-center border-b border-border px-4">
-                <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-                  Bcc
-                </span>
-                <input
-                  type="text"
-                  value={bcc ?? ""}
-                  onChange={(e) => onUpdate({ bcc: e.target.value })}
-                  placeholder="bcc recipients..."
-                  className="flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground"
-                />
-              </div>
+            {showCcBcc && (
+              <>
+                <div className="flex items-center border-b border-border px-4">
+                  <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
+                    Cc
+                  </span>
+                  <RecipientInput
+                    value={cc ?? ""}
+                    onChange={(val) => onUpdate({ cc: val })}
+                  />
+                </div>
+                <div className="flex items-center border-b border-border px-4">
+                  <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
+                    Bcc
+                  </span>
+                  <RecipientInput
+                    value={bcc ?? ""}
+                    onChange={(val) => onUpdate({ bcc: val })}
+                  />
+                </div>
+              </>
             )}
 
             <div className="flex items-center px-4">
-              <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
-                Sub
-              </span>
               <input
                 type="text"
                 value={subject}
@@ -286,7 +275,6 @@ export function ComposeModal({
                     size="sm"
                     className="h-7 gap-1.5 px-2 text-xs"
                   >
-                    <Sparkles className="h-3.5 w-3.5" />
                     Generate
                   </Button>
                 </PopoverTrigger>
@@ -323,7 +311,6 @@ export function ComposeModal({
                         disabled={!generatePrompt.trim()}
                         className="h-7 gap-1.5 px-3 text-xs"
                       >
-                        <Sparkles className="h-3 w-3" />
                         Generate
                       </Button>
                     </div>

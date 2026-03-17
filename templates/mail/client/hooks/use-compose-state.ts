@@ -19,10 +19,14 @@ export function useComposeState() {
   const dirtyRef = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
-  const query = useQuery<ComposeState | undefined>({
+  const query = useQuery<ComposeState | null>({
     queryKey: ["compose-state"],
-    queryFn: () =>
-      apiFetch<ComposeState | undefined>("/api/application-state/compose"),
+    queryFn: async () => {
+      const result = await apiFetch<ComposeState | undefined>(
+        "/api/application-state/compose",
+      );
+      return result ?? null;
+    },
     staleTime: 5_000,
   });
 
@@ -75,17 +79,15 @@ export function useComposeState() {
   const deleteMutation = useMutation({
     mutationFn: () =>
       apiFetch("/api/application-state/compose", { method: "DELETE" }),
-    onSuccess: () => {
-      qc.setQueryData(["compose-state"], undefined);
-      qc.invalidateQueries({ queryKey: ["compose-state"] });
-    },
   });
 
   const clear = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     dirtyRef.current = false;
+    // Immediately clear from cache so the modal unmounts
+    qc.setQueryData(["compose-state"], null);
     deleteMutation.mutate();
-  }, [deleteMutation]);
+  }, [qc, deleteMutation]);
 
   // Flush: immediately write current state (for Generate button)
   const flush = useCallback(() => {
@@ -98,7 +100,7 @@ export function useComposeState() {
   }, [qc, putMutation]);
 
   return {
-    data: query.data,
+    data: query.data ?? undefined,
     isLoading: query.isLoading,
     isDirty: dirtyRef.current,
     open,
