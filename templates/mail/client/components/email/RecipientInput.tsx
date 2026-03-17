@@ -1,4 +1,10 @@
-import { useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";
+import {
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+} from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -101,11 +107,7 @@ export function RecipientInput({
       if (inputValue.trim()) {
         addRecipient(inputValue);
       }
-    } else if (
-      e.key === "Backspace" &&
-      !inputValue &&
-      recipients.length > 0
-    ) {
+    } else if (e.key === "Backspace" && !inputValue && recipients.length > 0) {
       removeRecipient(recipients.length - 1);
     } else if (e.key === "ArrowDown" && showSuggestions) {
       e.preventDefault();
@@ -121,7 +123,11 @@ export function RecipientInput({
 
   // Position dropdown relative to container, rendered via portal
   useLayoutEffect(() => {
-    if (showSuggestions && filteredContacts.length > 0 && containerRef.current) {
+    if (
+      showSuggestions &&
+      filteredContacts.length > 0 &&
+      containerRef.current
+    ) {
       const rect = containerRef.current.getBoundingClientRect();
       setDropdownPos({
         top: rect.bottom + 4,

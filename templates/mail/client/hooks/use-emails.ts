@@ -77,7 +77,9 @@ export function useArchiveEmail() {
       apiFetch(`/api/emails/${id}/archive`, { method: "PATCH" }),
     onMutate: async (id: string) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<EmailMessage[]>({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["emails"],
+      });
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => e.id !== id),
       );
@@ -97,7 +99,9 @@ export function useUnarchiveEmail() {
       apiFetch(`/api/emails/${id}/unarchive`, { method: "PATCH" }),
     onMutate: async (id: string) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<EmailMessage[]>({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["emails"],
+      });
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.map((e) => (e.id === id ? { ...e, isArchived: false } : e)),
       );
@@ -117,7 +121,9 @@ export function useTrashEmail() {
       apiFetch(`/api/emails/${id}/trash`, { method: "PATCH" }),
     onMutate: async (id: string) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
-      const previous = qc.getQueriesData<EmailMessage[]>({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["emails"],
+      });
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => e.id !== id),
       );

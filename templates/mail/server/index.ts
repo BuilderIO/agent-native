@@ -23,6 +23,9 @@ import {
   getComposeState,
   putComposeState,
   deleteComposeState,
+  getState,
+  putState,
+  deleteState,
 } from "./routes/application-state.js";
 import {
   getGoogleAuthUrl,
@@ -67,10 +70,15 @@ export function createAppServer() {
   app.get("/api/settings", getSettings);
   app.patch("/api/settings", updateSettings);
 
-  // Application state
+  // Application state — compose (with validation)
   app.get("/api/application-state/compose", getComposeState);
   app.put("/api/application-state/compose", putComposeState);
   app.delete("/api/application-state/compose", deleteComposeState);
+
+  // Application state — generic (navigation, etc.)
+  app.get("/api/application-state/:key", getState);
+  app.put("/api/application-state/:key", putState);
+  app.delete("/api/application-state/:key", deleteState);
 
   // Google Auth
   app.get("/api/google/auth-url", getGoogleAuthUrl);

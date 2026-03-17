@@ -1,9 +1,13 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { EmailList, groupIntoThreads } from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
 import { useComposeState } from "@/hooks/use-compose-state";
+import {
+  useNavigationState,
+  type NavigationState,
+} from "@/hooks/use-navigation-state";
 import {
   useEmail,
   useEmails,
@@ -206,13 +210,54 @@ export function InboxPage() {
     view: string;
     threadId: string;
   }>();
+  const navigate = useNavigate();
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const compose = useComposeState();
+  const navState = useNavigationState();
   const [lastArchivedId, setLastArchivedId] = useState<string | null>(null);
   const unarchiveEmail = useUnarchiveEmail();
   const { data: emails = [] } = useEmails(view);
+
+  // Sync current navigation state to file so the agent can see it
+  const lastSyncedRef = useRef<string>("");
+  useEffect(() => {
+    const state: NavigationState = {
+      view,
+      threadId,
+      focusedEmailId: focusedId ?? undefined,
+    };
+    const key = JSON.stringify(state);
+    if (key !== lastSyncedRef.current) {
+      lastSyncedRef.current = key;
+      navState.sync(state);
+    }
+  }, [view, threadId, focusedId, navState.sync]);
+
+  // React to agent-driven navigation changes (agent writes navigation.json)
+  const lastAgentNavRef = useRef<string>("");
+  useEffect(() => {
+    if (!navState.data) return;
+    const key = JSON.stringify(navState.data);
+    // Skip if this is our own sync or already processed
+    if (key === lastSyncedRef.current || key === lastAgentNavRef.current)
+      return;
+    lastAgentNavRef.current = key;
+
+    const target = navState.data;
+    const targetView = target.view || "inbox";
+    const targetThread = target.threadId;
+
+    if (targetThread && targetThread !== threadId) {
+      navigate(`/${targetView}/${targetThread}`);
+    } else if (targetView !== view) {
+      navigate(`/${targetView}`);
+    }
+  }, [navState.data, view, threadId, navigate]);
   const threadIds = useMemo(
-    () => groupIntoThreads(emails).map((t) => t.latestMessage.threadId || t.latestMessage.id),
+    () =>
+      groupIntoThreads(emails).map(
+        (t) => t.latestMessage.threadId || t.latestMessage.id,
+      ),
     [emails],
   );
 

@@ -178,7 +178,12 @@ export function ComposeModal({
                 }}
                 className="text-muted-foreground hover:text-foreground transition-colors p-1"
               >
-                <ChevronDown className={cn("h-4 w-4 transition-transform", showCcBcc && "rotate-180")} />
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 transition-transform",
+                    showCcBcc && "rotate-180",
+                  )}
+                />
               </button>
             </div>
 

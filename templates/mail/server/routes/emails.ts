@@ -574,9 +574,111 @@ export function sendEmail(req: Request, res: Response) {
 
 // ─── Contacts (extracted from email history) ─────────────────────────────────
 
-export function listContacts(_req: Request, res: Response) {
+export async function listContacts(
+  _req: Request,
+  res: Response,
+): Promise<void> {
+  if (isConnected()) {
+    try {
+      const clients = await getClients();
+      const contactMap = new Map<
+        string,
+        { name: string; email: string; count: number }
+      >();
+
+      for (const { client } of clients) {
+        const people = google.people({ version: "v1", auth: client });
+
+        // Fetch saved contacts (People API connections)
+        try {
+          let nextPageToken: string | undefined;
+          do {
+            const resp = await people.people.connections.list({
+              resourceName: "people/me",
+              pageSize: 200,
+              personFields: "names,emailAddresses",
+              pageToken: nextPageToken,
+            });
+            for (const person of resp.data.connections || []) {
+              const emails = person.emailAddresses || [];
+              const name =
+                person.names?.[0]?.displayName || emails[0]?.value || "";
+              for (const em of emails) {
+                if (!em.value) continue;
+                const key = em.value.toLowerCase();
+                const existing = contactMap.get(key);
+                if (existing) {
+                  existing.count += 5; // boost saved contacts
+                  if (
+                    name &&
+                    name !== em.value &&
+                    existing.name === existing.email
+                  ) {
+                    existing.name = name;
+                  }
+                } else {
+                  contactMap.set(key, {
+                    name: name || em.value,
+                    email: em.value,
+                    count: 5,
+                  });
+                }
+              }
+            }
+            nextPageToken = resp.data.nextPageToken ?? undefined;
+          } while (nextPageToken);
+        } catch (err: any) {
+          console.error("[listContacts] connections error:", err.message);
+        }
+
+        // Fetch "other contacts" (people you've interacted with but haven't saved)
+        try {
+          let nextPageToken: string | undefined;
+          do {
+            const resp = await people.otherContacts.list({
+              pageSize: 200,
+              readMask: "names,emailAddresses",
+              pageToken: nextPageToken,
+            });
+            for (const person of resp.data.otherContacts || []) {
+              const emails = person.emailAddresses || [];
+              const name =
+                person.names?.[0]?.displayName || emails[0]?.value || "";
+              for (const em of emails) {
+                if (!em.value) continue;
+                const key = em.value.toLowerCase();
+                if (!contactMap.has(key)) {
+                  contactMap.set(key, {
+                    name: name || em.value,
+                    email: em.value,
+                    count: 1,
+                  });
+                }
+              }
+            }
+            nextPageToken = resp.data.nextPageToken ?? undefined;
+          } while (nextPageToken);
+        } catch (err: any) {
+          console.error("[listContacts] otherContacts error:", err.message);
+        }
+      }
+
+      const contacts = Array.from(contactMap.values()).sort(
+        (a, b) => b.count - a.count,
+      );
+      res.json(contacts);
+      return;
+    } catch (error: any) {
+      console.error("[listContacts] error:", error.message);
+      // Fall through to demo data
+    }
+  }
+
   const emails = readEmails();
-  const contactMap = new Map<string, { name: string; email: string; count: number }>();
+  const contactMap = new Map<
+    string,
+    { name: string; email: string; count: number }
+  >();
 
   for (const email of emails) {
     const addresses = [
@@ -591,16 +693,26 @@ export function listContacts(_req: Request, res: Response) {
       const existing = contactMap.get(key);
       if (existing) {
         existing.count++;
-        if (addr.name && addr.name !== addr.email && (!existing.name || existing.name === existing.email)) {
+        if (
+          addr.name &&
+          addr.name !== addr.email &&
+          (!existing.name || existing.name === existing.email)
+        ) {
           existing.name = addr.name;
         }
       } else {
-        contactMap.set(key, { name: addr.name || addr.email, email: addr.email, count: 1 });
+        contactMap.set(key, {
+          name: addr.name || addr.email,
+          email: addr.email,
+          count: 1,
+        });
       }
     }
   }
 
-  const contacts = Array.from(contactMap.values()).sort((a, b) => b.count - a.count);
+  const contacts = Array.from(contactMap.values()).sort(
+    (a, b) => b.count - a.count,
+  );
   res.json(contacts);
 }
 

@@ -5,6 +5,7 @@ You are the AI assistant for this email client. You can read, search, organize, 
 This is an **agent-native** email client built with `@agent-native/core`. Email messages are stored in `data/emails.json`. The compose window (current draft) is in `application-state/compose.json`.
 
 **IMPORTANT — Drafts vs Emails:**
+
 - The **compose window** the user sees is `application-state/compose.json` — NOT `data/emails.json`
 - To see/edit the user's current draft: read/write `application-state/compose.json`
 - To see stored email messages: read `data/emails.json`
@@ -108,7 +109,44 @@ Edit `data/emails.json` and append:
 
 ## Application State
 
-Ephemeral UI state lives in `application-state/` as JSON files. These files are gitignored but visible to agent tools (via `.ignore`). Write to these files to trigger UI actions.
+Ephemeral UI state lives in `application-state/` as JSON files. These files are gitignored but visible to agent tools (via `.ignore`). Write to these files to trigger UI actions. The UI syncs its state here so you can always see what the user is looking at.
+
+| File                                | Purpose                                  | Direction                                           |
+| ----------------------------------- | ---------------------------------------- | --------------------------------------------------- |
+| `application-state/navigation.json` | Current view, open thread, focused email | UI → Agent (auto-synced) AND Agent → UI (navigates) |
+| `application-state/compose.json`    | Current email draft in compose window    | Bidirectional                                       |
+
+### Navigation state
+
+The UI automatically writes `application-state/navigation.json` whenever the user navigates. Read this file to see what the user is looking at:
+
+```json
+{
+  "view": "inbox",
+  "threadId": "thread-123",
+  "focusedEmailId": "msg-456"
+}
+```
+
+**To navigate the user to a specific email**, write this file:
+
+```json
+{
+  "view": "inbox",
+  "threadId": "thread-123"
+}
+```
+
+The UI will automatically navigate to that thread. Use this to "open" an email the user asked about.
+
+#### Common navigation tasks
+
+| User request                                  | What to do                                                                                                   |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| "What email am I looking at?"                 | Read `application-state/navigation.json` to get the threadId, then look up that thread in `data/emails.json` |
+| "Reply to this email"                         | Read navigation.json for threadId → find email in data/emails.json → write compose.json with mode=reply      |
+| "Find the email from Alice about the project" | Search data/emails.json, then write navigation.json with the matching threadId to open it                    |
+| "Open my starred emails"                      | Write navigation.json with `{"view": "starred"}`                                                             |
 
 ### Compose emails
 
@@ -148,12 +186,15 @@ The UI will pick up the changes automatically (via SSE).
 
 #### Common tasks
 
-| User request                      | What to do                                                                  |
-| --------------------------------- | --------------------------------------------------------------------------- |
-| "Draft an email to Alice about X" | Write `application-state/compose.json` with to, subject, body, mode=compose |
-| "Make this draft more formal"     | Read compose.json, rewrite body, write back                                 |
-| "Change the subject to Y"         | Read compose.json, update subject, write back                               |
-| "Reply to this email saying Z"    | Read the email from data/emails.json, write compose.json with mode=reply    |
+| User request                      | What to do                                                                                                    |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| "Draft an email to Alice about X" | Write `application-state/compose.json` with to, subject, body, mode=compose                                   |
+| "Make this draft more formal"     | Read compose.json, rewrite body, write back                                                                   |
+| "Change the subject to Y"         | Read compose.json, update subject, write back                                                                 |
+| "Reply to this email saying Z"    | Read navigation.json for current threadId, find email in data/emails.json, write compose.json with mode=reply |
+| "What am I looking at?"           | Read navigation.json, then look up the threadId in data/emails.json                                           |
+| "Find the email about X"          | Search data/emails.json, write navigation.json with matching threadId                                         |
+| "Open my starred emails"          | Write navigation.json with `{"view": "starred"}`                                                              |
 
 ## Scripts
 

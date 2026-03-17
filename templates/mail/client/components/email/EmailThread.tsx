@@ -34,7 +34,9 @@ export function EmailThread({
   const cachedMessages = useMemo(() => {
     if (!threadId) return [];
     const allCached: EmailMessage[] = [];
-    const queries = queryClient.getQueriesData<EmailMessage[]>({ queryKey: ["emails"] });
+    const queries = queryClient.getQueriesData<EmailMessage[]>({
+      queryKey: ["emails"],
+    });
     for (const [, data] of queries) {
       if (!data) continue;
       for (const email of data) {
@@ -46,7 +48,11 @@ export function EmailThread({
     // Dedupe by id and sort oldest-first
     const seen = new Set<string>();
     return allCached
-      .filter((e) => { if (seen.has(e.id)) return false; seen.add(e.id); return true; })
+      .filter((e) => {
+        if (seen.has(e.id)) return false;
+        seen.add(e.id);
+        return true;
+      })
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [threadId, queryClient]);
 
@@ -59,32 +65,32 @@ export function EmailThread({
   // Use the latest message as the "primary" email for actions/metadata
   const email = messages.length > 0 ? messages[messages.length - 1] : undefined;
 
-  // Track which messages are expanded — latest + unread by default
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [initialized, setInitialized] = useState(false);
+  // Auto-expand latest + unread; user toggles override via this set
+  const [userToggles, setUserToggles] = useState<Record<string, boolean>>({});
 
-  // When messages load, expand the latest + any unread
+  // Reset user overrides when navigating to a different thread
   useEffect(() => {
-    if (messages.length > 0 && !initialized) {
-      const ids = new Set<string>();
-      ids.add(messages[messages.length - 1].id); // always expand latest
-      for (const msg of messages) {
-        if (!msg.isRead) ids.add(msg.id);
-      }
-      setExpandedIds(ids);
-      setInitialized(true);
-    }
-  }, [messages, initialized]);
-
-  // Reset when navigating to a different thread
-  useEffect(() => {
-    setExpandedIds(new Set());
-    setInitialized(false);
+    setUserToggles({});
   }, [threadId]);
+
+  // Compute which messages are expanded: latest + unread by default, user toggles override
+  const expandedIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (messages.length === 0) return ids;
+    ids.add(messages[messages.length - 1].id); // always expand latest
+    for (const msg of messages) {
+      if (!msg.isRead) ids.add(msg.id);
+    }
+    // Apply user overrides
+    for (const [id, expanded] of Object.entries(userToggles)) {
+      if (expanded) ids.add(id);
+      else ids.delete(id);
+    }
+    return ids;
+  }, [messages, userToggles]);
 
   // Track the "focused" expanded message for keyboard nav (n/p)
   const focusedExpanded = useMemo(() => {
-    // Find the last expanded message for focus tracking
     for (let i = messages.length - 1; i >= 0; i--) {
       if (expandedIds.has(messages[i].id)) return i;
     }
@@ -137,7 +143,7 @@ export function EmailThread({
         Math.min(messages.length - 1, focusedExpanded + delta),
       );
       const id = messages[nextIdx].id;
-      setExpandedIds((prev) => new Set(prev).add(id));
+      setUserToggles((prev) => ({ ...prev, [id]: true }));
       // Scroll into view after render
       setTimeout(() => {
         expandedRef.current?.scrollIntoView({
@@ -383,11 +389,7 @@ export function EmailThread({
                 ref={expandedRef}
                 email={msg}
                 onCollapse={() => {
-                  setExpandedIds((prev) => {
-                    const next = new Set(prev);
-                    next.delete(msg.id);
-                    return next;
-                  });
+                  setUserToggles((prev) => ({ ...prev, [msg.id]: false }));
                 }}
                 onReply={() => handleReply(msg)}
                 onForward={() => {
@@ -408,7 +410,7 @@ export function EmailThread({
                 key={msg.id}
                 email={msg}
                 onClick={() => {
-                  setExpandedIds((prev) => new Set(prev).add(msg.id));
+                  setUserToggles((prev) => ({ ...prev, [msg.id]: true }));
                   setTimeout(() => {
                     expandedRef.current?.scrollIntoView({
                       block: "nearest",
