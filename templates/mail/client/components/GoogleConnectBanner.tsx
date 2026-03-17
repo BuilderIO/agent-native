@@ -89,7 +89,8 @@ export function GoogleConnectBanner({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const redirectUri = `${getCallbackOrigin()}/api/google/callback`;
+  // Use the app's own origin for the callback, not the harness origin
+  const redirectUri = `${typeof window !== "undefined" ? window.location.origin : getCallbackOrigin()}/api/google/callback`;
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -209,8 +210,8 @@ export function GoogleConnectBanner({
 
   if (dismissed) return null;
 
-  // Full-page hero for first-time setup
-  if (variant === "hero" && !hasAccounts) {
+  // Full-page hero for setup / reconnection
+  if (variant === "hero") {
     return (
       <div className="flex flex-1 flex-col items-center justify-center text-center px-6">
         <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-white/[0.06]">

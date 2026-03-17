@@ -4,6 +4,19 @@ You are the AI assistant for this email client. You can read, search, organize, 
 
 This is an **agent-native** email client built with `@agent-native/core`.
 
+## Learnings & Preferences
+
+**Always read `learnings.md` at the start of every conversation.** This file is the app's memory — it contains user preferences, corrections, important context, and patterns learned from past interactions.
+
+**Update `learnings.md` when you learn something important:**
+
+- User corrects your tone, style, or approach
+- User shares personal info relevant to the app (contacts, preferences, habits)
+- You discover a non-obvious pattern or gotcha
+- User gives feedback that should apply to future conversations
+
+Keep entries concise and actionable. Group by category. This file is gitignored so personal data stays local.
+
 ## Data Sources
 
 **When a Google account is connected**, emails come from the Gmail API — the app works with real emails. **When no account is connected**, `data/emails.json` is used as a local store (starts empty).
@@ -60,9 +73,9 @@ Local state is in JSON files in `data/`. When a Google account is connected, the
 
 ### Compose Drafts (Application State)
 
-The compose window is driven by `application-state/compose.json`. Write this file to open the compose window with a draft; edit it to update a draft in progress; delete it to close the compose window. See `.agents/skills/email-drafts/SKILL.md` for full details.
+Each draft is a separate file: `application-state/compose-{id}.json`. Multiple drafts can exist simultaneously — they appear as tabs in the compose panel. Write a file to open a new draft tab; edit it to update a draft in progress; delete it to close that tab. See `.agents/skills/email-drafts/SKILL.md` for full details.
 
-When the user asks you to **draft**, **compose**, or **write** an email, write `application-state/compose.json` — the UI will open the compose window automatically with your content.
+When the user asks you to **draft**, **compose**, or **write** an email, write `application-state/compose-{id}.json` (pick any unique id) — the UI will open the compose panel automatically with your content as a new tab.
 
 ### Email object shape
 
@@ -100,12 +113,13 @@ When a Google account is connected, use the API routes (PATCH/POST) to modify em
 
 Ephemeral UI state lives in `application-state/` as JSON files. These files are gitignored but visible to agent tools (via `.ignore`). Write to these files to trigger UI actions. The UI syncs its state here so you can always see what the user is looking at.
 
-| File                                | Purpose                                     | Direction                                   |
-| ----------------------------------- | ------------------------------------------- | ------------------------------------------- |
-| `application-state/navigation.json` | Current view, open thread, focused email    | UI → Agent (read-only for agent)            |
-| `application-state/email-list.json` | Emails currently displayed on user's screen | UI → Agent (read-only for agent)            |
-| `application-state/navigate.json`   | Navigate the user to a view/thread          | Agent → UI (one-shot command, auto-deleted) |
-| `application-state/compose.json`    | Current email draft in compose window       | Bidirectional                               |
+| File                                  | Purpose                                     | Direction                                   |
+| ------------------------------------- | ------------------------------------------- | ------------------------------------------- |
+| `application-state/navigation.json`   | Current view, open thread, focused email    | UI → Agent (read-only for agent)            |
+| `application-state/email-list.json`   | Emails currently displayed on user's screen | UI → Agent (read-only for agent)            |
+| `application-state/thread.json`       | Full messages of the open thread            | UI → Agent (read-only for agent)            |
+| `application-state/navigate.json`     | Navigate the user to a view/thread          | Agent → UI (one-shot command, auto-deleted) |
+| `application-state/compose-{id}.json` | Email draft (one file per draft tab)        | Bidirectional                               |
 
 ### Navigation state (read what the user sees)
 
@@ -147,6 +161,40 @@ The UI automatically syncs `application-state/email-list.json` with a compact su
 
 **Do NOT write to `email-list.json`** — it is synced by the UI. To get more details about an email, use `GET /api/emails/:id` or `GET /api/threads/:threadId/messages`.
 
+### Open thread (full conversation context)
+
+When the user is viewing an email thread, the UI syncs the full messages to `application-state/thread.json`. **This is the fastest way to read the conversation** the user is looking at — including all message bodies:
+
+```json
+{
+  "threadId": "thread-xyz",
+  "messages": [
+    {
+      "id": "msg-1",
+      "from": "Alice <alice@example.com>",
+      "to": ["You <me@example.com>"],
+      "subject": "Project update",
+      "body": "Hey, here's the latest...",
+      "date": "2026-03-16T10:30:00Z",
+      "isRead": true
+    },
+    {
+      "id": "msg-2",
+      "from": "You <me@example.com>",
+      "to": ["Alice <alice@example.com>"],
+      "subject": "Re: Project update",
+      "body": "Thanks! I'll review this afternoon.",
+      "date": "2026-03-16T14:00:00Z",
+      "isRead": true
+    }
+  ]
+}
+```
+
+**Do NOT write to `thread.json`** — it is synced by the UI and deleted when the user navigates away from the thread.
+
+When the user is composing a reply and asks for help, read the compose draft (`compose-*.json`) to find `replyToThreadId`, then read `thread.json` (or fetch via API) to get the full conversation for context.
+
 ### Navigate command (control the UI)
 
 Write `application-state/navigate.json` to navigate the user to a specific email or view. The UI reads it, navigates, and deletes the file automatically:
@@ -165,16 +213,17 @@ This is a one-shot command — the file is deleted after the UI processes it.
 | User request                                  | What to do                                                                                                                     |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | "What email am I looking at?"                 | Read `application-state/navigation.json` to get the threadId, then fetch that thread via `GET /api/threads/:threadId/messages` |
-| "Reply to this email"                         | Read navigation.json for threadId → fetch thread via API → write compose.json with mode=reply                                  |
+| "Reply to this email"                         | Read navigation.json for threadId → fetch thread via API → write compose-{id}.json with mode=reply                             |
 | "Find the email from Alice about the project" | `pnpm script list-emails --q=alice`, then write `application-state/navigate.json` with the matching threadId to open it        |
 | "Open my starred emails"                      | Write `application-state/navigate.json` with `{"view": "starred"}`                                                             |
 
 ### Compose emails
 
-Write `application-state/compose.json` to open the compose window with pre-filled content:
+Write `application-state/compose-{id}.json` to open a new draft tab with pre-filled content:
 
 ```json
 {
+  "id": "my-draft-1",
   "to": "alice@example.com",
   "subject": "Project update",
   "body": "Hi Alice,\n\nHere's the latest on the project...",
@@ -182,13 +231,14 @@ Write `application-state/compose.json` to open the compose window with pre-fille
 }
 ```
 
-The compose window opens automatically when this file exists. The user can edit the draft and send it.
+The compose panel opens automatically when any draft file exists. Multiple drafts appear as tabs. The `id` field must match the `{id}` in the filename.
 
 To update an in-progress draft (e.g., user asks "make this more formal"):
 
-1. Read `application-state/compose.json`
-2. Modify the fields you want to change
-3. Write the file back
+1. List drafts: `ls application-state/compose-*.json`
+2. Read the relevant draft file
+3. Modify the fields you want to change
+4. Write the file back
 
 The UI will pick up the changes automatically (via SSE).
 
@@ -196,6 +246,7 @@ The UI will pick up the changes automatically (via SSE).
 
 | Field             | Type   | Required | Description                         |
 | ----------------- | ------ | -------- | ----------------------------------- |
+| `id`              | string | yes      | Unique draft ID (matches filename)  |
 | `to`              | string | yes      | Comma-separated recipient emails    |
 | `cc`              | string | no       | Comma-separated CC emails           |
 | `bcc`             | string | no       | Comma-separated BCC emails          |
@@ -207,16 +258,17 @@ The UI will pick up the changes automatically (via SSE).
 
 #### Common tasks
 
-| User request                      | What to do                                                                                          |
-| --------------------------------- | --------------------------------------------------------------------------------------------------- |
-| "Summarize my inbox"              | Read `application-state/email-list.json` — the emails on screen are already there                   |
-| "Draft an email to Alice about X" | Write `application-state/compose.json` with to, subject, body, mode=compose                         |
-| "Make this draft more formal"     | Read compose.json, rewrite body, write back                                                         |
-| "Change the subject to Y"         | Read compose.json, update subject, write back                                                       |
-| "Reply to this email saying Z"    | Read navigation.json for current threadId, fetch thread via API, write compose.json with mode=reply |
-| "What am I looking at?"           | Read navigation.json + email-list.json, then fetch thread via `GET /api/threads/:threadId/messages` |
-| "Find the email about X"          | `pnpm script search-emails --q=X`, write `application-state/navigate.json` with matching threadId   |
-| "Open my starred emails"          | Write `application-state/navigate.json` with `{"view": "starred"}`                                  |
+| User request                      | What to do                                                                                                                                                                                |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Summarize my inbox"              | Read `application-state/email-list.json` — the emails on screen are already there                                                                                                         |
+| "Draft an email to Alice about X" | Write `application-state/compose-{id}.json` with id, to, subject, body, mode=compose                                                                                                      |
+| "Make this draft more formal"     | List compose-\*.json, read the draft, rewrite body, write back                                                                                                                            |
+| "Change the subject to Y"         | List compose-\*.json, read the draft, update subject, write back                                                                                                                          |
+| "Reply to this email saying Z"    | Read navigation.json for threadId, fetch thread via API, write compose-{id}.json with mode=reply                                                                                          |
+| "Help me write this reply"        | Read the open compose draft (compose-\*.json) → get replyToThreadId → fetch full thread via `GET /api/threads/:threadId/messages` → use the conversation context to update the draft body |
+| "What am I looking at?"           | Read navigation.json + email-list.json, then fetch thread via `GET /api/threads/:threadId/messages`                                                                                       |
+| "Find the email about X"          | `pnpm script search-emails --q=X`, write `application-state/navigate.json` with matching threadId                                                                                         |
+| "Open my starred emails"          | Write `application-state/navigate.json` with `{"view": "starred"}`                                                                                                                        |
 
 ## Scripts
 

@@ -26,9 +26,20 @@ dist-ssr
 .config/
 .env
 
+# User data (gitignored, defaults copied on first run)
+data/settings.json
+data/emails.json
+data/labels.json
+
 # Google OAuth tokens (sensitive, never commit)
 data/google-auth.json
 data/google-accounts/
 
+# Uploaded media (images, attachments)
+data/uploads/
+
 # Ephemeral UI state (agent-readable, not persisted)
 application-state/
+
+# Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
+learnings.md

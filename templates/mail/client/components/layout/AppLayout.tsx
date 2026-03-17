@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
   Link,
   useNavigate,
-  useParams,
+  useLocation,
   useSearchParams,
 } from "react-router-dom";
 import { IconChevronRight, IconChevronLeft } from "@tabler/icons-react";
@@ -15,7 +15,15 @@ import {
   useSequenceShortcuts,
 } from "@/hooks/use-keyboard-shortcuts";
 import { runUndo } from "@/hooks/use-undo";
-import { useLabels, useSettings, useUpdateSettings } from "@/hooks/use-emails";
+import {
+  useLabels,
+  useSettings,
+  useUpdateSettings,
+  useEmails,
+  useReportSpam,
+  useBlockSender,
+  useMuteThread,
+} from "@/hooks/use-emails";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
@@ -24,6 +32,14 @@ import {
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { getCallbackOrigin } from "@agent-native/core/client";
 import type { Label } from "@shared/types";
+import { toast } from "sonner";
+
+/** Extract the trailing segment of a nested label name, e.g. "[Superhuman]/AI/Pitch" → "Pitch" */
+function shortLabelName(name: string): string {
+  const lastSlash = name.lastIndexOf("/");
+  if (lastSlash >= 0) return name.slice(lastSlash + 1).replace(/_/g, " ");
+  return name;
+}
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -43,12 +59,12 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [moreOpen, setMoreOpen] = useState(false);
   const navigate = useNavigate();
-  const { view = "inbox", threadId } = useParams<{
-    view: string;
-    threadId: string;
-  }>();
+  const location = useLocation();
+  // Parse view and threadId from pathname since AppLayout is outside <Routes>
+  const pathSegments = location.pathname.split("/").filter(Boolean);
+  const view = pathSegments[0] || "inbox";
+  const threadId = pathSegments[1] || undefined;
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
   const { data: labels = [] } = useLabels();
@@ -94,14 +110,23 @@ export function AppLayout({ children }: AppLayoutProps) {
         });
         continue;
       }
-      // Check if it's a user label
+      // Check if it's a user label (handle old nested-path IDs like "[superhuman]/ai/pitch")
+      const normalizedId = id.includes("/")
+        ? id
+            .slice(id.lastIndexOf("/") + 1)
+            .replace(/_/g, " ")
+            .toLowerCase()
+        : id.toLowerCase();
       const lbl = labels.find(
-        (l) => l.id === id || l.name.toLowerCase() === id.toLowerCase(),
+        (l) =>
+          l.id === normalizedId ||
+          l.id === id ||
+          l.name.toLowerCase() === id.toLowerCase(),
       );
       if (lbl) {
         tabs.push({
           id: lbl.id,
-          label: lbl.name,
+          label: shortLabelName(lbl.name),
           href: `/inbox?label=${encodeURIComponent(lbl.id)}`,
           isActive: activeLabel === lbl.id,
           color: lbl.color,
@@ -121,13 +146,19 @@ export function AppLayout({ children }: AppLayoutProps) {
   const currentInHidden = hiddenViews.some((v) => v.id === view);
 
   // User labels available for pinning
-  const userLabels = useMemo(
-    () =>
-      labels.filter(
-        (l) => !["inbox", ...collapsibleViews.map((v) => v.id)].includes(l.id),
-      ),
-    [labels],
-  );
+  const userLabels = useMemo(() => {
+    const filtered = labels.filter(
+      (l) => !["inbox", ...collapsibleViews.map((v) => v.id)].includes(l.id),
+    );
+    // Deduplicate by display name (different paths can have the same short name)
+    const seen = new Set<string>();
+    return filtered.filter((l) => {
+      const key = l.name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [labels]);
 
   // Close popovers on outside click
   useEffect(() => {
@@ -164,6 +195,78 @@ export function AppLayout({ children }: AppLayoutProps) {
     });
   }, [compose]);
 
+  // Spam / block / mute actions (need current email context)
+  const { data: currentViewEmails = [] } = useEmails(view);
+  const reportSpam = useReportSpam();
+  const blockSender = useBlockSender();
+  const muteThread = useMuteThread();
+
+  // Find the target email: from open thread, or the focused row in the list via navigation state
+  const [focusedListId, setFocusedListId] = useState<string | null>(null);
+
+  // Poll navigation.json for the focused email ID (synced by InboxPage)
+  useEffect(() => {
+    if (threadId) return; // thread view has its own context
+    const fetchNav = async () => {
+      try {
+        const res = await fetch("/api/application-state/navigation");
+        if (res.ok) {
+          const nav = await res.json();
+          if (nav?.focusedEmailId) setFocusedListId(nav.focusedEmailId);
+        }
+      } catch {}
+    };
+    fetchNav();
+    // Re-check when palette opens
+    if (paletteOpen) fetchNav();
+  }, [threadId, paletteOpen]);
+
+  const targetEmail = useMemo(() => {
+    if (threadId) {
+      return currentViewEmails.find((e) => (e.threadId || e.id) === threadId);
+    }
+    if (focusedListId) {
+      return currentViewEmails.find((e) => e.id === focusedListId);
+    }
+    return undefined;
+  }, [threadId, focusedListId, currentViewEmails]);
+
+  const handleSpam = useCallback(() => {
+    if (!targetEmail) {
+      toast.error("No email selected.");
+      return;
+    }
+    reportSpam.mutate(targetEmail.id);
+    toast("Reported as spam.");
+    if (threadId) navigate(`/${view}`);
+  }, [targetEmail, reportSpam, navigate, view, threadId]);
+
+  const handleBlockSender = useCallback(() => {
+    if (!targetEmail) {
+      toast.error("No email selected.");
+      return;
+    }
+    blockSender.mutate({
+      id: targetEmail.id,
+      senderEmail: targetEmail.from.email,
+    });
+    toast(`Reported as spam & blocked ${targetEmail.from.email}.`);
+    if (threadId) navigate(`/${view}`);
+  }, [targetEmail, blockSender, navigate, view, threadId]);
+
+  const handleMuteThread = useCallback(() => {
+    const tid =
+      threadId ||
+      (targetEmail ? targetEmail.threadId || targetEmail.id : undefined);
+    if (!tid) {
+      toast.error("No thread selected.");
+      return;
+    }
+    muteThread.mutate(tid);
+    toast("Thread muted.");
+    if (threadId) navigate(`/${view}`);
+  }, [threadId, targetEmail, muteThread, navigate, view]);
+
   const handleSearch = (q: string) => {
     if (q.trim()) {
       navigate(`/inbox?q=${encodeURIComponent(q.trim())}`);
@@ -182,6 +285,19 @@ export function AppLayout({ children }: AppLayoutProps) {
   );
 
   // Global keyboard shortcuts
+  const cycleTab = useCallback(
+    (reverse?: boolean) => {
+      if (visibleTabs.length < 2) return;
+      const activeIdx = visibleTabs.findIndex((t) => t.isActive);
+      const delta = reverse ? -1 : 1;
+      const nextIdx =
+        (activeIdx === -1 ? 0 : activeIdx + delta + visibleTabs.length) %
+        visibleTabs.length;
+      navigate(visibleTabs[nextIdx].href);
+    },
+    [visibleTabs, navigate],
+  );
+
   useKeyboardShortcuts([
     {
       key: "k",
@@ -197,6 +313,15 @@ export function AppLayout({ children }: AppLayoutProps) {
     },
     { key: "c", handler: handleCompose },
     { key: "z", handler: runUndo },
+    {
+      key: "Tab",
+      handler: () => cycleTab(false),
+    },
+    {
+      key: "Tab",
+      shift: true,
+      handler: () => cycleTab(true),
+    },
     {
       key: "Escape",
       handler: () => {
@@ -219,22 +344,22 @@ export function AppLayout({ children }: AppLayoutProps) {
   ]);
 
   // Get unread counts for tabs
-  const getUnreadCount = (viewId: string) => {
+  const getTotalCount = (viewId: string) => {
     const label = labels.find((l) => l.id === viewId);
-    return label?.unreadCount ?? 0;
+    return label?.totalCount ?? 0;
   };
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       {/* Main content area */}
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="relative flex flex-1 flex-col overflow-hidden">
         {/* Top nav bar — hidden when viewing a thread */}
         {!threadId && (
-          <header className="flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2">
+          <header className="relative z-20 flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2 inbox-zero-header">
             {/* Visible tabs */}
             <nav className="flex items-center gap-0.5 overflow-x-auto hide-scrollbar">
               {visibleTabs.map((tab) => {
-                const count = getUnreadCount(tab.id);
+                const count = getTotalCount(tab.id);
                 return (
                   <Link
                     key={tab.id}
@@ -269,51 +394,11 @@ export function AppLayout({ children }: AppLayoutProps) {
                 );
               })}
 
-              {/* If current view is hidden, show it as an active tab */}
+              {/* If navigated to an unpinned view (e.g. via keyboard shortcut), show it */}
               {currentInHidden && (
                 <span className="flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
                   {collapsibleViews.find((v) => v.id === view)?.label}
                 </span>
-              )}
-
-              {/* "More" expands hidden system views inline */}
-              {hiddenViews.length > 0 && (
-                <>
-                  {moreOpen ? (
-                    <>
-                      {hiddenViews.map((v) => {
-                        const isActive = view === v.id;
-                        return (
-                          <Link
-                            key={v.id}
-                            to={`/${v.id}`}
-                            className={cn(
-                              "flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] transition-colors",
-                              isActive
-                                ? "text-foreground font-semibold"
-                                : "text-muted-foreground font-medium hover:text-foreground/80",
-                            )}
-                          >
-                            {v.label}
-                          </Link>
-                        );
-                      })}
-                      <button
-                        onClick={() => setMoreOpen(false)}
-                        className="flex h-6 w-6 items-center justify-center rounded transition-colors text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30"
-                      >
-                        <IconChevronLeft size={18} stroke={2.5} />
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => setMoreOpen(true)}
-                      className="flex h-6 w-6 items-center justify-center rounded transition-colors text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30"
-                    >
-                      <IconChevronRight size={18} stroke={2.5} />
-                    </button>
-                  )}
-                </>
               )}
             </nav>
 
@@ -460,11 +545,32 @@ export function AppLayout({ children }: AppLayoutProps) {
         )}
       </div>
 
-      {compose.data && (
+      {compose.drafts.length > 0 && (
         <ComposeModal
-          composeState={compose.data}
+          drafts={compose.drafts}
+          activeId={compose.activeId}
+          activeDraft={compose.activeDraft}
+          onSetActiveId={compose.setActiveId}
           onUpdate={compose.update}
-          onClose={compose.clear}
+          onClose={(id) => {
+            const draft = compose.drafts.find((d) => d.id === id);
+            const hasContent = !!(
+              draft?.to?.trim() ||
+              draft?.subject?.trim() ||
+              draft?.body?.trim()
+            );
+            compose.close(id);
+            if (hasContent) toast("Draft saved.");
+          }}
+          onCloseAll={() => {
+            const hasAnyContent = compose.drafts.some(
+              (d) => !!(d.to?.trim() || d.subject?.trim() || d.body?.trim()),
+            );
+            compose.closeAll();
+            if (hasAnyContent) toast("Drafts saved.");
+          }}
+          onDiscard={compose.discard}
+          onNewDraft={handleCompose}
           onFlush={compose.flush}
         />
       )}
@@ -472,6 +578,9 @@ export function AppLayout({ children }: AppLayoutProps) {
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         onCompose={handleCompose}
+        onSpam={handleSpam}
+        onBlockSender={handleBlockSender}
+        onMuteThread={handleMuteThread}
       />
     </div>
   );
@@ -616,7 +725,7 @@ function TabSettingsPopover({
               <CheckboxRow
                 key={label.id}
                 checked={pinnedLabels.includes(label.id)}
-                label={label.name}
+                label={shortLabelName(label.name)}
                 color={label.color}
                 onToggle={() => onToggle(label.id)}
               />
