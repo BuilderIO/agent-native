@@ -48,15 +48,23 @@ function readSettings(): UserSettings {
   try {
     return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf-8"));
   } catch {
-    return {
-      name: "Alex Johnson",
-      email: "me@example.com",
-      theme: "dark",
-      density: "comfortable",
-      previewPane: "right",
-      sendAndArchive: false,
-      undoSendDelay: 5,
-    };
+    // Copy defaults on first run
+    const defaultsFile = path.join(DATA_DIR, "settings.defaults.json");
+    try {
+      const defaults = fs.readFileSync(defaultsFile, "utf-8");
+      fs.writeFileSync(SETTINGS_FILE, defaults);
+      return JSON.parse(defaults);
+    } catch {
+      return {
+        name: "Alex Johnson",
+        email: "me@example.com",
+        theme: "dark",
+        density: "comfortable",
+        previewPane: "right",
+        sendAndArchive: false,
+        undoSendDelay: 5,
+      };
+    }
   }
 }
 
