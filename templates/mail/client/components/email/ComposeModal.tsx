@@ -136,7 +136,7 @@ export function ComposeModal({
 
     sendToAgent({
       message: generatePrompt.trim(),
-      context: `The user is composing an email. The current draft is saved in application-state/compose-${activeId}.json. You can read and update it directly.\n\n${context || "(empty draft)"}`,
+      context: `The user is composing an email. The current draft is saved in application-state/compose-${activeId}.json.\n\nIMPORTANT: Update this EXISTING file (compose-${activeId}.json) — do NOT create a new compose file. Read it first, then write back to the same file with your changes.\n\n${context || "(empty draft)"}`,
       submit: true,
     });
 
@@ -190,25 +190,70 @@ export function ComposeModal({
       )}
       onKeyDown={handleKeyDown}
     >
-      {/* Window title bar */}
-      <div className="flex h-11 shrink-0 items-center justify-between rounded-t-xl px-4">
-        <span className="text-sm font-semibold text-foreground">{title}</span>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
+      {/* Title bar with inline tabs */}
+      <div className="flex h-11 shrink-0 items-center rounded-t-xl px-2 gap-0">
+        {/* Left side: tabs (or single title) */}
+        <div className="flex flex-1 items-center min-w-0 overflow-x-auto hide-scrollbar gap-0.5">
+          {drafts.length <= 1 ? (
+            /* Single draft: just show the title */
+            <span className="text-sm font-semibold text-foreground px-2 truncate">
+              {title}
+            </span>
+          ) : (
+            /* Multiple drafts: show tabs */
+            drafts.map((draft) => {
+              const isActive = draft.id === activeId;
+              const label =
+                draft.subject?.trim() ||
+                (draft.mode === "reply"
+                  ? "Reply"
+                  : draft.mode === "forward"
+                    ? "Forward"
+                    : "New message");
+              return (
+                <button
+                  key={draft.id}
+                  onClick={() => onSetActiveId(draft.id)}
+                  className={cn(
+                    "group flex items-center gap-1 rounded-md px-2 py-1 text-[12px] max-w-[140px] shrink-0 transition-colors",
+                    isActive
+                      ? "bg-accent/60 text-foreground font-medium"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
+                  )}
+                >
+                  <span className="truncate">{label}</span>
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onClose(draft.id);
+                    }}
+                    className={cn(
+                      "shrink-0 rounded-sm p-0.5 transition-colors",
+                      isActive
+                        ? "hover:bg-foreground/10"
+                        : "opacity-0 group-hover:opacity-100 hover:bg-foreground/10",
+                    )}
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </span>
+                </button>
+              );
+            })
+          )}
+          {/* + button: always visible, right after title/tabs */}
+          <button
             onClick={onNewDraft}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/30 transition-colors"
             title="New draft"
           >
-            <svg
-              viewBox="0 0 16 16"
-              fill="currentColor"
-              className="h-3.5 w-3.5"
-            >
+            <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
               <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z" />
             </svg>
-          </Button>
+          </button>
+        </div>
+
+        {/* Right side: minimize & close */}
+        <div className="flex items-center gap-1 shrink-0 ml-1">
           <Button
             variant="ghost"
             size="icon"
@@ -227,60 +272,6 @@ export function ComposeModal({
           </Button>
         </div>
       </div>
-
-      {/* Tab bar — only shown with multiple drafts */}
-      {drafts.length > 1 && !minimized && (
-        <div className="flex items-center border-b border-border/50 px-1 gap-0.5 overflow-x-auto hide-scrollbar">
-          {drafts.map((draft) => {
-            const isActive = draft.id === activeId;
-            const label =
-              draft.subject?.trim() ||
-              (draft.mode === "reply"
-                ? "Reply"
-                : draft.mode === "forward"
-                  ? "Forward"
-                  : "New message");
-            return (
-              <button
-                key={draft.id}
-                onClick={() => onSetActiveId(draft.id)}
-                className={cn(
-                  "group flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] max-w-[160px] shrink-0 transition-colors",
-                  isActive
-                    ? "bg-accent/60 text-foreground font-medium"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
-                )}
-              >
-                <span className="truncate">{label}</span>
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onClose(draft.id);
-                  }}
-                  className={cn(
-                    "shrink-0 rounded-sm p-0.5 transition-colors",
-                    isActive
-                      ? "hover:bg-foreground/10"
-                      : "opacity-0 group-hover:opacity-100 hover:bg-foreground/10",
-                  )}
-                >
-                  <X className="h-3 w-3" />
-                </span>
-              </button>
-            );
-          })}
-          {/* New draft + button */}
-          <button
-            onClick={onNewDraft}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/30 transition-colors"
-            title="New draft"
-          >
-            <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
-              <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z" />
-            </svg>
-          </button>
-        </div>
-      )}
 
       {activeDraft && !minimized && (
         <>

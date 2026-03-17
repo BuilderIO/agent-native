@@ -345,10 +345,10 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       {/* Main content area */}
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="relative flex flex-1 flex-col overflow-hidden">
         {/* Top nav bar — hidden when viewing a thread */}
         {!threadId && (
-          <header className="flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2">
+          <header className="relative z-20 flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card/80 backdrop-blur-sm px-2">
             {/* Visible tabs */}
             <nav className="flex items-center gap-0.5 overflow-x-auto hide-scrollbar">
               {visibleTabs.map((tab) => {

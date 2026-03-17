@@ -29,3 +29,6 @@ dist-ssr
 # Generated chart images (ephemeral)
 media/*.png
 media/theme.json
+
+# Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
+learnings.md

@@ -108,3 +108,5 @@ rm application-state/compose-draft1.json
 - Multiple drafts can exist simultaneously — each appears as a tab in the compose panel
 - When the user asks you to "draft" or "compose" an email, write a compose file — don't use the send API directly
 - When the user asks you to "edit" or "improve" a draft, list drafts first, then read and update the relevant one
+- **When called from the compose Generate button:** the context tells you which file to update (e.g. `compose-abc123.json`). Always update THAT file — do NOT create a new file with a different ID. Read the existing file, modify it, and write it back to the same path.
+- **When drafting from scratch (no compose window open):** create a new file with any unique ID

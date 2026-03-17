@@ -27,9 +27,13 @@ function FileWatcherSetup() {
     queryKeys: [], // We handle invalidation in onEvent
     onEvent: (data: { type: string; path: string }) => {
       if (data.path?.includes("application-state")) {
-        // Only invalidate compose-drafts when a compose file actually changed
+        // Force refetch compose-drafts when a compose file changes
+        // (agent may have created/updated a draft — must pick it up immediately)
         if (data.path?.includes("compose-")) {
-          qc.invalidateQueries({ queryKey: ["compose-drafts"] });
+          qc.invalidateQueries({
+            queryKey: ["compose-drafts"],
+            refetchType: "all",
+          });
         }
         qc.invalidateQueries({ queryKey: ["navigate-command"] });
       } else {

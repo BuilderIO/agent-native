@@ -137,7 +137,7 @@ const INBOX_ZERO_PHOTOS = [
   "photo-1552083375-1447ce886485", // Japanese garden
 ];
 
-function InboxZero() {
+export function InboxZero() {
   const [loaded, setLoaded] = useState(false);
 
   // Pick a photo based on the day of the year
@@ -150,7 +150,7 @@ function InboxZero() {
   const imageUrl = `https://images.unsplash.com/${photoId}?w=1920&q=80&fit=crop`;
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden">
+    <div className="absolute inset-0 z-10 flex flex-col overflow-hidden">
       {/* Background image */}
       <img
         src={imageUrl}

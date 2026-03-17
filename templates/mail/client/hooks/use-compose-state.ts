@@ -21,7 +21,7 @@ export function useComposeState() {
   const dirtyRef = useRef<Record<string, boolean>>({});
   const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  // Fetch all drafts
+  // Fetch all drafts — short staleTime so agent-written drafts appear quickly
   const query = useQuery<ComposeState[]>({
     queryKey: ["compose-drafts"],
     queryFn: async () => {
@@ -30,7 +30,8 @@ export function useComposeState() {
       );
       return result ?? [];
     },
-    staleTime: 5_000,
+    staleTime: 1_000,
+    refetchOnWindowFocus: true,
   });
 
   const drafts = query.data ?? [];

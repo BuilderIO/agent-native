@@ -27,3 +27,7 @@ dist-ssr
 
 # Data
 data/uploads/
+data/settings.json
+
+# Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
+learnings.md

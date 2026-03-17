@@ -1,7 +1,11 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { EmailList, InboxZero, groupIntoThreads } from "@/components/email/EmailList";
+import {
+  EmailList,
+  InboxZero,
+  groupIntoThreads,
+} from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
 import { useComposeState } from "@/hooks/use-compose-state";
 import {

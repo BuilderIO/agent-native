@@ -4,6 +4,19 @@ You are the AI assistant for this email client. You can read, search, organize, 
 
 This is an **agent-native** email client built with `@agent-native/core`.
 
+## Learnings & Preferences
+
+**Always read `learnings.md` at the start of every conversation.** This file is the app's memory — it contains user preferences, corrections, important context, and patterns learned from past interactions.
+
+**Update `learnings.md` when you learn something important:**
+
+- User corrects your tone, style, or approach
+- User shares personal info relevant to the app (contacts, preferences, habits)
+- You discover a non-obvious pattern or gotcha
+- User gives feedback that should apply to future conversations
+
+Keep entries concise and actionable. Group by category. This file is gitignored so personal data stays local.
+
 ## Data Sources
 
 **When a Google account is connected**, emails come from the Gmail API — the app works with real emails. **When no account is connected**, `data/emails.json` is used as a local store (starts empty).
@@ -245,17 +258,17 @@ The UI will pick up the changes automatically (via SSE).
 
 #### Common tasks
 
-| User request                      | What to do                                                                                          |
-| --------------------------------- | --------------------------------------------------------------------------------------------------- |
-| "Summarize my inbox"              | Read `application-state/email-list.json` — the emails on screen are already there                   |
-| "Draft an email to Alice about X" | Write `application-state/compose-{id}.json` with id, to, subject, body, mode=compose                |
-| "Make this draft more formal"     | List compose-\*.json, read the draft, rewrite body, write back                                      |
-| "Change the subject to Y"         | List compose-\*.json, read the draft, update subject, write back                                    |
-| "Reply to this email saying Z"    | Read navigation.json for threadId, fetch thread via API, write compose-{id}.json with mode=reply    |
+| User request                      | What to do                                                                                                                                                                                |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Summarize my inbox"              | Read `application-state/email-list.json` — the emails on screen are already there                                                                                                         |
+| "Draft an email to Alice about X" | Write `application-state/compose-{id}.json` with id, to, subject, body, mode=compose                                                                                                      |
+| "Make this draft more formal"     | List compose-\*.json, read the draft, rewrite body, write back                                                                                                                            |
+| "Change the subject to Y"         | List compose-\*.json, read the draft, update subject, write back                                                                                                                          |
+| "Reply to this email saying Z"    | Read navigation.json for threadId, fetch thread via API, write compose-{id}.json with mode=reply                                                                                          |
 | "Help me write this reply"        | Read the open compose draft (compose-\*.json) → get replyToThreadId → fetch full thread via `GET /api/threads/:threadId/messages` → use the conversation context to update the draft body |
-| "What am I looking at?"           | Read navigation.json + email-list.json, then fetch thread via `GET /api/threads/:threadId/messages` |
-| "Find the email about X"          | `pnpm script search-emails --q=X`, write `application-state/navigate.json` with matching threadId   |
-| "Open my starred emails"          | Write `application-state/navigate.json` with `{"view": "starred"}`                                  |
+| "What am I looking at?"           | Read navigation.json + email-list.json, then fetch thread via `GET /api/threads/:threadId/messages`                                                                                       |
+| "Find the email about X"          | `pnpm script search-emails --q=X`, write `application-state/navigate.json` with matching threadId                                                                                         |
+| "Open my starred emails"          | Write `application-state/navigate.json` with `{"view": "starred"}`                                                                                                                        |
 
 ## Scripts
 

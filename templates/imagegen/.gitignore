@@ -1,3 +1,6 @@
 node_modules/
 dist/
 .env
+
+# Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
+learnings.md
