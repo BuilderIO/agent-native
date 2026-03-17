@@ -82,11 +82,7 @@ function readFromFile(view: string, query?: string): EmailMessage[] {
     case "unread":
       filtered = emails.filter(
         (e) =>
-          !e.isRead &&
-          !e.isArchived &&
-          !e.isTrashed &&
-          !e.isDraft &&
-          !e.isSent,
+          !e.isRead && !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
       );
       break;
     case "starred":

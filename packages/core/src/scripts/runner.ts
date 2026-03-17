@@ -39,9 +39,7 @@ export async function runScript(): Promise<void> {
       "scripts",
       `${scriptName}.ts`,
     );
-    const mod = await import(
-      /* @vite-ignore */ pathToFileURL(scriptPath).href
-    );
+    const mod = await import(/* @vite-ignore */ pathToFileURL(scriptPath).href);
     const args = process.argv.slice(3);
     await mod.default(args);
   } catch (err: any) {

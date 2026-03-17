@@ -172,9 +172,7 @@ function ApolloEnrichment({ email }: { email: string }) {
           />
         )}
         <div className="min-w-0">
-          <h3 className="text-[14px] font-semibold text-foreground">
-            {name}
-          </h3>
+          <h3 className="text-[14px] font-semibold text-foreground">{name}</h3>
           <p className="text-[12px] text-muted-foreground">{email}</p>
           {person.title && (
             <p className="text-[11px] text-muted-foreground/60 mt-0.5">
@@ -187,9 +185,7 @@ function ApolloEnrichment({ email }: { email: string }) {
             </p>
           )}
           {location && (
-            <p className="text-[11px] text-muted-foreground/50">
-              {location}
-            </p>
+            <p className="text-[11px] text-muted-foreground/50">{location}</p>
           )}
         </div>
       </div>
@@ -364,7 +360,10 @@ function ApolloSettingsPopover() {
   useEffect(() => {
     if (!open) return;
     const handleClick = (e: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+      if (
+        popoverRef.current &&
+        !popoverRef.current.contains(e.target as Node)
+      ) {
         setOpen(false);
       }
     };

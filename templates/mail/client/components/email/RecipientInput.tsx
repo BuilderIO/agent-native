@@ -41,9 +41,7 @@ export function RecipientInput({
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const { data: contacts = [], isLoading, error } = useContacts();
-
-  console.log("[RecipientInput] contacts:", contacts.length, "loading:", isLoading, "error:", error?.message, "inputValue:", inputValue);
+  const { data: contacts = [] } = useContacts();
 
   const recipients = parseRecipients(value);
 

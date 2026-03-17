@@ -578,11 +578,9 @@ export async function listContacts(
   _req: Request,
   res: Response,
 ): Promise<void> {
-  console.log("[listContacts] called, isConnected:", isConnected());
   if (isConnected()) {
     try {
       const clients = await getClients();
-      console.log("[listContacts] clients:", clients.length);
       const contactMap = new Map<
         string,
         { name: string; email: string; count: number }
@@ -666,12 +664,9 @@ export async function listContacts(
       }
 
       // If People API returned nothing (e.g. missing scopes), extract from Gmail
-      console.log("[listContacts] People API contacts:", contactMap.size);
       if (contactMap.size === 0) {
-        console.log("[listContacts] Falling back to Gmail message extraction");
         try {
           const { messages } = await listGmailMessages("", 100);
-          console.log("[listContacts] Gmail messages fetched:", messages.length);
           for (const msg of messages) {
             const headers = msg.payload?.headers || [];
             for (const field of ["From", "To", "Cc", "Bcc"]) {
@@ -701,7 +696,11 @@ export async function listContacts(
                     existing.name = name;
                   }
                 } else {
-                  contactMap.set(key, { name: name || addr, email: addr, count: 1 });
+                  contactMap.set(key, {
+                    name: name || addr,
+                    email: addr,
+                    count: 1,
+                  });
                 }
               }
             }
@@ -714,7 +713,6 @@ export async function listContacts(
       const contacts = Array.from(contactMap.values()).sort(
         (a, b) => b.count - a.count,
       );
-      console.log("[listContacts] returning", contacts.length, "contacts");
       res.json(contacts);
       return;
     } catch (error: any) {

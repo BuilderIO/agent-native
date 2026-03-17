@@ -9,6 +9,7 @@ This is an **agent-native** email client built with `@agent-native/core`.
 **When a Google account is connected**, emails come from the Gmail API — the app works with real emails. **When no account is connected**, `data/emails.json` is used as a local store (starts empty).
 
 To check the current state:
+
 - Read `application-state/navigation.json` to see what view/thread the user is looking at
 - Use `pnpm script list-emails --view=inbox` to list emails (automatically uses Gmail when connected, falls back to local data)
 - Check Google connection status via `GET /api/google/status`
@@ -49,11 +50,11 @@ To check the current state:
 
 Local state is in JSON files in `data/`. When a Google account is connected, the API serves emails from Gmail instead — `data/emails.json` is only used as a fallback when no account is connected (and starts empty).
 
-| File                 | Contents                                                         |
-| -------------------- | ---------------------------------------------------------------- |
-| `data/emails.json`   | Local email store (empty by default, used only without Google)   |
-| `data/labels.json`   | System and user labels with unread counts                        |
-| `data/settings.json` | User profile and app settings                                    |
+| File                 | Contents                                                       |
+| -------------------- | -------------------------------------------------------------- |
+| `data/emails.json`   | Local email store (empty by default, used only without Google) |
+| `data/labels.json`   | System and user labels with unread counts                      |
+| `data/settings.json` | User profile and app settings                                  |
 
 ### Compose Drafts (Application State)
 
@@ -132,12 +133,12 @@ This is a one-shot command — the file is deleted after the UI processes it.
 
 #### Common navigation tasks
 
-| User request                                  | What to do                                                                                                   |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| User request                                  | What to do                                                                                                                     |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | "What email am I looking at?"                 | Read `application-state/navigation.json` to get the threadId, then fetch that thread via `GET /api/threads/:threadId/messages` |
-| "Reply to this email"                         | Read navigation.json for threadId → fetch thread via API → write compose.json with mode=reply                                 |
-| "Find the email from Alice about the project" | `pnpm script list-emails --q=alice`, then write `application-state/navigate.json` with the matching threadId to open it       |
-| "Open my starred emails"                      | Write `application-state/navigate.json` with `{"view": "starred"}`                                           |
+| "Reply to this email"                         | Read navigation.json for threadId → fetch thread via API → write compose.json with mode=reply                                  |
+| "Find the email from Alice about the project" | `pnpm script list-emails --q=alice`, then write `application-state/navigate.json` with the matching threadId to open it        |
+| "Open my starred emails"                      | Write `application-state/navigate.json` with `{"view": "starred"}`                                                             |
 
 ### Compose emails
 
@@ -177,26 +178,26 @@ The UI will pick up the changes automatically (via SSE).
 
 #### Common tasks
 
-| User request                      | What to do                                                                                                    |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| "Draft an email to Alice about X" | Write `application-state/compose.json` with to, subject, body, mode=compose                                   |
-| "Make this draft more formal"     | Read compose.json, rewrite body, write back                                                                   |
-| "Change the subject to Y"         | Read compose.json, update subject, write back                                                                 |
+| User request                      | What to do                                                                                          |
+| --------------------------------- | --------------------------------------------------------------------------------------------------- |
+| "Draft an email to Alice about X" | Write `application-state/compose.json` with to, subject, body, mode=compose                         |
+| "Make this draft more formal"     | Read compose.json, rewrite body, write back                                                         |
+| "Change the subject to Y"         | Read compose.json, update subject, write back                                                       |
 | "Reply to this email saying Z"    | Read navigation.json for current threadId, fetch thread via API, write compose.json with mode=reply |
-| "What am I looking at?"           | Read navigation.json, then fetch the thread via `GET /api/threads/:threadId/messages`              |
-| "Find the email about X"          | `pnpm script list-emails --q=X`, write `application-state/navigate.json` with matching threadId    |
-| "Open my starred emails"          | Write `application-state/navigate.json` with `{"view": "starred"}`                                            |
+| "What am I looking at?"           | Read navigation.json, then fetch the thread via `GET /api/threads/:threadId/messages`               |
+| "Find the email about X"          | `pnpm script list-emails --q=X`, write `application-state/navigate.json` with matching threadId     |
+| "Open my starred emails"          | Write `application-state/navigate.json` with `{"view": "starred"}`                                  |
 
 ## Scripts
 
 Run agent scripts with `pnpm script <name> [--args]`. Scripts automatically use the API (Gmail when connected) and fall back to local data files.
 
-| Script          | Args                                                    | Purpose                                      |
-| --------------- | ------------------------------------------------------- | -------------------------------------------- |
-| `list-emails`   | `--view <inbox\|unread\|starred\|sent\|...> --q <term>` | List and search emails (uses Gmail via API)   |
-| `seed-emails`   | `--count <n>`                                           | Generate n test emails (local data only)      |
-| `bulk-archive`  | `--older-than <days>`                                   | Archive emails older than N days              |
-| `export-emails` | `--view <inbox\|sent\|...> --output <file>`             | Export emails to JSON file                    |
+| Script          | Args                                                    | Purpose                                     |
+| --------------- | ------------------------------------------------------- | ------------------------------------------- |
+| `list-emails`   | `--view <inbox\|unread\|starred\|sent\|...> --q <term>` | List and search emails (uses Gmail via API) |
+| `seed-emails`   | `--count <n>`                                           | Generate n test emails (local data only)    |
+| `bulk-archive`  | `--older-than <days>`                                   | Archive emails older than N days            |
+| `export-emails` | `--view <inbox\|sent\|...> --output <file>`             | Export emails to JSON file                  |
 
 ### Common tasks
 
