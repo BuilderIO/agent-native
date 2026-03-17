@@ -80,8 +80,14 @@ export function useArchiveEmail() {
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],
       });
+      // Find the email across all cached queries to get its threadId
+      const target = previous
+        .flatMap(([, data]) => data ?? [])
+        .find((e) => e.id === id);
+      const threadId = target?.threadId || id;
+      // Remove all thread messages from all cached email queries
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
-        old?.filter((e) => e.id !== id),
+        old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
       return { previous };
     },
@@ -102,8 +108,15 @@ export function useUnarchiveEmail() {
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],
       });
+      // Find threadId and unarchive all thread messages
+      const target = previous
+        .flatMap(([, data]) => data ?? [])
+        .find((e) => e.id === id);
+      const threadId = target?.threadId || id;
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
-        old?.map((e) => (e.id === id ? { ...e, isArchived: false } : e)),
+        old?.map((e) =>
+          (e.threadId || e.id) === threadId ? { ...e, isArchived: false } : e,
+        ),
       );
       return { previous };
     },
@@ -124,8 +137,14 @@ export function useTrashEmail() {
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],
       });
+      // Find the email across all cached queries to get its threadId
+      const target = previous
+        .flatMap(([, data]) => data ?? [])
+        .find((e) => e.id === id);
+      const threadId = target?.threadId || id;
+      // Remove all thread messages from all cached email queries
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
-        old?.filter((e) => e.id !== id),
+        old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
       return { previous };
     },

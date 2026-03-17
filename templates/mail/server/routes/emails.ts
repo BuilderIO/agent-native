@@ -87,6 +87,7 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
       // Map view to Gmail search query
       const gmailQuery: Record<string, string> = {
         inbox: "in:inbox",
+        unread: "is:unread in:inbox",
         starred: "is:starred",
         sent: "in:sent",
         drafts: "in:drafts",
@@ -148,6 +149,12 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
     case "inbox":
       emails = emails.filter(
         (e) => !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
+      );
+      break;
+    case "unread":
+      emails = emails.filter(
+        (e) =>
+          !e.isRead && !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
       );
       break;
     case "starred":
@@ -399,23 +406,30 @@ export async function archiveEmail(req: Request, res: Response): Promise<void> {
   }
 
   const emails = readEmails();
-  const idx = emails.findIndex((e) => e.id === req.params.id);
-  if (idx === -1) {
+  const target = emails.find((e) => e.id === req.params.id);
+  if (!target) {
     res.status(404).json({ error: "Email not found" });
     return;
   }
 
-  emails[idx] = {
-    ...emails[idx],
-    isArchived: true,
-    labelIds: emails[idx].labelIds.filter((l) => l !== "inbox"),
-  };
+  // Archive all messages in the thread, not just the one
+  const threadId = target.threadId || target.id;
+  for (let i = 0; i < emails.length; i++) {
+    const eid = emails[i].threadId || emails[i].id;
+    if (eid === threadId) {
+      emails[i] = {
+        ...emails[i],
+        isArchived: true,
+        labelIds: emails[i].labelIds.filter((l) => l !== "inbox"),
+      };
+    }
+  }
   writeEmails(emails);
 
   const labels = recomputeUnreadCounts(emails, readLabels());
   writeLabels(labels);
 
-  res.json(emails[idx]);
+  res.json({ id: req.params.id, threadId, isArchived: true });
 }
 
 // ─── Unarchive ───────────────────────────────────────────────────────────────
@@ -445,25 +459,32 @@ export async function unarchiveEmail(
   }
 
   const emails = readEmails();
-  const idx = emails.findIndex((e) => e.id === req.params.id);
-  if (idx === -1) {
+  const target = emails.find((e) => e.id === req.params.id);
+  if (!target) {
     res.status(404).json({ error: "Email not found" });
     return;
   }
 
-  emails[idx] = {
-    ...emails[idx],
-    isArchived: false,
-    labelIds: emails[idx].labelIds.includes("inbox")
-      ? emails[idx].labelIds
-      : ["inbox", ...emails[idx].labelIds],
-  };
+  // Unarchive all messages in the thread
+  const threadId = target.threadId || target.id;
+  for (let i = 0; i < emails.length; i++) {
+    const eid = emails[i].threadId || emails[i].id;
+    if (eid === threadId) {
+      emails[i] = {
+        ...emails[i],
+        isArchived: false,
+        labelIds: emails[i].labelIds.includes("inbox")
+          ? emails[i].labelIds
+          : ["inbox", ...emails[i].labelIds],
+      };
+    }
+  }
   writeEmails(emails);
 
   const labels = recomputeUnreadCounts(emails, readLabels());
   writeLabels(labels);
 
-  res.json(emails[idx]);
+  res.json({ id: req.params.id, threadId, isArchived: false });
 }
 
 // ─── Trash ────────────────────────────────────────────────────────────────────
@@ -489,19 +510,26 @@ export async function trashEmail(req: Request, res: Response): Promise<void> {
   }
 
   const emails = readEmails();
-  const idx = emails.findIndex((e) => e.id === req.params.id);
-  if (idx === -1) {
+  const target = emails.find((e) => e.id === req.params.id);
+  if (!target) {
     res.status(404).json({ error: "Email not found" });
     return;
   }
 
-  emails[idx] = { ...emails[idx], isTrashed: true, isArchived: false };
+  // Trash all messages in the thread
+  const threadId = target.threadId || target.id;
+  for (let i = 0; i < emails.length; i++) {
+    const eid = emails[i].threadId || emails[i].id;
+    if (eid === threadId) {
+      emails[i] = { ...emails[i], isTrashed: true, isArchived: false };
+    }
+  }
   writeEmails(emails);
 
   const labels = recomputeUnreadCounts(emails, readLabels());
   writeLabels(labels);
 
-  res.json(emails[idx]);
+  res.json({ id: req.params.id, threadId, isTrashed: true });
 }
 
 // ─── Delete permanently ───────────────────────────────────────────────────────

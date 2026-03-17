@@ -2,13 +2,13 @@ import { useState, useEffect, useRef } from "react";
 import {
   X,
   Minus,
-  Maximize2,
   Send,
   Bold,
   Italic,
   Link,
   Paperclip,
   ChevronDown,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -23,10 +23,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useSendEmail } from "@/hooks/use-emails";
-import { sendToAgentChat } from "@agent-native/core";
+import { useAgentChatGenerating } from "@agent-native/core";
 import { toast } from "sonner";
 import type { ComposeState } from "@shared/types";
 import { RecipientInput } from "./RecipientInput";
+import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 
 interface ComposeModalProps {
   composeState: ComposeState;
@@ -46,16 +47,17 @@ export function ComposeModal({
   const [generatePrompt, setGeneratePrompt] = useState("");
   const [showCcBcc, setShowCcBcc] = useState(false);
 
+  const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<ComposeEditorHandle>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
 
   const { to, cc, bcc, subject, body, mode } = composeState;
 
-  // Focus body when reply/forward opens
+  // Focus editor when reply/forward opens
   useEffect(() => {
     if (mode !== "compose") {
-      setTimeout(() => bodyRef.current?.focus(), 100);
+      setTimeout(() => editorRef.current?.getEditor()?.commands.focus(), 100);
     }
   }, [mode]);
 
@@ -110,7 +112,7 @@ export function ComposeModal({
       .filter(Boolean)
       .join("\n");
 
-    sendToAgentChat({
+    sendToAgent({
       message: generatePrompt.trim(),
       context: `The user is composing an email. The current draft is saved in application-state/compose.json. You can read and update it directly.\n\n${context || "(empty draft)"}`,
       submit: true,
@@ -222,20 +224,31 @@ export function ComposeModal({
           </div>
 
           {/* Body */}
-          <textarea
-            ref={bodyRef}
-            value={body}
-            onChange={(e) => onUpdate({ body: e.target.value })}
-            placeholder="Write your message..."
-            className="flex-1 resize-none bg-transparent px-4 py-3 text-sm outline-none placeholder:text-muted-foreground"
-          />
+          <div className="flex-1 overflow-y-auto px-4 py-3">
+            <ComposeEditor
+              ref={editorRef}
+              content={body}
+              onChange={(md) => onUpdate({ body: md })}
+              onGenerate={() => setGenerateOpen(true)}
+              onSend={handleSend}
+              onClose={onClose}
+              onFlush={onFlush}
+              isGenerating={isGenerating}
+              sendToAgent={sendToAgent}
+            />
+          </div>
 
           {/* Toolbar */}
           <div className="flex shrink-0 items-center justify-between border-t border-border px-3 py-2">
             <div className="flex items-center gap-0.5">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-7 w-7">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => editorRef.current?.toggleBold()}
+                  >
                     <Bold className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
@@ -243,7 +256,12 @@ export function ComposeModal({
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-7 w-7">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => editorRef.current?.toggleItalic()}
+                  >
                     <Italic className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
@@ -251,7 +269,12 @@ export function ComposeModal({
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-7 w-7">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => editorRef.current?.setLink()}
+                  >
                     <Link className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
@@ -268,55 +291,62 @@ export function ComposeModal({
 
               <div className="mx-1 h-4 w-px bg-border" />
 
-              <Popover open={generateOpen} onOpenChange={setGenerateOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1.5 px-2 text-xs"
-                  >
-                    Generate
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent side="top" align="start" className="w-80 p-3">
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-medium text-muted-foreground">
-                      What should the agent write?
-                    </label>
-                    <textarea
-                      ref={promptRef}
-                      value={generatePrompt}
-                      onChange={(e) => setGeneratePrompt(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          handleGenerate();
-                        }
-                        if (e.key === "Escape") {
-                          e.stopPropagation();
-                          setGenerateOpen(false);
-                        }
-                      }}
-                      placeholder="e.g. Write a polite follow-up..."
-                      className="min-h-[60px] w-full resize-none rounded-md border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
-                      autoFocus
-                    />
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-muted-foreground">
-                        <kbd className="kbd-hint">↵</kbd> to submit
-                      </span>
-                      <Button
-                        size="sm"
-                        onClick={handleGenerate}
-                        disabled={!generatePrompt.trim()}
-                        className="h-7 gap-1.5 px-3 text-xs"
-                      >
-                        Generate
-                      </Button>
+              {isGenerating ? (
+                <div className="flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Generating…</span>
+                </div>
+              ) : (
+                <Popover open={generateOpen} onOpenChange={setGenerateOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1.5 px-2 text-xs"
+                    >
+                      Generate
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent side="top" align="start" className="w-80 p-3">
+                    <div className="flex flex-col gap-2">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        What should the agent write?
+                      </label>
+                      <textarea
+                        ref={promptRef}
+                        value={generatePrompt}
+                        onChange={(e) => setGeneratePrompt(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            handleGenerate();
+                          }
+                          if (e.key === "Escape") {
+                            e.stopPropagation();
+                            setGenerateOpen(false);
+                          }
+                        }}
+                        placeholder="e.g. Write a polite follow-up..."
+                        className="min-h-[60px] w-full resize-none rounded-md border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                        autoFocus
+                      />
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-muted-foreground">
+                          <kbd className="kbd-hint">↵</kbd> to submit
+                        </span>
+                        <Button
+                          size="sm"
+                          onClick={handleGenerate}
+                          disabled={!generatePrompt.trim()}
+                          className="h-7 gap-1.5 px-3 text-xs"
+                        >
+                          Generate
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                </PopoverContent>
-              </Popover>
+                  </PopoverContent>
+                </Popover>
+              )}
             </div>
 
             <div className="flex items-center gap-2">

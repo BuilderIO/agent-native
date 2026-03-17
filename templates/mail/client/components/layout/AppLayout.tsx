@@ -1,5 +1,11 @@
-import { useState, useCallback, useRef, useEffect } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
+import { IconChevronRight, IconChevronLeft } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "./CommandPalette";
 import { ComposeModal } from "@/components/email/ComposeModal";
@@ -9,7 +15,7 @@ import {
   useSequenceShortcuts,
 } from "@/hooks/use-keyboard-shortcuts";
 import { runUndo } from "@/hooks/use-undo";
-import { useLabels, useSettings } from "@/hooks/use-emails";
+import { useLabels, useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
@@ -17,18 +23,19 @@ import {
 } from "@/hooks/use-google-auth";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { getCallbackOrigin } from "@agent-native/core/client";
+import type { Label } from "@shared/types";
 
 interface AppLayoutProps {
   children: React.ReactNode;
 }
 
-const categoryTabs = [
-  { id: "inbox", label: "Important", view: "inbox" },
-  { id: "starred", label: "Starred", view: "starred" },
-  { id: "sent", label: "Sent", view: "sent" },
-  { id: "archive", label: "Archive", view: "archive" },
-  { id: "drafts", label: "Drafts", view: "drafts" },
-  { id: "trash", label: "Trash", view: "trash" },
+// System views that can be shown/hidden via settings
+const collapsibleViews = [
+  { id: "starred", label: "Starred" },
+  { id: "sent", label: "Sent" },
+  { id: "drafts", label: "Drafts" },
+  { id: "archive", label: "Archive" },
+  { id: "trash", label: "Trash" },
 ];
 
 export function AppLayout({ children }: AppLayoutProps) {
@@ -36,33 +43,115 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [moreOpen, setMoreOpen] = useState(false);
   const navigate = useNavigate();
   const { view = "inbox", threadId } = useParams<{
     view: string;
     threadId: string;
   }>();
+  const [searchParams] = useSearchParams();
+  const activeLabel = searchParams.get("label");
   const { data: labels = [] } = useLabels();
   const { data: settings } = useSettings();
+  const updateSettings = useUpdateSettings();
   const googleStatus = useGoogleAuthStatus();
   const accounts = googleStatus.data?.accounts ?? [];
   const hasAccounts = accounts.length > 0;
   const [accountPopoverOpen, setAccountPopoverOpen] = useState(false);
+  const [tabSettingsOpen, setTabSettingsOpen] = useState(false);
+  const [labelSearch, setLabelSearch] = useState("");
   const popoverRef = useRef<HTMLDivElement>(null);
+  const tabSettingsRef = useRef<HTMLDivElement>(null);
 
-  // Close popover on outside click
+  const pinnedLabels = settings?.pinnedLabels ?? [];
+
+  // Tabs to show in the bar: Inbox + pinned items (system views or labels)
+  const visibleTabs = useMemo(() => {
+    const tabs: {
+      id: string;
+      label: string;
+      href: string;
+      isActive: boolean;
+      color?: string;
+    }[] = [
+      {
+        id: "inbox",
+        label: "Inbox",
+        href: "/inbox",
+        isActive: view === "inbox" && !activeLabel,
+      },
+    ];
+
+    for (const id of pinnedLabels) {
+      // Check if it's a system view
+      const sysView = collapsibleViews.find((v) => v.id === id);
+      if (sysView) {
+        tabs.push({
+          id: sysView.id,
+          label: sysView.label,
+          href: `/${sysView.id}`,
+          isActive: view === sysView.id,
+        });
+        continue;
+      }
+      // Check if it's a user label
+      const lbl = labels.find(
+        (l) => l.id === id || l.name.toLowerCase() === id.toLowerCase(),
+      );
+      if (lbl) {
+        tabs.push({
+          id: lbl.id,
+          label: lbl.name,
+          href: `/inbox?label=${encodeURIComponent(lbl.id)}`,
+          isActive: activeLabel === lbl.id,
+          color: lbl.color,
+        });
+      }
+    }
+    return tabs;
+  }, [labels, pinnedLabels, view, activeLabel]);
+
+  // System views NOT pinned (go in the "more" dropdown)
+  const hiddenViews = useMemo(
+    () => collapsibleViews.filter((v) => !pinnedLabels.includes(v.id)),
+    [pinnedLabels],
+  );
+
+  // Is current view one of the hidden ones? If so force-show it
+  const currentInHidden = hiddenViews.some((v) => v.id === view);
+
+  // User labels available for pinning
+  const userLabels = useMemo(
+    () =>
+      labels.filter(
+        (l) => !["inbox", ...collapsibleViews.map((v) => v.id)].includes(l.id),
+      ),
+    [labels],
+  );
+
+  // Close popovers on outside click
   useEffect(() => {
-    if (!accountPopoverOpen) return;
+    if (!accountPopoverOpen && !tabSettingsOpen) return;
     const handler = (e: MouseEvent) => {
       if (
+        accountPopoverOpen &&
         popoverRef.current &&
         !popoverRef.current.contains(e.target as Node)
       ) {
         setAccountPopoverOpen(false);
       }
+      if (
+        tabSettingsOpen &&
+        tabSettingsRef.current &&
+        !tabSettingsRef.current.contains(e.target as Node)
+      ) {
+        setTabSettingsOpen(false);
+        setLabelSearch("");
+      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [accountPopoverOpen]);
+  }, [accountPopoverOpen, tabSettingsOpen]);
 
   const handleCompose = useCallback(() => {
     compose.open({
@@ -80,6 +169,17 @@ export function AppLayout({ children }: AppLayoutProps) {
       navigate(`/inbox?q=${encodeURIComponent(q.trim())}`);
     }
   };
+
+  const togglePinned = useCallback(
+    (id: string) => {
+      const current = settings?.pinnedLabels ?? [];
+      const next = current.includes(id)
+        ? current.filter((x) => x !== id)
+        : [...current, id];
+      updateSettings.mutate({ pinnedLabels: next });
+    },
+    [settings?.pinnedLabels, updateSettings],
+  );
 
   // Global keyboard shortcuts
   useKeyboardShortcuts([
@@ -131,30 +231,33 @@ export function AppLayout({ children }: AppLayoutProps) {
         {/* Top nav bar — hidden when viewing a thread */}
         {!threadId && (
           <header className="flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2">
-            {/* Category tabs */}
+            {/* Visible tabs */}
             <nav className="flex items-center gap-0.5 overflow-x-auto hide-scrollbar">
-              {categoryTabs.map((tab) => {
-                const isActive =
-                  view === tab.view ||
-                  (tab.view === "inbox" && view === "inbox");
-                const count = getUnreadCount(tab.view);
+              {visibleTabs.map((tab) => {
+                const count = getUnreadCount(tab.id);
                 return (
                   <Link
                     key={tab.id}
-                    to={`/${tab.view}`}
+                    to={tab.href}
                     className={cn(
                       "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px] transition-colors",
-                      isActive
+                      tab.isActive
                         ? "text-foreground font-semibold"
                         : "text-muted-foreground font-medium hover:text-foreground/80",
                     )}
                   >
+                    {tab.color && (
+                      <span
+                        className="h-1.5 w-1.5 rounded-full shrink-0"
+                        style={{ backgroundColor: tab.color }}
+                      />
+                    )}
                     {tab.label}
                     {count > 0 && (
                       <span
                         className={cn(
                           "text-[11px] tabular-nums",
-                          isActive
+                          tab.isActive
                             ? "text-foreground/60"
                             : "text-muted-foreground/70",
                         )}
@@ -165,7 +268,91 @@ export function AppLayout({ children }: AppLayoutProps) {
                   </Link>
                 );
               })}
+
+              {/* If current view is hidden, show it as an active tab */}
+              {currentInHidden && (
+                <span className="flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
+                  {collapsibleViews.find((v) => v.id === view)?.label}
+                </span>
+              )}
+
+              {/* "More" expands hidden system views inline */}
+              {hiddenViews.length > 0 && (
+                <>
+                  {moreOpen ? (
+                    <>
+                      {hiddenViews.map((v) => {
+                        const isActive = view === v.id;
+                        return (
+                          <Link
+                            key={v.id}
+                            to={`/${v.id}`}
+                            className={cn(
+                              "flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] transition-colors",
+                              isActive
+                                ? "text-foreground font-semibold"
+                                : "text-muted-foreground font-medium hover:text-foreground/80",
+                            )}
+                          >
+                            {v.label}
+                          </Link>
+                        );
+                      })}
+                      <button
+                        onClick={() => setMoreOpen(false)}
+                        className="flex h-6 w-6 items-center justify-center rounded transition-colors text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30"
+                      >
+                        <IconChevronLeft size={18} stroke={2.5} />
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => setMoreOpen(true)}
+                      className="flex h-6 w-6 items-center justify-center rounded transition-colors text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30"
+                    >
+                      <IconChevronRight size={18} stroke={2.5} />
+                    </button>
+                  )}
+                </>
+              )}
             </nav>
+
+            {/* Tab settings cog */}
+            <div className="relative" ref={tabSettingsRef}>
+              <button
+                onClick={() => setTabSettingsOpen(!tabSettingsOpen)}
+                className={cn(
+                  "flex h-6 w-6 items-center justify-center rounded transition-colors",
+                  tabSettingsOpen
+                    ? "text-foreground bg-accent/50"
+                    : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30",
+                )}
+                title="Configure tabs"
+              >
+                <svg
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  className="h-3.5 w-3.5"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M7.84 1.804A1 1 0 0 1 8.82 1h2.36a1 1 0 0 1 .98.804l.331 1.652a6.993 6.993 0 0 1 1.929 1.115l1.598-.54a1 1 0 0 1 1.186.447l1.18 2.044a1 1 0 0 1-.205 1.251l-1.267 1.113a7.047 7.047 0 0 1 0 2.228l1.267 1.113a1 1 0 0 1 .206 1.25l-1.18 2.045a1 1 0 0 1-1.187.447l-1.598-.54a6.993 6.993 0 0 1-1.929 1.115l-.33 1.652a1 1 0 0 1-.98.804H8.82a1 1 0 0 1-.98-.804l-.331-1.652a6.993 6.993 0 0 1-1.929-1.115l-1.598.54a1 1 0 0 1-1.186-.447l-1.18-2.044a1 1 0 0 1 .205-1.251l1.267-1.114a7.05 7.05 0 0 1 0-2.227L1.821 7.773a1 1 0 0 1-.206-1.25l1.18-2.045a1 1 0 0 1 1.187-.447l1.598.54A6.992 6.992 0 0 1 7.51 3.456l.33-1.652ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+
+              {tabSettingsOpen && (
+                <TabSettingsPopover
+                  systemViews={collapsibleViews}
+                  userLabels={userLabels}
+                  pinnedLabels={pinnedLabels}
+                  search={labelSearch}
+                  onSearchChange={setLabelSearch}
+                  onToggle={togglePinned}
+                />
+              )}
+            </div>
 
             <div className="flex-1" />
 
@@ -289,6 +476,165 @@ export function AppLayout({ children }: AppLayoutProps) {
     </div>
   );
 }
+
+// ─── Tab Settings Popover ────────────────────────────────────────────────────
+
+function CheckboxRow({
+  checked,
+  label,
+  color,
+  onToggle,
+}: {
+  checked: boolean;
+  label: string;
+  color?: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      className="flex items-center gap-2.5 w-full px-3 py-1.5 text-left hover:bg-accent/50 transition-colors"
+    >
+      <span
+        className={cn(
+          "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border transition-colors",
+          checked ? "border-primary bg-primary" : "border-border/60",
+        )}
+      >
+        {checked && (
+          <svg
+            viewBox="0 0 16 16"
+            fill="currentColor"
+            className="h-2.5 w-2.5 text-primary-foreground"
+          >
+            <path
+              fillRule="evenodd"
+              d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z"
+              clipRule="evenodd"
+            />
+          </svg>
+        )}
+      </span>
+      <span className="flex items-center gap-1.5 text-[13px] text-foreground/80">
+        {color && (
+          <span
+            className="h-2 w-2 rounded-full shrink-0"
+            style={{ backgroundColor: color }}
+          />
+        )}
+        {label}
+      </span>
+    </button>
+  );
+}
+
+function TabSettingsPopover({
+  systemViews,
+  userLabels,
+  pinnedLabels,
+  search,
+  onSearchChange,
+  onToggle,
+}: {
+  systemViews: { id: string; label: string }[];
+  userLabels: Label[];
+  pinnedLabels: string[];
+  search: string;
+  onSearchChange: (v: string) => void;
+  onToggle: (id: string) => void;
+}) {
+  const q = search.toLowerCase();
+
+  const filteredViews = search
+    ? systemViews.filter((v) => v.label.toLowerCase().includes(q))
+    : systemViews;
+
+  const filteredLabels = search
+    ? userLabels.filter((l) => l.name.toLowerCase().includes(q))
+    : userLabels;
+
+  // Sort: pinned first, then alphabetical
+  const sortedLabels = [...filteredLabels].sort((a, b) => {
+    const ap = pinnedLabels.includes(a.id) ? 0 : 1;
+    const bp = pinnedLabels.includes(b.id) ? 0 : 1;
+    return ap - bp || a.name.localeCompare(b.name);
+  });
+
+  const showViews = filteredViews.length > 0;
+  const showLabels = sortedLabels.length > 0;
+  const noResults = !showViews && !showLabels && search;
+
+  return (
+    <div className="absolute left-0 top-full mt-1.5 z-50 w-60 rounded-lg border border-border/50 bg-card shadow-xl">
+      {/* Search */}
+      <div className="px-2 py-1.5 border-b border-border/30">
+        <input
+          autoFocus
+          value={search}
+          onChange={(e) => onSearchChange(e.target.value)}
+          placeholder="Search..."
+          className="w-full bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none px-1 py-0.5"
+        />
+      </div>
+
+      <div className="max-h-72 overflow-y-auto">
+        {noResults && (
+          <p className="px-3 py-3 text-[12px] text-muted-foreground/50">
+            No matches
+          </p>
+        )}
+
+        {/* System views */}
+        {showViews && (
+          <div>
+            <p className="px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">
+              Views
+            </p>
+            {filteredViews.map((v) => (
+              <CheckboxRow
+                key={v.id}
+                checked={pinnedLabels.includes(v.id)}
+                label={v.label}
+                onToggle={() => onToggle(v.id)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* User labels */}
+        {showLabels && (
+          <div>
+            <p
+              className={cn(
+                "px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider",
+                showViews && "border-t border-border/20 mt-1",
+              )}
+            >
+              Labels
+            </p>
+            {sortedLabels.map((label) => (
+              <CheckboxRow
+                key={label.id}
+                checked={pinnedLabels.includes(label.id)}
+                label={label.name}
+                color={label.color}
+                onToggle={() => onToggle(label.id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="px-3 py-1.5 border-t border-border/30">
+        <p className="text-[11px] text-muted-foreground/40">
+          Checked items show as tabs. Label emails split from inbox.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Account Popover ─────────────────────────────────────────────────────────
 
 function AccountPopover({
   accounts,

@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { EmailList, groupIntoThreads } from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
@@ -13,6 +13,7 @@ import {
   useEmails,
   useMarkRead,
   useUnarchiveEmail,
+  useSettings,
 } from "@/hooks/use-emails";
 
 import {
@@ -599,7 +600,32 @@ export function InboxPage() {
   const navState = useNavigationState();
   const [lastArchivedId, setLastArchivedId] = useState<string | null>(null);
   const unarchiveEmail = useUnarchiveEmail();
-  const { data: emails = [] } = useEmails(view);
+  const { data: settings } = useSettings();
+  const [searchParams] = useSearchParams();
+  const activeLabel = searchParams.get("label");
+
+  // Always fetch from the URL view (inbox, starred, etc.)
+  // Label tabs use ?label= param and always fetch inbox
+  const { data: rawEmails = [] } = useEmails(view);
+
+  const pinnedLabels = settings?.pinnedLabels ?? [];
+  const pinnedUserLabels = pinnedLabels.filter(
+    (id) => !["starred", "sent", "drafts", "archive", "trash"].includes(id),
+  );
+
+  const emails = useMemo(() => {
+    if (activeLabel) {
+      // Label tab: show only inbox emails with this label
+      return rawEmails.filter((e) => e.labelIds.includes(activeLabel));
+    }
+    if (view === "inbox" && pinnedUserLabels.length > 0) {
+      // Inbox: filter out emails that belong to a pinned label
+      return rawEmails.filter(
+        (e) => !pinnedUserLabels.some((l) => e.labelIds.includes(l)),
+      );
+    }
+    return rawEmails;
+  }, [rawEmails, view, activeLabel, pinnedUserLabels]);
 
   // Sync current navigation state to file (write-only, so agent can read it)
   useEffect(() => {
@@ -609,6 +635,37 @@ export function InboxPage() {
       focusedEmailId: focusedId ?? undefined,
     });
   }, [view, threadId, focusedId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync displayed email list to application-state so agent can see what's on screen
+  const emailListSyncRef = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    if (emailListSyncRef.current) clearTimeout(emailListSyncRef.current);
+    emailListSyncRef.current = setTimeout(() => {
+      const compact = emails.slice(0, 50).map((e) => ({
+        id: e.id,
+        threadId: e.threadId,
+        from: e.from.name ? `${e.from.name} <${e.from.email}>` : e.from.email,
+        subject: e.subject,
+        snippet: e.snippet,
+        date: e.date,
+        isRead: e.isRead,
+        isStarred: e.isStarred,
+      }));
+      fetch("/api/application-state/email-list", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          view,
+          label: activeLabel,
+          count: emails.length,
+          emails: compact,
+        }),
+      }).catch(() => {});
+    }, 1000);
+    return () => {
+      if (emailListSyncRef.current) clearTimeout(emailListSyncRef.current);
+    };
+  }, [emails, view, activeLabel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // One-shot agent navigation: agent writes navigate.json, UI reads it, navigates, deletes it
   const { data: navCommand } = navState.command;
