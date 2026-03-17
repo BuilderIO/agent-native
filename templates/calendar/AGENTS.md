@@ -12,6 +12,19 @@ This is an **agent-native** app built with `@agent-native/core`. See `.agents/sk
 
 ---
 
+## Learnings & Preferences
+
+**Always read `learnings.md` at the start of every conversation.** This file is the app's memory — it contains user preferences, corrections, important context, and patterns learned from past interactions.
+
+**Update `learnings.md` when you learn something important:**
+
+- User corrects your tone, style, or approach
+- User shares personal info relevant to the app (contacts, preferences, habits)
+- You discover a non-obvious pattern or gotcha
+- User gives feedback that should apply to future conversations
+
+Keep entries concise and actionable. Group by category. This file is gitignored so personal data stays local.
+
 ## Architecture
 
 This is an agent-native calendar app with Google Calendar integration and a public booking page. Everything is files — JSON files in `data/` are the single source of truth.

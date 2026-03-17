@@ -16,6 +16,12 @@ import {
   CornerUpLeft,
   Tag,
   Keyboard,
+  ShieldAlert,
+  Ban,
+  BellOff,
+  ImageOff,
+  Image,
+  Eye,
 } from "lucide-react";
 import {
   CommandDialog,
@@ -28,12 +34,19 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { useTheme } from "next-themes";
+import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
+import type { UserSettings } from "@shared/types";
 
 interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCompose: () => void;
   onReply?: () => void;
+  onSpam?: () => void;
+  onBlockSender?: () => void;
+  onMuteThread?: () => void;
+  /** Whether there is a focused/selected email for contextual actions */
+  hasEmail?: boolean;
 }
 
 const navCommands = [
@@ -51,9 +64,16 @@ export function CommandPalette({
   onOpenChange,
   onCompose,
   onReply,
+  onSpam,
+  onBlockSender,
+  onMuteThread,
+  hasEmail,
 }: CommandPaletteProps) {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
+  const { data: settings } = useSettings();
+  const updateSettings = useUpdateSettings();
+  const imagePolicy = settings?.imagePolicy ?? "show";
 
   const run = useCallback(
     (fn: () => void) => {
@@ -91,6 +111,24 @@ export function CommandPalette({
             <RefreshCw className="mr-2 h-4 w-4" />
             Refresh inbox
           </CommandItem>
+          {onSpam && (
+            <CommandItem onSelect={() => run(onSpam)}>
+              <ShieldAlert className="mr-2 h-4 w-4" />
+              Report spam
+            </CommandItem>
+          )}
+          {onBlockSender && (
+            <CommandItem onSelect={() => run(onBlockSender)}>
+              <Ban className="mr-2 h-4 w-4" />
+              Report spam &amp; block sender
+            </CommandItem>
+          )}
+          {onMuteThread && (
+            <CommandItem onSelect={() => run(onMuteThread)}>
+              <BellOff className="mr-2 h-4 w-4" />
+              Mute thread
+            </CommandItem>
+          )}
         </CommandGroup>
 
         <CommandSeparator />
@@ -108,6 +146,44 @@ export function CommandPalette({
               )}
             </CommandItem>
           ))}
+        </CommandGroup>
+
+        <CommandSeparator />
+
+        <CommandGroup heading="Privacy">
+          <CommandItem
+            onSelect={() =>
+              run(() => updateSettings.mutate({ imagePolicy: "show" }))
+            }
+          >
+            <Image className="mr-2 h-4 w-4" />
+            Images: Show all
+            {imagePolicy === "show" && <CommandShortcut>✓</CommandShortcut>}
+          </CommandItem>
+          <CommandItem
+            onSelect={() =>
+              run(() =>
+                updateSettings.mutate({ imagePolicy: "block-trackers" }),
+              )
+            }
+          >
+            <Eye className="mr-2 h-4 w-4" />
+            Images: Block known trackers
+            {imagePolicy === "block-trackers" && (
+              <CommandShortcut>✓</CommandShortcut>
+            )}
+          </CommandItem>
+          <CommandItem
+            onSelect={() =>
+              run(() => updateSettings.mutate({ imagePolicy: "block-all" }))
+            }
+          >
+            <ImageOff className="mr-2 h-4 w-4" />
+            Images: Block all remote images
+            {imagePolicy === "block-all" && (
+              <CommandShortcut>✓</CommandShortcut>
+            )}
+          </CommandItem>
         </CommandGroup>
 
         <CommandSeparator />

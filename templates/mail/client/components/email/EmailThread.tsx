@@ -6,7 +6,7 @@ import {
   useMemo,
   forwardRef,
 } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { cn, formatEmailDate, formatFileSize } from "@/lib/utils";
 import { useComposeState } from "@/hooks/use-compose-state";
 import {
@@ -16,6 +16,8 @@ import {
   useToggleStar,
   useMarkRead,
   useUnarchiveEmail,
+  useSettings,
+  useUpdateSettings,
 } from "@/hooks/use-emails";
 import { useQueryClient } from "@tanstack/react-query";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -37,6 +39,11 @@ export function EmailThread({
     threadId: string;
   }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const labelParam = searchParams.get("label");
+  const labelSuffix = labelParam
+    ? `?label=${encodeURIComponent(labelParam)}`
+    : "";
   const compose = useComposeState();
   const queryClient = useQueryClient();
 
@@ -111,6 +118,41 @@ export function EmailThread({
     }
   }, [messages.length, focusedIndex]);
   const focusedRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Instant-scroll to bottom when thread loads or message count changes.
+  // Pin to bottom for ~800ms to handle iframe resizes / async content.
+  const scrolledForRef = useRef<string | undefined>();
+  useEffect(() => {
+    if (!threadId || messages.length === 0) return;
+    const key = `${threadId}:${messages.length}`;
+    if (scrolledForRef.current === key) return;
+    scrolledForRef.current = key;
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const scrollToBottom = () => {
+      el.scrollTop = el.scrollHeight;
+    };
+    scrollToBottom();
+    let stop = false;
+    let raf: number;
+    const pin = () => {
+      if (!stop) {
+        scrollToBottom();
+        raf = requestAnimationFrame(pin);
+      }
+    };
+    raf = requestAnimationFrame(pin);
+    const timer = setTimeout(() => {
+      stop = true;
+      cancelAnimationFrame(raf);
+    }, 800);
+    return () => {
+      stop = true;
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+    };
+  }, [threadId, messages.length]);
 
   const archiveEmail = useArchiveEmail();
   const unarchiveEmail = useUnarchiveEmail();
@@ -118,7 +160,10 @@ export function EmailThread({
   const toggleStar = useToggleStar();
   const markRead = useMarkRead();
 
-  const goBack = useCallback(() => navigate(`/${view}`), [navigate, view]);
+  const goBack = useCallback(
+    () => navigate(`/${view}${labelSuffix}`),
+    [navigate, view, labelSuffix],
+  );
 
   // Navigate between threads (j/k)
   const goToSibling = useCallback(
@@ -128,9 +173,9 @@ export function EmailThread({
       if (idx === -1) return;
       const nextIdx = idx + delta;
       if (nextIdx < 0 || nextIdx >= emailIds.length) return;
-      navigate(`/${view}/${emailIds[nextIdx]}`);
+      navigate(`/${view}/${emailIds[nextIdx]}${labelSuffix}`);
     },
-    [threadId, emailIds, view, navigate],
+    [threadId, emailIds, view, navigate, labelSuffix],
   );
 
   const advanceOrGoBack = useCallback(() => {
@@ -140,9 +185,13 @@ export function EmailThread({
     }
     const idx = emailIds.indexOf(threadId);
     if (idx !== -1 && idx + 1 < emailIds.length) {
-      navigate(`/${view}/${emailIds[idx + 1]}`, { replace: true });
+      navigate(`/${view}/${emailIds[idx + 1]}${labelSuffix}`, {
+        replace: true,
+      });
     } else if (idx !== -1 && idx - 1 >= 0) {
-      navigate(`/${view}/${emailIds[idx - 1]}`, { replace: true });
+      navigate(`/${view}/${emailIds[idx - 1]}${labelSuffix}`, {
+        replace: true,
+      });
     } else {
       goBack();
     }
@@ -405,7 +454,10 @@ export function EmailThread({
       </div>
 
       {/* Thread messages */}
-      <div className="flex-1 overflow-y-auto px-5 pb-4">
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto px-5 pb-4"
+      >
         <div className="max-w-3xl mx-auto space-y-1">
           {messages.map((msg, idx) => {
             const isExpanded = expandedIds.has(msg.id);
@@ -736,7 +788,7 @@ const ExpandedMessageCard = forwardRef<
       {/* Body */}
       <div className="px-4 pb-5 pt-1">
         {email.bodyHtml ? (
-          <HtmlEmailBody html={email.bodyHtml} />
+          <HtmlEmailBody html={email.bodyHtml} senderEmail={email.from.email} />
         ) : (
           <PlainTextBody body={email.body} />
         )}
@@ -827,9 +879,143 @@ function PlainTextBody({ body }: { body: string }) {
 // Match the expanded card bg: hsl(220, 5%, 10%) ≈ #17181a
 const IFRAME_BG = "#17181a";
 
-function HtmlEmailBody({ html }: { html: string }) {
+// Known tracking pixel domains (partial matches against hostname)
+const TRACKER_DOMAINS = [
+  "open.convertkit-",
+  "pixel.mailchimp.com",
+  "list-manage.com/track",
+  "t.sendinblue.com",
+  "t.sidekickopen",
+  "t.semail.",
+  "tracking.tldrnewsletter.com",
+  "links.iterable.com",
+  "email.mg.",
+  "trk.klclick",
+  "beacon.krxd.net",
+  "r.sup.sh", // Superhuman
+  "t.superhuman.com",
+  "track.hubspot",
+  "track.customer.io",
+  "ct.sendgrid.net",
+  "sendgrid.net/wf/open",
+  "mandrillapp.com/track",
+  "mailgun.org/track",
+  "go.pardot.com",
+  "analytics.google.com",
+  "google-analytics.com",
+  "bat.bing.com",
+  "facebook.com/tr",
+  "connect.facebook.net",
+  "ad.doubleclick.net",
+  "demdex.net",
+  "omtrdc.net",
+  "ml.klaviyo.com",
+  "trk.klaviyo.com",
+];
+
+function isTrackingUrl(src: string): boolean {
+  try {
+    const url = new URL(src);
+    const full = url.hostname + url.pathname;
+    return TRACKER_DOMAINS.some((d) => full.includes(d));
+  } catch {
+    return false;
+  }
+}
+
+/** Strip images from HTML based on policy. Returns [processedHtml, imageCount]. */
+function processHtmlImages(
+  html: string,
+  policy: "show" | "block-trackers" | "block-all",
+): [string, number] {
+  if (policy === "show") return [html, 0];
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  const images = doc.querySelectorAll("img");
+  let blocked = 0;
+
+  images.forEach((img) => {
+    const src = img.getAttribute("src") || "";
+    if (!src || src.startsWith("data:") || src.startsWith("cid:")) return;
+
+    if (policy === "block-all") {
+      img.removeAttribute("src");
+      img.setAttribute("data-blocked-src", src);
+      blocked++;
+    } else if (policy === "block-trackers" && isTrackingUrl(src)) {
+      img.remove();
+      blocked++;
+    }
+  });
+
+  // Also strip tracking pixel style tags (1x1 images via CSS background)
+  if (policy === "block-trackers" || policy === "block-all") {
+    doc.querySelectorAll('img[width="1"][height="1"]').forEach((img) => {
+      img.remove();
+      blocked++;
+    });
+    doc.querySelectorAll('img[width="0"]').forEach((img) => {
+      img.remove();
+      blocked++;
+    });
+    doc
+      .querySelectorAll(
+        'img[style*="display:none"], img[style*="display: none"]',
+      )
+      .forEach((img) => {
+        img.remove();
+        blocked++;
+      });
+  }
+
+  return [doc.body.innerHTML, blocked];
+}
+
+function HtmlEmailBody({
+  html,
+  senderEmail,
+}: {
+  html: string;
+  senderEmail?: string;
+}) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
+  const { data: settings } = useSettings();
+  const updateSettings = useUpdateSettings();
+
+  const imagePolicy = settings?.imagePolicy ?? "show";
+  const trustedSenders = settings?.trustedSenders ?? [];
+  const senderDomain = senderEmail?.split("@")[1]?.toLowerCase();
+  const isTrusted = senderEmail
+    ? trustedSenders.includes(senderEmail.toLowerCase()) ||
+      (senderDomain ? trustedSenders.includes(`@${senderDomain}`) : false)
+    : false;
+
+  const [showImagesForThread, setShowImagesForThread] = useState(false);
+
+  // Determine effective policy for this email
+  const effectivePolicy =
+    isTrusted || showImagesForThread
+      ? imagePolicy === "block-all"
+        ? "block-trackers" // trusted senders still get tracker blocking if policy isn't "show"
+        : imagePolicy
+      : imagePolicy;
+
+  const [processedHtml, blockedCount] = useMemo(
+    () => processHtmlImages(html, effectivePolicy),
+    [html, effectivePolicy],
+  );
+
+  const handleAlwaysTrust = () => {
+    if (!senderDomain) return;
+    const current = settings?.trustedSenders ?? [];
+    const domainKey = `@${senderDomain}`;
+    if (!current.includes(domainKey)) {
+      updateSettings.mutate({ trustedSenders: [...current, domainKey] });
+    }
+    setShowImagesForThread(true);
+  };
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -885,7 +1071,7 @@ function HtmlEmailBody({ html }: { html: string }) {
     .quote-toggle:hover { color: rgba(161,161,170,0.8); }
   </style>
 </head>
-<body>${html}</body>
+<body>${processedHtml}</body>
 </html>`);
     doc.close();
 
@@ -978,20 +1164,51 @@ function HtmlEmailBody({ html }: { html: string }) {
       clearTimeout(timer2);
       images.forEach((img) => img.removeEventListener("load", resize));
     };
-  }, [html]);
+  }, [processedHtml]);
+
+  const showBanner =
+    effectivePolicy === "block-all" && blockedCount > 0 && !showImagesForThread;
 
   return (
-    <iframe
-      ref={iframeRef}
-      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-      style={{
-        width: "100%",
-        height: `${height}px`,
-        border: "none",
-        background: IFRAME_BG,
-        colorScheme: "dark",
-      }}
-      title="Email content"
-    />
+    <div>
+      {showBanner && (
+        <div className="flex items-center gap-2 px-3 py-1.5 mb-2 rounded-md bg-accent/60 text-[12px] text-muted-foreground">
+          <svg
+            viewBox="0 0 16 16"
+            fill="currentColor"
+            className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60"
+          >
+            <path d="M2.5 4A1.5 1.5 0 0 0 1 5.5v5A1.5 1.5 0 0 0 2.5 12h11a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 13.5 4h-11ZM4 7.5a1 1 0 1 1 2 0 1 1 0 0 1-2 0Zm4.5-.5a.5.5 0 0 0 0 1h3a.5.5 0 0 0 0-1h-3ZM8 9.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5Z" />
+          </svg>
+          <span>Images blocked.</span>
+          <button
+            onClick={() => setShowImagesForThread(true)}
+            className="text-primary hover:text-primary/80 font-medium transition-colors"
+          >
+            Show images
+          </button>
+          {senderEmail && (
+            <button
+              onClick={handleAlwaysTrust}
+              className="text-muted-foreground/60 hover:text-muted-foreground font-medium transition-colors"
+            >
+              Always from {senderEmail.split("@")[1]}
+            </button>
+          )}
+        </div>
+      )}
+      <iframe
+        ref={iframeRef}
+        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+        style={{
+          width: "100%",
+          height: `${height}px`,
+          border: "none",
+          background: IFRAME_BG,
+          colorScheme: "dark",
+        }}
+        title="Email content"
+      />
+    </div>
   );
 }

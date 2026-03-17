@@ -155,6 +155,36 @@ export function useTrashEmail() {
   });
 }
 
+export function useSaveDraft() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      to?: string;
+      cc?: string;
+      bcc?: string;
+      subject?: string;
+      body?: string;
+      draftId?: string;
+      replyToId?: string;
+      replyToThreadId?: string;
+    }) =>
+      apiFetch<{ draftId: string }>("/api/emails/draft", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+  });
+}
+
+export function useDeleteDraft() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/api/emails/draft/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+  });
+}
+
 export function useSendEmail() {
   const qc = useQueryClient();
   return useMutation({
@@ -180,6 +210,75 @@ export function useDeleteEmail() {
     mutationFn: (id: string) =>
       apiFetch(`/api/emails/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+  });
+}
+
+export function useReportSpam() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/api/emails/${id}/spam`, { method: "POST" }),
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["emails"],
+      });
+      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
+        old?.filter((e) => e.id !== id),
+      );
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+  });
+}
+
+export function useBlockSender() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, senderEmail }: { id: string; senderEmail: string }) =>
+      apiFetch(`/api/emails/${id}/block-sender`, {
+        method: "POST",
+        body: JSON.stringify({ senderEmail }),
+      }),
+    onMutate: async ({ id }) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["emails"],
+      });
+      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
+        old?.filter((e) => e.id !== id),
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+  });
+}
+
+export function useMuteThread() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (threadId: string) =>
+      apiFetch(`/api/threads/${threadId}/mute`, { method: "POST" }),
+    onMutate: async (threadId: string) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["emails"],
+      });
+      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
+        old?.filter((e) => (e.threadId || e.id) !== threadId),
+      );
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
   });
 }
 

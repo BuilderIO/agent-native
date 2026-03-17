@@ -20,12 +20,25 @@ const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function readEmails(): EmailMessage[] {
+/** Read a JSON file, copying from .defaults if missing */
+function readJsonWithDefaults<T>(filePath: string, fallback: T): T {
   try {
-    return JSON.parse(fs.readFileSync(EMAILS_FILE, "utf-8"));
+    return JSON.parse(fs.readFileSync(filePath, "utf-8"));
   } catch {
-    return [];
+    // Try copying from defaults file
+    const defaultsPath = filePath.replace(/\.json$/, ".defaults.json");
+    try {
+      const defaults = fs.readFileSync(defaultsPath, "utf-8");
+      fs.writeFileSync(filePath, defaults);
+      return JSON.parse(defaults);
+    } catch {
+      return fallback;
+    }
   }
+}
+
+function readEmails(): EmailMessage[] {
+  return readJsonWithDefaults<EmailMessage[]>(EMAILS_FILE, []);
 }
 
 function writeEmails(emails: EmailMessage[]) {
@@ -33,11 +46,7 @@ function writeEmails(emails: EmailMessage[]) {
 }
 
 function readLabels(): Label[] {
-  try {
-    return JSON.parse(fs.readFileSync(LABELS_FILE, "utf-8"));
-  } catch {
-    return [];
-  }
+  return readJsonWithDefaults<Label[]>(LABELS_FILE, []);
 }
 
 function writeLabels(labels: Label[]) {
@@ -45,19 +54,15 @@ function writeLabels(labels: Label[]) {
 }
 
 function readSettings(): UserSettings {
-  try {
-    return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf-8"));
-  } catch {
-    return {
-      name: "Alex Johnson",
-      email: "me@example.com",
-      theme: "dark",
-      density: "comfortable",
-      previewPane: "right",
-      sendAndArchive: false,
-      undoSendDelay: 5,
-    };
-  }
+  return readJsonWithDefaults<UserSettings>(SETTINGS_FILE, {
+    name: "Alex Johnson",
+    email: "me@example.com",
+    theme: "dark",
+    density: "comfortable",
+    previewPane: "right",
+    sendAndArchive: false,
+    undoSendDelay: 5,
+  });
 }
 
 function recomputeUnreadCounts(
@@ -65,14 +70,11 @@ function recomputeUnreadCounts(
   labels: Label[],
 ): Label[] {
   return labels.map((label) => {
-    const unread = emails.filter(
-      (e) =>
-        !e.isRead &&
-        !e.isArchived &&
-        !e.isTrashed &&
-        e.labelIds.includes(label.id),
-    ).length;
-    return { ...label, unreadCount: unread };
+    const active = emails.filter(
+      (e) => !e.isArchived && !e.isTrashed && e.labelIds.includes(label.id),
+    );
+    const unread = active.filter((e) => !e.isRead).length;
+    return { ...label, unreadCount: unread, totalCount: active.length };
   });
 }
 
@@ -532,6 +534,223 @@ export async function trashEmail(req: Request, res: Response): Promise<void> {
   res.json({ id: req.params.id, threadId, isTrashed: true });
 }
 
+// ─── Report spam ──────────────────────────────────────────────────────────────
+
+export async function reportSpam(req: Request, res: Response): Promise<void> {
+  const { accountEmail } = req.body;
+
+  if (isConnected()) {
+    try {
+      const client = await getClient(accountEmail);
+      if (client) {
+        const gmail = google.gmail({ version: "v1", auth: client });
+        await gmail.users.messages.modify({
+          userId: "me",
+          id: req.params.id as string,
+          requestBody: {
+            addLabelIds: ["SPAM"],
+            removeLabelIds: ["INBOX"],
+          },
+        });
+        res.json({ id: req.params.id, spam: true });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[reportSpam] Gmail error:", error.message);
+      res.status(500).json({ error: error.message });
+      return;
+    }
+  }
+
+  // Local fallback: move to trash with a spam label
+  const emails = readEmails();
+  const target = emails.find((e) => e.id === req.params.id);
+  if (!target) {
+    res.status(404).json({ error: "Email not found" });
+    return;
+  }
+  const threadId = target.threadId || target.id;
+  for (let i = 0; i < emails.length; i++) {
+    const eid = emails[i].threadId || emails[i].id;
+    if (eid === threadId) {
+      emails[i] = {
+        ...emails[i],
+        isTrashed: true,
+        labelIds: [...emails[i].labelIds.filter((l) => l !== "inbox"), "spam"],
+      };
+    }
+  }
+  writeEmails(emails);
+  const labels = recomputeUnreadCounts(emails, readLabels());
+  writeLabels(labels);
+  res.json({ id: req.params.id, threadId, spam: true });
+}
+
+// ─── Block sender ─────────────────────────────────────────────────────────────
+
+const BLOCKED_SENDERS_FILE = path.join(DATA_DIR, "blocked-senders.json");
+
+function readBlockedSenders(): string[] {
+  try {
+    return JSON.parse(fs.readFileSync(BLOCKED_SENDERS_FILE, "utf-8"));
+  } catch {
+    return [];
+  }
+}
+
+function writeBlockedSenders(senders: string[]) {
+  fs.writeFileSync(BLOCKED_SENDERS_FILE, JSON.stringify(senders, null, 2));
+}
+
+export async function blockSender(req: Request, res: Response): Promise<void> {
+  const { senderEmail, accountEmail } = req.body;
+
+  if (!senderEmail) {
+    res.status(400).json({ error: "Missing senderEmail" });
+    return;
+  }
+
+  // If Gmail is connected, create a filter to auto-delete + report spam
+  if (isConnected()) {
+    try {
+      const client = await getClient(accountEmail);
+      if (client) {
+        const gmail = google.gmail({ version: "v1", auth: client });
+
+        // Also report the current message as spam
+        await gmail.users.messages.modify({
+          userId: "me",
+          id: req.params.id as string,
+          requestBody: {
+            addLabelIds: ["SPAM"],
+            removeLabelIds: ["INBOX"],
+          },
+        });
+
+        // Create a filter to auto-delete future emails from this sender
+        try {
+          await (gmail.users.settings.filters.create as any)({
+            userId: "me",
+            requestBody: {
+              criteria: { from: senderEmail },
+              action: { removeLabelIds: ["INBOX"], addLabelIds: ["TRASH"] },
+            },
+          });
+        } catch (filterErr: any) {
+          // Filter creation may fail (permissions), but spam report still worked
+          console.error(
+            "[blockSender] filter creation failed:",
+            filterErr.message,
+          );
+        }
+
+        res.json({ id: req.params.id, blocked: senderEmail });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[blockSender] Gmail error:", error.message);
+      res.status(500).json({ error: error.message });
+      return;
+    }
+  }
+
+  // Local fallback: add to blocked list + trash the thread
+  const blocked = readBlockedSenders();
+  if (!blocked.includes(senderEmail.toLowerCase())) {
+    blocked.push(senderEmail.toLowerCase());
+    writeBlockedSenders(blocked);
+  }
+
+  const emails = readEmails();
+  const target = emails.find((e) => e.id === req.params.id);
+  if (!target) {
+    res.status(404).json({ error: "Email not found" });
+    return;
+  }
+  const threadId = target.threadId || target.id;
+  for (let i = 0; i < emails.length; i++) {
+    const eid = emails[i].threadId || emails[i].id;
+    if (eid === threadId) {
+      emails[i] = {
+        ...emails[i],
+        isTrashed: true,
+        labelIds: [...emails[i].labelIds.filter((l) => l !== "inbox"), "spam"],
+      };
+    }
+  }
+  writeEmails(emails);
+  const labels = recomputeUnreadCounts(emails, readLabels());
+  writeLabels(labels);
+  res.json({ id: req.params.id, threadId, blocked: senderEmail });
+}
+
+// ─── Mute thread ──────────────────────────────────────────────────────────────
+
+const MUTED_THREADS_FILE = path.join(DATA_DIR, "muted-threads.json");
+
+function readMutedThreads(): string[] {
+  try {
+    return JSON.parse(fs.readFileSync(MUTED_THREADS_FILE, "utf-8"));
+  } catch {
+    return [];
+  }
+}
+
+function writeMutedThreads(threads: string[]) {
+  fs.writeFileSync(MUTED_THREADS_FILE, JSON.stringify(threads, null, 2));
+}
+
+export async function muteThread(req: Request, res: Response): Promise<void> {
+  const { accountEmail } = req.body;
+
+  if (isConnected()) {
+    try {
+      const client = await getClient(accountEmail);
+      if (client) {
+        const gmail = google.gmail({ version: "v1", auth: client });
+        // Gmail "mute" = remove from inbox; future replies also skip inbox
+        await gmail.users.threads.modify({
+          userId: "me",
+          id: req.params.threadId as string,
+          requestBody: {
+            removeLabelIds: ["INBOX"],
+          },
+        });
+        res.json({ threadId: req.params.threadId, muted: true });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[muteThread] Gmail error:", error.message);
+      res.status(500).json({ error: error.message });
+      return;
+    }
+  }
+
+  // Local fallback: archive all messages in thread + record as muted
+  const threadId = req.params.threadId as string;
+  const muted = readMutedThreads();
+  if (!muted.includes(threadId)) {
+    muted.push(threadId);
+    writeMutedThreads(muted);
+  }
+
+  const emails = readEmails();
+  for (let i = 0; i < emails.length; i++) {
+    const eid = emails[i].threadId || emails[i].id;
+    if (eid === threadId) {
+      emails[i] = {
+        ...emails[i],
+        isArchived: true,
+        labelIds: emails[i].labelIds.filter((l) => l !== "inbox"),
+      };
+    }
+  }
+  writeEmails(emails);
+  const labels = recomputeUnreadCounts(emails, readLabels());
+  writeLabels(labels);
+  res.json({ threadId, muted: true });
+}
+
 // ─── Delete permanently ───────────────────────────────────────────────────────
 
 export function deleteEmail(req: Request, res: Response) {
@@ -598,6 +817,183 @@ export function sendEmail(req: Request, res: Response) {
   writeEmails(emails);
 
   res.status(201).json(newEmail);
+}
+
+// ─── Save draft (persistent, Gmail-style) ─────────────────────────────────────
+
+export async function saveDraft(req: Request, res: Response): Promise<void> {
+  const settings = readSettings();
+  const { to, cc, bcc, subject, body, draftId, replyToId, replyToThreadId } =
+    req.body;
+
+  // If Gmail is connected, create/update a Gmail draft
+  if (isConnected()) {
+    try {
+      const client = await getClient();
+      if (client) {
+        const gmail = google.gmail({ version: "v1", auth: client });
+        const raw = buildRawEmail({
+          from: `${settings.name} <${settings.email}>`,
+          to: to || "",
+          cc: cc || "",
+          bcc: bcc || "",
+          subject: subject || "(no subject)",
+          body: body || "",
+        });
+
+        if (draftId) {
+          // Update existing Gmail draft
+          try {
+            const updated = await (gmail.users.drafts.update as any)({
+              userId: "me",
+              id: draftId,
+              requestBody: { message: { raw } },
+            });
+            res.json({ draftId: (updated as any).data.id, updated: true });
+            return;
+          } catch {
+            // Draft may have been deleted; create new
+          }
+        }
+        // Create new Gmail draft
+        const created = await (gmail.users.drafts.create as any)({
+          userId: "me",
+          requestBody: { message: { raw } },
+        });
+        res.json({ draftId: (created as any).data.id, created: true });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[saveDraft] Gmail error:", error.message);
+      // Fall through to local storage
+    }
+  }
+
+  // Local fallback: save as EmailMessage with isDraft=true
+  const emails = readEmails();
+  const existingIdx = draftId
+    ? emails.findIndex((e) => e.id === draftId && e.isDraft)
+    : -1;
+
+  const draftEmail: EmailMessage = {
+    id: existingIdx >= 0 ? emails[existingIdx].id : `draft-${nanoid(8)}`,
+    threadId:
+      existingIdx >= 0
+        ? emails[existingIdx].threadId
+        : replyToId
+          ? (emails.find((e) => e.id === replyToId)?.threadId ??
+            `thread-${nanoid(8)}`)
+          : `thread-${nanoid(8)}`,
+    from: { name: settings.name, email: settings.email },
+    to: to
+      ? (to as string)
+          .split(",")
+          .filter((t: string) => t.trim())
+          .map((t: string) => ({ name: t.trim(), email: t.trim() }))
+      : [],
+    ...(cc
+      ? {
+          cc: (cc as string)
+            .split(",")
+            .filter((t: string) => t.trim())
+            .map((t: string) => ({ name: t.trim(), email: t.trim() })),
+        }
+      : {}),
+    ...(bcc
+      ? {
+          bcc: (bcc as string)
+            .split(",")
+            .filter((t: string) => t.trim())
+            .map((t: string) => ({ name: t.trim(), email: t.trim() })),
+        }
+      : {}),
+    subject: subject || "(no subject)",
+    snippet: (body || "").slice(0, 120).replace(/\n/g, " "),
+    body: body || "",
+    date: new Date().toISOString(),
+    isRead: true,
+    isStarred: false,
+    isDraft: true,
+    isArchived: false,
+    isTrashed: false,
+    labelIds: ["drafts"],
+    ...(replyToId ? { replyToId } : {}),
+    ...(replyToThreadId ? { replyToThreadId } : {}),
+  };
+
+  if (existingIdx >= 0) {
+    emails[existingIdx] = draftEmail;
+  } else {
+    emails.push(draftEmail);
+  }
+  writeEmails(emails);
+
+  res.json({
+    draftId: draftEmail.id,
+    [existingIdx >= 0 ? "updated" : "created"]: true,
+  });
+}
+
+/** Build RFC 2822 raw email for Gmail API */
+function buildRawEmail(opts: {
+  from: string;
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  body: string;
+}): string {
+  const lines = [
+    `From: ${opts.from}`,
+    `To: ${opts.to}`,
+    ...(opts.cc ? [`Cc: ${opts.cc}`] : []),
+    ...(opts.bcc ? [`Bcc: ${opts.bcc}`] : []),
+    `Subject: ${opts.subject}`,
+    `Content-Type: text/plain; charset="UTF-8"`,
+    "",
+    opts.body,
+  ];
+  // Gmail API expects URL-safe base64
+  return Buffer.from(lines.join("\r\n"))
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+// ─── Delete draft ─────────────────────────────────────────────────────────────
+
+export async function deleteDraft(req: Request, res: Response): Promise<void> {
+  const { id } = req.params;
+
+  if (isConnected()) {
+    try {
+      const client = await getClient();
+      if (client) {
+        const gmail = google.gmail({ version: "v1", auth: client });
+        try {
+          await (gmail.users.drafts.delete as any)({
+            userId: "me",
+            id,
+          });
+        } catch {
+          // Draft may not exist in Gmail
+        }
+        res.json({ ok: true });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[deleteDraft] Gmail error:", error.message);
+    }
+  }
+
+  // Local fallback
+  const emails = readEmails();
+  const filtered = emails.filter((e) => !(e.id === id && e.isDraft));
+  if (filtered.length !== emails.length) {
+    writeEmails(filtered);
+  }
+  res.json({ ok: true });
 }
 
 // ─── Contacts (extracted from email history) ─────────────────────────────────
@@ -797,27 +1193,34 @@ export async function listLabels(_req: Request, res: Response) {
   if (isConnected()) {
     try {
       const clients = await getClients();
+      // Deduplicate by derived short-name id (not Gmail label ID)
       const labelMap = new Map<
         string,
         { id: string; name: string; type: "system" | "user" }
       >();
-      await Promise.all(
-        clients.map(async ({ client }) => {
-          try {
-            const map = await fetchGmailLabelMap(client);
-            for (const [id, name] of map) {
-              const isSystem = !id.startsWith("Label_");
-              if (!labelMap.has(id)) {
-                labelMap.set(id, {
-                  id: name.toLowerCase(),
-                  name,
-                  type: isSystem ? ("system" as const) : ("user" as const),
-                });
-              }
+      // Fetch labels from each account sequentially to avoid race conditions on the shared map
+      for (const { client } of clients) {
+        try {
+          const map = await fetchGmailLabelMap(client);
+          for (const [gmailId, name] of map) {
+            const isSystem = !gmailId.startsWith("Label_");
+            // Use the full label name (preserving hierarchy) as the id,
+            // but display the short name (last segment, underscores → spaces)
+            const fullId = name.toLowerCase().replace(/_/g, " ");
+            let shortName = name;
+            const lastSlash = shortName.lastIndexOf("/");
+            if (lastSlash >= 0) shortName = shortName.slice(lastSlash + 1);
+            shortName = shortName.replace(/_/g, " ");
+            if (!labelMap.has(fullId)) {
+              labelMap.set(fullId, {
+                id: fullId,
+                name: shortName,
+                type: isSystem ? ("system" as const) : ("user" as const),
+              });
             }
-          } catch {}
-        }),
-      );
+          }
+        } catch {}
+      }
       const labels: Label[] = Array.from(labelMap.values()).map((l) => ({
         ...l,
         unreadCount: 0,

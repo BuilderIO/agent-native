@@ -78,6 +78,15 @@ export function createApp(name?: string): void {
     fs.writeFileSync(agentsPath, content);
   }
 
+  // Copy defaults files (gitignored files that get seeded from .defaults on first create)
+  for (const base of ["learnings"]) {
+    const defaultsFile = path.join(targetDir, `${base}.defaults.md`);
+    const targetFile = path.join(targetDir, `${base}.md`);
+    if (fs.existsSync(defaultsFile) && !fs.existsSync(targetFile)) {
+      fs.copyFileSync(defaultsFile, targetFile);
+    }
+  }
+
   // Rename gitignore (npm strips .gitignore from packages)
   const gitignoreSrc = path.join(targetDir, "_gitignore");
   const gitignoreDst = path.join(targetDir, ".gitignore");

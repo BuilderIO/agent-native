@@ -36,6 +36,21 @@ data/            # App data files (watched by SSE)
 .agents/skills/  # Agent skills — detailed guidance for each rule
 ```
 
+## Learnings & Preferences
+
+**Always read `learnings.md` at the start of every conversation.** This file is the app's memory — it contains user preferences, corrections, important context, and patterns learned from past interactions.
+
+**Update `learnings.md` when you learn something important:**
+
+- User corrects your tone, style, or approach
+- User shares personal info relevant to the app (contacts, preferences, habits)
+- You discover a non-obvious pattern or gotcha
+- User gives feedback that should apply to future conversations
+
+Keep entries concise and actionable. Group by category. This file is gitignored so personal data stays local.
+
+---
+
 Skills in `.agents/skills/` provide detailed guidance for each architectural rule. Read them before making changes.
 
 | Skill                 | When to read                                                   |

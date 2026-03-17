@@ -37,3 +37,6 @@ content/projects/
 
 # Builder.io auth keys (use BUILDER_API_KEY and BUILDER_PRIVATE_KEY env vars instead)
 content/.builder-auth.json
+
+# Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
+learnings.md

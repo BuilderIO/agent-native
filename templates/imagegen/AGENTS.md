@@ -16,6 +16,19 @@ See `.agents/skills/` for the framework rules that apply to all agent-native app
 
 ---
 
+## Learnings & Preferences
+
+**Always read `learnings.md` at the start of every conversation.** This file is the app's memory — it contains user preferences, corrections, important context, and patterns learned from past interactions.
+
+**Update `learnings.md` when you learn something important:**
+
+- User corrects your tone, style, or approach
+- User shares personal info relevant to the app (contacts, preferences, habits)
+- You discover a non-obvious pattern or gotcha
+- User gives feedback that should apply to future conversations
+
+Keep entries concise and actionable. Group by category. This file is gitignored so personal data stays local.
+
 ## Architecture
 
 Files are the database. All state lives in `data/`:

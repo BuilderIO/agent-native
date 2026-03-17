@@ -32,3 +32,6 @@ data/uploads/
 # Firestore-synced data (synced at runtime, not checked in)
 data/decks/
 data/*.md
+
+# Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
+learnings.md
