@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
   Link,
   useNavigate,
-  useParams,
+  useLocation,
   useSearchParams,
 } from "react-router-dom";
 import { IconChevronRight, IconChevronLeft } from "@tabler/icons-react";
@@ -60,10 +60,11 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
-  const { view = "inbox", threadId } = useParams<{
-    view: string;
-    threadId: string;
-  }>();
+  const location = useLocation();
+  // Parse view and threadId from pathname since AppLayout is outside <Routes>
+  const pathSegments = location.pathname.split("/").filter(Boolean);
+  const view = pathSegments[0] || "inbox";
+  const threadId = pathSegments[1] || undefined;
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
   const { data: labels = [] } = useLabels();
@@ -145,13 +146,19 @@ export function AppLayout({ children }: AppLayoutProps) {
   const currentInHidden = hiddenViews.some((v) => v.id === view);
 
   // User labels available for pinning
-  const userLabels = useMemo(
-    () =>
-      labels.filter(
-        (l) => !["inbox", ...collapsibleViews.map((v) => v.id)].includes(l.id),
-      ),
-    [labels],
-  );
+  const userLabels = useMemo(() => {
+    const filtered = labels.filter(
+      (l) => !["inbox", ...collapsibleViews.map((v) => v.id)].includes(l.id),
+    );
+    // Deduplicate by display name (different paths can have the same short name)
+    const seen = new Set<string>();
+    return filtered.filter((l) => {
+      const key = l.name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [labels]);
 
   // Close popovers on outside click
   useEffect(() => {
@@ -337,9 +344,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   ]);
 
   // Get unread counts for tabs
-  const getUnreadCount = (viewId: string) => {
+  const getTotalCount = (viewId: string) => {
     const label = labels.find((l) => l.id === viewId);
-    return label?.unreadCount ?? 0;
+    return label?.totalCount ?? 0;
   };
 
   return (
@@ -348,11 +355,11 @@ export function AppLayout({ children }: AppLayoutProps) {
       <div className="relative flex flex-1 flex-col overflow-hidden">
         {/* Top nav bar — hidden when viewing a thread */}
         {!threadId && (
-          <header className="relative z-20 flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card/80 backdrop-blur-sm px-2">
+          <header className="relative z-20 flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2 inbox-zero-header">
             {/* Visible tabs */}
             <nav className="flex items-center gap-0.5 overflow-x-auto hide-scrollbar">
               {visibleTabs.map((tab) => {
-                const count = getUnreadCount(tab.id);
+                const count = getTotalCount(tab.id);
                 return (
                   <Link
                     key={tab.id}
