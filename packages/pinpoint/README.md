@@ -24,21 +24,28 @@ npm install @agent-native/pinpoint
 ### In a React App
 
 ```tsx
-import { mountPinpoint } from "@agent-native/pinpoint";
-import { useEffect } from "react";
+import { Pinpoint } from "@agent-native/pinpoint/react";
 
 function App() {
-  useEffect(() => {
-    const { dispose } = mountPinpoint({
-      author: "Designer",
-      colorScheme: "auto",
-      endpoint: "/api/pins", // optional: enable server persistence
-    });
-    return dispose;
-  }, []);
-
-  return <div>Your app here</div>;
+  return (
+    <>
+      <Pinpoint author="Designer" colorScheme="auto" endpoint="/api/pins" />
+      <div>Your app here</div>
+    </>
+  );
 }
+```
+
+For advanced use cases (non-React, programmatic control), use the imperative API:
+
+```tsx
+import { mountPinpoint } from "@agent-native/pinpoint";
+
+const { dispose } = mountPinpoint({
+  author: "Designer",
+  endpoint: "/api/pins",
+});
+// Call dispose() to unmount
 ```
 
 ### In an Agent-Native App
