@@ -87,7 +87,6 @@ export type UserSettings = {
   previewPane: "right" | "bottom" | "off";
   sendAndArchive: boolean;
   undoSendDelay: number;
-  apolloApiKey?: string;
 };
 
 export type ApolloPersonResult = {

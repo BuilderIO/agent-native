@@ -1,48 +1,50 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ApolloPersonResult } from "@shared/types";
-import { useSettings, useUpdateSettings } from "./use-emails";
 
-async function apiFetch<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(url, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
 }
 
 export function useApolloStatus() {
-  const { data: settings } = useSettings();
-  return {
-    connected: !!settings?.apolloApiKey,
-  };
+  const { data } = useQuery<{ connected: boolean }>({
+    queryKey: ["apollo-status"],
+    queryFn: () => apiFetch("/api/apollo/status"),
+    staleTime: 30_000,
+  });
+  return { connected: data?.connected ?? false };
 }
 
 export function useApolloConnect() {
-  const updateSettings = useUpdateSettings();
   const qc = useQueryClient();
 
   return useMutation({
     mutationFn: async (apiKey: string) => {
-      // Test the key first
-      const res = await fetch(`/api/apollo/person?email=test@example.com`);
-      // 401 means our server doesn't have a key yet, which is expected
-      // We need to save first, then test
-      updateSettings.mutate({ apolloApiKey: apiKey });
+      await apiFetch("/api/apollo/key", {
+        method: "PUT",
+        body: JSON.stringify({ apiKey }),
+      });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["settings"] });
+      qc.invalidateQueries({ queryKey: ["apollo-status"] });
+      qc.invalidateQueries({ queryKey: ["apollo-person"] });
     },
   });
 }
 
 export function useApolloDisconnect() {
-  const updateSettings = useUpdateSettings();
   const qc = useQueryClient();
 
   return useMutation({
     mutationFn: async () => {
-      updateSettings.mutate({ apolloApiKey: "" });
+      await apiFetch("/api/apollo/key", { method: "DELETE" });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["settings"] });
+      qc.invalidateQueries({ queryKey: ["apollo-status"] });
       qc.invalidateQueries({ queryKey: ["apollo-person"] });
     },
   });
@@ -60,7 +62,7 @@ export function useApolloPerson(email: string | undefined) {
       return result ?? null;
     },
     enabled: !!email && connected,
-    staleTime: 5 * 60 * 1000, // Cache for 5 min
+    staleTime: 5 * 60 * 1000,
     retry: false,
   });
 }

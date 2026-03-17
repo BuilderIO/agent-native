@@ -33,7 +33,12 @@ import {
   getGoogleStatus,
   disconnectGoogle,
 } from "./routes/google-auth.js";
-import { apolloPersonLookup } from "./routes/apollo.js";
+import {
+  apolloPersonLookup,
+  apolloStatus,
+  apolloSaveKey,
+  apolloDeleteKey,
+} from "./routes/apollo.js";
 
 const envKeys: EnvKeyConfig[] = [
   { key: "GOOGLE_CLIENT_ID", label: "Google OAuth Client ID", required: false },
@@ -82,6 +87,9 @@ export function createAppServer() {
   app.delete("/api/application-state/:key", deleteState);
 
   // Apollo
+  app.get("/api/apollo/status", apolloStatus);
+  app.put("/api/apollo/key", apolloSaveKey);
+  app.delete("/api/apollo/key", apolloDeleteKey);
   app.get("/api/apollo/person", apolloPersonLookup);
 
   // Google Auth

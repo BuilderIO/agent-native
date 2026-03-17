@@ -6,6 +6,5 @@
   "density": "comfortable",
   "previewPane": "right",
   "sendAndArchive": false,
-  "undoSendDelay": 5,
-  "apolloApiKey": "***REMOVED***"
+  "undoSendDelay": 5
 }

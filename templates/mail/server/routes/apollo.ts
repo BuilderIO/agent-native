@@ -2,17 +2,53 @@ import type { Request, Response } from "express";
 import fs from "fs";
 import path from "path";
 
-const SETTINGS_FILE = path.join(process.cwd(), "data", "settings.json");
+// Store Apollo API key in application-state/ (gitignored), NOT in data/settings.json
+const STATE_DIR = path.join(process.cwd(), "application-state");
+const APOLLO_FILE = path.join(STATE_DIR, "apollo.json");
+
+function ensureStateDir() {
+  if (!fs.existsSync(STATE_DIR)) {
+    fs.mkdirSync(STATE_DIR, { recursive: true });
+  }
+}
 
 function getApolloKey(): string | undefined {
   try {
-    const settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf-8"));
-    return settings.apolloApiKey;
+    const data = JSON.parse(fs.readFileSync(APOLLO_FILE, "utf-8"));
+    return data.apiKey || undefined;
   } catch {
     return undefined;
   }
 }
 
+// GET /api/apollo/status — check if key is configured (never returns the key itself)
+export function apolloStatus(_req: Request, res: Response) {
+  res.json({ connected: !!getApolloKey() });
+}
+
+// PUT /api/apollo/key — save API key
+export function apolloSaveKey(req: Request, res: Response) {
+  const { apiKey } = req.body;
+  if (!apiKey || typeof apiKey !== "string") {
+    res.status(400).json({ error: "apiKey is required" });
+    return;
+  }
+  ensureStateDir();
+  fs.writeFileSync(APOLLO_FILE, JSON.stringify({ apiKey }, null, 2));
+  res.json({ connected: true });
+}
+
+// DELETE /api/apollo/key — remove API key
+export function apolloDeleteKey(_req: Request, res: Response) {
+  try {
+    fs.unlinkSync(APOLLO_FILE);
+  } catch {
+    // didn't exist
+  }
+  res.json({ connected: false });
+}
+
+// GET /api/apollo/person?email=... — look up a person
 export async function apolloPersonLookup(req: Request, res: Response) {
   const { email } = req.query;
   if (!email || typeof email !== "string") {
@@ -45,7 +81,7 @@ export async function apolloPersonLookup(req: Request, res: Response) {
 
     const data = await response.json();
     res.json(data.person || null);
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: "Failed to reach Apollo API" });
   }
 }
