@@ -75,7 +75,18 @@ export function useArchiveEmail() {
   return useMutation({
     mutationFn: (id: string) =>
       apiFetch(`/api/emails/${id}/archive`, { method: "PATCH" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({ queryKey: ["emails"] });
+      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
+        old?.filter((e) => e.id !== id),
+      );
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
   });
 }
 
@@ -84,7 +95,18 @@ export function useUnarchiveEmail() {
   return useMutation({
     mutationFn: (id: string) =>
       apiFetch(`/api/emails/${id}/unarchive`, { method: "PATCH" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({ queryKey: ["emails"] });
+      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
+        old?.map((e) => (e.id === id ? { ...e, isArchived: false } : e)),
+      );
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
   });
 }
 
@@ -93,7 +115,18 @@ export function useTrashEmail() {
   return useMutation({
     mutationFn: (id: string) =>
       apiFetch(`/api/emails/${id}/trash`, { method: "PATCH" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({ queryKey: ["emails"] });
+      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
+        old?.filter((e) => e.id !== id),
+      );
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
   });
 }
 
@@ -122,6 +155,18 @@ export function useDeleteEmail() {
     mutationFn: (id: string) =>
       apiFetch(`/api/emails/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+  });
+}
+
+// ─── Contacts ────────────────────────────────────────────────────────────────
+
+export type Contact = { name: string; email: string; count: number };
+
+export function useContacts() {
+  return useQuery<Contact[]>({
+    queryKey: ["contacts"],
+    queryFn: () => apiFetch("/api/contacts"),
+    staleTime: 60_000,
   });
 }
 

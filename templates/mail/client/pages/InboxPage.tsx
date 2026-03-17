@@ -152,7 +152,7 @@ function ThreadListSidebar({
       <div className="flex-1 overflow-y-auto">
         {threads.map((thread) => {
           const email = thread.latestMessage;
-          const isActive = email.id === activeThreadId;
+          const isActive = (email.threadId || email.id) === activeThreadId;
           const senderName =
             thread.messageCount > 1
               ? thread.participants.map((p) => p.split(" ")[0]).join(", ")
@@ -163,7 +163,7 @@ function ThreadListSidebar({
               onClick={() => {
                 if (!email.isRead)
                   markRead.mutate({ id: email.id, isRead: true });
-                navigate(`/${view}/${email.id}`);
+                navigate(`/${view}/${email.threadId || email.id}`);
               }}
               className={cn(
                 "w-full text-left px-3 py-2 border-b border-border/10 transition-colors",
@@ -212,7 +212,7 @@ export function InboxPage() {
   const unarchiveEmail = useUnarchiveEmail();
   const { data: emails = [] } = useEmails(view);
   const threadIds = useMemo(
-    () => groupIntoThreads(emails).map((t) => t.latestMessage.id),
+    () => groupIntoThreads(emails).map((t) => t.latestMessage.threadId || t.latestMessage.id),
     [emails],
   );
 

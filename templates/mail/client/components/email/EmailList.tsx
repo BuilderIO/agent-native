@@ -157,35 +157,27 @@ export function EmailList({
     if (!thread) return;
     if (!thread.latestMessage.isRead)
       markRead.mutate({ id: focusedId, isRead: true });
-    navigate(`/${view}/${focusedId}`);
+    navigate(`/${view}/${thread.latestMessage.threadId || focusedId}`);
   }, [focusedId, threads, view, navigate, markRead]);
 
   const archiveFocused = useCallback(() => {
     if (!focusedId) return;
     const id = focusedId;
-    archiveEmail.mutate(id, {
-      onSuccess: () => {
-        onArchived?.(id);
-        toast("Marked as Done.", {
-          action: {
-            label: "UNDO",
-            onClick: () => undoArchive?.(id),
-          },
-        });
-        moveFocus(0);
+    onArchived?.(id);
+    toast("Marked as Done.", {
+      action: {
+        label: "UNDO",
+        onClick: () => undoArchive?.(id),
       },
     });
-  }, [focusedId, archiveEmail, moveFocus, onArchived, undoArchive]);
+    archiveEmail.mutate(id);
+  }, [focusedId, archiveEmail, onArchived, undoArchive]);
 
   const trashFocused = useCallback(() => {
     if (!focusedId) return;
-    trashEmail.mutate(focusedId, {
-      onSuccess: () => {
-        toast("Moved to Trash.");
-        moveFocus(0);
-      },
-    });
-  }, [focusedId, trashEmail, moveFocus]);
+    toast("Moved to Trash.");
+    trashEmail.mutate(focusedId);
+  }, [focusedId, trashEmail]);
 
   const toggleFocusedRead = useCallback(() => {
     if (!focusedId) return;
@@ -257,7 +249,7 @@ export function EmailList({
     const email = thread.latestMessage;
     setFocusedId(email.id);
     if (!email.isRead) markRead.mutate({ id: email.id, isRead: true });
-    navigate(`/${view}/${email.id}`);
+    navigate(`/${view}/${email.threadId || email.id}`);
   };
 
   const handleStar = (e: React.MouseEvent, thread: ThreadSummary) => {

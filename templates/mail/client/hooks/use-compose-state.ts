@@ -84,8 +84,10 @@ export function useComposeState() {
   const clear = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     dirtyRef.current = false;
+    // Immediately clear from cache so the modal unmounts
+    qc.setQueryData(["compose-state"], undefined);
     deleteMutation.mutate();
-  }, [deleteMutation]);
+  }, [qc, deleteMutation]);
 
   // Flush: immediately write current state (for Generate button)
   const flush = useCallback(() => {

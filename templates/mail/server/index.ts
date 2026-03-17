@@ -15,6 +15,7 @@ import {
   deleteEmail,
   sendEmail,
   listLabels,
+  listContacts,
   getSettings,
   updateSettings,
 } from "./routes/emails.js";
@@ -58,6 +59,9 @@ export function createAppServer() {
 
   // Labels
   app.get("/api/labels", listLabels);
+
+  // Contacts
+  app.get("/api/contacts", listContacts);
 
   // Settings
   app.get("/api/settings", getSettings);

@@ -3,7 +3,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import { cn, formatEmailDate, formatFileSize } from "@/lib/utils";
 import { useComposeState } from "@/hooks/use-compose-state";
 import {
-  useEmail,
   useThreadMessages,
   useArchiveEmail,
   useTrashEmail,
@@ -11,6 +10,7 @@ import {
   useMarkRead,
   useUnarchiveEmail,
 } from "@/hooks/use-emails";
+import { useQueryClient } from "@tanstack/react-query";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { toast } from "sonner";
 import type { EmailMessage } from "@shared/types";
@@ -28,36 +28,68 @@ export function EmailThread({
   }>();
   const navigate = useNavigate();
   const compose = useComposeState();
+  const queryClient = useQueryClient();
 
-  // Fetch the clicked email to get its real threadId
-  const { data: email, isLoading: emailLoading } = useEmail(threadId);
-  // Fetch all messages in the thread
-  const realThreadId = email?.threadId;
-  const { data: threadMessages } = useThreadMessages(realThreadId);
-
-  // Messages sorted oldest-first; fall back to single email
-  const messages = useMemo(() => {
-    if (threadMessages && threadMessages.length > 0) return threadMessages;
-    if (email) return [email];
-    return [];
-  }, [threadMessages, email]);
-
-  // Track which message is expanded — default to the last one
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  // When messages load, expand the last one
-  useEffect(() => {
-    if (messages.length > 0 && expandedId === null) {
-      setExpandedId(messages[messages.length - 1].id);
+  // Pull any messages we already have from the list cache (instant, no fetch)
+  const cachedMessages = useMemo(() => {
+    if (!threadId) return [];
+    const allCached: EmailMessage[] = [];
+    const queries = queryClient.getQueriesData<EmailMessage[]>({ queryKey: ["emails"] });
+    for (const [, data] of queries) {
+      if (!data) continue;
+      for (const email of data) {
+        if ((email.threadId || email.id) === threadId) {
+          allCached.push(email);
+        }
+      }
     }
-  }, [messages, expandedId]);
+    // Dedupe by id and sort oldest-first
+    const seen = new Set<string>();
+    return allCached
+      .filter((e) => { if (seen.has(e.id)) return false; seen.add(e.id); return true; })
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [threadId, queryClient]);
 
-  // Reset expanded when navigating to a different thread
+  // Fetch all messages in the thread (URL param is the real threadId)
+  const { data: threadMessages } = useThreadMessages(threadId);
+
+  // Use full thread when loaded, otherwise show what we have from the list cache
+  const messages = threadMessages ?? cachedMessages;
+
+  // Use the latest message as the "primary" email for actions/metadata
+  const email = messages.length > 0 ? messages[messages.length - 1] : undefined;
+
+  // Track which messages are expanded — latest + unread by default
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [initialized, setInitialized] = useState(false);
+
+  // When messages load, expand the latest + any unread
   useEffect(() => {
-    setExpandedId(null);
+    if (messages.length > 0 && !initialized) {
+      const ids = new Set<string>();
+      ids.add(messages[messages.length - 1].id); // always expand latest
+      for (const msg of messages) {
+        if (!msg.isRead) ids.add(msg.id);
+      }
+      setExpandedIds(ids);
+      setInitialized(true);
+    }
+  }, [messages, initialized]);
+
+  // Reset when navigating to a different thread
+  useEffect(() => {
+    setExpandedIds(new Set());
+    setInitialized(false);
   }, [threadId]);
 
-  const expandedIndex = messages.findIndex((m) => m.id === expandedId);
+  // Track the "focused" expanded message for keyboard nav (n/p)
+  const focusedExpanded = useMemo(() => {
+    // Find the last expanded message for focus tracking
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (expandedIds.has(messages[i].id)) return i;
+    }
+    return messages.length - 1;
+  }, [messages, expandedIds]);
   const expandedRef = useRef<HTMLDivElement>(null);
 
   const archiveEmail = useArchiveEmail();
@@ -102,9 +134,10 @@ export function EmailThread({
       if (messages.length === 0) return;
       const nextIdx = Math.max(
         0,
-        Math.min(messages.length - 1, expandedIndex + delta),
+        Math.min(messages.length - 1, focusedExpanded + delta),
       );
-      setExpandedId(messages[nextIdx].id);
+      const id = messages[nextIdx].id;
+      setExpandedIds((prev) => new Set(prev).add(id));
       // Scroll into view after render
       setTimeout(() => {
         expandedRef.current?.scrollIntoView({
@@ -113,34 +146,28 @@ export function EmailThread({
         });
       }, 50);
     },
-    [messages, expandedIndex],
+    [messages, focusedExpanded],
   );
 
   const handleArchive = useCallback(() => {
     if (!email) return;
     const id = email.id;
-    archiveEmail.mutate(id, {
-      onSuccess: () => {
-        onArchived?.(id);
-        toast("Marked as Done.", {
-          action: {
-            label: "UNDO",
-            onClick: () => unarchiveEmail.mutate(id),
-          },
-        });
-        advanceOrGoBack();
+    onArchived?.(id);
+    toast("Marked as Done.", {
+      action: {
+        label: "UNDO",
+        onClick: () => unarchiveEmail.mutate(id),
       },
     });
+    advanceOrGoBack();
+    archiveEmail.mutate(id);
   }, [email, archiveEmail, unarchiveEmail, advanceOrGoBack, onArchived]);
 
   const handleTrash = useCallback(() => {
     if (!email) return;
-    trashEmail.mutate(email.id, {
-      onSuccess: () => {
-        toast("Moved to Trash.");
-        advanceOrGoBack();
-      },
-    });
+    toast("Moved to Trash.");
+    advanceOrGoBack();
+    trashEmail.mutate(email.id);
   }, [email, trashEmail, advanceOrGoBack]);
 
   const handleStar = useCallback(() => {
@@ -150,7 +177,7 @@ export function EmailThread({
 
   const handleReply = useCallback(
     (msg?: EmailMessage) => {
-      const target = msg ?? messages.find((m) => m.id === expandedId) ?? email;
+      const target = msg ?? email;
       if (!target) return;
       compose.open({
         to: target.from.email,
@@ -166,23 +193,22 @@ export function EmailThread({
         replyToThreadId: target.threadId,
       });
     },
-    [email, messages, expandedId, compose],
+    [email, messages, compose],
   );
 
   const handleForward = useCallback(() => {
-    const target = messages.find((m) => m.id === expandedId) ?? email;
-    if (!target) return;
+    if (!email) return;
     compose.open({
       to: "",
-      subject: target.subject.startsWith("Fwd:")
-        ? target.subject
-        : `Fwd: ${target.subject}`,
-      body: `\n\n— Forwarded message —\nFrom: ${target.from.name} <${target.from.email}>\n\n${target.body}`,
+      subject: email.subject.startsWith("Fwd:")
+        ? email.subject
+        : `Fwd: ${email.subject}`,
+      body: `\n\n— Forwarded message —\nFrom: ${email.from.name} <${email.from.email}>\n\n${email.body}`,
       mode: "forward",
-      replyToId: target.id,
-      replyToThreadId: target.threadId,
+      replyToId: email.id,
+      replyToThreadId: email.threadId,
     });
-  }, [email, messages, expandedId, compose]);
+  }, [email, compose]);
 
   // Keyboard shortcuts
   useKeyboardShortcuts(
@@ -227,29 +253,6 @@ export function EmailThread({
   );
 
   if (!threadId) return null;
-
-  if (emailLoading) {
-    return (
-      <div className="flex flex-1 flex-col p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="h-8 w-8 rounded-full bg-muted animate-pulse" />
-          <div className="flex-1 space-y-2">
-            <div className="h-4 w-2/3 rounded bg-muted animate-pulse" />
-            <div className="h-3 w-1/3 rounded bg-muted animate-pulse" />
-          </div>
-        </div>
-        <div className="space-y-3">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-3 rounded bg-muted animate-pulse"
-              style={{ width: `${60 + Math.random() * 30}%` }}
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
 
   if (!email) {
     return (
@@ -315,9 +318,6 @@ export function EmailThread({
 
             {/* Action bar */}
             <div className="flex items-center gap-0.5 mt-2">
-              <button className="flex items-center gap-1.5 px-2 py-1 rounded text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                Share
-              </button>
               <button
                 onClick={handleArchive}
                 className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
@@ -333,28 +333,6 @@ export function EmailThread({
                     d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207z"
                     clipRule="evenodd"
                   />
-                </svg>
-              </button>
-              <button className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  className="h-4 w-4"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M1 8a7 7 0 1 1 14 0A7 7 0 0 1 1 8zm7.75-4.25a.75.75 0 0 0-1.5 0V8c0 .414.336.75.75.75h3.25a.75.75 0 0 0 0-1.5h-2.5v-3.5z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-              <button className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  className="h-4 w-4"
-                >
-                  <path d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm-1.5-8.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm5 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM5.32 10.68a.75.75 0 0 1 1.06-.04 3.25 3.25 0 0 0 3.24 0 .75.75 0 1 1 1.02 1.1A4.75 4.75 0 0 1 8 12.75a4.75 4.75 0 0 1-2.64-.99.75.75 0 0 1-.04-1.08z" />
                 </svg>
               </button>
               <button
@@ -398,13 +376,19 @@ export function EmailThread({
       <div className="flex-1 overflow-y-auto px-5 pb-4">
         <div className="max-w-3xl mx-auto space-y-1">
           {messages.map((msg) => {
-            const isExpanded = msg.id === expandedId;
+            const isExpanded = expandedIds.has(msg.id);
             return isExpanded ? (
               <ExpandedMessageCard
                 key={msg.id}
                 ref={expandedRef}
                 email={msg}
-                onCollapse={() => setExpandedId(null)}
+                onCollapse={() => {
+                  setExpandedIds((prev) => {
+                    const next = new Set(prev);
+                    next.delete(msg.id);
+                    return next;
+                  });
+                }}
                 onReply={() => handleReply(msg)}
                 onForward={() => {
                   compose.open({
@@ -424,7 +408,7 @@ export function EmailThread({
                 key={msg.id}
                 email={msg}
                 onClick={() => {
-                  setExpandedId(msg.id);
+                  setExpandedIds((prev) => new Set(prev).add(msg.id));
                   setTimeout(() => {
                     expandedRef.current?.scrollIntoView({
                       block: "nearest",

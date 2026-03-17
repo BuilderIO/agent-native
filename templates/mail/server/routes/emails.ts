@@ -572,6 +572,38 @@ export function sendEmail(req: Request, res: Response) {
   res.status(201).json(newEmail);
 }
 
+// ─── Contacts (extracted from email history) ─────────────────────────────────
+
+export function listContacts(_req: Request, res: Response) {
+  const emails = readEmails();
+  const contactMap = new Map<string, { name: string; email: string; count: number }>();
+
+  for (const email of emails) {
+    const addresses = [
+      email.from,
+      ...(email.to || []),
+      ...(email.cc || []),
+      ...(email.bcc || []),
+    ];
+    for (const addr of addresses) {
+      if (!addr?.email) continue;
+      const key = addr.email.toLowerCase();
+      const existing = contactMap.get(key);
+      if (existing) {
+        existing.count++;
+        if (addr.name && addr.name !== addr.email && (!existing.name || existing.name === existing.email)) {
+          existing.name = addr.name;
+        }
+      } else {
+        contactMap.set(key, { name: addr.name || addr.email, email: addr.email, count: 1 });
+      }
+    }
+  }
+
+  const contacts = Array.from(contactMap.values()).sort((a, b) => b.count - a.count);
+  res.json(contacts);
+}
+
 // ─── Labels ───────────────────────────────────────────────────────────────────
 
 export async function listLabels(_req: Request, res: Response) {
