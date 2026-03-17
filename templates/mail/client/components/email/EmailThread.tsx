@@ -550,7 +550,7 @@ const ExpandedMessageCard = forwardRef<
     <span key={c.email}>
       <button
         onClick={() => onContactSelect?.(c.email)}
-        className="hover:underline hover:text-primary transition-colors"
+        className="hover:text-primary transition-colors"
       >
         {formatContact(c)}
       </button>
@@ -579,7 +579,7 @@ const ExpandedMessageCard = forwardRef<
               <span className="text-foreground font-semibold">
                 <button
                   onClick={() => onContactSelect?.(email.from.email)}
-                  className="hover:underline hover:text-primary transition-colors"
+                  className="hover:text-primary transition-colors"
                 >
                   {formatContact(email.from)}
                 </button>
@@ -644,13 +644,19 @@ const ExpandedMessageCard = forwardRef<
                 onContactSelect?.(email.from.email);
                 setShowDetails(true);
               }}
-              className="text-[13px] font-semibold text-foreground shrink-0 hover:underline"
+              className="text-[13px] font-semibold text-foreground shrink-0 hover:text-foreground/80 transition-colors"
             >
               {senderName}
             </button>
-            <span className="text-[12px] text-muted-foreground/50 truncate">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowDetails(true);
+              }}
+              className="text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors truncate text-left"
+            >
               to {recipients}
-            </span>
+            </button>
           </div>
 
           {/* Reply / Reply All / Forward buttons */}

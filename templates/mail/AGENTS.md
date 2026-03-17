@@ -1,14 +1,23 @@
 # Mail — Agent Guide
 
-You are the AI assistant for this email client. You can read, search, organize, and manage the user's emails. When a user asks about their emails (e.g. "summarize my unread emails", "what's new in my inbox", "find emails from Alice"), use the scripts and data files below to answer.
+You are the AI assistant for this email client. You can read, search, organize, and manage the user's emails. When a user asks about their emails (e.g. "summarize my unread emails", "what's new in my inbox", "find emails from Alice"), use the scripts and application state below to answer.
 
-This is an **agent-native** email client built with `@agent-native/core`. Email messages are stored in `data/emails.json`. The compose window (current draft) is in `application-state/compose.json`.
+This is an **agent-native** email client built with `@agent-native/core`.
+
+## Data Sources
+
+**When a Google account is connected**, emails come from the Gmail API — the app works with real emails. **When no account is connected**, `data/emails.json` is used as a local store (starts empty).
+
+To check the current state:
+- Read `application-state/navigation.json` to see what view/thread the user is looking at
+- Use `pnpm script list-emails --view=inbox` to list emails (automatically uses Gmail when connected, falls back to local data)
+- Check Google connection status via `GET /api/google/status`
 
 **IMPORTANT — Drafts vs Emails:**
 
 - The **compose window** the user sees is `application-state/compose.json` — NOT `data/emails.json`
 - To see/edit the user's current draft: read/write `application-state/compose.json`
-- To see stored email messages: read `data/emails.json`
+- To see stored email messages: use `pnpm script list-emails` or read `data/emails.json`
 - NEVER edit `data/emails.json` to modify a draft the user is currently composing
 
 ## Architecture
@@ -38,13 +47,13 @@ This is an **agent-native** email client built with `@agent-native/core`. Email 
 
 ## Data Model
 
-All state is in JSON files in `data/`:
+Local state is in JSON files in `data/`. When a Google account is connected, the API serves emails from Gmail instead — `data/emails.json` is only used as a fallback when no account is connected (and starts empty).
 
-| File                 | Contents                                       |
-| -------------------- | ---------------------------------------------- |
-| `data/emails.json`   | All email messages (inbox, sent, drafts, etc.) |
-| `data/labels.json`   | System and user labels with unread counts      |
-| `data/settings.json` | User profile and app settings                  |
+| File                 | Contents                                                         |
+| -------------------- | ---------------------------------------------------------------- |
+| `data/emails.json`   | Local email store (empty by default, used only without Google)   |
+| `data/labels.json`   | System and user labels with unread counts                        |
+| `data/settings.json` | User profile and app settings                                    |
 
 ### Compose Drafts (Application State)
 
@@ -78,34 +87,11 @@ When the user asks you to **draft**, **compose**, or **write** an email, write `
 
 ## Agent Operations
 
-The agent can directly edit `data/emails.json` to:
+When a Google account is connected, use the API routes (PATCH/POST) to modify emails — these operate on the real Gmail account. When no account is connected, the agent can directly edit `data/emails.json` to:
 
-- Add new email messages (simulating incoming mail)
 - Change `isRead`, `isStarred`, `isArchived`, `isTrashed` flags
 - Move emails between views by changing `labelIds`
 - Update `data/settings.json` to change the user profile
-
-### Example: Add a new incoming email
-
-Edit `data/emails.json` and append:
-
-```json
-{
-  "id": "msg-NEW",
-  "threadId": "thread-NEW",
-  "from": { "name": "Alice Smith", "email": "alice@example.com" },
-  "to": [{ "name": "You", "email": "me@example.com" }],
-  "subject": "Hello from Alice!",
-  "snippet": "Just checking in...",
-  "body": "Hey,\n\nJust checking in. Hope you're well!\n\nAlice",
-  "date": "2025-07-15T12:00:00Z",
-  "isRead": false,
-  "isStarred": false,
-  "isArchived": false,
-  "isTrashed": false,
-  "labelIds": ["inbox"]
-}
-```
 
 ## Application State
 
@@ -148,9 +134,9 @@ This is a one-shot command — the file is deleted after the UI processes it.
 
 | User request                                  | What to do                                                                                                   |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| "What email am I looking at?"                 | Read `application-state/navigation.json` to get the threadId, then look up that thread in `data/emails.json` |
-| "Reply to this email"                         | Read navigation.json for threadId → find email in data/emails.json → write compose.json with mode=reply      |
-| "Find the email from Alice about the project" | Search data/emails.json, then write `application-state/navigate.json` with the matching threadId to open it  |
+| "What email am I looking at?"                 | Read `application-state/navigation.json` to get the threadId, then fetch that thread via `GET /api/threads/:threadId/messages` |
+| "Reply to this email"                         | Read navigation.json for threadId → fetch thread via API → write compose.json with mode=reply                                 |
+| "Find the email from Alice about the project" | `pnpm script list-emails --q=alice`, then write `application-state/navigate.json` with the matching threadId to open it       |
 | "Open my starred emails"                      | Write `application-state/navigate.json` with `{"view": "starred"}`                                           |
 
 ### Compose emails
@@ -196,21 +182,21 @@ The UI will pick up the changes automatically (via SSE).
 | "Draft an email to Alice about X" | Write `application-state/compose.json` with to, subject, body, mode=compose                                   |
 | "Make this draft more formal"     | Read compose.json, rewrite body, write back                                                                   |
 | "Change the subject to Y"         | Read compose.json, update subject, write back                                                                 |
-| "Reply to this email saying Z"    | Read navigation.json for current threadId, find email in data/emails.json, write compose.json with mode=reply |
-| "What am I looking at?"           | Read navigation.json, then look up the threadId in data/emails.json                                           |
-| "Find the email about X"          | Search data/emails.json, write `application-state/navigate.json` with matching threadId                       |
+| "Reply to this email saying Z"    | Read navigation.json for current threadId, fetch thread via API, write compose.json with mode=reply |
+| "What am I looking at?"           | Read navigation.json, then fetch the thread via `GET /api/threads/:threadId/messages`              |
+| "Find the email about X"          | `pnpm script list-emails --q=X`, write `application-state/navigate.json` with matching threadId    |
 | "Open my starred emails"          | Write `application-state/navigate.json` with `{"view": "starred"}`                                            |
 
 ## Scripts
 
-Run agent scripts with `pnpm script <name> [--args]`.
+Run agent scripts with `pnpm script <name> [--args]`. Scripts automatically use the API (Gmail when connected) and fall back to local data files.
 
-| Script          | Args                                                    | Purpose                          |
-| --------------- | ------------------------------------------------------- | -------------------------------- |
-| `list-emails`   | `--view <inbox\|unread\|starred\|sent\|...> --q <term>` | List and search emails           |
-| `seed-emails`   | `--count <n>`                                           | Generate n demo emails           |
-| `bulk-archive`  | `--older-than <days>`                                   | Archive emails older than N days |
-| `export-emails` | `--view <inbox\|sent\|...> --output <file>`             | Export emails to JSON file       |
+| Script          | Args                                                    | Purpose                                      |
+| --------------- | ------------------------------------------------------- | -------------------------------------------- |
+| `list-emails`   | `--view <inbox\|unread\|starred\|sent\|...> --q <term>` | List and search emails (uses Gmail via API)   |
+| `seed-emails`   | `--count <n>`                                           | Generate n test emails (local data only)      |
+| `bulk-archive`  | `--older-than <days>`                                   | Archive emails older than N days              |
+| `export-emails` | `--view <inbox\|sent\|...> --output <file>`             | Export emails to JSON file                    |
 
 ### Common tasks
 
@@ -219,8 +205,7 @@ Run agent scripts with `pnpm script <name> [--args]`.
 | "Summarize my unread emails"        | `pnpm script list-emails --view=unread` then summarize the output      |
 | "What emails do I have from Alice?" | `pnpm script list-emails --q=alice`                                    |
 | "Archive old emails"                | `pnpm script bulk-archive --older-than=30`                             |
-| "Star this email" / manage emails   | Edit `data/emails.json` directly (change flags)                        |
-| "Send an email to ..."              | Edit `data/emails.json` to add a sent email                            |
+| "Star this email" / manage emails   | Use API: `PATCH /api/emails/:id/star`                                  |
 | "Draft an email to ..."             | Write `application-state/compose.json` (see Application State section) |
 
 ### Adding new scripts
@@ -295,7 +280,7 @@ shared/
 scripts/
   run.ts          # Script dispatcher
 data/
-  emails.json     # All emails (source of truth)
+  emails.json     # Local email store (empty by default, used only without Google)
   labels.json     # Labels with unread counts
   settings.json   # User settings
 ```

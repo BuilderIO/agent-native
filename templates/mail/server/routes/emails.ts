@@ -578,9 +578,11 @@ export async function listContacts(
   _req: Request,
   res: Response,
 ): Promise<void> {
+  console.log("[listContacts] called, isConnected:", isConnected());
   if (isConnected()) {
     try {
       const clients = await getClients();
+      console.log("[listContacts] clients:", clients.length);
       const contactMap = new Map<
         string,
         { name: string; email: string; count: number }
@@ -663,9 +665,56 @@ export async function listContacts(
         }
       }
 
+      // If People API returned nothing (e.g. missing scopes), extract from Gmail
+      console.log("[listContacts] People API contacts:", contactMap.size);
+      if (contactMap.size === 0) {
+        console.log("[listContacts] Falling back to Gmail message extraction");
+        try {
+          const { messages } = await listGmailMessages("", 100);
+          console.log("[listContacts] Gmail messages fetched:", messages.length);
+          for (const msg of messages) {
+            const headers = msg.payload?.headers || [];
+            for (const field of ["From", "To", "Cc", "Bcc"]) {
+              const raw =
+                headers.find(
+                  (h: any) => h.name?.toLowerCase() === field.toLowerCase(),
+                )?.value || "";
+              if (!raw) continue;
+              for (const part of raw.split(",")) {
+                const trimmed = part.trim();
+                if (!trimmed) continue;
+                const match = trimmed.match(/^(.+?)\s*<(.+?)>$/);
+                const name = match
+                  ? match[1].trim().replace(/^"|"$/g, "")
+                  : trimmed;
+                const addr = match ? match[2].trim() : trimmed;
+                if (!addr || !addr.includes("@")) continue;
+                const key = addr.toLowerCase();
+                const existing = contactMap.get(key);
+                if (existing) {
+                  existing.count++;
+                  if (
+                    name &&
+                    name !== addr &&
+                    existing.name === existing.email
+                  ) {
+                    existing.name = name;
+                  }
+                } else {
+                  contactMap.set(key, { name: name || addr, email: addr, count: 1 });
+                }
+              }
+            }
+          }
+        } catch (err: any) {
+          console.error("[listContacts] Gmail fallback error:", err.message);
+        }
+      }
+
       const contacts = Array.from(contactMap.values()).sort(
         (a, b) => b.count - a.count,
       );
+      console.log("[listContacts] returning", contacts.length, "contacts");
       res.json(contacts);
       return;
     } catch (error: any) {

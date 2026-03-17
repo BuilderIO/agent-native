@@ -103,7 +103,14 @@ function ApolloConnectCTA() {
         />
         <button
           onClick={() => {
-            if (apiKey.trim()) connect.mutate(apiKey.trim());
+            if (apiKey.trim()) {
+              connect.mutate(apiKey.trim(), {
+                onError: (err) => {
+                  console.error("Apollo connect failed:", err);
+                  toast.error("Failed to save Apollo key");
+                },
+              });
+            }
           }}
           disabled={!apiKey.trim() || connect.isPending}
           className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"

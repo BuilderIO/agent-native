@@ -7,6 +7,9 @@
  * Usage: pnpm script <script-name> [--args]
  */
 
+import path from "path";
+import { pathToFileURL } from "url";
+
 /**
  * Run the script dispatcher. Call this from your app's scripts/run.ts:
  *
@@ -29,12 +32,24 @@ export async function runScript(): Promise<void> {
   }
 
   // Dynamically import and run the script
+  // Resolve from the app's scripts/ directory (process.cwd()), not from this package
   try {
-    const mod = await import(/* @vite-ignore */ `./${scriptName}.js`);
+    const scriptPath = path.resolve(
+      process.cwd(),
+      "scripts",
+      `${scriptName}.ts`,
+    );
+    const mod = await import(
+      /* @vite-ignore */ pathToFileURL(scriptPath).href
+    );
     const args = process.argv.slice(3);
     await mod.default(args);
   } catch (err: any) {
-    if (err.code === "ERR_MODULE_NOT_FOUND") {
+    if (
+      err.code === "ERR_MODULE_NOT_FOUND" ||
+      err.code === "ERR_UNSUPPORTED_ESM_URL_SCHEME" ||
+      err.message?.includes("Cannot find module")
+    ) {
       console.error(
         `Error: Script "${scriptName}" not found. Run "pnpm script --help" for usage.`,
       );
