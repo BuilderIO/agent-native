@@ -4,6 +4,116 @@ Visual feedback and annotation tool for web applications. Users select UI elemen
 
 Works standalone, with [Builder.io](https://builder.io), or with any agent harness that speaks the agent-native protocol (Claude Code, Codex, Gemini CLI, Cursor, etc.).
 
+## AI Agent Setup Guide
+
+Instructions for an AI agent (Claude Code, Codex, Cursor, etc.) to add Pinpoint to an agent-native repository.
+
+### Step 1: Install
+
+```sh
+pnpm add @agent-native/pinpoint
+```
+
+### Step 2: Initialize agent scripts and skill
+
+```sh
+npx @agent-native/pinpoint init
+```
+
+This copies agent scripts to `scripts/` and the Pinpoint skill to `.agents/skills/pinpoint/`. No manual file copying needed.
+
+### Step 3: Mount the client overlay
+
+Find the root React component (typically `client/App.tsx` or `src/App.tsx`). Add the `<Pinpoint />` component:
+
+```tsx
+import { Pinpoint } from "@agent-native/pinpoint/react";
+
+// Add as a sibling to your app root — renders nothing, mounts overlay in Shadow DOM
+<Pinpoint author="User" endpoint="/api/pins" autoSubmit colorScheme="auto" />
+```
+
+If the app is not React-based, use the imperative API:
+
+```ts
+import { mountPinpoint } from "@agent-native/pinpoint";
+mountPinpoint({ author: "User", endpoint: "/api/pins", autoSubmit: true });
+```
+
+### Step 4: Add server middleware
+
+Find the Express server setup (typically `server/index.ts`). Add the pin routes:
+
+```ts
+import { pagePinRoutes } from "@agent-native/pinpoint/server";
+
+// Add before your page routes
+app.use("/api/pins", pagePinRoutes());
+```
+
+This creates REST endpoints at `/api/pins` for pin CRUD. Pins are stored as JSON files in `data/pins/`.
+
+### Step 5: Verify
+
+1. Start the dev server
+2. Open the app in a browser
+3. Press `Cmd+Shift+.` to toggle the Pinpoint toolbar
+4. Click any element, add a comment, click "Add Pin"
+5. Click the send button — the annotation should appear in the agent chat
+
+### Working with Pins
+
+Pins are stored as individual JSON files in `data/pins/{uuid}.json`:
+
+```json
+{
+  "id": "uuid",
+  "pageUrl": "/dashboard",
+  "comment": "This button color is wrong",
+  "element": {
+    "tagName": "button",
+    "selector": ".sidebar button.primary",
+    "classNames": ["primary", "btn"]
+  },
+  "framework": {
+    "framework": "react",
+    "componentPath": "<Sidebar> <ActionButton>",
+    "sourceFile": "src/components/Sidebar.tsx:42"
+  },
+  "status": { "state": "open" }
+}
+```
+
+**Key fields for agents:**
+- `sourceFile` — the exact file and line to edit
+- `componentPath` — the React/Vue component hierarchy
+- `selector` — CSS selector to find the element in the DOM
+- `comment` — what the user wants changed
+
+**Agent commands** (available after `npx @agent-native/pinpoint init`):
+- `pnpm script get-pins --status open` — list unresolved pins
+- `pnpm script resolve-pin --id <uuid>` — mark as resolved after fixing
+- `pnpm script create-pin --pageUrl / --selector ".btn" --comment "Fix this"`
+- `pnpm script update-pin --id <uuid> --comment "Updated feedback"`
+- `pnpm script delete-pin --id <uuid>` — remove a pin
+
+**Workflow:**
+1. User creates annotations in the browser
+2. Read with `pnpm script get-pins --status open`
+3. Use `sourceFile` to locate and edit the relevant code
+4. After fixing, mark resolved: `pnpm script resolve-pin --id <uuid>`
+
+### Troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| Toolbar doesn't appear | Check that `<Pinpoint />` is mounted. Press `Cmd+Shift+.` |
+| Pins not persisting | Ensure `endpoint="/api/pins"` is set and server middleware is added |
+| `sourceFile` is empty | Source detection requires dev mode. Production builds strip `_debugSource` |
+| "Cannot find module" | Run `pnpm install`. Check the package is in `dependencies` |
+
+---
+
 ## Install
 
 ```sh
@@ -52,15 +162,21 @@ const { dispose } = mountPinpoint({
 
 ## Setup in an Agent-Native App
 
-Pinpoint integrates into [agent-native](https://github.com/BuilderIO/agent-native) apps in three steps:
-
 ### 1. Install
 
 ```sh
 pnpm add @agent-native/pinpoint
 ```
 
-### 2. Client — Mount the overlay
+### 2. Initialize
+
+```sh
+npx @agent-native/pinpoint init
+```
+
+Copies agent scripts to `scripts/` and the Pinpoint skill to `.agents/skills/pinpoint/`.
+
+### 3. Client — Mount the overlay
 
 ```tsx
 // client/App.tsx
@@ -69,19 +185,14 @@ import { Pinpoint } from "@agent-native/pinpoint/react";
 function App() {
   return (
     <>
-      <Pinpoint
-        author="Designer"
-        endpoint="/api/pins"
-        autoSubmit
-        colorScheme="auto"
-      />
+      <Pinpoint author="Designer" endpoint="/api/pins" autoSubmit colorScheme="auto" />
       <YourApp />
     </>
   );
 }
 ```
 
-### 3. Server — Add the REST middleware
+### 4. Server — Add the REST middleware
 
 ```ts
 // server/index.ts
@@ -91,14 +202,6 @@ import { pagePinRoutes } from "@agent-native/pinpoint/server";
 const app = createServer({ /* ... */ });
 app.use("/api/pins", pagePinRoutes());
 ```
-
-### 4. Agent scripts — Copy to your app
-
-```sh
-cp node_modules/@agent-native/pinpoint/src/scripts/*.ts scripts/
-```
-
-The agent can now read, create, resolve, and delete pins via `pnpm script get-pins`, `pnpm script resolve-pin --id <uuid>`, etc.
 
 ## How It Works
 
@@ -131,6 +234,13 @@ All options can be passed as props to `<Pinpoint />` or as the config object to 
 | `plugins` | `Plugin[]` | — | Plugin extensions |
 | `storage` | `PinStorage` | — | Custom storage adapter |
 | `position` | `{ x, y }` | — | Initial toolbar position |
+
+## CLI
+
+```sh
+npx @agent-native/pinpoint init   # Copy scripts and skill to your project
+npx @agent-native/pinpoint        # Show help
+```
 
 ## Keyboard Shortcuts
 
@@ -173,7 +283,7 @@ app.use("/api/pins", pagePinRoutes({ dataDir: "data/pins" }));
 
 ## Agent Scripts
 
-Scripts for AI agent CRUD operations on pins. Copy to your project's `scripts/` directory:
+Available after running `npx @agent-native/pinpoint init`:
 
 | Script | Purpose | Args |
 |--------|---------|------|
@@ -225,7 +335,7 @@ const myPlugin: Plugin = {
 
 ## A2A & MCP
 
-Expose pins to external agents via A2A (Agent-to-Agent) or MCP (Model Context Protocol):
+Expose pins to external agents via A2A or MCP:
 
 ```ts
 import { registerPinpointA2A, createPinpointMCPTools } from "@agent-native/pinpoint/server";
@@ -259,7 +369,7 @@ Inside [Builder.io's Fusion](https://builder.io), annotations are sent via `send
 <Pinpoint author="Builder User" autoSubmit outputFormat="standard" />
 ```
 
-No additional configuration needed when running inside a Builder.io harness — the chat bridge communicates via `postMessage`.
+No additional configuration needed when running inside a Builder.io harness.
 
 ## Architecture
 
@@ -268,114 +378,6 @@ No additional configuration needed when running inside a Builder.io harness — 
 - **One file per pin** — eliminates concurrent write conflicts
 - **Pluggable storage** — MemoryStore, RestClient, FileStore
 - MIT libraries: [bippy](https://github.com/aidenybai/bippy), [@medv/finder](https://github.com/antonmedv/finder), [element-source](https://www.npmjs.com/package/element-source)
-
----
-
-## AI Agent Setup Guide
-
-Instructions for an AI agent (Claude Code, Codex, Cursor, etc.) to add Pinpoint to an agent-native repository.
-
-### Step 1: Install the dependency
-
-```sh
-pnpm add @agent-native/pinpoint
-```
-
-### Step 2: Mount the client overlay
-
-Find the root React component (typically `client/App.tsx` or `src/App.tsx`). Add the `<Pinpoint />` component:
-
-```tsx
-import { Pinpoint } from "@agent-native/pinpoint/react";
-
-// Add as a sibling to your app root — renders nothing, mounts overlay in Shadow DOM
-<Pinpoint author="User" endpoint="/api/pins" autoSubmit colorScheme="auto" />
-```
-
-If the app is not React-based, use the imperative API instead:
-
-```ts
-import { mountPinpoint } from "@agent-native/pinpoint";
-mountPinpoint({ author: "User", endpoint: "/api/pins", autoSubmit: true });
-```
-
-### Step 3: Add server middleware
-
-Find the Express server setup (typically `server/index.ts`). Add the pin routes:
-
-```ts
-import { pagePinRoutes } from "@agent-native/pinpoint/server";
-
-// Add before your page routes
-app.use("/api/pins", pagePinRoutes());
-```
-
-This creates REST endpoints at `/api/pins` for pin CRUD. Pins are stored as JSON files in `data/pins/`.
-
-### Step 4: Copy agent scripts
-
-```sh
-cp node_modules/@agent-native/pinpoint/src/scripts/*.ts scripts/
-```
-
-This gives you these commands:
-- `pnpm script get-pins` — list open annotations
-- `pnpm script get-pins --status open` — filter by status
-- `pnpm script resolve-pin --id <uuid>` — mark as resolved after fixing
-- `pnpm script create-pin --pageUrl / --selector ".btn" --comment "Fix this"` — create programmatically
-- `pnpm script delete-pin --id <uuid>` — remove a pin
-
-### Step 5: Verify
-
-1. Start the dev server
-2. Open the app in a browser
-3. Press `Cmd+Shift+.` to toggle the Pinpoint toolbar
-4. Click any element, add a comment, and click "Add Pin"
-5. Click the send button — the annotation should appear in the agent chat
-
-### Working with Pins
-
-Pins are stored as individual JSON files in `data/pins/{uuid}.json`. Each pin contains:
-
-```json
-{
-  "id": "uuid",
-  "pageUrl": "/dashboard",
-  "comment": "This button color is wrong",
-  "element": {
-    "tagName": "button",
-    "selector": ".sidebar button.primary",
-    "classNames": ["primary", "btn"]
-  },
-  "framework": {
-    "framework": "react",
-    "componentPath": "<Sidebar> <ActionButton>",
-    "sourceFile": "src/components/Sidebar.tsx:42"
-  },
-  "status": { "state": "open" }
-}
-```
-
-**Key fields for agents:**
-- `sourceFile` — the exact file and line to edit
-- `componentPath` — the React/Vue component hierarchy
-- `selector` — CSS selector to find the element in the DOM
-- `comment` — what the user wants changed
-
-**Workflow:**
-1. User creates annotations in the browser
-2. Read with `pnpm script get-pins --status open`
-3. Use `sourceFile` to locate and edit the relevant code
-4. After fixing, mark resolved: `pnpm script resolve-pin --id <uuid>`
-
-### Troubleshooting
-
-| Issue | Fix |
-|-------|-----|
-| Toolbar doesn't appear | Check that `<Pinpoint />` is mounted in the client. Press `Cmd+Shift+.` |
-| Pins not persisting | Ensure `endpoint="/api/pins"` is set and server middleware is added |
-| `sourceFile` is empty | Source detection requires dev mode (React `_debugSource`). Production builds strip this |
-| "Cannot find module" on import | Run `pnpm install`. Check that the package is in `dependencies`, not `devDependencies` |
 
 ## License
 

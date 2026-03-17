@@ -64,14 +64,14 @@ Run with `pnpm script <name>`:
 If the repository does not have Pinpoint set up:
 
 1. `pnpm add @agent-native/pinpoint`
-2. Add `<Pinpoint />` component to the root React component:
+2. `npx @agent-native/pinpoint init` — copies scripts and skill to your project
+3. Add `<Pinpoint />` component to the root React component:
    ```tsx
    import { Pinpoint } from "@agent-native/pinpoint/react";
    <Pinpoint author="User" endpoint="/api/pins" autoSubmit />
    ```
-3. Add server middleware in the Express setup:
+4. Add server middleware in the Express setup:
    ```ts
    import { pagePinRoutes } from "@agent-native/pinpoint/server";
    app.use("/api/pins", pagePinRoutes());
    ```
-4. Copy scripts: `cp node_modules/@agent-native/pinpoint/src/scripts/*.ts scripts/`
