@@ -4,7 +4,6 @@ import {
   FileText,
   BarChart2,
   GalleryHorizontal,
-  Settings,
   Layers,
   Video,
   Image,
@@ -20,7 +19,6 @@ const ICON_MAP: Record<string, React.ComponentType<LucideProps>> = {
   BarChart2,
   GalleryHorizontal,
   Layers,
-  Settings,
   Video,
   Image,
 };
@@ -68,15 +66,6 @@ export default function Sidebar({
           />
         ))}
       </nav>
-
-      {/* Settings pinned at the bottom */}
-      <div className="sidebar-footer">
-        <SidebarIconButton
-          icon={Settings}
-          label="Settings"
-          onClick={() => {}}
-        />
-      </div>
     </aside>
   );
 }
@@ -109,34 +98,6 @@ function SidebarItem({ app, isActive, onClick }: SidebarItemProps) {
         <Icon size={18} strokeWidth={1.75} />
       </span>
       <span className="item-label">{app.name}</span>
-    </button>
-  );
-}
-
-// ─── Generic icon-only button (for settings, etc.) ────────────────────────────
-
-interface SidebarIconButtonProps {
-  icon: React.ComponentType<LucideProps>;
-  label: string;
-  onClick: () => void;
-}
-
-function SidebarIconButton({
-  icon: Icon,
-  label,
-  onClick,
-}: SidebarIconButtonProps) {
-  return (
-    <button
-      className="sidebar-item"
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-    >
-      <span className="icon-wrapper">
-        <Icon size={18} strokeWidth={1.75} />
-      </span>
-      <span className="item-label">{label}</span>
     </button>
   );
 }

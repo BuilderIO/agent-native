@@ -21,8 +21,8 @@ import {
 } from "./queries";
 import { ChartTitleWithInfo } from "./ChartTitle";
 
-const TABLE_PR = "`builder-3b0a2.dbt_staging_firestore.pr_reviews`";
-const TABLE_VCE = "`builder-3b0a2.dbt_staging_firestore.vcp_code_events`";
+const TABLE_PR = "`your-gcp-project-id.dbt_staging_firestore.pr_reviews`";
+const TABLE_VCE = "`your-gcp-project-id.dbt_staging_firestore.vcp_code_events`";
 
 function feedbackSql(range: DateRange) {
   const dateFilter =

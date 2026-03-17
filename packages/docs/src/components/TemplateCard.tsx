@@ -22,7 +22,7 @@ export const templates = [
       "Superhuman-style email client with keyboard shortcuts, AI triage, and a fully customizable interface. Own your inbox workflow.",
     color: "#0ea5e9",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7f5a10a8029b4895ad02276da0f5071b?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800",
   },
   {
     name: "Calendar",
@@ -33,7 +33,7 @@ export const templates = [
       "Manage events, sync with Google Calendar, and share a public booking page — all with an AI agent that handles scheduling.",
     color: "#10b981",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7f5a10a8029b4895ad02276da0f5071b?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffb6c3b483ca24ab3b6c3a758aeceef4c?format=webp&width=800",
   },
   {
     name: "Content",
@@ -140,11 +140,17 @@ function CliPopover({
   return createPortal(
     <div
       ref={popoverRef}
-      className="fixed z-50 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] p-2 shadow-lg"
-      style={{ top: pos.top, left: pos.left, width: pos.width }}
+      className="fixed z-50 rounded-lg border border-[var(--code-border)] bg-[var(--bg)] shadow-lg"
+      style={{
+        top: pos.top,
+        left: pos.left,
+        minWidth: pos.width,
+        width: "max-content",
+        maxWidth: "calc(100vw - 32px)",
+      }}
     >
-      <div className="flex items-center gap-2 rounded-md bg-[var(--bg)] px-2 py-1.5">
-        <code className="block whitespace-nowrap overflow-x-auto text-[10px] leading-relaxed text-[var(--fg)]">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <code className="block whitespace-nowrap text-xs leading-relaxed text-[var(--fg)]">
           {template.cliCommand}
         </code>
         <button
@@ -237,6 +243,12 @@ export function TemplateCard({ template }: { template: Template }) {
       <Link
         to={`/templates/${template.slug}`}
         className="-mx-[24px] -mt-[24px] mb-1 flex aspect-[4/3] items-center justify-center overflow-hidden border-b border-[var(--border)] bg-[var(--bg-secondary)] transition hover:opacity-90"
+        onClick={() =>
+          trackEvent("click_template", {
+            template: template.slug,
+            location: "card",
+          })
+        }
       >
         <img
           src={template.screenshot}

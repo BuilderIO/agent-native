@@ -23,7 +23,7 @@ Every dashboard in `client/pages/adhoc/registry.ts` requires:
 
 - **`id`**: Unique kebab-case identifier
 - **`name`**: Display name shown in UI
-- **`author`**: **YOUR name or email** - the person creating this dashboard (e.g., "jane@builder.io" or "Jane Doe")
+- **`author`**: **YOUR name or email** - the person creating this dashboard (e.g., "jane@example.com" or "Jane Doe")
 - **`lastUpdated`**: Last modification date in `YYYY-MM-DD` format (typically today's date when creating)
 
 ## Examples
@@ -34,7 +34,7 @@ Every dashboard in `client/pages/adhoc/registry.ts` requires:
 {
   id: "key-metrics",
   name: "Key Metrics",
-  author: "jane@builder.io",
+  author: "jane@example.com",
   lastUpdated: "2026-03-12"
 }
 ```

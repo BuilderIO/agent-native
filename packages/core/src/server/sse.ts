@@ -16,7 +16,7 @@ export interface FileWatcherOptions {
  * Returns a chokidar.FSWatcher that emits "all" events on file changes.
  */
 export function createFileWatcher(
-  dir: string,
+  dir: string | string[],
   options: FileWatcherOptions = {},
 ): FSWatcher {
   return watch(dir, {

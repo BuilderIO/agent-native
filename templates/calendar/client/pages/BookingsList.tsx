@@ -36,7 +36,7 @@ export default function BookingsList() {
   }
 
   return (
-    <div className="dark space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Bookings</h1>

@@ -2,8 +2,8 @@ import { useState, useEffect } from "react";
 import { DatePicker } from "@/components/ui/date-picker";
 import { CustomerSearch } from "./CustomerSearch";
 import { HealthSummaryCards } from "./HealthSummaryCards";
-import { AgentChatActivityChart } from "./FusionActivityChart";
-import { TopAgentChatUsers } from "./TopFusionUsers";
+import { AgentChatActivityChart } from "./AgentChatActivityChart";
+import { TopAgentChatUsers } from "./TopAgentChatUsers";
 import { SubscriptionDetails } from "./SubscriptionDetails";
 import { RecentTickets } from "./RecentTickets";
 import { GongCalls } from "./GongCalls";
@@ -54,8 +54,8 @@ export default function CustomerHealthDashboard() {
           Customer Health Dashboard
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Search a customer by company name to view their health metrics, Fusion
-          usage, and subscription details.
+          Search a customer by company name to view their health metrics, agent
+          chat usage, and subscription details.
         </p>
       </div>
 
@@ -104,8 +104,8 @@ export default function CustomerHealthDashboard() {
           </div>
           <h3 className="text-lg font-medium">Search for a customer</h3>
           <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-            Enter a company name above to load their health dashboard with
-            Fusion usage, subscriptions, and user activity.
+            Enter a company name above to load their health dashboard with agent
+            chat usage, subscriptions, and user activity.
           </p>
         </div>
       )}

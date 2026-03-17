@@ -1,12 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,18 +12,19 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useCreateEvent } from "@/hooks/use-events";
 import { toast } from "sonner";
+import { Plus } from "lucide-react";
 
-interface CreateEventDialogProps {
+interface CreateEventPopoverProps {
   open: boolean;
-  onClose: () => void;
+  onOpenChange: (open: boolean) => void;
   defaultDate?: Date;
 }
 
-export function CreateEventDialog({
+export function CreateEventPopover({
   open,
-  onClose,
+  onOpenChange,
   defaultDate,
-}: CreateEventDialogProps) {
+}: CreateEventPopoverProps) {
   const today = defaultDate || new Date();
   const defaultDateStr = format(today, "yyyy-MM-dd");
 
@@ -40,6 +39,19 @@ export function CreateEventDialog({
   const createEvent = useCreateEvent();
   const formRef = useRef<HTMLFormElement>(null);
 
+  // Reset form when popover opens
+  useEffect(() => {
+    if (open) {
+      setTitle("");
+      setDescription("");
+      setDate(format(defaultDate || new Date(), "yyyy-MM-dd"));
+      setStartTime("09:00");
+      setEndTime("10:00");
+      setLocation("");
+      setAllDay(false);
+    }
+  }, [open, defaultDate]);
+
   // ⌘+Enter to submit
   useEffect(() => {
     if (!open) return;
@@ -52,16 +64,6 @@ export function CreateEventDialog({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
-
-  function resetForm() {
-    setTitle("");
-    setDescription("");
-    setDate(defaultDateStr);
-    setStartTime("09:00");
-    setEndTime("10:00");
-    setLocation("");
-    setAllDay(false);
-  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -90,8 +92,7 @@ export function CreateEventDialog({
       {
         onSuccess: () => {
           toast.success("Event created");
-          resetForm();
-          onClose();
+          onOpenChange(false);
         },
         onError: () => toast.error("Failed to create event"),
       },
@@ -99,100 +100,135 @@ export function CreateEventDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="dark sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle>New Event</DialogTitle>
-        </DialogHeader>
-
-        <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="event-title">Title</Label>
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        <Button size="sm" className="ml-1 h-7 gap-1.5 px-2.5 text-xs">
+          <Plus className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">New Event</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" sideOffset={8} className="w-80 p-4">
+        <div className="mb-3 text-sm font-semibold">New Event</div>
+        <form ref={formRef} onSubmit={handleSubmit} className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="event-title" className="text-xs">
+              Title
+            </Label>
             <Input
               id="event-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Event title"
               autoFocus
+              className="h-8 text-sm"
             />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="event-description">Description</Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="event-description" className="text-xs">
+              Description
+            </Label>
             <Textarea
               id="event-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Optional description"
-              rows={3}
+              rows={2}
+              className="text-sm"
             />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="event-date">Date</Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="event-date" className="text-xs">
+              Date
+            </Label>
             <Input
               id="event-date"
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
+              className="h-8 text-sm"
             />
           </div>
 
           <div className="flex items-center gap-2">
             <Switch id="all-day" checked={allDay} onCheckedChange={setAllDay} />
-            <Label htmlFor="all-day">All day</Label>
+            <Label htmlFor="all-day" className="text-xs">
+              All day
+            </Label>
           </div>
 
           {!allDay && (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="start-time">Start time</Label>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="start-time" className="text-xs">
+                  Start
+                </Label>
                 <Input
                   id="start-time"
                   type="time"
                   value={startTime}
                   onChange={(e) => setStartTime(e.target.value)}
+                  className="h-8 text-sm"
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="end-time">End time</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="end-time" className="text-xs">
+                  End
+                </Label>
                 <Input
                   id="end-time"
                   type="time"
                   value={endTime}
                   onChange={(e) => setEndTime(e.target.value)}
+                  className="h-8 text-sm"
                 />
               </div>
             </div>
           )}
 
-          <div className="space-y-2">
-            <Label htmlFor="event-location">Location</Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="event-location" className="text-xs">
+              Location
+            </Label>
             <Input
               id="event-location"
               value={location}
               onChange={(e) => setLocation(e.target.value)}
               placeholder="Optional location"
+              className="h-8 text-sm"
             />
           </div>
 
-          <DialogFooter className="items-center gap-2">
-            <p className="mr-auto text-xs text-muted-foreground/60">
-              Press{" "}
+          <div className="flex items-center justify-between pt-1">
+            <p className="text-[10px] text-muted-foreground/60">
               <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
                 ⌘↵
               </kbd>{" "}
               to save
             </p>
-            <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" size="sm" disabled={createEvent.isPending}>
-              {createEvent.isPending ? "Creating…" : "Create Event"}
-            </Button>
-          </DialogFooter>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                className="h-7 text-xs"
+                disabled={createEvent.isPending}
+              >
+                {createEvent.isPending ? "Creating…" : "Create"}
+              </Button>
+            </div>
+          </div>
         </form>
-      </DialogContent>
-    </Dialog>
+      </PopoverContent>
+    </Popover>
   );
 }

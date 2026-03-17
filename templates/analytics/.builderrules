@@ -1,4 +1,4 @@
-This project is for analysis of Builder.io app event data stored in BigQuery.
+This project is for analysis of app event data stored in BigQuery.
 
 ## Dashboard system
 
@@ -23,7 +23,7 @@ told to do so.
 
 ### Query guidelines
 
-- All queries use the `@app_events` table (alias for `builder-3b0a2.analytics.events_partitioned`).
+- All queries use the `@app_events` table (alias for `your-gcp-project-id.analytics.events_partitioned`).
 - Always cap queries with `AND createdDate <= CURRENT_TIMESTAMP()` to avoid future dates.
 - Dashboard components receive no props. They manage their own state and queries.
 - Use `useMetricsQuery` for data fetching, `MetricCard` / `TimeSeriesChart` / `DataTable`
@@ -31,7 +31,7 @@ told to do so.
 
 ### Key columns in @app_events
 
-- event: the event name (e.g. "signup", "fusion chat message submitted")
+- event: the event name (e.g. "signup", "agent chat message submitted")
 - createdDate: timestamp of when the event occurred
 - userId: the user who triggered the event
 - sessionId: browser session identifier

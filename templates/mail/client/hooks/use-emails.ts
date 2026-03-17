@@ -38,6 +38,14 @@ export function useEmail(id: string | undefined) {
   });
 }
 
+export function useThreadMessages(threadId: string | undefined) {
+  return useQuery<EmailMessage[]>({
+    queryKey: ["thread-messages", threadId],
+    queryFn: () => apiFetch(`/api/threads/${threadId}/messages`),
+    enabled: !!threadId,
+  });
+}
+
 export function useMarkRead() {
   const qc = useQueryClient();
   return useMutation({
@@ -67,7 +75,55 @@ export function useArchiveEmail() {
   return useMutation({
     mutationFn: (id: string) =>
       apiFetch(`/api/emails/${id}/archive`, { method: "PATCH" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["emails"],
+      });
+      // Find the email across all cached queries to get its threadId
+      const target = previous
+        .flatMap(([, data]) => data ?? [])
+        .find((e) => e.id === id);
+      const threadId = target?.threadId || id;
+      // Remove all thread messages from all cached email queries
+      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
+        old?.filter((e) => (e.threadId || e.id) !== threadId),
+      );
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+  });
+}
+
+export function useUnarchiveEmail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/api/emails/${id}/unarchive`, { method: "PATCH" }),
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["emails"],
+      });
+      // Find threadId and unarchive all thread messages
+      const target = previous
+        .flatMap(([, data]) => data ?? [])
+        .find((e) => e.id === id);
+      const threadId = target?.threadId || id;
+      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
+        old?.map((e) =>
+          (e.threadId || e.id) === threadId ? { ...e, isArchived: false } : e,
+        ),
+      );
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
   });
 }
 
@@ -76,7 +132,26 @@ export function useTrashEmail() {
   return useMutation({
     mutationFn: (id: string) =>
       apiFetch(`/api/emails/${id}/trash`, { method: "PATCH" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["emails"],
+      });
+      // Find the email across all cached queries to get its threadId
+      const target = previous
+        .flatMap(([, data]) => data ?? [])
+        .find((e) => e.id === id);
+      const threadId = target?.threadId || id;
+      // Remove all thread messages from all cached email queries
+      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
+        old?.filter((e) => (e.threadId || e.id) !== threadId),
+      );
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
   });
 }
 
@@ -105,6 +180,18 @@ export function useDeleteEmail() {
     mutationFn: (id: string) =>
       apiFetch(`/api/emails/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+  });
+}
+
+// ─── Contacts ────────────────────────────────────────────────────────────────
+
+export type Contact = { name: string; email: string; count: number };
+
+export function useContacts() {
+  return useQuery<Contact[]>({
+    queryKey: ["contacts"],
+    queryFn: () => apiFetch("/api/contacts"),
+    staleTime: 60_000,
   });
 }
 

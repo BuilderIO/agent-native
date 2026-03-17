@@ -18,7 +18,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  Plus,
   Keyboard,
   Search,
 } from "lucide-react";
@@ -39,7 +38,7 @@ import { MonthView } from "@/components/calendar/MonthView";
 import { WeekView } from "@/components/calendar/WeekView";
 import { DayView } from "@/components/calendar/DayView";
 import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
-import { CreateEventDialog } from "@/components/calendar/CreateEventDialog";
+import { CreateEventPopover } from "@/components/calendar/CreateEventDialog";
 import { CommandPalette } from "@/components/calendar/CommandPalette";
 import { KeyboardShortcutsHelp } from "@/components/calendar/KeyboardShortcutsHelp";
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
@@ -447,26 +446,11 @@ export default function CalendarView() {
               </TooltipContent>
             </Tooltip>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="sm"
-                  onClick={() => setCreateDialogOpen(true)}
-                  className="ml-1 h-7 gap-1.5 px-2.5 text-xs"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">New Event</span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                <p>
-                  Create event{" "}
-                  <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                    C
-                  </kbd>
-                </p>
-              </TooltipContent>
-            </Tooltip>
+            <CreateEventPopover
+              open={createDialogOpen}
+              onOpenChange={setCreateDialogOpen}
+              defaultDate={selectedDate}
+            />
           </div>
         </div>
 
@@ -510,11 +494,6 @@ export default function CalendarView() {
         </div>
 
         {/* Dialogs */}
-        <CreateEventDialog
-          open={createDialogOpen}
-          onClose={() => setCreateDialogOpen(false)}
-          defaultDate={selectedDate}
-        />
         <CommandPalette
           open={commandPaletteOpen}
           onClose={() => setCommandPaletteOpen(false)}

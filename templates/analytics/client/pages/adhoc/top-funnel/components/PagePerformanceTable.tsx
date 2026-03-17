@@ -207,7 +207,7 @@ export function PagePerformanceTable({
                                   {formatVal(row[col.key], col.format)}
                                 </span>
                                 <a
-                                  href={`https://www.builder.io${row[col.key]}`}
+                                  href={`https://your-domain.com${row[col.key]}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   onClick={(e) => e.stopPropagation()}

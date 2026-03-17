@@ -1,12 +1,24 @@
 import { cn, formatEmailDate, truncate } from "@/lib/utils";
 import type { EmailMessage } from "@shared/types";
+import type { ThreadSummary } from "./EmailList";
 
 interface EmailListItemProps {
   email: EmailMessage;
+  thread?: ThreadSummary;
   isSelected: boolean;
   isFocused: boolean;
   onSelect: () => void;
   onStar: (e: React.MouseEvent) => void;
+}
+
+/** Format participant names for thread display, e.g. "Kaitlyn .. Sam, Andrew" */
+function formatParticipants(participants: string[], maxWidth = 3): string {
+  if (participants.length <= 1) return participants[0] || "";
+  // Extract first names only
+  const firstNames = participants.map((p) => p.split(" ")[0]);
+  if (firstNames.length <= maxWidth) return firstNames.join(", ");
+  // Show first, "..", then last few
+  return `${firstNames[0]} .. ${firstNames.slice(-(maxWidth - 1)).join(", ")}`;
 }
 
 // Map common label IDs to display colors
@@ -34,12 +46,18 @@ function getLabelStyle(labelId: string): { bg: string; text: string } {
 
 export function EmailListItem({
   email,
+  thread,
   isSelected,
   isFocused,
   onSelect,
   onStar,
 }: EmailListItemProps) {
-  const senderName = email.from.name || email.from.email;
+  const isThread = thread && thread.messageCount > 1;
+  const senderName = isThread
+    ? formatParticipants(thread.participants)
+    : email.from.name || email.from.email;
+  const isUnread = thread ? thread.hasUnread : !email.isRead;
+  const isStarred = thread ? thread.hasStarred : email.isStarred;
 
   // Filter to user labels only (skip system labels like inbox, sent, etc.)
   const systemLabels = new Set([
@@ -64,7 +82,8 @@ export function EmailListItem({
     "CATEGORY_FORUMS",
     "UNREAD",
   ]);
-  const displayLabels = email.labelIds.filter((l) => !systemLabels.has(l));
+  const allLabelIds = thread ? thread.labelIds : email.labelIds;
+  const displayLabels = allLabelIds.filter((l) => !systemLabels.has(l));
 
   return (
     <div
@@ -81,7 +100,7 @@ export function EmailListItem({
     >
       {/* Unread dot */}
       <div className="w-5 shrink-0 flex items-center justify-center">
-        {!email.isRead && (
+        {isUnread && (
           <div className="h-[7px] w-[7px] rounded-full bg-primary" />
         )}
       </div>
@@ -90,12 +109,17 @@ export function EmailListItem({
       <span
         className={cn(
           "w-[150px] shrink-0 truncate text-[13px] pr-3",
-          email.isRead
-            ? "font-normal text-foreground/70"
-            : "font-semibold text-foreground",
+          isUnread
+            ? "font-semibold text-foreground"
+            : "font-normal text-foreground/70",
         )}
       >
         {senderName}
+        {isThread && (
+          <span className="ml-1 text-[11px] text-muted-foreground font-normal">
+            {thread.messageCount}
+          </span>
+        )}
       </span>
 
       {/* Label badges */}
@@ -124,9 +148,9 @@ export function EmailListItem({
         <span
           className={cn(
             "text-[13px] truncate shrink-0 max-w-[45%]",
-            email.isRead
-              ? "font-normal text-foreground/70"
-              : "font-medium text-foreground",
+            isUnread
+              ? "font-medium text-foreground"
+              : "font-normal text-foreground/70",
           )}
         >
           {email.subject}
@@ -147,7 +171,7 @@ export function EmailListItem({
           onClick={onStar}
           className={cn(
             "flex h-6 w-6 items-center justify-center rounded transition-colors",
-            email.isStarred
+            isStarred
               ? "text-amber-400"
               : "text-muted-foreground hover:text-foreground hover:bg-accent",
           )}

@@ -255,8 +255,8 @@ Apps run inside a **harness** — a host that provides the AI agent alongside yo
 
 ## Protocol
 
-1. **postMessage bridge** — app sends `builder.submitChat` messages to the harness
-2. **Chat running events** — harness sends `builder.fusion.chatRunning` events to the app
+1. **Agent chat** — use `sendToAgentChat()` to send messages to the agent
+2. **Generation state** — use `useAgentChatGenerating()` to track when the agent is running
 3. **File watching** — SSE keeps UI in sync
 4. **Script system** — `pnpm script <name>` dispatches to scripts
 
