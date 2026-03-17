@@ -338,17 +338,82 @@ function ApolloEnrichment({ email }: { email: string }) {
         </>
       )}
 
-      {/* Disconnect link */}
+      {/* Apollo settings */}
       <div className="h-px bg-border/30 mx-4" />
       <div className="px-4 py-3">
-        <button
-          onClick={() => disconnect.mutate()}
-          className="text-[11px] text-muted-foreground/30 hover:text-muted-foreground transition-colors"
-        >
-          Disconnect Apollo
-        </button>
+        <ApolloSettingsPopover />
       </div>
     </>
+  );
+}
+
+function ApolloSettingsPopover() {
+  const [open, setOpen] = useState(false);
+  const [newKey, setNewKey] = useState("");
+  const connect = useApolloConnect();
+  const disconnect = useApolloDisconnect();
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={popoverRef}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="text-[11px] text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+      >
+        Apollo settings
+      </button>
+      {open && (
+        <div className="absolute bottom-full left-0 mb-2 w-56 rounded-lg border border-border bg-popover p-3 shadow-lg z-50">
+          <p className="text-[11px] font-medium text-muted-foreground mb-2">
+            Update API key
+          </p>
+          <div className="flex gap-1.5 mb-3">
+            <input
+              type="password"
+              value={newKey}
+              onChange={(e) => setNewKey(e.target.value)}
+              placeholder="New API key..."
+              autoFocus
+              className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
+            />
+            <button
+              onClick={() => {
+                if (newKey.trim()) {
+                  connect.mutate(newKey.trim());
+                  setNewKey("");
+                  setOpen(false);
+                }
+              }}
+              disabled={!newKey.trim() || connect.isPending}
+              className="shrink-0 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              Save
+            </button>
+          </div>
+          <div className="h-px bg-border/30 -mx-3 mb-2" />
+          <button
+            onClick={() => {
+              disconnect.mutate();
+              setOpen(false);
+            }}
+            className="text-[11px] text-red-400/70 hover:text-red-400 transition-colors"
+          >
+            Disconnect Apollo
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
