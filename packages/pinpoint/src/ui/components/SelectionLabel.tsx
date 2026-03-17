@@ -15,7 +15,10 @@ export const SelectionLabel: Component<SelectionLabelProps> = (props) => {
         const y = rect.top > 30 ? rect.top - 24 : rect.bottom + 4;
         const x = Math.max(4, Math.min(rect.left, window.innerWidth - 300));
         return (
-          <div class="pp-selection-label" style={{ left: `${x}px`, top: `${y}px` }}>
+          <div
+            class="pp-selection-label"
+            style={{ left: `${x}px`, top: `${y}px` }}
+          >
             {text}
           </div>
         );

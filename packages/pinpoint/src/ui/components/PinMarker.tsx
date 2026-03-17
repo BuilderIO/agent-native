@@ -11,6 +11,11 @@ import type { Pin } from "../../types/index.js";
 
 const MAX_MARKERS = 100;
 
+// Badge sizing constants — kept in sync with --pp-accent in theme.ts
+const BADGE_SIZE = 20;
+const BADGE_FONT = 11;
+const BADGE_OFFSET = -10;
+
 interface MarkerPair {
   wrapper: HTMLElement;
   outline: HTMLElement;
@@ -78,21 +83,24 @@ export class PinMarkerManager {
         opacity: 0.6;
       `;
 
-      // Badge — numbered circle at corner
+      // Badge — numbered circle at corner (pill-expands for double digits)
       const badge = document.createElement("div");
       badge.style.cssText = `
         position: absolute;
-        top: -8px;
-        right: -8px;
-        width: 16px;
-        height: 16px;
-        border-radius: 50%;
+        top: ${BADGE_OFFSET}px;
+        right: ${BADGE_OFFSET}px;
+        width: ${BADGE_SIZE}px;
+        height: ${BADGE_SIZE}px;
+        min-width: ${BADGE_SIZE}px;
+        padding: 0 4px;
+        border-radius: ${BADGE_SIZE / 2}px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 9px;
+        font-size: ${BADGE_FONT}px;
         font-weight: 600;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-variant-numeric: tabular-nums;
         color: #fff;
         background: ${this.markerColor};
         box-shadow: 0 1px 4px rgba(0,0,0,0.2);

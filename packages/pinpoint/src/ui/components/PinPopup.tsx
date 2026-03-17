@@ -1,7 +1,13 @@
 // @agent-native/pinpoint — Pin creation/edit popup
 // MIT License
 
-import { createSignal, Show, onMount, onCleanup, type Component } from "solid-js";
+import {
+  createSignal,
+  Show,
+  onMount,
+  onCleanup,
+  type Component,
+} from "solid-js";
 import type { ElementContext } from "../../types/index.js";
 import { icons } from "../icons/index.js";
 
@@ -35,12 +41,13 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
   // Reactive popup positioning — recalculates when details expand
   const popupPosition = () => {
     const rect = props.context.element.boundingRect;
-    const estimatedHeight = (compact() && showDetails()) ? 220 : 180;
+    const estimatedHeight = compact() && showDetails() ? 220 : 180;
     const popupX = Math.min(rect.x, window.innerWidth - 380);
     const popupY = rect.y + rect.height + 8;
-    const adjustedY = popupY + estimatedHeight > window.innerHeight
-      ? rect.y - estimatedHeight - 8
-      : popupY;
+    const adjustedY =
+      popupY + estimatedHeight > window.innerHeight
+        ? rect.y - estimatedHeight - 8
+        : popupY;
     return { x: Math.max(8, popupX), y: Math.max(8, adjustedY) };
   };
 
@@ -107,7 +114,10 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
         /* Compact mode — friendly name + collapsible details */
         <>
           {/* Header with chevron toggle */}
-          <div class="pp-popup__header" on:click={() => setShowDetails(!showDetails())}>
+          <div
+            class="pp-popup__header"
+            on:click={() => setShowDetails(!showDetails())}
+          >
             <span class="pp-popup__name">{displayName()}</span>
             <span
               class={`pp-popup__chevron ${showDetails() ? "pp-popup__chevron--open" : ""}`}
@@ -117,9 +127,13 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
           </div>
 
           {/* Collapsible technical details — CSS animated, always in DOM */}
-          <div class={`pp-popup__details ${showDetails() ? "pp-popup__details--open" : ""}`}>
+          <div
+            class={`pp-popup__details ${showDetails() ? "pp-popup__details--open" : ""}`}
+          >
             <div class="pp-popup__details-inner">
-              <div class="pp-popup__element-info">{props.context.cssSelector}</div>
+              <div class="pp-popup__element-info">
+                {props.context.cssSelector}
+              </div>
               <Show when={props.context.framework?.sourceFile}>
                 {(file) => (
                   <div
@@ -127,7 +141,13 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
                     on:click={openFileHandler}
                     title={file()}
                   >
-                    <span innerHTML={icons.fileCode} style={{ display: "inline-flex", "vertical-align": "middle" }} />{" "}
+                    <span
+                      innerHTML={icons.fileCode}
+                      style={{
+                        display: "inline-flex",
+                        "vertical-align": "middle",
+                      }}
+                    />{" "}
                     {file().split("/").pop()}
                   </div>
                 )}
@@ -152,7 +172,10 @@ export const PinPopup: Component<PinPopupProps> = (props) => {
                 on:click={openFileHandler}
                 title={file()}
               >
-                <span innerHTML={icons.fileCode} style={{ display: "inline-flex", "vertical-align": "middle" }} />{" "}
+                <span
+                  innerHTML={icons.fileCode}
+                  style={{ display: "inline-flex", "vertical-align": "middle" }}
+                />{" "}
                 {file().split("/").pop()}
               </div>
             )}

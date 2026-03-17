@@ -93,7 +93,9 @@ export function pagePinRoutes(options: PinRoutesOptions = {}): Router {
       }
       const result = PinSchema.partial().safeParse(req.body);
       if (!result.success) {
-        res.status(400).json({ error: "Invalid pin data", details: result.error.issues });
+        res
+          .status(400)
+          .json({ error: "Invalid pin data", details: result.error.issues });
         return;
       }
       await store.update(id, result.data);

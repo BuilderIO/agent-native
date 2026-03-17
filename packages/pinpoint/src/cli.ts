@@ -60,7 +60,9 @@ function init() {
     const skillDestFile = join(skillDest, "SKILL.md");
     if (existsSync(skillFile)) {
       if (existsSync(skillDestFile)) {
-        console.log("  skip  .agents/skills/pinpoint/SKILL.md (already exists)");
+        console.log(
+          "  skip  .agents/skills/pinpoint/SKILL.md (already exists)",
+        );
       } else {
         cpSync(skillFile, skillDestFile);
         console.log("  added .agents/skills/pinpoint/SKILL.md");
@@ -76,6 +78,10 @@ function init() {
   );
   console.log("");
   console.log("Next steps:");
-  console.log("  1. Add <Pinpoint /> to your client:  import { Pinpoint } from '@agent-native/pinpoint/react'");
-  console.log('  2. Add middleware to your server:     app.use("/api/pins", pagePinRoutes())');
+  console.log(
+    "  1. Add <Pinpoint /> to your client:  import { Pinpoint } from '@agent-native/pinpoint/react'",
+  );
+  console.log(
+    '  2. Add middleware to your server:     app.use("/api/pins", pagePinRoutes())',
+  );
 }
