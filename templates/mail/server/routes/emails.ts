@@ -198,6 +198,84 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
   res.json(emails);
 }
 
+// ─── Thread messages ─────────────────────────────────────────────────────────
+
+export async function getThreadMessages(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const { threadId } = req.params;
+
+  if (isConnected()) {
+    try {
+      const clients = await getClients();
+      const labelMap = new Map<string, string>();
+      await Promise.all(
+        clients.map(async ({ client }) => {
+          try {
+            const map = await fetchGmailLabelMap(client);
+            for (const [id, name] of map) labelMap.set(id, name);
+          } catch {}
+        }),
+      );
+
+      // Search across all accounts for messages in this thread
+      for (const { email, client } of clients) {
+        try {
+          const gmail = google.gmail({ version: "v1", auth: client });
+          const threadRes = await (gmail.users.threads.get as any)({
+            userId: "me",
+            id: threadId,
+            format: "full",
+          });
+          const messages = ((threadRes as any).data.messages || []).map(
+            (m: any) =>
+              gmailToEmailMessage(
+                { ...m, _accountEmail: email },
+                email,
+                labelMap,
+              ),
+          );
+          // Sort oldest first
+          messages.sort(
+            (a: any, b: any) =>
+              new Date(a.date).getTime() - new Date(b.date).getTime(),
+          );
+          res.json(messages);
+          return;
+        } catch (error: any) {
+          const status = error?.response?.status;
+          if (status === 404) continue;
+          console.error("[getThreadMessages] Gmail error:", error.message);
+          res.status(status || 502).json({ error: error.message });
+          return;
+        }
+      }
+      if (clients.length > 0) {
+        res.status(404).json({ error: "Thread not found in any account" });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[getThreadMessages] error:", error.message);
+      res.status(500).json({ error: error.message });
+      return;
+    }
+  }
+
+  // Demo data: find all emails with matching threadId
+  const emails = readEmails();
+  const threadMessages = emails
+    .filter((e) => e.threadId === threadId)
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  if (threadMessages.length === 0) {
+    res.status(404).json({ error: "Thread not found" });
+    return;
+  }
+
+  res.json(threadMessages);
+}
+
 // ─── Single email ─────────────────────────────────────────────────────────────
 
 export async function getEmail(req: Request, res: Response): Promise<void> {

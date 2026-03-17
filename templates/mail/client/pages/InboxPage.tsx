@@ -1,7 +1,7 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { EmailList } from "@/components/email/EmailList";
+import { EmailList, groupIntoThreads } from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
 import { useComposeState } from "@/hooks/use-compose-state";
 import {
@@ -145,13 +145,18 @@ function ThreadListSidebar({
 }) {
   const navigate = useNavigate();
   const markRead = useMarkRead();
+  const threads = useMemo(() => groupIntoThreads(emails), [emails]);
 
   return (
     <div className="w-[220px] shrink-0 flex flex-col border-r border-border/30 bg-[hsl(220,6%,5%)] overflow-hidden">
       <div className="flex-1 overflow-y-auto">
-        {emails.map((email) => {
+        {threads.map((thread) => {
+          const email = thread.latestMessage;
           const isActive = email.id === activeThreadId;
-          const senderName = email.from.name || email.from.email;
+          const senderName =
+            thread.messageCount > 1
+              ? thread.participants.map((p) => p.split(" ")[0]).join(", ")
+              : email.from.name || email.from.email;
           return (
             <button
               key={email.id}
@@ -166,22 +171,27 @@ function ThreadListSidebar({
               )}
             >
               <div className="flex items-center gap-2 min-w-0">
-                {!email.isRead && (
+                {thread.hasUnread && (
                   <div className="h-[5px] w-[5px] rounded-full bg-primary shrink-0" />
                 )}
                 <span
                   className={cn(
                     "text-[12px] truncate",
-                    email.isRead
-                      ? "text-foreground/60"
-                      : "font-semibold text-foreground",
+                    thread.hasUnread
+                      ? "font-semibold text-foreground"
+                      : "text-foreground/80",
                   )}
                 >
-                  {senderName}
+                  {email.subject}
                 </span>
+                {thread.messageCount > 1 && (
+                  <span className="text-[10px] text-muted-foreground/50 shrink-0">
+                    {thread.messageCount}
+                  </span>
+                )}
               </div>
-              <p className="text-[11px] text-muted-foreground/50 truncate mt-0.5 pl-0">
-                {email.subject}
+              <p className="text-[11px] text-muted-foreground truncate mt-0.5 pl-0">
+                {senderName}
               </p>
             </button>
           );
@@ -201,7 +211,10 @@ export function InboxPage() {
   const [lastArchivedId, setLastArchivedId] = useState<string | null>(null);
   const unarchiveEmail = useUnarchiveEmail();
   const { data: emails = [] } = useEmails(view);
-  const emailIds = emails.map((e) => e.id);
+  const threadIds = useMemo(
+    () => groupIntoThreads(emails).map((t) => t.latestMessage.id),
+    [emails],
+  );
 
   const undoArchive = useCallback(
     (id: string) => {
@@ -276,7 +289,7 @@ export function InboxPage() {
       {/* Center area — email list OR thread view */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {hasThread ? (
-          <EmailThread onArchived={setLastArchivedId} emailIds={emailIds} />
+          <EmailThread onArchived={setLastArchivedId} emailIds={threadIds} />
         ) : (
           <EmailList
             focusedId={focusedId}

@@ -38,6 +38,14 @@ export function useEmail(id: string | undefined) {
   });
 }
 
+export function useThreadMessages(threadId: string | undefined) {
+  return useQuery<EmailMessage[]>({
+    queryKey: ["thread-messages", threadId],
+    queryFn: () => apiFetch(`/api/threads/${threadId}/messages`),
+    enabled: !!threadId,
+  });
+}
+
 export function useMarkRead() {
   const qc = useQueryClient();
   return useMutation({

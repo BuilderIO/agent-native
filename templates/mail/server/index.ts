@@ -7,6 +7,7 @@ import type { EnvKeyConfig } from "@agent-native/core/server";
 import {
   listEmails,
   getEmail,
+  getThreadMessages,
   markRead,
   toggleStar,
   archiveEmail,
@@ -46,6 +47,7 @@ export function createAppServer() {
 
   // Emails
   app.get("/api/emails", listEmails);
+  app.get("/api/threads/:threadId/messages", getThreadMessages);
   app.get("/api/emails/:id", getEmail);
   app.patch("/api/emails/:id/read", markRead);
   app.patch("/api/emails/:id/star", toggleStar);

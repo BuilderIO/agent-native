@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { EmailListItem } from "./EmailListItem";
@@ -13,6 +13,82 @@ import {
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import type { EmailMessage } from "@shared/types";
 import { toast } from "sonner";
+
+export interface ThreadSummary {
+  /** The latest message in the thread (used for display and navigation) */
+  latestMessage: EmailMessage;
+  /** All unique participant names (senders), excluding the user */
+  participants: string[];
+  /** Total number of messages in the thread */
+  messageCount: number;
+  /** Whether any message in the thread is unread */
+  hasUnread: boolean;
+  /** Whether any message in the thread is starred */
+  hasStarred: boolean;
+  /** Union of all label IDs across thread messages */
+  labelIds: string[];
+}
+
+/** Group flat email list into threads by threadId, sorted by latest message date */
+export function groupIntoThreads(emails: EmailMessage[]): ThreadSummary[] {
+  const threadMap = new Map<string, EmailMessage[]>();
+
+  for (const email of emails) {
+    const key = email.threadId || email.id;
+    const existing = threadMap.get(key);
+    if (existing) {
+      existing.push(email);
+    } else {
+      threadMap.set(key, [email]);
+    }
+  }
+
+  const threads: ThreadSummary[] = [];
+
+  for (const messages of threadMap.values()) {
+    // Sort messages by date ascending (oldest first) for participant ordering
+    messages.sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+    );
+
+    const latestMessage = messages[messages.length - 1];
+
+    // Collect unique participant names in order of appearance
+    const seen = new Set<string>();
+    const participants: string[] = [];
+    for (const msg of messages) {
+      const name = msg.from.name || msg.from.email;
+      if (!seen.has(name)) {
+        seen.add(name);
+        participants.push(name);
+      }
+    }
+
+    // Merge labels across all messages
+    const labelSet = new Set<string>();
+    for (const msg of messages) {
+      for (const l of msg.labelIds) labelSet.add(l);
+    }
+
+    threads.push({
+      latestMessage,
+      participants,
+      messageCount: messages.length,
+      hasUnread: messages.some((m) => !m.isRead),
+      hasStarred: messages.some((m) => m.isStarred),
+      labelIds: Array.from(labelSet),
+    });
+  }
+
+  // Sort threads by latest message date descending
+  threads.sort(
+    (a, b) =>
+      new Date(b.latestMessage.date).getTime() -
+      new Date(a.latestMessage.date).getTime(),
+  );
+
+  return threads;
+}
 
 interface EmailListProps {
   focusedId: string | null;
@@ -50,33 +126,39 @@ export function EmailList({
 
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const focusedIndex = emails.findIndex((e) => e.id === focusedId);
+  // Group emails into threads
+  const threads = useMemo(() => groupIntoThreads(emails), [emails]);
+
+  const focusedIndex = threads.findIndex(
+    (t) => t.latestMessage.id === focusedId,
+  );
 
   const moveFocus = useCallback(
     (delta: number) => {
-      if (emails.length === 0) return;
+      if (threads.length === 0) return;
       const next = Math.max(
         0,
         Math.min(
-          emails.length - 1,
+          threads.length - 1,
           (focusedIndex === -1 ? 0 : focusedIndex) + delta,
         ),
       );
-      setFocusedId(emails[next].id);
+      setFocusedId(threads[next].latestMessage.id);
       // Scroll focused row into view
       const rows = containerRef.current?.querySelectorAll("[role='row']");
       rows?.[next]?.scrollIntoView({ block: "nearest" });
     },
-    [emails, focusedIndex, setFocusedId],
+    [threads, focusedIndex, setFocusedId],
   );
 
   const openFocused = useCallback(() => {
     if (!focusedId) return;
-    const email = emails.find((e) => e.id === focusedId);
-    if (!email) return;
-    if (!email.isRead) markRead.mutate({ id: focusedId, isRead: true });
+    const thread = threads.find((t) => t.latestMessage.id === focusedId);
+    if (!thread) return;
+    if (!thread.latestMessage.isRead)
+      markRead.mutate({ id: focusedId, isRead: true });
     navigate(`/${view}/${focusedId}`);
-  }, [focusedId, emails, view, navigate, markRead]);
+  }, [focusedId, threads, view, navigate, markRead]);
 
   const archiveFocused = useCallback(() => {
     if (!focusedId) return;
@@ -107,10 +189,10 @@ export function EmailList({
 
   const toggleFocusedRead = useCallback(() => {
     if (!focusedId) return;
-    const email = emails.find((e) => e.id === focusedId);
-    if (!email) return;
-    markRead.mutate({ id: focusedId, isRead: !email.isRead });
-  }, [focusedId, emails, markRead]);
+    const thread = threads.find((t) => t.latestMessage.id === focusedId);
+    if (!thread) return;
+    markRead.mutate({ id: focusedId, isRead: !thread.latestMessage.isRead });
+  }, [focusedId, threads, markRead]);
 
   const markFocusedRead = useCallback(() => {
     if (!focusedId) return;
@@ -124,22 +206,25 @@ export function EmailList({
 
   const starFocused = useCallback(() => {
     if (!focusedId) return;
-    const email = emails.find((e) => e.id === focusedId);
-    if (!email) return;
-    toggleStar.mutate({ id: focusedId, isStarred: !email.isStarred });
-  }, [focusedId, emails, toggleStar]);
+    const thread = threads.find((t) => t.latestMessage.id === focusedId);
+    if (!thread) return;
+    toggleStar.mutate({
+      id: focusedId,
+      isStarred: !thread.latestMessage.isStarred,
+    });
+  }, [focusedId, threads, toggleStar]);
 
   const replyFocused = useCallback(() => {
     if (!focusedId || !onCompose) return;
-    const email = emails.find((e) => e.id === focusedId);
-    if (email) onCompose(email, "reply");
-  }, [focusedId, emails, onCompose]);
+    const thread = threads.find((t) => t.latestMessage.id === focusedId);
+    if (thread) onCompose(thread.latestMessage, "reply");
+  }, [focusedId, threads, onCompose]);
 
   const forwardFocused = useCallback(() => {
     if (!focusedId || !onCompose) return;
-    const email = emails.find((e) => e.id === focusedId);
-    if (email) onCompose(email, "forward");
-  }, [focusedId, emails, onCompose]);
+    const thread = threads.find((t) => t.latestMessage.id === focusedId);
+    if (thread) onCompose(thread.latestMessage, "forward");
+  }, [focusedId, threads, onCompose]);
 
   // Keyboard navigation — Gmail / Superhuman standard shortcuts
   useKeyboardShortcuts([
@@ -161,21 +246,23 @@ export function EmailList({
     { key: "a", handler: replyFocused }, // reply-all (same as reply for single messages)
   ]);
 
-  // Auto-focus first email when list loads
+  // Auto-focus first thread when list loads
   useEffect(() => {
-    if (emails.length > 0 && !focusedId) {
-      setFocusedId(emails[0].id);
+    if (threads.length > 0 && !focusedId) {
+      setFocusedId(threads[0].latestMessage.id);
     }
-  }, [emails, focusedId, setFocusedId]);
+  }, [threads, focusedId, setFocusedId]);
 
-  const handleSelect = (email: EmailMessage) => {
+  const handleSelect = (thread: ThreadSummary) => {
+    const email = thread.latestMessage;
     setFocusedId(email.id);
     if (!email.isRead) markRead.mutate({ id: email.id, isRead: true });
     navigate(`/${view}/${email.id}`);
   };
 
-  const handleStar = (e: React.MouseEvent, email: EmailMessage) => {
+  const handleStar = (e: React.MouseEvent, thread: ThreadSummary) => {
     e.stopPropagation();
+    const email = thread.latestMessage;
     toggleStar.mutate({ id: email.id, isStarred: !email.isStarred });
   };
 
@@ -234,7 +321,7 @@ export function EmailList({
   }
 
   // Empty state — Superhuman "Inbox Zero" style
-  if (emails.length === 0) {
+  if (threads.length === 0) {
     return (
       <div className="flex h-full flex-col" ref={containerRef}>
         <div className="flex flex-1 flex-col items-center justify-center">
@@ -301,14 +388,15 @@ export function EmailList({
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
       <div className="flex-1 overflow-y-auto">
-        {emails.map((email) => (
+        {threads.map((thread) => (
           <EmailListItem
-            key={email.id}
-            email={email}
-            isSelected={email.id === threadId}
-            isFocused={email.id === focusedId}
-            onSelect={() => handleSelect(email)}
-            onStar={(e) => handleStar(e, email)}
+            key={thread.latestMessage.id}
+            email={thread.latestMessage}
+            thread={thread}
+            isSelected={thread.latestMessage.id === threadId}
+            isFocused={thread.latestMessage.id === focusedId}
+            onSelect={() => handleSelect(thread)}
+            onStar={(e) => handleStar(e, thread)}
           />
         ))}
       </div>
