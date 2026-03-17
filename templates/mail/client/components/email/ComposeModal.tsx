@@ -9,6 +9,7 @@ import {
   Paperclip,
   ChevronDown,
   Loader2,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -582,10 +583,13 @@ export function ComposeModal({
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground hidden sm:block">
-                <kbd className="kbd-hint">⌘</kbd>{" "}
-                <kbd className="kbd-hint">↵</kbd> to send
-              </span>
+              <button
+                onClick={() => onDiscard(activeId)}
+                className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground/40 hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                title="Delete draft"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
               <Button
                 size="sm"
                 onClick={handleSend}
