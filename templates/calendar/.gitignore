@@ -33,3 +33,6 @@ data/google-accounts/
 # Firestore-synced data (synced at runtime, not checked in)
 data/events/
 data/bookings/
+
+# Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
+learnings.md

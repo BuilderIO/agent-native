@@ -39,6 +39,11 @@ export function EmailThread({
     threadId: string;
   }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const labelParam = searchParams.get("label");
+  const labelSuffix = labelParam
+    ? `?label=${encodeURIComponent(labelParam)}`
+    : "";
   const compose = useComposeState();
   const queryClient = useQueryClient();
 
@@ -113,6 +118,17 @@ export function EmailThread({
     }
   }, [messages.length, focusedIndex]);
   const focusedRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Instant-scroll to bottom when thread first loads so the latest message is visible
+  const hasScrolledRef = useRef<string | undefined>();
+  useEffect(() => {
+    if (!threadId || messages.length === 0) return;
+    if (hasScrolledRef.current === threadId) return;
+    hasScrolledRef.current = threadId;
+    const el = scrollContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [threadId, messages.length]);
 
   const archiveEmail = useArchiveEmail();
   const unarchiveEmail = useUnarchiveEmail();
@@ -120,7 +136,10 @@ export function EmailThread({
   const toggleStar = useToggleStar();
   const markRead = useMarkRead();
 
-  const goBack = useCallback(() => navigate(`/${view}`), [navigate, view]);
+  const goBack = useCallback(
+    () => navigate(`/${view}${labelSuffix}`),
+    [navigate, view, labelSuffix],
+  );
 
   // Navigate between threads (j/k)
   const goToSibling = useCallback(
@@ -130,9 +149,9 @@ export function EmailThread({
       if (idx === -1) return;
       const nextIdx = idx + delta;
       if (nextIdx < 0 || nextIdx >= emailIds.length) return;
-      navigate(`/${view}/${emailIds[nextIdx]}`);
+      navigate(`/${view}/${emailIds[nextIdx]}${labelSuffix}`);
     },
-    [threadId, emailIds, view, navigate],
+    [threadId, emailIds, view, navigate, labelSuffix],
   );
 
   const advanceOrGoBack = useCallback(() => {
@@ -142,9 +161,13 @@ export function EmailThread({
     }
     const idx = emailIds.indexOf(threadId);
     if (idx !== -1 && idx + 1 < emailIds.length) {
-      navigate(`/${view}/${emailIds[idx + 1]}`, { replace: true });
+      navigate(`/${view}/${emailIds[idx + 1]}${labelSuffix}`, {
+        replace: true,
+      });
     } else if (idx !== -1 && idx - 1 >= 0) {
-      navigate(`/${view}/${emailIds[idx - 1]}`, { replace: true });
+      navigate(`/${view}/${emailIds[idx - 1]}${labelSuffix}`, {
+        replace: true,
+      });
     } else {
       goBack();
     }
@@ -407,7 +430,10 @@ export function EmailThread({
       </div>
 
       {/* Thread messages */}
-      <div className="flex-1 overflow-y-auto px-5 pb-4">
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto px-5 pb-4"
+      >
         <div className="max-w-3xl mx-auto space-y-1">
           {messages.map((msg, idx) => {
             const isExpanded = expandedIds.has(msg.id);

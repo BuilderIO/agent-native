@@ -330,16 +330,18 @@ pnpm test         # Run Vitest tests
 pnpm script <name> [--args]  # Run a backend script
 ```
 
-## Learnings
+## Learnings & Preferences
 
-This project maintains a `LEARNINGS.md` file at the repo root. This file captures preferences, corrections, and patterns learned from feedback during chat sessions.
+**Always read `learnings.md` at the start of every conversation.** This file is the app's memory — it contains user preferences, corrections, important context, and patterns learned from past interactions.
 
-**Rules:**
+**Update `learnings.md` when you learn something important:**
 
-- **Always read `LEARNINGS.md` before starting work** — it contains important preferences and past corrections
-- **Update `LEARNINGS.md` when corrected** — if the user gives feedback or corrects a mistake, capture the learning immediately
-- **Keep entries concise** — short, actionable bullets grouped by category
-- **Don't duplicate** — if a learning already exists, refine it rather than adding a duplicate
+- User corrects your tone, style, or approach
+- User shares personal info relevant to the app (contacts, preferences, habits)
+- You discover a non-obvious pattern or gotcha
+- User gives feedback that should apply to future conversations
+
+Keep entries concise and actionable. Group by category. This file is gitignored so personal data stays local.
 
 ## Content Generation: Positioning & Messaging
 

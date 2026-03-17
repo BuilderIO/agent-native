@@ -38,3 +38,6 @@ data/uploads/
 
 # Ephemeral UI state (agent-readable, not persisted)
 application-state/
+
+# Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
+learnings.md

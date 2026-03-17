@@ -44,10 +44,14 @@ export function useNavigationState() {
   );
 
   // One-shot command: agent writes navigate.json, UI reads and deletes it
-  const command = useQuery<NavigationState | undefined>({
+  const command = useQuery<NavigationState | null>({
     queryKey: ["navigate-command"],
-    queryFn: () =>
-      apiFetch<NavigationState | undefined>("/api/application-state/navigate"),
+    queryFn: async () => {
+      const result = await apiFetch<NavigationState | undefined>(
+        "/api/application-state/navigate",
+      );
+      return result ?? null;
+    },
     staleTime: 2_000,
   });
 
