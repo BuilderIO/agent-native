@@ -9,6 +9,7 @@ interface EmailListItemProps {
   isFocused: boolean;
   onSelect: () => void;
   onStar: (e: React.MouseEvent) => void;
+  onHover: () => void;
 }
 
 /** Format participant names for thread display, e.g. "Kaitlyn .. Sam, Andrew" */
@@ -51,6 +52,7 @@ export function EmailListItem({
   isFocused,
   onSelect,
   onStar,
+  onHover,
 }: EmailListItemProps) {
   const isThread = thread && thread.messageCount > 1;
   const senderName = isThread
@@ -90,12 +92,12 @@ export function EmailListItem({
       role="row"
       tabIndex={0}
       onClick={onSelect}
+      onMouseEnter={onHover}
       onKeyDown={(e) => e.key === "Enter" && onSelect()}
       className={cn(
         "email-list-row group relative flex cursor-pointer items-center h-[38px] px-3 transition-colors",
         isSelected && "selected",
         isFocused && !isSelected && "focused",
-        !isSelected && !isFocused && "hover:bg-[hsl(220,5%,13%)]",
       )}
     >
       {/* Unread dot */}
@@ -165,8 +167,8 @@ export function EmailListItem({
         {formatEmailDate(email.date)}
       </span>
 
-      {/* Hover actions — replace time on hover */}
-      <div className="hover-actions items-center gap-0.5 ml-3 shrink-0">
+      {/* Hover actions — overlay on top of time */}
+      <div className="hover-actions items-center gap-0.5">
         <button
           onClick={onStar}
           className={cn(

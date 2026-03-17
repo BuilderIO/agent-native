@@ -28,6 +28,7 @@ import {
   useSettings,
   useUpdateSettings,
   useEmails,
+  useContacts,
   useReportSpam,
   useBlockSender,
   useMuteThread,
@@ -94,6 +95,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const activeLabel = searchParams.get("label");
   const { data: labels = [] } = useLabels();
   const { data: settings } = useSettings();
+  useContacts(); // Prefetch contacts so composer autocomplete is instant
   const updateSettings = useUpdateSettings();
   const googleStatus = useGoogleAuthStatus();
   const accounts = googleStatus.data?.accounts ?? [];
@@ -625,35 +627,50 @@ export function AppLayout({ children }: AppLayoutProps) {
         )}
       </div>
 
-      {compose.drafts.length > 0 && (
-        <ComposeModal
-          drafts={compose.drafts}
-          activeId={compose.activeId}
-          activeDraft={compose.activeDraft}
-          onSetActiveId={compose.setActiveId}
-          onUpdate={compose.update}
-          onClose={(id) => {
-            const draft = compose.drafts.find((d) => d.id === id);
-            const hasContent = !!(
-              draft?.to?.trim() ||
-              draft?.subject?.trim() ||
-              draft?.body?.trim()
-            );
-            compose.close(id);
-            if (hasContent) toast("Draft saved.");
-          }}
-          onCloseAll={() => {
-            const hasAnyContent = compose.drafts.some(
-              (d) => !!(d.to?.trim() || d.subject?.trim() || d.body?.trim()),
-            );
-            compose.closeAll();
-            if (hasAnyContent) toast("Drafts saved.");
-          }}
-          onDiscard={compose.discard}
-          onNewDraft={handleCompose}
-          onFlush={compose.flush}
-        />
-      )}
+      {(() => {
+        // Filter out inline drafts (rendered in thread view, not the popout composer)
+        const popoutDrafts = compose.drafts.filter((d) => !d.inline);
+        if (popoutDrafts.length === 0) return null;
+        const popoutActiveId =
+          compose.activeId &&
+          popoutDrafts.some((d) => d.id === compose.activeId)
+            ? compose.activeId
+            : popoutDrafts[popoutDrafts.length - 1].id;
+        const popoutActiveDraft =
+          popoutDrafts.find((d) => d.id === popoutActiveId) ?? null;
+        return (
+          <ComposeModal
+            drafts={popoutDrafts}
+            activeId={popoutActiveId}
+            activeDraft={popoutActiveDraft}
+            onSetActiveId={compose.setActiveId}
+            onUpdate={compose.update}
+            onClose={(id) => {
+              const draft = popoutDrafts.find((d) => d.id === id);
+              const hasContent = !!(
+                draft?.to?.trim() ||
+                draft?.subject?.trim() ||
+                draft?.body?.trim()
+              );
+              compose.close(id);
+              if (hasContent) toast("Draft saved.");
+            }}
+            onCloseAll={() => {
+              const hasAnyContent = popoutDrafts.some(
+                (d) =>
+                  !!(d.to?.trim() || d.subject?.trim() || d.body?.trim()),
+              );
+              const ids = popoutDrafts.map((d) => d.id);
+              ids.forEach((id) => compose.close(id));
+              if (hasAnyContent) toast("Drafts saved.");
+            }}
+            onDiscard={compose.discard}
+            onNewDraft={handleCompose}
+            onFlush={compose.flush}
+            onReopen={compose.open}
+          />
+        );
+      })()}
       <CommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
