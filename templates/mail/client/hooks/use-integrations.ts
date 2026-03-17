@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 // ─── Generic integration credentials (via application-state) ────────────────
 
-type Provider = "apollo" | "hubspot" | "gong";
+type Provider = "apollo" | "hubspot" | "gong" | "pylon";
 
 function useIntegrationStatus(provider: Provider) {
   const { data } = useQuery<{ apiKey?: string } | null>({
@@ -55,7 +55,8 @@ export function useAllIntegrations() {
   const apollo = useIntegrationStatus("apollo");
   const hubspot = useIntegrationStatus("hubspot");
   const gong = useIntegrationStatus("gong");
-  return { apollo, hubspot, gong };
+  const pylon = useIntegrationStatus("pylon");
+  return { apollo, hubspot, gong, pylon };
 }
 
 export function useIntegration(provider: Provider) {
@@ -72,6 +73,23 @@ export function useHubSpotContact(email: string | undefined) {
     queryFn: async () => {
       const res = await fetch(
         `/api/hubspot/contact?email=${encodeURIComponent(email!)}`,
+      );
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!email && connected,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+}
+
+export function usePylonContact(email: string | undefined) {
+  const connected = useIntegrationStatus("pylon");
+  return useQuery({
+    queryKey: ["integration-data", "pylon", email],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/pylon/contact?email=${encodeURIComponent(email!)}`,
       );
       if (!res.ok) return null;
       return res.json();

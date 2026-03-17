@@ -20,9 +20,11 @@ import {
   updateSettings,
 } from "./routes/emails.js";
 import {
-  getComposeState,
-  putComposeState,
-  deleteComposeState,
+  listComposeDrafts,
+  getComposeDraft,
+  putComposeDraft,
+  deleteComposeDraft,
+  deleteAllComposeDrafts,
   getState,
   putState,
   deleteState,
@@ -41,6 +43,9 @@ import {
 } from "./routes/apollo.js";
 import { hubspotContactLookup } from "./routes/hubspot.js";
 import { gongCallsLookup } from "./routes/gong.js";
+import { pylonContactLookup } from "./routes/pylon.js";
+import { uploadMedia, serveMedia } from "./routes/media.js";
+import express from "express";
 
 const envKeys: EnvKeyConfig[] = [
   { key: "GOOGLE_CLIENT_ID", label: "Google OAuth Client ID", required: false },
@@ -78,10 +83,12 @@ export function createAppServer() {
   app.get("/api/settings", getSettings);
   app.patch("/api/settings", updateSettings);
 
-  // Application state — compose (with validation)
-  app.get("/api/application-state/compose", getComposeState);
-  app.put("/api/application-state/compose", putComposeState);
-  app.delete("/api/application-state/compose", deleteComposeState);
+  // Application state — compose drafts (multi-draft)
+  app.get("/api/application-state/compose", listComposeDrafts);
+  app.get("/api/application-state/compose/:id", getComposeDraft);
+  app.put("/api/application-state/compose/:id", putComposeDraft);
+  app.delete("/api/application-state/compose/:id", deleteComposeDraft);
+  app.delete("/api/application-state/compose", deleteAllComposeDrafts);
 
   // Application state — generic (navigation, etc.)
   app.get("/api/application-state/:key", getState);
@@ -99,6 +106,17 @@ export function createAppServer() {
 
   // Gong
   app.get("/api/gong/calls", gongCallsLookup);
+
+  // Pylon
+  app.get("/api/pylon/contact", pylonContactLookup);
+
+  // Media uploads
+  app.post(
+    "/api/media/upload",
+    express.raw({ type: "*/*", limit: "10mb" }),
+    uploadMedia,
+  );
+  app.get("/api/media/:filename", serveMedia);
 
   // Google Auth
   app.get("/api/google/auth-url", getGoogleAuthUrl);
