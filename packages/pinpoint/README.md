@@ -2,11 +2,11 @@
 
 Visual feedback and annotation tool for web applications. Users select UI elements, add feedback, and send structured context to any AI agent.
 
-Works standalone, with [Builder.io](https://builder.io), or with any agent harness that speaks the agent-native protocol (Claude Code, Codex, Gemini CLI, Cursor, etc.).
+Works standalone, with [Builder.io](https://builder.io), or with any agent harness that speaks the agent-native protocol (Builder.io, Claude Code, Codex, Gemini CLI, Cursor, etc.).
 
 ## AI Agent Setup Guide
 
-Instructions for an AI agent (Claude Code, Codex, Cursor, etc.) to add Pinpoint to an agent-native repository.
+Instructions for an AI agent (Builder.io, Claude Code, Codex, Cursor, etc.) to add Pinpoint to an agent-native repository.
 
 ### Step 1: Install
 
