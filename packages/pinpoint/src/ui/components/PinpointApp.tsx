@@ -64,7 +64,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
 
   // Settings state
   const [outputFormat, setOutputFormat] = createSignal(
-    props.config.outputFormat || "standard",
+    props.config.outputFormat || "detailed",
   );
   const [clearOnSend, setClearOnSend] = createSignal(
     props.config.clearOnSend ?? false,
@@ -74,6 +74,9 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
   );
   const [autoSubmit, setAutoSubmit] = createSignal(
     props.config.autoSubmit ?? true,
+  );
+  const [compactPopup, setCompactPopup] = createSignal(
+    props.config.compactPopup ?? true,
   );
 
   // Storage adapter selection
@@ -398,6 +401,8 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
         blockInteractions={blockInteractions()}
         autoSubmit={autoSubmit()}
         webhookUrl={props.config.webhookUrl}
+        compactPopup={compactPopup()}
+        onCompactPopupChange={setCompactPopup}
         onToggleExpand={() => {
           const willExpand = !expanded();
           setExpanded(willExpand);
@@ -406,6 +411,9 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
           } else {
             deactivateSelection();
             setShowSettings(false);
+            if (showPopup()) {
+              closePopup();
+            }
           }
         }}
         onSend={sendPins}
@@ -424,9 +432,9 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
       {showPopup() && selectedContext() && (
         <PinPopup
           context={selectedContext()!}
-          author={props.config.author}
           initialComment={editingPin()?.comment}
           isEditing={!!editingPin()}
+          compactPopup={compactPopup()}
           onAdd={(comment) => {
             if (editingPin()) {
               updatePin(comment);

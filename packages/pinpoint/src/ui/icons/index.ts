@@ -34,6 +34,8 @@ export const icons = {
   fileCode: `<svg ${S}><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2"/><path d="M10 13l-1 2l1 2"/><path d="M14 13l1 2l-1 2"/></svg>`,
 
   history: `<svg ${S}><path d="M12 8l0 4l2 2"/><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"/></svg>`,
+
+  minus: `<svg ${S}><path d="M5 12l14 0"/></svg>`,
 } as const;
 
 export type IconName = keyof typeof icons;

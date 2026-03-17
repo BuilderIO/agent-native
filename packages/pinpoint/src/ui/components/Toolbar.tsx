@@ -19,6 +19,7 @@ interface ToolbarProps {
   clearOnSend: boolean;
   blockInteractions: boolean;
   autoSubmit: boolean;
+  compactPopup: boolean;
   webhookUrl?: string;
   onToggleExpand: () => void;
   onSend: () => void;
@@ -31,33 +32,32 @@ interface ToolbarProps {
   onClearOnSendChange: (value: boolean) => void;
   onBlockInteractionsChange: (value: boolean) => void;
   onAutoSubmitChange: (value: boolean) => void;
+  onCompactPopupChange: (value: boolean) => void;
 }
 
 export const Toolbar: Component<ToolbarProps> = (props) => {
+  // Position stored as right/bottom offsets for consistent edge anchoring
   const [pos, setPos] = createSignal(
-    props.position || {
-      x: window.innerWidth - 80,
-      y: window.innerHeight - 60,
-    },
+    props.position || { right: 16, bottom: 16 },
   );
   const [dragging, setDragging] = createSignal(false);
-  const [dragOffset, setDragOffset] = createSignal({ x: 0, y: 0 });
+  const [dragStart, setDragStart] = createSignal({ x: 0, y: 0, right: 0, bottom: 0 });
+  const [didDrag, setDidDrag] = createSignal(false);
 
   function handleMouseDown(e: MouseEvent) {
     if (props.expanded) return;
     setDragging(true);
-    setDragOffset({ x: e.clientX - pos().x, y: e.clientY - pos().y });
+    setDidDrag(false);
+    setDragStart({ x: e.clientX, y: e.clientY, right: pos().right, bottom: pos().bottom });
 
     const handleMove = (e: MouseEvent) => {
+      setDidDrag(true);
+      const start = dragStart();
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
       setPos({
-        x: Math.max(
-          0,
-          Math.min(window.innerWidth - 80, e.clientX - dragOffset().x),
-        ),
-        y: Math.max(
-          0,
-          Math.min(window.innerHeight - 40, e.clientY - dragOffset().y),
-        ),
+        right: Math.max(0, Math.min(window.innerWidth - 60, start.right - dx)),
+        bottom: Math.max(0, Math.min(window.innerHeight - 60, start.bottom - dy)),
       });
     };
 
@@ -71,18 +71,26 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
     window.addEventListener("mouseup", handleUp);
   }
 
+  // Native click handler on the outer div — guards prevent firing in expanded state
+  function handleClick(e: Event) {
+    if (props.expanded) return;
+    if (didDrag()) return;
+    props.onToggleExpand();
+  }
+
   return (
     <div
       class={`pp-toolbar ${props.expanded ? "pp-toolbar--expanded" : "pp-toolbar--collapsed"}`}
       style={{
         ...(props.expanded
           ? { bottom: "16px", right: "16px" }
-          : { left: `${pos().x}px`, top: `${pos().y}px` }),
+          : { right: `${pos().right}px`, bottom: `${pos().bottom}px` }),
       }}
       onMouseDown={props.expanded ? undefined : handleMouseDown}
+      on:click={handleClick}
     >
       {!props.expanded ? (
-        /* Collapsed pill */
+        /* Collapsed pill content */
         <div
           style={{
             display: "flex",
@@ -90,56 +98,30 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
             "justify-content": "center",
             gap: "6px",
           }}
-          onClick={() => props.onToggleExpand()}
         >
+          {props.pins.length > 0 && (
+            <span class="pp-toolbar__badge">{props.pins.length}</span>
+          )}
           <span
             innerHTML={icons.pin}
             style={{ display: "flex", "align-items": "center" }}
           />
-          {props.pins.length > 0 && (
-            <span class="pp-toolbar__badge">{props.pins.length}</span>
-          )}
         </div>
       ) : (
-        /* Expanded toolbar */
-        <>
-          {/* Header */}
+        /* Expanded toolbar — stopPropagation wrapper prevents clicks from reaching outer div */
+        <div on:click={(e: Event) => e.stopPropagation()} style={{ display: "contents" }}>
+          {/* Header — author name or fallback title */}
           <div
             style={{
               display: "flex",
               "align-items": "center",
-              "justify-content": "space-between",
+              "font-size": "12px",
+              "font-weight": "600",
+              "letter-spacing": "0.02em",
+              color: "var(--pp-text-muted)",
             }}
           >
-            <div
-              style={{ display: "flex", "align-items": "center", gap: "8px" }}
-            >
-              <span class="pp-toolbar__title">Pinpoint</span>
-              {props.author && (
-                <span
-                  style={{
-                    "font-size": "11px",
-                    color: "var(--pp-text-muted)",
-                  }}
-                >
-                  {props.author}
-                </span>
-              )}
-            </div>
-            <div style={{ display: "flex", gap: "2px" }}>
-              <button
-                class="pp-btn--icon"
-                onClick={props.onToggleSettings}
-                title="Settings"
-                innerHTML={icons.settings}
-              />
-              <button
-                class="pp-btn--icon"
-                onClick={props.onToggleExpand}
-                title="Collapse"
-                innerHTML={icons.x}
-              />
-            </div>
+            {props.author || "Pinpoint"}
           </div>
 
           {/* Active indicator — only when no pins yet */}
@@ -165,24 +147,23 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
                 {(pin, index) => (
                   <div
                     class="pp-pin-item"
-                    onClick={() => props.onEditPin(pin)}
+                    on:click={() => props.onEditPin(pin)}
                   >
                     <span class="pp-pin-item__number">{index() + 1}</span>
                     <div class="pp-pin-item__content">
-                      <div class="pp-pin-item__element">
-                        {pin.element.selector}
+                      <div class="pp-pin-item__comment">
+                        {pin.comment || <span style={{ color: "var(--pp-text-muted)", "font-style": "italic" }}>No comment</span>}
                       </div>
-                      <div class="pp-pin-item__comment">{pin.comment}</div>
                     </div>
                     <button
-                      class="pp-btn--icon"
-                      onClick={(e) => {
+                      class="pp-btn--icon pp-btn--icon-sm"
+                      on:click={(e: Event) => {
                         e.stopPropagation();
                         props.onRemovePin(pin.id);
                       }}
-                      title="Remove"
-                      innerHTML={icons.x}
-                      style={{ "font-size": "10px" }}
+                      title="Remove pin"
+                      aria-label="Remove pin"
+                      innerHTML={icons.minus}
                     />
                   </div>
                 )}
@@ -190,31 +171,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
             </div>
           )}
 
-          {/* Icon-only action buttons */}
-          <div class="pp-actions">
-            <button
-              class="pp-btn--icon"
-              onClick={props.onSend}
-              title="Send to agent"
-              innerHTML={icons.send}
-            />
-            <button
-              class="pp-btn--icon"
-              onClick={props.onCopy}
-              title="Copy to clipboard"
-              innerHTML={icons.copy}
-            />
-            {props.pins.length > 0 && (
-              <button
-                class="pp-btn--icon"
-                onClick={props.onClear}
-                title="Clear all"
-                innerHTML={icons.trash}
-              />
-            )}
-          </div>
-
-          {/* Settings panel (inline, inside the toolbar) */}
+          {/* Settings panel (inline, above the icon bar) */}
           <Show when={props.showSettings}>
             <div class="pp-settings">
               <div class="pp-settings__row">
@@ -244,7 +201,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
                 <span class="pp-settings__label">Auto-submit</span>
                 <div
                   class={`pp-toggle ${props.autoSubmit ? "pp-toggle--active" : ""}`}
-                  onClick={() => props.onAutoSubmitChange(!props.autoSubmit)}
+                  on:click={() => props.onAutoSubmitChange(!props.autoSubmit)}
                 >
                   <div class="pp-toggle__thumb" />
                 </div>
@@ -253,7 +210,7 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
                 <span class="pp-settings__label">Clear on send</span>
                 <div
                   class={`pp-toggle ${props.clearOnSend ? "pp-toggle--active" : ""}`}
-                  onClick={() => props.onClearOnSendChange(!props.clearOnSend)}
+                  on:click={() => props.onClearOnSendChange(!props.clearOnSend)}
                 >
                   <div class="pp-toggle__thumb" />
                 </div>
@@ -262,16 +219,66 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
                 <span class="pp-settings__label">Block page clicks</span>
                 <div
                   class={`pp-toggle ${props.blockInteractions ? "pp-toggle--active" : ""}`}
-                  onClick={() =>
+                  on:click={() =>
                     props.onBlockInteractionsChange(!props.blockInteractions)
                   }
                 >
                   <div class="pp-toggle__thumb" />
                 </div>
               </div>
+              <div class="pp-settings__row">
+                <span class="pp-settings__label">Compact popup</span>
+                <div
+                  class={`pp-toggle ${props.compactPopup ? "pp-toggle--active" : ""}`}
+                  on:click={() => props.onCompactPopupChange(!props.compactPopup)}
+                >
+                  <div class="pp-toggle__thumb" />
+                </div>
+              </div>
             </div>
           </Show>
-        </>
+
+          {/* Unified horizontal icon bar at bottom */}
+          <div class="pp-actions" role="toolbar" aria-label="Pinpoint actions">
+            <button
+              class="pp-btn--icon"
+              on:click={() => props.onSend()}
+              title="Send to agent"
+              aria-label="Send to agent"
+              innerHTML={icons.send}
+            />
+            <button
+              class="pp-btn--icon"
+              on:click={() => props.onCopy()}
+              title="Copy to clipboard"
+              aria-label="Copy to clipboard"
+              innerHTML={icons.copy}
+            />
+            {props.pins.length > 0 && (
+              <button
+                class="pp-btn--icon"
+                on:click={() => props.onClear()}
+                title="Clear all"
+                aria-label="Clear all pins"
+                innerHTML={icons.trash}
+              />
+            )}
+            <button
+              class="pp-btn--icon"
+              on:click={() => props.onToggleSettings()}
+              title="Settings"
+              aria-label="Toggle settings"
+              innerHTML={icons.settings}
+            />
+            <button
+              class="pp-btn--icon"
+              on:click={() => props.onToggleExpand()}
+              title="Close"
+              aria-label="Close toolbar"
+              innerHTML={icons.x}
+            />
+          </div>
+        </div>
       )}
     </div>
   );
