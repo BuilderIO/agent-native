@@ -389,7 +389,7 @@ export function toggleStar(req: Request, res: Response) {
 export async function archiveEmail(req: Request, res: Response): Promise<void> {
   if (isConnected()) {
     try {
-      const client = await getClient();
+      const client = await getClient(req.body?.accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
         await gmail.users.messages.modify({
@@ -442,7 +442,7 @@ export async function unarchiveEmail(
 ): Promise<void> {
   if (isConnected()) {
     try {
-      const client = await getClient();
+      const client = await getClient(req.body?.accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
         await gmail.users.messages.modify({
@@ -494,7 +494,7 @@ export async function unarchiveEmail(
 export async function trashEmail(req: Request, res: Response): Promise<void> {
   if (isConnected()) {
     try {
-      const client = await getClient();
+      const client = await getClient(req.body?.accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
         await gmail.users.messages.trash({
@@ -884,7 +884,7 @@ export async function saveDraft(req: Request, res: Response): Promise<void> {
   // If Gmail is connected, create/update a Gmail draft
   if (isConnected()) {
     try {
-      const client = await getClient();
+      const client = await getClient(req.body?.accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
         const raw = buildRawEmail({
@@ -1023,7 +1023,7 @@ export async function deleteDraft(req: Request, res: Response): Promise<void> {
 
   if (isConnected()) {
     try {
-      const client = await getClient();
+      const client = await getClient(req.body?.accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
         try {

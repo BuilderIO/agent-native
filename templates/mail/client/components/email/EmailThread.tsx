@@ -261,7 +261,7 @@ export function EmailThread({
       },
     });
     advanceOrGoBack();
-    archiveEmail.mutate(id);
+    archiveEmail.mutate({ id, accountEmail: email.accountEmail });
   }, [email, archiveEmail, unarchiveEmail, advanceOrGoBack, onArchived]);
 
   const handleTrash = useCallback(() => {
@@ -513,22 +513,20 @@ export function EmailThread({
           </button>
 
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-lg font-semibold leading-tight text-foreground">
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-semibold leading-tight text-foreground truncate">
                 {threadSubject}
               </h1>
               {displayLabels.map((labelId) => (
                 <span
                   key={labelId}
-                  className="label-badge bg-pink-500/20 text-pink-300"
+                  className="label-badge shrink-0 bg-pink-500/20 text-pink-300"
                 >
                   {labelId}
                 </span>
               ))}
-            </div>
-
-            {/* Action bar */}
-            <div className="flex items-center gap-0.5 mt-2">
+              {/* Action bar */}
+              <div className="flex items-center gap-0.5 ml-auto shrink-0">
               <button
                 onClick={handleArchive}
                 className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
@@ -580,6 +578,7 @@ export function EmailThread({
               </button>
             </div>
           </div>
+          </div>
         </div>
       </div>
 
@@ -588,7 +587,7 @@ export function EmailThread({
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto px-5 pb-4"
       >
-        <div className="max-w-3xl mx-auto space-y-1">
+        <div className="max-w-3xl mx-auto pt-1.5 space-y-1.5">
           {messages.map((msg, idx) => {
             const isExpanded = expandedIds.has(msg.id);
             const isFocused = idx === focusedIndex;
@@ -634,7 +633,7 @@ export function EmailThread({
           })}
 
           {/* Inline reply composer */}
-          {inlineDraft && (
+          {inlineDraft ? (
             <div className="mt-3">
               <InlineReplyComposer
                 ref={inlineReplyRef}
@@ -648,38 +647,33 @@ export function EmailThread({
                 onReopen={(state) => compose.open({ ...state, inline: true })}
               />
             </div>
+          ) : (
+            <div
+              className="flex items-center gap-3 rounded-lg bg-accent/40 px-4 py-2.5 cursor-text hover:bg-accent/60 transition-colors mt-3"
+              onClick={() => handleReply()}
+            >
+              <span className="text-[13px] text-muted-foreground/60 flex-1">
+                Reply
+              </span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleReply();
+                }}
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 text-primary hover:bg-primary/30 transition-colors shrink-0"
+              >
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  className="h-3.5 w-3.5"
+                >
+                  <path d="M8 14A.75.75 0 0 1 7.25 14V4.56L4.03 7.78a.75.75 0 0 1-1.06-1.06l4.5-4.5a.75.75 0 0 1 1.06 0l4.5 4.5a.75.75 0 0 1-1.06 1.06L8.75 4.56V14A.75.75 0 0 1 8 14z" />
+                </svg>
+              </button>
+            </div>
           )}
         </div>
       </div>
-
-      {/* Bottom reply input — hidden when inline reply is open */}
-      {!inlineDraft && (
-        <div className="shrink-0 border-t border-border/40 px-5 py-3">
-          <div
-            className="flex items-center gap-3 rounded-lg bg-accent/40 px-4 py-2.5 cursor-text hover:bg-accent/60 transition-colors"
-            onClick={() => handleReply()}
-          >
-            <span className="text-[13px] text-muted-foreground/60 flex-1">
-              @mention anyone and share conversation
-            </span>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleReply();
-              }}
-              className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 text-primary hover:bg-primary/30 transition-colors shrink-0"
-            >
-              <svg
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                className="h-3.5 w-3.5"
-              >
-                <path d="M8 14A.75.75 0 0 1 7.25 14V4.56L4.03 7.78a.75.75 0 0 1-1.06-1.06l4.5-4.5a.75.75 0 0 1 1.06 0l4.5 4.5a.75.75 0 0 1-1.06 1.06L8.75 4.56V14A.75.75 0 0 1 8 14z" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1186,29 +1180,17 @@ function HtmlEmailBody({
     html, body {
       margin: 0;
       padding: 0;
-      background: ${IFRAME_BG} !important;
-      color: #e4e4e7 !important;
+      background: ${IFRAME_BG};
+      color: #e4e4e7;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 14px;
       line-height: 1.6;
       overflow: hidden;
     }
-    * {
-      background-color: ${IFRAME_BG} !important;
-      border-color: rgba(255,255,255,0.1) !important;
-    }
-    body, td, th, div, p, span, li, blockquote {
-      color: #e4e4e7 !important;
-    }
-    h1, h2, h3, h4, h5, h6, strong, b {
-      color: #f4f4f5 !important;
-    }
-    .muted, .secondary, .text-muted, [style*="color: #"] {
-      color: #a1a1aa !important;
-    }
-    a { color: #818cf8 !important; }
+    
+    a { color: #818cf8 }
     img { max-width: 100%; height: auto; }
-    hr { border-color: rgba(255,255,255,0.1) !important; }
+    hr { border-color: rgba(255,255,255,0.1); }
     .quoted-hidden { display: none; }
     .quote-toggle {
       display: inline-block;
