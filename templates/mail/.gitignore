@@ -26,6 +26,9 @@ dist-ssr
 .config/
 .env
 
+# User settings (use settings.defaults.json for tracked defaults)
+data/settings.json
+
 # Google OAuth tokens (sensitive, never commit)
 data/google-auth.json
 data/google-accounts/
