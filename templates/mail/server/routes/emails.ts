@@ -73,14 +73,14 @@ function recomputeUnreadCounts(
   labels: Label[],
 ): Label[] {
   return labels.map((label) => {
-    const unread = emails.filter(
+    const active = emails.filter(
       (e) =>
-        !e.isRead &&
         !e.isArchived &&
         !e.isTrashed &&
         e.labelIds.includes(label.id),
-    ).length;
-    return { ...label, unreadCount: unread };
+    );
+    const unread = active.filter((e) => !e.isRead).length;
+    return { ...label, unreadCount: unread, totalCount: active.length };
   });
 }
 
@@ -1022,32 +1022,34 @@ export async function listLabels(_req: Request, res: Response) {
   if (isConnected()) {
     try {
       const clients = await getClients();
+      // Deduplicate by derived short-name id (not Gmail label ID)
       const labelMap = new Map<
         string,
         { id: string; name: string; type: "system" | "user" }
       >();
-      await Promise.all(
-        clients.map(async ({ client }) => {
-          try {
-            const map = await fetchGmailLabelMap(client);
-            for (const [id, name] of map) {
-              const isSystem = !id.startsWith("Label_");
-              if (!labelMap.has(id)) {
-                // Derive short name: last segment of nested labels, underscores → spaces
-                let shortName = name;
-                const lastSlash = shortName.lastIndexOf("/");
-                if (lastSlash >= 0) shortName = shortName.slice(lastSlash + 1);
-                shortName = shortName.replace(/_/g, " ");
-                labelMap.set(id, {
-                  id: shortName.toLowerCase(),
-                  name: shortName,
-                  type: isSystem ? ("system" as const) : ("user" as const),
-                });
-              }
+      // Fetch labels from each account sequentially to avoid race conditions on the shared map
+      for (const { client } of clients) {
+        try {
+          const map = await fetchGmailLabelMap(client);
+          for (const [gmailId, name] of map) {
+            const isSystem = !gmailId.startsWith("Label_");
+            // Use the full label name (preserving hierarchy) as the id,
+            // but display the short name (last segment, underscores → spaces)
+            const fullId = name.toLowerCase().replace(/_/g, " ");
+            let shortName = name;
+            const lastSlash = shortName.lastIndexOf("/");
+            if (lastSlash >= 0) shortName = shortName.slice(lastSlash + 1);
+            shortName = shortName.replace(/_/g, " ");
+            if (!labelMap.has(fullId)) {
+              labelMap.set(fullId, {
+                id: fullId,
+                name: shortName,
+                type: isSystem ? ("system" as const) : ("user" as const),
+              });
             }
-          } catch {}
-        }),
-      );
+          }
+        } catch {}
+      }
       const labels: Label[] = Array.from(labelMap.values()).map((l) => ({
         ...l,
         unreadCount: 0,
