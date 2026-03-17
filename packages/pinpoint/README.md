@@ -30,7 +30,7 @@ Find the root React component (typically `client/App.tsx` or `src/App.tsx`). Add
 import { Pinpoint } from "@agent-native/pinpoint/react";
 
 // Add as a sibling to your app root — renders nothing, mounts overlay in Shadow DOM
-<Pinpoint author="User" endpoint="/api/pins" autoSubmit colorScheme="auto" />
+<Pinpoint author="User" endpoint="/api/pins" autoSubmit colorScheme="auto" />;
 ```
 
 If the app is not React-based, use the imperative API:
@@ -85,12 +85,14 @@ Pins are stored as individual JSON files in `data/pins/{uuid}.json`:
 ```
 
 **Key fields for agents:**
+
 - `sourceFile` — the exact file and line to edit
 - `componentPath` — the React/Vue component hierarchy
 - `selector` — CSS selector to find the element in the DOM
 - `comment` — what the user wants changed
 
 **Agent commands** (available after `npx @agent-native/pinpoint init`):
+
 - `pnpm script get-pins --status open` — list unresolved pins
 - `pnpm script resolve-pin --id <uuid>` — mark as resolved after fixing
 - `pnpm script create-pin --pageUrl / --selector ".btn" --comment "Fix this"`
@@ -98,6 +100,7 @@ Pins are stored as individual JSON files in `data/pins/{uuid}.json`:
 - `pnpm script delete-pin --id <uuid>` — remove a pin
 
 **Workflow:**
+
 1. User creates annotations in the browser
 2. Read with `pnpm script get-pins --status open`
 3. Use `sourceFile` to locate and edit the relevant code
@@ -105,12 +108,12 @@ Pins are stored as individual JSON files in `data/pins/{uuid}.json`:
 
 ### Troubleshooting
 
-| Issue | Fix |
-|-------|-----|
-| Toolbar doesn't appear | Check that `<Pinpoint />` is mounted. Press `Cmd+Shift+.` |
-| Pins not persisting | Ensure `endpoint="/api/pins"` is set and server middleware is added |
-| `sourceFile` is empty | Source detection requires dev mode. Production builds strip `_debugSource` |
-| "Cannot find module" | Run `pnpm install`. Check the package is in `dependencies` |
+| Issue                  | Fix                                                                        |
+| ---------------------- | -------------------------------------------------------------------------- |
+| Toolbar doesn't appear | Check that `<Pinpoint />` is mounted. Press `Cmd+Shift+.`                  |
+| Pins not persisting    | Ensure `endpoint="/api/pins"` is set and server middleware is added        |
+| `sourceFile` is empty  | Source detection requires dev mode. Production builds strip `_debugSource` |
+| "Cannot find module"   | Run `pnpm install`. Check the package is in `dependencies`                 |
 
 ---
 
@@ -185,7 +188,12 @@ import { Pinpoint } from "@agent-native/pinpoint/react";
 function App() {
   return (
     <>
-      <Pinpoint author="Designer" endpoint="/api/pins" autoSubmit colorScheme="auto" />
+      <Pinpoint
+        author="Designer"
+        endpoint="/api/pins"
+        autoSubmit
+        colorScheme="auto"
+      />
       <YourApp />
     </>
   );
@@ -199,7 +207,9 @@ function App() {
 import { createServer } from "@agent-native/core/server";
 import { pagePinRoutes } from "@agent-native/pinpoint/server";
 
-const app = createServer({ /* ... */ });
+const app = createServer({
+  /* ... */
+});
 app.use("/api/pins", pagePinRoutes());
 ```
 
@@ -216,24 +226,24 @@ The agent receives structured context: CSS selector, component hierarchy, source
 
 All options can be passed as props to `<Pinpoint />` or as the config object to `mountPinpoint()`:
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `author` | `string` | — | Who is annotating |
-| `endpoint` | `string` | — | REST endpoint for persistence (e.g., `/api/pins`) |
-| `colorScheme` | `'auto' \| 'light' \| 'dark'` | `'auto'` | Theme |
-| `outputFormat` | `'compact' \| 'standard' \| 'detailed'` | `'standard'` | Detail level in agent output |
-| `autoSubmit` | `boolean` | `true` | Auto-submit annotations to agent chat |
-| `clearOnSend` | `boolean` | `false` | Clear pins after sending |
-| `blockInteractions` | `boolean` | `false` | Block page clicks during selection |
-| `compactPopup` | `boolean` | `true` | Hide technical details behind toggle |
-| `freezeJSTimers` | `boolean` | `false` | Freeze JS timers during selection |
-| `allowedOrigins` | `string[]` | — | Allowed origins for postMessage |
-| `webhookUrl` | `string` | — | Webhook URL for pin events |
-| `includeSourcePaths` | `boolean` | — | Include source file paths in output |
-| `markerColor` | `string` | `'#3b82f6'` | Badge color on annotated elements |
-| `plugins` | `Plugin[]` | — | Plugin extensions |
-| `storage` | `PinStorage` | — | Custom storage adapter |
-| `position` | `{ x, y }` | — | Initial toolbar position |
+| Option               | Type                                    | Default      | Description                                       |
+| -------------------- | --------------------------------------- | ------------ | ------------------------------------------------- |
+| `author`             | `string`                                | —            | Who is annotating                                 |
+| `endpoint`           | `string`                                | —            | REST endpoint for persistence (e.g., `/api/pins`) |
+| `colorScheme`        | `'auto' \| 'light' \| 'dark'`           | `'auto'`     | Theme                                             |
+| `outputFormat`       | `'compact' \| 'standard' \| 'detailed'` | `'standard'` | Detail level in agent output                      |
+| `autoSubmit`         | `boolean`                               | `true`       | Auto-submit annotations to agent chat             |
+| `clearOnSend`        | `boolean`                               | `false`      | Clear pins after sending                          |
+| `blockInteractions`  | `boolean`                               | `false`      | Block page clicks during selection                |
+| `compactPopup`       | `boolean`                               | `true`       | Hide technical details behind toggle              |
+| `freezeJSTimers`     | `boolean`                               | `false`      | Freeze JS timers during selection                 |
+| `allowedOrigins`     | `string[]`                              | —            | Allowed origins for postMessage                   |
+| `webhookUrl`         | `string`                                | —            | Webhook URL for pin events                        |
+| `includeSourcePaths` | `boolean`                               | —            | Include source file paths in output               |
+| `markerColor`        | `string`                                | `'#3b82f6'`  | Badge color on annotated elements                 |
+| `plugins`            | `Plugin[]`                              | —            | Plugin extensions                                 |
+| `storage`            | `PinStorage`                            | —            | Custom storage adapter                            |
+| `position`           | `{ x, y }`                              | —            | Initial toolbar position                          |
 
 ## CLI
 
@@ -244,23 +254,23 @@ npx @agent-native/pinpoint        # Show help
 
 ## Keyboard Shortcuts
 
-| Shortcut | Action |
-|----------|--------|
-| `Cmd/Ctrl+Shift+.` | Toggle toolbar |
-| `Cmd/Ctrl+Shift+C` | Copy annotations to clipboard |
-| `Cmd/Ctrl+Shift+Enter` | Send annotations to agent |
-| `Esc` | Close popup / collapse toolbar |
-| `Shift+Drag` | Multi-select elements |
+| Shortcut               | Action                         |
+| ---------------------- | ------------------------------ |
+| `Cmd/Ctrl+Shift+.`     | Toggle toolbar                 |
+| `Cmd/Ctrl+Shift+C`     | Copy annotations to clipboard  |
+| `Cmd/Ctrl+Shift+Enter` | Send annotations to agent      |
+| `Esc`                  | Close popup / collapse toolbar |
+| `Shift+Drag`           | Multi-select elements          |
 
 ## Package Exports
 
-| Import Path | What It Provides |
-|-------------|-----------------|
-| `@agent-native/pinpoint` | `mountPinpoint()`, `unmountPinpoint()`, types |
-| `@agent-native/pinpoint/react` | `<Pinpoint />` React component |
-| `@agent-native/pinpoint/server` | `pagePinRoutes()` Express middleware |
+| Import Path                         | What It Provides                                              |
+| ----------------------------------- | ------------------------------------------------------------- |
+| `@agent-native/pinpoint`            | `mountPinpoint()`, `unmountPinpoint()`, types                 |
+| `@agent-native/pinpoint/react`      | `<Pinpoint />` React component                                |
+| `@agent-native/pinpoint/server`     | `pagePinRoutes()` Express middleware                          |
 | `@agent-native/pinpoint/primitives` | `getElementContext()`, `freeze()`, `unfreeze()`, `openFile()` |
-| `@agent-native/pinpoint/types` | TypeScript types (`Pin`, `PinpointConfig`, etc.) |
+| `@agent-native/pinpoint/types`      | TypeScript types (`Pin`, `PinpointConfig`, etc.)              |
 
 ## Server Middleware
 
@@ -272,27 +282,27 @@ import { pagePinRoutes } from "@agent-native/pinpoint/server";
 app.use("/api/pins", pagePinRoutes({ dataDir: "data/pins" }));
 ```
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/pins` | List pins (query: `pageUrl`, `status`) |
-| GET | `/api/pins/:id` | Get a pin |
-| POST | `/api/pins` | Create a pin |
-| PATCH | `/api/pins/:id` | Update a pin |
-| DELETE | `/api/pins/:id` | Delete a pin |
-| DELETE | `/api/pins` | Clear pins (query: `pageUrl`) |
+| Method | Endpoint        | Description                            |
+| ------ | --------------- | -------------------------------------- |
+| GET    | `/api/pins`     | List pins (query: `pageUrl`, `status`) |
+| GET    | `/api/pins/:id` | Get a pin                              |
+| POST   | `/api/pins`     | Create a pin                           |
+| PATCH  | `/api/pins/:id` | Update a pin                           |
+| DELETE | `/api/pins/:id` | Delete a pin                           |
+| DELETE | `/api/pins`     | Clear pins (query: `pageUrl`)          |
 
 ## Agent Scripts
 
 Available after running `npx @agent-native/pinpoint init`:
 
-| Script | Purpose | Args |
-|--------|---------|------|
-| `get-pins` | List pins | `--pageUrl`, `--status` |
-| `create-pin` | Create a pin | `--pageUrl`, `--selector`, `--comment` |
-| `resolve-pin` | Mark as resolved | `--id`, `--message` |
-| `update-pin` | Update a pin | `--id`, `--comment`, `--status` |
-| `delete-pin` | Remove a pin | `--id` |
-| `list-sessions` | List pages with pins | — |
+| Script          | Purpose              | Args                                   |
+| --------------- | -------------------- | -------------------------------------- |
+| `get-pins`      | List pins            | `--pageUrl`, `--status`                |
+| `create-pin`    | Create a pin         | `--pageUrl`, `--selector`, `--comment` |
+| `resolve-pin`   | Mark as resolved     | `--id`, `--message`                    |
+| `update-pin`    | Update a pin         | `--id`, `--comment`, `--status`        |
+| `delete-pin`    | Remove a pin         | `--id`                                 |
+| `list-sessions` | List pages with pins | —                                      |
 
 ## Primitives API
 
@@ -309,8 +319,8 @@ import {
 
 const context = getElementContext(document.querySelector(".sidebar"));
 
-freeze();    // Pause all animations
-unfreeze();  // Resume
+freeze(); // Pause all animations
+unfreeze(); // Resume
 
 openFile("src/components/Sidebar.tsx", 42); // Open in editor
 ```
@@ -323,12 +333,23 @@ import type { Plugin } from "@agent-native/pinpoint/types";
 const myPlugin: Plugin = {
   name: "analytics",
   hooks: {
-    onPinCreate(pin) { analytics.track("pin_created", { page: pin.pageUrl }); },
-    onPinResolve(pin) { analytics.track("pin_resolved", { id: pin.id }); },
-    transformOutput(output) { return output + "\n\n_Sent via Pinpoint_"; },
+    onPinCreate(pin) {
+      analytics.track("pin_created", { page: pin.pageUrl });
+    },
+    onPinResolve(pin) {
+      analytics.track("pin_resolved", { id: pin.id });
+    },
+    transformOutput(output) {
+      return output + "\n\n_Sent via Pinpoint_";
+    },
   },
   actions: [
-    { label: "Export to Jira", handler(element, context) { createJiraTicket(context); } },
+    {
+      label: "Export to Jira",
+      handler(element, context) {
+        createJiraTicket(context);
+      },
+    },
   ],
 };
 ```
@@ -338,28 +359,31 @@ const myPlugin: Plugin = {
 Expose pins to external agents via A2A or MCP:
 
 ```ts
-import { registerPinpointA2A, createPinpointMCPTools } from "@agent-native/pinpoint/server";
+import {
+  registerPinpointA2A,
+  createPinpointMCPTools,
+} from "@agent-native/pinpoint/server";
 
-registerPinpointA2A(app);              // /.well-known/agent-card.json
+registerPinpointA2A(app); // /.well-known/agent-card.json
 
 const { tools, handleTool } = createPinpointMCPTools(); // MCP tool handlers
 ```
 
 ## Framework Support
 
-| Framework | Detection | Component Info | Source Location |
-|-----------|-----------|---------------|-----------------|
+| Framework   | Detection        | Component Info      | Source Location                 |
+| ----------- | ---------------- | ------------------- | ------------------------------- |
 | React 18/19 | Auto (via bippy) | Component hierarchy | `_debugSource` / element-source |
-| Vue 3 | Auto (`__VUE__`) | Component tree | `$options.__file` |
-| Other | Fallback | DOM-only | Not available |
+| Vue 3       | Auto (`__VUE__`) | Component tree      | `$options.__file`               |
+| Other       | Fallback         | DOM-only            | Not available                   |
 
 ## Storage Adapters
 
-| Adapter | Use Case | Persistence |
-|---------|----------|-------------|
+| Adapter       | Use Case              | Persistence                   |
+| ------------- | --------------------- | ----------------------------- |
 | `MemoryStore` | Standalone, no server | Session only (lost on reload) |
-| `RestClient` | Browser with server | Server-side via REST API |
-| `FileStore` | Server-side | `data/pins/{uuid}.json` |
+| `RestClient`  | Browser with server   | Server-side via REST API      |
+| `FileStore`   | Server-side           | `data/pins/{uuid}.json`       |
 
 ## Builder.io Integration
 

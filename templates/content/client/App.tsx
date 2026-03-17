@@ -23,12 +23,16 @@ function FileWatcherSetup() {
   return null;
 }
 
-
 const App = () => (
   <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
     <QueryClientProvider client={queryClient}>
       <FileWatcherSetup />
-      <Pinpoint author="Vishwas" colorScheme="auto" endpoint="/api/pins" autoSubmit />
+      <Pinpoint
+        author="Vishwas"
+        colorScheme="auto"
+        endpoint="/api/pins"
+        autoSubmit
+      />
       <BuilderAuthProvider>
         <TooltipProvider>
           <Toaster />

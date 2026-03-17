@@ -58,7 +58,16 @@ export const HistoryDropdown: Component<HistoryDropdownProps> = (props) => {
               >
                 <div class="pp-pin-item__content">
                   <div class="pp-pin-item__comment">
-                    {pin.comment || <span style={{ color: "var(--pp-text-muted)", "font-style": "italic" }}>No comment</span>}
+                    {pin.comment || (
+                      <span
+                        style={{
+                          color: "var(--pp-text-muted)",
+                          "font-style": "italic",
+                        }}
+                      >
+                        No comment
+                      </span>
+                    )}
                   </div>
                 </div>
                 <span

@@ -41,14 +41,24 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
     props.position || { right: 16, bottom: 16 },
   );
   const [dragging, setDragging] = createSignal(false);
-  const [dragStart, setDragStart] = createSignal({ x: 0, y: 0, right: 0, bottom: 0 });
+  const [dragStart, setDragStart] = createSignal({
+    x: 0,
+    y: 0,
+    right: 0,
+    bottom: 0,
+  });
   const [didDrag, setDidDrag] = createSignal(false);
 
   function handleMouseDown(e: MouseEvent) {
     if (props.expanded) return;
     setDragging(true);
     setDidDrag(false);
-    setDragStart({ x: e.clientX, y: e.clientY, right: pos().right, bottom: pos().bottom });
+    setDragStart({
+      x: e.clientX,
+      y: e.clientY,
+      right: pos().right,
+      bottom: pos().bottom,
+    });
 
     const handleMove = (e: MouseEvent) => {
       setDidDrag(true);
@@ -57,7 +67,10 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
       const dy = e.clientY - start.y;
       setPos({
         right: Math.max(0, Math.min(window.innerWidth - 60, start.right - dx)),
-        bottom: Math.max(0, Math.min(window.innerHeight - 60, start.bottom - dy)),
+        bottom: Math.max(
+          0,
+          Math.min(window.innerHeight - 60, start.bottom - dy),
+        ),
       });
     };
 
@@ -109,7 +122,10 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
         </div>
       ) : (
         /* Expanded toolbar — stopPropagation wrapper prevents clicks from reaching outer div */
-        <div on:click={(e: Event) => e.stopPropagation()} style={{ display: "contents" }}>
+        <div
+          on:click={(e: Event) => e.stopPropagation()}
+          style={{ display: "contents" }}
+        >
           {/* Header — author name or fallback title */}
           <div
             style={{
@@ -152,7 +168,16 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
                     <span class="pp-pin-item__number">{index() + 1}</span>
                     <div class="pp-pin-item__content">
                       <div class="pp-pin-item__comment">
-                        {pin.comment || <span style={{ color: "var(--pp-text-muted)", "font-style": "italic" }}>No comment</span>}
+                        {pin.comment || (
+                          <span
+                            style={{
+                              color: "var(--pp-text-muted)",
+                              "font-style": "italic",
+                            }}
+                          >
+                            No comment
+                          </span>
+                        )}
                       </div>
                     </div>
                     <button
@@ -230,7 +255,9 @@ export const Toolbar: Component<ToolbarProps> = (props) => {
                 <span class="pp-settings__label">Compact popup</span>
                 <div
                   class={`pp-toggle ${props.compactPopup ? "pp-toggle--active" : ""}`}
-                  on:click={() => props.onCompactPopupChange(!props.compactPopup)}
+                  on:click={() =>
+                    props.onCompactPopupChange(!props.compactPopup)
+                  }
                 >
                   <div class="pp-toggle__thumb" />
                 </div>
