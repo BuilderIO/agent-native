@@ -5,6 +5,7 @@
 
 import type { Application } from "express";
 import { FileStore } from "../storage/file-store.js";
+import { PinSchema } from "../storage/schemas.js";
 
 interface A2ASkill {
   id: string;
@@ -73,7 +74,11 @@ export function registerPinpointA2A(
           return { result: { ok: true } };
         }
         case "create-annotation": {
-          await store.save(params.pin);
+          const validated = PinSchema.safeParse(params?.pin);
+          if (!validated.success) {
+            return { error: { code: -32602, message: "Invalid pin data" } };
+          }
+          await store.save(validated.data as any);
           return { result: { ok: true } };
         }
         default:

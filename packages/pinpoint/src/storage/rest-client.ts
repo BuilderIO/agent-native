@@ -24,25 +24,28 @@ export class RestClient implements PinStorage {
   }
 
   async save(pin: Pin): Promise<void> {
-    await fetch(this.endpoint, {
+    const res = await fetch(this.endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(pin),
     });
+    if (!res.ok) throw new Error(`Failed to save pin: ${res.status}`);
   }
 
   async update(id: string, patch: Partial<Pin>): Promise<void> {
-    await fetch(`${this.endpoint}/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${this.endpoint}/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
     });
+    if (!res.ok) throw new Error(`Failed to update pin: ${res.status}`);
   }
 
   async delete(id: string): Promise<void> {
-    await fetch(`${this.endpoint}/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${this.endpoint}/${encodeURIComponent(id)}`, {
       method: "DELETE",
     });
+    if (!res.ok) throw new Error(`Failed to delete pin: ${res.status}`);
   }
 
   async list(filter?: {
@@ -63,6 +66,7 @@ export class RestClient implements PinStorage {
   async clear(pageUrl?: string): Promise<void> {
     const params = new URLSearchParams();
     if (pageUrl) params.set("pageUrl", pageUrl);
-    await fetch(`${this.endpoint}?${params}`, { method: "DELETE" });
+    const res = await fetch(`${this.endpoint}?${params}`, { method: "DELETE" });
+    if (!res.ok) throw new Error(`Failed to clear pins: ${res.status}`);
   }
 }

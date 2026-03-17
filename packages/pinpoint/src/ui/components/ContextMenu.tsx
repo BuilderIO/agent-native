@@ -19,7 +19,8 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
   // Close on click outside
   onMount(() => {
     const handleClick = (e: MouseEvent) => {
-      if (menuRef && !menuRef.contains(e.target as Node)) {
+      // Use composedPath to pierce Shadow DOM boundary
+      if (menuRef && !e.composedPath().includes(menuRef)) {
         props.onClose();
       }
     };
@@ -48,22 +49,22 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
       class="pp-context-menu"
       style={{ left: `${x}px`, top: `${y}px` }}
     >
-      <div class="pp-context-menu__item" onClick={props.onAnnotate}>
+      <div class="pp-context-menu__item" on:click={() => props.onAnnotate()}>
         <span innerHTML={icons.pin} />
         Add Annotation
       </div>
-      <div class="pp-context-menu__item" onClick={props.onPrompt}>
+      <div class="pp-context-menu__item" on:click={() => props.onPrompt()}>
         <span innerHTML={icons.messageSquare} />
         Quick Prompt
       </div>
       <div class="pp-context-menu__separator" />
-      <div class="pp-context-menu__item" onClick={props.onCopyContext}>
+      <div class="pp-context-menu__item" on:click={() => props.onCopyContext()}>
         <span innerHTML={icons.copy} />
         Copy Element Context
       </div>
       <div
         class="pp-context-menu__item"
-        onClick={async () => {
+        on:click={async () => {
           const html = props.element.outerHTML
             .replace(/\s+/g, " ")
             .trim()
@@ -77,7 +78,7 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
       </div>
       <div
         class="pp-context-menu__item"
-        onClick={async () => {
+        on:click={async () => {
           const styles = window.getComputedStyle(props.element);
           const relevant = [
             "color",

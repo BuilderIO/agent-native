@@ -213,6 +213,11 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     setShowContextMenu(true);
   };
 
+  // Propagate blockInteractions setting changes to the active picker
+  createEffect(() => {
+    picker.setBlockInteractions(blockInteractions());
+  });
+
   createEffect(() => {
     document.addEventListener("keydown", handleKeyDown, true);
     document.addEventListener("contextmenu", handleContextMenu, true);
