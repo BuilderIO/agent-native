@@ -73,25 +73,32 @@ export function useToggleStar() {
 export function useArchiveEmail() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      apiFetch(`/api/emails/${id}/archive`, { method: "PATCH" }),
-    onMutate: async (id: string) => {
+    mutationFn: ({
+      id,
+      accountEmail,
+    }: {
+      id: string;
+      accountEmail?: string;
+    }) =>
+      apiFetch(`/api/emails/${id}/archive`, {
+        method: "PATCH",
+        body: JSON.stringify({ accountEmail }),
+      }),
+    onMutate: async ({ id }: { id: string; accountEmail?: string }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],
       });
-      // Find the email across all cached queries to get its threadId
       const target = previous
         .flatMap(([, data]) => data ?? [])
         .find((e) => e.id === id);
       const threadId = target?.threadId || id;
-      // Remove all thread messages from all cached email queries
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
       return { previous };
     },
-    onError: (_err, _id, context) => {
+    onError: (_err, _vars, context) => {
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
@@ -195,6 +202,7 @@ export function useSendEmail() {
       subject: string;
       body: string;
       replyToId?: string;
+      accountEmail?: string;
     }) =>
       apiFetch("/api/emails/send", {
         method: "POST",
