@@ -56,7 +56,17 @@ export type Label = {
   unreadCount?: number;
 };
 
+export type ComposeAttachment = {
+  id: string;
+  filename: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  url: string;
+};
+
 export type ComposeState = {
+  id: string;
   to: string;
   cc?: string;
   bcc?: string;
@@ -65,6 +75,7 @@ export type ComposeState = {
   mode: "compose" | "reply" | "forward";
   replyToId?: string;
   replyToThreadId?: string;
+  attachments?: ComposeAttachment[];
 };
 
 export type MailboxView =
@@ -88,6 +99,10 @@ export type UserSettings = {
   sendAndArchive: boolean;
   undoSendDelay: number;
   pinnedLabels?: string[];
+  /** "show" = load all images, "block-trackers" = block known trackers only, "block-all" = block all remote images */
+  imagePolicy?: "show" | "block-trackers" | "block-all";
+  /** Senders whose images are always loaded even when imagePolicy is "block-all" */
+  trustedSenders?: string[];
 };
 
 export type ApolloPersonResult = {

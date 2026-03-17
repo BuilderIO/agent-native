@@ -293,8 +293,78 @@
 /* Images */
 .compose-editor .compose-image {
   max-width: 100%;
-  border-radius: 4px;
-  margin: 0.5em 0;
+  border-radius: 6px;
+  display: block;
+}
+
+.compose-image-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+  font-size: 0.875rem;
+  margin: 0.3em 0;
+}
+.compose-image-placeholder:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+.compose-image-placeholder[data-selected] {
+  outline: 2px solid hsl(210 100% 52%);
+  outline-offset: -2px;
+}
+
+.compose-image-wrapper {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 0.3em 0;
+}
+.compose-image-wrapper[data-selected] {
+  outline: 2px solid hsl(210 100% 52%);
+  outline-offset: -2px;
+}
+
+.compose-image-overlay {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  z-index: 10;
+}
+
+.compose-image-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: hsl(0 0% 10% / 0.7);
+  backdrop-filter: blur(8px);
+  border: 1px solid hsl(0 0% 100% / 0.1);
+  border-radius: 5px;
+  color: hsl(0 0% 92%);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+.compose-image-btn:hover {
+  background: hsl(0 0% 18% / 0.85);
+}
+.compose-image-btn--danger:hover {
+  background: hsl(0 65% 40% / 0.85);
 }
 
 /* Inline code */
@@ -376,4 +446,147 @@
 .slash-command-menu button:hover,
 .slash-command-menu button.active {
   background: hsl(var(--accent));
+}
+
+/* ===== Code Block Language Picker ===== */
+.code-lang-picker {
+  pointer-events: auto;
+}
+
+.code-lang-select {
+  appearance: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  transition: color 0.15s ease;
+}
+.code-lang-select:hover {
+  color: hsl(var(--foreground));
+}
+.code-lang-select:focus {
+  color: hsl(var(--foreground));
+}
+
+/* ===== Syntax Highlighting (lowlight) ===== */
+.compose-editor pre code .hljs-comment,
+.compose-editor pre code .hljs-quote {
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+
+.compose-editor pre code .hljs-keyword,
+.compose-editor pre code .hljs-selector-tag {
+  color: hsl(280 70% 55%);
+}
+.dark .compose-editor pre code .hljs-keyword,
+.dark .compose-editor pre code .hljs-selector-tag {
+  color: hsl(280 60% 70%);
+}
+
+.compose-editor pre code .hljs-string,
+.compose-editor pre code .hljs-attr,
+.compose-editor pre code .hljs-template-tag,
+.compose-editor pre code .hljs-template-variable {
+  color: hsl(140 50% 38%);
+}
+.dark .compose-editor pre code .hljs-string,
+.dark .compose-editor pre code .hljs-attr,
+.dark .compose-editor pre code .hljs-template-tag,
+.dark .compose-editor pre code .hljs-template-variable {
+  color: hsl(140 50% 60%);
+}
+
+.compose-editor pre code .hljs-number,
+.compose-editor pre code .hljs-literal {
+  color: hsl(20 80% 48%);
+}
+.dark .compose-editor pre code .hljs-number,
+.dark .compose-editor pre code .hljs-literal {
+  color: hsl(20 80% 65%);
+}
+
+.compose-editor pre code .hljs-built_in,
+.compose-editor pre code .hljs-type,
+.compose-editor pre code .hljs-params {
+  color: hsl(30 70% 48%);
+}
+.dark .compose-editor pre code .hljs-built_in,
+.dark .compose-editor pre code .hljs-type,
+.dark .compose-editor pre code .hljs-params {
+  color: hsl(30 70% 65%);
+}
+
+.compose-editor pre code .hljs-function,
+.compose-editor pre code .hljs-title {
+  color: hsl(210 70% 48%);
+}
+.dark .compose-editor pre code .hljs-function,
+.dark .compose-editor pre code .hljs-title {
+  color: hsl(210 70% 65%);
+}
+
+.compose-editor pre code .hljs-tag,
+.compose-editor pre code .hljs-name,
+.compose-editor pre code .hljs-selector-id,
+.compose-editor pre code .hljs-selector-class {
+  color: hsl(0 65% 50%);
+}
+.dark .compose-editor pre code .hljs-tag,
+.dark .compose-editor pre code .hljs-name,
+.dark .compose-editor pre code .hljs-selector-id,
+.dark .compose-editor pre code .hljs-selector-class {
+  color: hsl(0 60% 68%);
+}
+
+.compose-editor pre code .hljs-attribute {
+  color: hsl(30 70% 48%);
+}
+.dark .compose-editor pre code .hljs-attribute {
+  color: hsl(30 60% 65%);
+}
+
+.compose-editor pre code .hljs-regexp,
+.compose-editor pre code .hljs-link {
+  color: hsl(160 50% 42%);
+}
+.dark .compose-editor pre code .hljs-regexp,
+.dark .compose-editor pre code .hljs-link {
+  color: hsl(160 50% 60%);
+}
+
+.compose-editor pre code .hljs-symbol,
+.compose-editor pre code .hljs-bullet {
+  color: hsl(280 55% 50%);
+}
+.dark .compose-editor pre code .hljs-symbol,
+.dark .compose-editor pre code .hljs-bullet {
+  color: hsl(280 50% 68%);
+}
+
+.compose-editor pre code .hljs-meta {
+  color: hsl(var(--muted-foreground));
+}
+
+.compose-editor pre code .hljs-deletion {
+  color: hsl(0 65% 50%);
+  background: hsl(0 65% 50% / 0.1);
+}
+
+.compose-editor pre code .hljs-addition {
+  color: hsl(140 50% 38%);
+  background: hsl(140 50% 38% / 0.1);
+}
+
+.compose-editor pre code .hljs-emphasis {
+  font-style: italic;
+}
+
+.compose-editor pre code .hljs-strong {
+  font-weight: 700;
 }

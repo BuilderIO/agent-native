@@ -92,6 +92,7 @@ export function groupIntoThreads(emails: EmailMessage[]): ThreadSummary[] {
 }
 
 interface EmailListProps {
+  emails?: EmailMessage[];
   focusedId: string | null;
   setFocusedId: (id: string | null) => void;
   onCompose?: (email: EmailMessage, mode: "reply" | "forward") => void;
@@ -183,6 +184,7 @@ function InboxZero() {
 // ─── Email List ─────────────────────────────────────────────────────────────
 
 export function EmailList({
+  emails: emailsProp,
   focusedId,
   setFocusedId,
   onCompose,
@@ -196,13 +198,19 @@ export function EmailList({
   }>();
   const [searchParams] = useSearchParams();
   const searchQuery = searchParams.get("q") ?? undefined;
+  const labelParam = searchParams.get("label");
+  const labelSuffix = labelParam
+    ? `?label=${encodeURIComponent(labelParam)}`
+    : "";
 
   const {
-    data: emails = [],
+    data: fetchedEmails = [],
     isLoading,
     error: emailsError,
     refetch,
   } = useEmails(view, searchQuery);
+
+  const emails = emailsProp ?? fetchedEmails;
   const markRead = useMarkRead();
   const toggleStar = useToggleStar();
   const archiveEmail = useArchiveEmail();
@@ -241,12 +249,24 @@ export function EmailList({
     if (!thread) return;
     if (!thread.latestMessage.isRead)
       markRead.mutate({ id: focusedId, isRead: true });
-    navigate(`/${view}/${thread.latestMessage.threadId || focusedId}`);
-  }, [focusedId, threads, view, navigate, markRead]);
+    navigate(
+      `/${view}/${thread.latestMessage.threadId || focusedId}${labelSuffix}`,
+    );
+  }, [focusedId, threads, view, navigate, markRead, labelSuffix]);
 
   const archiveFocused = useCallback(() => {
     if (!focusedId) return;
     const id = focusedId;
+    const idx = threads.findIndex((t) => t.latestMessage.id === id);
+
+    // Move focus to the next email (or previous if at end)
+    if (threads.length > 1) {
+      const nextIdx = idx < threads.length - 1 ? idx + 1 : idx - 1;
+      setFocusedId(threads[nextIdx].latestMessage.id);
+    } else {
+      setFocusedId(null);
+    }
+
     onArchived?.(id);
     const undo = () => undoArchive?.(id);
     setUndoAction(undo);
@@ -257,13 +277,23 @@ export function EmailList({
       },
     });
     archiveEmail.mutate(id);
-  }, [focusedId, archiveEmail, onArchived, undoArchive]);
+  }, [focusedId, threads, archiveEmail, onArchived, undoArchive, setFocusedId]);
 
   const trashFocused = useCallback(() => {
     if (!focusedId) return;
+    const id = focusedId;
+    const idx = threads.findIndex((t) => t.latestMessage.id === id);
+
+    if (threads.length > 1) {
+      const nextIdx = idx < threads.length - 1 ? idx + 1 : idx - 1;
+      setFocusedId(threads[nextIdx].latestMessage.id);
+    } else {
+      setFocusedId(null);
+    }
+
     toast("Moved to Trash.");
-    trashEmail.mutate(focusedId);
-  }, [focusedId, trashEmail]);
+    trashEmail.mutate(id);
+  }, [focusedId, threads, trashEmail, setFocusedId]);
 
   const toggleFocusedRead = useCallback(() => {
     if (!focusedId) return;
@@ -335,7 +365,7 @@ export function EmailList({
     const email = thread.latestMessage;
     setFocusedId(email.id);
     if (!email.isRead) markRead.mutate({ id: email.id, isRead: true });
-    navigate(`/${view}/${email.threadId || email.id}`);
+    navigate(`/${view}/${email.threadId || email.id}${labelSuffix}`);
   };
 
   const handleStar = (e: React.MouseEvent, thread: ThreadSummary) => {

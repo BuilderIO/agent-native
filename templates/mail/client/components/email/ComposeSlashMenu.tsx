@@ -14,7 +14,6 @@ import {
   ImageIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
 interface ComposeSlashMenuProps {
   editor: Editor;
   onGenerate: () => void;
@@ -98,14 +97,11 @@ function createCommands(onGenerate: () => void): CommandItem[] {
     },
     {
       title: "Image",
-      description: "Insert image by URL",
+      description: "Upload an image",
       icon: ImageIcon,
       category: "media",
       action: (editor) => {
-        const url = window.prompt("Image URL:");
-        if (url?.trim()) {
-          editor.chain().focus().setImage({ src: url.trim() }).run();
-        }
+        editor.chain().focus().setImage({ src: "" }).run();
       },
     },
     {

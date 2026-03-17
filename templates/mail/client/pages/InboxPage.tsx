@@ -61,10 +61,12 @@ function ThreadListSidebar({
   emails,
   activeThreadId,
   view,
+  labelSuffix,
 }: {
   emails: EmailMessage[];
   activeThreadId: string;
   view: string;
+  labelSuffix: string;
 }) {
   const navigate = useNavigate();
   const markRead = useMarkRead();
@@ -86,7 +88,9 @@ function ThreadListSidebar({
               onClick={() => {
                 if (!email.isRead)
                   markRead.mutate({ id: email.id, isRead: true });
-                navigate(`/${view}/${email.threadId || email.id}`);
+                navigate(
+                  `/${view}/${email.threadId || email.id}${labelSuffix}`,
+                );
               }}
               className={cn(
                 "w-full text-left px-3 py-2 border-b border-border/10 transition-colors",
@@ -138,6 +142,9 @@ export function InboxPage() {
   const { data: settings } = useSettings();
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
+  const labelSuffix = activeLabel
+    ? `?label=${encodeURIComponent(activeLabel)}`
+    : "";
 
   // Always fetch from the URL view (inbox, starred, etc.)
   // Label tabs use ?label= param and always fetch inbox
@@ -296,6 +303,7 @@ export function InboxPage() {
           emails={emails}
           activeThreadId={threadId!}
           view={view}
+          labelSuffix={labelSuffix}
         />
       )}
 
@@ -309,6 +317,7 @@ export function InboxPage() {
           />
         ) : (
           <EmailList
+            emails={emails}
             focusedId={focusedId}
             setFocusedId={setFocusedId}
             onCompose={handleCompose}
