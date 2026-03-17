@@ -134,8 +134,9 @@ export function EmailThread({
     if (!el) return;
     const scrollToLatest = () => {
       if (lastMsg) {
-        // Align the last message's top to the container's top
-        lastMsg.scrollIntoView({ block: "start" });
+        // Use manual scrollTop instead of scrollIntoView to avoid
+        // scrolling ancestor overflow:hidden containers (causes header cutoff)
+        el.scrollTop = lastMsg.offsetTop - el.offsetTop;
       } else {
         el.scrollTop = el.scrollHeight;
       }
@@ -214,10 +215,19 @@ export function EmailThread({
           Math.min(messages.length - 1, prev + delta),
         );
         setTimeout(() => {
-          focusedRef.current?.scrollIntoView({
-            block: "nearest",
-            behavior: "smooth",
-          });
+          const container = scrollContainerRef.current;
+          const target = focusedRef.current;
+          if (container && target) {
+            const targetTop = target.offsetTop - container.offsetTop;
+            const targetBottom = targetTop + target.offsetHeight;
+            const viewTop = container.scrollTop;
+            const viewBottom = viewTop + container.clientHeight;
+            if (targetTop < viewTop) {
+              container.scrollTop = targetTop;
+            } else if (targetBottom > viewBottom) {
+              container.scrollTop = targetBottom - container.clientHeight;
+            }
+          }
         }, 50);
         return nextIdx;
       });
