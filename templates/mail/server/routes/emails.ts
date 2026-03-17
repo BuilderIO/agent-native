@@ -87,6 +87,7 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
       // Map view to Gmail search query
       const gmailQuery: Record<string, string> = {
         inbox: "in:inbox",
+        unread: "is:unread in:inbox",
         starred: "is:starred",
         sent: "in:sent",
         drafts: "in:drafts",
@@ -148,6 +149,12 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
     case "inbox":
       emails = emails.filter(
         (e) => !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
+      );
+      break;
+    case "unread":
+      emails = emails.filter(
+        (e) =>
+          !e.isRead && !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
       );
       break;
     case "starred":

@@ -10,12 +10,14 @@
  *   pnpm script list-emails --view=unread
  *   pnpm script list-emails --view=starred --q=meeting
  *   pnpm script list-emails --view=inbox --fields=from,subject,date,snippet
+ *   pnpm script list-emails --compact
  *
  * Options:
  *   --view     inbox (default), unread, starred, sent, drafts, archive, trash, all
  *   --q        Full-text search across subject, body, sender
  *   --limit    Max number of emails to return (default: 50)
  *   --fields   Comma-separated fields to include (default: all)
+ *   --compact  Output compact summary (id, from, subject, date, snippet)
  *   --grep     Filter output by keyword (built-in helper)
  */
 
@@ -47,17 +49,26 @@ interface EmailMessage {
 async function fetchFromAPI(
   view: string,
   query?: string,
-): Promise<EmailMessage[] | null> {
+): Promise<{ emails: EmailMessage[] | null; error?: string }> {
   try {
     const params = new URLSearchParams({ view });
     if (query) params.set("q", query);
     const res = await fetch(`${API_BASE}/api/emails?${params}`, {
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return null;
-    return (await res.json()) as EmailMessage[];
-  } catch {
-    return null;
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      return {
+        emails: null,
+        error: body?.error || `API returned ${res.status}`,
+      };
+    }
+    return { emails: (await res.json()) as EmailMessage[] };
+  } catch (err: any) {
+    return {
+      emails: null,
+      error: err?.message || "Failed to connect to dev server",
+    };
   }
 }
 
@@ -129,18 +140,51 @@ function readFromFile(view: string, query?: string): EmailMessage[] {
   return filtered;
 }
 
+function toCompact(emails: EmailMessage[]): {
+  id: string;
+  threadId: string;
+  from: string;
+  subject: string;
+  snippet: string;
+  date: string;
+  isRead: boolean;
+  isStarred: boolean;
+}[] {
+  return emails.map((e) => ({
+    id: e.id,
+    threadId: e.threadId,
+    from: e.from.name ? `${e.from.name} <${e.from.email}>` : e.from.email,
+    subject: e.subject,
+    snippet: e.snippet,
+    date: e.date,
+    isRead: e.isRead,
+    isStarred: e.isStarred,
+  }));
+}
+
 export default async function main(): Promise<void> {
   const args = parseArgs();
   const view = args.view ?? "inbox";
   const query = args.q;
   const limit = args.limit ? parseInt(args.limit, 10) : 50;
+  const compact = args.compact === "true";
 
   // Try the API first (uses Gmail when connected)
-  let emails = await fetchFromAPI(view, query);
-  let source = "api";
+  const { emails: apiEmails, error: apiError } = await fetchFromAPI(
+    view,
+    query,
+  );
+  let emails: EmailMessage[];
+  let source: string;
 
-  if (emails === null) {
-    // Server not running — fall back to local file
+  if (apiEmails !== null) {
+    emails = apiEmails;
+    source = "api";
+  } else {
+    // Server not running or errored — fall back to local file
+    console.error(
+      `API unavailable (${apiError}), falling back to local data...`,
+    );
     emails = readFromFile(view, query);
     source = "local";
     if (emails.length === 0) {
@@ -160,5 +204,5 @@ export default async function main(): Promise<void> {
   console.error(
     `Found ${emails.length} email(s) in "${view}" (source: ${source})`,
   );
-  output(emails);
+  output(compact ? toCompact(emails) : emails);
 }
