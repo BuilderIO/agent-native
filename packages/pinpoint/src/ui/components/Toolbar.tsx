@@ -37,8 +37,13 @@ interface ToolbarProps {
 
 export const Toolbar: Component<ToolbarProps> = (props) => {
   // Position stored as right/bottom offsets for consistent edge anchoring
-  const [pos, setPos] = createSignal(
-    props.position || { right: 16, bottom: 16 },
+  const [pos, setPos] = createSignal<{ right: number; bottom: number }>(
+    props.position
+      ? {
+          right: window.innerWidth - props.position.x,
+          bottom: window.innerHeight - props.position.y,
+        }
+      : { right: 16, bottom: 16 },
   );
   const [dragging, setDragging] = createSignal(false);
   const [dragStart, setDragStart] = createSignal({
