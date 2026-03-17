@@ -532,6 +532,223 @@ export async function trashEmail(req: Request, res: Response): Promise<void> {
   res.json({ id: req.params.id, threadId, isTrashed: true });
 }
 
+// ─── Report spam ──────────────────────────────────────────────────────────────
+
+export async function reportSpam(req: Request, res: Response): Promise<void> {
+  const { accountEmail } = req.body;
+
+  if (isConnected()) {
+    try {
+      const client = await getClient(accountEmail);
+      if (client) {
+        const gmail = google.gmail({ version: "v1", auth: client });
+        await gmail.users.messages.modify({
+          userId: "me",
+          id: req.params.id as string,
+          requestBody: {
+            addLabelIds: ["SPAM"],
+            removeLabelIds: ["INBOX"],
+          },
+        });
+        res.json({ id: req.params.id, spam: true });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[reportSpam] Gmail error:", error.message);
+      res.status(500).json({ error: error.message });
+      return;
+    }
+  }
+
+  // Local fallback: move to trash with a spam label
+  const emails = readEmails();
+  const target = emails.find((e) => e.id === req.params.id);
+  if (!target) {
+    res.status(404).json({ error: "Email not found" });
+    return;
+  }
+  const threadId = target.threadId || target.id;
+  for (let i = 0; i < emails.length; i++) {
+    const eid = emails[i].threadId || emails[i].id;
+    if (eid === threadId) {
+      emails[i] = {
+        ...emails[i],
+        isTrashed: true,
+        labelIds: [...emails[i].labelIds.filter((l) => l !== "inbox"), "spam"],
+      };
+    }
+  }
+  writeEmails(emails);
+  const labels = recomputeUnreadCounts(emails, readLabels());
+  writeLabels(labels);
+  res.json({ id: req.params.id, threadId, spam: true });
+}
+
+// ─── Block sender ─────────────────────────────────────────────────────────────
+
+const BLOCKED_SENDERS_FILE = path.join(DATA_DIR, "blocked-senders.json");
+
+function readBlockedSenders(): string[] {
+  try {
+    return JSON.parse(fs.readFileSync(BLOCKED_SENDERS_FILE, "utf-8"));
+  } catch {
+    return [];
+  }
+}
+
+function writeBlockedSenders(senders: string[]) {
+  fs.writeFileSync(BLOCKED_SENDERS_FILE, JSON.stringify(senders, null, 2));
+}
+
+export async function blockSender(req: Request, res: Response): Promise<void> {
+  const { senderEmail, accountEmail } = req.body;
+
+  if (!senderEmail) {
+    res.status(400).json({ error: "Missing senderEmail" });
+    return;
+  }
+
+  // If Gmail is connected, create a filter to auto-delete + report spam
+  if (isConnected()) {
+    try {
+      const client = await getClient(accountEmail);
+      if (client) {
+        const gmail = google.gmail({ version: "v1", auth: client });
+
+        // Also report the current message as spam
+        await gmail.users.messages.modify({
+          userId: "me",
+          id: req.params.id as string,
+          requestBody: {
+            addLabelIds: ["SPAM"],
+            removeLabelIds: ["INBOX"],
+          },
+        });
+
+        // Create a filter to auto-delete future emails from this sender
+        try {
+          await (gmail.users.settings.filters.create as any)({
+            userId: "me",
+            requestBody: {
+              criteria: { from: senderEmail },
+              action: { removeLabelIds: ["INBOX"], addLabelIds: ["TRASH"] },
+            },
+          });
+        } catch (filterErr: any) {
+          // Filter creation may fail (permissions), but spam report still worked
+          console.error(
+            "[blockSender] filter creation failed:",
+            filterErr.message,
+          );
+        }
+
+        res.json({ id: req.params.id, blocked: senderEmail });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[blockSender] Gmail error:", error.message);
+      res.status(500).json({ error: error.message });
+      return;
+    }
+  }
+
+  // Local fallback: add to blocked list + trash the thread
+  const blocked = readBlockedSenders();
+  if (!blocked.includes(senderEmail.toLowerCase())) {
+    blocked.push(senderEmail.toLowerCase());
+    writeBlockedSenders(blocked);
+  }
+
+  const emails = readEmails();
+  const target = emails.find((e) => e.id === req.params.id);
+  if (!target) {
+    res.status(404).json({ error: "Email not found" });
+    return;
+  }
+  const threadId = target.threadId || target.id;
+  for (let i = 0; i < emails.length; i++) {
+    const eid = emails[i].threadId || emails[i].id;
+    if (eid === threadId) {
+      emails[i] = {
+        ...emails[i],
+        isTrashed: true,
+        labelIds: [...emails[i].labelIds.filter((l) => l !== "inbox"), "spam"],
+      };
+    }
+  }
+  writeEmails(emails);
+  const labels = recomputeUnreadCounts(emails, readLabels());
+  writeLabels(labels);
+  res.json({ id: req.params.id, threadId, blocked: senderEmail });
+}
+
+// ─── Mute thread ──────────────────────────────────────────────────────────────
+
+const MUTED_THREADS_FILE = path.join(DATA_DIR, "muted-threads.json");
+
+function readMutedThreads(): string[] {
+  try {
+    return JSON.parse(fs.readFileSync(MUTED_THREADS_FILE, "utf-8"));
+  } catch {
+    return [];
+  }
+}
+
+function writeMutedThreads(threads: string[]) {
+  fs.writeFileSync(MUTED_THREADS_FILE, JSON.stringify(threads, null, 2));
+}
+
+export async function muteThread(req: Request, res: Response): Promise<void> {
+  const { accountEmail } = req.body;
+
+  if (isConnected()) {
+    try {
+      const client = await getClient(accountEmail);
+      if (client) {
+        const gmail = google.gmail({ version: "v1", auth: client });
+        // Gmail "mute" = remove from inbox; future replies also skip inbox
+        await gmail.users.threads.modify({
+          userId: "me",
+          id: req.params.threadId as string,
+          requestBody: {
+            removeLabelIds: ["INBOX"],
+          },
+        });
+        res.json({ threadId: req.params.threadId, muted: true });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[muteThread] Gmail error:", error.message);
+      res.status(500).json({ error: error.message });
+      return;
+    }
+  }
+
+  // Local fallback: archive all messages in thread + record as muted
+  const threadId = req.params.threadId as string;
+  const muted = readMutedThreads();
+  if (!muted.includes(threadId)) {
+    muted.push(threadId);
+    writeMutedThreads(muted);
+  }
+
+  const emails = readEmails();
+  for (let i = 0; i < emails.length; i++) {
+    const eid = emails[i].threadId || emails[i].id;
+    if (eid === threadId) {
+      emails[i] = {
+        ...emails[i],
+        isArchived: true,
+        labelIds: emails[i].labelIds.filter((l) => l !== "inbox"),
+      };
+    }
+  }
+  writeEmails(emails);
+  const labels = recomputeUnreadCounts(emails, readLabels());
+  writeLabels(labels);
+  res.json({ threadId, muted: true });
+}
+
 // ─── Delete permanently ───────────────────────────────────────────────────────
 
 export function deleteEmail(req: Request, res: Response) {

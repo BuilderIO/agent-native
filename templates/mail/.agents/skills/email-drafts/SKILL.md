@@ -1,17 +1,20 @@
 # Email Drafts
 
-Create, edit, and manage email drafts by reading and writing `application-state/compose.json`. The UI watches this file via SSE and updates the compose window in real time.
+Create, edit, and manage email drafts. Each draft is a separate file in `application-state/` named `compose-{id}.json`. The UI watches these files via SSE and updates the compose panel in real time.
 
 ## File Location
 
 ```
-application-state/compose.json
+application-state/compose-{id}.json
 ```
+
+Each file is one draft. Multiple drafts can exist simultaneously — they appear as tabs in the compose panel.
 
 ## Schema
 
 ```json
 {
+  "id": "abc123",
   "to": "recipient@example.com",
   "cc": "",
   "bcc": "",
@@ -27,31 +30,32 @@ application-state/compose.json
 
 | Field             | Type   | Required | Description                                     |
 | ----------------- | ------ | -------- | ----------------------------------------------- |
+| `id`              | string | yes      | Unique draft ID (must match filename)           |
 | `to`              | string | yes      | Comma-separated recipient email addresses       |
 | `cc`              | string | no       | Comma-separated CC addresses                    |
 | `bcc`             | string | no       | Comma-separated BCC addresses                   |
 | `subject`         | string | yes      | Email subject line                              |
-| `body`            | string | yes      | Email body (plain text)                         |
+| `body`            | string | yes      | Email body (plain text or markdown)             |
 | `mode`            | string | yes      | One of: `"compose"`, `"reply"`, `"forward"`     |
 | `replyToId`       | string | no       | Message ID being replied to (for reply/forward) |
 | `replyToThreadId` | string | no       | Thread ID for grouping (for reply/forward)      |
 
 ## How It Works
 
-1. **Write** `application-state/compose.json` — the file watcher detects the change and pushes an SSE event
-2. **UI receives the event** — invalidates the `compose-state` React Query cache
-3. **ComposeModal re-renders** — shows the updated draft content in the compose window
+1. **Write** `application-state/compose-{id}.json` — the file watcher detects the change and pushes an SSE event
+2. **UI receives the event** — invalidates the `compose-drafts` React Query cache
+3. **Compose panel re-renders** — shows the updated draft as a tab, switches to it if new
 
-The compose window opens automatically when compose state exists. When the user sends or discards, the file is deleted.
+The compose panel opens automatically when any draft file exists. When the last draft is deleted, the panel closes.
 
 ## Creating a New Draft
 
-Write the file directly:
+Generate a unique ID and write the file:
 
 ```bash
-mkdir -p application-state
-cat > application-state/compose.json << 'EOF'
+cat > application-state/compose-draft1.json << 'EOF'
 {
+  "id": "draft1",
   "to": "jane@example.com",
   "subject": "Quick question",
   "body": "Hi Jane,\n\nJust wanted to follow up on...",
@@ -62,15 +66,16 @@ EOF
 
 ## Editing an Existing Draft
 
-Read the current draft, modify it, and write it back:
+Read the current draft, modify it, write it back:
 
 ```bash
 # Read current draft
-cat application-state/compose.json
+cat application-state/compose-draft1.json
 
-# Write updated draft (preserve all existing fields)
-cat > application-state/compose.json << 'EOF'
+# Write updated draft
+cat > application-state/compose-draft1.json << 'EOF'
 {
+  "id": "draft1",
   "to": "jane@example.com",
   "subject": "Quick question",
   "body": "Hi Jane,\n\nI refined the draft as requested...",
@@ -79,36 +84,27 @@ cat > application-state/compose.json << 'EOF'
 EOF
 ```
 
-Always read the file first before editing so you preserve fields the user has already filled in (like `to`, `cc`, `replyToId`, etc.).
-
-## Replying to an Email
-
-To draft a reply, set `mode` to `"reply"` and include the original message's ID and thread ID. Look these up from `data/emails.json`:
-
-```json
-{
-  "to": "sender@example.com",
-  "subject": "Re: Original subject",
-  "body": "Thanks for your message...",
-  "mode": "reply",
-  "replyToId": "msg_abc123",
-  "replyToThreadId": "thread_xyz"
-}
-```
-
-## Clearing a Draft
-
-Delete the file to close the compose window:
+## Listing All Drafts
 
 ```bash
-rm application-state/compose.json
+ls application-state/compose-*.json
+# Or via API:
+curl http://localhost:3000/api/application-state/compose
+```
+
+## Closing a Draft
+
+Delete the file:
+
+```bash
+rm application-state/compose-draft1.json
 ```
 
 ## Important Notes
 
+- The `id` field in the JSON MUST match the `{id}` in the filename (`compose-{id}.json`)
 - The UI debounces writes by 300ms — if the user is actively typing, your write will be visible after a brief moment
 - Always use valid JSON with proper escaping (especially newlines in body: use `\n`)
-- The compose window opens automatically when this file exists and closes when it's deleted
-- For the `to`, `cc`, and `bcc` fields, use comma-separated email addresses for multiple recipients
-- When the user asks you to "draft" or "compose" an email, write this file — don't try to use the send API directly
-- When the user asks you to "edit" or "improve" a draft, read the file first, then write the updated version
+- Multiple drafts can exist simultaneously — each appears as a tab in the compose panel
+- When the user asks you to "draft" or "compose" an email, write a compose file — don't use the send API directly
+- When the user asks you to "edit" or "improve" a draft, list drafts first, then read and update the relevant one

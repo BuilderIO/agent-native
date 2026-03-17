@@ -6,6 +6,5 @@
   "density": "comfortable",
   "previewPane": "right",
   "sendAndArchive": false,
-  "undoSendDelay": 5,
-  "pinnedLabels": ["starred", "pitch", "news", "automated notifications"]
+  "undoSendDelay": 5
 }

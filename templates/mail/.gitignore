@@ -30,5 +30,8 @@ dist-ssr
 data/google-auth.json
 data/google-accounts/
 
+# Uploaded media (images, attachments)
+data/uploads/
+
 # Ephemeral UI state (agent-readable, not persisted)
 application-state/

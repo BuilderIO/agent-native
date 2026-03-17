@@ -27,7 +27,10 @@ function FileWatcherSetup() {
     queryKeys: [], // We handle invalidation in onEvent
     onEvent: (data: { type: string; path: string }) => {
       if (data.path?.includes("application-state")) {
-        qc.invalidateQueries({ queryKey: ["compose-state"] });
+        // Only invalidate compose-drafts when a compose file actually changed
+        if (data.path?.includes("compose-")) {
+          qc.invalidateQueries({ queryKey: ["compose-drafts"] });
+        }
         qc.invalidateQueries({ queryKey: ["navigate-command"] });
       } else {
         qc.invalidateQueries({ queryKey: ["emails"] });

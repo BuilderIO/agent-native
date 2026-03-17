@@ -12,6 +12,9 @@ import {
   toggleStar,
   archiveEmail,
   trashEmail,
+  reportSpam,
+  blockSender,
+  muteThread,
   deleteEmail,
   sendEmail,
   listLabels,
@@ -70,6 +73,9 @@ export function createAppServer() {
   app.patch("/api/emails/:id/star", toggleStar);
   app.patch("/api/emails/:id/archive", archiveEmail);
   app.patch("/api/emails/:id/trash", trashEmail);
+  app.post("/api/emails/:id/spam", reportSpam);
+  app.post("/api/emails/:id/block-sender", blockSender);
+  app.post("/api/threads/:threadId/mute", muteThread);
   app.delete("/api/emails/:id", deleteEmail);
   app.post("/api/emails/send", sendEmail);
 

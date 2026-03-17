@@ -46,20 +46,49 @@ export function deleteState(req: Request, res: Response) {
   res.json({ ok: true });
 }
 
-// --- Compose state (with validation) ---
+// --- Multi-draft compose ---
 
-const COMPOSE_FILE = path.join(STATE_DIR, "compose.json");
+function composeFile(id: string): string {
+  return path.join(STATE_DIR, `compose-${safeKey(id)}.json`);
+}
 
-export function getComposeState(_req: Request, res: Response) {
+/** GET /api/application-state/compose — list all drafts */
+export function listComposeDrafts(_req: Request, res: Response) {
+  ensureStateDir();
   try {
-    const data = JSON.parse(fs.readFileSync(COMPOSE_FILE, "utf-8"));
-    res.json(data);
+    const files = fs
+      .readdirSync(STATE_DIR)
+      .filter((f) => f.startsWith("compose-") && f.endsWith(".json"));
+    const drafts = files
+      .map((f) => {
+        try {
+          return JSON.parse(fs.readFileSync(path.join(STATE_DIR, f), "utf-8"));
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+    res.json(drafts);
   } catch {
-    res.status(404).json({ error: "No compose state" });
+    res.json([]);
   }
 }
 
-export function putComposeState(req: Request, res: Response) {
+/** GET /api/application-state/compose/:id — get single draft */
+export function getComposeDraft(req: Request, res: Response) {
+  const id = req.params.id as string;
+  const file = composeFile(id);
+  try {
+    const data = JSON.parse(fs.readFileSync(file, "utf-8"));
+    res.json(data);
+  } catch {
+    res.status(404).json({ error: "Draft not found" });
+  }
+}
+
+/** PUT /api/application-state/compose/:id — create or update draft */
+export function putComposeDraft(req: Request, res: Response) {
+  const id = req.params.id as string;
   const { to, cc, bcc, subject, body, mode, replyToId, replyToThreadId } =
     req.body;
 
@@ -71,6 +100,7 @@ export function putComposeState(req: Request, res: Response) {
   ensureStateDir();
 
   const state = {
+    id,
     to: to ?? "",
     cc: cc ?? "",
     bcc: bcc ?? "",
@@ -81,15 +111,33 @@ export function putComposeState(req: Request, res: Response) {
     ...(replyToThreadId ? { replyToThreadId } : {}),
   };
 
-  fs.writeFileSync(COMPOSE_FILE, JSON.stringify(state, null, 2));
+  fs.writeFileSync(composeFile(id), JSON.stringify(state, null, 2));
   res.json(state);
 }
 
-export function deleteComposeState(_req: Request, res: Response) {
+/** DELETE /api/application-state/compose/:id — delete single draft */
+export function deleteComposeDraft(req: Request, res: Response) {
+  const id = req.params.id as string;
   try {
-    fs.unlinkSync(COMPOSE_FILE);
+    fs.unlinkSync(composeFile(id));
   } catch {
-    // File didn't exist — that's fine
+    // File didn't exist — fine
   }
+  res.json({ ok: true });
+}
+
+/** DELETE /api/application-state/compose — delete ALL drafts */
+export function deleteAllComposeDrafts(_req: Request, res: Response) {
+  ensureStateDir();
+  try {
+    const files = fs
+      .readdirSync(STATE_DIR)
+      .filter((f) => f.startsWith("compose-") && f.endsWith(".json"));
+    for (const f of files) {
+      try {
+        fs.unlinkSync(path.join(STATE_DIR, f));
+      } catch {}
+    }
+  } catch {}
   res.json({ ok: true });
 }

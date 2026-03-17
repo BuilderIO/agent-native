@@ -15,7 +15,15 @@ import {
   useSequenceShortcuts,
 } from "@/hooks/use-keyboard-shortcuts";
 import { runUndo } from "@/hooks/use-undo";
-import { useLabels, useSettings, useUpdateSettings } from "@/hooks/use-emails";
+import {
+  useLabels,
+  useSettings,
+  useUpdateSettings,
+  useEmails,
+  useReportSpam,
+  useBlockSender,
+  useMuteThread,
+} from "@/hooks/use-emails";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
@@ -24,6 +32,14 @@ import {
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { getCallbackOrigin } from "@agent-native/core/client";
 import type { Label } from "@shared/types";
+import { toast } from "sonner";
+
+/** Extract the trailing segment of a nested label name, e.g. "[Superhuman]/AI/Pitch" → "Pitch" */
+function shortLabelName(name: string): string {
+  const lastSlash = name.lastIndexOf("/");
+  if (lastSlash >= 0) return name.slice(lastSlash + 1).replace(/_/g, " ");
+  return name;
+}
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -110,7 +126,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       if (lbl) {
         tabs.push({
           id: lbl.id,
-          label: lbl.name,
+          label: shortLabelName(lbl.name),
           href: `/inbox?label=${encodeURIComponent(lbl.id)}`,
           isActive: activeLabel === lbl.id,
           color: lbl.color,
@@ -173,6 +189,78 @@ export function AppLayout({ children }: AppLayoutProps) {
     });
   }, [compose]);
 
+  // Spam / block / mute actions (need current email context)
+  const { data: currentViewEmails = [] } = useEmails(view);
+  const reportSpam = useReportSpam();
+  const blockSender = useBlockSender();
+  const muteThread = useMuteThread();
+
+  // Find the target email: from open thread, or the focused row in the list via navigation state
+  const [focusedListId, setFocusedListId] = useState<string | null>(null);
+
+  // Poll navigation.json for the focused email ID (synced by InboxPage)
+  useEffect(() => {
+    if (threadId) return; // thread view has its own context
+    const fetchNav = async () => {
+      try {
+        const res = await fetch("/api/application-state/navigation");
+        if (res.ok) {
+          const nav = await res.json();
+          if (nav?.focusedEmailId) setFocusedListId(nav.focusedEmailId);
+        }
+      } catch {}
+    };
+    fetchNav();
+    // Re-check when palette opens
+    if (paletteOpen) fetchNav();
+  }, [threadId, paletteOpen]);
+
+  const targetEmail = useMemo(() => {
+    if (threadId) {
+      return currentViewEmails.find((e) => (e.threadId || e.id) === threadId);
+    }
+    if (focusedListId) {
+      return currentViewEmails.find((e) => e.id === focusedListId);
+    }
+    return undefined;
+  }, [threadId, focusedListId, currentViewEmails]);
+
+  const handleSpam = useCallback(() => {
+    if (!targetEmail) {
+      toast.error("No email selected.");
+      return;
+    }
+    reportSpam.mutate(targetEmail.id);
+    toast("Reported as spam.");
+    if (threadId) navigate(`/${view}`);
+  }, [targetEmail, reportSpam, navigate, view, threadId]);
+
+  const handleBlockSender = useCallback(() => {
+    if (!targetEmail) {
+      toast.error("No email selected.");
+      return;
+    }
+    blockSender.mutate({
+      id: targetEmail.id,
+      senderEmail: targetEmail.from.email,
+    });
+    toast(`Reported as spam & blocked ${targetEmail.from.email}.`);
+    if (threadId) navigate(`/${view}`);
+  }, [targetEmail, blockSender, navigate, view, threadId]);
+
+  const handleMuteThread = useCallback(() => {
+    const tid =
+      threadId ||
+      (targetEmail ? targetEmail.threadId || targetEmail.id : undefined);
+    if (!tid) {
+      toast.error("No thread selected.");
+      return;
+    }
+    muteThread.mutate(tid);
+    toast("Thread muted.");
+    if (threadId) navigate(`/${view}`);
+  }, [threadId, targetEmail, muteThread, navigate, view]);
+
   const handleSearch = (q: string) => {
     if (q.trim()) {
       navigate(`/inbox?q=${encodeURIComponent(q.trim())}`);
@@ -191,6 +279,19 @@ export function AppLayout({ children }: AppLayoutProps) {
   );
 
   // Global keyboard shortcuts
+  const cycleTab = useCallback(
+    (reverse?: boolean) => {
+      if (visibleTabs.length < 2) return;
+      const activeIdx = visibleTabs.findIndex((t) => t.isActive);
+      const delta = reverse ? -1 : 1;
+      const nextIdx =
+        (activeIdx === -1 ? 0 : activeIdx + delta + visibleTabs.length) %
+        visibleTabs.length;
+      navigate(visibleTabs[nextIdx].href);
+    },
+    [visibleTabs, navigate],
+  );
+
   useKeyboardShortcuts([
     {
       key: "k",
@@ -206,6 +307,15 @@ export function AppLayout({ children }: AppLayoutProps) {
     },
     { key: "c", handler: handleCompose },
     { key: "z", handler: runUndo },
+    {
+      key: "Tab",
+      handler: () => cycleTab(false),
+    },
+    {
+      key: "Tab",
+      shift: true,
+      handler: () => cycleTab(true),
+    },
     {
       key: "Escape",
       handler: () => {
@@ -469,11 +579,16 @@ export function AppLayout({ children }: AppLayoutProps) {
         )}
       </div>
 
-      {compose.data && (
+      {compose.drafts.length > 0 && (
         <ComposeModal
-          composeState={compose.data}
+          drafts={compose.drafts}
+          activeId={compose.activeId}
+          activeDraft={compose.activeDraft}
+          onSetActiveId={compose.setActiveId}
           onUpdate={compose.update}
-          onClose={compose.clear}
+          onClose={compose.close}
+          onCloseAll={compose.closeAll}
+          onNewDraft={handleCompose}
           onFlush={compose.flush}
         />
       )}
@@ -481,6 +596,9 @@ export function AppLayout({ children }: AppLayoutProps) {
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         onCompose={handleCompose}
+        onSpam={handleSpam}
+        onBlockSender={handleBlockSender}
+        onMuteThread={handleMuteThread}
       />
     </div>
   );
@@ -625,7 +743,7 @@ function TabSettingsPopover({
               <CheckboxRow
                 key={label.id}
                 checked={pinnedLabels.includes(label.id)}
-                label={label.name}
+                label={shortLabelName(label.name)}
                 color={label.color}
                 onToggle={() => onToggle(label.id)}
               />

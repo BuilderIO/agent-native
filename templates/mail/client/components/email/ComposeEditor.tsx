@@ -2,8 +2,8 @@ import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
-import Image from "@tiptap/extension-image";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import { ComposeImageNode } from "./extensions/ComposeImageNode";
 import { common, createLowlight } from "lowlight";
 import { Markdown } from "tiptap-markdown";
 import { useEffect, useRef, useImperativeHandle, forwardRef } from "react";
@@ -67,10 +67,8 @@ export const ComposeEditor = forwardRef<
         lowlight,
         HTMLAttributes: { class: "compose-code-block" },
       }),
-      Image.configure({
-        inline: false,
+      ComposeImageNode.configure({
         allowBase64: true,
-        HTMLAttributes: { class: "compose-image" },
       }),
       Placeholder.configure({
         placeholder: "Write your message...",

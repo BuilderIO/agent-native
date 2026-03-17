@@ -28,18 +28,30 @@ import { toast } from "sonner";
 import type { ComposeState } from "@shared/types";
 import { RecipientInput } from "./RecipientInput";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
+import { openFilePicker, uploadFile, formatFileSize } from "@/lib/upload";
+import type { ComposeAttachment } from "@shared/types";
 
 interface ComposeModalProps {
-  composeState: ComposeState;
-  onUpdate: (partial: Partial<ComposeState>) => void;
-  onClose: () => void;
-  onFlush: () => Promise<unknown> | undefined;
+  drafts: ComposeState[];
+  activeId: string | null;
+  activeDraft: ComposeState | null;
+  onSetActiveId: (id: string) => void;
+  onUpdate: (id: string, partial: Partial<ComposeState>) => void;
+  onClose: (id: string) => void;
+  onCloseAll: () => void;
+  onNewDraft: () => void;
+  onFlush: (id: string) => Promise<unknown> | undefined;
 }
 
 export function ComposeModal({
-  composeState,
+  drafts,
+  activeId,
+  activeDraft,
+  onSetActiveId,
   onUpdate,
   onClose,
+  onCloseAll,
+  onNewDraft,
   onFlush,
 }: ComposeModalProps) {
   const [minimized, setMinimized] = useState(false);
@@ -52,69 +64,79 @@ export function ComposeModal({
   const editorRef = useRef<ComposeEditorHandle>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
 
-  const { to, cc, bcc, subject, body, mode } = composeState;
+  // Reset CC/BCC visibility when switching tabs
+  useEffect(() => {
+    setShowCcBcc(false);
+  }, [activeId]);
 
   // Focus editor when reply/forward opens
   useEffect(() => {
-    if (mode !== "compose") {
+    if (activeDraft?.mode && activeDraft.mode !== "compose") {
       setTimeout(() => editorRef.current?.getEditor()?.commands.focus(), 100);
     }
-  }, [mode]);
+  }, [activeDraft?.mode, activeId]);
 
   const handleSend = async () => {
-    if (!to.trim()) {
+    if (!activeDraft || !activeId) return;
+    if (!activeDraft.to.trim()) {
       toast.error("Please add at least one recipient");
       return;
     }
 
     sendEmail.mutate(
       {
-        to,
-        cc: cc || undefined,
-        bcc: bcc || undefined,
-        subject,
-        body,
-        replyToId: composeState.replyToId,
+        to: activeDraft.to,
+        cc: activeDraft.cc || undefined,
+        bcc: activeDraft.bcc || undefined,
+        subject: activeDraft.subject,
+        body: activeDraft.body,
+        replyToId: activeDraft.replyToId,
       },
       {
         onSuccess: () => {
           toast.success("Email sent!");
-          onClose();
+          onClose(activeId);
         },
         onError: () => toast.error("Failed to send email"),
       },
     );
   };
 
+  const composeRef = useRef<HTMLDivElement>(null);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Only handle shortcuts for events originating within the compose window
+    // (prevents agent chat Cmd+Enter from triggering email send)
+    if (!composeRef.current?.contains(e.target as Node)) return;
+
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
       handleSend();
     }
     if (e.key === "Escape") {
       e.preventDefault();
-      onClose();
+      if (activeId) onClose(activeId);
     }
   };
 
   const handleGenerate = async () => {
-    if (!generatePrompt.trim()) return;
+    if (!generatePrompt.trim() || !activeId || !activeDraft) return;
 
     // Flush current state to file so agent can read it
-    await onFlush();
+    await onFlush(activeId);
 
     const context = [
-      to && `To: ${to}`,
-      cc && `Cc: ${cc}`,
-      subject && `Subject: ${subject}`,
-      body && `Current draft:\n${body}`,
+      activeDraft.to && `To: ${activeDraft.to}`,
+      activeDraft.cc && `Cc: ${activeDraft.cc}`,
+      activeDraft.subject && `Subject: ${activeDraft.subject}`,
+      activeDraft.body && `Current draft:\n${activeDraft.body}`,
     ]
       .filter(Boolean)
       .join("\n");
 
     sendToAgent({
       message: generatePrompt.trim(),
-      context: `The user is composing an email. The current draft is saved in application-state/compose.json. You can read and update it directly.\n\n${context || "(empty draft)"}`,
+      context: `The user is composing an email. The current draft is saved in application-state/compose-${activeId}.json. You can read and update it directly.\n\n${context || "(empty draft)"}`,
       submit: true,
     });
 
@@ -122,11 +144,46 @@ export function ComposeModal({
     setGenerateOpen(false);
   };
 
-  const title =
-    mode === "reply" ? "Reply" : mode === "forward" ? "Forward" : "New message";
+  const handleAttach = async () => {
+    if (!activeId || !activeDraft) return;
+    const file = await openFilePicker("*/*");
+    if (!file) return;
+    try {
+      const result = await uploadFile(file);
+      const attachment: ComposeAttachment = {
+        id: result.filename,
+        filename: result.filename,
+        originalName: result.originalName,
+        mimeType: result.mimeType,
+        size: result.size,
+        url: result.url,
+      };
+      const existing = activeDraft.attachments ?? [];
+      onUpdate(activeId, { attachments: [...existing, attachment] });
+    } catch {
+      toast.error("Failed to attach file");
+    }
+  };
+
+  const handleRemoveAttachment = (attachmentId: string) => {
+    if (!activeId || !activeDraft) return;
+    const existing = activeDraft.attachments ?? [];
+    onUpdate(activeId, {
+      attachments: existing.filter((a) => a.id !== attachmentId),
+    });
+  };
+
+  const title = activeDraft
+    ? activeDraft.mode === "reply"
+      ? "Reply"
+      : activeDraft.mode === "forward"
+        ? "Forward"
+        : "New message"
+    : "New message";
 
   return (
     <div
+      ref={composeRef}
       className={cn(
         "compose-window fixed bottom-0 right-4 z-50 flex w-[540px] flex-col rounded-t-xl bg-card transition-all duration-200",
         minimized ? "h-11" : "h-[520px]",
@@ -141,6 +198,21 @@ export function ComposeModal({
             variant="ghost"
             size="icon"
             className="h-7 w-7"
+            onClick={onNewDraft}
+            title="New draft"
+          >
+            <svg
+              viewBox="0 0 16 16"
+              fill="currentColor"
+              className="h-3.5 w-3.5"
+            >
+              <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z" />
+            </svg>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
             onClick={() => setMinimized(!minimized)}
           >
             <Minus className="h-3.5 w-3.5" />
@@ -149,14 +221,68 @@ export function ComposeModal({
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            onClick={onClose}
+            onClick={onCloseAll}
           >
             <X className="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>
 
-      {!minimized && (
+      {/* Tab bar — only shown with multiple drafts */}
+      {drafts.length > 1 && !minimized && (
+        <div className="flex items-center border-b border-border/50 px-1 gap-0.5 overflow-x-auto hide-scrollbar">
+          {drafts.map((draft) => {
+            const isActive = draft.id === activeId;
+            const label =
+              draft.subject?.trim() ||
+              (draft.mode === "reply"
+                ? "Reply"
+                : draft.mode === "forward"
+                  ? "Forward"
+                  : "New message");
+            return (
+              <button
+                key={draft.id}
+                onClick={() => onSetActiveId(draft.id)}
+                className={cn(
+                  "group flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] max-w-[160px] shrink-0 transition-colors",
+                  isActive
+                    ? "bg-accent/60 text-foreground font-medium"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
+                )}
+              >
+                <span className="truncate">{label}</span>
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClose(draft.id);
+                  }}
+                  className={cn(
+                    "shrink-0 rounded-sm p-0.5 transition-colors",
+                    isActive
+                      ? "hover:bg-foreground/10"
+                      : "opacity-0 group-hover:opacity-100 hover:bg-foreground/10",
+                  )}
+                >
+                  <X className="h-3 w-3" />
+                </span>
+              </button>
+            );
+          })}
+          {/* New draft + button */}
+          <button
+            onClick={onNewDraft}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/30 transition-colors"
+            title="New draft"
+          >
+            <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+              <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {activeDraft && !minimized && (
         <>
           {/* Header fields */}
           <div className="border-b border-border">
@@ -165,17 +291,20 @@ export function ComposeModal({
                 To
               </span>
               <RecipientInput
-                value={to}
-                onChange={(val) => onUpdate({ to: val })}
-                autoFocus={mode === "compose"}
+                value={activeDraft.to}
+                onChange={(val) => onUpdate(activeId!, { to: val })}
+                autoFocus={activeDraft.mode === "compose"}
               />
               <button
+                tabIndex={-1}
                 onClick={() => {
                   const next = !showCcBcc;
                   setShowCcBcc(next);
                   if (next) {
-                    if (cc === undefined) onUpdate({ cc: "" });
-                    if (bcc === undefined) onUpdate({ bcc: "" });
+                    if (activeDraft.cc === undefined)
+                      onUpdate(activeId!, { cc: "" });
+                    if (activeDraft.bcc === undefined)
+                      onUpdate(activeId!, { bcc: "" });
                   }
                 }}
                 className="text-muted-foreground hover:text-foreground transition-colors p-1"
@@ -196,8 +325,8 @@ export function ComposeModal({
                     Cc
                   </span>
                   <RecipientInput
-                    value={cc ?? ""}
-                    onChange={(val) => onUpdate({ cc: val })}
+                    value={activeDraft.cc ?? ""}
+                    onChange={(val) => onUpdate(activeId!, { cc: val })}
                   />
                 </div>
                 <div className="flex items-center border-b border-border px-4">
@@ -205,8 +334,8 @@ export function ComposeModal({
                     Bcc
                   </span>
                   <RecipientInput
-                    value={bcc ?? ""}
-                    onChange={(val) => onUpdate({ bcc: val })}
+                    value={activeDraft.bcc ?? ""}
+                    onChange={(val) => onUpdate(activeId!, { bcc: val })}
                   />
                 </div>
               </>
@@ -215,8 +344,10 @@ export function ComposeModal({
             <div className="flex items-center px-4">
               <input
                 type="text"
-                value={subject}
-                onChange={(e) => onUpdate({ subject: e.target.value })}
+                value={activeDraft.subject}
+                onChange={(e) =>
+                  onUpdate(activeId!, { subject: e.target.value })
+                }
                 placeholder="Subject"
                 className="flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground"
               />
@@ -224,19 +355,54 @@ export function ComposeModal({
           </div>
 
           {/* Body */}
-          <div className="flex-1 overflow-y-auto px-4 py-3">
+          <div
+            className="flex-1 overflow-y-auto px-4 py-3 cursor-text"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                editorRef.current?.getEditor()?.commands.focus("end");
+              }
+            }}
+          >
             <ComposeEditor
               ref={editorRef}
-              content={body}
-              onChange={(md) => onUpdate({ body: md })}
+              content={activeDraft.body}
+              onChange={(md) => onUpdate(activeId!, { body: md })}
               onGenerate={() => setGenerateOpen(true)}
               onSend={handleSend}
-              onClose={onClose}
-              onFlush={onFlush}
+              onClose={() => {
+                if (activeId) onClose(activeId);
+              }}
+              onFlush={() => (activeId ? onFlush(activeId) : undefined)}
               isGenerating={isGenerating}
               sendToAgent={sendToAgent}
             />
           </div>
+
+          {/* Attachments */}
+          {activeDraft.attachments && activeDraft.attachments.length > 0 && (
+            <div className="flex shrink-0 flex-wrap gap-1.5 border-t border-border px-3 py-2">
+              {activeDraft.attachments.map((att) => (
+                <div
+                  key={att.id}
+                  className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs"
+                >
+                  <Paperclip className="h-3 w-3 text-muted-foreground shrink-0" />
+                  <span className="truncate max-w-[140px]">
+                    {att.originalName}
+                  </span>
+                  <span className="text-muted-foreground shrink-0">
+                    {formatFileSize(att.size)}
+                  </span>
+                  <button
+                    onClick={() => handleRemoveAttachment(att.id)}
+                    className="ml-0.5 rounded-sm p-0.5 text-muted-foreground hover:text-foreground hover:bg-foreground/10 transition-colors"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Toolbar */}
           <div className="flex shrink-0 items-center justify-between border-t border-border px-3 py-2">
@@ -282,7 +448,12 @@ export function ComposeModal({
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-7 w-7">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => void handleAttach()}
+                  >
                     <Paperclip className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
@@ -357,7 +528,7 @@ export function ComposeModal({
               <Button
                 size="sm"
                 onClick={handleSend}
-                disabled={sendEmail.isPending || !to.trim()}
+                disabled={sendEmail.isPending || !activeDraft.to.trim()}
                 className="gap-1.5"
               >
                 <Send className="h-3.5 w-3.5" />
