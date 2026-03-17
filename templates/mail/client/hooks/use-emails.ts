@@ -73,13 +73,7 @@ export function useToggleStar() {
 export function useArchiveEmail() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      id,
-      accountEmail,
-    }: {
-      id: string;
-      accountEmail?: string;
-    }) =>
+    mutationFn: ({ id, accountEmail }: { id: string; accountEmail?: string }) =>
       apiFetch(`/api/emails/${id}/archive`, {
         method: "PATCH",
         body: JSON.stringify({ accountEmail }),

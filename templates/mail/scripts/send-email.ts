@@ -1,10 +1,10 @@
 /**
- * Send an email.
+ * Send an email via Gmail.
  *
  * Usage:
  *   pnpm script send-email --to=alice@example.com --subject="Hello" --body="Hi there"
  *   pnpm script send-email --to=alice@example.com --cc=bob@example.com --subject="Update" --body="..."
- *   pnpm script send-email --to=alice@example.com --subject="Re: Thread" --body="..." --threadId=thread-123 --replyToId=msg-456
+ *   pnpm script send-email --to=alice@example.com --subject="Re: Thread" --body="..." --replyToId=msg-456
  *
  * Options:
  *   --to          Recipient email(s), comma-separated (required)
@@ -12,13 +12,57 @@
  *   --bcc         BCC email(s), comma-separated
  *   --subject     Email subject (required)
  *   --body        Email body text (required)
- *   --threadId    Thread ID (for replies)
- *   --replyToId   Message ID being replied to (for replies)
+ *   --replyToId   Message ID being replied to (for threading)
+ *   --account     Specific account to send from (optional)
  */
 
+import fs from "fs";
+import path from "path";
+import { google } from "googleapis";
 import { parseArgs, output, fatal } from "./helpers.js";
+import { getClients, getClient } from "../server/lib/google-auth.js";
 
-const API_BASE = "http://localhost:8080";
+function buildRawEmail(opts: {
+  from: string;
+  to: string;
+  cc?: string;
+  bcc?: string;
+  subject: string;
+  body: string;
+  inReplyTo?: string;
+  references?: string;
+}): string {
+  const lines = [
+    `From: ${opts.from}`,
+    `To: ${opts.to}`,
+    ...(opts.cc ? [`Cc: ${opts.cc}`] : []),
+    ...(opts.bcc ? [`Bcc: ${opts.bcc}`] : []),
+    `Subject: ${opts.subject}`,
+    ...(opts.inReplyTo ? [`In-Reply-To: ${opts.inReplyTo}`] : []),
+    ...(opts.references ? [`References: ${opts.references}`] : []),
+    `Content-Type: text/plain; charset="UTF-8"`,
+    "",
+    opts.body,
+  ];
+  return Buffer.from(lines.join("\r\n"))
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function readSettings(): { name: string; email: string } {
+  try {
+    return JSON.parse(
+      fs.readFileSync(
+        path.join(process.cwd(), "data", "settings.json"),
+        "utf-8",
+      ),
+    );
+  } catch {
+    return { name: "", email: "" };
+  }
+}
 
 export default async function main(): Promise<void> {
   const args = parseArgs();
@@ -27,33 +71,89 @@ export default async function main(): Promise<void> {
   if (!args.subject) fatal("--subject is required");
   if (!args.body) fatal("--body is required");
 
-  const payload: Record<string, unknown> = {
+  const settings = readSettings();
+  const clients = await getClients();
+
+  if (clients.length === 0) {
+    fatal("No Google account connected. Connect an account in the app first.");
+  }
+
+  let selectedEmail: string;
+  let selectedClient = clients[0].client;
+  selectedEmail = clients[0].email;
+
+  if (args.account) {
+    const match = clients.find((c) => c.email === args.account);
+    if (!match) fatal(`Account ${args.account} not connected`);
+    selectedClient = match!.client;
+    selectedEmail = match!.email;
+  }
+
+  let threadId: string | undefined;
+  let inReplyTo: string | undefined;
+  let references: string | undefined;
+
+  if (args.replyToId) {
+    // Find which account owns the original message and use that account for the reply
+    for (const { email, client } of clients) {
+      try {
+        const gmail = google.gmail({ version: "v1", auth: client });
+        const original = await gmail.users.messages.get({
+          userId: "me",
+          id: args.replyToId,
+          format: "metadata",
+          metadataHeaders: ["Message-Id", "References", "To", "Delivered-To"],
+        });
+        threadId = original.data.threadId ?? undefined;
+        const headers = original.data.payload?.headers || [];
+        inReplyTo =
+          headers.find((h) => h.name === "Message-Id")?.value ?? undefined;
+        const refs = headers.find((h) => h.name === "References")?.value;
+        references = [refs, inReplyTo].filter(Boolean).join(" ");
+        // Use the account that owns this message (unless explicitly overridden)
+        if (!args.account) {
+          selectedClient = client;
+          selectedEmail = email;
+        }
+        break;
+      } catch (err: any) {
+        if (err?.response?.status === 404) continue;
+        // Non-404 error — skip silently
+      }
+    }
+  }
+
+  const client = selectedClient;
+  const fromEmail = selectedEmail;
+
+  const raw = buildRawEmail({
+    from: settings.name ? `${settings.name} <${fromEmail}>` : fromEmail,
     to: args.to,
+    cc: args.cc,
+    bcc: args.bcc,
     subject: args.subject,
     body: args.body,
-  };
-  if (args.cc) payload.cc = args.cc;
-  if (args.bcc) payload.bcc = args.bcc;
-  if (args.threadId) payload.threadId = args.threadId;
-  if (args.replyToId) payload.replyToId = args.replyToId;
+    inReplyTo,
+    references,
+  });
+
+  const requestBody: any = { raw };
+  if (threadId) requestBody.threadId = threadId;
+
+  const gmail = google.gmail({ version: "v1", auth: client });
 
   try {
-    const res = await fetch(`${API_BASE}/api/emails/send`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(10000),
+    const sent = await (gmail.users.messages.send as any)({
+      userId: "me",
+      requestBody,
     });
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      fatal(`Failed to send: ${body?.error || `HTTP ${res.status}`}`);
-    }
-
-    const result = await res.json();
     console.error("Email sent successfully");
-    output(result);
+    output({
+      id: sent.data.id,
+      threadId: sent.data.threadId,
+      labelIds: sent.data.labelIds || ["SENT"],
+    });
   } catch (err: any) {
-    fatal(`Could not connect to dev server at ${API_BASE}. Start it with: pnpm dev\n  (${err?.message})`);
+    fatal(`Failed to send email: ${err?.message}`);
   }
 }

@@ -103,9 +103,14 @@ When the user asks you to **draft**, **compose**, or **write** an email, write `
 
 ## Agent Operations
 
-**Always use `pnpm script <name>` for mail actions** — scripts handle everything (API calls, Gmail integration, error handling, fallbacks). Never use `curl` or raw HTTP requests.
+**Always run `pnpm script view-screen` first** before taking any action. This shows what the user is currently looking at and provides email IDs to act on. Don't skip this step — even if you think you know what's on screen.
+
+**Always use `pnpm script <name>` for mail actions** — scripts call Gmail directly and do NOT require `pnpm dev` to be running. Never use `curl` or raw HTTP requests. When no script exists, use `node -e` inline JavaScript.
+
+**After any backend change** (archive, trash, star, mark-read, send, etc.) always run `pnpm script refresh-list` to update `application-state/email-list.json` and trigger the UI to refetch.
 
 Common operations:
+
 - **Archive emails:** `pnpm script archive-email --id=<id>`
 - **Trash emails:** `pnpm script trash-email --id=<id>`
 - **Mark read/unread:** `pnpm script mark-read --id=<id> [--unread]`
@@ -288,8 +293,8 @@ The UI will pick up the changes automatically (via SSE).
 
 | Script          | Args                                                    | Purpose                                       |
 | --------------- | ------------------------------------------------------- | --------------------------------------------- |
-| `view-screen`   | `[--full]`                                              | See what the user is looking at right now      |
-| `view-composer`  | `[--id=<draft-id>]`                                     | See all open compose drafts                    |
+| `view-screen`   | `[--full]`                                              | See what the user is looking at right now     |
+| `view-composer` | `[--id=<draft-id>]`                                     | See all open compose drafts                   |
 | `list-emails`   | `--view <inbox\|unread\|starred\|sent\|...> --q <term>` | List and search emails (uses Gmail via API)   |
 | `search-emails` | `--q <term> [--view <name>]`                            | Search emails across all views (requires --q) |
 | `get-email`     | `--id <email-id>`                                       | Get a single email by ID                      |
@@ -297,51 +302,51 @@ The UI will pick up the changes automatically (via SSE).
 
 ### Actions
 
-| Script          | Args                                                    | Purpose                                       |
-| --------------- | ------------------------------------------------------- | --------------------------------------------- |
-| `archive-email` | `--id <id>[,id2,id3]`                                   | Archive one or more emails                    |
-| `trash-email`   | `--id <id>[,id2,id3]`                                   | Trash one or more emails                      |
-| `mark-read`     | `--id <id>[,id2,id3] [--unread]`                        | Mark emails as read (or unread with --unread) |
-| `star-email`    | `--id <id>[,id2,id3]`                                   | Toggle star on emails                         |
-| `send-email`    | `--to <email> --subject <s> --body <b> [--cc] [--bcc]`  | Send an email                                 |
+| Script          | Args                                                   | Purpose                                       |
+| --------------- | ------------------------------------------------------ | --------------------------------------------- |
+| `archive-email` | `--id <id>[,id2,id3]`                                  | Archive one or more emails                    |
+| `trash-email`   | `--id <id>[,id2,id3]`                                  | Trash one or more emails                      |
+| `mark-read`     | `--id <id>[,id2,id3] [--unread]`                       | Mark emails as read (or unread with --unread) |
+| `star-email`    | `--id <id>[,id2,id3]`                                  | Toggle star on emails                         |
+| `send-email`    | `--to <email> --subject <s> --body <b> [--cc] [--bcc]` | Send an email                                 |
 
 ### Drafts & Navigation
 
-| Script          | Args                                                    | Purpose                                       |
-| --------------- | ------------------------------------------------------- | --------------------------------------------- |
-| `manage-draft`  | `--action=create\|update\|delete\|delete-all [--id] [--to] [--subject] [--body] [--mode]` | Create, update, or delete compose drafts |
-| `navigate`      | `--view <name> [--threadId <id>]`                       | Navigate the UI to a view or thread           |
+| Script         | Args                                                                                      | Purpose                                  |
+| -------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `manage-draft` | `--action=create\|update\|delete\|delete-all [--id] [--to] [--subject] [--body] [--mode]` | Create, update, or delete compose drafts |
+| `navigate`     | `--view <name> [--threadId <id>]`                                                         | Navigate the UI to a view or thread      |
 
 ### Utilities
 
-| Script          | Args                                                    | Purpose                                       |
-| --------------- | ------------------------------------------------------- | --------------------------------------------- |
-| `seed-emails`   | `--count <n>`                                           | Generate n test emails (local data only)      |
-| `bulk-archive`  | `--older-than <days>`                                   | Archive emails older than N days              |
-| `export-emails` | `--view <inbox\|sent\|...> --output <file>`             | Export emails to JSON file                    |
+| Script          | Args                                        | Purpose                                  |
+| --------------- | ------------------------------------------- | ---------------------------------------- |
+| `seed-emails`   | `--count <n>`                               | Generate n test emails (local data only) |
+| `bulk-archive`  | `--older-than <days>`                       | Archive emails older than N days         |
+| `export-emails` | `--view <inbox\|sent\|...> --output <file>` | Export emails to JSON file               |
 
 `list-emails` and `search-emails` support `--compact` for shorter output and `--fields=from,subject,date` to pick specific fields.
 
 ### Common tasks
 
-| User request                             | Script to run                                                              |
-| ---------------------------------------- | -------------------------------------------------------------------------- |
-| "What's on my screen?"                   | `pnpm script view-screen`                                                  |
-| "Summarize my inbox"                     | `pnpm script view-screen` (emails are already in the response)              |
-| "Summarize my unread emails"             | `pnpm script list-emails --view=unread --compact`                           |
-| "What emails do I have from Alice?"      | `pnpm script search-emails --q=alice --compact`                             |
-| "Archive this email"                     | `pnpm script view-screen` to get ID, then `pnpm script archive-email --id=<id>` |
-| "Archive emails from netlify[bot]"       | `pnpm script view-screen`, find matching IDs, then `pnpm script archive-email --id=id1,id2,id3` |
-| "Mark this as unread"                    | `pnpm script mark-read --id=<id> --unread`                                 |
-| "Star this email"                        | `pnpm script star-email --id=<id>`                                          |
-| "Trash this email"                       | `pnpm script trash-email --id=<id>`                                         |
-| "Find the email about X"                 | `pnpm script search-emails --q=X`, then `pnpm script navigate --threadId=<id>` |
-| "Open my starred emails"                 | `pnpm script navigate --view=starred`                                       |
-| "Draft an email to Alice about X"        | `pnpm script manage-draft --action=create --to=alice@example.com --subject="X" --body="..."` |
-| "Make this draft more formal"            | `pnpm script view-composer`, then `pnpm script manage-draft --action=update --id=<id> --body="..."` |
-| "Send this email"                        | `pnpm script send-email --to=<email> --subject="..." --body="..."`          |
-| "What thread am I looking at?"           | `pnpm script view-screen --full`                                            |
-| "Archive old emails"                     | `pnpm script bulk-archive --older-than=30`                                  |
+| User request                        | Script to run                                                                                       |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------- |
+| "What's on my screen?"              | `pnpm script view-screen`                                                                           |
+| "Summarize my inbox"                | `pnpm script view-screen` (emails are already in the response)                                      |
+| "Summarize my unread emails"        | `pnpm script list-emails --view=unread --compact`                                                   |
+| "What emails do I have from Alice?" | `pnpm script search-emails --q=alice --compact`                                                     |
+| "Archive this email"                | `pnpm script view-screen` to get ID, then `pnpm script archive-email --id=<id>`                     |
+| "Archive emails from netlify[bot]"  | `pnpm script view-screen`, find matching IDs, then `pnpm script archive-email --id=id1,id2,id3`     |
+| "Mark this as unread"               | `pnpm script mark-read --id=<id> --unread`                                                          |
+| "Star this email"                   | `pnpm script star-email --id=<id>`                                                                  |
+| "Trash this email"                  | `pnpm script trash-email --id=<id>`                                                                 |
+| "Find the email about X"            | `pnpm script search-emails --q=X`, then `pnpm script navigate --threadId=<id>`                      |
+| "Open my starred emails"            | `pnpm script navigate --view=starred`                                                               |
+| "Draft an email to Alice about X"   | `pnpm script manage-draft --action=create --to=alice@example.com --subject="X" --body="..."`        |
+| "Make this draft more formal"       | `pnpm script view-composer`, then `pnpm script manage-draft --action=update --id=<id> --body="..."` |
+| "Send this email"                   | `pnpm script send-email --to=<email> --subject="..." --body="..."`                                  |
+| "What thread am I looking at?"      | `pnpm script view-screen --full`                                                                    |
+| "Archive old emails"                | `pnpm script bulk-archive --older-than=30`                                                          |
 
 ### Adding new scripts
 

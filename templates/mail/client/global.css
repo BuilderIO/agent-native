@@ -189,6 +189,20 @@
   visibility: hidden;
 }
 
+/* Sonner cancel button style — match action button but muted */
+[data-sonner-toast] [data-cancel] {
+  background: transparent !important;
+  color: hsl(220, 10%, 50%) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.05em !important;
+  padding: 0 !important;
+  margin-left: 16px !important;
+}
+[data-sonner-toast] [data-cancel]:hover {
+  color: hsl(220, 10%, 70%) !important;
+}
+
 /* ===== Compose Rich Text Editor (Tiptap) ===== */
 
 .compose-editor-wrapper {

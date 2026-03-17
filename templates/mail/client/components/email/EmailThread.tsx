@@ -141,7 +141,7 @@ export function EmailThread({
       if (lastMsg) {
         // Use manual scrollTop instead of scrollIntoView to avoid
         // scrolling ancestor overflow:hidden containers (causes header cutoff)
-        el.scrollTop = lastMsg.offsetTop - el.offsetTop;
+        el.scrollTop = lastMsg.offsetTop - el.offsetTop - 8;
       } else {
         el.scrollTop = el.scrollHeight;
       }
@@ -496,7 +496,7 @@ export function EmailThread({
         <div className="flex items-start gap-3">
           <button
             onClick={goBack}
-            className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             title="Back (Esc)"
           >
             <svg
@@ -513,71 +513,71 @@ export function EmailThread({
           </button>
 
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg font-semibold leading-tight text-foreground truncate">
+            <div className="flex items-start gap-2 flex-wrap">
+              <h1 className="text-lg font-semibold leading-tight text-foreground">
                 {threadSubject}
               </h1>
               {displayLabels.map((labelId) => (
                 <span
                   key={labelId}
-                  className="label-badge shrink-0 bg-pink-500/20 text-pink-300"
+                  className="label-badge shrink-0 bg-pink-500/20 text-pink-300 mt-1"
                 >
                   {labelId}
                 </span>
               ))}
               {/* Action bar */}
               <div className="flex items-center gap-0.5 ml-auto shrink-0">
-              <button
-                onClick={handleArchive}
-                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                title="Done (E)"
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  className="h-4 w-4"
+                <button
+                  onClick={handleArchive}
+                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  title="Done (E)"
                 >
-                  <path
-                    fillRule="evenodd"
-                    d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-              <button
-                onClick={() => goToSibling(-1)}
-                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  className="h-3.5 w-3.5"
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                    className="h-4 w-4"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => goToSibling(-1)}
+                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
                 >
-                  <path
-                    fillRule="evenodd"
-                    d="M11.78 9.78a.75.75 0 0 1-1.06 0L8 7.06 5.28 9.78a.75.75 0 0 1-1.06-1.06l3.25-3.25a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-              <button
-                onClick={() => goToSibling(1)}
-                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  className="h-3.5 w-3.5"
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                    className="h-3.5 w-3.5"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M11.78 9.78a.75.75 0 0 1-1.06 0L8 7.06 5.28 9.78a.75.75 0 0 1-1.06-1.06l3.25-3.25a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => goToSibling(1)}
+                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                 >
-                  <path
-                    fillRule="evenodd"
-                    d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                    className="h-3.5 w-3.5"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+              </div>
             </div>
-          </div>
           </div>
         </div>
       </div>
@@ -641,7 +641,38 @@ export function EmailThread({
                 messages={messages}
                 onUpdate={compose.update}
                 onDiscard={compose.discard}
-                onClose={compose.close}
+                onClose={(id) => {
+                  const drafts = compose.drafts ?? [];
+                  const draft = drafts.find((d: any) => d.id === id);
+                  const hasContent = !!(
+                    draft?.to?.trim() ||
+                    draft?.subject?.trim() ||
+                    draft?.body?.trim()
+                  );
+                  const snapshot = draft ? { ...draft } : null;
+                  compose.close(id);
+                  if (hasContent && snapshot) {
+                    toast("Draft saved.", {
+                      action: {
+                        label: "REOPEN",
+                        onClick: () => {
+                          const { id: _id, ...reopenData } = snapshot;
+                          compose.open({ ...reopenData, inline: true });
+                        },
+                      },
+                      cancel: {
+                        label: "DELETE DRAFT",
+                        onClick: () => {
+                          if (snapshot.savedDraftId) {
+                            fetch(`/api/emails/${snapshot.savedDraftId}`, {
+                              method: "DELETE",
+                            });
+                          }
+                        },
+                      },
+                    });
+                  }
+                }}
                 onPopOut={(id) => compose.update(id, { inline: false })}
                 onFlush={compose.flush}
                 onReopen={(state) => compose.open({ ...state, inline: true })}
@@ -713,7 +744,15 @@ const ExpandedMessageCard = forwardRef<
     onContactSelect?: (email: string) => void;
   }
 >(function ExpandedMessageCard(
-  { email, isFocused, onCollapse, onReply, onReplyAll, onForward, onContactSelect },
+  {
+    email,
+    isFocused,
+    onCollapse,
+    onReply,
+    onReplyAll,
+    onForward,
+    onContactSelect,
+  },
   ref,
 ) {
   const [showDetails, setShowDetails] = useState(false);
@@ -1237,7 +1276,9 @@ function HtmlEmailBody({
     });
 
     // Enhance Google Calendar RSVP buttons for inline response
-    const rsvpLinks = doc.querySelectorAll('a[href*="calendar.google.com/calendar/event"]');
+    const rsvpLinks = doc.querySelectorAll(
+      'a[href*="calendar.google.com/calendar/event"]',
+    );
     const rstMap: Record<string, { response: string; label: string }> = {
       "1": { response: "accepted", label: "Yes" },
       "2": { response: "declined", label: "No" },
@@ -1293,7 +1334,9 @@ function HtmlEmailBody({
 
       // Handle RSVP clicks inline
       const handleRsvpClick = async (e: MouseEvent) => {
-        const anchor = (e.target as Element)?.closest?.('a[href*="calendar.google.com/calendar/event"]') as HTMLElement | null;
+        const anchor = (e.target as Element)?.closest?.(
+          'a[href*="calendar.google.com/calendar/event"]',
+        ) as HTMLElement | null;
         if (!anchor) return;
         const href = anchor.getAttribute("href") || "";
         try {

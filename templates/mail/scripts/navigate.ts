@@ -24,7 +24,9 @@ export default async function main(): Promise<void> {
   const args = parseArgs();
 
   if (!args.view && !args.threadId) {
-    fatal("At least --view or --threadId is required. Usage: pnpm script navigate --view=inbox");
+    fatal(
+      "At least --view or --threadId is required. Usage: pnpm script navigate --view=inbox",
+    );
   }
 
   const nav: Record<string, string> = {};
@@ -34,6 +36,8 @@ export default async function main(): Promise<void> {
   const filePath = path.join(STATE_DIR, "navigate.json");
   fs.writeFileSync(filePath, JSON.stringify(nav, null, 2));
 
-  console.error(`Navigating to ${args.view || ""}${args.threadId ? ` thread:${args.threadId}` : ""}`);
+  console.error(
+    `Navigating to ${args.view || ""}${args.threadId ? ` thread:${args.threadId}` : ""}`,
+  );
   output(nav);
 }

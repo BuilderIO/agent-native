@@ -30,7 +30,11 @@ import {
 import { useSendEmail } from "@/hooks/use-emails";
 import { useAgentChatGenerating } from "@agent-native/core";
 import { toast } from "sonner";
-import type { ComposeState, EmailMessage, ComposeAttachment } from "@shared/types";
+import type {
+  ComposeState,
+  EmailMessage,
+  ComposeAttachment,
+} from "@shared/types";
 import { RecipientInput } from "./RecipientInput";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import { openFilePicker, uploadFile, formatFileSize } from "@/lib/upload";
@@ -62,7 +66,16 @@ export const InlineReplyComposer = forwardRef<
   InlineReplyHandle,
   InlineReplyComposerProps
 >(function InlineReplyComposer(
-  { draft, messages, onUpdate, onDiscard, onClose, onPopOut, onFlush, onReopen },
+  {
+    draft,
+    messages,
+    onUpdate,
+    onDiscard,
+    onClose,
+    onPopOut,
+    onFlush,
+    onReopen,
+  },
   ref,
 ) {
   const [showQuoted, setShowQuoted] = useState(false);
@@ -83,7 +96,10 @@ export const InlineReplyComposer = forwardRef<
   useEffect(() => {
     setTimeout(() => {
       editorRef.current?.getEditor()?.commands.focus();
-      composerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      composerRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
     }, 100);
   }, []);
 
@@ -100,7 +116,10 @@ export const InlineReplyComposer = forwardRef<
         const senderMsg = messages.find(
           (m) => m.from.email.toLowerCase() === lower,
         );
-        if (senderMsg?.from.name && senderMsg.from.name !== senderMsg.from.email)
+        if (
+          senderMsg?.from.name &&
+          senderMsg.from.name !== senderMsg.from.email
+        )
           return senderMsg.from.name;
         // Check recipients
         for (const m of messages) {
@@ -152,7 +171,6 @@ export const InlineReplyComposer = forwardRef<
 
     const toastId = toast("Sending...", {
       action: { label: "UNDO", onClick: handleUndo },
-      closeButton: true,
       duration: Infinity,
     });
 
@@ -161,7 +179,6 @@ export const InlineReplyComposer = forwardRef<
       toast("Message sent.", {
         id: toastId,
         action: { label: "UNDO", onClick: handleUndo },
-        closeButton: true,
         duration: Infinity,
       });
     }, 1500);
@@ -369,9 +386,7 @@ export const InlineReplyComposer = forwardRef<
               className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs"
             >
               <Paperclip className="h-3 w-3 text-muted-foreground shrink-0" />
-              <span className="truncate max-w-[140px]">
-                {att.originalName}
-              </span>
+              <span className="truncate max-w-[140px]">{att.originalName}</span>
               <span className="text-muted-foreground shrink-0">
                 {formatFileSize(att.size)}
               </span>

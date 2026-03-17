@@ -6,7 +6,6 @@
  *
  * Usage:
  *   pnpm script view-screen
- *   pnpm script view-screen --full    (include thread messages)
  */
 
 import fs from "fs";
@@ -29,7 +28,8 @@ export default async function main(): Promise<void> {
 
   const navigation = readJson("navigation.json");
   const emailList = readJson("email-list.json");
-  const thread = full ? readJson("thread.json") : null;
+  // Always include thread.json if it exists (user has a thread open); --full is now a no-op kept for compat
+  const thread = readJson("thread.json");
 
   const screen: Record<string, unknown> = {};
 
@@ -44,8 +44,10 @@ export default async function main(): Promise<void> {
 
   console.error(
     `Current view: ${(navigation as any)?.view ?? "unknown"}` +
-    ((navigation as any)?.threadId ? ` (thread: ${(navigation as any).threadId})` : "") +
-    ` — ${(emailList as any)?.count ?? 0} email(s) on screen`
+      ((navigation as any)?.threadId
+        ? ` (thread: ${(navigation as any).threadId})`
+        : "") +
+      ` — ${(emailList as any)?.count ?? 0} email(s) on screen`,
   );
   output(screen);
 }

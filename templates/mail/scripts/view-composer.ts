@@ -31,7 +31,9 @@ export default async function main(): Promise<void> {
   }
 
   // List all open drafts
-  const files = fs.readdirSync(STATE_DIR).filter((f) => f.startsWith("compose-") && f.endsWith(".json"));
+  const files = fs
+    .readdirSync(STATE_DIR)
+    .filter((f) => f.startsWith("compose-") && f.endsWith(".json"));
 
   if (files.length === 0) {
     console.error("No compose drafts are open.");
@@ -39,13 +41,15 @@ export default async function main(): Promise<void> {
     return;
   }
 
-  const drafts = files.map((f) => {
-    try {
-      return JSON.parse(fs.readFileSync(path.join(STATE_DIR, f), "utf-8"));
-    } catch {
-      return null;
-    }
-  }).filter(Boolean);
+  const drafts = files
+    .map((f) => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(STATE_DIR, f), "utf-8"));
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
 
   console.error(`${drafts.length} draft(s) open`);
   output(drafts);
