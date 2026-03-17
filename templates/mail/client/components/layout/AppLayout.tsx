@@ -512,7 +512,10 @@ export function AppLayout({ children }: AppLayoutProps) {
                   className="flex items-center hover:opacity-90 transition-opacity"
                   title="Accounts"
                 >
-                  <div className="flex items-center" style={{ marginRight: accounts.length > 1 ? 0 : undefined }}>
+                  <div
+                    className="flex items-center"
+                    style={{ marginRight: accounts.length > 1 ? 0 : undefined }}
+                  >
                     {accounts.map((account, i) => (
                       <div
                         key={account.email}
