@@ -1,4 +1,12 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+  createContext,
+  useContext,
+} from "react";
 import {
   Link,
   useNavigate,
@@ -33,6 +41,23 @@ import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { getCallbackOrigin } from "@agent-native/core/client";
 import type { Label } from "@shared/types";
 import { toast } from "sonner";
+
+// ─── Account Filter Context ──────────────────────────────────────────────────
+
+type AccountFilterContextType = {
+  /** Set of active account emails. Empty = show all (no filtering). */
+  activeAccounts: Set<string>;
+  allAccounts: Array<{ email: string; photoUrl?: string }>;
+};
+
+const AccountFilterContext = createContext<AccountFilterContextType>({
+  activeAccounts: new Set(),
+  allAccounts: [],
+});
+
+export function useAccountFilter() {
+  return useContext(AccountFilterContext);
+}
 
 /** Extract the trailing segment of a nested label name, e.g. "[Superhuman]/AI/Pitch" → "Pitch" */
 function shortLabelName(name: string): string {
@@ -74,6 +99,10 @@ export function AppLayout({ children }: AppLayoutProps) {
   const accounts = googleStatus.data?.accounts ?? [];
   const hasAccounts = accounts.length > 0;
   const [accountPopoverOpen, setAccountPopoverOpen] = useState(false);
+  // Account filter: which accounts' emails to show. Empty set = all accounts.
+  const [activeAccounts, setActiveAccounts] = useState<Set<string>>(
+    new Set(),
+  );
   const [tabSettingsOpen, setTabSettingsOpen] = useState(false);
   const [labelSearch, setLabelSearch] = useState("");
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -349,7 +378,13 @@ export function AppLayout({ children }: AppLayoutProps) {
     return label?.totalCount ?? 0;
   };
 
+  const accountFilterValue = useMemo(
+    () => ({ activeAccounts, allAccounts: accounts }),
+    [activeAccounts, accounts],
+  );
+
   return (
+    <AccountFilterContext.Provider value={accountFilterValue}>
     <div className="flex h-screen overflow-hidden bg-background">
       {/* Main content area */}
       <div className="relative flex flex-1 flex-col overflow-hidden">
@@ -516,35 +551,64 @@ export function AppLayout({ children }: AppLayoutProps) {
                     className="flex items-center"
                     style={{ marginRight: accounts.length > 1 ? 0 : undefined }}
                   >
-                    {accounts.map((account, i) => (
-                      <div
-                        key={account.email}
-                        className="relative rounded-full ring-2 ring-card"
-                        style={{
-                          marginLeft: i === 0 ? 0 : -8,
-                          zIndex: accounts.length - i,
-                        }}
-                      >
-                        {account.photoUrl ? (
-                          <img
-                            src={account.photoUrl}
-                            alt=""
-                            className="h-7 w-7 rounded-full object-cover"
-                            referrerPolicy="no-referrer"
-                          />
-                        ) : (
-                          <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center text-[11px] font-semibold text-primary">
-                            {account.email[0]?.toUpperCase()}
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                    {accounts.map((account, i) => {
+                      const isActive =
+                        activeAccounts.size === 0 ||
+                        activeAccounts.has(account.email);
+                      return (
+                        <div
+                          key={account.email}
+                          className={cn(
+                            "relative rounded-full ring-2 ring-card transition-opacity",
+                            !isActive && "opacity-30",
+                          )}
+                          style={{
+                            marginLeft: i === 0 ? 0 : -8,
+                            zIndex: accounts.length - i,
+                          }}
+                        >
+                          {account.photoUrl ? (
+                            <img
+                              src={account.photoUrl}
+                              alt=""
+                              className="h-7 w-7 rounded-full object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center text-[11px] font-semibold text-primary">
+                              {account.email[0]?.toUpperCase()}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </button>
 
                 {accountPopoverOpen && (
                   <AccountPopover
                     accounts={accounts}
+                    activeAccounts={activeAccounts}
+                    onToggleAccount={(email) => {
+                      setActiveAccounts((prev) => {
+                        const next = new Set(prev);
+                        if (next.size === 0) {
+                          // Switching from "all" → deselect this one (keep others)
+                          for (const a of accounts) {
+                            if (a.email !== email) next.add(a.email);
+                          }
+                        } else if (next.has(email)) {
+                          next.delete(email);
+                          // If nothing left, reset to "all"
+                          if (next.size === 0) return new Set();
+                        } else {
+                          next.add(email);
+                          // If all are now checked, reset to "all" (empty set)
+                          if (next.size === accounts.length) return new Set();
+                        }
+                        return next;
+                      });
+                    }}
                     onClose={() => setAccountPopoverOpen(false)}
                   />
                 )}
@@ -599,6 +663,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         onMuteThread={handleMuteThread}
       />
     </div>
+    </AccountFilterContext.Provider>
   );
 }
 
@@ -763,9 +828,13 @@ function TabSettingsPopover({
 
 function AccountPopover({
   accounts,
+  activeAccounts,
+  onToggleAccount,
   onClose,
 }: {
   accounts: Array<{ email: string; photoUrl?: string }>;
+  activeAccounts: Set<string>;
+  onToggleAccount: (email: string) => void;
   onClose: () => void;
 }) {
   const [wantAuthUrl, setWantAuthUrl] = useState(false);
@@ -792,6 +861,9 @@ function AccountPopover({
     }
   }, [authUrl.data, accounts.length]);
 
+  // Empty activeAccounts means "all selected"
+  const allSelected = activeAccounts.size === 0;
+
   return (
     <div className="absolute right-0 top-full mt-1.5 z-50 w-72 rounded-lg border border-border/50 bg-card shadow-xl">
       <div className="px-3 py-2 border-b border-border/30">
@@ -801,34 +873,65 @@ function AccountPopover({
       </div>
 
       <div className="py-1">
-        {accounts.map((account) => (
-          <div
-            key={account.email}
-            className="flex items-center gap-2.5 px-3 py-2 hover:bg-accent/50 transition-colors group"
-          >
-            {account.photoUrl ? (
-              <img
-                src={account.photoUrl}
-                alt=""
-                className="h-6 w-6 rounded-full object-cover shrink-0"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-semibold text-primary shrink-0">
-                {account.email[0]?.toUpperCase()}
-              </div>
-            )}
-            <span className="text-[13px] text-foreground/80 truncate flex-1">
-              {account.email}
-            </span>
-            <button
-              onClick={() => disconnectGoogle.mutate(account.email)}
-              className="opacity-0 group-hover:opacity-100 text-[11px] text-muted-foreground hover:text-red-400 transition-all"
+        {accounts.map((account) => {
+          const isChecked = allSelected || activeAccounts.has(account.email);
+          return (
+            <div
+              key={account.email}
+              className="flex items-center gap-2.5 px-3 py-2 hover:bg-accent/50 transition-colors group"
             >
-              Remove
-            </button>
-          </div>
-        ))}
+              {/* Checkbox */}
+              <button
+                onClick={() => onToggleAccount(account.email)}
+                className="shrink-0"
+              >
+                <span
+                  className={cn(
+                    "flex h-3.5 w-3.5 items-center justify-center rounded border transition-colors",
+                    isChecked
+                      ? "border-primary bg-primary"
+                      : "border-border/60",
+                  )}
+                >
+                  {isChecked && (
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="currentColor"
+                      className="h-2.5 w-2.5 text-primary-foreground"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  )}
+                </span>
+              </button>
+              {account.photoUrl ? (
+                <img
+                  src={account.photoUrl}
+                  alt=""
+                  className="h-6 w-6 rounded-full object-cover shrink-0"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-semibold text-primary shrink-0">
+                  {account.email[0]?.toUpperCase()}
+                </div>
+              )}
+              <span className="text-[13px] text-foreground/80 truncate flex-1">
+                {account.email}
+              </span>
+              <button
+                onClick={() => disconnectGoogle.mutate(account.email)}
+                className="opacity-0 group-hover:opacity-100 text-[11px] text-muted-foreground hover:text-red-400 transition-all"
+              >
+                Remove
+              </button>
+            </div>
+          );
+        })}
       </div>
 
       <div className="border-t border-border/30 px-3 py-2">

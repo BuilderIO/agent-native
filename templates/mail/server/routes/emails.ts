@@ -764,16 +764,69 @@ export function deleteEmail(req: Request, res: Response) {
 
 // ─── Send / compose ───────────────────────────────────────────────────────────
 
-export function sendEmail(req: Request, res: Response) {
+export async function sendEmail(req: Request, res: Response): Promise<void> {
   const settings = readSettings();
   const { to, cc, bcc, subject, body, replyToId } = req.body;
 
-  if (!to || !subject === undefined || body === undefined) {
-    return res
+  if (!to || subject === undefined || body === undefined) {
+    res
       .status(400)
       .json({ error: "Missing required fields: to, subject, body" });
+    return;
   }
 
+  // If Gmail is connected, send via Gmail API
+  if (isConnected()) {
+    try {
+      const client = await getClient();
+      if (client) {
+        const gmail = google.gmail({ version: "v1", auth: client });
+        const raw = buildRawEmail({
+          from: `${settings.name} <${settings.email}>`,
+          to: to || "",
+          cc: cc || "",
+          bcc: bcc || "",
+          subject: subject || "(no subject)",
+          body: body || "",
+        });
+
+        // If replying, include threadId so Gmail threads the message
+        const requestBody: any = { raw };
+        if (replyToId) {
+          try {
+            const original = await gmail.users.messages.get({
+              userId: "me",
+              id: replyToId,
+              format: "minimal",
+            });
+            if (original.data.threadId) {
+              requestBody.threadId = original.data.threadId;
+            }
+          } catch {
+            // If we can't find the original, send without threading
+          }
+        }
+
+        const sent = await (gmail.users.messages.send as any)({
+          userId: "me",
+          requestBody,
+        });
+
+        res.status(201).json({
+          id: sent.data.id,
+          threadId: sent.data.threadId,
+          labelIds: sent.data.labelIds || ["SENT"],
+        });
+        return;
+      }
+    } catch (error: any) {
+      console.error("[sendEmail] Gmail API error:", error.message);
+      res.status(500).json({ error: "Failed to send email via Gmail" });
+      return;
+    }
+  }
+
+  // Local fallback: store as sent email
   const emails = readEmails();
 
   const newEmail: EmailMessage = {

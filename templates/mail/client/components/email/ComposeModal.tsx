@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   X,
   Minus,
@@ -31,6 +31,23 @@ import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import { openFilePicker, uploadFile, formatFileSize } from "@/lib/upload";
 import type { ComposeAttachment } from "@shared/types";
 
+/**
+ * Split a compose body into the editable portion and the quoted history.
+ * Returns [editable, quoted] — quoted is empty string when there's no quote.
+ */
+function splitQuotedContent(body: string): [string, string] {
+  // Match "— On ..., ... wrote:" (reply) or "— Forwarded message —" (forward)
+  const replyMatch = body.match(/\n?\n?— On .+? wrote:\n/);
+  const fwdMatch = body.match(/\n?\n?— Forwarded message —\n/);
+
+  const match = replyMatch || fwdMatch;
+  if (!match || match.index === undefined) return [body, ""];
+
+  const editable = body.slice(0, match.index);
+  const quoted = body.slice(match.index);
+  return [editable, quoted];
+}
+
 interface ComposeModalProps {
   drafts: ComposeState[];
   activeId: string | null;
@@ -60,15 +77,17 @@ export function ComposeModal({
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
   const [showCcBcc, setShowCcBcc] = useState(false);
+  const [showQuoted, setShowQuoted] = useState(false);
 
   const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
   const editorRef = useRef<ComposeEditorHandle>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
 
-  // Reset CC/BCC visibility when switching tabs
+  // Reset CC/BCC visibility and quote expansion when switching tabs
   useEffect(() => {
     setShowCcBcc(false);
+    setShowQuoted(false);
   }, [activeId]);
 
   // Focus editor when reply/forward opens
@@ -356,28 +375,20 @@ export function ComposeModal({
           </div>
 
           {/* Body */}
-          <div
-            className="flex-1 overflow-y-auto px-4 py-3 cursor-text"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) {
-                editorRef.current?.getEditor()?.commands.focus("end");
-              }
-            }}
-          >
-            <ComposeEditor
-              ref={editorRef}
-              content={activeDraft.body}
-              onChange={(md) => onUpdate(activeId!, { body: md })}
-              onGenerate={() => setGenerateOpen(true)}
-              onSend={handleSend}
-              onClose={() => {
-                if (activeId) onClose(activeId);
-              }}
-              onFlush={() => (activeId ? onFlush(activeId) : undefined)}
-              isGenerating={isGenerating}
-              sendToAgent={sendToAgent}
-            />
-          </div>
+          <ComposeBody
+            activeDraft={activeDraft}
+            activeId={activeId!}
+            editorRef={editorRef}
+            onUpdate={onUpdate}
+            onFlush={onFlush}
+            onClose={onClose}
+            onSend={handleSend}
+            isGenerating={isGenerating}
+            sendToAgent={sendToAgent}
+            setGenerateOpen={setGenerateOpen}
+            showQuoted={showQuoted}
+            setShowQuoted={setShowQuoted}
+          />
 
           {/* Attachments */}
           {activeDraft.attachments && activeDraft.attachments.length > 0 && (
@@ -537,6 +548,98 @@ export function ComposeModal({
               </Button>
             </div>
           </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Compose body area — splits quoted history from editable content.
+ * Shows "..." toggle for quoted content in reply/forward mode.
+ */
+function ComposeBody({
+  activeDraft,
+  activeId,
+  editorRef,
+  onUpdate,
+  onFlush,
+  onClose,
+  onSend,
+  isGenerating,
+  sendToAgent,
+  setGenerateOpen,
+  showQuoted,
+  setShowQuoted,
+}: {
+  activeDraft: ComposeState;
+  activeId: string;
+  editorRef: React.RefObject<ComposeEditorHandle | null>;
+  onUpdate: (id: string, partial: Partial<ComposeState>) => void;
+  onFlush: (id: string) => Promise<unknown> | undefined;
+  onClose: (id: string) => void;
+  onSend: () => void;
+  isGenerating: boolean;
+  sendToAgent: (opts: {
+    message: string;
+    context?: string;
+    submit?: boolean;
+  }) => void;
+  setGenerateOpen: (open: boolean) => void;
+  showQuoted: boolean;
+  setShowQuoted: (show: boolean) => void;
+}) {
+  const [editableContent, quotedContent] = useMemo(
+    () => splitQuotedContent(activeDraft.body),
+    [activeDraft.body],
+  );
+
+  // Store quoted content in a ref so the onChange handler always has the latest
+  const quotedRef = useRef(quotedContent);
+  quotedRef.current = quotedContent;
+
+  const hasQuote = quotedContent.length > 0;
+
+  return (
+    <div
+      className="flex-1 overflow-y-auto px-4 py-3 cursor-text"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          editorRef.current?.getEditor()?.commands.focus("end");
+        }
+      }}
+    >
+      <ComposeEditor
+        ref={editorRef}
+        content={hasQuote ? editableContent : activeDraft.body}
+        onChange={(md) => {
+          if (hasQuote) {
+            onUpdate(activeId, { body: md + quotedRef.current });
+          } else {
+            onUpdate(activeId, { body: md });
+          }
+        }}
+        onGenerate={() => setGenerateOpen(true)}
+        onSend={onSend}
+        onClose={() => onClose(activeId)}
+        onFlush={() => onFlush(activeId)}
+        isGenerating={isGenerating}
+        sendToAgent={sendToAgent}
+      />
+      {hasQuote && (
+        <>
+          <button
+            type="button"
+            onClick={() => setShowQuoted(!showQuoted)}
+            className="mt-1 text-muted-foreground/50 hover:text-muted-foreground text-[13px] tracking-[0.15em] transition-colors"
+          >
+            ···
+          </button>
+          {showQuoted && (
+            <pre className="mt-2 whitespace-pre-wrap text-[13px] text-muted-foreground/60 font-sans leading-relaxed">
+              {quotedContent.trim()}
+            </pre>
+          )}
         </>
       )}
     </div>
