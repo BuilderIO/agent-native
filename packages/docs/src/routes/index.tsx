@@ -117,35 +117,42 @@ function BidirectionalTabs() {
   }, [activeTab]);
 
   // Scroll only within the tab container (horizontal, mobile only).
-  // Never calls scrollIntoView so the page never jumps vertically.
-  const scrollTabButtonIntoContainerView = (index: number) => {
+  // Never uses scrollIntoView — that causes full-page vertical jumps.
+  const scrollTabIntoContainerView = (index: number) => {
     const btn = tabButtonRefs.current[index];
     const container = tabContainerRef.current;
     if (!btn || !container) return;
+    // On desktop the container is flex-col with no fixed width overflow,
+    // all tabs are visible — skip entirely if no horizontal overflow.
+    if (container.scrollWidth <= container.clientWidth) return;
     const btnLeft = btn.offsetLeft;
     const btnRight = btnLeft + btn.offsetWidth;
     const { scrollLeft, offsetWidth } = container;
     if (btnLeft < scrollLeft) {
       container.scrollTo({ left: btnLeft, behavior: "smooth" });
     } else if (btnRight > scrollLeft + offsetWidth) {
-      container.scrollTo({
-        left: btnRight - offsetWidth,
-        behavior: "smooth",
-      });
+      container.scrollTo({ left: btnRight - offsetWidth, behavior: "smooth" });
     }
   };
 
-  const handleTabClick = (index: number) => {
+  // Scroll the newly-active tab button into the container's horizontal view
+  // whenever activeTab changes (covers both clicks and auto-advance).
+  useEffect(() => {
+    scrollTabIntoContainerView(activeTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  const handleTabClick = (index: number, btn: HTMLButtonElement | null) => {
     setActiveTab(index);
-    scrollTabButtonIntoContainerView(index);
+    // Re-focus with preventScroll so keyboard a11y is maintained but the
+    // page doesn't jump. (mousedown preventDefault removed native focus.)
+    btn?.focus({ preventScroll: true });
   };
 
   const handleVideoEnded = (i: number) => {
     setActiveTab((prev) => {
       if (prev !== i) return prev;
-      const next = (i + 1) % bidirectionalTabs.length;
-      scrollTabButtonIntoContainerView(next);
-      return next;
+      return (i + 1) % bidirectionalTabs.length;
     });
   };
 
@@ -161,7 +168,14 @@ function BidirectionalTabs() {
             ref={(el) => {
               tabButtonRefs.current[i] = el;
             }}
-            onClick={() => handleTabClick(i)}
+            onMouseDown={(e) => {
+              // Prevent the browser from auto-scrolling the page to the
+              // focused element — we handle container-only scrolling ourselves.
+              e.preventDefault();
+            }}
+            onClick={(e) =>
+              handleTabClick(i, e.currentTarget as HTMLButtonElement)
+            }
             className={`cursor-pointer rounded-xl border p-4 text-left transition-all md:p-5 ${
               i === activeTab
                 ? "border-[var(--accent)] bg-[var(--accent)]/5 shadow-[0_0_0_1px_var(--accent)]"
