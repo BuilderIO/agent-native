@@ -69,7 +69,7 @@ export function ComposeBubbleToolbar({
 
     sendToAgent({
       message: aiPrompt.trim(),
-      context: `The user has selected text in their email draft and wants you to modify it. The current draft is saved in application-state/compose.json. You can read and update it directly.\n\nSelected text:\n"${selectedText}"`,
+      context: `The user has selected specific text in their email draft and wants you to edit ONLY that selected portion. You MUST:\n1. Read the full draft from application-state/compose.json\n2. Find and replace ONLY the selected text (shown below) with your edited version based on the user's instruction\n3. Preserve ALL other content exactly as-is — subject, recipients, and every other part of the body that was not selected\n4. Write the updated draft back to application-state/compose.json\n\nSelected text to edit:\n"${selectedText}"`,
       submit: true,
     });
 
@@ -163,29 +163,32 @@ export function ComposeBubbleToolbar({
             </>
           ) : (
             <>
-              <input
+              <textarea
                 autoFocus
-                type="text"
                 placeholder="e.g. make more formal..."
                 value={aiPrompt}
+                rows={2}
                 onChange={(e) => setAiPrompt(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                     e.preventDefault();
+                    e.stopPropagation();
                     void handleAiAssist();
                   }
                   if (e.key === "Escape") {
+                    e.preventDefault();
                     setShowAiInput(false);
                     setAiPrompt("");
                   }
                 }}
-                className="bg-transparent border-none outline-none text-white text-sm w-52 px-1 py-0.5 placeholder:text-gray-400"
+                className="bg-transparent border-none outline-none text-white text-sm w-52 px-1 py-0.5 placeholder:text-gray-400 resize-none leading-snug"
               />
               <button
                 onClick={() => void handleAiAssist()}
-                className="text-xs text-blue-400 hover:text-blue-300 px-1.5 py-0.5 font-medium"
+                title="Generate (⌘Enter)"
+                className="text-xs text-blue-400 hover:text-blue-300 px-1.5 py-0.5 font-medium shrink-0 self-end pb-1"
               >
-                Send
+                Generate
               </button>
             </>
           )}
