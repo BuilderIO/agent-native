@@ -228,7 +228,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
 
       const term = new Terminal({
         cursorBlink: true,
-        fontSize: 11,
+        fontSize: 12,
         fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
         theme: {
           background: "#000000",
