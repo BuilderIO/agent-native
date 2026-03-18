@@ -2,9 +2,22 @@
 
 **Agentic applications you own.**
 
-Agent-native is an open source framework for building apps where an AI agent, a full application UI, and a computer work together as one. Fork a template, launch in minutes, and let AI help you customize it to your exact needs.
+Agent-native is an open source framework for building full-featured apps with an AI agent deeply integrated into the UI.
 
 Other products charge you for rigid software you can't change. Agent-native gives you the code — you own it, you customize it, you evolve it with AI.
+
+[Fork a template and launch in minutes.](https://agent-native.com/templates)
+
+## Agents and UIs — Fully Connected
+
+The agent and the UI are equal citizens of the same system. Every action works both ways — click it or ask for it.
+
+![Agents and UIs fully connected](https://cdn.builder.io/api/v1/file/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7e5fa96e7d4a475eb61532f03bea6042)
+
+- **The agent sees everything** — It can read and update any UI, any data, any state in the application.
+- **The UI talks to the agent** — Buttons, forms, and workflows push structured content to the agent, giving you guided flows that all go through the agent — including skills, rules, and instructions.
+- **The agent updates its own code** — It can modify the app itself to change features and functionality. Your tools get better over time.
+- **Everything works both ways** — Every action available in the UI is also available to the agent. You can click to do something, or ask the agent to do it.
 
 ## Templates
 
@@ -105,15 +118,6 @@ Or **[launch a template](https://agent-native.com/templates)** — no setup requ
 | **Customization**    | Can't              | Prompt-only             | Full but slow    | Agent modifies the app  |
 | **Ownership**        | Rented             | N/A                     | Yours but costly | You own the code        |
 | **Non-dev friendly** | Yes                | No                      | Rarely           | Guided UI + agent       |
-
-## How It Works
-
-Agent-native apps have full bidirectional awareness between the agent and the UI:
-
-- **The agent sees everything** — It can read and update any UI, any data, any state in the application.
-- **The UI talks to the agent** — Buttons, forms, and workflows push structured content to the agent, giving you guided flows that all go through the agent — including skills, rules, and instructions.
-- **The agent updates its own code** — It can modify the app itself to change features and functionality. Your tools get better over time.
-- **Everything works both ways** — Every action available in the UI is also available to the agent. You can click to do something, or ask the agent to do it. Full bidirectional awareness.
 
 ## Harnesses
 
