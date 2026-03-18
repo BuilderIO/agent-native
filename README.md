@@ -12,7 +12,7 @@ SaaS products charge you for rigid software you can't change. Agent-native gives
 
 The agent and the UI are equal citizens of the same system. Every action works both ways — click it or ask for it.
 
-![Agents and UIs fully connected](https://cdn.builder.io/api/v1/file/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fec6b3e3d70c5448da627ad07122ade6e)
+![Agents and UIs fully connected](https://cdn.builder.io/api/v1/file/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fadc1e9e9368e4a8cb1b4dbb5aae5aaa2)
 
 - **The agent sees everything** — It can read and update any UI, any data, any state in the application.
 - **The UI talks to the agent** — Buttons, forms, and workflows push structured content to the agent, giving you guided flows that all go through the agent — including skills, rules, and instructions.
