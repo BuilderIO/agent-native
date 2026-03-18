@@ -6,8 +6,6 @@ Agent-native is an open source framework for building full-featured apps with ag
 
 SaaS products charge you for rigid software you can't change. Agent-native gives you the code — you own it, you customize it, you evolve it with AI.
 
-[Fork a template and launch in minutes.](https://agent-native.com/templates)
-
 ## Agents and UIs — Fully Connected
 
 The agent and the UI are equal citizens of the same system. Every action works both ways — click it or ask for it.
@@ -118,19 +116,6 @@ Or **[launch a template](https://agent-native.com/templates)** — no setup requ
 | **Customization**    | Can't              | Prompt-only             | Full but slow    | Agent modifies the app  |
 | **Ownership**        | Rented             | N/A                     | Yours but costly | You own the code        |
 | **Non-dev friendly** | Yes                | No                      | Rarely           | Guided UI + agent       |
-
-## Harnesses
-
-Agent-native apps run inside a **harness** — a host that provides the AI agent alongside your app UI.
-
-|                   | Local / Open Source                  | Builder Cloud                       |
-| ----------------- | ------------------------------------ | ----------------------------------- |
-| **Run**           | Claude Code CLI or any local harness | One-click launch from templates     |
-| **Collaboration** | Solo                                 | Real-time multiplayer               |
-| **Features**      | Full permissions, full control       | Visual editing, roles & permissions |
-| **Best for**      | Solo dev, local testing, OSS         | Teams, production                   |
-
-Your app code is identical regardless of harness. Start local, go to cloud when you need teams.
 
 ## Docs
 
