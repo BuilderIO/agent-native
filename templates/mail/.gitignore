@@ -38,6 +38,10 @@ data/google-accounts/
 # Uploaded media (images, attachments)
 data/uploads/
 
+# Ephemeral data
+data/refresh-trigger.json
+.claude/scheduled_tasks.lock
+
 # Ephemeral UI state (agent-readable, not persisted)
 application-state/
 
