@@ -101,6 +101,7 @@ const bidirectionalTabs = [
 function BidirectionalTabs() {
   const [activeTab, setActiveTab] = useState(0);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
+  const tabButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   useEffect(() => {
     videoRefs.current.forEach((video, i) => {
@@ -116,12 +117,29 @@ function BidirectionalTabs() {
 
   const handleTabClick = (index: number) => {
     setActiveTab(index);
+    const btn = tabButtonRefs.current[index];
+    if (btn) {
+      btn.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "center",
+      });
+    }
   };
 
   const handleVideoEnded = (i: number) => {
     setActiveTab((prev) => {
-      if (prev === i) return (i + 1) % bidirectionalTabs.length;
-      return prev;
+      if (prev !== i) return prev;
+      const next = (i + 1) % bidirectionalTabs.length;
+      const btn = tabButtonRefs.current[next];
+      if (btn) {
+        btn.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "center",
+        });
+      }
+      return next;
     });
   };
 
@@ -131,6 +149,9 @@ function BidirectionalTabs() {
         {bidirectionalTabs.map((tab, i) => (
           <button
             key={i}
+            ref={(el) => {
+              tabButtonRefs.current[i] = el;
+            }}
             onClick={() => handleTabClick(i)}
             className={`cursor-pointer rounded-xl border p-4 text-left transition-all md:p-5 ${
               i === activeTab
