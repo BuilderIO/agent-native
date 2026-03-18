@@ -1,3 +1,4 @@
+import { IconMoon, IconSun } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
 type Theme = "light" | "dark";
@@ -50,7 +51,11 @@ export default function ThemeToggle() {
       title={label}
       className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
     >
-      {theme === "light" ? "\u2600" : "\u263E"}
+      {theme === "light" ? (
+        <IconSun size={16} stroke={1.5} />
+      ) : (
+        <IconMoon size={16} stroke={1.5} />
+      )}
     </button>
   );
 }
