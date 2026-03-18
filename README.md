@@ -96,15 +96,24 @@ pnpm dev
 
 Or **[launch a template](https://agent-native.com/templates)** — no setup required.
 
+## The Best of Both Worlds
+
+|                      | SaaS Tools         | Raw AI Agents           | Internal Tools   | Agent-Native            |
+| -------------------- | ------------------ | ----------------------- | ---------------- | ----------------------- |
+| **UI**               | Polished but rigid | None                    | Months to build  | Full UI, fork & go      |
+| **AI**               | Bolted on          | Powerful, no guardrails | Disconnected     | Agent-first, integrated |
+| **Customization**    | Can't              | Prompt-only             | Full but slow    | Agent modifies the app  |
+| **Ownership**        | Rented             | N/A                     | Yours but costly | You own the code        |
+| **Non-dev friendly** | Yes                | No                      | Rarely           | Guided UI + agent       |
+
 ## How It Works
 
-Agent-native apps follow five rules:
+Agent-native apps have full bidirectional awareness between the agent and the UI:
 
-- **Files as database** — All state lives in files. The agent and UI share the same source of truth.
-- **AI through the agent** — No inline LLM calls. The UI delegates to the agent via a chat bridge. One AI, customizable with skills and instructions.
-- **Agent updates code** — The agent can modify the app itself. Your tools get better over time.
-- **Real-time sync** — File watcher streams changes via SSE. Agent edits appear instantly.
-- **Agent + UI + Computer** — The powerful trio. Everything the UI can do, the agent can do — and vice versa.
+- **The agent sees everything** — It can read and update any UI, any data, any state in the application.
+- **The UI talks to the agent** — Buttons, forms, and workflows push structured content to the agent, giving you guided flows that all go through the agent — including skills, rules, and instructions.
+- **The agent updates its own code** — It can modify the app itself to change features and functionality. Your tools get better over time.
+- **Everything works both ways** — Every action available in the UI is also available to the agent. You can click to do something, or ask the agent to do it. Full bidirectional awareness.
 
 ## Harnesses
 

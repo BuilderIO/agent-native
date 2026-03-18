@@ -290,6 +290,59 @@ function Home() {
           </div>
         </section>
 
+        {/* Bidirectional Awareness */}
+        <section className="border-t border-[var(--border)] py-20">
+          <div className="mb-12 text-center">
+            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+              Full bidirectional awareness
+            </h2>
+            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+              The agent and the UI are equal citizens of the same system. Every
+              action works both ways — click it or ask for it.
+            </p>
+          </div>
+
+          <div className="mx-auto max-w-3xl space-y-4">
+            <div className="rounded-xl border border-[var(--border)] p-6">
+              <div className="mb-1 text-sm font-semibold">
+                The agent sees everything
+              </div>
+              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                It can read and update any UI, any data, any state in the
+                application.
+              </p>
+            </div>
+            <div className="rounded-xl border border-[var(--border)] p-6">
+              <div className="mb-1 text-sm font-semibold">
+                The UI talks to the agent
+              </div>
+              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                Buttons, forms, and workflows push structured content to the
+                agent, giving you guided flows that all go through the agent —
+                including skills, rules, and instructions.
+              </p>
+            </div>
+            <div className="rounded-xl border border-[var(--border)] p-6">
+              <div className="mb-1 text-sm font-semibold">
+                The agent updates its own code
+              </div>
+              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                It can modify the app itself to change features and
+                functionality. Your tools get better over time.
+              </p>
+            </div>
+            <div className="rounded-xl border border-[var(--border)] p-6">
+              <div className="mb-1 text-sm font-semibold">
+                Everything works both ways
+              </div>
+              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+                Every action available in the UI is also available to the agent.
+                You can click to do something, or ask the agent to do it.
+              </p>
+            </div>
+          </div>
+        </section>
+
         {/* The Trio */}
         <section className="border-t border-[var(--border)] py-20">
           <div className="mb-12 text-center">
