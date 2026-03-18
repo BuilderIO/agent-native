@@ -2,7 +2,7 @@
 
 **Agentic applications you own.**
 
-Agent-native is an open source framework for building full-featured apps with an AI agent deeply integrated into the UI.
+Agent-native is an open source framework for building full-featured apps with agentic capabilities integrated from the ground up.
 
 SaaS products charge you for rigid software you can't change. Agent-native gives you the code — you own it, you customize it, you evolve it with AI.
 
@@ -12,7 +12,7 @@ SaaS products charge you for rigid software you can't change. Agent-native gives
 
 The agent and the UI are equal citizens of the same system. Every action works both ways — click it or ask for it.
 
-![Agents and UIs fully connected](https://cdn.builder.io/api/v1/file/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7e5fa96e7d4a475eb61532f03bea6042)
+![Agents and UIs fully connected](https://cdn.builder.io/api/v1/file/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fec6b3e3d70c5448da627ad07122ade6e)
 
 - **The agent sees everything** — It can read and update any UI, any data, any state in the application.
 - **The UI talks to the agent** — Buttons, forms, and workflows push structured content to the agent, giving you guided flows that all go through the agent — including skills, rules, and instructions.
