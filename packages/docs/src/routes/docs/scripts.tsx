@@ -135,10 +135,9 @@ agentChat.send({
       <p>
         For apps that need bidirectional file sync across instances,
         agent-native provides adapters for{" "}
-        <strong>Google Cloud Firestore</strong>, <strong>Supabase</strong>, and{" "}
-        <strong>Neon</strong> (Postgres). All adapters implement the same{" "}
-        <code>FileSyncAdapter</code> interface and plug into{" "}
-        <code>FileSync</code>:
+        <strong>Google Cloud Firestore</strong> and <strong>Supabase</strong>{" "}
+        (Postgres). All adapters implement the same <code>FileSyncAdapter</code>{" "}
+        interface and plug into <code>FileSync</code>:
       </p>
       <CodeBlock
         code={`// Google Cloud Firestore
@@ -168,29 +167,13 @@ const sync = new FileSync({
 });
 await sync.initFileSync();`}
       />
-      <CodeBlock
-        code={`// Neon (Postgres)
-import { FileSync, NeonFileSyncAdapter } from "@agent-native/core/adapters/neon";
-import { neon } from "@neondatabase/serverless";
-
-const sql = neon(DATABASE_URL);
-const adapter = new NeonFileSyncAdapter(sql, { pollIntervalMs: 2000 });
-const sync = new FileSync({
-  appId: "my-app",
-  ownerId: "owner-123",
-  contentRoot: "./content",
-  adapter,
-});
-await sync.initFileSync();`}
-      />
       <p>
         All adapters support: startup sync, remote change listeners, chokidar
         file watchers, three-way merge with LCS-based conflict resolution, and{" "}
         <code>.conflict</code> sidecar files for unresolvable conflicts.
       </p>
       <p>
-        Supabase and Neon require a <code>files</code> table. Run this
-        migration:
+        Supabase requires a <code>files</code> table. Run this migration:
       </p>
       <CodeBlock
         code={`CREATE TABLE files (
