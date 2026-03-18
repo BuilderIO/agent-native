@@ -49,8 +49,8 @@ function DatabaseAdaptersDocs() {
         between the local file system and a remote database.
       </p>
       <p>
-        Three adapters ship with <code>@agent-native/core</code> (Firestore,
-        Supabase, Neon), but you can build your own for any backend — DynamoDB,
+        Two adapters ship with <code>@agent-native/core</code> (Firestore,
+        Supabase), but you can build your own for any backend — DynamoDB,
         MongoDB, Turso, a REST API, whatever you need.
       </p>
       <p>

@@ -74,7 +74,7 @@ In the browser, messages are sent via `window.postMessage()`. In Node.js (script
 
 ## Database Sync Adapters
 
-For apps that need bidirectional file sync across instances, agent-native provides adapters for **Google Cloud Firestore**, **Supabase**, and **Neon** (Postgres). All adapters implement the same `FileSyncAdapter` interface and plug into `FileSync`:
+For apps that need bidirectional file sync across instances, agent-native provides adapters for **Google Cloud Firestore** and **Supabase** (Postgres). All adapters implement the same `FileSyncAdapter` interface and plug into `FileSync`:
 
 ### Google Cloud Firestore
 
@@ -114,29 +114,9 @@ const sync = new FileSync({
 await sync.initFileSync();
 ```
 
-### Neon (Postgres)
+### SQL Migration (Supabase)
 
-```ts
-import {
-  FileSync,
-  NeonFileSyncAdapter,
-} from "@agent-native/core/adapters/neon";
-import { neon } from "@neondatabase/serverless";
-
-const sql = neon(DATABASE_URL);
-const adapter = new NeonFileSyncAdapter(sql, { pollIntervalMs: 2000 });
-const sync = new FileSync({
-  appId: "my-app",
-  ownerId: "owner-123",
-  contentRoot: "./content",
-  adapter,
-});
-await sync.initFileSync();
-```
-
-### SQL Migration (Supabase & Neon)
-
-Supabase and Neon use the same Postgres table schema:
+Supabase uses the following Postgres table schema:
 
 ```sql
 CREATE TABLE files (

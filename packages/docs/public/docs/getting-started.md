@@ -75,7 +75,6 @@ export default {
 | `@agent-native/core/adapters/sync`      | FileSyncAdapter interface, FileRecord, FileChange types                                                                                                                                                         |
 | `@agent-native/core/adapters/firestore` | FirestoreFileSyncAdapter, FileSync, threeWayMerge, loadSyncConfig                                                                                                                                               |
 | `@agent-native/core/adapters/supabase`  | SupabaseFileSyncAdapter, FileSync, threeWayMerge, loadSyncConfig                                                                                                                                                |
-| `@agent-native/core/adapters/neon`      | NeonFileSyncAdapter, FileSync, threeWayMerge, loadSyncConfig                                                                                                                                                    |
 
 ## Architecture Principles
 

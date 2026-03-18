@@ -41,7 +41,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs",
     section: "Subpath Exports",
     sectionId: "subpath-exports",
-    text: "@agent-native/core exports createServer createFileWatcher createSSEHandler createProductionServer runScript parseArgs loadEnv fail agentChat sendToAgentChat useAgentChatGenerating useFileWatcher cn. @agent-native/core/vite exports defineConfig defineServerConfig. @agent-native/core/tailwind Tailwind preset HSL colors shadcn/ui tokens animations. @agent-native/core/adapters/sync FileSyncAdapter interface FileRecord FileChange types. @agent-native/core/adapters/firestore FirestoreFileSyncAdapter FileSync threeWayMerge loadSyncConfig. @agent-native/core/adapters/supabase SupabaseFileSyncAdapter FileSync. @agent-native/core/adapters/neon NeonFileSyncAdapter FileSync polling-based sync.",
+    text: "@agent-native/core exports createServer createFileWatcher createSSEHandler createProductionServer runScript parseArgs loadEnv fail agentChat sendToAgentChat useAgentChatGenerating useFileWatcher cn. @agent-native/core/vite exports defineConfig defineServerConfig. @agent-native/core/tailwind Tailwind preset HSL colors shadcn/ui tokens animations. @agent-native/core/adapters/sync FileSyncAdapter interface FileRecord FileChange types. @agent-native/core/adapters/firestore FirestoreFileSyncAdapter FileSync threeWayMerge loadSyncConfig. @agent-native/core/adapters/supabase SupabaseFileSyncAdapter FileSync.",
   },
   {
     page: "Getting Started",
@@ -152,7 +152,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/scripts",
     section: "Database Sync Adapters",
     sectionId: "database-sync-adapters",
-    text: "Bidirectional file sync across instances with pluggable database adapters. Supports Google Cloud Firestore Supabase and Neon Postgres. All adapters implement FileSyncAdapter interface. FirestoreFileSyncAdapter real-time via onSnapshot. SupabaseFileSyncAdapter real-time via Supabase Realtime channels. NeonFileSyncAdapter polling-based serverless SQL. Features startup sync remote change listeners chokidar file watchers three-way merge with LCS-based conflict resolution and .conflict sidecar files. Supabase and Neon require a files table migration. Custom adapters via @agent-native/core/adapters/sync.",
+    text: "Bidirectional file sync across instances with pluggable database adapters. Supports Google Cloud Firestore and Supabase Postgres. All adapters implement FileSyncAdapter interface. FirestoreFileSyncAdapter real-time via onSnapshot. SupabaseFileSyncAdapter real-time via Supabase Realtime channels. Features startup sync remote change listeners chokidar file watchers three-way merge with LCS-based conflict resolution and .conflict sidecar files. Supabase requires a files table migration. Custom adapters via @agent-native/core/adapters/sync.",
   },
 
   // Harnesses
@@ -226,7 +226,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/key-concepts",
     section: "Database Adapters",
     sectionId: "database-adapters",
-    text: "Pluggable adapter system syncs files to a remote database in real-time. Three adapters ship out of the box: Google Cloud Firestore real-time via onSnapshot. Supabase Postgres real-time via Supabase Realtime channels. Neon Postgres polling-based serverless SQL. All adapters use chokidar file watching three-way merge with LCS-based conflict resolution and .conflict sidecar files. Database is never source of truth files are. Database is sync mechanism for collaboration. Configure which files sync via glob patterns in sync-config.json.",
+    text: "Pluggable adapter system syncs files to a remote database in real-time. Two adapters ship out of the box: Google Cloud Firestore real-time via onSnapshot. Supabase Postgres real-time via Supabase Realtime channels. All adapters use chokidar file watching three-way merge with LCS-based conflict resolution and .conflict sidecar files. Database is never source of truth files are. Database is sync mechanism for collaboration. Configure which files sync via glob patterns in sync-config.json.",
   },
   {
     page: "Key Concepts",
