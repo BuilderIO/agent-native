@@ -66,22 +66,26 @@ export function PromptInput({ onGenerate, isGenerating }: PromptInputProps) {
         />
       </div>
 
-      {/* Variations slider */}
+      {/* Variations picker */}
       <div className="mb-4">
-        <label className="mb-1.5 flex items-center justify-between text-sm font-medium text-foreground">
-          <span>Variations</span>
-          <span className="tabular-nums text-muted-foreground">
-            {variations}
-          </span>
+        <label className="mb-1.5 block text-sm font-medium text-foreground">
+          Variations
         </label>
-        <input
-          type="range"
-          min={1}
-          max={8}
-          value={variations}
-          onChange={(e) => setVariations(Number(e.target.value))}
-          className="w-full accent-primary"
-        />
+        <div className="inline-flex rounded-md border border-input">
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+            <button
+              key={n}
+              onClick={() => setVariations(n)}
+              className={`min-w-[2.25rem] px-2 py-1.5 text-sm font-medium tabular-nums transition-colors first:rounded-l-md last:rounded-r-md ${
+                variations === n
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-background text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Model selector */}
