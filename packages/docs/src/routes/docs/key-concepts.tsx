@@ -351,10 +351,10 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`}
       </p>
       <p>
         Agent-native provides a <strong>pluggable adapter system</strong> that
-        syncs files to a remote database in real-time. Three adapters ship out
-        of the box:
+        syncs files to a remote database in real-time. Two adapters ship out of
+        the box:
       </p>
-      <div className="my-4 grid gap-4 sm:grid-cols-3">
+      <div className="my-4 grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl border border-[var(--border)] p-5">
           <div className="mb-2 text-sm font-semibold">
             Google Cloud Firestore
@@ -369,13 +369,6 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`}
           <p className="m-0 text-sm text-[var(--fg-secondary)]">
             Real-time via Supabase Realtime channels. Best for teams using
             Supabase for auth, storage, or edge functions.
-          </p>
-        </div>
-        <div className="rounded-xl border border-[var(--border)] p-5">
-          <div className="mb-2 text-sm font-semibold">Neon (Postgres)</div>
-          <p className="m-0 text-sm text-[var(--fg-secondary)]">
-            Polling-based sync via serverless SQL. Best for serverless-first
-            architectures and Vercel deployments.
           </p>
         </div>
       </div>

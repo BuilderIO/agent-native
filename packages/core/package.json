@@ -25,7 +25,6 @@
     "./adapters/sync": "./dist/adapters/sync/index.js",
     "./adapters/firestore": "./dist/adapters/firestore/index.js",
     "./adapters/supabase": "./dist/adapters/supabase/index.js",
-    "./adapters/neon": "./dist/adapters/neon/index.js",
     "./adapters/cli": "./dist/adapters/cli/index.js",
     "./a2a": "./dist/a2a/index.js",
     "./tailwind": "./dist/tailwind.preset.js",
@@ -54,7 +53,6 @@
   },
   "peerDependencies": {
     "@supabase/supabase-js": ">=2",
-    "@neondatabase/serverless": ">=0.9",
     "@tanstack/react-query": ">=5",
     "@vitejs/plugin-react-swc": ">=4",
     "autoprefixer": ">=10",
@@ -98,9 +96,6 @@
     },
     "@supabase/supabase-js": {
       "optional": true
-    },
-    "@neondatabase/serverless": {
-      "optional": true
     }
   },
   "devDependencies": {
@@ -113,7 +108,6 @@
     "autoprefixer": "^10.4.21",
     "cors": "^2.8.5",
     "express": "^5.1.0",
-    "@neondatabase/serverless": "^1.0.0",
     "@supabase/supabase-js": "^2.49.0",
     "firebase-admin": "^13.0.0",
     "postcss": "^8.5.6",
