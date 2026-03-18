@@ -102,6 +102,7 @@ function BidirectionalTabs() {
   const [activeTab, setActiveTab] = useState(0);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   const tabButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const tabContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     videoRefs.current.forEach((video, i) => {
@@ -115,37 +116,45 @@ function BidirectionalTabs() {
     });
   }, [activeTab]);
 
-  const handleTabClick = (index: number) => {
-    setActiveTab(index);
+  // Scroll only within the tab container (horizontal, mobile only).
+  // Never calls scrollIntoView so the page never jumps vertically.
+  const scrollTabButtonIntoContainerView = (index: number) => {
     const btn = tabButtonRefs.current[index];
-    if (btn) {
-      btn.scrollIntoView({
+    const container = tabContainerRef.current;
+    if (!btn || !container) return;
+    const btnLeft = btn.offsetLeft;
+    const btnRight = btnLeft + btn.offsetWidth;
+    const { scrollLeft, offsetWidth } = container;
+    if (btnLeft < scrollLeft) {
+      container.scrollTo({ left: btnLeft, behavior: "smooth" });
+    } else if (btnRight > scrollLeft + offsetWidth) {
+      container.scrollTo({
+        left: btnRight - offsetWidth,
         behavior: "smooth",
-        block: "nearest",
-        inline: "center",
       });
     }
+  };
+
+  const handleTabClick = (index: number) => {
+    setActiveTab(index);
+    scrollTabButtonIntoContainerView(index);
   };
 
   const handleVideoEnded = (i: number) => {
     setActiveTab((prev) => {
       if (prev !== i) return prev;
       const next = (i + 1) % bidirectionalTabs.length;
-      const btn = tabButtonRefs.current[next];
-      if (btn) {
-        btn.scrollIntoView({
-          behavior: "smooth",
-          block: "nearest",
-          inline: "center",
-        });
-      }
+      scrollTabButtonIntoContainerView(next);
       return next;
     });
   };
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 md:flex-row md:items-start md:gap-8">
-      <div className="flex shrink-0 flex-row gap-2 overflow-x-auto md:w-1/4 md:flex-col md:gap-3">
+      <div
+        ref={tabContainerRef}
+        className="flex shrink-0 flex-row gap-2 overflow-x-auto md:w-1/4 md:flex-col md:gap-3"
+      >
         {bidirectionalTabs.map((tab, i) => (
           <button
             key={i}
