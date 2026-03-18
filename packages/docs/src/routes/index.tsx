@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import CodeBlock from "../components/CodeBlock";
 import {
   templates,
@@ -64,6 +64,112 @@ function TerminalCommand() {
         )}
       </span>
     </button>
+  );
+}
+
+const bidirectionalTabs = [
+  {
+    title: "The agent sees everything",
+    description:
+      "It can read and update any UI, any data, any state in the application.",
+    video:
+      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa7b4e0fca8154ab6a82414178d3a4521%2Fcompressed?apiKey=YJIGb4i01jvw0SRdL5Bt&token=a7b4e0fca8154ab6a82414178d3a4521&alt=media&optimized=true",
+  },
+  {
+    title: "The UI talks to the agent",
+    description:
+      "Buttons, forms, and workflows push structured content to the agent, giving you guided flows that all go through the agent — including skills, rules, and instructions.",
+    video:
+      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F02f0369cc97345aa89311d0909b24611%2Fcompressed?apiKey=YJIGb4i01jvw0SRdL5Bt&token=02f0369cc97345aa89311d0909b24611&alt=media&optimized=true",
+  },
+  {
+    title: "The agent updates its own code",
+    description:
+      "It can modify the app itself to change features and functionality. Your tools get better over time.",
+    video:
+      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1aade099ff6d4e9ca04f8534d3314383%2Fcompressed?apiKey=YJIGb4i01jvw0SRdL5Bt&token=1aade099ff6d4e9ca04f8534d3314383&alt=media&optimized=true",
+  },
+  {
+    title: "Everything works both ways",
+    description:
+      "Every action available in the UI is also available to the agent. You can click to do something, or ask the agent to do it.",
+    video:
+      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F39c6b297895843708938b097d8e3eb2c?alt=media&token=c5fdf84c-d4fb-45b0-b220-ef7aab01e99f&apiKey=YJIGb4i01jvw0SRdL5Bt",
+  },
+];
+
+function BidirectionalTabs() {
+  const [activeTab, setActiveTab] = useState(0);
+  const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
+
+  useEffect(() => {
+    videoRefs.current.forEach((video, i) => {
+      if (!video) return;
+      if (i === activeTab) {
+        video.currentTime = 0;
+        video.play();
+      } else {
+        video.pause();
+      }
+    });
+  }, [activeTab]);
+
+  const handleTabClick = (index: number) => {
+    setActiveTab(index);
+  };
+
+  const handleVideoEnded = (i: number) => {
+    setActiveTab((prev) => {
+      if (prev === i) return (i + 1) % bidirectionalTabs.length;
+      return prev;
+    });
+  };
+
+  return (
+    <div className="mx-auto flex max-w-6xl flex-col gap-6 md:flex-row md:items-start md:gap-8">
+      <div className="flex shrink-0 flex-row gap-2 overflow-x-auto md:w-1/4 md:flex-col md:gap-3">
+        {bidirectionalTabs.map((tab, i) => (
+          <button
+            key={i}
+            onClick={() => handleTabClick(i)}
+            className={`cursor-pointer rounded-xl border p-4 text-left transition-all md:p-5 ${
+              i === activeTab
+                ? "border-[var(--accent)] bg-[var(--accent)]/5 shadow-[0_0_0_1px_var(--accent)]"
+                : "border-[var(--border)] hover:border-[var(--fg-secondary)]/40"
+            }`}
+          >
+            <div className="mb-1 whitespace-nowrap text-sm font-semibold md:whitespace-normal">
+              {tab.title}
+            </div>
+            <p
+              className={`m-0 text-sm leading-relaxed text-[var(--fg-secondary)] ${
+                i === activeTab ? "hidden md:block" : "hidden"
+              }`}
+            >
+              {tab.description}
+            </p>
+          </button>
+        ))}
+      </div>
+      <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-[var(--border)] bg-black md:w-3/4">
+        {bidirectionalTabs.map((tab, i) => (
+          <video
+            key={i}
+            ref={(el) => {
+              videoRefs.current[i] = el;
+            }}
+            src={tab.video}
+            muted
+            playsInline
+            preload="auto"
+            onEnded={() => handleVideoEnded(i)}
+            className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
+              i === activeTab ? "opacity-100" : "pointer-events-none opacity-0"
+            }`}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -141,6 +247,23 @@ function Home() {
           <TerminalCommand />
         </section>
       </main>
+
+      {/* Bidirectional Awareness - above templates */}
+      <section className="py-20 px-6 border-t border-[var(--border)]">
+        <div className="mb-12 text-center">
+          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+            Agents and UIs — fully connected
+          </h2>
+          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+            The agent and the UI are equal citizens of the same system. Every
+            action works both ways — click it or ask for it.
+          </p>
+        </div>
+
+        <div className="mx-auto max-w-[1200px]">
+          <BidirectionalTabs />
+        </div>
+      </section>
 
       {/* Templates - breaks out of max-width on ultra-wide screens */}
       <section id="templates" className="py-20 px-6">
@@ -286,59 +409,6 @@ function Home() {
                   </tbody>
                 </table>
               </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Bidirectional Awareness */}
-        <section className="border-t border-[var(--border)] py-20">
-          <div className="mb-12 text-center">
-            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Full bidirectional awareness
-            </h2>
-            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              The agent and the UI are equal citizens of the same system. Every
-              action works both ways — click it or ask for it.
-            </p>
-          </div>
-
-          <div className="mx-auto max-w-3xl space-y-4">
-            <div className="rounded-xl border border-[var(--border)] p-6">
-              <div className="mb-1 text-sm font-semibold">
-                The agent sees everything
-              </div>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                It can read and update any UI, any data, any state in the
-                application.
-              </p>
-            </div>
-            <div className="rounded-xl border border-[var(--border)] p-6">
-              <div className="mb-1 text-sm font-semibold">
-                The UI talks to the agent
-              </div>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                Buttons, forms, and workflows push structured content to the
-                agent, giving you guided flows that all go through the agent —
-                including skills, rules, and instructions.
-              </p>
-            </div>
-            <div className="rounded-xl border border-[var(--border)] p-6">
-              <div className="mb-1 text-sm font-semibold">
-                The agent updates its own code
-              </div>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                It can modify the app itself to change features and
-                functionality. Your tools get better over time.
-              </p>
-            </div>
-            <div className="rounded-xl border border-[var(--border)] p-6">
-              <div className="mb-1 text-sm font-semibold">
-                Everything works both ways
-              </div>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                Every action available in the UI is also available to the agent.
-                You can click to do something, or ask the agent to do it.
-              </p>
             </div>
           </div>
         </section>
