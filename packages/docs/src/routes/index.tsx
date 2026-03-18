@@ -102,6 +102,7 @@ function BidirectionalTabs() {
   const [activeTab, setActiveTab] = useState(0);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   const tabButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const tabContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     videoRefs.current.forEach((video, i) => {
@@ -115,44 +116,66 @@ function BidirectionalTabs() {
     });
   }, [activeTab]);
 
-  const handleTabClick = (index: number) => {
-    setActiveTab(index);
+  // Scroll only within the tab container (horizontal, mobile only).
+  // Never uses scrollIntoView — that causes full-page vertical jumps.
+  const scrollTabIntoContainerView = (index: number) => {
     const btn = tabButtonRefs.current[index];
-    if (btn) {
-      btn.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-        inline: "center",
-      });
+    const container = tabContainerRef.current;
+    if (!btn || !container) return;
+    // On desktop the container is flex-col with no fixed width overflow,
+    // all tabs are visible — skip entirely if no horizontal overflow.
+    if (container.scrollWidth <= container.clientWidth) return;
+    const btnLeft = btn.offsetLeft;
+    const btnRight = btnLeft + btn.offsetWidth;
+    const { scrollLeft, offsetWidth } = container;
+    if (btnLeft < scrollLeft) {
+      container.scrollTo({ left: btnLeft, behavior: "smooth" });
+    } else if (btnRight > scrollLeft + offsetWidth) {
+      container.scrollTo({ left: btnRight - offsetWidth, behavior: "smooth" });
     }
+  };
+
+  // Scroll the newly-active tab button into the container's horizontal view
+  // whenever activeTab changes (covers both clicks and auto-advance).
+  useEffect(() => {
+    scrollTabIntoContainerView(activeTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  const handleTabClick = (index: number, btn: HTMLButtonElement | null) => {
+    setActiveTab(index);
+    // Re-focus with preventScroll so keyboard a11y is maintained but the
+    // page doesn't jump. (mousedown preventDefault removed native focus.)
+    btn?.focus({ preventScroll: true });
   };
 
   const handleVideoEnded = (i: number) => {
     setActiveTab((prev) => {
       if (prev !== i) return prev;
-      const next = (i + 1) % bidirectionalTabs.length;
-      const btn = tabButtonRefs.current[next];
-      if (btn) {
-        btn.scrollIntoView({
-          behavior: "smooth",
-          block: "nearest",
-          inline: "center",
-        });
-      }
-      return next;
+      return (i + 1) % bidirectionalTabs.length;
     });
   };
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 md:flex-row md:items-start md:gap-8">
-      <div className="flex shrink-0 flex-row gap-2 overflow-x-auto px-1 py-1 md:w-1/4 md:flex-col md:gap-3 md:overflow-visible md:p-0">
+      <div
+        ref={tabContainerRef}
+        className="flex shrink-0 flex-row gap-2 overflow-x-auto px-1 py-1 md:w-1/4 md:flex-col md:gap-3 md:overflow-visible md:p-0"
+      >
         {bidirectionalTabs.map((tab, i) => (
           <button
             key={i}
             ref={(el) => {
               tabButtonRefs.current[i] = el;
             }}
-            onClick={() => handleTabClick(i)}
+            onMouseDown={(e) => {
+              // Prevent the browser from auto-scrolling the page to the
+              // focused element — we handle container-only scrolling ourselves.
+              e.preventDefault();
+            }}
+            onClick={(e) =>
+              handleTabClick(i, e.currentTarget as HTMLButtonElement)
+            }
             className={`cursor-pointer rounded-xl border p-4 text-left transition-all md:p-5 ${
               i === activeTab
                 ? "border-[var(--accent)] bg-[var(--accent)]/5 shadow-[0_0_0_1px_var(--accent)]"
