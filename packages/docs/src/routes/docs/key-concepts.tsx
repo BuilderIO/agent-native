@@ -119,7 +119,8 @@ function KeyConceptsDocs() {
       <p>Five rules govern the architecture:</p>
       <ol className="list-decimal space-y-2 pl-5">
         <li>
-          <strong>Files are the database</strong> — all app state lives in files
+          <strong>Files are the source of truth</strong> — all app state lives
+          in files, which the agent can read and write directly
         </li>
         <li>
           <strong>All AI goes through the agent</strong> — no inline LLM calls
