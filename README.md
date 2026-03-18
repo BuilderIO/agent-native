@@ -4,7 +4,7 @@
 
 Agent-native is an open source framework for building full-featured apps with an AI agent deeply integrated into the UI.
 
-Other products charge you for rigid software you can't change. Agent-native gives you the code — you own it, you customize it, you evolve it with AI.
+SaaS products charge you for rigid software you can't change. Agent-native gives you the code — you own it, you customize it, you evolve it with AI.
 
 [Fork a template and launch in minutes.](https://agent-native.com/templates)
 

@@ -151,7 +151,7 @@ function BidirectionalTabs() {
           </button>
         ))}
       </div>
-      <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-[var(--border)] bg-black md:w-3/4">
+      <div className="relative aspect-[16/9] w-full overflow-hidden rounded-xl border border-[var(--border)] bg-black md:w-3/4">
         {bidirectionalTabs.map((tab, i) => (
           <video
             key={i}
