@@ -160,7 +160,7 @@ function BidirectionalTabs() {
     <div className="mx-auto flex max-w-6xl flex-col gap-6 md:flex-row md:items-start md:gap-8">
       <div
         ref={tabContainerRef}
-        className="flex shrink-0 flex-row gap-2 overflow-x-auto md:w-1/4 md:flex-col md:gap-3"
+        className="flex shrink-0 flex-row gap-2 overflow-x-auto px-1 py-1 md:w-1/4 md:flex-col md:gap-3 md:overflow-visible md:p-0"
       >
         {bidirectionalTabs.map((tab, i) => (
           <button
