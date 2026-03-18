@@ -139,6 +139,9 @@ importers:
 
   packages/docs:
     dependencies:
+      '@tabler/icons-react':
+        specifier: ^3.40.0
+        version: 3.40.0(react@19.2.4)
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.2.1(vite@8.0.0(@types/node@22.19.15)(esbuild@0.27.4)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2))
@@ -13963,6 +13966,11 @@ snapshots:
     dependencies:
       '@tabler/icons': 3.40.0
       react: 18.3.1
+
+  '@tabler/icons-react@3.40.0(react@19.2.4)':
+    dependencies:
+      '@tabler/icons': 3.40.0
+      react: 19.2.4
 
   '@tabler/icons@3.40.0': {}
 
