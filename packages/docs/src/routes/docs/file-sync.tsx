@@ -904,7 +904,7 @@ function rowToRecord(row: any): FileRecord {
   };
 }
 
-export class MyCustomAdapter implements FileSyncAdapter {
+export class MyDatabaseAdapter implements FileSyncAdapter {
   constructor(private db: any) {}
 
   async query(appId: string, ownerId: string) {
@@ -992,9 +992,9 @@ export class MyCustomAdapter implements FileSyncAdapter {
       </p>
       <CodeBlock
         code={`import { FileSync } from "@agent-native/core/adapters/sync";
-import { MyCustomAdapter } from "./my-adapter";
+import { MyDatabaseAdapter } from "./my-adapter";
 
-const adapter = new MyCustomAdapter(dbClient);
+const adapter = new MyDatabaseAdapter(dbClient);
 
 const sync = new FileSync({
   appId: "my-app",
@@ -1032,10 +1032,10 @@ CREATE INDEX idx_files_app_owner ON files(app, owner_id);`}
       <p>Test your adapter against the five methods:</p>
       <CodeBlock
         code={`import { describe, it, expect } from "vitest";
-import { MyCustomAdapter } from "./my-adapter";
+import { MyDatabaseAdapter } from "./my-adapter";
 
-describe("MyCustomAdapter", () => {
-  const adapter = new MyCustomAdapter(testDb);
+describe("MyDatabaseAdapter", () => {
+  const adapter = new MyDatabaseAdapter(testDb);
 
   it("set and get", async () => {
     await adapter.set("test-1", {
