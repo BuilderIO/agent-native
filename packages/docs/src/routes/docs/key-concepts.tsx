@@ -143,7 +143,7 @@ function KeyConceptsDocs() {
       <div className="my-6 overflow-hidden rounded-xl border border-[var(--border)]">
         <img
           src="https://cdn.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/5f9484f006fe4e7594840b7f6546af20?format=webp&width=800"
-          alt="Agent-native architecture diagram showing how files serve as the shared state between the agent, UI, and file sync adapters"
+          alt="Agent-native architecture diagram showing how files serve as the shared state between the agent, UI, and database adapters"
           className="w-full"
         />
       </div>
@@ -351,7 +351,7 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`}
       </p>
       <p>
         Agent-native provides a <strong>pluggable adapter system</strong> that
-        syncs files to a remote store in real-time. Three adapters ship out of
+        syncs files to a database in real-time. Three adapters ship out of
         the box:
       </p>
       <div className="my-4 grid gap-4 sm:grid-cols-2">
@@ -399,7 +399,7 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`}
         </li>
       </ul>
       <p>
-        The app doesn't know about the remote store — it just reads and writes
+        The app doesn't know about the database — it just reads and writes
         files. The sync adapter handles everything behind the scenes. You
         configure which files sync via glob patterns:
       </p>

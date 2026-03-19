@@ -226,7 +226,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/key-concepts",
     section: "File Sync",
     sectionId: "file-sync",
-    text: "Pluggable adapter system syncs files to a remote store in real-time. Three adapters ship out of the box: Google Cloud Firestore real-time via onSnapshot. Supabase Postgres real-time via Supabase Realtime channels. Convex real-time via reactive queries. All adapters use chokidar file watching three-way merge with LCS-based conflict resolution and .conflict sidecar files. Remote store is never source of truth files are. Sync is the mechanism for collaboration. Configure which files sync via glob patterns in sync-config.json.",
+    text: "Pluggable adapter system syncs files to a database in real-time. Three adapters ship out of the box: Google Cloud Firestore real-time via onSnapshot. Supabase Postgres real-time via Supabase Realtime channels. Convex real-time via reactive queries. All adapters use chokidar file watching three-way merge with LCS-based conflict resolution and .conflict sidecar files. Database is never source of truth files are. Database is sync mechanism for collaboration. Configure which files sync via glob patterns in sync-config.json.",
   },
   {
     page: "Key Concepts",
