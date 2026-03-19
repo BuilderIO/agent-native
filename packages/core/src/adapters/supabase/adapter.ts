@@ -146,12 +146,15 @@ export class SupabaseFileSyncAdapter implements FileSyncAdapter {
           event: "*",
           schema: "public",
           table: this.table,
-          filter: `app=eq.${appId}&owner_id=eq.${ownerId}`,
+          filter: `app=eq.${appId}`,
         },
         (payload: any) => {
           try {
             const row = payload.new ?? payload.old;
             if (!row) return;
+
+            // Client-side filter — Supabase Realtime only supports one server filter
+            if (row.owner_id !== ownerId) return;
 
             let type: FileChange["type"];
             if (payload.eventType === "INSERT") type = "added";

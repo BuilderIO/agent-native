@@ -211,6 +211,15 @@ export class FileSync {
       this.writeDeadLetterLog("shutdown");
     }
 
+    // Drain in-flight pushes
+    const inFlightPromises = [...this.pushInFlight.values()];
+    if (inFlightPromises.length > 0) {
+      await Promise.race([
+        Promise.allSettled(inFlightPromises),
+        new Promise((resolve) => setTimeout(resolve, 5000)),
+      ]);
+    }
+
     // Close watchers (chokidar v4: close() returns Promise)
     for (const watcher of this.watchers) {
       await watcher.close();
@@ -252,15 +261,7 @@ export class FileSync {
   // -- Private helpers ------------------------------------------------------
 
   private emitSyncEvent(event: SyncEvent) {
-    this.syncEvents.emit("sync", {
-      source: "sync",
-      type: event.type === "conflict-resolved"
-        ? "conflict-resolved"
-        : event.type === "conflict-needs-llm"
-          ? "conflict-needs-llm"
-          : "conflict-saved",
-      path: event.type === "conflict-saved" ? event.path : event.path,
-    });
+    this.syncEvents.emit("sync", { source: "sync", ...event } as any);
   }
 
   private markRecent(map: Map<string, number>, filePath: string) {
@@ -687,10 +688,7 @@ export class FileSync {
             try {
               absPath = assertSafePath(projectRoot, filePath) as string;
             } catch (err) {
-              console.error(
-                `[file-sync:${label}] Rejected remote path:`,
-                err,
-              );
+              console.error(`[file-sync:${label}] Rejected remote path:`, err);
               continue;
             }
 
@@ -715,13 +713,7 @@ export class FileSync {
               // No local changes since last sync — safe to overwrite
               this.writeSyncedFile(filePath, absPath, incoming);
             } else {
-              this.resolveConflict(
-                filePath,
-                absPath,
-                local,
-                incoming,
-                ownerId,
-              );
+              this.resolveConflict(filePath, absPath, local, incoming, ownerId);
             }
 
             this.lastSyncTimestamp = Date.now();

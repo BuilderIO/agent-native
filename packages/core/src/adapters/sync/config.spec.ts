@@ -89,7 +89,9 @@ describe("assertSafePath", () => {
 
   function setup() {
     // Use realpathSync to resolve macOS /tmp -> /private/tmp symlink
-    tmpRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "safepath-")));
+    tmpRoot = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "safepath-")),
+    );
   }
 
   function teardown() {
@@ -144,9 +146,7 @@ describe("assertSafePath", () => {
     setup();
     try {
       const result = assertSafePath(tmpRoot, "nonexistent/deep/file.json");
-      expect(result).toBe(
-        path.join(tmpRoot, "nonexistent/deep/file.json"),
-      );
+      expect(result).toBe(path.join(tmpRoot, "nonexistent/deep/file.json"));
     } finally {
       teardown();
     }
@@ -157,7 +157,9 @@ describe("assertNotSymlink", () => {
   let tmpDir: string;
 
   function setup() {
-    tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "symlink-")));
+    tmpDir = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "symlink-")),
+    );
   }
 
   function teardown() {

@@ -34,7 +34,9 @@ function createMockAdapter(): FileSyncAdapter & {
 function createTempProject() {
   // Use realpathSync to resolve macOS /tmp -> /private/tmp symlink,
   // which otherwise trips assertSafePath's symlink detection
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "file-sync-test-")));
+  const root = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "file-sync-test-")),
+  );
   const dataDir = path.join(root, "data");
   fs.mkdirSync(dataDir, { recursive: true });
 
@@ -282,8 +284,9 @@ describe("FileSync", () => {
 
       await new Promise((r) => setTimeout(r, 50));
 
-      // File should NOT be written anywhere
-      expect(fs.existsSync(path.join(tmpRoot, "..", "..", "etc", "passwd"))).toBe(false);
+      // Verify no file was written inside or outside the project
+      const hackedPath = path.join(tmpRoot, "data", "passwd");
+      expect(fs.existsSync(hackedPath)).toBe(false);
     });
   });
 

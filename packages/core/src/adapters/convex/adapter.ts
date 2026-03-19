@@ -16,10 +16,7 @@ export interface ConvexClient {
     functionRef: string,
     args: Record<string, unknown>,
   ): Promise<unknown>;
-  query(
-    functionRef: string,
-    args: Record<string, unknown>,
-  ): Promise<unknown>;
+  query(functionRef: string, args: Record<string, unknown>): Promise<unknown>;
   onUpdate(
     functionRef: string,
     args: Record<string, unknown>,

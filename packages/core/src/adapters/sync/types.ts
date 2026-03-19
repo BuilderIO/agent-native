@@ -57,8 +57,22 @@ export interface FileSyncAdapter {
 // ---------------------------------------------------------------------------
 
 export type FileSyncEvent =
-  | { readonly source: "file"; readonly type: "created" | "modified" | "deleted"; readonly path: string }
-  | { readonly source: "sync"; readonly type: "updated" | "conflict" | "conflict-needs-llm" | "conflict-resolved" | "conflict-saved" | "error"; readonly path: string };
+  | {
+      readonly source: "file";
+      readonly type: "created" | "modified" | "deleted";
+      readonly path: string;
+    }
+  | {
+      readonly source: "sync";
+      readonly type:
+        | "updated"
+        | "conflict"
+        | "conflict-needs-llm"
+        | "conflict-resolved"
+        | "conflict-saved"
+        | "error";
+      readonly path: string;
+    };
 
 export interface FileSyncEvents {
   sync: [event: FileSyncEvent];

@@ -64,9 +64,8 @@ async function createAdapter(
     case "firestore": {
       try {
         requireEnv("GOOGLE_APPLICATION_CREDENTIALS");
-        const { FirestoreFileSyncAdapter } = await import(
-          "../firestore/adapter.js"
-        );
+        const { FirestoreFileSyncAdapter } =
+          await import("../firestore/adapter.js");
         // Dynamic import of firebase-admin — only loads if installed
         const admin = await import("firebase-admin");
         const app =
@@ -104,8 +103,7 @@ async function createAdapter(
     case "supabase": {
       try {
         const url = requireEnv("SUPABASE_URL");
-        const keyType =
-          process.env.FILE_SYNC_SUPABASE_KEY_TYPE || "anon";
+        const keyType = process.env.FILE_SYNC_SUPABASE_KEY_TYPE || "anon";
         const key =
           keyType === "service_role"
             ? requireEnv("SUPABASE_SERVICE_ROLE_KEY")
@@ -115,9 +113,8 @@ async function createAdapter(
             "[file-sync] Using service role key — bypasses all RLS. Not for multi-tenant production.",
           );
         }
-        const { SupabaseFileSyncAdapter } = await import(
-          "../supabase/adapter.js"
-        );
+        const { SupabaseFileSyncAdapter } =
+          await import("../supabase/adapter.js");
         const supabase = await import("@supabase/supabase-js");
         // The adapter uses a duck-typed SupabaseClient interface to avoid hard deps.
         // The real createClient returns a compatible but differently-typed object.
@@ -151,14 +148,10 @@ async function createAdapter(
       try {
         const url = requireEnv("CONVEX_URL");
         if (!url.startsWith("https://")) {
-          console.error(
-            "[file-sync] CONVEX_URL must use HTTPS",
-          );
+          console.error("[file-sync] CONVEX_URL must use HTTPS");
           return null;
         }
-        const { ConvexFileSyncAdapter } = await import(
-          "../convex/adapter.js"
-        );
+        const { ConvexFileSyncAdapter } = await import("../convex/adapter.js");
         const { ConvexClient } = await import("convex/browser");
         const client = new ConvexClient(url);
         return new ConvexFileSyncAdapter(client as never);
@@ -179,9 +172,7 @@ async function createAdapter(
         } else {
           const safeMsg =
             err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
-          console.error(
-            `[file-sync] Failed to initialize Convex: ${safeMsg}`,
-          );
+          console.error(`[file-sync] Failed to initialize Convex: ${safeMsg}`);
         }
         return null;
       }
@@ -225,15 +216,30 @@ export async function createFileSync(options: {
 
   const adapter = await createAdapter(backend);
   if (!adapter) {
-    return { status: "error", reason: `Failed to initialize ${backend} adapter` };
+    return {
+      status: "error",
+      reason: `Failed to initialize ${backend} adapter`,
+    };
   }
 
-  const appId = readPackageName() || "app";
+  let appId = readPackageName() || "app";
+  // Strip @scope/ prefix from scoped npm packages
+  appId = appId.replace(/^@[^/]+\//, "");
   const ownerId = "shared";
 
+  try {
+    validateIdentifier("appId", appId);
+    validateIdentifier("ownerId", ownerId);
+  } catch (err) {
+    const safeMsg =
+      err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
+    console.error(`[file-sync] Invalid identifier: ${safeMsg}`);
+    return { status: "error", reason: `Invalid identifier: ${safeMsg}` };
+  }
+
   const syncOptions: FileSyncOptions = {
-    appId: validateIdentifier("appId", appId) as string,
-    ownerId: validateIdentifier("ownerId", ownerId) as string,
+    appId,
+    ownerId,
     contentRoot: options.contentRoot,
     adapter,
   };

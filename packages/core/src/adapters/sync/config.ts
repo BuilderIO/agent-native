@@ -10,20 +10,43 @@ import type { SafePath, ContentHash, ValidIdentifier } from "./types.js";
 
 const SYNC_DENYLIST = [
   // Secrets and credentials
-  "**/.env*", "**/*.key", "**/*.pem", "**/*.p12", "**/*.pfx",
-  "**/credentials.json", "**/service-account*.json",
-  "**/.ssh/**", "**/.npmrc", "**/.pypirc", "**/.yarnrc.yml",
-  "**/*.jks", "**/.docker/config.json", "**/.aws/**",
-  "**/id_rsa*", "**/id_ed25519*", "**/id_ecdsa*",
+  "**/.env*",
+  "**/*.key",
+  "**/*.pem",
+  "**/*.p12",
+  "**/*.pfx",
+  "**/credentials.json",
+  "**/service-account*.json",
+  "**/.ssh/**",
+  "**/.npmrc",
+  "**/.pypirc",
+  "**/.yarnrc.yml",
+  "**/*.jks",
+  "**/.docker/config.json",
+  "**/.aws/**",
+  "**/id_rsa*",
+  "**/id_ed25519*",
+  "**/id_ecdsa*",
   // Infrastructure
-  "**/.git/**", "**/node_modules/**",
-  "**/*.sqlite", "**/*.db", "**/*.tfstate*",
+  "**/.git/**",
+  "**/node_modules/**",
+  "**/*.sqlite",
+  "**/*.db",
+  "**/*.tfstate*",
   // Sync meta-files (prevents meta-sync attack)
-  "**/sync-config.json", "**/.sync-status.json", "**/.sync-failures.json",
+  "**/sync-config.json",
+  "**/.sync-status.json",
+  "**/.sync-failures.json",
   // Editor temp files
-  "**/*~", "**/*.swp", "**/*.swo", "**/.#*", "**/#*#",
+  "**/*~",
+  "**/*.swp",
+  "**/*.swo",
+  "**/.#*",
+  "**/#*#",
   // OS metadata
-  "**/.DS_Store", "**/Thumbs.db", "**/desktop.ini",
+  "**/.DS_Store",
+  "**/Thumbs.db",
+  "**/desktop.ini",
   // Conflict files (prevents feedback loop)
   "**/*.conflict",
   // Agent scratch space
@@ -205,9 +228,7 @@ export function assertSafePath(
     !resolved.startsWith(resolvedRoot + path.sep) &&
     resolved !== resolvedRoot
   ) {
-    throw new Error(
-      `[file-sync] Path traversal blocked: ${untrustedRelPath}`,
-    );
+    throw new Error(`[file-sync] Path traversal blocked: ${untrustedRelPath}`);
   }
   // Check for symlink-based escapes within project root
   const parentDir = path.dirname(resolved);

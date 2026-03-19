@@ -169,8 +169,8 @@ GOOGLE_APPLICATION_CREDENTIALS=./service-account.json  # Firestore
         </li>
         <li>
           <strong>Infrastructure:</strong> <code>.git/</code>,{" "}
-          <code>node_modules/</code>, <code>*.sqlite</code>,{" "}
-          <code>*.db</code>, <code>*.tfstate</code>
+          <code>node_modules/</code>, <code>*.sqlite</code>, <code>*.db</code>,{" "}
+          <code>*.tfstate</code>
         </li>
         <li>
           <strong>Sync meta-files:</strong> <code>sync-config.json</code>,{" "}
@@ -468,9 +468,7 @@ const syncResult = await createFileSync({ contentRoot: "./data" });
             <td>
               <code>reason: string</code>
             </td>
-            <td>
-              Missing env vars, invalid backend, adapter init failure
-            </td>
+            <td>Missing env vars, invalid backend, adapter init failure</td>
           </tr>
           <tr>
             <td>
@@ -487,8 +485,8 @@ const syncResult = await createFileSync({ contentRoot: "./data" });
 
       <h3>Wiring SSE</h3>
       <p>
-        Pass <code>sseEmitter</code> to <code>createSSEHandler</code> so
-        clients receive real-time sync events alongside file-watcher events:
+        Pass <code>sseEmitter</code> to <code>createSSEHandler</code> so clients
+        receive real-time sync events alongside file-watcher events:
       </p>
       <CodeBlock
         code={`const extraEmitters =
@@ -790,9 +788,9 @@ type Unsubscribe = () => void;`}
       <h4>set(id, record)</h4>
       <p>
         Upsert a file record. The <code>record</code> argument is{" "}
-        <code>Partial&lt;FileRecord&gt;</code> — on updates, only changed
-        fields are passed. Your implementation should merge with existing data,
-        not overwrite.
+        <code>Partial&lt;FileRecord&gt;</code> — on updates, only changed fields
+        are passed. Your implementation should merge with existing data, not
+        overwrite.
       </p>
       <CodeBlock
         code={`async set(id: string, record: Partial<FileRecord>) {
@@ -826,8 +824,8 @@ type Unsubscribe = () => void;`}
           <div className="mb-2 text-sm font-semibold">Real-time listener</div>
           <p className="m-0 text-sm text-[var(--fg-secondary)]">
             If your database supports change streams (Firestore{" "}
-            <code>onSnapshot</code>, Supabase Realtime, MongoDB Change
-            Streams), use them. Lower latency, no wasted queries.
+            <code>onSnapshot</code>, Supabase Realtime, MongoDB Change Streams),
+            use them. Lower latency, no wasted queries.
           </p>
         </div>
         <div className="rounded-xl border border-[var(--border)] p-5">
@@ -887,8 +885,8 @@ type Unsubscribe = () => void;`}
 
       <h3 id="adapter-full-example">Full example</h3>
       <p>
-        A complete adapter for a generic SQL database (e.g., Turso,
-        PlanetScale, or any driver that supports parameterized queries):
+        A complete adapter for a generic SQL database (e.g., Turso, PlanetScale,
+        or any driver that supports parameterized queries):
       </p>
       <CodeBlock
         code={`import type {
@@ -1014,9 +1012,7 @@ await sync.initFileSync();`}
       </p>
 
       <h3>Table schema</h3>
-      <p>
-        All SQL-based adapters use the same table schema:
-      </p>
+      <p>All SQL-based adapters use the same table schema:</p>
       <CodeBlock
         code={`CREATE TABLE files (
   id TEXT PRIMARY KEY,
