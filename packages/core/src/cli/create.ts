@@ -125,6 +125,10 @@ export function createApp(name?: string): void {
   console.log(
     `These teach the AI agent how to work within the framework's architecture.`,
   );
+  console.log(``);
+  console.log(
+    `Need multi-user collaboration? See: https://agent-native.dev/docs/file-sync`,
+  );
 }
 
 function copyDir(src: string, dest: string, root?: string): void {
