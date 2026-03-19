@@ -61,4 +61,14 @@ describe("createFileSync", () => {
     expect(result.status).toBe("error");
     errorSpy.mockRestore();
   });
+
+  it("returns error when CONVEX_URL is missing", async () => {
+    vi.stubEnv("FILE_SYNC_ENABLED", "true");
+    vi.stubEnv("FILE_SYNC_BACKEND", "convex");
+    vi.stubEnv("CONVEX_URL", "");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = await createFileSync({ contentRoot: "./data" });
+    expect(result.status).toBe("error");
+    errorSpy.mockRestore();
+  });
 });
