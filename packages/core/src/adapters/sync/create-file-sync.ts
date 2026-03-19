@@ -32,7 +32,7 @@ export type FileSyncResult =
 // ---------------------------------------------------------------------------
 
 function isValidBackend(value: string): value is FileSyncBackend {
-  return value === "firestore" || value === "supabase";
+  return value === "firestore" || value === "supabase" || value === "convex";
 }
 
 function requireEnv(key: string): string {
