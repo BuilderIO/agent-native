@@ -379,19 +379,13 @@ function Home() {
                     <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
                       <th className="approaches-th approaches-col-dim"></th>
                       <th className="approaches-th">
-                        <span className="approaches-col-label--bad">
-                          SaaS Tools
-                        </span>
+                        SaaS Tools
                       </th>
                       <th className="approaches-th">
-                        <span className="approaches-col-label--bad">
-                          Raw AI Agents
-                        </span>
+                        Raw AI Agents
                       </th>
                       <th className="approaches-th">
-                        <span className="approaches-col-label--bad">
-                          Internal Tools
-                        </span>
+                        Internal Tools
                       </th>
                       <th className="approaches-th approaches-col-highlight">
                         Agent-Native
@@ -401,19 +395,19 @@ function Home() {
                   <tbody>
                     <tr className="border-b border-[var(--border)]">
                       <td className="approaches-td approaches-td--dim">UI</td>
-                      <td className="approaches-td">Polished but rigid</td>
-                      <td className="approaches-td">None</td>
-                      <td className="approaches-td">Months to build</td>
-                      <td className="approaches-td approaches-td--highlight">
+                      <td className="approaches-td approaches-td--warn">Polished but rigid</td>
+                      <td className="approaches-td approaches-td--bad">None</td>
+                      <td className="approaches-td approaches-td--warn">Months to build</td>
+                      <td className="approaches-td approaches-td--good">
                         Full UI, fork &amp; go
                       </td>
                     </tr>
                     <tr className="border-b border-[var(--border)]">
                       <td className="approaches-td approaches-td--dim">AI</td>
-                      <td className="approaches-td">Bolted on</td>
-                      <td className="approaches-td">Powerful, no guardrails</td>
-                      <td className="approaches-td">Disconnected</td>
-                      <td className="approaches-td approaches-td--highlight">
+                      <td className="approaches-td approaches-td--bad">Bolted on</td>
+                      <td className="approaches-td approaches-td--warn">Powerful, no guardrails</td>
+                      <td className="approaches-td approaches-td--bad">Disconnected</td>
+                      <td className="approaches-td approaches-td--good">
                         Agent-first, integrated
                       </td>
                     </tr>
@@ -421,10 +415,10 @@ function Home() {
                       <td className="approaches-td approaches-td--dim">
                         Customization
                       </td>
-                      <td className="approaches-td">Can't</td>
-                      <td className="approaches-td">Prompt-only</td>
-                      <td className="approaches-td">Full but slow</td>
-                      <td className="approaches-td approaches-td--highlight">
+                      <td className="approaches-td approaches-td--bad">Can't</td>
+                      <td className="approaches-td approaches-td--warn">Prompt-only</td>
+                      <td className="approaches-td approaches-td--warn">Full but slow</td>
+                      <td className="approaches-td approaches-td--good">
                         Agent modifies the app
                       </td>
                     </tr>
@@ -432,10 +426,10 @@ function Home() {
                       <td className="approaches-td approaches-td--dim">
                         Ownership
                       </td>
-                      <td className="approaches-td">Rented</td>
-                      <td className="approaches-td">N/A</td>
-                      <td className="approaches-td">Yours but costly</td>
-                      <td className="approaches-td approaches-td--highlight">
+                      <td className="approaches-td approaches-td--bad">Rented</td>
+                      <td className="approaches-td approaches-td--bad">N/A</td>
+                      <td className="approaches-td approaches-td--warn">Yours but costly</td>
+                      <td className="approaches-td approaches-td--good">
                         You own the code
                       </td>
                     </tr>
@@ -443,10 +437,10 @@ function Home() {
                       <td className="approaches-td approaches-td--dim">
                         Non-dev friendly
                       </td>
-                      <td className="approaches-td">Yes</td>
-                      <td className="approaches-td">No</td>
-                      <td className="approaches-td">Rarely</td>
-                      <td className="approaches-td approaches-td--highlight">
+                      <td className="approaches-td approaches-td--good">Yes</td>
+                      <td className="approaches-td approaches-td--bad">No</td>
+                      <td className="approaches-td approaches-td--bad">Rarely</td>
+                      <td className="approaches-td approaches-td--good">
                         Guided UI + agent
                       </td>
                     </tr>

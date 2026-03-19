@@ -112,7 +112,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const { data: inboxEmails = [] } = useEmails("inbox");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Compute email counts per label from inbox emails
+  // Compute thread counts per label from inbox emails
   const labelCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     const pinnedShorts = pinnedLabels.map((l) =>
@@ -123,15 +123,25 @@ export function AppLayout({ children }: AppLayoutProps) {
             .toLowerCase()
         : l.toLowerCase(),
     );
-    // Count inbox (excluding pinned label emails)
-    counts["inbox"] = inboxEmails.filter(
+    // Find the latest message per thread (to mirror Superhuman's thread-level label logic)
+    const latestByThread = new Map<string, (typeof inboxEmails)[0]>();
+    for (const e of inboxEmails) {
+      const key = e.threadId || e.id;
+      const existing = latestByThread.get(key);
+      if (!existing || new Date(e.date) > new Date(existing.date)) {
+        latestByThread.set(key, e);
+      }
+    }
+    const latestMessages = [...latestByThread.values()];
+    // Count inbox threads: latest message must NOT belong to any pinned label
+    counts["inbox"] = latestMessages.filter(
       (e) => !e.labelIds.some((lid) => pinnedShorts.includes(lid)),
     ).length;
-    // Count per pinned label
+    // Count threads per pinned label: latest message must have that label
     for (let i = 0; i < pinnedLabels.length; i++) {
       const short = pinnedShorts[i];
       const full = pinnedLabels[i];
-      counts[full] = inboxEmails.filter((e) =>
+      counts[full] = latestMessages.filter((e) =>
         e.labelIds.some((lid) => lid === short || lid === full),
       ).length;
     }
