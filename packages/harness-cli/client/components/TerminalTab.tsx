@@ -162,17 +162,16 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
           if (urlBuffer.current.length > 2048) {
             urlBuffer.current = urlBuffer.current.slice(-2048);
           }
+          // Match the OAuth URL including any whitespace the PTY inserts at line wraps.
+          // Capture everything from the URL start through the state= param value,
+          // then strip all whitespace to reconstruct the clean URL.
           const oauthMatch = urlBuffer.current.match(
-            /https:\/\/claude\.ai\/oauth\/authorize\?[^\s\x1b]+/,
+            /https:\/\/claude\.ai\/oauth\/authorize\?[\s\S]*?state=[\w\-_]+/,
           );
           if (oauthMatch) {
-            // Clean any terminal line-wrap artifacts (newlines/carriage returns)
-            const cleanUrl = oauthMatch[0].replace(/[\r\n]/g, "");
-            // Only set if it looks complete (has state= param near the end)
-            if (cleanUrl.includes("state=")) {
-              setOauthUrl(cleanUrl);
-              urlBuffer.current = "";
-            }
+            const cleanUrl = oauthMatch[0].replace(/\s+/g, "");
+            setOauthUrl(cleanUrl);
+            urlBuffer.current = "";
           }
 
           // Idle detection
