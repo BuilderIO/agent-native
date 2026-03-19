@@ -90,10 +90,67 @@ export function EmailThread({
   // Auto-expand latest + unread; user toggles override via this set
   const [userToggles, setUserToggles] = useState<Record<string, boolean>>({});
 
-  // Reset user overrides when navigating to a different thread
+  // Reset user overrides and search when navigating to a different thread
   useEffect(() => {
     setUserToggles({});
+    setSearchOpen(false);
+    setSearchQuery("");
+    setSearchMatchIdx(0);
   }, [threadId]);
+
+  // In-thread search
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMatchIdx, setSearchMatchIdx] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Match counts per message for in-thread search
+  const matchCountByMsg = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return new Map<string, number>();
+    const map = new Map<string, number>();
+    for (const msg of messages) {
+      const text = msg.bodyHtml
+        ? msg.bodyHtml.replace(/<[^>]+>/g, " ")
+        : msg.body || "";
+      const lower = text.toLowerCase();
+      let count = 0;
+      let i = lower.indexOf(q);
+      while (i !== -1) {
+        count++;
+        i = lower.indexOf(q, i + q.length);
+      }
+      if (count > 0) map.set(msg.id, count);
+    }
+    return map;
+  }, [searchQuery, messages]);
+
+  const totalMatches = useMemo(
+    () => [...matchCountByMsg.values()].reduce((a, b) => a + b, 0),
+    [matchCountByMsg],
+  );
+
+  const safeMatchIdx =
+    totalMatches > 0
+      ? ((searchMatchIdx % totalMatches) + totalMatches) % totalMatches
+      : 0;
+
+  const getActiveLocalIdx = useCallback(
+    (msgId: string): number | null => {
+      if (!searchQuery.trim() || totalMatches === 0) return null;
+      let offset = 0;
+      for (const msg of messages) {
+        const count = matchCountByMsg.get(msg.id) ?? 0;
+        if (msg.id === msgId) {
+          const local = safeMatchIdx - offset;
+          return local >= 0 && local < count ? local : null;
+        }
+        offset += count;
+      }
+      return null;
+    },
+    [searchQuery, totalMatches, safeMatchIdx, messages, matchCountByMsg],
+  );
 
   // Compute which messages are expanded: latest + unread by default, user toggles override
   const expandedIds = useMemo(() => {
@@ -108,8 +165,14 @@ export function EmailThread({
       if (expanded) ids.add(id);
       else ids.delete(id);
     }
+    // Auto-expand messages with search matches
+    if (searchQuery.trim()) {
+      for (const msgId of matchCountByMsg.keys()) {
+        ids.add(msgId);
+      }
+    }
     return ids;
-  }, [messages, userToggles]);
+  }, [messages, userToggles, searchQuery, matchCountByMsg]);
 
   // Focused message index for keyboard nav (n/p) — starts on latest
   const [focusedIndex, setFocusedIndex] = useState(-1);
@@ -437,6 +500,19 @@ export function EmailThread({
       { key: "a", handler: () => handleReplyAll() },
       { key: "f", handler: handleForward },
       {
+        key: "f",
+        meta: true,
+        skipInInput: false,
+        handler: () => {
+          if (!searchOpen) {
+            setSearchOpen(true);
+            setTimeout(() => searchInputRef.current?.focus(), 50);
+          } else {
+            searchInputRef.current?.focus();
+          }
+        },
+      },
+      {
         key: "u",
         handler: () => {
           if (!email) return;
@@ -582,6 +658,27 @@ export function EmailThread({
         </div>
       </div>
 
+      {/* In-thread search bar */}
+      {searchOpen && (
+        <ThreadSearchBar
+          query={searchQuery}
+          onChange={(q) => {
+            setSearchQuery(q);
+            setSearchMatchIdx(0);
+          }}
+          onNext={() => setSearchMatchIdx((p) => p + 1)}
+          onPrev={() => setSearchMatchIdx((p) => p - 1)}
+          onClose={() => {
+            setSearchOpen(false);
+            setSearchQuery("");
+            setSearchMatchIdx(0);
+          }}
+          matchIdx={safeMatchIdx}
+          totalMatches={totalMatches}
+          inputRef={searchInputRef}
+        />
+      )}
+
       {/* Thread messages */}
       <div
         ref={scrollContainerRef}
@@ -611,6 +708,8 @@ export function EmailThread({
                 onReplyAll={() => handleReplyAll(msg)}
                 onForward={() => handleForwardMsg(msg)}
                 onContactSelect={onContactSelect}
+                searchTerm={searchQuery.trim() || undefined}
+                activeLocalIdx={getActiveLocalIdx(msg.id)}
               />
             ) : (
               <CollapsedMessageRow
@@ -742,6 +841,8 @@ const ExpandedMessageCard = forwardRef<
     onReplyAll: () => void;
     onForward: () => void;
     onContactSelect?: (email: string) => void;
+    searchTerm?: string;
+    activeLocalIdx?: number | null;
   }
 >(function ExpandedMessageCard(
   {
@@ -752,6 +853,8 @@ const ExpandedMessageCard = forwardRef<
     onReplyAll,
     onForward,
     onContactSelect,
+    searchTerm,
+    activeLocalIdx,
   },
   ref,
 ) {
@@ -957,9 +1060,18 @@ const ExpandedMessageCard = forwardRef<
       {/* Body */}
       <div className="px-4 pb-5 pt-1">
         {email.bodyHtml ? (
-          <HtmlEmailBody html={email.bodyHtml} senderEmail={email.from.email} />
+          <HtmlEmailBody
+            html={email.bodyHtml}
+            senderEmail={email.from.email}
+            searchTerm={searchTerm}
+            activeLocalIdx={activeLocalIdx}
+          />
         ) : (
-          <PlainTextBody body={email.body} />
+          <PlainTextBody
+            body={email.body}
+            searchTerm={searchTerm}
+            activeLocalIdx={activeLocalIdx}
+          />
         )}
       </div>
 
@@ -1015,23 +1127,98 @@ function findQuoteStart(lines: string[]): number {
   return -1;
 }
 
-function PlainTextBody({ body }: { body: string }) {
+function PlainTextBody({
+  body,
+  searchTerm,
+  activeLocalIdx,
+}: {
+  body: string;
+  searchTerm?: string;
+  activeLocalIdx?: number | null;
+}) {
   const [showQuoted, setShowQuoted] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const lines = body.split("\n");
   const quoteStart = findQuoteStart(lines);
   const hasQuoted = quoteStart >= 0;
 
+  // When searching, show all content (including quoted) so matches aren't hidden
+  const forceShowAll = !!searchTerm;
   const visibleLines =
-    hasQuoted && !showQuoted ? lines.slice(0, quoteStart) : lines;
+    hasQuoted && !showQuoted && !forceShowAll
+      ? lines.slice(0, quoteStart)
+      : lines;
+
+  // Scroll active match into view
+  useEffect(() => {
+    if (activeLocalIdx == null || !containerRef.current) return;
+    const mark = containerRef.current.querySelectorAll("mark[data-search]")[
+      activeLocalIdx
+    ] as HTMLElement | undefined;
+    mark?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [activeLocalIdx]);
+
+  // Render text with search highlights
+  const renderHighlighted = (text: string, globalMatchOffset: number) => {
+    if (!searchTerm) return text || "\u00a0";
+    const q = searchTerm.toLowerCase();
+    const lower = text.toLowerCase();
+    const nodes: React.ReactNode[] = [];
+    let matchCount = globalMatchOffset;
+    let idx = 0;
+    let pos = lower.indexOf(q);
+    while (pos !== -1) {
+      if (pos > idx) nodes.push(text.slice(idx, pos));
+      const isActive = matchCount === activeLocalIdx;
+      nodes.push(
+        <mark
+          key={`${pos}-${matchCount}`}
+          data-search={matchCount}
+          className={
+            isActive
+              ? "bg-amber-400 text-black rounded-[2px]"
+              : "bg-yellow-200/25 text-inherit rounded-[2px]"
+          }
+        >
+          {text.slice(pos, pos + searchTerm.length)}
+        </mark>,
+      );
+      matchCount++;
+      idx = pos + searchTerm.length;
+      pos = lower.indexOf(q, idx);
+    }
+    if (idx < text.length) nodes.push(text.slice(idx));
+    return nodes.length > 0 ? nodes : text || "\u00a0";
+  };
+
+  // Count matches in lines above the current one so we can track global match index per line
+  const countMatchesInText = (text: string) => {
+    if (!searchTerm) return 0;
+    const q = searchTerm.toLowerCase();
+    const lower = text.toLowerCase();
+    let count = 0;
+    let i = lower.indexOf(q);
+    while (i !== -1) {
+      count++;
+      i = lower.indexOf(q, i + q.length);
+    }
+    return count;
+  };
+
+  let cumulativeMatches = 0;
 
   return (
-    <div className="email-body-content">
-      {visibleLines.map((line, i) => (
-        <p key={i} className={line === "" ? "mb-3" : "mb-0"}>
-          {line || "\u00a0"}
-        </p>
-      ))}
-      {hasQuoted && !showQuoted && (
+    <div ref={containerRef} className="email-body-content">
+      {visibleLines.map((line, i) => {
+        const offset = cumulativeMatches;
+        cumulativeMatches += countMatchesInText(line);
+        return (
+          <p key={i} className={line === "" ? "mb-3" : "mb-0"}>
+            {renderHighlighted(line, offset)}
+          </p>
+        );
+      })}
+      {hasQuoted && !showQuoted && !forceShowAll && (
         <button
           onClick={() => setShowQuoted(true)}
           className="mt-1 text-[13px] text-muted-foreground/50 hover:text-muted-foreground transition-colors tracking-wider"
@@ -1144,9 +1331,13 @@ function processHtmlImages(
 function HtmlEmailBody({
   html,
   senderEmail,
+  searchTerm,
+  activeLocalIdx,
 }: {
   html: string;
   senderEmail?: string;
+  searchTerm?: string;
+  activeLocalIdx?: number | null;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
@@ -1435,6 +1626,93 @@ function HtmlEmailBody({
     };
   }, [processedHtml]);
 
+  // Inject / clear search highlights in the iframe whenever searchTerm or content changes
+  useEffect(() => {
+    const injectHighlights = () => {
+      const iframe = iframeRef.current;
+      const doc = iframe?.contentDocument;
+      if (!doc?.body) return;
+
+      // Remove existing marks and normalize text nodes
+      doc.querySelectorAll("mark[data-search]").forEach((mark) => {
+        const text = doc.createTextNode(mark.textContent || "");
+        mark.parentNode?.replaceChild(text, mark);
+      });
+      doc.body.normalize();
+
+      const q = searchTerm?.trim().toLowerCase();
+      if (!q) return;
+
+      // Collect all matching text-node positions
+      const matches: { node: Text; start: number; idx: number }[] = [];
+      let matchIdx = 0;
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) => {
+          const tag = node.parentElement?.tagName.toLowerCase();
+          return tag === "script" || tag === "style"
+            ? NodeFilter.FILTER_REJECT
+            : NodeFilter.FILTER_ACCEPT;
+        },
+      });
+      let node: Text | null;
+      while ((node = walker.nextNode() as Text)) {
+        const text = node.textContent || "";
+        const lower = text.toLowerCase();
+        let pos = lower.indexOf(q);
+        while (pos !== -1) {
+          matches.push({ node, start: pos, idx: matchIdx++ });
+          pos = lower.indexOf(q, pos + q.length);
+        }
+      }
+
+      // Wrap in reverse order so earlier indices stay valid
+      for (let i = matches.length - 1; i >= 0; i--) {
+        const { node: textNode, start, idx } = matches[i];
+        try {
+          const range = doc.createRange();
+          range.setStart(textNode, start);
+          range.setEnd(textNode, start + q.length);
+          const mark = doc.createElement("mark");
+          mark.setAttribute("data-search", String(idx));
+          mark.style.cssText =
+            "background:rgba(253,224,71,0.25);color:inherit;border-radius:2px;";
+          range.surroundContents(mark);
+        } catch {
+          // surroundContents fails when range spans element boundaries; skip
+        }
+      }
+
+      // Recalculate height after injecting marks
+      const h = doc.body.scrollHeight;
+      if (h > 0) setHeight(h);
+    };
+
+    // Small delay to ensure iframe DOM is ready after a processedHtml rewrite
+    const timer = setTimeout(injectHighlights, 60);
+    return () => clearTimeout(timer);
+  }, [searchTerm, processedHtml]);
+
+  // Update which mark is "active" and scroll it into view
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    const doc = iframe?.contentDocument;
+    if (!doc?.body) return;
+
+    doc.querySelectorAll("mark[data-search]").forEach((m) => {
+      (m as HTMLElement).style.background = "rgba(253,224,71,0.25)";
+      (m as HTMLElement).style.color = "inherit";
+    });
+
+    if (activeLocalIdx == null) return;
+    const marks = doc.querySelectorAll("mark[data-search]");
+    const active = marks[activeLocalIdx] as HTMLElement | undefined;
+    if (active) {
+      active.style.background = "rgb(251,191,36)";
+      active.style.color = "#000";
+      active.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [activeLocalIdx, searchTerm]);
+
   const showBanner =
     effectivePolicy === "block-all" && blockedCount > 0 && !showImagesForThread;
 
@@ -1478,6 +1756,108 @@ function HtmlEmailBody({
         }}
         title="Email content"
       />
+    </div>
+  );
+}
+
+// ─── In-thread search bar ─────────────────────────────────────────────────────
+
+function ThreadSearchBar({
+  query,
+  onChange,
+  onNext,
+  onPrev,
+  onClose,
+  matchIdx,
+  totalMatches,
+  inputRef,
+}: {
+  query: string;
+  onChange: (q: string) => void;
+  onNext: () => void;
+  onPrev: () => void;
+  onClose: () => void;
+  matchIdx: number;
+  totalMatches: number;
+  inputRef: React.RefObject<HTMLInputElement>;
+}) {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      onClose();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (e.shiftKey) onPrev();
+      else onNext();
+    }
+  };
+
+  return (
+    <div className="shrink-0 flex items-center gap-2 px-4 py-2 border-b border-border/50 bg-background/80 backdrop-blur-sm">
+      <svg
+        viewBox="0 0 16 16"
+        fill="currentColor"
+        className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0"
+      >
+        <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.099zm-5.242 1.156a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11" />
+      </svg>
+      <input
+        ref={inputRef}
+        type="text"
+        value={query}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="Search in conversation…"
+        className="flex-1 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none min-w-0"
+        autoComplete="off"
+        spellCheck={false}
+      />
+      {query && (
+        <span className="text-[12px] text-muted-foreground/50 tabular-nums shrink-0 select-none">
+          {totalMatches === 0
+            ? "No matches"
+            : `${matchIdx + 1} / ${totalMatches}`}
+        </span>
+      )}
+      <div className="flex items-center gap-0.5 shrink-0">
+        <button
+          onClick={onPrev}
+          disabled={totalMatches === 0}
+          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          title="Previous match (Shift+Enter)"
+        >
+          <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+            <path
+              fillRule="evenodd"
+              d="M11.78 9.78a.75.75 0 0 1-1.06 0L8 7.06 5.28 9.78a.75.75 0 0 1-1.06-1.06l3.25-3.25a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </button>
+        <button
+          onClick={onNext}
+          disabled={totalMatches === 0}
+          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          title="Next match (Enter)"
+        >
+          <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+            <path
+              fillRule="evenodd"
+              d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </button>
+        <button
+          onClick={onClose}
+          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
+          title="Close (Esc)"
+        >
+          <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+            <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06z" />
+          </svg>
+        </button>
+      </div>
     </div>
   );
 }

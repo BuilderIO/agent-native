@@ -175,17 +175,32 @@ export function InboxPage() {
     }
 
     if (activeLabel) {
-      // Label tab: show only inbox emails with this label
-      // Match both the full label ID and the short name (last segment)
+      // Label tab: show threads where the latest message has this label
+      // (mirrors Superhuman behavior — a thread belongs to a label based on its latest message)
       const shortLabel = activeLabel.includes("/")
         ? activeLabel
             .slice(activeLabel.lastIndexOf("/") + 1)
             .replace(/_/g, " ")
             .toLowerCase()
         : activeLabel.toLowerCase();
-      return filtered.filter((e) =>
-        e.labelIds.some((l) => l === activeLabel || l === shortLabel),
+      const hasLabel = (e: (typeof filtered)[0]) =>
+        e.labelIds.some((l) => l === activeLabel || l === shortLabel);
+      // Find the latest message per thread
+      const latestByThread = new Map<string, (typeof filtered)[0]>();
+      for (const e of filtered) {
+        const key = e.threadId || e.id;
+        const existing = latestByThread.get(key);
+        if (!existing || new Date(e.date) > new Date(existing.date)) {
+          latestByThread.set(key, e);
+        }
+      }
+      // Keep threads whose latest message has the label
+      const qualifiedThreadIds = new Set(
+        [...latestByThread.entries()]
+          .filter(([, latest]) => hasLabel(latest))
+          .map(([threadId]) => threadId),
       );
+      return filtered.filter((e) => qualifiedThreadIds.has(e.threadId || e.id));
     }
     if (view === "inbox" && pinnedUserLabels.length > 0) {
       // Inbox: filter out emails that belong to a pinned label
