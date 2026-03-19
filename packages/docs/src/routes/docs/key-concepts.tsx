@@ -24,7 +24,7 @@ const TOC = [
   { id: "scripts-system", label: "Scripts System" },
   { id: "sse-sync", label: "Real-time SSE Sync" },
   { id: "harnesses", label: "Harnesses" },
-  { id: "database-adapters", label: "Database Adapters" },
+  { id: "file-sync", label: "File Sync" },
   { id: "apis-and-clis", label: "APIs & CLIs, Not MCPs" },
   { id: "agent-modifies-code", label: "Agent Modifies Code" },
 ];
@@ -143,7 +143,7 @@ function KeyConceptsDocs() {
       <div className="my-6 overflow-hidden rounded-xl border border-[var(--border)]">
         <img
           src="https://cdn.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/5f9484f006fe4e7594840b7f6546af20?format=webp&width=800"
-          alt="Agent-native architecture diagram showing how files serve as the shared state between the agent, UI, and database adapters"
+          alt="Agent-native architecture diagram showing how files serve as the shared state between the agent, UI, and file sync adapters"
           className="w-full"
         />
       </div>
@@ -343,7 +343,7 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`}
         is identical regardless of harness.
       </p>
 
-      <h2 id="database-adapters">Database adapters</h2>
+      <h2 id="file-sync">File Sync</h2>
       <p>
         Files are great for single-user and local development. But when multiple
         people need to collaborate in real-time across different agent
@@ -351,7 +351,7 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`}
       </p>
       <p>
         Agent-native provides a <strong>pluggable adapter system</strong> that
-        syncs files to a remote database in real-time. Two adapters ship out of
+        syncs files to a remote store in real-time. Three adapters ship out of
         the box:
       </p>
       <div className="my-4 grid gap-4 sm:grid-cols-2">
@@ -369,6 +369,13 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`}
           <p className="m-0 text-sm text-[var(--fg-secondary)]">
             Real-time via Supabase Realtime channels. Best for teams using
             Supabase for auth, storage, or edge functions.
+          </p>
+        </div>
+        <div className="rounded-xl border border-[var(--border)] p-5">
+          <div className="mb-2 text-sm font-semibold">Convex</div>
+          <p className="m-0 text-sm text-[var(--fg-secondary)]">
+            Real-time via reactive queries. Best for teams wanting zero-config
+            real-time with automatic reconnection.
           </p>
         </div>
       </div>
@@ -392,9 +399,9 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`}
         </li>
       </ul>
       <p>
-        The app doesn't know about the database — it just reads and writes
-        files. The adapter handles sync behind the scenes. You configure which
-        files sync via glob patterns:
+        The app doesn't know about the remote store — it just reads and writes
+        files. The sync adapter handles everything behind the scenes. You
+        configure which files sync via glob patterns:
       </p>
       <CodeBlock
         code={`// data/sync-config.json

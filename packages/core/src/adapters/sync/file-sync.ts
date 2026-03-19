@@ -33,7 +33,7 @@ export interface FileSyncOptions {
   ownerId: string;
   /** Root directory for synced content */
   contentRoot: string;
-  /** Database adapter for file sync operations */
+  /** Adapter for file sync operations */
   adapter: FileSyncAdapter;
   /** Path to sync-config.json. Default: <contentRoot>/sync-config.json */
   syncConfigPath?: string;
