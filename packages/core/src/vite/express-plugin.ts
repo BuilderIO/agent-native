@@ -42,8 +42,9 @@ export function expressPlugin(options: ExpressPluginOptions = {}): Plugin {
           );
         }
 
-        const result = createServer();
-        // Support both { app } (new H3 style) and direct app return
+        // Support both async and sync createAppServer, and { app } unwrap
+        const raw = createServer();
+        const result = raw instanceof Promise ? await raw : raw;
         app = result?.app ?? result;
       }
 

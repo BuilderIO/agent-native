@@ -61,7 +61,9 @@ export async function createAppServer() {
             "application-state/sync-conflict.json",
             JSON.stringify(event, null, 2),
           );
-        } catch { /* best-effort */ }
+        } catch {
+          /* best-effort */
+        }
       }
     });
   }
