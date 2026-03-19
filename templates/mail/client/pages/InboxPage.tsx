@@ -200,9 +200,7 @@ export function InboxPage() {
           .filter(([, latest]) => hasLabel(latest))
           .map(([threadId]) => threadId),
       );
-      return filtered.filter((e) =>
-        qualifiedThreadIds.has(e.threadId || e.id),
-      );
+      return filtered.filter((e) => qualifiedThreadIds.has(e.threadId || e.id));
     }
     if (view === "inbox" && pinnedUserLabels.length > 0) {
       // Inbox: filter out emails that belong to a pinned label
