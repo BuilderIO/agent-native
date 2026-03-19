@@ -378,42 +378,44 @@ function Home() {
                   <thead>
                     <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
                       <th className="approaches-th approaches-col-dim"></th>
-                      <th className="approaches-th">
-                        <span className="approaches-col-label--bad">
-                          SaaS Tools
-                        </span>
+                      <th className="approaches-th approaches-col-muted">
+                        SaaS Tools
                       </th>
-                      <th className="approaches-th">
-                        <span className="approaches-col-label--bad">
-                          Raw AI Agents
-                        </span>
+                      <th className="approaches-th approaches-col-muted">
+                        Raw AI Agents
                       </th>
-                      <th className="approaches-th">
-                        <span className="approaches-col-label--bad">
-                          Internal Tools
-                        </span>
+                      <th className="approaches-th approaches-col-muted">
+                        Internal Tools
                       </th>
-                      <th className="approaches-th approaches-col-highlight">
-                        Agent-Native
-                      </th>
+                      <th className="approaches-th">Agent-Native</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr className="border-b border-[var(--border)]">
                       <td className="approaches-td approaches-td--dim">UI</td>
-                      <td className="approaches-td">Polished but rigid</td>
-                      <td className="approaches-td">None</td>
-                      <td className="approaches-td">Months to build</td>
-                      <td className="approaches-td approaches-td--highlight">
+                      <td className="approaches-td approaches-td--good">
+                        Polished but rigid
+                      </td>
+                      <td className="approaches-td approaches-td--bad">None</td>
+                      <td className="approaches-td approaches-td--warn">
+                        Mixed quality
+                      </td>
+                      <td className="approaches-td approaches-td--good">
                         Full UI, fork &amp; go
                       </td>
                     </tr>
                     <tr className="border-b border-[var(--border)]">
                       <td className="approaches-td approaches-td--dim">AI</td>
-                      <td className="approaches-td">Bolted on</td>
-                      <td className="approaches-td">Powerful, no guardrails</td>
-                      <td className="approaches-td">Disconnected</td>
-                      <td className="approaches-td approaches-td--highlight">
+                      <td className="approaches-td approaches-td--bad">
+                        Bolted on
+                      </td>
+                      <td className="approaches-td approaches-td--good">
+                        Powerful
+                      </td>
+                      <td className="approaches-td approaches-td--warn">
+                        Shallowly connected
+                      </td>
+                      <td className="approaches-td approaches-td--good">
                         Agent-first, integrated
                       </td>
                     </tr>
@@ -421,33 +423,34 @@ function Home() {
                       <td className="approaches-td approaches-td--dim">
                         Customization
                       </td>
-                      <td className="approaches-td">Can't</td>
-                      <td className="approaches-td">Prompt-only</td>
-                      <td className="approaches-td">Full but slow</td>
-                      <td className="approaches-td approaches-td--highlight">
+                      <td className="approaches-td approaches-td--bad">
+                        Can't
+                      </td>
+                      <td className="approaches-td approaches-td--warn">
+                        Instructions and skills
+                      </td>
+                      <td className="approaches-td approaches-td--warn">
+                        Full, but high maintenance
+                      </td>
+                      <td className="approaches-td approaches-td--good">
                         Agent modifies the app
-                      </td>
-                    </tr>
-                    <tr className="border-b border-[var(--border)]">
-                      <td className="approaches-td approaches-td--dim">
-                        Ownership
-                      </td>
-                      <td className="approaches-td">Rented</td>
-                      <td className="approaches-td">N/A</td>
-                      <td className="approaches-td">Yours but costly</td>
-                      <td className="approaches-td approaches-td--highlight">
-                        You own the code
                       </td>
                     </tr>
                     <tr>
                       <td className="approaches-td approaches-td--dim">
-                        Non-dev friendly
+                        Ownership
                       </td>
-                      <td className="approaches-td">Yes</td>
-                      <td className="approaches-td">No</td>
-                      <td className="approaches-td">Rarely</td>
-                      <td className="approaches-td approaches-td--highlight">
-                        Guided UI + agent
+                      <td className="approaches-td approaches-td--bad">
+                        Rented
+                      </td>
+                      <td className="approaches-td approaches-td--warn">
+                        Somewhat yours
+                      </td>
+                      <td className="approaches-td approaches-td--good">
+                        You own the code
+                      </td>
+                      <td className="approaches-td approaches-td--good">
+                        You own the code
                       </td>
                     </tr>
                   </tbody>
