@@ -26,7 +26,7 @@ export interface FirestoreQuery {
   get(): Promise<FirestoreQuerySnapshot>;
   onSnapshot(
     onNext: (snapshot: FirestoreQuerySnapshot) => void,
-    onError: (error: any) => void,
+    onError: (error: unknown) => void,
   ): () => void;
 }
 
@@ -85,7 +85,7 @@ export class FirestoreFileSyncAdapter implements FileSyncAdapter {
     appId: string,
     ownerId: string,
     onChange: (changes: FileChange[]) => void,
-    onError: (error: any) => void,
+    onError: (error: unknown) => void,
   ): Unsubscribe {
     return this.getCollection()
       .where("app", "==", appId)
@@ -98,5 +98,10 @@ export class FirestoreFileSyncAdapter implements FileSyncAdapter {
         }));
         onChange(changes);
       }, onError);
+  }
+
+  async dispose(): Promise<void> {
+    // No persistent connections to clean up in the duck-typed interface.
+    // Real Firebase apps should call app.delete() separately.
   }
 }

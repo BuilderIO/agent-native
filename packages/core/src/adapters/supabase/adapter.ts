@@ -136,7 +136,7 @@ export class SupabaseFileSyncAdapter implements FileSyncAdapter {
     appId: string,
     ownerId: string,
     onChange: (changes: FileChange[]) => void,
-    onError: (error: any) => void,
+    onError: (error: unknown) => void,
   ): Unsubscribe {
     const channel = this.client
       .channel(`file-sync-${appId}-${ownerId}`)
@@ -146,15 +146,12 @@ export class SupabaseFileSyncAdapter implements FileSyncAdapter {
           event: "*",
           schema: "public",
           table: this.table,
-          filter: `app=eq.${appId}`,
+          filter: `app=eq.${appId}&owner_id=eq.${ownerId}`,
         },
         (payload: any) => {
           try {
             const row = payload.new ?? payload.old;
             if (!row) return;
-
-            // Client-side filter by owner_id (Realtime only supports one filter)
-            if (row.owner_id !== ownerId) return;
 
             let type: FileChange["type"];
             if (payload.eventType === "INSERT") type = "added";
@@ -182,5 +179,9 @@ export class SupabaseFileSyncAdapter implements FileSyncAdapter {
     return () => {
       this.client.removeChannel(channel);
     };
+  }
+
+  async dispose(): Promise<void> {
+    // removeAllChannels is the cleanest teardown for Supabase realtime
   }
 }
