@@ -162,16 +162,23 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
           if (urlBuffer.current.length > 2048) {
             urlBuffer.current = urlBuffer.current.slice(-2048);
           }
-          // Match the OAuth URL including any whitespace the PTY inserts at line wraps.
-          // Capture everything from the URL start through the state= param value,
-          // then strip all whitespace to reconstruct the clean URL.
-          const oauthMatch = urlBuffer.current.match(
-            /https:\/\/claude\.ai\/oauth\/authorize\?[\s\S]*?state=[\w\-_]+/,
+          // Detect the OAuth URL start, grab a generous chunk (600 chars covers
+          // the full URL even with PTY-inserted whitespace at line wraps), strip
+          // all whitespace, then extract the clean URL.
+          const startIdx = urlBuffer.current.indexOf(
+            "https://claude.ai/oauth/authorize?",
           );
-          if (oauthMatch) {
-            const cleanUrl = oauthMatch[0].replace(/\s+/g, "");
-            setOauthUrl(cleanUrl);
-            urlBuffer.current = "";
+          if (startIdx !== -1) {
+            const chunk = urlBuffer.current.slice(startIdx, startIdx + 600);
+            const collapsed = chunk.replace(/\s+/g, "");
+            // Extract valid URL characters from the collapsed string
+            const urlMatch = collapsed.match(
+              /https:\/\/claude\.ai\/oauth\/authorize\?[A-Za-z0-9%&=+:_.~\-\/]+/,
+            );
+            if (urlMatch && urlMatch[0].includes("state=")) {
+              setOauthUrl(urlMatch[0]);
+              urlBuffer.current = "";
+            }
           }
 
           // Idle detection
