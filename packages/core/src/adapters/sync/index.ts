@@ -1,4 +1,9 @@
 export { FileSync, type FileSyncOptions, type SyncEvent } from "./file-sync.js";
+export {
+  createFileSync,
+  type FileSyncBackend,
+  type FileSyncResult,
+} from "./create-file-sync.js";
 export { threeWayMerge, type MergeResult } from "./merge.js";
 export {
   loadSyncConfig,
