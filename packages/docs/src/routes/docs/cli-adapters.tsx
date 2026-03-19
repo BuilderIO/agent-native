@@ -45,8 +45,8 @@ function CliAdaptersDocs() {
       </p>
       <p>
         CLI adapters solve this with a small interface — similar to{" "}
-        <a href="/docs/database-adapters" className="text-[var(--accent)]">
-          database adapters
+        <a href="/docs/file-sync" className="text-[var(--accent)]">
+          file sync adapters
         </a>{" "}
         but for command-line tools. Each adapter wraps a single CLI (
         <code>gh</code>, <code>ffmpeg</code>, <code>stripe</code>,{" "}
