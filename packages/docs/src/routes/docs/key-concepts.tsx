@@ -351,8 +351,8 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`}
       </p>
       <p>
         Agent-native provides a <strong>pluggable adapter system</strong> that
-        syncs files to a database in real-time. Three adapters ship out of
-        the box:
+        syncs files to a database in real-time. Three adapters ship out of the
+        box:
       </p>
       <div className="my-4 grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl border border-[var(--border)] p-5">
