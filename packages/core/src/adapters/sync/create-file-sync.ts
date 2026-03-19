@@ -12,7 +12,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-export type FileSyncBackend = "firestore" | "supabase";
+export type FileSyncBackend = "firestore" | "supabase" | "convex";
 
 export type FileSyncResult =
   | { readonly status: "disabled" }
@@ -142,6 +142,45 @@ async function createAdapter(
             err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
           console.error(
             `[file-sync] Failed to initialize Supabase: ${safeMsg}`,
+          );
+        }
+        return null;
+      }
+    }
+    case "convex": {
+      try {
+        const url = requireEnv("CONVEX_URL");
+        if (!url.startsWith("https://")) {
+          console.error(
+            "[file-sync] CONVEX_URL must use HTTPS",
+          );
+          return null;
+        }
+        const { ConvexFileSyncAdapter } = await import(
+          "../convex/adapter.js"
+        );
+        const { ConvexClient } = await import("convex/browser");
+        const client = new ConvexClient(url);
+        return new ConvexFileSyncAdapter(client as never);
+      } catch (err: unknown) {
+        if (
+          err instanceof Error &&
+          "code" in err &&
+          (err as NodeJS.ErrnoException).code === "ERR_MODULE_NOT_FOUND"
+        ) {
+          console.error(
+            "[file-sync] convex not installed. Run: pnpm add convex",
+          );
+        } else if (
+          err instanceof Error &&
+          err.message.startsWith("Missing required")
+        ) {
+          console.error(`[file-sync] ${err.message}`);
+        } else {
+          const safeMsg =
+            err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
+          console.error(
+            `[file-sync] Failed to initialize Convex: ${safeMsg}`,
           );
         }
         return null;
