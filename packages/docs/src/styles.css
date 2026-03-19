@@ -415,8 +415,8 @@ html.dark .shiki span {
   width: 18%;
 }
 
-.approaches-col-highlight {
-  color: var(--accent);
+.approaches-col-muted {
+  color: var(--fg-secondary);
 }
 
 .approaches-td {
@@ -436,15 +436,15 @@ html.dark .shiki span {
 }
 
 .approaches-td--good {
-  color: #4ade80;
+  color: #86efac;
 }
 
 .approaches-td--warn {
-  color: #fbbf24;
+  color: #fcd34d;
 }
 
 .approaches-td--bad {
-  color: #f87171;
+  color: #fca5a5;
 }
 
 .approaches-solution {
