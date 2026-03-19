@@ -444,7 +444,7 @@ function Home() {
                         Rented
                       </td>
                       <td className="approaches-td approaches-td--warn">
-                        Mostly yours
+                        Somewhat yours
                       </td>
                       <td className="approaches-td approaches-td--good">
                         You own the code
