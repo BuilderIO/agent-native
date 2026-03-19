@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { settingsToFlags, type LaunchSettings } from "../lib/settings";
 import type { HarnessConfig } from "../lib/config";
 
@@ -247,7 +248,11 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
       });
 
       const fitAd = new FitAddon();
+      const webLinksAd = new WebLinksAddon((_event, uri) => {
+        window.open(uri, "_blank");
+      });
       term.loadAddon(fitAd);
+      term.loadAddon(webLinksAd);
       term.open(termRef.current);
 
       termInstance.current = term;
