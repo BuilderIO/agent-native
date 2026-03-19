@@ -8,7 +8,6 @@ import {
 } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { WebLinksAddon } from "@xterm/addon-web-links";
 import { settingsToFlags, type LaunchSettings } from "../lib/settings";
 import type { HarnessConfig } from "../lib/config";
 
@@ -52,6 +51,8 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
     const fitAddon = useRef<FitAddon | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
     const [connected, setConnected] = useState(false);
+    const [oauthUrl, setOauthUrl] = useState<string | null>(null);
+    const urlBuffer = useRef("");
     const [setupStatus, setSetupStatus] = useState<SetupStatus>({
       status: "none",
       message: "",
@@ -154,6 +155,26 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
 
           term.write(data);
 
+          // Detect OAuth URLs that span multiple terminal chunks
+          const plain = data.replace(/\x1b\[[^a-zA-Z]*[a-zA-Z]/g, "");
+          urlBuffer.current += plain;
+          // Keep buffer from growing unbounded — only keep last 2KB
+          if (urlBuffer.current.length > 2048) {
+            urlBuffer.current = urlBuffer.current.slice(-2048);
+          }
+          const oauthMatch = urlBuffer.current.match(
+            /https:\/\/claude\.ai\/oauth\/authorize\?[^\s\x1b]+/,
+          );
+          if (oauthMatch) {
+            // Clean any terminal line-wrap artifacts (newlines/carriage returns)
+            const cleanUrl = oauthMatch[0].replace(/[\r\n]/g, "");
+            // Only set if it looks complete (has state= param near the end)
+            if (cleanUrl.includes("state=")) {
+              setOauthUrl(cleanUrl);
+              urlBuffer.current = "";
+            }
+          }
+
           // Idle detection
           if (data.includes("❯") || data.includes("\x1b[?25h")) {
             if (idleTimer) clearTimeout(idleTimer);
@@ -248,11 +269,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
       });
 
       const fitAd = new FitAddon();
-      const webLinksAd = new WebLinksAddon((_event, uri) => {
-        window.open(uri, "_blank");
-      });
       term.loadAddon(fitAd);
-      term.loadAddon(webLinksAd);
       term.open(termRef.current);
 
       termInstance.current = term;
@@ -303,10 +320,36 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
 
     return (
       <div
-        ref={termRef}
-        className="w-full h-full py-1 pl-3 pr-1"
+        className="relative w-full h-full"
         style={{ display: active ? "block" : "none" }}
-      />
+      >
+        {oauthUrl && (
+          <div className="absolute top-0 left-0 right-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-[#1a3a5c] border-b border-[#58a6ff]/30 text-xs">
+            <span className="text-[#e0e0e0] shrink-0">
+              OAuth link detected:
+            </span>
+            <a
+              href={oauthUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#58a6ff] hover:underline truncate"
+            >
+              {oauthUrl}
+            </a>
+            <button
+              onClick={() => setOauthUrl(null)}
+              className="shrink-0 text-white/50 hover:text-white/80 ml-auto"
+              aria-label="Dismiss"
+            >
+              &times;
+            </button>
+          </div>
+        )}
+        <div
+          ref={termRef}
+          className={`w-full h-full py-1 pl-3 pr-1 ${oauthUrl ? "pt-8" : ""}`}
+        />
+      </div>
     );
   },
 );
