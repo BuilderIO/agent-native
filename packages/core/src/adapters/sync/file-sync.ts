@@ -204,7 +204,6 @@ export class FileSync {
    */
   async stop(): Promise<void> {
     this.stopped = true;
-    this.abortController.abort();
 
     // Clear timers
     if (this.retryTimer) {
@@ -216,7 +215,7 @@ export class FileSync {
       this.purgeTimer = null;
     }
 
-    // Final flush attempt with timeout (prevent data loss on shutdown)
+    // Final flush attempt with timeout BEFORE aborting (abort would skip the flush)
     await Promise.race([
       this.flushRetryQueue(),
       new Promise((resolve) => setTimeout(resolve, 5000)),
@@ -236,6 +235,9 @@ export class FileSync {
         new Promise((resolve) => setTimeout(resolve, 5000)),
       ]);
     }
+
+    // Now abort — after graceful drain is complete
+    this.abortController.abort();
 
     // Close watchers (chokidar v4: close() returns Promise)
     for (const watcher of this.watchers) {
@@ -296,6 +298,7 @@ export class FileSync {
   }
 
   private startPurgeTimer() {
+    if (this.purgeTimer) return;
     this.purgeTimer = setInterval(() => {
       const now = Date.now();
       for (const [k, v] of this.recentlyPushed) {
@@ -547,125 +550,130 @@ export class FileSync {
     // Emit burst start for SSE batching
     this.syncEvents.emit("sync-burst-start");
 
-    const rows = await this.options.adapter.query(this.options.appId, ownerId);
-
-    const docsByPath = new Map<string, { id: string; data: FileRecord }>();
-    const orphanedDocIds: string[] = [];
-
-    // Check for legacy doc ID format
-    const legacyDocs = rows.filter((r) => r.id.includes("__"));
-    if (legacyDocs.length > 0) {
-      console.warn(
-        `[file-sync] Found ${legacyDocs.length} document(s) with legacy '__' separator. ` +
-          `These will be treated as orphans. See: https://agent-native.dev/docs/file-sync#migration`,
+    try {
+      const rows = await this.options.adapter.query(
+        this.options.appId,
+        ownerId,
       );
-    }
 
-    for (const row of rows) {
-      const filePath = row.data.path;
-      const canonicalId = this.docId(filePath);
-      if (row.id !== canonicalId) {
-        orphanedDocIds.push(row.id);
-        continue;
+      const docsByPath = new Map<string, { id: string; data: FileRecord }>();
+      const orphanedDocIds: string[] = [];
+
+      // Check for legacy doc ID format
+      const legacyDocs = rows.filter((r) => r.id.includes("__"));
+      if (legacyDocs.length > 0) {
+        console.warn(
+          `[file-sync] Found ${legacyDocs.length} document(s) with legacy '__' separator. ` +
+            `These will be treated as orphans. See: https://agent-native.dev/docs/file-sync#migration`,
+        );
       }
-      docsByPath.set(filePath, row);
-    }
 
-    // Parallelize orphan cleanup with p-limit (1g)
-    const limit = pLimit(this.options.startupConcurrency ?? 10);
-
-    if (orphanedDocIds.length > 0) {
-      console.log(
-        `[file-sync:${label}] Cleaning up ${orphanedDocIds.length} orphaned doc(s)...`,
-      );
-      await Promise.all(
-        orphanedDocIds.map((id) =>
-          limit(() =>
-            this.options.adapter.delete(id).catch((err) => {
-              console.warn(`[file-sync] Failed to delete orphan ${id}:`, err);
-            }),
-          ),
-        ),
-      );
-    }
-
-    const projectRoot = path.resolve(this.options.contentRoot, "..");
-    let syncedCount = 0;
-
-    // Collect push operations for parallel execution
-    const pushOps: Array<() => Promise<void>> = [];
-
-    for (const [filePath, row] of docsByPath) {
-      if (this.stopped) return;
-
-      const data = row.data;
-      if (!shouldSyncFile(filePath, patterns)) continue;
-
-      const absPath = assertSafePath(projectRoot, filePath) as string;
-      const remoteContent: string = data.content ?? "";
-      const localContent = this.readLocalFile(absPath);
-
-      if (localContent === null) {
-        this.writeSyncedFile(filePath, absPath, remoteContent);
-        syncedCount++;
-      } else if (localContent !== remoteContent) {
-        const remoteMs: number = data.lastUpdated ?? 0;
-        let localMs = 0;
-        try {
-          localMs = fs.statSync(absPath).mtimeMs;
-        } catch {
-          /* file may have been deleted */
+      for (const row of rows) {
+        const filePath = row.data.path;
+        const canonicalId = this.docId(filePath);
+        if (row.id !== canonicalId) {
+          orphanedDocIds.push(row.id);
+          continue;
         }
+        docsByPath.set(filePath, row);
+      }
 
-        if (remoteMs > localMs) {
+      // Parallelize orphan cleanup with p-limit (1g)
+      const limit = pLimit(this.options.startupConcurrency ?? 10);
+
+      if (orphanedDocIds.length > 0) {
+        console.log(
+          `[file-sync:${label}] Cleaning up ${orphanedDocIds.length} orphaned doc(s)...`,
+        );
+        await Promise.all(
+          orphanedDocIds.map((id) =>
+            limit(() =>
+              this.options.adapter.delete(id).catch((err) => {
+                console.warn(`[file-sync] Failed to delete orphan ${id}:`, err);
+              }),
+            ),
+          ),
+        );
+      }
+
+      const projectRoot = path.resolve(this.options.contentRoot, "..");
+      let syncedCount = 0;
+
+      // Collect push operations for parallel execution
+      const pushOps: Array<() => Promise<void>> = [];
+
+      for (const [filePath, row] of docsByPath) {
+        if (this.stopped) return;
+
+        const data = row.data;
+        if (!shouldSyncFile(filePath, patterns)) continue;
+
+        const absPath = assertSafePath(projectRoot, filePath) as string;
+        const remoteContent: string = data.content ?? "";
+        const localContent = this.readLocalFile(absPath);
+
+        if (localContent === null) {
           this.writeSyncedFile(filePath, absPath, remoteContent);
           syncedCount++;
-        } else {
-          // Queue push for parallel execution
-          const capturedFilePath = filePath;
-          const capturedLocalContent = localContent;
-          const capturedCreatedAt = data.createdAt;
-          pushOps.push(async () => {
-            if (this.abortController.signal.aborted) return;
-            const now = Date.now();
-            await this.options.adapter.set(this.docId(capturedFilePath), {
-              path: capturedFilePath,
-              content: capturedLocalContent,
-              app: this.options.appId,
-              ownerId,
-              lastUpdated: now,
-              createdAt: capturedCreatedAt ?? now,
+        } else if (localContent !== remoteContent) {
+          const remoteMs: number = data.lastUpdated ?? 0;
+          let localMs = 0;
+          try {
+            localMs = fs.statSync(absPath).mtimeMs;
+          } catch {
+            /* file may have been deleted */
+          }
+
+          if (remoteMs > localMs) {
+            this.writeSyncedFile(filePath, absPath, remoteContent);
+            syncedCount++;
+          } else {
+            // Queue push for parallel execution
+            const capturedFilePath = filePath;
+            const capturedLocalContent = localContent;
+            const capturedCreatedAt = data.createdAt;
+            pushOps.push(async () => {
+              if (this.abortController.signal.aborted) return;
+              const now = Date.now();
+              await this.options.adapter.set(this.docId(capturedFilePath), {
+                path: capturedFilePath,
+                content: capturedLocalContent,
+                app: this.options.appId,
+                ownerId,
+                lastUpdated: now,
+                createdAt: capturedCreatedAt ?? now,
+              });
+              if (this.abortController.signal.aborted) return;
+              this.lastSyncedHash.set(
+                capturedFilePath,
+                hashContent(capturedLocalContent),
+              );
+              this.updateMergeBase(capturedFilePath, capturedLocalContent);
+              this.markRecent(this.recentlyPushed, capturedFilePath);
             });
-            if (this.abortController.signal.aborted) return;
-            this.lastSyncedHash.set(
-              capturedFilePath,
-              hashContent(capturedLocalContent),
-            );
-            this.updateMergeBase(capturedFilePath, capturedLocalContent);
-            this.markRecent(this.recentlyPushed, capturedFilePath);
-          });
-          syncedCount++;
+            syncedCount++;
+          }
+        } else {
+          this.lastSyncedHash.set(filePath, hashContent(localContent));
+          this.updateMergeBase(filePath, localContent);
         }
-      } else {
-        this.lastSyncedHash.set(filePath, hashContent(localContent));
-        this.updateMergeBase(filePath, localContent);
       }
+
+      // Execute pushes in parallel with concurrency limit (1g)
+      if (pushOps.length > 0) {
+        await Promise.all(pushOps.map((fn) => limit(fn)));
+      }
+
+      this.lastSyncTimestamp = Date.now();
+      this.writeSyncStatus();
+
+      console.log(
+        `[file-sync:${label}] Startup sync complete - ${syncedCount} file(s) synced`,
+      );
+    } finally {
+      // Always emit burst end — even if startup sync failed
+      this.syncEvents.emit("sync-burst-end");
     }
-
-    // Execute pushes in parallel with concurrency limit (1g)
-    if (pushOps.length > 0) {
-      await Promise.all(pushOps.map((fn) => limit(fn)));
-    }
-
-    // Emit burst end for SSE batching
-    this.syncEvents.emit("sync-burst-end");
-
-    this.lastSyncTimestamp = Date.now();
-    this.writeSyncStatus();
-
-    console.log(
-      `[file-sync:${label}] Startup sync complete - ${syncedCount} file(s) synced`,
-    );
   }
 
   // -- Remote -> disk listener ----------------------------------------------

@@ -40,7 +40,7 @@ export function useFileSyncStatus(options?: {
           setStatus((prev) => ({
             ...prev,
             enabled: data.enabled,
-            connected: data.enabled,
+            connected: data.connected ?? data.enabled,
           }));
         }
       })
