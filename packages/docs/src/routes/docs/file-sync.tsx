@@ -273,12 +273,10 @@ SUPABASE_PUBLISHABLE_KEY=sb_publishable_...`}
 
       <h3>Row Level Security</h3>
       <p>
-        The default setup uses the publishable key, which means Supabase RLS
-        policies apply. If your <code>files</code> table has no RLS policies,
-        reads and writes will be blocked. Either add appropriate policies or use{" "}
-        <code>SUPABASE_SECRET_KEY</code> (or legacy{" "}
-        <code>SUPABASE_SERVICE_ROLE_KEY</code>) to bypass RLS (not recommended
-        for multi-tenant production).
+        The publishable key respects Supabase RLS policies. If your{" "}
+        <code>files</code> table has no RLS policies, reads and writes will be
+        blocked. Either add appropriate policies or disable RLS on the{" "}
+        <code>files</code> table for development.
       </p>
 
       {/* ------------------------------------------------------------------ */}
