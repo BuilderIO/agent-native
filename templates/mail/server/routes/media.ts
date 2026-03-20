@@ -37,12 +37,19 @@ const MIME_MAP: Record<string, string> = {
   ".zip": "application/zip",
 };
 
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
+
 export const uploadMedia = defineEventHandler(async (event: H3Event) => {
   try {
     const body = await readRawBody(event);
     if (!body || !body.length) {
       setResponseStatus(event, 400);
       return { error: "No file data" };
+    }
+
+    if (body.length > MAX_UPLOAD_BYTES) {
+      setResponseStatus(event, 413);
+      return { error: "File too large (max 10 MB)" };
     }
 
     const originalName = (getQuery(event).filename as string) || "upload";

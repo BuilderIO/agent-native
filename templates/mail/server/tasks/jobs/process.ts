@@ -45,7 +45,7 @@ export async function processJobs(): Promise<{ result: string }> {
     } catch (err) {
       console.error(`[jobs:process] Job ${job.id} failed:`, err);
       db.update(schema.scheduledJobs)
-        .set({ status: "pending" } as any)
+        .set({ status: "cancelled" } as any)
         .where(eq(schema.scheduledJobs.id, job.id))
         .run();
     }

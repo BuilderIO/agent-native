@@ -194,35 +194,38 @@ export function ComposeModal({
     const draftSnapshot = { ...activeDraft };
     const { savedDraftId } = activeDraft;
 
-    // Close composer immediately
-    onDiscard(activeId);
+    try {
+      await createJob.mutateAsync({
+        type: "send_later",
+        payload: {
+          to: expandAliasTokens(draftSnapshot.to, aliases),
+          cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
+          bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
+          subject: draftSnapshot.subject,
+          body: draftSnapshot.body,
+          replyToId: draftSnapshot.replyToId,
+          accountEmail: draftSnapshot.accountEmail,
+        },
+        runAt,
+      });
 
-    if (savedDraftId) {
-      fetch(`/api/emails/draft/${savedDraftId}`, { method: "DELETE" });
+      // Job created successfully — now discard the draft
+      onDiscard(activeId);
+      if (savedDraftId) {
+        fetch(`/api/emails/draft/${savedDraftId}`, { method: "DELETE" });
+      }
+
+      const scheduledDate = new Date(runAt).toLocaleString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+      toast(`Scheduled for ${scheduledDate}`);
+    } catch {
+      toast.error("Failed to schedule email — draft kept open");
     }
-
-    await createJob.mutateAsync({
-      type: "send_later",
-      payload: {
-        to: expandAliasTokens(draftSnapshot.to, aliases),
-        cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
-        bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
-        subject: draftSnapshot.subject,
-        body: draftSnapshot.body,
-        replyToId: draftSnapshot.replyToId,
-        accountEmail: draftSnapshot.accountEmail,
-      },
-      runAt,
-    });
-
-    const scheduledDate = new Date(runAt).toLocaleString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-    toast(`Scheduled for ${scheduledDate}`);
   };
 
   const composeRef = useRef<HTMLDivElement>(null);
