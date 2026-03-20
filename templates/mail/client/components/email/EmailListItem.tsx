@@ -107,6 +107,18 @@ export function EmailListItem({
         )}
       </div>
 
+      {/* Sender name — fixed width column */}
+      <span
+        className={cn(
+          "w-[160px] shrink-0 text-[13px] truncate mr-3",
+          isUnread
+            ? "font-semibold text-foreground"
+            : "font-normal text-foreground/70",
+        )}
+      >
+        {senderName}
+      </span>
+
       {/* Label badges */}
       {displayLabels.length > 0 && (
         <div className="flex items-center gap-1 shrink-0 mr-2">
