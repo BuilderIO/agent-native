@@ -23,42 +23,79 @@
 import fs from "fs";
 import path from "path";
 import { parseArgs, output, fatal } from "./helpers.js";
+import type { ScriptTool } from "@agent-native/core";
 
 const STATE_DIR = path.join(process.cwd(), "application-state");
 
-export default async function main(): Promise<void> {
-  const args = parseArgs();
-  const action = args.action;
+/** Reject IDs that could escape STATE_DIR via path traversal. */
+function sanitizeDraftId(id: string): string | null {
+  return /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
+}
 
-  if (!action) {
-    fatal("--action is required (create, update, delete, delete-all)");
-  }
+export const tool: ScriptTool = {
+  description:
+    "Create, update, or delete a compose draft. Opening a draft makes it appear in the compose panel UI automatically.",
+  parameters: {
+    type: "object",
+    properties: {
+      action: {
+        type: "string",
+        description: "Action to perform",
+        enum: ["create", "update", "delete", "delete-all"],
+      },
+      id: {
+        type: "string",
+        description:
+          "Draft ID (auto-generated for create; required for update/delete)",
+      },
+      to: { type: "string", description: "Recipient email(s)" },
+      cc: { type: "string", description: "CC email(s)" },
+      bcc: { type: "string", description: "BCC email(s)" },
+      subject: { type: "string", description: "Email subject" },
+      body: { type: "string", description: "Email body text" },
+      mode: {
+        type: "string",
+        description: "compose, reply, or forward",
+        enum: ["compose", "reply", "forward"],
+      },
+      replyToId: { type: "string", description: "Message ID being replied to" },
+      replyToThreadId: {
+        type: "string",
+        description: "Thread ID for grouping",
+      },
+    },
+    required: ["action"],
+  },
+};
+
+export async function run(args: Record<string, string>): Promise<string> {
+  const action = args.action;
+  if (!action)
+    return "Error: --action is required (create, update, delete, delete-all)";
 
   if (action === "delete-all") {
     const files = fs
       .readdirSync(STATE_DIR)
       .filter((f) => f.startsWith("compose-") && f.endsWith(".json"));
     for (const f of files) fs.unlinkSync(path.join(STATE_DIR, f));
-    console.error(`Deleted ${files.length} draft(s)`);
-    output({ deleted: files.length });
-    return;
+    return `Deleted ${files.length} draft(s)`;
   }
 
   if (action === "delete") {
-    if (!args.id) fatal("--id is required for delete");
-    const filePath = path.join(STATE_DIR, `compose-${args.id}.json`);
+    if (!args.id) return "Error: --id is required for delete";
+    const safeId = sanitizeDraftId(args.id);
+    if (!safeId) return `Error: Invalid draft ID "${args.id}"`;
     try {
-      fs.unlinkSync(filePath);
-      console.error(`Deleted draft ${args.id}`);
-      output({ id: args.id, deleted: true });
+      fs.unlinkSync(path.join(STATE_DIR, `compose-${safeId}.json`));
+      return `Deleted draft ${safeId}`;
     } catch {
-      fatal(`Draft "${args.id}" not found`);
+      return `Error: Draft "${safeId}" not found`;
     }
-    return;
   }
 
   if (action === "create") {
-    const id = args.id || `draft-${Date.now()}`;
+    const rawId = args.id || `draft-${Date.now()}`;
+    const id = sanitizeDraftId(rawId) ?? `draft-${Date.now()}`;
     const draft: Record<string, string> = {
       id,
       to: args.to || "",
@@ -70,25 +107,28 @@ export default async function main(): Promise<void> {
     if (args.bcc) draft.bcc = args.bcc;
     if (args.replyToId) draft.replyToId = args.replyToId;
     if (args.replyToThreadId) draft.replyToThreadId = args.replyToThreadId;
-
-    const filePath = path.join(STATE_DIR, `compose-${id}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(draft, null, 2));
-    console.error(`Created draft ${id}`);
-    output(draft);
-    return;
+    fs.writeFileSync(
+      path.join(STATE_DIR, `compose-${id}.json`),
+      JSON.stringify(draft, null, 2),
+    );
+    return `Created draft ${id}`;
   }
 
   if (action === "update") {
-    if (!args.id) fatal("--id is required for update");
-    const filePath = path.join(STATE_DIR, `compose-${args.id}.json`);
+    if (!args.id) return "Error: --id is required for update";
+    const safeId = sanitizeDraftId(args.id);
+    if (!safeId) return `Error: Invalid draft ID "${args.id}"`;
     let draft: Record<string, string>;
     try {
-      draft = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      draft = JSON.parse(
+        fs.readFileSync(
+          path.join(STATE_DIR, `compose-${safeId}.json`),
+          "utf-8",
+        ),
+      );
     } catch {
-      fatal(`Draft "${args.id}" not found`);
+      return `Error: Draft "${safeId}" not found`;
     }
-
-    // Update only provided fields
     for (const key of [
       "to",
       "cc",
@@ -101,14 +141,21 @@ export default async function main(): Promise<void> {
     ]) {
       if (args[key] !== undefined) draft[key] = args[key];
     }
-
-    fs.writeFileSync(filePath, JSON.stringify(draft, null, 2));
-    console.error(`Updated draft ${args.id}`);
-    output(draft);
-    return;
+    fs.writeFileSync(
+      path.join(STATE_DIR, `compose-${safeId}.json`),
+      JSON.stringify(draft, null, 2),
+    );
+    return `Updated draft ${safeId}`;
   }
 
-  fatal(
-    `Unknown action "${action}". Valid: create, update, delete, delete-all`,
-  );
+  return `Error: Unknown action "${action}". Valid: create, update, delete, delete-all`;
+}
+
+export default async function main(): Promise<void> {
+  const args = parseArgs() as Record<string, string>;
+  if (!args.action)
+    fatal("--action is required (create, update, delete, delete-all)");
+  const result = await run(args);
+  console.error(result);
+  output({ result });
 }

@@ -1,6 +1,17 @@
 // Framework for agent-native apps.
 // Import everything from "@agent-native/core".
 
+// Agent (production mode)
+export {
+  createProductionAgentHandler,
+  type ScriptEntry,
+  type ProductionAgentOptions,
+  type ScriptTool,
+  type AgentMessage,
+  type AgentChatRequest,
+  type AgentChatEvent,
+} from "./agent/index.js";
+
 // Server
 export {
   createServer,
@@ -20,7 +31,12 @@ export {
   useFileWatcher,
   cn,
   ApiKeySettings,
+  useProductionAgent,
+  ProductionAgentPanel,
   type AgentChatMessage,
+  type ProductionAgentMessage,
+  type UseProductionAgentResult,
+  type ProductionAgentPanelProps,
 } from "./client/index.js";
 
 // Shared (isomorphic)
