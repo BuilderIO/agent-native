@@ -241,6 +241,7 @@ export async function createFileSync(options: {
     appId,
     ownerId,
     contentRoot: options.contentRoot,
+    syncConfigPath: path.resolve(options.contentRoot, "sync-config.json"),
     adapter,
   };
 
