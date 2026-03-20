@@ -17,7 +17,9 @@ const agentHandler = createProductionAgentHandler({
   systemPrompt,
 });
 
-createProductionServer(createAppServer(), {
-  agent: agentHandler,
-  accessToken: process.env.ACCESS_TOKEN,
-});
+createAppServer().then((app) =>
+  createProductionServer(app, {
+    agent: agentHandler,
+    accessToken: process.env.ACCESS_TOKEN,
+  }),
+);
