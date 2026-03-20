@@ -26,7 +26,7 @@ export interface FirestoreQuery {
   get(): Promise<FirestoreQuerySnapshot>;
   onSnapshot(
     onNext: (snapshot: FirestoreQuerySnapshot) => void,
-    onError: (error: any) => void,
+    onError: (error: unknown) => void,
   ): () => void;
 }
 
@@ -46,6 +46,20 @@ export interface FirestoreQuerySnapshot {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// Firestore doc IDs cannot contain `/` (it's a path separator).
+// Encode `/` as `%2F` for storage, decode on retrieval.
+function encodeDocId(id: string): string {
+  return id.replace(/\//g, "%2F");
+}
+
+function decodeDocId(id: string): string {
+  return id.replace(/%2F/g, "/");
+}
+
+// ---------------------------------------------------------------------------
 // Firestore adapter
 // ---------------------------------------------------------------------------
 
@@ -62,30 +76,32 @@ export class FirestoreFileSyncAdapter implements FileSyncAdapter {
       .get();
 
     return snapshot.docs.map((doc) => ({
-      id: doc.id,
+      id: decodeDocId(doc.id),
       data: doc.data() as FileRecord,
     }));
   }
 
   async get(id: string): Promise<{ id: string; data: FileRecord } | null> {
-    const doc = await this.getCollection().doc(id).get();
+    const doc = await this.getCollection().doc(encodeDocId(id)).get();
     if (!doc.exists) return null;
-    return { id: doc.id, data: doc.data() as FileRecord };
+    return { id: decodeDocId(doc.id), data: doc.data() as FileRecord };
   }
 
   async set(id: string, record: Partial<FileRecord>): Promise<void> {
-    await this.getCollection().doc(id).set(record, { merge: true });
+    await this.getCollection()
+      .doc(encodeDocId(id))
+      .set(record, { merge: true });
   }
 
   async delete(id: string): Promise<void> {
-    await this.getCollection().doc(id).delete();
+    await this.getCollection().doc(encodeDocId(id)).delete();
   }
 
   subscribe(
     appId: string,
     ownerId: string,
     onChange: (changes: FileChange[]) => void,
-    onError: (error: any) => void,
+    onError: (error: unknown) => void,
   ): Unsubscribe {
     return this.getCollection()
       .where("app", "==", appId)
@@ -93,10 +109,15 @@ export class FirestoreFileSyncAdapter implements FileSyncAdapter {
       .onSnapshot((snapshot) => {
         const changes: FileChange[] = snapshot.docChanges().map((change) => ({
           type: change.type,
-          id: change.doc.id,
+          id: decodeDocId(change.doc.id),
           data: change.doc.data() as FileRecord,
         }));
         onChange(changes);
       }, onError);
+  }
+
+  async dispose(): Promise<void> {
+    // No persistent connections to clean up in the duck-typed interface.
+    // Real Firebase apps should call app.delete() separately.
   }
 }
