@@ -69,6 +69,7 @@ function FileWatcherSetup() {
         qc.invalidateQueries({ queryKey: ["email"] });
         qc.invalidateQueries({ queryKey: ["labels"] });
         qc.invalidateQueries({ queryKey: ["settings"] });
+        qc.invalidateQueries({ queryKey: ["aliases"] });
       }
     },
   });
