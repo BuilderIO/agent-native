@@ -161,7 +161,10 @@ function SaveAliasModal({ emails, onClose }: SaveAliasModalProps) {
   // Close on outside click or Escape
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
     };
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
@@ -274,12 +277,14 @@ export function RecipientInput({
       })
     : [];
 
-  // Combined for keyboard nav — aliases first
+  // Combined for keyboard nav — aliases first (sliced to match dropdown rendering)
+  const aliasSlice = filteredAliases.slice(0, 4);
+  const contactSlice = filteredContacts.slice(0, 8 - Math.min(filteredAliases.length, 4));
   const allSuggestions: Array<
     { type: "alias"; item: Alias } | { type: "contact"; item: Contact }
   > = [
-    ...filteredAliases.map((a) => ({ type: "alias" as const, item: a })),
-    ...filteredContacts.map((c) => ({ type: "contact" as const, item: c })),
+    ...aliasSlice.map((a) => ({ type: "alias" as const, item: a })),
+    ...contactSlice.map((c) => ({ type: "contact" as const, item: c })),
   ];
 
   const hasSuggestions = allSuggestions.length > 0;
@@ -411,9 +416,9 @@ export function RecipientInput({
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  // Reset selected index when filtered list changes
+  // Clamp selected index when filtered list changes (preserves position when possible)
   useEffect(() => {
-    setSelectedIndex(0);
+    setSelectedIndex(prev => Math.min(prev, allSuggestions.length - 1));
   }, [allSuggestions.length]);
 
   const dropdown =
@@ -513,8 +518,9 @@ export function RecipientInput({
                   type="button"
                   className="flex items-center gap-1 text-indigo-200 hover:text-indigo-100 transition-colors"
                   onClick={(e) => {
-                    if (alias) {
-                      setPopoverAlias({ alias, anchorEl: e.currentTarget.closest("span") as HTMLElement });
+                    const anchor = e.currentTarget.closest("span");
+                    if (alias && anchor instanceof HTMLElement) {
+                      setPopoverAlias({ alias, anchorEl: anchor });
                     }
                   }}
                 >
