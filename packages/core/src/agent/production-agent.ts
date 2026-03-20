@@ -27,6 +27,8 @@ function sseEvent(event: AgentChatEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
 }
 
+const MAX_ITERATIONS = 20;
+
 export function createProductionAgentHandler(
   options: ProductionAgentOptions,
 ): H3EventHandler {
@@ -73,29 +75,49 @@ export function createProductionAgentHandler(
 
     const nodeRes = event.node.res;
 
+    // Cancel the agent loop when the client disconnects
+    const abort = new AbortController();
+    nodeRes.on("close", () => abort.abort());
+
     const send = (ev: AgentChatEvent) => {
-      nodeRes.write(sseEvent(ev));
+      if (!nodeRes.destroyed) nodeRes.write(sseEvent(ev));
     };
 
-    // Build messages for Anthropic API
+    // Build messages for Anthropic API — skip empty-content history entries
+    // (assistant turns with only tool calls have content="" in the client history)
     const messages: Anthropic.MessageParam[] = [
-      ...history.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      })),
+      ...history
+        .filter((m) => m.content.trim())
+        .map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        })),
       { role: "user" as const, content: message },
     ];
 
     try {
       // Agentic loop — keep calling Claude until it stops using tools
+      let iterations = 0;
       while (true) {
-        const stream = await client.messages.stream({
-          model,
-          max_tokens: 4096,
-          system: options.systemPrompt,
-          tools,
-          messages,
-        });
+        if (abort.signal.aborted || nodeRes.destroyed) break;
+        if (++iterations > MAX_ITERATIONS) {
+          send({
+            type: "error",
+            error: "Agent loop exceeded maximum iterations",
+          });
+          break;
+        }
+
+        const stream = client.messages.stream(
+          {
+            model,
+            max_tokens: 4096,
+            system: options.systemPrompt,
+            tools,
+            messages,
+          },
+          { signal: abort.signal },
+        );
 
         let assistantContent: Anthropic.ContentBlock[] = [];
         let currentText = "";
@@ -107,11 +129,6 @@ export function createProductionAgentHandler(
           ) {
             currentText += chunk.delta.text;
             send({ type: "text", text: chunk.delta.text });
-          }
-          if (chunk.type === "content_block_start") {
-            if (chunk.content_block.type === "tool_use") {
-              // Will be handled when we get the full block
-            }
           }
         }
 
@@ -181,9 +198,11 @@ export function createProductionAgentHandler(
 
       send({ type: "done" });
     } catch (err: any) {
-      send({ type: "error", error: err?.message ?? "Unknown error" });
+      if (!abort.signal.aborted) {
+        send({ type: "error", error: err?.message ?? "Unknown error" });
+      }
     }
 
-    nodeRes.end();
+    if (!nodeRes.destroyed) nodeRes.end();
   });
 }

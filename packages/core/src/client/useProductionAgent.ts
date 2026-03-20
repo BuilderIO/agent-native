@@ -44,11 +44,14 @@ export function useProductionAgent(): UseProductionAgentResult {
         }),
       );
 
-      // Build history for this request (exclude the message we just added)
-      const history: AgentMessage[] = messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      // Build history for this request — skip empty-content messages
+      // (assistant turns with only tool calls have no text content to send)
+      const history: AgentMessage[] = messages
+        .filter((m) => m.content.trim())
+        .map((m) => ({
+          role: m.role,
+          content: m.content,
+        }));
 
       const assistantId = `assistant-${Date.now()}`;
       const assistantMsg: ProductionAgentMessage = {

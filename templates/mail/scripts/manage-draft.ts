@@ -27,6 +27,11 @@ import type { ScriptTool } from "@agent-native/core";
 
 const STATE_DIR = path.join(process.cwd(), "application-state");
 
+/** Reject IDs that could escape STATE_DIR via path traversal. */
+function sanitizeDraftId(id: string): string | null {
+  return /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
+}
+
 export const tool: ScriptTool = {
   description:
     "Create, update, or delete a compose draft. Opening a draft makes it appear in the compose panel UI automatically.",
@@ -78,16 +83,19 @@ export async function run(args: Record<string, string>): Promise<string> {
 
   if (action === "delete") {
     if (!args.id) return "Error: --id is required for delete";
+    const safeId = sanitizeDraftId(args.id);
+    if (!safeId) return `Error: Invalid draft ID "${args.id}"`;
     try {
-      fs.unlinkSync(path.join(STATE_DIR, `compose-${args.id}.json`));
-      return `Deleted draft ${args.id}`;
+      fs.unlinkSync(path.join(STATE_DIR, `compose-${safeId}.json`));
+      return `Deleted draft ${safeId}`;
     } catch {
-      return `Error: Draft "${args.id}" not found`;
+      return `Error: Draft "${safeId}" not found`;
     }
   }
 
   if (action === "create") {
-    const id = args.id || `draft-${Date.now()}`;
+    const rawId = args.id || `draft-${Date.now()}`;
+    const id = sanitizeDraftId(rawId) ?? `draft-${Date.now()}`;
     const draft: Record<string, string> = {
       id,
       to: args.to || "",
@@ -108,16 +116,18 @@ export async function run(args: Record<string, string>): Promise<string> {
 
   if (action === "update") {
     if (!args.id) return "Error: --id is required for update";
+    const safeId = sanitizeDraftId(args.id);
+    if (!safeId) return `Error: Invalid draft ID "${args.id}"`;
     let draft: Record<string, string>;
     try {
       draft = JSON.parse(
         fs.readFileSync(
-          path.join(STATE_DIR, `compose-${args.id}.json`),
+          path.join(STATE_DIR, `compose-${safeId}.json`),
           "utf-8",
         ),
       );
     } catch {
-      return `Error: Draft "${args.id}" not found`;
+      return `Error: Draft "${safeId}" not found`;
     }
     for (const key of [
       "to",
@@ -132,10 +142,10 @@ export async function run(args: Record<string, string>): Promise<string> {
       if (args[key] !== undefined) draft[key] = args[key];
     }
     fs.writeFileSync(
-      path.join(STATE_DIR, `compose-${args.id}.json`),
+      path.join(STATE_DIR, `compose-${safeId}.json`),
       JSON.stringify(draft, null, 2),
     );
-    return `Updated draft ${args.id}`;
+    return `Updated draft ${safeId}`;
   }
 
   return `Error: Unknown action "${action}". Valid: create, update, delete, delete-all`;

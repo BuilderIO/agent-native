@@ -70,6 +70,12 @@ export function createProductionServer(
   // Mount auth middleware first (if access token provided)
   if (options.accessToken) {
     mountAuthMiddleware(app, options.accessToken);
+  } else if (options.agent) {
+    console.warn(
+      "[agent-native] WARNING: ACCESS_TOKEN is not set. " +
+        "The /api/agent-chat endpoint is publicly accessible. " +
+        "Set ACCESS_TOKEN to enable authentication.",
+    );
   }
 
   // Mount agent handler at POST /api/agent-chat (if provided)

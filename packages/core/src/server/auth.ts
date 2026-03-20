@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import {
   defineEventHandler,
   readBody,
@@ -12,6 +13,9 @@ import {
 import type { App as H3App } from "h3";
 
 const COOKIE_NAME = "an_session";
+
+// In-memory session store — maps random session tokens to their creation time
+const activeSessions = new Set<string>();
 
 const LOGIN_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -120,8 +124,11 @@ export function mountAuthMiddleware(app: H3App, accessToken: string): void {
         setResponseStatus(event, 401);
         return { error: "Invalid token" };
       }
-      setCookie(event, COOKIE_NAME, accessToken, {
+      const sessionToken = crypto.randomBytes(32).toString("hex");
+      activeSessions.add(sessionToken);
+      setCookie(event, COOKIE_NAME, sessionToken, {
         httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
         path: "/",
         maxAge: 60 * 60 * 24 * 30, // 30 days
@@ -134,6 +141,8 @@ export function mountAuthMiddleware(app: H3App, accessToken: string): void {
   app.use(
     "/api/auth/logout",
     defineEventHandler((event) => {
+      const session = getCookie(event, COOKIE_NAME);
+      if (session) activeSessions.delete(session);
       deleteCookie(event, COOKIE_NAME, { path: "/" });
       return { ok: true };
     }),
@@ -151,7 +160,7 @@ export function mountAuthMiddleware(app: H3App, accessToken: string): void {
       }
 
       const session = getCookie(event, COOKIE_NAME);
-      if (session === accessToken) {
+      if (session && activeSessions.has(session)) {
         return; // Authenticated — continue
       }
 

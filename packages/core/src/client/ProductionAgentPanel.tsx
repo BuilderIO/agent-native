@@ -203,9 +203,19 @@ function ThinkingIndicator() {
 
 // ─── Agent chat view ────────────────────────────────────────────────────────
 
-function AgentChatView() {
-  const { messages, isGenerating, sendMessage, clearHistory } =
-    useProductionAgent();
+interface AgentChatViewProps {
+  messages: ReturnType<typeof useProductionAgent>["messages"];
+  isGenerating: boolean;
+  sendMessage: (text: string) => void;
+  clearHistory: () => void;
+}
+
+function AgentChatView({
+  messages,
+  isGenerating,
+  sendMessage,
+  clearHistory,
+}: AgentChatViewProps) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -386,6 +396,9 @@ export function ProductionAgentPanel({ children }: ProductionAgentPanelProps) {
   const [activeTab, setActiveTab] = useState<"mail" | "agent">("mail");
   const [hasAgentActivity, setHasAgentActivity] = useState(false);
 
+  // Hoist agent state here so it survives tab switches
+  const agent = useProductionAgent();
+
   useEffect(() => {
     if (!IS_PROD) return;
     const handler = (e: Event) => {
@@ -403,7 +416,7 @@ export function ProductionAgentPanel({ children }: ProductionAgentPanelProps) {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      {/* Content area */}
+      {/* Content area — always mounted, hidden when agent tab is active */}
       <div
         className={cn(
           "flex flex-1 overflow-hidden",
@@ -412,7 +425,15 @@ export function ProductionAgentPanel({ children }: ProductionAgentPanelProps) {
       >
         {children}
       </div>
-      {activeTab === "agent" && <AgentChatView />}
+      {/* Agent view — always mounted to preserve conversation across tab switches */}
+      <div
+        className={cn(
+          "flex flex-1 overflow-hidden flex-col",
+          activeTab !== "agent" && "hidden",
+        )}
+      >
+        <AgentChatView {...agent} />
+      </div>
 
       <BottomTabBar
         activeTab={activeTab}
