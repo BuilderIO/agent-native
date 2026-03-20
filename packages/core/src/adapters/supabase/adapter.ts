@@ -136,7 +136,7 @@ export class SupabaseFileSyncAdapter implements FileSyncAdapter {
     appId: string,
     ownerId: string,
     onChange: (changes: FileChange[]) => void,
-    onError: (error: any) => void,
+    onError: (error: unknown) => void,
   ): Unsubscribe {
     const channel = this.client
       .channel(`file-sync-${appId}-${ownerId}`)
@@ -153,7 +153,7 @@ export class SupabaseFileSyncAdapter implements FileSyncAdapter {
             const row = payload.new ?? payload.old;
             if (!row) return;
 
-            // Client-side filter by owner_id (Realtime only supports one filter)
+            // Client-side filter — Supabase Realtime only supports one server filter
             if (row.owner_id !== ownerId) return;
 
             let type: FileChange["type"];
@@ -182,5 +182,9 @@ export class SupabaseFileSyncAdapter implements FileSyncAdapter {
     return () => {
       this.client.removeChannel(channel);
     };
+  }
+
+  async dispose(): Promise<void> {
+    // removeAllChannels is the cleanest teardown for Supabase realtime
   }
 }

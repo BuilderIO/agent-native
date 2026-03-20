@@ -150,9 +150,9 @@ export const searchIndex: SearchEntry[] = [
   {
     page: "Scripts",
     path: "/docs/scripts",
-    section: "Database Sync Adapters",
-    sectionId: "database-sync-adapters",
-    text: "Bidirectional file sync across instances with pluggable database adapters. Supports Google Cloud Firestore and Supabase Postgres. All adapters implement FileSyncAdapter interface. FirestoreFileSyncAdapter real-time via onSnapshot. SupabaseFileSyncAdapter real-time via Supabase Realtime channels. Features startup sync remote change listeners chokidar file watchers three-way merge with LCS-based conflict resolution and .conflict sidecar files. Supabase requires a files table migration. Custom adapters via @agent-native/core/adapters/sync.",
+    section: "File Sync Adapters",
+    sectionId: "file-sync-adapters",
+    text: "Bidirectional file sync across instances with pluggable adapters. Supports Google Cloud Firestore, Supabase Postgres, and Convex. All adapters implement FileSyncAdapter interface. FirestoreFileSyncAdapter real-time via onSnapshot. SupabaseFileSyncAdapter real-time via Supabase Realtime channels. ConvexFileSyncAdapter real-time via reactive queries. Features startup sync remote change listeners chokidar file watchers three-way merge with LCS-based conflict resolution and .conflict sidecar files. Custom adapters via @agent-native/core/adapters/sync.",
   },
 
   // Harnesses
@@ -224,9 +224,9 @@ export const searchIndex: SearchEntry[] = [
   {
     page: "Key Concepts",
     path: "/docs/key-concepts",
-    section: "Database Adapters",
-    sectionId: "database-adapters",
-    text: "Pluggable adapter system syncs files to a remote database in real-time. Two adapters ship out of the box: Google Cloud Firestore real-time via onSnapshot. Supabase Postgres real-time via Supabase Realtime channels. All adapters use chokidar file watching three-way merge with LCS-based conflict resolution and .conflict sidecar files. Database is never source of truth files are. Database is sync mechanism for collaboration. Configure which files sync via glob patterns in sync-config.json.",
+    section: "File Sync",
+    sectionId: "file-sync",
+    text: "Pluggable adapter system syncs files to a database in real-time. Three adapters ship out of the box: Google Cloud Firestore real-time via onSnapshot. Supabase Postgres real-time via Supabase Realtime channels. Convex real-time via reactive queries. All adapters use chokidar file watching three-way merge with LCS-based conflict resolution and .conflict sidecar files. Database is never source of truth files are. Database is sync mechanism for collaboration. Configure which files sync via glob patterns in sync-config.json.",
   },
   {
     page: "Key Concepts",
