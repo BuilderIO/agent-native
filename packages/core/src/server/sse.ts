@@ -26,9 +26,17 @@ export function createFileWatcher(
   });
 }
 
+/** Any object with on/off methods (compatible with EventEmitter, TypedEventEmitter, etc.). */
+interface EventLike {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  on(event: string, listener: (...args: any[]) => void): any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  off(event: string, listener: (...args: any[]) => void): any;
+}
+
 export interface SSEHandlerOptions {
   /** Additional EventEmitters to stream events from (e.g. sync events). */
-  extraEmitters?: Array<{ emitter: EventEmitter; event: string }>;
+  extraEmitters?: Array<{ emitter: EventLike; event: string }>;
   /** Content root for computing relative paths. If provided, absolute paths are stripped. */
   contentRoot?: string;
 }
