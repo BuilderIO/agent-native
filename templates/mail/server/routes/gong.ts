@@ -1,4 +1,9 @@
-import type { Request, Response } from "express";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import fs from "fs";
 import path from "path";
 
@@ -15,20 +20,17 @@ function getGongKey(): string | undefined {
 }
 
 // GET /api/gong/calls?email=...
-export async function gongCallsLookup(
-  req: Request,
-  res: Response,
-): Promise<void> {
-  const { email } = req.query;
+export const gongCallsLookup = defineEventHandler(async (event: H3Event) => {
+  const { email } = getQuery(event);
   if (!email || typeof email !== "string") {
-    res.status(400).json({ error: "email query param required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "email query param required" };
   }
 
   const apiKey = getGongKey();
   if (!apiKey) {
-    res.status(401).json({ error: "Gong API key not configured" });
-    return;
+    setResponseStatus(event, 401);
+    return { error: "Gong API key not configured" };
   }
 
   try {
@@ -57,24 +59,20 @@ export async function gongCallsLookup(
         },
       );
       if (!basicRes.ok) {
-        res
-          .status(response.status)
-          .json({ error: `Gong API error: ${response.status}` });
-        return;
+        setResponseStatus(event, response.status);
+        return { error: `Gong API error: ${response.status}` };
       }
       const basicData = await basicRes.json();
-      const calls = filterCallsByEmail(basicData.calls || [], email);
-      res.json(calls);
-      return;
+      return filterCallsByEmail(basicData.calls || [], email);
     }
 
     const data = await response.json();
-    const calls = filterCallsByEmail(data.calls || [], email);
-    res.json(calls);
+    return filterCallsByEmail(data.calls || [], email);
   } catch {
-    res.status(500).json({ error: "Failed to reach Gong API" });
+    setResponseStatus(event, 500);
+    return { error: "Failed to reach Gong API" };
   }
-}
+});
 
 function filterCallsByEmail(calls: any[], email: string) {
   const emailLower = email.toLowerCase();

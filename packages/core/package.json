@@ -19,6 +19,7 @@
     },
     "./vite": "./dist/vite/index.js",
     "./server": "./dist/server/index.js",
+    "./db": "./dist/db/index.js",
     "./client": "./dist/client/index.js",
     "./shared": "./dist/shared/index.js",
     "./scripts": "./dist/scripts/index.js",
@@ -45,9 +46,12 @@
     "release": "npm version patch && npm publish --access public"
   },
   "dependencies": {
+    "better-sqlite3": "^12.8.0",
     "chokidar": "^4.0.0",
     "clsx": "^2.1.1",
     "dotenv": "^17.2.1",
+    "drizzle-orm": "^0.38.0",
+    "h3": "^1.14.0",
     "minimatch": "^10.0.0",
     "tailwind-merge": "^2.6.0"
   },
@@ -100,6 +104,7 @@
   },
   "devDependencies": {
     "@tanstack/react-query": "^5.84.2",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/node": "^24.2.1",

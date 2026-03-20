@@ -1,4 +1,4 @@
-import { RequestHandler } from "express";
+import { defineEventHandler, readBody, setResponseStatus } from "h3";
 import { requireEnvKey } from "@agent-native/core/server";
 import type {
   SlideGenerateRequest,
@@ -10,15 +10,16 @@ import type {
  * POST /api/generate-slides
  * Generate slide deck content using Gemini
  */
-export const generateSlides: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "GEMINI_API_KEY", "Gemini")) return;
+export const generateSlides = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "GEMINI_API_KEY", "Gemini");
+  if (missing) return missing;
 
-  const body = req.body as SlideGenerateRequest;
+  const body = await readBody<SlideGenerateRequest>(event);
   const { topic, slideCount = 8, style, includeImages = true } = body;
 
   if (!topic?.trim()) {
-    res.status(400).json({ error: "Topic is required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Topic is required" };
   }
 
   try {
@@ -94,9 +95,10 @@ Respond ONLY with valid JSON. No markdown code fences, no explanation. Just the 
     }));
 
     const result: SlideGenerateResponse = { slides };
-    res.json(result);
+    return result;
   } catch (err: any) {
     console.error("Slide generation error:", err);
-    res.status(500).json({ error: err.message || "Slide generation failed" });
+    setResponseStatus(event, 500);
+    return { error: err.message || "Slide generation failed" };
   }
-};
+});

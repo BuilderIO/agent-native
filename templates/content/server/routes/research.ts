@@ -1,13 +1,19 @@
-import { RequestHandler } from "express";
+import {
+  defineEventHandler,
+  readBody,
+  getRouterParam,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import fs from "fs";
 import path from "path";
 import type { ResearchData } from "../../shared/api";
 
 const PROJECTS_DIR = path.join(process.cwd(), "content", "projects");
 
-function normalizeProjectParam(project: string | string[] | undefined): string {
+function normalizeProjectParam(project: string | undefined): string {
   if (!project) return "";
-  return Array.isArray(project) ? project.join("/") : project;
+  return project;
 }
 
 function isValidProjectPath(project: string): boolean {
@@ -24,44 +30,48 @@ function getResearchPath(project: string): string {
   return path.join(PROJECTS_DIR, project, "resources", "research.json");
 }
 
-export const getResearch: RequestHandler = (req, res) => {
-  const project = normalizeProjectParam(req.params.project);
+export const getResearch = defineEventHandler((event: H3Event) => {
+  const project = normalizeProjectParam(
+    getRouterParam(event, "project") as string,
+  );
   if (!isValidProjectPath(project)) {
-    res.status(400).json({ error: "Invalid project" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Invalid project" };
   }
 
   const researchPath = getResearchPath(project);
   if (!fs.existsSync(researchPath)) {
-    res.json(null);
-    return;
+    return null;
   }
 
   try {
     const data = JSON.parse(fs.readFileSync(researchPath, "utf-8"));
-    res.json(data);
+    return data;
   } catch {
-    res.status(500).json({ error: "Failed to read research data" });
+    setResponseStatus(event, 500);
+    return { error: "Failed to read research data" };
   }
-};
+});
 
-export const saveResearch: RequestHandler = (req, res) => {
-  const project = normalizeProjectParam(req.params.project);
+export const saveResearch = defineEventHandler(async (event: H3Event) => {
+  const project = normalizeProjectParam(
+    getRouterParam(event, "project") as string,
+  );
   if (!isValidProjectPath(project)) {
-    res.status(400).json({ error: "Invalid project" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Invalid project" };
   }
 
   const projectDir = path.join(PROJECTS_DIR, project);
   if (!fs.existsSync(projectDir)) {
-    res.status(404).json({ error: "Project not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "Project not found" };
   }
 
-  const data: ResearchData = req.body;
+  const data: ResearchData = await readBody(event);
   if (!data || !data.topic) {
-    res.status(400).json({ error: "Research data with topic is required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Research data with topic is required" };
   }
 
   data.updatedAt = new Date().toISOString();
@@ -73,5 +83,5 @@ export const saveResearch: RequestHandler = (req, res) => {
 
   const researchPath = getResearchPath(project);
   fs.writeFileSync(researchPath, JSON.stringify(data, null, 2), "utf-8");
-  res.json(data);
-};
+  return data;
+});

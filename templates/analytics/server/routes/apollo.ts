@@ -1,4 +1,4 @@
-import { type RequestHandler } from "express";
+import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 import { requireEnvKey } from "@agent-native/core/server";
 import {
   searchPeople,
@@ -7,34 +7,32 @@ import {
   enrichOrganization,
 } from "../lib/apollo";
 
-export const handleApolloSearch: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "APOLLO_API_KEY", "Apollo")) return;
+export const handleApolloSearch = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "APOLLO_API_KEY", "Apollo");
+  if (missing) return missing;
   try {
-    const email = req.query.email as string | undefined;
-    const domain = req.query.domain as string | undefined;
-    const company = req.query.company as string | undefined;
-    const name = req.query.name as string | undefined;
-    const title = req.query.title as string | undefined;
+    const { email, domain, company, name, title } = getQuery(event);
 
     if (email) {
-      const person = await enrichPerson(email);
-      res.json({ person });
+      const person = await enrichPerson(email as string);
+      return { person };
     } else if (domain) {
-      const org = await enrichOrganization(domain);
-      res.json({ organization: org });
+      const org = await enrichOrganization(domain as string);
+      return { organization: org };
     } else if (company && !name && !title) {
-      const result = await searchOrganizations(company);
-      res.json({ organizations: result.organizations, total: result.total });
+      const result = await searchOrganizations(company as string);
+      return { organizations: result.organizations, total: result.total };
     } else {
       const result = await searchPeople({
-        q_person_name: name,
-        q_organization_name: company,
-        person_titles: title ? [title] : undefined,
+        q_person_name: name as string | undefined,
+        q_organization_name: company as string | undefined,
+        person_titles: title ? [title as string] : undefined,
       });
-      res.json({ people: result.people, total: result.total });
+      return { people: result.people, total: result.total };
     }
   } catch (err: any) {
     console.error("Apollo search error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});

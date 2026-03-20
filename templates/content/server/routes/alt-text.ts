@@ -1,24 +1,33 @@
 import fs from "fs";
 import path from "path";
-import type { RequestHandler } from "express";
+import {
+  defineEventHandler,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 
 const PROJECTS_DIR = path.join(process.cwd(), "content", "projects");
 
-export const generateAltText: RequestHandler = async (req, res) => {
+export const generateAltText = defineEventHandler(async (event: H3Event) => {
   try {
-    const { imagePath, projectSlug, context: articleContext } = req.body;
+    const {
+      imagePath,
+      projectSlug,
+      context: articleContext,
+    } = await readBody(event);
 
     if (!imagePath) {
-      res.status(400).json({ error: "imagePath is required" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "imagePath is required" };
     }
     if (!projectSlug) {
-      res.status(400).json({ error: "projectSlug is required" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "projectSlug is required" };
     }
     if (!process.env.GEMINI_API_KEY) {
-      res.status(400).json({ error: "Gemini API key not configured" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "Gemini API key not configured" };
     }
 
     // Resolve the actual disk path.
@@ -29,10 +38,8 @@ export const generateAltText: RequestHandler = async (req, res) => {
     const fullPath = path.join(PROJECTS_DIR, projectSlug, "media", fileName);
 
     if (!fs.existsSync(fullPath)) {
-      res
-        .status(400)
-        .json({ error: `Image not found on disk at: ${fullPath}` });
-      return;
+      setResponseStatus(event, 400);
+      return { error: `Image not found on disk at: ${fullPath}` };
     }
 
     const data = fs.readFileSync(fullPath);
@@ -75,15 +82,14 @@ export const generateAltText: RequestHandler = async (req, res) => {
 
     const altText = response.text?.trim() || "";
     if (!altText) {
-      res.status(500).json({ error: "Gemini returned an empty response" });
-      return;
+      setResponseStatus(event, 500);
+      return { error: "Gemini returned an empty response" };
     }
 
-    res.json({ alt: altText });
+    return { alt: altText };
   } catch (err: any) {
     console.error("Alt text generation error:", err);
-    res
-      .status(500)
-      .json({ error: err.message || "Alt text generation failed" });
+    setResponseStatus(event, 500);
+    return { error: err.message || "Alt text generation failed" };
   }
-};
+});

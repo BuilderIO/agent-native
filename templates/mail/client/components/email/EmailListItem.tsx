@@ -107,23 +107,6 @@ export function EmailListItem({
         )}
       </div>
 
-      {/* Sender name — fixed width, truncated */}
-      <span
-        className={cn(
-          "w-[150px] shrink-0 truncate text-[13px] pr-3",
-          isUnread
-            ? "font-semibold text-foreground"
-            : "font-normal text-foreground/70",
-        )}
-      >
-        {senderName}
-        {isThread && (
-          <span className="ml-1 text-[11px] text-muted-foreground font-normal">
-            {thread.messageCount}
-          </span>
-        )}
-      </span>
-
       {/* Label badges */}
       {displayLabels.length > 0 && (
         <div className="flex items-center gap-1 shrink-0 mr-2">

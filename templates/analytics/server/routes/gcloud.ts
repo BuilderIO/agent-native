@@ -1,4 +1,4 @@
-import { type RequestHandler } from "express";
+import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 import { requireEnvKey } from "@agent-native/core/server";
 import {
   listCloudRunServices,
@@ -11,19 +11,20 @@ import {
 // Replace these with your own Cloud Run service names.
 const KNOWN_CLOUD_RUN_SERVICES = ["api-service", "web-app", "worker"];
 
-export const handleGCloudServices: RequestHandler = async (_req, res) => {
-  if (requireEnvKey(res, "BIGQUERY_PROJECT_ID", "Google Cloud")) return;
+export const handleGCloudServices = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "BIGQUERY_PROJECT_ID", "Google Cloud");
+  if (missing) return missing;
   try {
     const [cloudRun, cloudFunctions] = await Promise.all([
       listCloudRunServices(),
       listCloudFunctions(),
     ]);
-    res.json({
+    return {
       cloudRun,
       cloudFunctions,
       totalCloudRun: cloudRun.length,
       totalCloudFunctions: cloudFunctions.length,
-    });
+    };
   } catch (err: any) {
     const isPermissionDenied =
       err.message?.includes("Permission") ||
@@ -41,7 +42,7 @@ export const handleGCloudServices: RequestHandler = async (_req, res) => {
         createTime: "",
         updateTime: "",
       }));
-      res.json({
+      return {
         cloudRun: knownCloudRun,
         cloudFunctions: [],
         totalCloudRun: knownCloudRun.length,
@@ -49,41 +50,45 @@ export const handleGCloudServices: RequestHandler = async (_req, res) => {
         permissionWarning:
           "Service listing permission denied. Showing known services. " +
           "Grant the service account 'run.viewer' and 'cloudfunctions.viewer' roles for full discovery.",
-      });
-      return;
+      };
     }
 
     console.error("GCloud services error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
-export const handleGCloudMetrics: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "BIGQUERY_PROJECT_ID", "Google Cloud")) return;
+export const handleGCloudMetrics = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "BIGQUERY_PROJECT_ID", "Google Cloud");
+  if (missing) return missing;
   try {
-    const service = req.query.service as string;
-    const metric = req.query.metric as string;
-    const period = (req.query.period as string) || "24h";
-    const type = (req.query.type as string) || "cloud_run";
-    const extraFilter = (req.query.extraFilter as string) || undefined;
+    const {
+      service,
+      metric,
+      period: periodParam,
+      type: typeParam,
+      extraFilter: extraFilterParam,
+    } = getQuery(event);
+    const period = (periodParam as string) || "24h";
+    const type = (typeParam as string) || "cloud_run";
+    const extraFilter = (extraFilterParam as string) || undefined;
 
     if (!service || !metric) {
-      res
-        .status(400)
-        .json({ error: "service and metric query parameters are required" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "service and metric query parameters are required" };
     }
 
     const serviceType =
       type === "cloud_function" ? "cloud_function" : "cloud_run";
     const timeSeries = await getServiceMetrics(
       serviceType,
-      service,
-      metric,
+      service as string,
+      metric as string,
       period,
       extraFilter,
     );
-    res.json({ timeSeries, total: timeSeries.length });
+    return { timeSeries, total: timeSeries.length };
   } catch (err: any) {
     const isPermissionDenied =
       err.message?.includes("Permission") ||
@@ -91,27 +96,32 @@ export const handleGCloudMetrics: RequestHandler = async (req, res) => {
       err.message?.includes("denied");
 
     if (isPermissionDenied) {
-      res.json({
+      return {
         timeSeries: [],
         total: 0,
         permissionWarning:
           "Monitoring API permission denied. Grant 'monitoring.viewer' role to the service account.",
-      });
-      return;
+      };
     }
 
     console.error("GCloud metrics error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
-export const handleGCloudLogs: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "BIGQUERY_PROJECT_ID", "Google Cloud")) return;
+export const handleGCloudLogs = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "BIGQUERY_PROJECT_ID", "Google Cloud");
+  if (missing) return missing;
   try {
-    const service = req.query.service as string;
-    const severity = req.query.severity as string;
-    const limit = parseInt((req.query.limit as string) || "100", 10);
-    const type = (req.query.type as string) || "cloud_run";
+    const {
+      service,
+      severity,
+      limit: limitParam,
+      type: typeParam,
+    } = getQuery(event);
+    const limit = parseInt((limitParam as string) || "100", 10);
+    const type = (typeParam as string) || "cloud_run";
 
     const filterParts: string[] = [];
 
@@ -128,13 +138,13 @@ export const handleGCloudLogs: RequestHandler = async (req, res) => {
     }
 
     if (severity) {
-      filterParts.push(`severity >= "${severity.toUpperCase()}"`);
+      filterParts.push(`severity >= "${(severity as string).toUpperCase()}"`);
     }
 
     const filter =
       filterParts.join(" AND ") || 'resource.type = "cloud_run_revision"';
     const entries = await listLogEntries(filter, Math.min(limit, 500));
-    res.json({ entries, total: entries.length });
+    return { entries, total: entries.length };
   } catch (err: any) {
     const isPermissionDenied =
       err.message?.includes("Permission") ||
@@ -142,16 +152,16 @@ export const handleGCloudLogs: RequestHandler = async (req, res) => {
       err.message?.includes("denied");
 
     if (isPermissionDenied) {
-      res.json({
+      return {
         entries: [],
         total: 0,
         permissionWarning:
           "Logging API permission denied. Grant 'logging.viewer' role to the service account.",
-      });
-      return;
+      };
     }
 
     console.error("GCloud logs error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});

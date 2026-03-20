@@ -1,4 +1,9 @@
-import type { Request, Response } from "express";
+import {
+  defineEventHandler,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import path from "path";
 import type { CalendarEvent } from "../../shared/api.js";
 import { listJsonFiles, writeJsonFile } from "../lib/data-helpers.js";
@@ -6,14 +11,11 @@ import * as googleCalendar from "../lib/google-calendar.js";
 
 const EVENTS_DIR = path.join(process.cwd(), "data", "events");
 
-export async function syncGoogleCalendar(
-  req: Request,
-  res: Response,
-): Promise<void> {
+export const syncGoogleCalendar = defineEventHandler(async (event: H3Event) => {
   try {
     if (!googleCalendar.isConnected()) {
-      res.status(400).json({ error: "Google Calendar not connected" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "Google Calendar not connected" };
     }
 
     const now = new Date();
@@ -22,8 +24,9 @@ export async function syncGoogleCalendar(
     const defaultTo = new Date(now);
     defaultTo.setDate(defaultTo.getDate() + 90);
 
-    const from = (req.body.from as string) || defaultFrom.toISOString();
-    const to = (req.body.to as string) || defaultTo.toISOString();
+    const body = await readBody(event);
+    const from = (body?.from as string) || defaultFrom.toISOString();
+    const to = (body?.to as string) || defaultTo.toISOString();
 
     const { events: googleEvents } = await googleCalendar.listEvents(from, to);
 
@@ -44,8 +47,9 @@ export async function syncGoogleCalendar(
       synced++;
     }
 
-    res.json({ synced, total: googleEvents.length });
+    return { synced, total: googleEvents.length };
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-}
+});

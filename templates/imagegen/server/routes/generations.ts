@@ -1,6 +1,12 @@
-import { Router } from "express";
 import fs from "fs";
 import path from "path";
+import {
+  defineEventHandler,
+  getRouterParam,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
+import type { Router } from "h3";
 import type { GenerationRecord } from "@shared/types.js";
 
 const GENERATIONS_DIR = path.join(process.cwd(), "data", "generations");
@@ -10,13 +16,16 @@ function isSafePath(base: string, ...segments: string[]): boolean {
   return resolved.startsWith(path.resolve(base));
 }
 
-export const generationsRouter = Router();
+export function registerGenerationsRoutes(router: Router) {
+  router.get("/api/generations", listGenerations);
+  router.get("/api/generations/:id", getGeneration);
+  router.delete("/api/generations/:id", deleteGeneration);
+}
 
 // GET /api/generations — list all generation records
-generationsRouter.get("/", (_req, res) => {
+export const listGenerations = defineEventHandler(async (_event: H3Event) => {
   if (!fs.existsSync(GENERATIONS_DIR)) {
-    res.json([]);
-    return;
+    return [];
   }
 
   const files = fs
@@ -34,35 +43,36 @@ generationsRouter.get("/", (_req, res) => {
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
 
-  res.json(records);
+  return records;
 });
 
 // GET /api/generations/:id — get a specific generation
-generationsRouter.get("/:id", (req, res) => {
-  if (!isSafePath(GENERATIONS_DIR, `${req.params.id}.json`)) {
-    res.status(400).json({ error: "Invalid id" });
-    return;
+export const getGeneration = defineEventHandler(async (event: H3Event) => {
+  const id = getRouterParam(event, "id") ?? "";
+  if (!isSafePath(GENERATIONS_DIR, `${id}.json`)) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid id" };
   }
-  const filePath = path.join(GENERATIONS_DIR, `${req.params.id}.json`);
+  const filePath = path.join(GENERATIONS_DIR, `${id}.json`);
   if (!fs.existsSync(filePath)) {
-    res.status(404).json({ error: "Generation not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "Generation not found" };
   }
   const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
-  res.json(data as GenerationRecord);
+  return data as GenerationRecord;
 });
 
 // DELETE /api/generations/:id — delete a generation and its images
-generationsRouter.delete("/:id", (req, res) => {
-  const id = req.params.id;
+export const deleteGeneration = defineEventHandler(async (event: H3Event) => {
+  const id = getRouterParam(event, "id") ?? "";
   if (!isSafePath(GENERATIONS_DIR, `${id}.json`)) {
-    res.status(400).json({ error: "Invalid id" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Invalid id" };
   }
   const metaPath = path.join(GENERATIONS_DIR, `${id}.json`);
   if (!fs.existsSync(metaPath)) {
-    res.status(404).json({ error: "Generation not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "Generation not found" };
   }
 
   // Delete image files
@@ -76,5 +86,5 @@ generationsRouter.delete("/:id", (req, res) => {
 
   // Delete metadata
   fs.unlinkSync(metaPath);
-  res.json({ deleted: true });
+  return { deleted: true };
 });

@@ -1,4 +1,12 @@
-import type { Request, Response } from "express";
+import {
+  defineEventHandler,
+  getQuery,
+  readBody,
+  setResponseStatus,
+  getHeader,
+  sendRedirect,
+  type H3Event,
+} from "h3";
 import {
   getAuthUrl,
   exchangeCode,
@@ -6,78 +14,82 @@ import {
   disconnect,
 } from "../lib/google-calendar.js";
 
-function getOrigin(req: Request): string {
-  const host = req.get("x-forwarded-host") || req.get("host");
-  return `${req.protocol}://${host}`;
+function getOrigin(event: H3Event): string {
+  const host = getHeader(event, "x-forwarded-host") || getHeader(event, "host");
+  const proto = getHeader(event, "x-forwarded-proto") || "http";
+  return `${proto}://${host}`;
 }
 
 let lastRedirectUri: string | undefined;
 
-export function getGoogleAuthUrl(req: Request, res: Response): void {
+export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    res.status(422).json({
+    setResponseStatus(event, 422);
+    return {
       error: "missing_credentials",
       message:
         "Google OAuth credentials are not configured. Add your Client ID and Secret in Settings.",
-    });
-    return;
+    };
   }
   try {
+    const query = getQuery(event);
     const redirectUri =
-      (req.query.redirect_uri as string) ||
-      `${getOrigin(req)}/api/google/callback`;
+      (query.redirect_uri as string) ||
+      `${getOrigin(event)}/api/google/callback`;
     lastRedirectUri = redirectUri;
     const url = getAuthUrl(undefined, redirectUri);
-    res.json({ url });
+    return { url };
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-}
+});
 
-export async function handleGoogleCallback(
-  req: Request,
-  res: Response,
-): Promise<void> {
-  try {
-    const code = req.query.code as string;
-    if (!code) {
-      res.status(400).json({ error: "Missing authorization code" });
-      return;
-    }
-    const redirectUri =
-      lastRedirectUri || `${getOrigin(req)}/api/google/callback`;
-    const email = await exchangeCode(code, undefined, redirectUri);
-    const safeEmail = JSON.stringify(email);
-    res.send(`<!DOCTYPE html><html><body><script>
+export const handleGoogleCallback = defineEventHandler(
+  async (event: H3Event) => {
+    try {
+      const query = getQuery(event);
+      const code = query.code as string;
+      if (!code) {
+        setResponseStatus(event, 400);
+        return { error: "Missing authorization code" };
+      }
+      const redirectUri =
+        lastRedirectUri || `${getOrigin(event)}/api/google/callback`;
+      const email = await exchangeCode(code, undefined, redirectUri);
+      const safeEmail = JSON.stringify(email);
+      return `<!DOCTYPE html><html><body><script>
       window.close();
       var p = document.createElement('p');
       p.style.cssText = 'font-family:system-ui;text-align:center;margin-top:40vh';
       p.textContent = 'Connected ' + ${safeEmail} + '! You can close this tab.';
       document.body.appendChild(p);
-    </script></body></html>`);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-}
+    </script></body></html>`;
+    } catch (error: any) {
+      setResponseStatus(event, 500);
+      return { error: error.message };
+    }
+  },
+);
 
-export async function getGoogleStatus(
-  _req: Request,
-  res: Response,
-): Promise<void> {
+export const getGoogleStatus = defineEventHandler(async (_event: H3Event) => {
   try {
     const status = await getAuthStatus();
-    res.json(status);
+    return status;
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    setResponseStatus(_event, 500);
+    return { error: error.message };
   }
-}
+});
 
-export function disconnectGoogle(req: Request, res: Response): void {
+export const disconnectGoogle = defineEventHandler(async (event: H3Event) => {
   try {
-    const email = req.body?.email as string | undefined;
+    const body = await readBody(event);
+    const email = body?.email as string | undefined;
     disconnect(email);
-    res.json({ success: true });
+    return { success: true };
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-}
+});

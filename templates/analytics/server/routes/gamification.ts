@@ -1,4 +1,4 @@
-import { type RequestHandler } from "express";
+import { defineEventHandler, getQuery, readBody, setResponseStatus } from "h3";
 import {
   getUserPersona,
   setUserPersona,
@@ -34,41 +34,42 @@ const metricMetadataStore = new Map<string, MetricMetadata>();
 const validationsStore: any[] = [];
 
 // GET /api/gamification/persona - Get current user's persona
-export const handleGetPersona: RequestHandler = async (req, res) => {
+export const handleGetPersona = defineEventHandler(async (event) => {
   try {
-    const userId = await getUserIdFromToken(req);
+    const userId = await getUserIdFromToken();
     if (!userId) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
+      setResponseStatus(event, 401);
+      return { error: "Unauthorized" };
     }
 
     const persona = await getUserPersona(userId);
-    res.json({ persona });
+    return { persona };
   } catch (err: any) {
     console.error("Get persona error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 // POST /api/gamification/persona - Set current user's persona
-export const handleSetPersona: RequestHandler = async (req, res) => {
+export const handleSetPersona = defineEventHandler(async (event) => {
   try {
-    console.log("Setting persona - request body:", req.body);
-
-    const userInfo = await getUserInfoFromToken(req);
+    const userInfo = await getUserInfoFromToken();
     console.log("User info from token:", userInfo);
 
     if (!userInfo) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
+      setResponseStatus(event, 401);
+      return { error: "Unauthorized" };
     }
 
-    const { persona, department } = req.body;
+    const body = await readBody(event);
+    console.log("Setting persona - request body:", body);
+    const { persona, department } = body;
 
     if (!["analytics", "dept_head", "regular"].includes(persona)) {
       console.error("Invalid persona type:", persona);
-      res.status(400).json({ error: "Invalid persona type" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "Invalid persona type" };
     }
 
     console.log("Calling setUserPersona with:", {
@@ -84,21 +85,22 @@ export const handleSetPersona: RequestHandler = async (req, res) => {
     );
 
     console.log("Successfully set persona");
-    res.json({ success: true, persona, department });
+    return { success: true, persona, department };
   } catch (err: any) {
     console.error("Set persona error:", err);
     console.error("Error stack:", err.stack);
-    res.status(500).json({ error: err.message || "Failed to set persona" });
+    setResponseStatus(event, 500);
+    return { error: err.message || "Failed to set persona" };
   }
-};
+});
 
 // POST /api/gamification/validate-metric - Submit a metric validation
-export const handleValidateMetric: RequestHandler = async (req, res) => {
+export const handleValidateMetric = defineEventHandler(async (event) => {
   try {
-    const userInfo = await getUserInfoFromToken(req);
+    const userInfo = await getUserInfoFromToken();
     if (!userInfo) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
+      setResponseStatus(event, 401);
+      return { error: "Unauthorized" };
     }
 
     const userId = userInfo.uid;
@@ -114,16 +116,16 @@ export const handleValidateMetric: RequestHandler = async (req, res) => {
       isNewMetric,
       suggestedDefinition,
       suggestedTable,
-    } = req.body;
+    } = await readBody(event);
 
     if (!metricId || !metricName || !rating) {
-      res.status(400).json({ error: "Missing required fields" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "Missing required fields" };
     }
 
     if (!["accurate", "mostly_accurate", "needs_review"].includes(rating)) {
-      res.status(400).json({ error: "Invalid rating" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "Invalid rating" };
     }
 
     // Calculate points
@@ -174,32 +176,35 @@ export const handleValidateMetric: RequestHandler = async (req, res) => {
       await incrementValidationTrust(metricId);
     }
 
-    res.json({ success: true, points });
+    return { success: true, points };
   } catch (err: any) {
     console.error("Validate metric error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 // GET /api/gamification/leaderboard?period=week|month|alltime&track=all|contributors|validators
-export const handleLeaderboard: RequestHandler = async (req, res) => {
+export const handleLeaderboard = defineEventHandler(async (event) => {
   try {
-    const period = (req.query.period as string) || "week";
-    const track = (req.query.track as string) || "all";
+    const { period: periodParam, track: trackParam } = getQuery(event);
+    const period = (periodParam as string) || "week";
+    const track = (trackParam as string) || "all";
 
     // For MVP, fetch from Firestore aggregates
     // In production, query BigQuery for real-time data
     const leaderboard = await getLeaderboardFromFirestore(period, track);
 
-    res.json({ leaderboard, period, track });
+    return { leaderboard, period, track };
   } catch (err: any) {
     console.error("Leaderboard error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 // GET /api/gamification/new-metrics - Get new metric suggestions (for analytics team)
-export const handleNewMetrics: RequestHandler = async (_req, res) => {
+export const handleNewMetrics = defineEventHandler(async (_event) => {
   try {
     // Filter validations for new metrics with suggestions
     const newMetricSuggestions = validationsStore
@@ -216,41 +221,44 @@ export const handleNewMetrics: RequestHandler = async (_req, res) => {
       }))
       .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
-    res.json({ suggestions: newMetricSuggestions });
+    return { suggestions: newMetricSuggestions };
   } catch (err: any) {
     console.error("New metrics error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(_event, 500);
+    return { error: err.message };
   }
-};
+});
 
 // GET /api/gamification/my-stats - Get current user's stats
-export const handleMyStats: RequestHandler = async (req, res) => {
+export const handleMyStats = defineEventHandler(async (event) => {
   try {
-    const userInfo = await getUserInfoFromToken(req);
+    const userInfo = await getUserInfoFromToken();
     if (!userInfo) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
+      setResponseStatus(event, 401);
+      return { error: "Unauthorized" };
     }
 
     const stats = await getUserStats(userInfo.email);
 
-    res.json({ stats });
+    return { stats };
   } catch (err: any) {
     console.error("My stats error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 // --- Helper Functions ---
 
 // Auth removed — stubs always return a local user
-async function getUserIdFromToken(_req: any): Promise<string | null> {
+async function getUserIdFromToken(): Promise<string | null> {
   return "local";
 }
 
-async function getUserInfoFromToken(
-  _req: any,
-): Promise<{ uid: string; email: string } | null> {
+async function getUserInfoFromToken(): Promise<{
+  uid: string;
+  email: string;
+} | null> {
   return { uid: "local", email: "local@localhost" };
 }
 

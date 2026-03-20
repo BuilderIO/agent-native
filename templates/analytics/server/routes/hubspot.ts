@@ -1,4 +1,4 @@
-import { type RequestHandler } from "express";
+import { defineEventHandler, setResponseStatus } from "h3";
 import { requireEnvKey } from "@agent-native/core/server";
 import {
   getAllDeals,
@@ -9,8 +9,9 @@ import {
 } from "../lib/hubspot";
 
 // GET /api/hubspot/deals — deals filtered to visible pipelines
-export const handleHubspotDeals: RequestHandler = async (_req, res) => {
-  if (requireEnvKey(res, "HUBSPOT_ACCESS_TOKEN", "HubSpot")) return;
+export const handleHubspotDeals = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "HUBSPOT_ACCESS_TOKEN", "HubSpot");
+  if (missing) return missing;
   try {
     const [allDeals, allPipelines] = await Promise.all([
       getAllDeals(),
@@ -29,38 +30,43 @@ export const handleHubspotDeals: RequestHandler = async (_req, res) => {
       }
     }
 
-    res.json({ deals, stageLabels, total: deals.length });
+    return { deals, stageLabels, total: deals.length };
   } catch (err: any) {
     console.error("HubSpot deals error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 // GET /api/hubspot/pipelines — visible pipeline stages only
-export const handleHubspotPipelines: RequestHandler = async (_req, res) => {
-  if (requireEnvKey(res, "HUBSPOT_ACCESS_TOKEN", "HubSpot")) return;
+export const handleHubspotPipelines = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "HUBSPOT_ACCESS_TOKEN", "HubSpot");
+  if (missing) return missing;
   try {
     const allPipelines = await getDealPipelines();
     const pipelines = getVisiblePipelines(allPipelines);
-    res.json({ pipelines });
+    return { pipelines };
   } catch (err: any) {
     console.error("HubSpot pipelines error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 // GET /api/hubspot/metrics — computed sales metrics (enterprise only)
-export const handleHubspotMetrics: RequestHandler = async (_req, res) => {
-  if (requireEnvKey(res, "HUBSPOT_ACCESS_TOKEN", "HubSpot")) return;
+export const handleHubspotMetrics = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "HUBSPOT_ACCESS_TOKEN", "HubSpot");
+  if (missing) return missing;
   try {
     const [deals, pipelines] = await Promise.all([
       getAllDeals(),
       getDealPipelines(),
     ]);
     const metrics = computeSalesMetrics(deals, pipelines, true);
-    res.json(metrics);
+    return metrics;
   } catch (err: any) {
     console.error("HubSpot metrics error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});

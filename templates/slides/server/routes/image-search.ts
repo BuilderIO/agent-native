@@ -1,19 +1,22 @@
-import { Request, Response } from "express";
+import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 
-export async function searchImages(req: Request, res: Response) {
-  const { q } = req.query;
+export const searchImages = defineEventHandler(async (event) => {
+  const query = getQuery(event);
+  const q = query.q;
   if (!q || typeof q !== "string") {
-    return res.status(400).json({ error: "Missing query parameter 'q'" });
+    setResponseStatus(event, 400);
+    return { error: "Missing query parameter 'q'" };
   }
 
   const apiKey = process.env.GOOGLE_API_KEY;
   const cx = process.env.GOOGLE_SEARCH_CX;
 
   if (!apiKey || !cx) {
-    return res.status(500).json({
+    setResponseStatus(event, 500);
+    return {
       error:
         "Google Search not configured. Set GOOGLE_API_KEY and GOOGLE_SEARCH_CX environment variables.",
-    });
+    };
   }
 
   try {
@@ -32,7 +35,8 @@ export async function searchImages(req: Request, res: Response) {
     if (!response.ok) {
       const text = await response.text();
       console.error("Google API error:", response.status, text);
-      return res.status(response.status).json({ error: "Google API error" });
+      setResponseStatus(event, response.status);
+      return { error: "Google API error" };
     }
 
     const data = await response.json();
@@ -44,9 +48,10 @@ export async function searchImages(req: Request, res: Response) {
       height: item.image?.height,
     }));
 
-    return res.json(results);
+    return results;
   } catch (err) {
     console.error("Image search error:", err);
-    return res.status(500).json({ error: "Search failed" });
+    setResponseStatus(event, 500);
+    return { error: "Search failed" };
   }
-}
+});
