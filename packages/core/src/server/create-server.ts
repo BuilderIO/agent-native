@@ -128,10 +128,7 @@ export function createServer(
     app.use(
       defineEventHandler((event) => {
         const headers = event.node.res;
-        headers.setHeader(
-          "Access-Control-Allow-Origin",
-          event.node.req.headers.origin || "*",
-        );
+        headers.setHeader("Access-Control-Allow-Origin", "*");
         headers.setHeader(
           "Access-Control-Allow-Methods",
           "GET,POST,PUT,PATCH,DELETE,OPTIONS",
@@ -140,7 +137,6 @@ export function createServer(
           "Access-Control-Allow-Headers",
           "Content-Type,Authorization,X-Requested-With",
         );
-        headers.setHeader("Access-Control-Allow-Credentials", "true");
 
         if (event.node.req.method === "OPTIONS") {
           headers.writeHead(204);

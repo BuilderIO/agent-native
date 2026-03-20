@@ -115,12 +115,16 @@ export function createAppServer() {
   const { app, router } = createServer({ envKeys });
 
   // Serve generated chart images (no auth needed, ephemeral)
-  const mediaDir = path.join(import.meta.dirname, "../media");
+  const mediaDir = path.resolve(import.meta.dirname, "../media");
   router.get(
     "/api/media/**",
     defineEventHandler(async (event) => {
       const filename = event.path.replace("/api/media/", "");
-      const filepath = path.join(mediaDir, filename);
+      const filepath = path.resolve(mediaDir, filename);
+      if (!filepath.startsWith(mediaDir + path.sep)) {
+        setResponseStatus(event, 403);
+        return { error: "Forbidden" };
+      }
       try {
         await stat(filepath);
         return sendStream(event, createReadStream(filepath));

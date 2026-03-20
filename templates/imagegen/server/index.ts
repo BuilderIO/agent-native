@@ -22,9 +22,13 @@ export function createAppServer() {
   router.get(
     "/api/brand/files/**",
     defineEventHandler(async (event) => {
-      const url = event.path;
-      const filename = url.replace("/api/brand/files/", "");
-      const filepath = path.join(process.cwd(), "data", "brand", filename);
+      const filename = event.path.replace("/api/brand/files/", "");
+      const brandDir = path.resolve(process.cwd(), "data", "brand");
+      const filepath = path.resolve(brandDir, filename);
+      if (!filepath.startsWith(brandDir + path.sep)) {
+        setResponseStatus(event, 403);
+        return { error: "Forbidden" };
+      }
       try {
         await stat(filepath);
         return sendStream(event, createReadStream(filepath));
@@ -36,17 +40,16 @@ export function createAppServer() {
   );
 
   // Serve generated images
+  const generationsDir = path.resolve(process.cwd(), "data", "generations");
   router.get(
     "/api/generated/**",
     defineEventHandler(async (event) => {
-      const url = event.path;
-      const filename = url.replace("/api/generated/", "");
-      const filepath = path.join(
-        process.cwd(),
-        "data",
-        "generations",
-        filename,
-      );
+      const filename = event.path.replace("/api/generated/", "");
+      const filepath = path.resolve(generationsDir, filename);
+      if (!filepath.startsWith(generationsDir + path.sep)) {
+        setResponseStatus(event, 403);
+        return { error: "Forbidden" };
+      }
       try {
         await stat(filepath);
         return sendStream(event, createReadStream(filepath));

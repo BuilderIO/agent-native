@@ -74,16 +74,16 @@ export function createAppServer() {
   router.delete("/api/decks/:id", deleteDeck);
 
   // Serve generated images from public/assets/generated
+  const generatedDir = path.resolve(process.cwd(), "public/assets/generated");
   router.get(
     "/api/generated/**",
     defineEventHandler(async (event) => {
-      const url = event.path;
-      const filename = url.replace("/api/generated/", "");
-      const filepath = path.join(
-        process.cwd(),
-        "public/assets/generated",
-        filename,
-      );
+      const filename = event.path.replace("/api/generated/", "");
+      const filepath = path.resolve(generatedDir, filename);
+      if (!filepath.startsWith(generatedDir + path.sep)) {
+        setResponseStatus(event, 403);
+        return { error: "Forbidden" };
+      }
       try {
         await stat(filepath);
         return sendStream(event, createReadStream(filepath));
@@ -95,12 +95,16 @@ export function createAppServer() {
   );
 
   // Also serve from public/generated (used by image gen preview)
+  const genPreviewDir = path.resolve(process.cwd(), "public/generated");
   router.get(
     "/api/gen-preview/**",
     defineEventHandler(async (event) => {
-      const url = event.path;
-      const filename = url.replace("/api/gen-preview/", "");
-      const filepath = path.join(process.cwd(), "public/generated", filename);
+      const filename = event.path.replace("/api/gen-preview/", "");
+      const filepath = path.resolve(genPreviewDir, filename);
+      if (!filepath.startsWith(genPreviewDir + path.sep)) {
+        setResponseStatus(event, 403);
+        return { error: "Forbidden" };
+      }
       try {
         await stat(filepath);
         return sendStream(event, createReadStream(filepath));
