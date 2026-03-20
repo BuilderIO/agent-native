@@ -24,6 +24,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useSendEmail } from "@/hooks/use-emails";
+import { useAliases } from "@/hooks/use-aliases";
+import { expandAliasTokens } from "@/lib/alias-utils";
 import { useAgentChatGenerating } from "@agent-native/core";
 import { toast } from "sonner";
 import type { ComposeState } from "@shared/types";
@@ -84,6 +86,7 @@ export function ComposeModal({
 
   const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
+  const { data: aliases = [] } = useAliases();
   const editorRef = useRef<ComposeEditorHandle>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const sendingRef = useRef(false);
@@ -159,9 +162,9 @@ export function ComposeModal({
       toast.dismiss(toastId);
       sendEmail.mutate(
         {
-          to: draftSnapshot.to,
-          cc: draftSnapshot.cc || undefined,
-          bcc: draftSnapshot.bcc || undefined,
+          to: expandAliasTokens(draftSnapshot.to, aliases),
+          cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
+          bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
           subject: draftSnapshot.subject,
           body: draftSnapshot.body,
           replyToId: draftSnapshot.replyToId,
