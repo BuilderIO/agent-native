@@ -17,8 +17,24 @@ import path from "path";
 import { google } from "googleapis";
 import { parseArgs, output, fatal } from "./helpers.js";
 import { getClients } from "../server/lib/google-auth.js";
+import type { ScriptTool } from "@agent-native/core";
 
 const STATE_DIR = path.join(process.cwd(), "application-state");
+
+export const tool: ScriptTool = {
+  description:
+    "Archive one or more emails by ID. After archiving, automatically navigates to the next email if the archived email is currently open.",
+  parameters: {
+    type: "object",
+    properties: {
+      id: {
+        type: "string",
+        description: "Email ID(s) to archive, comma-separated",
+      },
+    },
+    required: ["id"],
+  },
+};
 
 function readJson(filename: string): any | null {
   try {
@@ -28,23 +44,21 @@ function readJson(filename: string): any | null {
   }
 }
 
-export default async function main(): Promise<void> {
-  const args = parseArgs();
+export async function run(args: Record<string, string>): Promise<string> {
   const ids = args.id
     ?.split(",")
     .map((s) => s.trim())
     .filter(Boolean);
 
   if (!ids || ids.length === 0) {
-    fatal("--id is required. Usage: pnpm script archive-email --id=msg123");
+    return "Error: --id is required";
   }
 
   const clients = await getClients();
   if (clients.length === 0) {
-    fatal("No Google account connected. Connect an account in the app first.");
+    return "Error: No Google account connected. Connect an account in the app first.";
   }
 
-  // Snapshot UI state before archiving so we can navigate after
   const navigation = readJson("navigation.json");
   const emailList = readJson("email-list.json");
   const thread = readJson("thread.json");
@@ -68,27 +82,19 @@ export default async function main(): Promise<void> {
         errors.push(err?.message || "Gmail API error");
       }
     }
-    if (success) {
-      results.push({ id, success: true });
-    } else {
-      results.push({ id, success: false, error: errors.join("; ") });
-    }
+    results.push(
+      success
+        ? { id, success: true }
+        : { id, success: false, error: errors.join("; ") },
+    );
   }
 
   const succeeded = results.filter((r) => r.success).length;
   const failed = results.filter((r) => !r.success).length;
 
-  console.error(
-    `Archived ${succeeded}/${ids.length} email(s)${failed > 0 ? ` (${failed} failed)` : ""}`,
-  );
-  output(results);
-
-  // If a thread is currently open, check if it was one of the archived emails.
-  // If so, navigate to the next (or previous) email in the list.
+  // Auto-navigate if the archived email was open
   if (succeeded > 0 && thread && emailList?.emails?.length) {
     const archivedIds = new Set(ids);
-
-    // Collect all message IDs in the open thread
     const openThreadMessageIds = new Set<string>(
       (thread.messages ?? []).map((m: any) => m.id),
     );
@@ -105,35 +111,36 @@ export default async function main(): Promise<void> {
 
     if (isActiveThreadArchived) {
       const emails: any[] = emailList.emails;
-      // Find the index of the archived email in the list
       const idx = emails.findIndex(
         (e) => archivedIds.has(e.id) || archivedIds.has(e.threadId),
       );
-
-      // Pick the next email, falling back to the previous one
       const nextEmail = emails[idx + 1] ?? emails[idx - 1] ?? null;
-
-      if (nextEmail) {
-        const nav: Record<string, string> = {
-          view: emailList.view ?? navigation?.view ?? "inbox",
-        };
-        if (nextEmail.threadId) nav.threadId = nextEmail.threadId;
-        fs.writeFileSync(
-          path.join(STATE_DIR, "navigate.json"),
-          JSON.stringify(nav, null, 2),
-        );
-        console.error(
-          `Navigated to next email: "${nextEmail.subject}" (${nextEmail.threadId})`,
-        );
-      } else {
-        // No adjacent email — go back to inbox list
-        const nav = { view: emailList.view ?? navigation?.view ?? "inbox" };
-        fs.writeFileSync(
-          path.join(STATE_DIR, "navigate.json"),
-          JSON.stringify(nav, null, 2),
-        );
-        console.error("No adjacent email found, navigated back to inbox.");
-      }
+      const nav: Record<string, string> = {
+        view: emailList.view ?? navigation?.view ?? "inbox",
+      };
+      if (nextEmail?.threadId) nav.threadId = nextEmail.threadId;
+      fs.writeFileSync(
+        path.join(STATE_DIR, "navigate.json"),
+        JSON.stringify(nav, null, 2),
+      );
     }
   }
+
+  if (failed > 0) {
+    const failedItems = results.filter((r) => !r.success);
+    return `Archived ${succeeded}/${ids.length} email(s). Failures: ${failedItems.map((r) => `${r.id}: ${r.error}`).join("; ")}`;
+  }
+  return `Archived ${succeeded} email(s) successfully`;
+}
+
+export default async function main(): Promise<void> {
+  const args = parseArgs() as Record<string, string>;
+
+  if (!args.id) {
+    fatal("--id is required. Usage: pnpm script archive-email --id=msg123");
+  }
+
+  const result = await run(args);
+  console.error(result);
+  output({ result });
 }

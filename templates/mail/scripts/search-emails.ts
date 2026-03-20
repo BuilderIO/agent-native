@@ -23,6 +23,80 @@ import {
   fetchGmailLabelMap,
   getClients,
 } from "../server/lib/google-auth.js";
+import type { ScriptTool } from "@agent-native/core";
+
+export const tool: ScriptTool = {
+  description: "Search emails across all views using Gmail search syntax.",
+  parameters: {
+    type: "object",
+    properties: {
+      q: {
+        type: "string",
+        description:
+          "Search query (required), supports Gmail search operators like from:, to:, subject:, is:unread",
+      },
+      view: {
+        type: "string",
+        description: "Limit search to a view (default: all)",
+        enum: [
+          "inbox",
+          "unread",
+          "starred",
+          "sent",
+          "drafts",
+          "archive",
+          "trash",
+          "all",
+        ],
+      },
+      limit: { type: "string", description: "Max results (default: 25)" },
+      compact: {
+        type: "string",
+        description: "Set to 'true' for compact output",
+        enum: ["true", "false"],
+      },
+    },
+    required: ["q"],
+  },
+};
+
+export async function run(args: Record<string, string>): Promise<string> {
+  if (!args.q) return "Error: --q is required";
+  const view = args.view ?? "all";
+  const limit = args.limit ? parseInt(args.limit, 10) : 25;
+  const compact = args.compact !== "false";
+
+  const clients = await getClients();
+  if (clients.length === 0) return "Error: No Google account connected.";
+
+  const viewPrefix = VIEW_QUERIES[view] ?? `label:${view}`;
+  const gmailQuery = viewPrefix ? `${viewPrefix} ${args.q}` : args.q;
+
+  const labelMap = new Map<string, string>();
+  await Promise.all(
+    clients.map(async ({ client }) => {
+      try {
+        const map = await fetchGmailLabelMap(client);
+        for (const [id, name] of map) labelMap.set(id, name);
+      } catch {}
+    }),
+  );
+
+  const { messages, errors } = await listGmailMessages(gmailQuery, limit);
+  if (errors.length > 0 && messages.length === 0) {
+    return `Error: ${errors.map((e) => `${e.email}: ${e.error}`).join("; ")}`;
+  }
+
+  const emails = messages
+    .map((m) => gmailToEmailMessage(m, m._accountEmail, labelMap))
+    .sort(
+      (a: any, b: any) =>
+        new Date(b.date).getTime() - new Date(a.date).getTime(),
+    )
+    .slice(0, limit);
+
+  return JSON.stringify(compact ? toCompact(emails) : emails, null, 2);
+}
 
 const VIEW_QUERIES: Record<string, string> = {
   inbox: "in:inbox",

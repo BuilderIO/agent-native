@@ -12,25 +12,33 @@
 import { google } from "googleapis";
 import { parseArgs, output, fatal } from "./helpers.js";
 import { getClients } from "../server/lib/google-auth.js";
+import type { ScriptTool } from "@agent-native/core";
 
-export default async function main(): Promise<void> {
-  const args = parseArgs();
+export const tool: ScriptTool = {
+  description: "Move one or more emails to trash by ID.",
+  parameters: {
+    type: "object",
+    properties: {
+      id: {
+        type: "string",
+        description: "Email ID(s) to trash, comma-separated",
+      },
+    },
+    required: ["id"],
+  },
+};
+
+export async function run(args: Record<string, string>): Promise<string> {
   const ids = args.id
     ?.split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-
-  if (!ids || ids.length === 0) {
-    fatal("--id is required. Usage: pnpm script trash-email --id=msg123");
-  }
+  if (!ids || ids.length === 0) return "Error: --id is required";
 
   const clients = await getClients();
-  if (clients.length === 0) {
-    fatal("No Google account connected. Connect an account in the app first.");
-  }
+  if (clients.length === 0) return "Error: No Google account connected.";
 
   const results: { id: string; success: boolean; error?: string }[] = [];
-
   for (const id of ids) {
     let success = false;
     const errors: string[] = [];
@@ -53,9 +61,20 @@ export default async function main(): Promise<void> {
 
   const succeeded = results.filter((r) => r.success).length;
   const failed = results.filter((r) => !r.success).length;
+  if (failed > 0) {
+    return `Trashed ${succeeded}/${ids.length} email(s). Failures: ${results
+      .filter((r) => !r.success)
+      .map((r) => `${r.id}: ${r.error}`)
+      .join("; ")}`;
+  }
+  return `Trashed ${succeeded} email(s) successfully`;
+}
 
-  console.error(
-    `Trashed ${succeeded}/${ids.length} email(s)${failed > 0 ? ` (${failed} failed)` : ""}`,
-  );
-  output(results);
+export default async function main(): Promise<void> {
+  const args = parseArgs() as Record<string, string>;
+  if (!args.id)
+    fatal("--id is required. Usage: pnpm script trash-email --id=msg123");
+  const result = await run(args);
+  console.error(result);
+  output({ result });
 }

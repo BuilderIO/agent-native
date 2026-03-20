@@ -107,9 +107,9 @@ export const updateScheduledJob = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event);
   const { runAt } = body as { runAt?: number };
 
-  if (!runAt) {
+  if (!runAt || !Number.isFinite(runAt) || runAt <= Date.now()) {
     setResponseStatus(event, 400);
-    return { error: "runAt is required" };
+    return { error: "runAt must be a future timestamp" };
   }
 
   const existing = db

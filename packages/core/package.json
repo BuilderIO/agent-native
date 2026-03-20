@@ -47,6 +47,7 @@
     "release": "npm version patch && npm publish --access public"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
     "better-sqlite3": "^12.8.0",
     "chokidar": "^4.0.0",
     "clsx": "^2.1.1",
