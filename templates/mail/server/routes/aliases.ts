@@ -30,7 +30,10 @@ export const listAliases = defineEventHandler((_event: H3Event) => {
 });
 
 export const createAlias = defineEventHandler(async (event: H3Event) => {
-  const { name, emails } = await readBody(event) as { name: string; emails: string[] };
+  const { name, emails } = (await readBody(event)) as {
+    name: string;
+    emails: string[];
+  };
   if (!name?.trim() || !Array.isArray(emails) || emails.length === 0) {
     setResponseStatus(event, 400);
     return { error: "name and emails are required" };
@@ -52,7 +55,10 @@ export const createAlias = defineEventHandler(async (event: H3Event) => {
 
 export const updateAlias = defineEventHandler(async (event: H3Event) => {
   const id = getRouterParam(event, "id");
-  const { name, emails } = await readBody(event) as { name?: string; emails?: string[] };
+  const { name, emails } = (await readBody(event)) as {
+    name?: string;
+    emails?: string[];
+  };
   const aliases = readAliases();
   const idx = aliases.findIndex((a) => a.id === id);
   if (idx === -1) {

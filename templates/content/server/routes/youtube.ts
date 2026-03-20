@@ -43,11 +43,7 @@ export const getYouTubeTranscript = defineEventHandler(
     const url = query.url as string | undefined;
     const rawVideoId = query.videoId as string | undefined;
 
-    const videoId = rawVideoId
-      ? rawVideoId
-      : url
-        ? extractVideoId(url)
-        : null;
+    const videoId = rawVideoId ? rawVideoId : url ? extractVideoId(url) : null;
 
     if (!videoId) {
       setResponseStatus(event, 400);

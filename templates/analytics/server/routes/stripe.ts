@@ -1,4 +1,9 @@
-import { defineEventHandler, getQuery, setResponseStatus, type H3Event } from "h3";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import { requireEnvKey } from "@agent-native/core/server";
 import {
   getCustomersByEmail,
@@ -77,7 +82,10 @@ export const handleStripeBilling = defineEventHandler(async (event) => {
     };
   } catch (err: any) {
     console.error("Stripe billing error:", err.message);
-    setResponseStatus(event, err.message.includes("not configured") ? 503 : 500);
+    setResponseStatus(
+      event,
+      err.message.includes("not configured") ? 503 : 500,
+    );
     return { error: err.message };
   }
 });
@@ -112,7 +120,10 @@ export const handleStripePaymentStatus = defineEventHandler(async (event) => {
     };
   } catch (err: any) {
     console.error("Stripe payment status error:", err.message);
-    setResponseStatus(event, err.message.includes("not configured") ? 503 : 500);
+    setResponseStatus(
+      event,
+      err.message.includes("not configured") ? 503 : 500,
+    );
     return { error: err.message };
   }
 });
@@ -141,7 +152,10 @@ export const handleStripeRefunds = defineEventHandler(async (event) => {
     };
   } catch (err: any) {
     console.error("Stripe refunds error:", err.message);
-    setResponseStatus(event, err.message.includes("not configured") ? 503 : 500);
+    setResponseStatus(
+      event,
+      err.message.includes("not configured") ? 503 : 500,
+    );
     return { error: err.message };
   }
 });
@@ -170,54 +184,62 @@ export const handleStripeSubscriptions = defineEventHandler(async (event) => {
     };
   } catch (err: any) {
     console.error("Stripe subscriptions error:", err.message);
-    setResponseStatus(event, err.message.includes("not configured") ? 503 : 500);
+    setResponseStatus(
+      event,
+      err.message.includes("not configured") ? 503 : 500,
+    );
     return { error: err.message };
   }
 });
 
 // GET /api/stripe/billing-by-product?email=...&months=6
-export const handleStripeBillingByProduct = defineEventHandler(async (event) => {
-  const missing = requireEnvKey(event, "STRIPE_SECRET_KEY", "Stripe");
-  if (missing) return missing;
-  try {
-    const { months: monthsParam } = getQuery(event);
-    const months = parseInt((monthsParam as string) || "6", 10);
-    const customers = await resolveCustomer(event);
+export const handleStripeBillingByProduct = defineEventHandler(
+  async (event) => {
+    const missing = requireEnvKey(event, "STRIPE_SECRET_KEY", "Stripe");
+    if (missing) return missing;
+    try {
+      const { months: monthsParam } = getQuery(event);
+      const months = parseInt((monthsParam as string) || "6", 10);
+      const customers = await resolveCustomer(event);
 
-    const allProducts = (
-      await Promise.all(
-        customers.map((c) => getInvoicesByProduct(c.id, months)),
-      )
-    ).flat();
+      const allProducts = (
+        await Promise.all(
+          customers.map((c) => getInvoicesByProduct(c.id, months)),
+        )
+      ).flat();
 
-    // Merge duplicates across multiple customers
-    const productMap = new Map<string, (typeof allProducts)[0]>();
-    for (const product of allProducts) {
-      const existing = productMap.get(product.productId);
-      if (existing) {
-        existing.totalAmount += product.totalAmount;
-        existing.invoiceCount += product.invoiceCount;
-      } else {
-        productMap.set(product.productId, { ...product });
+      // Merge duplicates across multiple customers
+      const productMap = new Map<string, (typeof allProducts)[0]>();
+      for (const product of allProducts) {
+        const existing = productMap.get(product.productId);
+        if (existing) {
+          existing.totalAmount += product.totalAmount;
+          existing.invoiceCount += product.invoiceCount;
+        } else {
+          productMap.set(product.productId, { ...product });
+        }
       }
+
+      const products = Array.from(productMap.values()).sort(
+        (a, b) => b.totalAmount - a.totalAmount,
+      );
+
+      return {
+        customers: customers.map((c) => ({
+          id: c.id,
+          email: c.email,
+          name: c.name,
+        })),
+        products,
+        total: products.length,
+      };
+    } catch (err: any) {
+      console.error("Stripe billing by product error:", err.message);
+      setResponseStatus(
+        event,
+        err.message.includes("not configured") ? 503 : 500,
+      );
+      return { error: err.message };
     }
-
-    const products = Array.from(productMap.values()).sort(
-      (a, b) => b.totalAmount - a.totalAmount,
-    );
-
-    return {
-      customers: customers.map((c) => ({
-        id: c.id,
-        email: c.email,
-        name: c.name,
-      })),
-      products,
-      total: products.length,
-    };
-  } catch (err: any) {
-    console.error("Stripe billing by product error:", err.message);
-    setResponseStatus(event, err.message.includes("not configured") ? 503 : 500);
-    return { error: err.message };
-  }
-});
+  },
+);

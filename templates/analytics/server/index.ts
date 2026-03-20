@@ -3,7 +3,12 @@ import path from "path";
 import { createReadStream } from "fs";
 import { stat } from "fs/promises";
 import fs from "fs";
-import { defineEventHandler, readBody, sendStream, setResponseStatus } from "h3";
+import {
+  defineEventHandler,
+  readBody,
+  sendStream,
+  setResponseStatus,
+} from "h3";
 import { createServer } from "@agent-native/core/server";
 import { handleDemo } from "./routes/demo";
 import { handleQuery } from "./routes/query-proxy";
@@ -180,7 +185,10 @@ export function createAppServer() {
 
   // Notion content calendar + page rendering
   router.get("/api/notion/content-calendar", handleContentCalendar);
-  router.get("/api/notion/content-calendar/schema", handleContentCalendarSchema);
+  router.get(
+    "/api/notion/content-calendar/schema",
+    handleContentCalendarSchema,
+  );
   router.get("/api/notion/page/:pageId", handleNotionPage);
   // Twitter
   router.get("/api/twitter/tweets", handleTwitterTweets);

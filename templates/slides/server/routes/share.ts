@@ -1,4 +1,9 @@
-import { defineEventHandler, readBody, getRouterParam, setResponseStatus } from "h3";
+import {
+  defineEventHandler,
+  readBody,
+  getRouterParam,
+  setResponseStatus,
+} from "h3";
 import crypto from "crypto";
 import type {
   ShareDeckRequest,

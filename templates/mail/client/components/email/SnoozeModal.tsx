@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import { useCreateScheduledJob, useParseDate } from "@/hooks/use-scheduled-jobs";
+import {
+  useCreateScheduledJob,
+  useParseDate,
+} from "@/hooks/use-scheduled-jobs";
 import { toast } from "sonner";
 
 interface SnoozeModalProps {
@@ -248,7 +251,13 @@ export function SnoozeModal({
               fill="currentColor"
               className="h-2.5 w-2.5"
             >
-              <path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <path
+                d="M2 4l4 4 4-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
             </svg>
           </span>
         </div>

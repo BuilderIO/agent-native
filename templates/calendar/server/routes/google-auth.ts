@@ -15,8 +15,7 @@ import {
 } from "../lib/google-calendar.js";
 
 function getOrigin(event: H3Event): string {
-  const host =
-    getHeader(event, "x-forwarded-host") || getHeader(event, "host");
+  const host = getHeader(event, "x-forwarded-host") || getHeader(event, "host");
   const proto = getHeader(event, "x-forwarded-proto") || "http";
   return `${proto}://${host}`;
 }

@@ -100,11 +100,7 @@ export function createAppServer() {
     defineEventHandler(async (event) => {
       const url = event.path;
       const filename = url.replace("/api/gen-preview/", "");
-      const filepath = path.join(
-        process.cwd(),
-        "public/generated",
-        filename,
-      );
+      const filepath = path.join(process.cwd(), "public/generated", filename);
       try {
         await stat(filepath);
         return sendStream(event, createReadStream(filepath));

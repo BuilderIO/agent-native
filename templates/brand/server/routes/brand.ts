@@ -101,9 +101,7 @@ export const uploadAsset = defineEventHandler(async (event: H3Event) => {
 
   const originalName = filePart.filename ?? "upload";
   const ext = path.extname(originalName);
-  const base = path
-    .basename(originalName, ext)
-    .replace(/[^a-zA-Z0-9_-]/g, "_");
+  const base = path.basename(originalName, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
   const filename = `${base}-${Date.now()}${ext}`;
 
   if (filePart.data.length > 10 * 1024 * 1024) {

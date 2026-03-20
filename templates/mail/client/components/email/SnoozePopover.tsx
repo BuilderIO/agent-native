@@ -133,8 +133,9 @@ export function SnoozePopover({
     setSelectedDate(null);
   };
 
-  const displayDate =
-    selectedDate ? (parsedFormatted || formatDate(selectedDate)) : null;
+  const displayDate = selectedDate
+    ? parsedFormatted || formatDate(selectedDate)
+    : null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

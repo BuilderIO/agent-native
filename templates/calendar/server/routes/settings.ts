@@ -1,4 +1,9 @@
-import { defineEventHandler, readBody, setResponseStatus, type H3Event } from "h3";
+import {
+  defineEventHandler,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import path from "path";
 import type { Settings } from "../../shared/api.js";
 import { readJsonFile, writeJsonFile } from "../lib/data-helpers.js";

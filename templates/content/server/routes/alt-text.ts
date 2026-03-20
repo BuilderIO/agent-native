@@ -11,9 +11,11 @@ const PROJECTS_DIR = path.join(process.cwd(), "content", "projects");
 
 export const generateAltText = defineEventHandler(async (event: H3Event) => {
   try {
-    const { imagePath, projectSlug, context: articleContext } = await readBody(
-      event,
-    );
+    const {
+      imagePath,
+      projectSlug,
+      context: articleContext,
+    } = await readBody(event);
 
     if (!imagePath) {
       setResponseStatus(event, 400);

@@ -57,73 +57,69 @@ export const listScheduledJobs = defineEventHandler((_event: H3Event) => {
 });
 
 /** POST /api/scheduled-jobs — create a new job */
-export const createScheduledJob = defineEventHandler(
-  async (event: H3Event) => {
-    const body = await readBody(event);
-    const { type, emailId, payload, runAt } = body as {
-      type: "snooze" | "send_later";
-      emailId?: string;
-      payload?: Record<string, unknown>;
-      runAt: number;
-    };
+export const createScheduledJob = defineEventHandler(async (event: H3Event) => {
+  const body = await readBody(event);
+  const { type, emailId, payload, runAt } = body as {
+    type: "snooze" | "send_later";
+    emailId?: string;
+    payload?: Record<string, unknown>;
+    runAt: number;
+  };
 
-    if (!type || !runAt) {
-      setResponseStatus(event, 400);
-      return { error: "type and runAt are required" };
-    }
+  if (!type || !runAt) {
+    setResponseStatus(event, 400);
+    return { error: "type and runAt are required" };
+  }
 
-    const job = {
-      id: nanoid(12),
-      type,
-      emailId: emailId ?? null,
-      payload: JSON.stringify(payload ?? {}),
-      runAt,
-      status: "pending" as const,
-      createdAt: Date.now(),
-    };
+  const job = {
+    id: nanoid(12),
+    type,
+    emailId: emailId ?? null,
+    payload: JSON.stringify(payload ?? {}),
+    runAt,
+    status: "pending" as const,
+    createdAt: Date.now(),
+  };
 
-    db.insert(schema.scheduledJobs).values(job).run();
-    setResponseStatus(event, 201);
-    return job;
-  },
-);
+  db.insert(schema.scheduledJobs).values(job).run();
+  setResponseStatus(event, 201);
+  return job;
+});
 
 /** PATCH /api/scheduled-jobs/:id — reschedule (update runAt, reset to pending) */
-export const updateScheduledJob = defineEventHandler(
-  async (event: H3Event) => {
-    const id = getRouterParam(event, "id");
-    if (!id) {
-      setResponseStatus(event, 400);
-      return { error: "id required" };
-    }
+export const updateScheduledJob = defineEventHandler(async (event: H3Event) => {
+  const id = getRouterParam(event, "id");
+  if (!id) {
+    setResponseStatus(event, 400);
+    return { error: "id required" };
+  }
 
-    const body = await readBody(event);
-    const { runAt } = body as { runAt?: number };
+  const body = await readBody(event);
+  const { runAt } = body as { runAt?: number };
 
-    if (!runAt) {
-      setResponseStatus(event, 400);
-      return { error: "runAt is required" };
-    }
+  if (!runAt) {
+    setResponseStatus(event, 400);
+    return { error: "runAt is required" };
+  }
 
-    const existing = db
-      .select()
-      .from(schema.scheduledJobs)
-      .where(eq(schema.scheduledJobs.id, id))
-      .get();
+  const existing = db
+    .select()
+    .from(schema.scheduledJobs)
+    .where(eq(schema.scheduledJobs.id, id))
+    .get();
 
-    if (!existing) {
-      setResponseStatus(event, 404);
-      return { error: "Job not found" };
-    }
+  if (!existing) {
+    setResponseStatus(event, 404);
+    return { error: "Job not found" };
+  }
 
-    db.update(schema.scheduledJobs)
-      .set({ runAt, status: "pending" } as any)
-      .where(eq(schema.scheduledJobs.id, id))
-      .run();
+  db.update(schema.scheduledJobs)
+    .set({ runAt, status: "pending" } as any)
+    .where(eq(schema.scheduledJobs.id, id))
+    .run();
 
-    return { ...existing, runAt, status: "pending" };
-  },
-);
+  return { ...existing, runAt, status: "pending" };
+});
 
 /** DELETE /api/scheduled-jobs/:id — cancel (set status = cancelled) */
 export const deleteScheduledJob = defineEventHandler((event: H3Event) => {

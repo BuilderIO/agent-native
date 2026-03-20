@@ -30,9 +30,7 @@ function AliasEditRow({
   isPending?: boolean;
 }) {
   const [name, setName] = useState(alias?.name ?? "");
-  const [emailsText, setEmailsText] = useState(
-    alias?.emails.join("\n") ?? "",
-  );
+  const [emailsText, setEmailsText] = useState(alias?.emails.join("\n") ?? "");
 
   const handleSave = () => {
     const emails = emailsText
@@ -75,9 +73,7 @@ function AliasEditRow({
           disabled={!name.trim() || !emailsText.trim() || isPending}
           className="flex items-center gap-1.5 rounded-md bg-indigo-500 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {isPending && (
-            <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-          )}
+          {isPending && <IconLoader2 className="h-3.5 w-3.5 animate-spin" />}
           Save
         </button>
         <button
@@ -123,9 +119,7 @@ function AliasRow({
 
   const handleDelete = () => {
     if (
-      window.confirm(
-        `Delete alias "${alias.name}"? This cannot be undone.`,
-      )
+      window.confirm(`Delete alias "${alias.name}"? This cannot be undone.`)
     ) {
       deleteAlias.mutate(alias.id);
     }
@@ -228,9 +222,7 @@ function AliasesSection() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-[16px] font-semibold text-foreground">
-            Aliases
-          </h2>
+          <h2 className="text-[16px] font-semibold text-foreground">Aliases</h2>
           <p className="text-[13px] text-muted-foreground mt-0.5">
             Address groups you can use when composing emails.
           </p>

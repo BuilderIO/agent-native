@@ -295,48 +295,46 @@ export const getImageFolders = defineEventHandler((_event: H3Event) => {
 });
 
 // Upload images to a shared resource folder
-export const uploadSharedImages = defineEventHandler(
-  async (event: H3Event) => {
-    const query = getQuery(event);
-    const folder = query.folder as string;
+export const uploadSharedImages = defineEventHandler(async (event: H3Event) => {
+  const query = getQuery(event);
+  const folder = query.folder as string;
 
-    if (!folder || !isValidPath(folder)) {
-      setResponseStatus(event, 400);
-      return { error: "Invalid folder path" };
-    }
+  if (!folder || !isValidPath(folder)) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid folder path" };
+  }
 
-    const parts = await readMultipartFormData(event);
-    const fileParts = parts?.filter((p) => p.name === "files") ?? [];
+  const parts = await readMultipartFormData(event);
+  const fileParts = parts?.filter((p) => p.name === "files") ?? [];
 
-    if (!fileParts.length) {
-      setResponseStatus(event, 400);
-      return { error: "No files provided" };
-    }
+  if (!fileParts.length) {
+    setResponseStatus(event, 400);
+    return { error: "No files provided" };
+  }
 
-    const allowedMimeTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/gif",
-      "image/webp",
-      "image/svg+xml",
-    ];
+  const allowedMimeTypes = [
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "image/svg+xml",
+  ];
 
-    const dir = path.join(SHARED_DIR, folder);
-    ensureDir(dir);
+  const dir = path.join(SHARED_DIR, folder);
+  ensureDir(dir);
 
-    const uploaded: { name: string; path: string }[] = [];
-    for (const part of fileParts) {
-      if (!part.filename || !part.data) continue;
-      const mime = part.type || "";
-      if (!allowedMimeTypes.includes(mime)) continue;
-      const filename = part.filename;
-      fs.writeFileSync(path.join(dir, filename), part.data);
-      uploaded.push({ name: filename, path: `${folder}/${filename}` });
-    }
+  const uploaded: { name: string; path: string }[] = [];
+  for (const part of fileParts) {
+    if (!part.filename || !part.data) continue;
+    const mime = part.type || "";
+    if (!allowedMimeTypes.includes(mime)) continue;
+    const filename = part.filename;
+    fs.writeFileSync(path.join(dir, filename), part.data);
+    uploaded.push({ name: filename, path: `${folder}/${filename}` });
+  }
 
-    return { uploaded };
-  },
-);
+  return { uploaded };
+});
 
 export const deleteSharedImage = defineEventHandler((event: H3Event) => {
   const query = getQuery(event);

@@ -48,7 +48,10 @@ export async function resurfaceEmail(emailId: string): Promise<void> {
       ...emails[idx],
       isArchived: false,
       isRead: false,
-      labelIds: ["inbox", ...(emails[idx].labelIds || []).filter((l: string) => l !== "inbox")],
+      labelIds: [
+        "inbox",
+        ...(emails[idx].labelIds || []).filter((l: string) => l !== "inbox"),
+      ],
     };
     writeEmails(emails);
   }
@@ -68,7 +71,9 @@ export interface SendLaterPayload {
 /**
  * Send a scheduled email via Gmail API or save to local sent.
  */
-export async function sendScheduledEmail(payload: SendLaterPayload): Promise<void> {
+export async function sendScheduledEmail(
+  payload: SendLaterPayload,
+): Promise<void> {
   const { to, cc, bcc, subject, body, from, replyToId, threadId } = payload;
 
   if (isConnected()) {

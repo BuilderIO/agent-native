@@ -529,7 +529,9 @@ export const createProject = defineEventHandler(async (event: H3Event) => {
   let groupPath = "";
   if (group) {
     const segments = group.split("/").filter(Boolean);
-    const slugifiedSegments = segments.map((s: string) => slugify(s)).filter(Boolean);
+    const slugifiedSegments = segments
+      .map((s: string) => slugify(s))
+      .filter(Boolean);
     if (segments.length > 0 && slugifiedSegments.length === 0) {
       setResponseStatus(event, 400);
       return { error: "Invalid group" };
@@ -1259,7 +1261,9 @@ export const createFolder = defineEventHandler(async (event: H3Event) => {
   }
 
   const segments = folderPath.split("/").filter(Boolean);
-  const slugifiedSegments = segments.map((s: string) => slugify(s)).filter(Boolean);
+  const slugifiedSegments = segments
+    .map((s: string) => slugify(s))
+    .filter(Boolean);
   if (!slugifiedSegments.length) {
     setResponseStatus(event, 400);
     return { error: "Invalid folder path" };

@@ -47,8 +47,9 @@ async function generateDescription(prompt: string) {
 export const generateMetaDescription = defineEventHandler(
   async (event: H3Event) => {
     try {
-      const { articleContent, projectSlug, title } =
-        (await readBody(event)) as MetaDescriptionRequestBody;
+      const { articleContent, projectSlug, title } = (await readBody(
+        event,
+      )) as MetaDescriptionRequestBody;
 
       if (!projectSlug) {
         setResponseStatus(event, 400);

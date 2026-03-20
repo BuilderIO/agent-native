@@ -1,4 +1,9 @@
-import { defineEventHandler, readBody, setResponseStatus, type H3Event } from "h3";
+import {
+  defineEventHandler,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import path from "path";
 import type { AvailabilityConfig } from "../../shared/api.js";
 import { readJsonFile, writeJsonFile } from "../lib/data-helpers.js";
@@ -35,15 +40,13 @@ export const getAvailability = defineEventHandler((_event: H3Event) => {
   }
 });
 
-export const updateAvailability = defineEventHandler(
-  async (event: H3Event) => {
-    try {
-      const config: AvailabilityConfig = await readBody(event);
-      writeJsonFile(AVAILABILITY_PATH, config);
-      return config;
-    } catch (error: any) {
-      setResponseStatus(event, 500);
-      return { error: error.message };
-    }
-  },
-);
+export const updateAvailability = defineEventHandler(async (event: H3Event) => {
+  try {
+    const config: AvailabilityConfig = await readBody(event);
+    writeJsonFile(AVAILABILITY_PATH, config);
+    return config;
+  } catch (error: any) {
+    setResponseStatus(event, 500);
+    return { error: error.message };
+  }
+});

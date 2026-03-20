@@ -87,34 +87,32 @@ export const deleteGeneration = defineEventHandler(async (event: H3Event) => {
 });
 
 // GET /api/generated/** — serve static generated image files
-export const serveGeneratedFile = defineEventHandler(
-  async (event: H3Event) => {
-    const filePath = event.path.replace("/api/generated/", "");
-    const fullPath = path.join(GENERATIONS_DIR, filePath);
-    if (!isSafePath(GENERATIONS_DIR, filePath)) {
-      setResponseStatus(event, 400);
-      return { error: "Invalid path" };
-    }
-    try {
-      await stat(fullPath);
-      const ext = path.extname(fullPath).toLowerCase();
-      const mimeMap: Record<string, string> = {
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".svg": "image/svg+xml",
-        ".webp": "image/webp",
-      };
-      const mimeType = mimeMap[ext] ?? "application/octet-stream";
-      setResponseHeader(event, "Content-Type", mimeType);
-      setResponseHeader(event, "Cache-Control", "public, max-age=3600");
-      return sendStream(event, createReadStream(fullPath));
-    } catch {
-      setResponseStatus(event, 404);
-      return { error: "Not found" };
-    }
-  },
-);
+export const serveGeneratedFile = defineEventHandler(async (event: H3Event) => {
+  const filePath = event.path.replace("/api/generated/", "");
+  const fullPath = path.join(GENERATIONS_DIR, filePath);
+  if (!isSafePath(GENERATIONS_DIR, filePath)) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid path" };
+  }
+  try {
+    await stat(fullPath);
+    const ext = path.extname(fullPath).toLowerCase();
+    const mimeMap: Record<string, string> = {
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".png": "image/png",
+      ".svg": "image/svg+xml",
+      ".webp": "image/webp",
+    };
+    const mimeType = mimeMap[ext] ?? "application/octet-stream";
+    setResponseHeader(event, "Content-Type", mimeType);
+    setResponseHeader(event, "Cache-Control", "public, max-age=3600");
+    return sendStream(event, createReadStream(fullPath));
+  } catch {
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
+  }
+});
 
 export function registerGenerationsRoutes(router: Router) {
   router.get("/api/generations", listGenerations);

@@ -1,11 +1,7 @@
 import path from "path";
 import { createReadStream } from "fs";
 import { stat } from "fs/promises";
-import {
-  sendStream,
-  defineEventHandler,
-  setResponseStatus,
-} from "h3";
+import { sendStream, defineEventHandler, setResponseStatus } from "h3";
 import {
   createServer,
   createFileWatcher,

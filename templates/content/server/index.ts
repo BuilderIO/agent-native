@@ -230,10 +230,7 @@ export function createAppServer() {
   // Workspace-scoped shared resources
   router.get("/api/workspace/:workspace/shared/tree", getWorkspaceSharedTree);
   router.get("/api/workspace/:workspace/shared/file", getWorkspaceSharedFile);
-  router.put(
-    "/api/workspace/:workspace/shared/file",
-    saveWorkspaceSharedFile,
-  );
+  router.put("/api/workspace/:workspace/shared/file", saveWorkspaceSharedFile);
   router.post(
     "/api/workspace/:workspace/shared/file",
     createWorkspaceSharedFile,

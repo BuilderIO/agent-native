@@ -44,41 +44,43 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
   }
 });
 
-export const handleGoogleCallback = defineEventHandler(async (event: H3Event) => {
-  try {
-    const code = getQuery(event).code as string;
-    if (!code) {
-      setResponseStatus(event, 400);
-      return { error: "Missing authorization code" };
-    }
-    // Use the same redirect URI that was used to generate the auth URL
-    const redirectUri =
-      lastRedirectUri || `${getOrigin(event)}/api/google/callback`;
-    const email = await exchangeCode(code, undefined, redirectUri);
-    const safeEmail = JSON.stringify(email);
-    return `<!DOCTYPE html><html><body><script>
+export const handleGoogleCallback = defineEventHandler(
+  async (event: H3Event) => {
+    try {
+      const code = getQuery(event).code as string;
+      if (!code) {
+        setResponseStatus(event, 400);
+        return { error: "Missing authorization code" };
+      }
+      // Use the same redirect URI that was used to generate the auth URL
+      const redirectUri =
+        lastRedirectUri || `${getOrigin(event)}/api/google/callback`;
+      const email = await exchangeCode(code, undefined, redirectUri);
+      const safeEmail = JSON.stringify(email);
+      return `<!DOCTYPE html><html><body><script>
       window.close();
       var p = document.createElement('p');
       p.style.cssText = 'font-family:system-ui;text-align:center;margin-top:40vh';
       p.textContent = 'Connected ' + ${safeEmail} + '! You can close this tab.';
       document.body.appendChild(p);
     </script></body></html>`;
-  } catch (error: any) {
-    const msg = error.message || "Unknown error";
-    const isPermission =
-      msg.includes("Insufficient Permission") ||
-      msg.includes("insufficient_scope");
-    const userMessage = isPermission
-      ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
-      : `Connection failed: ${msg}`;
-    return `<!DOCTYPE html><html><body>
+    } catch (error: any) {
+      const msg = error.message || "Unknown error";
+      const isPermission =
+        msg.includes("Insufficient Permission") ||
+        msg.includes("insufficient_scope");
+      const userMessage = isPermission
+        ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
+        : `Connection failed: ${msg}`;
+      return `<!DOCTYPE html><html><body>
       <div style="font-family:system-ui;max-width:420px;margin:30vh auto;text-align:center">
         <p style="font-size:15px;color:#e55">${userMessage}</p>
         <p style="margin-top:16px;font-size:13px;color:#888">You can close this tab and try again.</p>
       </div>
     </body></html>`;
-  }
-});
+    }
+  },
+);
 
 export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
   try {

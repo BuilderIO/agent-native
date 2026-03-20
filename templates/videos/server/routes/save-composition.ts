@@ -1,97 +1,106 @@
-import { defineEventHandler, readBody, setResponseStatus, type H3Event } from "h3";
+import {
+  defineEventHandler,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import fs from "fs/promises";
 import path from "path";
 
-export const handleSaveCompositionDefaults = defineEventHandler(async (event: H3Event) => {
-  try {
-    const body = await readBody(event);
-    const {
-      compositionId,
-      tracks,
-      defaultProps,
-      durationInFrames,
-      fps,
-      width,
-      height,
-    } = body;
+export const handleSaveCompositionDefaults = defineEventHandler(
+  async (event: H3Event) => {
+    try {
+      const body = await readBody(event);
+      const {
+        compositionId,
+        tracks,
+        defaultProps,
+        durationInFrames,
+        fps,
+        width,
+        height,
+      } = body;
 
-    if (!compositionId) {
-      setResponseStatus(event, 400);
-      return "Missing compositionId";
-    }
-
-    // Read the current registry file
-    const registryPath = path.join(
-      process.cwd(),
-      "client/remotion/registry.ts",
-    );
-    let registryContent = await fs.readFile(registryPath, "utf-8");
-
-    // Format tracks and props
-    const formattedTracks = formatTracksAsCode(tracks);
-    const formattedProps = formatPropsAsCode(defaultProps);
-
-    // Find the composition by searching for the id
-    const idPattern = new RegExp(`id:\\s*"${compositionId}"`, "g");
-    const matches = [];
-    let match;
-    while ((match = idPattern.exec(registryContent)) !== null) {
-      matches.push(match.index);
-    }
-
-    if (matches.length === 0) {
-      setResponseStatus(event, 404);
-      return `Composition "${compositionId}" not found in registry`;
-    }
-
-    // Find the composition object that starts with { id: "compositionId"
-    // We need to find the opening { before the id, then find the matching closing }
-    const startIndex = matches[0];
-
-    // Search backwards to find the opening {
-    let openBrace = -1;
-    for (let i = startIndex - 1; i >= 0; i--) {
-      if (registryContent[i] === "{") {
-        openBrace = i;
-        break;
+      if (!compositionId) {
+        setResponseStatus(event, 400);
+        return "Missing compositionId";
       }
-    }
 
-    if (openBrace === -1) {
-      setResponseStatus(event, 500);
-      return "Could not find composition opening brace";
-    }
+      // Read the current registry file
+      const registryPath = path.join(
+        process.cwd(),
+        "client/remotion/registry.ts",
+      );
+      let registryContent = await fs.readFile(registryPath, "utf-8");
 
-    // Now find the matching closing brace
-    let braceCount = 0;
-    let closeBrace = -1;
-    for (let i = openBrace; i < registryContent.length; i++) {
-      if (registryContent[i] === "{") braceCount++;
-      if (registryContent[i] === "}") {
-        braceCount--;
-        if (braceCount === 0) {
-          closeBrace = i;
+      // Format tracks and props
+      const formattedTracks = formatTracksAsCode(tracks);
+      const formattedProps = formatPropsAsCode(defaultProps);
+
+      // Find the composition by searching for the id
+      const idPattern = new RegExp(`id:\\s*"${compositionId}"`, "g");
+      const matches = [];
+      let match;
+      while ((match = idPattern.exec(registryContent)) !== null) {
+        matches.push(match.index);
+      }
+
+      if (matches.length === 0) {
+        setResponseStatus(event, 404);
+        return `Composition "${compositionId}" not found in registry`;
+      }
+
+      // Find the composition object that starts with { id: "compositionId"
+      // We need to find the opening { before the id, then find the matching closing }
+      const startIndex = matches[0];
+
+      // Search backwards to find the opening {
+      let openBrace = -1;
+      for (let i = startIndex - 1; i >= 0; i--) {
+        if (registryContent[i] === "{") {
+          openBrace = i;
           break;
         }
       }
-    }
 
-    if (closeBrace === -1) {
-      setResponseStatus(event, 500);
-      return "Could not find composition closing brace";
-    }
+      if (openBrace === -1) {
+        setResponseStatus(event, 500);
+        return "Could not find composition opening brace";
+      }
 
-    // Extract the old composition
-    const oldComposition = registryContent.substring(openBrace, closeBrace + 1);
+      // Now find the matching closing brace
+      let braceCount = 0;
+      let closeBrace = -1;
+      for (let i = openBrace; i < registryContent.length; i++) {
+        if (registryContent[i] === "{") braceCount++;
+        if (registryContent[i] === "}") {
+          braceCount--;
+          if (braceCount === 0) {
+            closeBrace = i;
+            break;
+          }
+        }
+      }
 
-    // Extract metadata from the old composition
-    const titleMatch = oldComposition.match(/title:\s*"([^"]+)"/);
-    const descMatch = oldComposition.match(/description:\s*"([^"]+)"/);
-    const componentMatch = oldComposition.match(/component:\s*(\w+)/);
-    const satisfiesMatch = oldComposition.match(/satisfies\s+(\w+)/);
+      if (closeBrace === -1) {
+        setResponseStatus(event, 500);
+        return "Could not find composition closing brace";
+      }
 
-    // Build the new composition object
-    const newComposition = `{
+      // Extract the old composition
+      const oldComposition = registryContent.substring(
+        openBrace,
+        closeBrace + 1,
+      );
+
+      // Extract metadata from the old composition
+      const titleMatch = oldComposition.match(/title:\s*"([^"]+)"/);
+      const descMatch = oldComposition.match(/description:\s*"([^"]+)"/);
+      const componentMatch = oldComposition.match(/component:\s*(\w+)/);
+      const satisfiesMatch = oldComposition.match(/satisfies\s+(\w+)/);
+
+      // Build the new composition object
+      const newComposition = `{
     id: "${compositionId}",
     title: "${titleMatch?.[1] || ""}",
     description: "${descMatch?.[1] || ""}",
@@ -104,25 +113,26 @@ export const handleSaveCompositionDefaults = defineEventHandler(async (event: H3
     tracks: ${formattedTracks},
   }`;
 
-    // Replace the old composition with the new one
-    registryContent =
-      registryContent.substring(0, openBrace) +
-      newComposition +
-      registryContent.substring(closeBrace + 1);
+      // Replace the old composition with the new one
+      registryContent =
+        registryContent.substring(0, openBrace) +
+        newComposition +
+        registryContent.substring(closeBrace + 1);
 
-    // Write back to the file
-    await fs.writeFile(registryPath, registryContent, "utf-8");
+      // Write back to the file
+      await fs.writeFile(registryPath, registryContent, "utf-8");
 
-    return {
-      success: true,
-      message: `Composition "${compositionId}" defaults saved`,
-    };
-  } catch (error) {
-    console.error("Save composition error:", error);
-    setResponseStatus(event, 500);
-    return error instanceof Error ? error.message : String(error);
-  }
-});
+      return {
+        success: true,
+        message: `Composition "${compositionId}" defaults saved`,
+      };
+    } catch (error) {
+      console.error("Save composition error:", error);
+      setResponseStatus(event, 500);
+      return error instanceof Error ? error.message : String(error);
+    }
+  },
+);
 
 function formatTracksAsCode(tracks: any[]): string {
   const formatted = tracks

@@ -89,7 +89,10 @@ function recomputeUnreadCounts(
 // ─── Email list ───────────────────────────────────────────────────────────────
 
 export const listEmails = defineEventHandler(async (event: H3Event) => {
-  const { view = "inbox", q } = getQuery(event) as { view?: string; q?: string };
+  const { view = "inbox", q } = getQuery(event) as {
+    view?: string;
+    q?: string;
+  };
 
   // If Google is connected, fetch from Gmail directly (skip demo data)
   if (isConnected()) {
@@ -773,7 +776,8 @@ export const deleteEmail = defineEventHandler(async (event: H3Event) => {
 
 export const sendEmail = defineEventHandler(async (event: H3Event) => {
   const settings = readSettings();
-  const { to, cc, bcc, subject, body, replyToId, accountEmail } = await readBody(event);
+  const { to, cc, bcc, subject, body, replyToId, accountEmail } =
+    await readBody(event);
 
   if (!to || subject === undefined || body === undefined) {
     setResponseStatus(event, 400);
@@ -915,7 +919,8 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
 export const saveDraft = defineEventHandler(async (event: H3Event) => {
   const settings = readSettings();
   const reqBody = await readBody(event);
-  const { to, cc, bcc, subject, body, draftId, replyToId, replyToThreadId } = reqBody;
+  const { to, cc, bcc, subject, body, draftId, replyToId, replyToThreadId } =
+    reqBody;
 
   // If Gmail is connected, create/update a Gmail draft
   if (isConnected()) {
@@ -1338,7 +1343,9 @@ export const updateSettings = defineEventHandler(async (event: H3Event) => {
 // ─── Calendar RSVP ───────────────────────────────────────────────────────────
 
 export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
-  const { eventId, calendarId, response, accountEmail } = await readBody(event) as {
+  const { eventId, calendarId, response, accountEmail } = (await readBody(
+    event,
+  )) as {
     eventId: string;
     calendarId?: string;
     response: "accepted" | "declined" | "tentative";

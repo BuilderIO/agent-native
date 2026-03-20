@@ -5,21 +5,75 @@ import {
   createSSEHandler,
 } from "@agent-native/core";
 import type { EnvKeyConfig } from "@agent-native/core/server";
-import { listEmails, getEmail, getThreadMessages, markRead, toggleStar, archiveEmail, trashEmail, reportSpam, blockSender, muteThread, deleteEmail, sendEmail, saveDraft, deleteDraft, listLabels, listContacts, getSettings, updateSettings, calendarRsvp } from "./routes/emails.js";
-import { listComposeDrafts, getComposeDraft, putComposeDraft, deleteComposeDraft, deleteAllComposeDrafts, getState, putState, deleteState } from "./routes/application-state.js";
-import { getGoogleAuthUrl, handleGoogleCallback, getGoogleStatus, disconnectGoogle } from "./routes/google-auth.js";
-import { apolloPersonLookup, apolloStatus, apolloSaveKey, apolloDeleteKey } from "./routes/apollo.js";
-import { listAliases, createAlias, updateAlias, deleteAlias } from "./routes/aliases.js";
+import {
+  listEmails,
+  getEmail,
+  getThreadMessages,
+  markRead,
+  toggleStar,
+  archiveEmail,
+  trashEmail,
+  reportSpam,
+  blockSender,
+  muteThread,
+  deleteEmail,
+  sendEmail,
+  saveDraft,
+  deleteDraft,
+  listLabels,
+  listContacts,
+  getSettings,
+  updateSettings,
+  calendarRsvp,
+} from "./routes/emails.js";
+import {
+  listComposeDrafts,
+  getComposeDraft,
+  putComposeDraft,
+  deleteComposeDraft,
+  deleteAllComposeDrafts,
+  getState,
+  putState,
+  deleteState,
+} from "./routes/application-state.js";
+import {
+  getGoogleAuthUrl,
+  handleGoogleCallback,
+  getGoogleStatus,
+  disconnectGoogle,
+} from "./routes/google-auth.js";
+import {
+  apolloPersonLookup,
+  apolloStatus,
+  apolloSaveKey,
+  apolloDeleteKey,
+} from "./routes/apollo.js";
+import {
+  listAliases,
+  createAlias,
+  updateAlias,
+  deleteAlias,
+} from "./routes/aliases.js";
 import { hubspotContactLookup } from "./routes/hubspot.js";
 import { gongCallsLookup } from "./routes/gong.js";
 import { pylonContactLookup } from "./routes/pylon.js";
 import { uploadMedia, serveMedia } from "./routes/media.js";
-import { listScheduledJobs, createScheduledJob, updateScheduledJob, deleteScheduledJob, parseDateNl } from "./routes/scheduled-jobs.js";
+import {
+  listScheduledJobs,
+  createScheduledJob,
+  updateScheduledJob,
+  deleteScheduledJob,
+  parseDateNl,
+} from "./routes/scheduled-jobs.js";
 import { processJobs } from "./tasks/jobs/process.js";
 
 const envKeys: EnvKeyConfig[] = [
   { key: "GOOGLE_CLIENT_ID", label: "Google OAuth Client ID", required: false },
-  { key: "GOOGLE_CLIENT_SECRET", label: "Google OAuth Client Secret", required: false },
+  {
+    key: "GOOGLE_CLIENT_SECRET",
+    label: "Google OAuth Client Secret",
+    required: false,
+  },
 ];
 
 export function createAppServer() {

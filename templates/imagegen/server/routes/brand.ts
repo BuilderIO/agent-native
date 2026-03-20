@@ -108,9 +108,7 @@ export const uploadBrandAsset = defineEventHandler(async (event: H3Event) => {
 
   const originalName = filePart.filename ?? "upload";
   const ext = path.extname(originalName);
-  const base = path
-    .basename(originalName, ext)
-    .replace(/[^a-zA-Z0-9_-]/g, "_");
+  const base = path.basename(originalName, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
   const filename = `${base}-${Date.now()}${ext}`;
 
   const dir = path.join(BRAND_DIR, category);

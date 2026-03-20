@@ -1,7 +1,13 @@
 import path from "path";
 import { createServer as createNodeServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { toNodeListener, defineEventHandler, setResponseHeader, setResponseStatus, sendStream } from "h3";
+import {
+  toNodeListener,
+  defineEventHandler,
+  setResponseHeader,
+  setResponseStatus,
+  sendStream,
+} from "h3";
 import type { App as H3App, H3Event } from "h3";
 
 export interface ProductionServerOptions {
@@ -73,7 +79,10 @@ export function createProductionServer(
 
       // Try to serve as a static file
       const decoded = decodeURIComponent(urlPath).replace(/\.\./g, "");
-      const filePath = path.join(spaDir, decoded === "/" ? "index.html" : decoded);
+      const filePath = path.join(
+        spaDir,
+        decoded === "/" ? "index.html" : decoded,
+      );
 
       if (existsSync(filePath) && statSync(filePath).isFile()) {
         setResponseHeader(event, "Content-Type", getMimeType(filePath));

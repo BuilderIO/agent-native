@@ -577,9 +577,7 @@ export function EmailThread({
       const text = msg.bodyHtml
         ? msg.bodyHtml.replace(/<[^>]+>/g, " ")
         : msg.body || "";
-      const match = text.match(
-        /https:\/\/github\.com\/[^\s"'<>]+\/pull\/\d+/,
-      );
+      const match = text.match(/https:\/\/github\.com\/[^\s"'<>]+\/pull\/\d+/);
       if (match) return match[0].replace(/[.,;)]+$/, ""); // strip trailing punctuation
     }
     return null;
@@ -649,8 +647,12 @@ export function EmailThread({
                   {/* Tooltip showing ⌘O shortcut */}
                   <span className="pointer-events-none absolute left-0 top-full mt-1 z-50 hidden group-hover:flex items-center gap-1.5 rounded-md border border-border/50 bg-popover px-2.5 py-1.5 text-[12px] font-medium text-foreground shadow-lg whitespace-nowrap">
                     View Pull Request
-                    <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1 text-[10px] text-muted-foreground">⌘</kbd>
-                    <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1.5 text-[10px] text-muted-foreground">O</kbd>
+                    <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1 text-[10px] text-muted-foreground">
+                      ⌘
+                    </kbd>
+                    <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1.5 text-[10px] text-muted-foreground">
+                      O
+                    </kbd>
                   </span>
                 </a>
               </div>

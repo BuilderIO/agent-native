@@ -51,7 +51,12 @@ interface AliasPopoverProps {
   onExpand: () => void;
 }
 
-function AliasPopover({ alias, anchorEl, onClose, onExpand }: AliasPopoverProps) {
+function AliasPopover({
+  alias,
+  anchorEl,
+  onClose,
+  onExpand,
+}: AliasPopoverProps) {
   const navigate = useNavigate();
   const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
@@ -179,14 +184,13 @@ function SaveAliasModal({ emails, onClose }: SaveAliasModalProps) {
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center">
       {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40"
-        onMouseDown={onClose}
-      />
+      <div className="absolute inset-0 bg-black/40" onMouseDown={onClose} />
       {/* Modal */}
       <div className="relative z-10 w-80 rounded-xl border border-border bg-popover shadow-2xl">
         <div className="px-4 py-3 border-b border-border">
-          <h3 className="text-[14px] font-semibold text-foreground">Save as alias</h3>
+          <h3 className="text-[14px] font-semibold text-foreground">
+            Save as alias
+          </h3>
           <p className="mt-0.5 text-[12px] text-muted-foreground">
             Create a reusable group of {emails.length} recipients
           </p>
@@ -279,7 +283,10 @@ export function RecipientInput({
 
   // Combined for keyboard nav — aliases first (sliced to match dropdown rendering)
   const aliasSlice = filteredAliases.slice(0, 4);
-  const contactSlice = filteredContacts.slice(0, 8 - Math.min(filteredAliases.length, 4));
+  const contactSlice = filteredContacts.slice(
+    0,
+    8 - Math.min(filteredAliases.length, 4),
+  );
   const allSuggestions: Array<
     { type: "alias"; item: Alias } | { type: "contact"; item: Contact }
   > = [
@@ -418,7 +425,7 @@ export function RecipientInput({
 
   // Clamp selected index when filtered list changes (preserves position when possible)
   useEffect(() => {
-    setSelectedIndex(prev => Math.min(prev, allSuggestions.length - 1));
+    setSelectedIndex((prev) => Math.min(prev, allSuggestions.length - 1));
   }, [allSuggestions.length]);
 
   const dropdown =
@@ -459,8 +466,9 @@ export function RecipientInput({
                   </span>
                 </button>
               ))}
-              {filteredContacts.slice(0, 8 - Math.min(filteredAliases.length, 4)).map(
-                (contact, i) => {
+              {filteredContacts
+                .slice(0, 8 - Math.min(filteredAliases.length, 4))
+                .map((contact, i) => {
                   const globalIndex = Math.min(filteredAliases.length, 4) + i;
                   return (
                     <button
@@ -488,8 +496,7 @@ export function RecipientInput({
                       )}
                     </button>
                   );
-                },
-              )}
+                })}
             </div>
           </div>,
           document.body,

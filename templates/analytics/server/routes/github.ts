@@ -87,7 +87,12 @@ export const handleGitHubPRList = defineEventHandler(async (event) => {
   const missing = requireEnvKey(event, "GITHUB_TOKEN", "GitHub");
   if (missing) return missing;
   try {
-    const { owner, repo, state: stateParam, limit: limitParam } = getQuery(event);
+    const {
+      owner,
+      repo,
+      state: stateParam,
+      limit: limitParam,
+    } = getQuery(event);
 
     if (!owner || !repo) {
       setResponseStatus(event, 400);
@@ -97,7 +102,10 @@ export const handleGitHubPRList = defineEventHandler(async (event) => {
     const state = (stateParam as "open" | "closed" | "all") ?? "open";
     const limit = limitParam ? parseInt(limitParam as string) : 30;
 
-    const prs = await listPRs(owner as string, repo as string, { state, limit });
+    const prs = await listPRs(owner as string, repo as string, {
+      state,
+      limit,
+    });
     return { prs, total: prs.length };
   } catch (err: any) {
     console.error("GitHub PR list error:", err.message);

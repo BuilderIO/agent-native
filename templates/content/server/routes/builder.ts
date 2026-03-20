@@ -450,8 +450,12 @@ export const uploadImage = defineEventHandler(async (event: H3Event) => {
 // POST /api/builder/upload — Create a new blog-article or docs-content
 export const uploadArticle = defineEventHandler(async (event: H3Event) => {
   try {
-    const { apiKey, privateKey, article, model = "blog-article" } =
-      await readBody(event);
+    const {
+      apiKey,
+      privateKey,
+      article,
+      model = "blog-article",
+    } = await readBody(event);
     if (!apiKey || !privateKey || !article) {
       setResponseStatus(event, 400);
       return { success: false, error: "Missing required fields" };
@@ -501,8 +505,12 @@ export const uploadArticle = defineEventHandler(async (event: H3Event) => {
 export const updateArticle = defineEventHandler(async (event: H3Event) => {
   try {
     const id = event.context.params?.id;
-    const { apiKey, privateKey, article, model = "blog-article" } =
-      await readBody(event);
+    const {
+      apiKey,
+      privateKey,
+      article,
+      model = "blog-article",
+    } = await readBody(event);
     if (!apiKey || !privateKey || !article) {
       setResponseStatus(event, 400);
       return { success: false, error: "Missing required fields" };

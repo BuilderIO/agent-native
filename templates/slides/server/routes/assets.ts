@@ -31,9 +31,7 @@ export const uploadAsset = defineEventHandler(async (event) => {
     return { error: "Only image files are allowed" };
   }
 
-  const base = path
-    .basename(originalName, ext)
-    .replace(/[^a-zA-Z0-9_-]/g, "_");
+  const base = path.basename(originalName, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
   const filename = `${base}-${Date.now()}${ext}`;
   const destPath = path.join(UPLOADS_DIR, filename);
 

@@ -664,20 +664,13 @@ function getRequestBaseUrl(event: H3Event, project: string): string {
     }
   }
 
-  const forwardedProto = (
-    getRequestHeader(event, "x-forwarded-proto") || ""
-  )
+  const forwardedProto = (getRequestHeader(event, "x-forwarded-proto") || "")
     .split(",")[0]
     ?.trim();
-  const forwardedHost = (
-    getRequestHeader(event, "x-forwarded-host") || ""
-  )
+  const forwardedHost = (getRequestHeader(event, "x-forwarded-host") || "")
     .split(",")[0]
     ?.trim();
-  const host =
-    forwardedHost ||
-    getRequestHeader(event, "host")?.trim() ||
-    "";
+  const host = forwardedHost || getRequestHeader(event, "host")?.trim() || "";
   const protocol = forwardedProto || "https";
 
   if (host && !isLoopbackHost(host)) {

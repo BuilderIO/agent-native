@@ -88,6 +88,10 @@ export const serveMedia = defineEventHandler(async (event: H3Event) => {
   const mimeType = MIME_MAP[ext] || "application/octet-stream";
 
   setResponseHeader(event, "Content-Type", mimeType);
-  setResponseHeader(event, "Cache-Control", "public, max-age=31536000, immutable");
+  setResponseHeader(
+    event,
+    "Cache-Control",
+    "public, max-age=31536000, immutable",
+  );
   return sendStream(event, fs.createReadStream(filePath));
 });
