@@ -1,11 +1,14 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { requireEnvKey } from "./missing-key.js";
 
-function createMockResponse() {
-  const res: any = {};
-  res.status = vi.fn().mockReturnValue(res);
-  res.json = vi.fn().mockReturnValue(res);
-  return res;
+// Mock h3's setResponseStatus since we're testing in a Node context without a real H3 event
+vi.mock("h3", () => ({
+  setResponseStatus: vi.fn(),
+}));
+
+// Minimal H3Event stub — requireEnvKey only uses it to call setResponseStatus
+function createMockEvent() {
+  return {} as any;
 }
 
 describe("requireEnvKey", () => {
@@ -13,23 +16,21 @@ describe("requireEnvKey", () => {
 
   afterEach(() => {
     process.env = { ...originalEnv };
+    vi.clearAllMocks();
   });
 
-  it("returns false when env var is set", () => {
+  it("returns null when env var is set", () => {
     process.env.MY_KEY = "some-value";
-    const res = createMockResponse();
-    const missing = requireEnvKey(res, "MY_KEY", "My Service");
-    expect(missing).toBe(false);
-    expect(res.json).not.toHaveBeenCalled();
+    const event = createMockEvent();
+    const result = requireEnvKey(event, "MY_KEY", "My Service");
+    expect(result).toBeNull();
   });
 
-  it("returns true and sends response when env var is missing", () => {
+  it("returns missing_api_key response when env var is missing", () => {
     delete process.env.MISSING_KEY;
-    const res = createMockResponse();
-    const missing = requireEnvKey(res, "MISSING_KEY", "My Service");
-    expect(missing).toBe(true);
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({
+    const event = createMockEvent();
+    const result = requireEnvKey(event, "MISSING_KEY", "My Service");
+    expect(result).toEqual({
       error: "missing_api_key",
       key: "MISSING_KEY",
       label: "My Service",
@@ -40,23 +41,21 @@ describe("requireEnvKey", () => {
 
   it("uses custom message when provided", () => {
     delete process.env.MISSING_KEY;
-    const res = createMockResponse();
-    requireEnvKey(res, "MISSING_KEY", "Stripe", {
+    const event = createMockEvent();
+    const result = requireEnvKey(event, "MISSING_KEY", "Stripe", {
       message: "Add your Stripe key to continue",
     });
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ message: "Add your Stripe key to continue" }),
-    );
+    expect(result).toMatchObject({
+      message: "Add your Stripe key to continue",
+    });
   });
 
   it("uses custom settingsPath when provided", () => {
     delete process.env.MISSING_KEY;
-    const res = createMockResponse();
-    requireEnvKey(res, "MISSING_KEY", "Stripe", {
+    const event = createMockEvent();
+    const result = requireEnvKey(event, "MISSING_KEY", "Stripe", {
       settingsPath: "/admin/keys",
     });
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ settingsPath: "/admin/keys" }),
-    );
+    expect(result).toMatchObject({ settingsPath: "/admin/keys" });
   });
 });
