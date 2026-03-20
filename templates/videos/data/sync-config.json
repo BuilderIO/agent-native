@@ -1,6 +1,3 @@
 {
-  "syncFilePatterns": [
-    "data/**/*.json",
-    "!data/sync-config.json"
-  ]
+  "syncFilePatterns": ["data/**/*.json", "!data/sync-config.json"]
 }

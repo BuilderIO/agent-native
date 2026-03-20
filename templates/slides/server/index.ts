@@ -1,4 +1,8 @@
-import { createServer, createFileWatcher, createSSEHandler } from "@agent-native/core";
+import {
+  createServer,
+  createFileWatcher,
+  createSSEHandler,
+} from "@agent-native/core";
 import { envKeys } from "./lib/env-config.js";
 import fs from "fs";
 import path from "path";
@@ -33,13 +37,22 @@ export async function createAppServer() {
   if (syncResult.status === "error") {
     console.warn(`[app] File sync failed: ${syncResult.reason}`);
   }
-  const extraEmitters = syncResult.status === "ready" ? [syncResult.sseEmitter] : [];
+  const extraEmitters =
+    syncResult.status === "ready" ? [syncResult.sseEmitter] : [];
 
   // File sync diagnostic endpoint
-  router.get("/api/file-sync/status", defineEventHandler(() => {
-    if (syncResult.status !== "ready") return { enabled: false, conflicts: 0 };
-    return { enabled: true, connected: true, conflicts: syncResult.fileSync.conflictCount };
-  }));
+  router.get(
+    "/api/file-sync/status",
+    defineEventHandler(() => {
+      if (syncResult.status !== "ready")
+        return { enabled: false, conflicts: 0 };
+      return {
+        enabled: true,
+        connected: true,
+        conflicts: syncResult.fileSync.conflictCount,
+      };
+    }),
+  );
 
   // Example API routes
   router.get(
@@ -150,7 +163,10 @@ export async function createAppServer() {
   );
 
   // File sync SSE (separate from deck-specific events at /api/decks/events)
-  router.get("/api/events", createSSEHandler(watcher, { extraEmitters, contentRoot: "./data" }));
+  router.get(
+    "/api/events",
+    createSSEHandler(watcher, { extraEmitters, contentRoot: "./data" }),
+  );
 
   // Graceful shutdown
   process.on("SIGTERM", async () => {
@@ -164,11 +180,16 @@ export async function createAppServer() {
       try {
         if (event.type === "conflict-needs-llm") {
           fs.mkdirSync("application-state", { recursive: true });
-          fs.writeFileSync("application-state/sync-conflict.json", JSON.stringify(event, null, 2));
+          fs.writeFileSync(
+            "application-state/sync-conflict.json",
+            JSON.stringify(event, null, 2),
+          );
         } else if (event.type === "conflict-resolved") {
           fs.rmSync("application-state/sync-conflict.json", { force: true });
         }
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
     });
   }
 
