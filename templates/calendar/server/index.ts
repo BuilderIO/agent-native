@@ -88,8 +88,9 @@ export async function createAppServer() {
     }),
   );
 
+  // SSE uses /api/sse to avoid collision with /api/events (calendar CRUD)
   router.get(
-    "/api/events",
+    "/api/sse",
     createSSEHandler(watcher, { extraEmitters, contentRoot: "./data" }),
   );
 
