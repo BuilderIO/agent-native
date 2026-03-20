@@ -1,9 +1,12 @@
 import "dotenv/config";
+import fs from "fs";
 import {
   createServer,
   createFileWatcher,
   createSSEHandler,
 } from "@agent-native/core";
+import { defineEventHandler } from "h3";
+import { createFileSync } from "@agent-native/core/adapters/sync";
 import type { EnvKeyConfig } from "@agent-native/core/server";
 import {
   listEmails,
@@ -76,7 +79,7 @@ const envKeys: EnvKeyConfig[] = [
   },
 ];
 
-export function createAppServer() {
+export async function createAppServer() {
   const { app, router } = createServer({ envKeys });
   const watcher = createFileWatcher(["./data", "./application-state"]);
 
@@ -159,8 +162,32 @@ export function createAppServer() {
   router.delete("/api/scheduled-jobs/:id", deleteScheduledJob);
   router.post("/api/parse-date", parseDateNl);
 
+  // File sync (multi-user collaboration)
+  const syncResult = await createFileSync({ contentRoot: "./data" });
+  if (syncResult.status === "error") {
+    console.warn(`[app] File sync failed: ${syncResult.reason}`);
+  }
+  const extraEmitters =
+    syncResult.status === "ready" ? [syncResult.sseEmitter] : [];
+
+  router.get(
+    "/api/file-sync/status",
+    defineEventHandler(() => {
+      if (syncResult.status !== "ready")
+        return { enabled: false, conflicts: 0 };
+      return {
+        enabled: true,
+        connected: true,
+        conflicts: syncResult.fileSync.conflictCount,
+      };
+    }),
+  );
+
   // SSE events (keep last)
-  router.get("/api/events", createSSEHandler(watcher));
+  router.get(
+    "/api/events",
+    createSSEHandler(watcher, { extraEmitters, contentRoot: "./data" }),
+  );
 
   // Process scheduled jobs every minute (snooze + send-later)
   setInterval(() => {
@@ -168,6 +195,31 @@ export function createAppServer() {
       console.error("[jobs] Error processing jobs:", err),
     );
   }, 60_000);
+
+  // Graceful shutdown
+  process.on("SIGTERM", async () => {
+    if (syncResult.status === "ready") await syncResult.shutdown();
+    process.exit(0);
+  });
+
+  // Conflict notification
+  if (syncResult.status === "ready") {
+    syncResult.fileSync.syncEvents.on("sync", (event) => {
+      try {
+        if (event.type === "conflict-needs-llm") {
+          fs.mkdirSync("application-state", { recursive: true });
+          fs.writeFileSync(
+            "application-state/sync-conflict.json",
+            JSON.stringify(event, null, 2),
+          );
+        } else if (event.type === "conflict-resolved") {
+          fs.rmSync("application-state/sync-conflict.json", { force: true });
+        }
+      } catch {
+        /* best-effort */
+      }
+    });
+  }
 
   return app;
 }
