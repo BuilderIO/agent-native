@@ -6,7 +6,10 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
-  if (!res.ok) throw new Error(`Request failed (${res.status})`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error || `Request failed (${res.status})`);
+  }
   return res.json();
 }
 
@@ -53,7 +56,7 @@ export function useDeleteAlias() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch(`/api/aliases/${id}`, { method: "DELETE" }),
+      apiFetch<void>(`/api/aliases/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["aliases"] }),
   });
 }
