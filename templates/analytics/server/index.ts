@@ -9,7 +9,12 @@ import {
   sendStream,
   setResponseStatus,
 } from "h3";
-import { createServer } from "@agent-native/core/server";
+import {
+  createServer,
+  createFileWatcher,
+  createSSEHandler,
+} from "@agent-native/core/server";
+import { createFileSync } from "@agent-native/core/adapters/sync";
 import { handleDemo } from "./routes/demo";
 import { handleQuery } from "./routes/query-proxy";
 import {
@@ -111,8 +116,10 @@ import {
   deleteExplorerDashboard,
 } from "./routes/explorer-dashboards";
 
-export function createAppServer() {
+export async function createAppServer() {
   const { app, router } = createServer({ envKeys });
+
+  const watcher = createFileWatcher("./data");
 
   // Serve generated chart images (no auth needed, ephemeral)
   const mediaDir = path.resolve(import.meta.dirname, "../media");
@@ -283,6 +290,57 @@ export function createAppServer() {
   router.get("/api/gamification/leaderboard", handleLeaderboard);
   router.get("/api/gamification/my-stats", handleMyStats);
   router.get("/api/gamification/new-metrics", handleNewMetrics);
+
+  // File sync
+  const syncResult = await createFileSync({ contentRoot: "./data" });
+  if (syncResult.status === "error") {
+    console.warn(`[app] File sync failed: ${syncResult.reason}`);
+  }
+  const extraEmitters =
+    syncResult.status === "ready" ? [syncResult.sseEmitter] : [];
+
+  router.get(
+    "/api/file-sync/status",
+    defineEventHandler(() => {
+      if (syncResult.status !== "ready")
+        return { enabled: false, conflicts: 0 };
+      return {
+        enabled: true,
+        connected: true,
+        conflicts: syncResult.fileSync.conflictCount,
+      };
+    }),
+  );
+
+  router.get(
+    "/api/events",
+    createSSEHandler(watcher, { extraEmitters, contentRoot: "./data" }),
+  );
+
+  // Graceful shutdown
+  process.on("SIGTERM", async () => {
+    if (syncResult.status === "ready") await syncResult.shutdown();
+    process.exit(0);
+  });
+
+  // Conflict notification
+  if (syncResult.status === "ready") {
+    syncResult.fileSync.syncEvents.on("sync", (event) => {
+      try {
+        if (event.type === "conflict-needs-llm") {
+          fs.mkdirSync("application-state", { recursive: true });
+          fs.writeFileSync(
+            "application-state/sync-conflict.json",
+            JSON.stringify(event, null, 2),
+          );
+        } else if (event.type === "conflict-resolved") {
+          fs.rmSync("application-state/sync-conflict.json", { force: true });
+        }
+      } catch {
+        /* best-effort */
+      }
+    });
+  }
 
   return app;
 }

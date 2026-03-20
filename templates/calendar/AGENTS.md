@@ -89,7 +89,7 @@ All state lives in JSON files:
 | `data/availability.json`  | Availability schedule configuration            |
 | `data/settings.json`      | App settings (timezone, booking page config)   |
 | `data/google-auth.json`   | Google OAuth tokens (gitignored, sensitive)    |
-| `data/sync-config.json`   | Firestore sync patterns                        |
+| `data/sync-config.json`   | File sync patterns                             |
 
 ### Skills
 
@@ -187,32 +187,42 @@ agentChat.submit("Google Calendar sync complete — 42 events synced.");
 
 The `@agent-native/core` chat bridge handles the transport automatically — it works in both browser (postMessage) and Node (stdout) contexts. The harness picks up the messages and routes them to the agent.
 
-## Firestore File Sync
+### File Sync (Multi-User Collaboration)
 
-Data files are bidirectionally synced with Firestore so multiple users (and the cloud-hosted Builder harness) share the same state. The sync is powered by `@agent-native/core/adapters/firestore`.
+File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.env`.
 
-**What syncs:** Configured in `data/sync-config.json`:
+**Environment variables:**
 
-- `data/events/**/*.json` — Calendar events
-- `data/bookings/**/*.json` — Bookings
-- `data/availability.json` — Availability config
-- `data/settings.json` — App settings
+| Variable                         | Required      | Description                                          |
+| -------------------------------- | ------------- | ---------------------------------------------------- |
+| `FILE_SYNC_ENABLED`              | No            | Set to `"true"` to enable sync                       |
+| `FILE_SYNC_BACKEND`              | When enabled  | `"firestore"`, `"supabase"`, or `"convex"`           |
+| `SUPABASE_URL`                   | For Supabase  | Project URL                                          |
+| `SUPABASE_PUBLISHABLE_KEY`       | For Supabase  | Publishable key (or legacy `SUPABASE_ANON_KEY`)      |
+| `GOOGLE_APPLICATION_CREDENTIALS` | For Firestore | Path to service account JSON                         |
+| `CONVEX_URL`                     | For Convex    | Deployment URL from `npx convex dev` (must be HTTPS) |
 
-**What doesn't sync:** `data/google-auth.json` (sensitive), code files, sync-config itself.
+**How sync works:**
 
-**How it works:**
+- `createFileSync()` factory reads env vars and initializes sync
+- Files matching `sync-config.json` patterns are synced to/from the database
+- Sync events flow through SSE (`source: "sync"`) alongside file change events
+- Conflicts produce `.conflict` sidecar files and notify the agent
 
-- On server start, `initFileSync()` does a startup sync (compare local vs Firestore timestamps, resolve conflicts)
-- A Firestore real-time listener pushes remote changes to disk
-- A file watcher pushes local changes to Firestore
-- Three-way merge resolves conflicts; unresolvable conflicts create `.conflict` sidecar files
+**Checking sync status:**
 
-**Important for agents:**
+- Read `data/.sync-status.json` for current sync state
+- Read `data/.sync-failures.json` for permanently failed sync operations
 
-- Files in `data/events/` and `data/bookings/` are **gitignored** (synced at runtime, not checked in)
-- The `.ignore` file overrides this so agents can still search/grep/read these files
-- When editing data files, the changes are automatically synced to Firestore within seconds
-- Never edit `data/sync-config.json` unless adding new sync patterns
+**Handling conflicts:**
+
+- When `application-state/sync-conflict.json` appears, resolve the conflict
+- Read the `.conflict` file alongside the original to understand both versions
+- Edit the original file to resolve, then delete the `.conflict` file
+
+**Scratch files (not synced):**
+
+- Prefix temporary files with `_tmp-` to exclude from sync
 
 ## Project Structure
 
