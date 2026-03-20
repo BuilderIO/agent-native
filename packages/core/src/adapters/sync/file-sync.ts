@@ -140,7 +140,24 @@ export class FileSync {
       this.sharedSyncInitialized = true; // only on success (1e)
       this.writeSyncStatus();
     } catch (err) {
-      console.error("[file-sync] Init failed, will allow retry:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("relation") && msg.includes("does not exist")) {
+        console.error(
+          `[file-sync] Supabase table not found. Create it by running this SQL in your Supabase dashboard:\n\n` +
+            `  CREATE TABLE files (\n` +
+            `    id TEXT PRIMARY KEY,\n` +
+            `    path TEXT NOT NULL,\n` +
+            `    content TEXT NOT NULL,\n` +
+            `    app TEXT NOT NULL,\n` +
+            `    owner_id TEXT NOT NULL,\n` +
+            `    last_updated BIGINT NOT NULL,\n` +
+            `    created_at BIGINT\n` +
+            `  );\n` +
+            `  CREATE INDEX idx_files_app_owner ON files(app, owner_id);\n`,
+        );
+      } else {
+        console.error("[file-sync] Init failed, will allow retry:", err);
+      }
       this.hasError = true;
       this.writeSyncStatus();
       // flag stays false — next call retries
