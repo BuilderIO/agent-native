@@ -503,7 +503,17 @@ export function EmailThread({
       { key: "n", handler: () => focusMessage(1) },
       { key: "p", handler: () => focusMessage(-1) },
       { key: "Enter", handler: toggleFocused },
-      { key: "o", handler: toggleFocused },
+      {
+        key: "o",
+        handler: toggleFocused,
+      },
+      {
+        key: "o",
+        meta: true,
+        handler: () => {
+          if (githubPrUrl) window.open(githubPrUrl, "_blank");
+        },
+      },
       { key: "e", handler: handleArchive },
       { key: "d", handler: handleTrash },
       { key: "#", handler: handleTrash, shift: true },
@@ -561,6 +571,20 @@ export function EmailThread({
     );
   }
 
+  // Extract GitHub PR URL from any message in the thread
+  const githubPrUrl = useMemo(() => {
+    for (const msg of messages) {
+      const text = msg.bodyHtml
+        ? msg.bodyHtml.replace(/<[^>]+>/g, " ")
+        : msg.body || "";
+      const match = text.match(
+        /https:\/\/github\.com\/[^\s"'<>]+\/pull\/\d+/,
+      );
+      if (match) return match[0].replace(/[.,;)]+$/, ""); // strip trailing punctuation
+    }
+    return null;
+  }, [messages]);
+
   // Filter to user labels for display
   const systemLabels = new Set([
     "inbox",
@@ -601,6 +625,36 @@ export function EmailThread({
           </button>
 
           <div className="flex-1 min-w-0">
+            {githubPrUrl && (
+              <div className="mb-1.5">
+                <a
+                  href={githubPrUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group relative inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                  title="View Pull Request (⌘O)"
+                >
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-3 w-3"
+                  >
+                    <path d="M6 3H3v10h10v-3M9 3h4m0 0v4m0-4L7 11" />
+                  </svg>
+                  View Pull Request
+                  {/* Tooltip showing ⌘O shortcut */}
+                  <span className="pointer-events-none absolute left-0 top-full mt-1 z-50 hidden group-hover:flex items-center gap-1.5 rounded-md border border-border/50 bg-popover px-2.5 py-1.5 text-[12px] font-medium text-foreground shadow-lg whitespace-nowrap">
+                    View Pull Request
+                    <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1 text-[10px] text-muted-foreground">⌘</kbd>
+                    <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1.5 text-[10px] text-muted-foreground">O</kbd>
+                  </span>
+                </a>
+              </div>
+            )}
             <div className="flex items-start gap-2 flex-wrap">
               <h1 className="text-lg font-semibold leading-tight text-foreground">
                 {threadSubject}

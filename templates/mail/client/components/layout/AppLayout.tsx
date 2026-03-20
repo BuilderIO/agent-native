@@ -411,6 +411,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     },
     { key: "c", handler: handleCompose },
     { key: "h", handler: handleSnooze },
+    { key: "!", shift: true, handler: handleSpam },
     { key: "z", handler: runUndo },
     {
       key: "Tab",
