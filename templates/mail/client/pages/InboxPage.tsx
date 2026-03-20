@@ -107,11 +107,11 @@ function ThreadListSidebar({
             >
               <div className="flex items-center gap-2 min-w-0 w-full">
                 {thread.hasUnread && (
-                  <div className="h-[5px] w-[5px] rounded-full bg-primary shrink-0" />
+                  <div className="h-[7px] w-[7px] rounded-full bg-primary shrink-0" />
                 )}
                 <span
                   className={cn(
-                    "text-[12px] truncate",
+                    "text-[13px] truncate",
                     thread.hasUnread
                       ? "font-semibold text-foreground"
                       : "text-foreground/80",

@@ -1313,20 +1313,29 @@ function emailHasCustomStyling(html: string): boolean {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
 
-  // bgcolor attribute on any element (classic HTML email tables)
-  if (doc.querySelector("[bgcolor]")) return true;
+  // bgcolor on <body> or top-level table (classic HTML email)
+  const body = doc.body;
+  if (body?.getAttribute("bgcolor")) return true;
 
-  // background-color or background in any inline style attribute
-  const styledEls = doc.querySelectorAll("[style]");
-  for (const el of styledEls) {
-    const style = el.getAttribute("style") || "";
-    if (/background(-color)?:/i.test(style)) return true;
+  // background-color on <body> inline style
+  const bodyStyle = body?.getAttribute("style") || "";
+  if (/background(-color)?:/i.test(bodyStyle)) return true;
+
+  // Check top-level direct children of <body> only (not deep descendants)
+  // A full-email wrapper table/div with background = designed for light bg
+  for (const child of Array.from(body?.children ?? [])) {
+    const style = child.getAttribute("style") || "";
+    const bgcolor = child.getAttribute("bgcolor");
+    if (bgcolor || /background(-color)?:/i.test(style)) return true;
   }
 
-  // background-color in <style> blocks
+  // background-color on <body> or <html> in <style> blocks
+  // (only flag if it targets html/body selectors, not arbitrary elements)
   const styleTags = doc.querySelectorAll("style");
   for (const tag of styleTags) {
-    if (/background(-color)?:/i.test(tag.textContent || "")) return true;
+    const text = tag.textContent || "";
+    if (/(?:^|[,\s}])(?:html|body)\s*\{[^}]*background(-color)?:/im.test(text))
+      return true;
   }
 
   return false;
