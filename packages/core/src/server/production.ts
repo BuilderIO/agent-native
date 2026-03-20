@@ -8,7 +8,8 @@ import {
   setResponseStatus,
   sendStream,
 } from "h3";
-import type { App as H3App, H3Event } from "h3";
+import type { App as H3App, H3Event, EventHandler as H3EventHandler } from "h3";
+import { mountAuthMiddleware } from "./auth.js";
 
 export interface ProductionServerOptions {
   /** Port to listen on. Default: process.env.PORT || 3000 */
@@ -17,6 +18,10 @@ export interface ProductionServerOptions {
   spaDir?: string;
   /** App name for log messages. Default: "Agent-Native" */
   appName?: string;
+  /** Production agent handler — mounted at POST /api/agent-chat */
+  agent?: H3EventHandler;
+  /** If set, enables session-cookie auth. All routes require the cookie. */
+  accessToken?: string;
 }
 
 const MIME_MAP: Record<string, string> = {
@@ -61,6 +66,16 @@ export function createProductionServer(
 ): void {
   const port = options.port ?? process.env.PORT ?? 3000;
   const appName = options.appName ?? "Agent-Native";
+
+  // Mount auth middleware first (if access token provided)
+  if (options.accessToken) {
+    mountAuthMiddleware(app, options.accessToken);
+  }
+
+  // Mount agent handler at POST /api/agent-chat (if provided)
+  if (options.agent) {
+    app.use("/api/agent-chat", options.agent);
+  }
 
   // Resolve SPA directory
   const spaDir = options.spaDir ?? path.resolve(process.cwd(), "dist/spa");

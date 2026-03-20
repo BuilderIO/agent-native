@@ -46,7 +46,7 @@ import {
 } from "@/hooks/use-google-auth";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
-import { getCallbackOrigin } from "@agent-native/core/client";
+import { getCallbackOrigin, ProductionAgentPanel } from "@agent-native/core/client";
 import type { Label } from "@shared/types";
 import { toast } from "sonner";
 
@@ -834,11 +834,13 @@ export function AppLayout({ children }: AppLayoutProps) {
           )}
 
           {/* Show full-page takeover when no accounts connected, otherwise content */}
-          {!googleStatus.isLoading && !hasAccounts ? (
-            <GoogleConnectBanner variant="hero" />
-          ) : (
-            <main className="flex flex-1 overflow-hidden">{children}</main>
-          )}
+          <ProductionAgentPanel>
+            {!googleStatus.isLoading && !hasAccounts ? (
+              <GoogleConnectBanner variant="hero" />
+            ) : (
+              <main className="flex flex-1 overflow-hidden">{children}</main>
+            )}
+          </ProductionAgentPanel>
         </div>
 
         {(() => {

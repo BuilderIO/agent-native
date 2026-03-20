@@ -14,3 +14,5 @@ export {
   exitSelectionMode,
   type UserInfo,
 } from "./harness.js";
+export { useProductionAgent, type ProductionAgentMessage, type UseProductionAgentResult } from "./useProductionAgent.js";
+export { ProductionAgentPanel, type ProductionAgentPanelProps } from "./ProductionAgentPanel.js";

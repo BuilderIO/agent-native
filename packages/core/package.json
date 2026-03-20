@@ -46,6 +46,7 @@
     "release": "npm version patch && npm publish --access public"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
     "better-sqlite3": "^12.8.0",
     "chokidar": "^4.0.0",
     "clsx": "^2.1.1",
@@ -103,6 +104,7 @@
     }
   },
   "devDependencies": {
+    "@supabase/supabase-js": "^2.49.0",
     "@tanstack/react-query": "^5.84.2",
     "@types/better-sqlite3": "^7.6.13",
     "@types/cors": "^2.8.19",
@@ -113,7 +115,6 @@
     "autoprefixer": "^10.4.21",
     "cors": "^2.8.5",
     "express": "^5.1.0",
-    "@supabase/supabase-js": "^2.49.0",
     "firebase-admin": "^13.0.0",
     "postcss": "^8.5.6",
     "react": "^18.3.1",
