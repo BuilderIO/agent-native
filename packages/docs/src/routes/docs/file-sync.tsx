@@ -313,7 +313,7 @@ export default defineSchema({
     lastUpdated: v.number(),
     createdAt: v.optional(v.number()),
   })
-    .index("by_id", ["id"])
+    .index("by_sync_id", ["id"])
     .index("by_app_owner", ["app", "ownerId"]),
 });`}
           />
@@ -337,7 +337,7 @@ export const get = query({
   args: { id: v.string(), app: v.string(), ownerId: v.string() },
   handler: async (ctx, { id, app, ownerId }) => {
     const doc = await ctx.db.query("files")
-      .withIndex("by_id", (q) => q.eq("id", id))
+      .withIndex("by_sync_id", (q) => q.eq("id", id))
       .unique();
     if (doc && (doc.app !== app || doc.ownerId !== ownerId)) return null;
     return doc;
@@ -356,7 +356,7 @@ export const upsert = mutation({
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db.query("files")
-      .withIndex("by_id", (q) => q.eq("id", args.id))
+      .withIndex("by_sync_id", (q) => q.eq("id", args.id))
       .unique();
     if (existing) {
       const updates: Record<string, unknown> = {};
@@ -382,7 +382,7 @@ export const remove = mutation({
   args: { id: v.string(), app: v.string(), ownerId: v.string() },
   handler: async (ctx, { id, app, ownerId }) => {
     const doc = await ctx.db.query("files")
-      .withIndex("by_id", (q) => q.eq("id", id))
+      .withIndex("by_sync_id", (q) => q.eq("id", id))
       .unique();
     if (doc && doc.app === app && doc.ownerId === ownerId) {
       await ctx.db.delete(doc._id);
