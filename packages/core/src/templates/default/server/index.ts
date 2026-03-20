@@ -54,16 +54,18 @@ export async function createAppServer() {
   // Agent-native parity: notify agent of sync conflicts
   if (syncResult.status === "ready") {
     syncResult.fileSync.syncEvents.on("sync", (event) => {
-      if (event.type === "conflict-needs-llm") {
-        try {
+      try {
+        if (event.type === "conflict-needs-llm") {
           fs.mkdirSync("application-state", { recursive: true });
           fs.writeFileSync(
             "application-state/sync-conflict.json",
             JSON.stringify(event, null, 2),
           );
-        } catch {
-          /* best-effort */
+        } else if (event.type === "conflict-resolved") {
+          fs.rmSync("application-state/sync-conflict.json", { force: true });
         }
+      } catch {
+        /* best-effort */
       }
     });
   }

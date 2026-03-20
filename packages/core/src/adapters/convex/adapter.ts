@@ -124,55 +124,59 @@ export class ConvexFileSyncAdapter implements FileSyncAdapter {
       "files:list",
       { app: appId, ownerId },
       (result) => {
-        processingChain = processingChain.then(() => {
-          try {
-            const rows = (result as ConvexFileRow[]) ?? [];
-            const currentHashes = new Map<string, string>();
-            const currentRecords = new Map<string, FileRecord>();
+        processingChain = processingChain
+          .then(() => {
+            try {
+              const rows = (result as ConvexFileRow[]) ?? [];
+              const currentHashes = new Map<string, string>();
+              const currentRecords = new Map<string, FileRecord>();
 
-            for (const row of rows) {
-              currentHashes.set(row.id, contentHash(row.content ?? ""));
-              currentRecords.set(row.id, toRecord(row));
-            }
-
-            const changes: FileChange[] = [];
-
-            // Detect added + modified
-            for (const [id, hash] of currentHashes) {
-              const prevHash = previousHashes.get(id);
-              if (prevHash === undefined) {
-                changes.push({
-                  type: "added",
-                  id,
-                  data: currentRecords.get(id)!,
-                });
-              } else if (prevHash !== hash) {
-                changes.push({
-                  type: "modified",
-                  id,
-                  data: currentRecords.get(id)!,
-                });
+              for (const row of rows) {
+                currentHashes.set(row.id, contentHash(row.content ?? ""));
+                currentRecords.set(row.id, toRecord(row));
               }
-            }
 
-            // Detect removed
-            for (const id of previousHashes.keys()) {
-              if (!currentHashes.has(id)) {
-                const record = previousRecords.get(id);
-                if (record) {
-                  changes.push({ type: "removed", id, data: record });
+              const changes: FileChange[] = [];
+
+              // Detect added + modified
+              for (const [id, hash] of currentHashes) {
+                const prevHash = previousHashes.get(id);
+                if (prevHash === undefined) {
+                  changes.push({
+                    type: "added",
+                    id,
+                    data: currentRecords.get(id)!,
+                  });
+                } else if (prevHash !== hash) {
+                  changes.push({
+                    type: "modified",
+                    id,
+                    data: currentRecords.get(id)!,
+                  });
                 }
               }
+
+              // Detect removed
+              for (const id of previousHashes.keys()) {
+                if (!currentHashes.has(id)) {
+                  const record = previousRecords.get(id);
+                  if (record) {
+                    changes.push({ type: "removed", id, data: record });
+                  }
+                }
+              }
+
+              previousHashes = currentHashes;
+              previousRecords = currentRecords;
+
+              if (changes.length > 0) onChange(changes);
+            } catch (err) {
+              onError(err);
             }
-
-            previousHashes = currentHashes;
-            previousRecords = currentRecords;
-
-            if (changes.length > 0) onChange(changes);
-          } catch (err) {
-            onError(err);
-          }
-        });
+          })
+          .catch(() => {
+            // Prevent chain poisoning if onError throws
+          });
       },
     );
 
