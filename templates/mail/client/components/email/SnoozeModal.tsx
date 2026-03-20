@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useCreateScheduledJob, useParseDate } from "@/hooks/use-scheduled-jobs";
 import { toast } from "sonner";
@@ -77,6 +78,7 @@ export function SnoozeModal({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const presets = getPresets();
 
+  const queryClient = useQueryClient();
   const createJob = useCreateScheduledJob();
   const parseDate = useParseDate();
 
@@ -139,8 +141,13 @@ export function SnoozeModal({
           payload: {},
           runAt: opt.date.getTime(),
         });
+        // Dispatch event before archive so list can advance selection immediately
+        window.dispatchEvent(
+          new CustomEvent("email:snoozed", { detail: { emailId } }),
+        );
         // Archive immediately
         await fetch(`/api/emails/${emailId}/archive`, { method: "PATCH" });
+        queryClient.invalidateQueries({ queryKey: ["emails"] });
         onSnoozed?.(emailId);
         onClose();
         toast(`Snoozed until ${formatRight(opt.date, opt.sublabel)}`);
@@ -159,7 +166,7 @@ export function SnoozeModal({
         }
       }
     },
-    [emailId, createJob, onSnoozed, onClose],
+    [emailId, createJob, queryClient, onSnoozed, onClose],
   );
 
   const handleKeyDown = useCallback(

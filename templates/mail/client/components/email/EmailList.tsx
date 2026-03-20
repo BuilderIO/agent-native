@@ -376,6 +376,23 @@ export function EmailList({
     }
   }, [threads, focusedId, setFocusedId]);
 
+  // Advance selection when an email is snoozed (same logic as archiveFocused)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const emailId = (e as CustomEvent<{ emailId: string }>).detail.emailId;
+      const idx = threads.findIndex((t) => t.latestMessage.id === emailId);
+      if (idx === -1) return;
+      if (threads.length > 1) {
+        const nextIdx = idx < threads.length - 1 ? idx + 1 : idx - 1;
+        setFocusedId(threads[nextIdx].latestMessage.id);
+      } else {
+        setFocusedId(null);
+      }
+    };
+    window.addEventListener("email:snoozed", handler);
+    return () => window.removeEventListener("email:snoozed", handler);
+  }, [threads, setFocusedId]);
+
   const handleSelect = (thread: ThreadSummary) => {
     const email = thread.latestMessage;
     setFocusedId(email.id);
