@@ -97,14 +97,14 @@ File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.en
 
 **Environment variables:**
 
-| Variable                         | Required            | Description                            |
-| -------------------------------- | ------------------- | -------------------------------------- |
-| `FILE_SYNC_ENABLED`              | No                  | Set to `"true"` to enable sync         |
-| `FILE_SYNC_BACKEND`              | When enabled        | `"firestore"` or `"supabase"`          |
-| `FILE_SYNC_SUPABASE_KEY_TYPE`    | For Supabase        | `"anon"` (default) or `"service_role"` |
-| `SUPABASE_URL`                   | For Supabase        | Project URL                            |
-| `SUPABASE_ANON_KEY`              | For Supabase (anon) | Anon key                               |
-| `GOOGLE_APPLICATION_CREDENTIALS` | For Firestore       | Path to service account JSON           |
+| Variable                         | Required      | Description                                          |
+| -------------------------------- | ------------- | ---------------------------------------------------- |
+| `FILE_SYNC_ENABLED`              | No            | Set to `"true"` to enable sync                       |
+| `FILE_SYNC_BACKEND`              | When enabled  | `"firestore"`, `"supabase"`, or `"convex"`           |
+| `SUPABASE_URL`                   | For Supabase  | Project URL                                          |
+| `SUPABASE_PUBLISHABLE_KEY`       | For Supabase  | Publishable key (or legacy `SUPABASE_ANON_KEY`)      |
+| `GOOGLE_APPLICATION_CREDENTIALS` | For Firestore | Path to service account JSON                         |
+| `CONVEX_URL`                     | For Convex    | Deployment URL from `npx convex dev` (must be HTTPS) |
 
 **How sync works:**
 

@@ -90,7 +90,7 @@ FILE_SYNC_BACKEND=firestore   # or "supabase" or "convex"
 # Backend-specific (see sections below)
 GOOGLE_APPLICATION_CREDENTIALS=./service-account.json  # Firestore
 # SUPABASE_URL=https://xyz.supabase.co                 # Supabase
-# SUPABASE_ANON_KEY=eyJ...                             # Supabase
+# SUPABASE_PUBLISHABLE_KEY=sb_publishable_...          # Supabase
 # CONVEX_URL=https://xyz.convex.cloud                  # Convex`}
         lang="bash"
       />
@@ -261,19 +261,23 @@ CREATE INDEX idx_files_app_owner ON files(app, owner_id);`}
             code={`FILE_SYNC_ENABLED=true
 FILE_SYNC_BACKEND=supabase
 SUPABASE_URL=https://xyz.supabase.co
-SUPABASE_ANON_KEY=eyJ...`}
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_...`}
             lang="bash"
           />
+          <p className="mt-2 text-sm text-[var(--fg-secondary)]">
+            Legacy env vars (<code>SUPABASE_ANON_KEY</code>,{" "}
+            <code>SUPABASE_SERVICE_ROLE_KEY</code>) are also supported.
+          </p>
         </li>
       </ol>
 
       <h3>Row Level Security</h3>
       <p>
-        The default setup uses the anon key, which means Supabase RLS policies
-        apply. If your <code>files</code> table has no RLS policies, reads and
-        writes will be blocked. Either add appropriate policies or set{" "}
-        <code>FILE_SYNC_SUPABASE_KEY_TYPE=service_role</code> with a{" "}
-        <code>SUPABASE_SERVICE_ROLE_KEY</code> to bypass RLS (not recommended
+        The default setup uses the publishable key, which means Supabase RLS
+        policies apply. If your <code>files</code> table has no RLS policies,
+        reads and writes will be blocked. Either add appropriate policies or use{" "}
+        <code>SUPABASE_SECRET_KEY</code> (or legacy{" "}
+        <code>SUPABASE_SERVICE_ROLE_KEY</code>) to bypass RLS (not recommended
         for multi-tenant production).
       </p>
 
