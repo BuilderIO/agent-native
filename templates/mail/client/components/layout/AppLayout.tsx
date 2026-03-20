@@ -13,7 +13,11 @@ import {
   useLocation,
   useSearchParams,
 } from "react-router-dom";
-import { IconChevronRight, IconChevronLeft } from "@tabler/icons-react";
+import {
+  IconChevronRight,
+  IconChevronLeft,
+  IconSettings,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "./CommandPalette";
 import { ComposeModal } from "@/components/email/ComposeModal";
@@ -729,6 +733,21 @@ export function AppLayout({ children }: AppLayoutProps) {
                         )}
                       </Link>
                     ))}
+                    <div className="mt-2 pt-2 border-t border-border/30">
+                      <Link
+                        to="/settings"
+                        onClick={() => setSidebarOpen(false)}
+                        className={cn(
+                          "flex items-center gap-2.5 rounded-md px-3 py-2 text-[14px] transition-colors",
+                          location.pathname === "/settings"
+                            ? "bg-accent text-foreground font-medium"
+                            : "text-foreground/70 hover:bg-accent/50",
+                        )}
+                      >
+                        <IconSettings className="h-4 w-4 shrink-0" />
+                        <span>Settings</span>
+                      </Link>
+                    </div>
                   </div>
 
                   {/* Pinned labels */}

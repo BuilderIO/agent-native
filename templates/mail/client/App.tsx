@@ -13,6 +13,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { InboxPage } from "@/pages/InboxPage";
 import { NotFound } from "@/pages/NotFound";
+import { SettingsPage } from "@/pages/SettingsPage";
 import { useFileWatcher } from "@agent-native/core";
 
 const queryClient = new QueryClient({
@@ -89,6 +90,7 @@ const App = () => (
           <AppLayout>
             <Routes>
               <Route path="/" element={<Navigate to="/inbox" replace />} />
+              <Route path="/settings" element={<SettingsPage />} />
               <Route path="/:view" element={<InboxPage />} />
               <Route path="/:view/:threadId" element={<InboxPage />} />
               <Route path="*" element={<NotFound />} />
