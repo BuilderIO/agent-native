@@ -312,28 +312,37 @@ export function AppLayout({ children }: AppLayoutProps) {
     return undefined;
   }, [threadId, focusedListId, currentViewEmails]);
 
+  const dismissEmail = useCallback(
+    (emailId: string) => {
+      window.dispatchEvent(
+        new CustomEvent("email:snoozed", { detail: { emailId } }),
+      );
+    },
+    [],
+  );
+
   const handleSpam = useCallback(() => {
     if (!targetEmail) {
       toast.error("No email selected.");
       return;
     }
+    dismissEmail(targetEmail.id);
     reportSpam.mutate(targetEmail.id);
     toast("Reported as spam.");
-    if (threadId) navigate(`/${view}`);
-  }, [targetEmail, reportSpam, navigate, view, threadId]);
+  }, [targetEmail, reportSpam, dismissEmail]);
 
   const handleBlockSender = useCallback(() => {
     if (!targetEmail) {
       toast.error("No email selected.");
       return;
     }
+    dismissEmail(targetEmail.id);
     blockSender.mutate({
       id: targetEmail.id,
       senderEmail: targetEmail.from.email,
     });
     toast(`Reported as spam & blocked ${targetEmail.from.email}.`);
-    if (threadId) navigate(`/${view}`);
-  }, [targetEmail, blockSender, navigate, view, threadId]);
+  }, [targetEmail, blockSender, dismissEmail]);
 
   const handleMuteThread = useCallback(() => {
     const tid =
@@ -343,10 +352,10 @@ export function AppLayout({ children }: AppLayoutProps) {
       toast.error("No thread selected.");
       return;
     }
+    if (targetEmail) dismissEmail(targetEmail.id);
     muteThread.mutate(tid);
     toast("Thread muted.");
-    if (threadId) navigate(`/${view}`);
-  }, [threadId, targetEmail, muteThread, navigate, view]);
+  }, [threadId, targetEmail, muteThread, dismissEmail]);
 
   const handleSearch = (q: string) => {
     if (q.trim()) {
@@ -452,9 +461,8 @@ export function AppLayout({ children }: AppLayoutProps) {
       <div className="flex h-screen overflow-hidden bg-background">
         {/* Main content area */}
         <div className="relative flex flex-1 flex-col overflow-hidden">
-          {/* Top nav bar — hidden when viewing a thread */}
-          {!threadId && (
-            <header className="relative z-20 flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2 inbox-zero-header">
+          {/* Top nav bar */}
+          <header className="relative z-20 flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2 inbox-zero-header">
               {/* Hamburger menu */}
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -704,7 +712,6 @@ export function AppLayout({ children }: AppLayoutProps) {
                 </div>
               )}
             </header>
-          )}
 
           {/* Sidebar overlay */}
           {sidebarOpen && (

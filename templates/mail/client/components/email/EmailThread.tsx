@@ -273,6 +273,18 @@ export function EmailThread({
     }
   }, [threadId, emailIds, view, navigate, goBack]);
 
+  // Advance to next thread when current email is dismissed (snoozed/spam/muted)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { emailId } = (e as CustomEvent<{ emailId: string }>).detail;
+      if (messages.some((m) => m.id === emailId)) {
+        advanceOrGoBack();
+      }
+    };
+    window.addEventListener("email:snoozed", handler);
+    return () => window.removeEventListener("email:snoozed", handler);
+  }, [messages, advanceOrGoBack]);
+
   // Navigate between messages within the thread (n/p)
   const focusMessage = useCallback(
     (delta: number) => {
