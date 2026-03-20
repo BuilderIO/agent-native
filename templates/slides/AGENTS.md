@@ -53,30 +53,38 @@ This means:
                    └───────────────┘
 ```
 
-## Firestore File Sync
+### File Sync (Multi-User Collaboration)
 
-Data files are bidirectionally synced with Firestore so multiple users (and the cloud-hosted Builder harness) share the same state. The sync is powered by `@agent-native/core/adapters/firestore`.
+File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.env`.
 
-**What syncs:** Configured in `data/sync-config.json`:
+**Environment variables:**
 
-- `data/decks/**/*.json` — All deck JSON files
-- `data/**/*.md` — Reference docs (e.g. `builder-positioning.md`)
+| Variable                         | Required      | Description                                          |
+| -------------------------------- | ------------- | ---------------------------------------------------- |
+| `FILE_SYNC_ENABLED`              | No            | Set to `"true"` to enable sync                       |
+| `FILE_SYNC_BACKEND`              | When enabled  | `"firestore"`, `"supabase"`, or `"convex"`           |
+| `SUPABASE_URL`                   | For Supabase  | Project URL                                          |
+| `SUPABASE_PUBLISHABLE_KEY`       | For Supabase  | Publishable key (or legacy `SUPABASE_ANON_KEY`)      |
+| `GOOGLE_APPLICATION_CREDENTIALS` | For Firestore | Path to service account JSON                         |
+| `CONVEX_URL`                     | For Convex    | Deployment URL from `npx convex dev` (must be HTTPS) |
 
-**What doesn't sync:** Code files, uploads, sync-config itself, conflict sidecar files.
+**How sync works:**
+- `createFileSync()` factory reads env vars and initializes sync
+- Files matching `sync-config.json` patterns are synced to/from the database
+- Sync events flow through SSE (`source: "sync"`) alongside file change events
+- Conflicts produce `.conflict` sidecar files and notify the agent
 
-**How it works:**
+**Checking sync status:**
+- Read `data/.sync-status.json` for current sync state
+- Read `data/.sync-failures.json` for permanently failed sync operations
 
-- On server start, `initFileSync()` does a startup sync (compare local vs Firestore timestamps, resolve conflicts)
-- A Firestore real-time listener pushes remote changes to disk
-- A file watcher pushes local changes to Firestore
-- Three-way merge resolves conflicts; unresolvable conflicts create `.conflict` sidecar files
+**Handling conflicts:**
+- When `application-state/sync-conflict.json` appears, resolve the conflict
+- Read the `.conflict` file alongside the original to understand both versions
+- Edit the original file to resolve, then delete the `.conflict` file
 
-**Important for agents:**
-
-- Files in `data/decks/` and `data/*.md` are **gitignored** (synced at runtime, not checked in)
-- The `.ignore` file overrides this so agents can still search/grep/read these files
-- When editing deck JSON files, the changes are automatically synced to Firestore within seconds
-- Never edit `data/sync-config.json` unless adding new sync patterns
+**Scratch files (not synced):**
+- Prefix temporary files with `_tmp-` to exclude from sync
 
 ## Running Scripts
 

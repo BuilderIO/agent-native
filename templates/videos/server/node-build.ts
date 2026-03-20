@@ -1,4 +1,4 @@
 import { createProductionServer } from "@agent-native/core/server";
 import { createAppServer } from "./index.js";
 
-createProductionServer(createAppServer());
+createAppServer().then((app) => createProductionServer(app));

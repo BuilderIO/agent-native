@@ -61,6 +61,39 @@ To check the current state:
             └───────────────┘
 ```
 
+### File Sync (Multi-User Collaboration)
+
+File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.env`.
+
+**Environment variables:**
+
+| Variable                         | Required      | Description                                          |
+| -------------------------------- | ------------- | ---------------------------------------------------- |
+| `FILE_SYNC_ENABLED`              | No            | Set to `"true"` to enable sync                       |
+| `FILE_SYNC_BACKEND`              | When enabled  | `"firestore"`, `"supabase"`, or `"convex"`           |
+| `SUPABASE_URL`                   | For Supabase  | Project URL                                          |
+| `SUPABASE_PUBLISHABLE_KEY`       | For Supabase  | Publishable key (or legacy `SUPABASE_ANON_KEY`)      |
+| `GOOGLE_APPLICATION_CREDENTIALS` | For Firestore | Path to service account JSON                         |
+| `CONVEX_URL`                     | For Convex    | Deployment URL from `npx convex dev` (must be HTTPS) |
+
+**How sync works:**
+- `createFileSync()` factory reads env vars and initializes sync
+- Files matching `sync-config.json` patterns are synced to/from the database
+- Sync events flow through SSE (`source: "sync"`) alongside file change events
+- Conflicts produce `.conflict` sidecar files and notify the agent
+
+**Checking sync status:**
+- Read `data/.sync-status.json` for current sync state
+- Read `data/.sync-failures.json` for permanently failed sync operations
+
+**Handling conflicts:**
+- When `application-state/sync-conflict.json` appears, resolve the conflict
+- Read the `.conflict` file alongside the original to understand both versions
+- Edit the original file to resolve, then delete the `.conflict` file
+
+**Scratch files (not synced):**
+- Prefix temporary files with `_tmp-` to exclude from sync
+
 ## Data Model
 
 Local state is in JSON files in `data/`. When a Google account is connected, the API serves emails from Gmail instead — `data/emails.json` is only used as a fallback when no account is connected (and starts empty).

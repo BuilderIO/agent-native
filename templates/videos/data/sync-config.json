@@ -1,0 +1,6 @@
+{
+  "syncFilePatterns": [
+    "data/**/*.json",
+    "!data/sync-config.json"
+  ]
+}
