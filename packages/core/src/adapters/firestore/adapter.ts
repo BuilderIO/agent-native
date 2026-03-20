@@ -88,7 +88,9 @@ export class FirestoreFileSyncAdapter implements FileSyncAdapter {
   }
 
   async set(id: string, record: Partial<FileRecord>): Promise<void> {
-    await this.getCollection().doc(encodeDocId(id)).set(record, { merge: true });
+    await this.getCollection()
+      .doc(encodeDocId(id))
+      .set(record, { merge: true });
   }
 
   async delete(id: string): Promise<void> {
