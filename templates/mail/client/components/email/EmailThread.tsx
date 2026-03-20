@@ -1233,7 +1233,36 @@ function PlainTextBody({
 // ─── HTML email body (iframe) ────────────────────────────────────────────────
 
 // Match the expanded card bg: hsl(220, 5%, 10%) ≈ #17181a
-const IFRAME_BG = "#17181a";
+const IFRAME_BG_DARK = "#17181a";
+const IFRAME_BG_LIGHT = "#ffffff";
+
+/**
+ * Detect if an HTML email has its own custom color/background styling.
+ * Emails with custom styling were designed for specific backgrounds — we render
+ * them on white instead of inverting to dark mode (like Superhuman does).
+ */
+function emailHasCustomStyling(html: string): boolean {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+
+  // bgcolor attribute on any element (classic HTML email tables)
+  if (doc.querySelector("[bgcolor]")) return true;
+
+  // background-color or background in any inline style attribute
+  const styledEls = doc.querySelectorAll("[style]");
+  for (const el of styledEls) {
+    const style = el.getAttribute("style") || "";
+    if (/background(-color)?:/i.test(style)) return true;
+  }
+
+  // background-color in <style> blocks
+  const styleTags = doc.querySelectorAll("style");
+  for (const tag of styleTags) {
+    if (/background(-color)?:/i.test(tag.textContent || "")) return true;
+  }
+
+  return false;
+}
 
 // Known tracking pixel domains (partial matches against hostname)
 const TRACKER_DOMAINS = [
@@ -1341,6 +1370,8 @@ function HtmlEmailBody({
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
+  const isCustomStyled = useMemo(() => emailHasCustomStyling(html), [html]);
+  const IFRAME_BG = isCustomStyled ? IFRAME_BG_LIGHT : IFRAME_BG_DARK;
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
 
@@ -1385,11 +1416,33 @@ function HtmlEmailBody({
     if (!doc) return;
 
     doc.open();
-    doc.write(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <style>
+    const iframeCss = isCustomStyled
+      ? `
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: ${IFRAME_BG};
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      overflow: hidden;
+    }
+    img { max-width: 100%; height: auto; }
+    .quoted-hidden { display: none; }
+    .quote-toggle {
+      display: inline-block;
+      cursor: pointer;
+      color: rgba(0,0,0,0.4);
+      font-size: 13px;
+      letter-spacing: 0.15em;
+      padding: 2px 0;
+      border: none;
+      background: none;
+      margin-top: 4px;
+    }
+    .quote-toggle:hover { color: rgba(0,0,0,0.7); }
+`
+      : `
     html, body {
       margin: 0;
       padding: 0;
@@ -1400,7 +1453,6 @@ function HtmlEmailBody({
       line-height: 1.6;
       overflow: hidden;
     }
-    
     a { color: #818cf8 }
     img { max-width: 100%; height: auto; }
     hr { border-color: rgba(255,255,255,0.1); }
@@ -1417,7 +1469,13 @@ function HtmlEmailBody({
       margin-top: 4px;
     }
     .quote-toggle:hover { color: rgba(161,161,170,0.8); }
-  </style>
+`;
+
+    doc.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>${iframeCss}  </style>
 </head>
 <body>${processedHtml}</body>
 </html>`);
@@ -1624,7 +1682,7 @@ function HtmlEmailBody({
       clearTimeout(timer2);
       images.forEach((img) => img.removeEventListener("load", resize));
     };
-  }, [processedHtml]);
+  }, [processedHtml, isCustomStyled]);
 
   // Inject / clear search highlights in the iframe whenever searchTerm or content changes
   useEffect(() => {
@@ -1752,7 +1810,8 @@ function HtmlEmailBody({
           height: `${height}px`,
           border: "none",
           background: IFRAME_BG,
-          colorScheme: "dark",
+          colorScheme: isCustomStyled ? "light" : "dark",
+          borderRadius: isCustomStyled ? "6px" : undefined,
         }}
         title="Email content"
       />
