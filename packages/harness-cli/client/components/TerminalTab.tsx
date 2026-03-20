@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { settingsToFlags, type LaunchSettings } from "../lib/settings";
 import type { HarnessConfig } from "../lib/config";
 
@@ -156,7 +157,11 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
           term.write(data);
 
           // Detect OAuth URLs that span multiple terminal chunks
-          const plain = data.replace(/\x1b\[[^a-zA-Z]*[a-zA-Z]/g, "");
+          // Strip all ANSI escapes: CSI (ESC[…), OSC (ESC]…BEL/ST), and 2-char (ESC + char)
+          const plain = data.replace(
+            /\x1b(?:\[[^a-zA-Z]*[a-zA-Z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[^[\]])/g,
+            "",
+          );
           urlBuffer.current += plain;
           // Keep buffer from growing unbounded — only keep last 2KB
           if (urlBuffer.current.length > 2048) {
@@ -275,7 +280,11 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
       });
 
       const fitAd = new FitAddon();
+      const webLinksAd = new WebLinksAddon((_event, uri) => {
+        window.open(uri, "_blank");
+      });
       term.loadAddon(fitAd);
+      term.loadAddon(webLinksAd);
       term.open(termRef.current);
 
       termInstance.current = term;
@@ -316,6 +325,11 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
         requestAnimationFrame(() => fit());
       }
     }, [active, fit]);
+
+    // Refit terminal when OAuth banner appears/disappears
+    useEffect(() => {
+      requestAnimationFrame(() => fit());
+    }, [oauthUrl, fit]);
 
     useImperativeHandle(ref, () => ({
       fit,
