@@ -1,4 +1,10 @@
-import { RequestHandler } from "express";
+import {
+  defineEventHandler,
+  getRouterParam,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -588,8 +594,8 @@ export async function generateWithFlux(
   };
 }
 
-export const generateImage: RequestHandler = async (req, res) => {
-  const body = req.body as ImageGenRequest;
+export const generateImage = defineEventHandler(async (event: H3Event) => {
+  const body = (await readBody(event)) as ImageGenRequest;
   const {
     prompt,
     model,
@@ -601,21 +607,21 @@ export const generateImage: RequestHandler = async (req, res) => {
   } = body;
 
   if (!prompt?.trim()) {
-    res.status(400).json({ error: "Prompt is required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Prompt is required" };
   }
 
   if (model === "openai" && !process.env.OPENAI_API_KEY) {
-    res.status(400).json({ error: "OpenAI API key not configured" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "OpenAI API key not configured" };
   }
   if (model === "gemini" && !process.env.GEMINI_API_KEY) {
-    res.status(400).json({ error: "Gemini API key not configured" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Gemini API key not configured" };
   }
   if (model === "flux" && !process.env.FAL_KEY) {
-    res.status(400).json({ error: "fal.ai API key not configured" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "fal.ai API key not configured" };
   }
 
   try {
@@ -625,10 +631,8 @@ export const generateImage: RequestHandler = async (req, res) => {
     const fixedReferencePaths = referenceImagePaths || [];
     const presetPaths = preset ? getPresetImagePaths(preset) : [];
     if (preset && !presetPaths.length) {
-      res
-        .status(400)
-        .json({ error: `Preset '${preset}' not found or contains no images.` });
-      return;
+      setResponseStatus(event, 400);
+      return { error: `Preset '${preset}' not found or contains no images.` };
     }
 
     const inlineReferenceImages = parseUploadedReferenceImages(
@@ -670,8 +674,8 @@ export const generateImage: RequestHandler = async (req, res) => {
     } else if (model === "flux") {
       result = await generateWithFlux(prompt, refImages);
     } else {
-      res.status(400).json({ error: "Invalid model" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "Invalid model" };
     }
 
     // Save to project media if projectSlug provided
@@ -717,33 +721,34 @@ export const generateImage: RequestHandler = async (req, res) => {
       savedPath,
     };
 
-    res.json(response);
+    return response;
   } catch (err: any) {
     console.error("Image generation error:", err);
-    res.status(500).json({ error: err.message || "Image generation failed" });
+    setResponseStatus(event, 500);
+    return { error: err.message || "Image generation failed" };
   }
-};
+});
 
-export const getImageGenStatus: RequestHandler = (_req, res) => {
+export const getImageGenStatus = defineEventHandler((_event: H3Event) => {
   const response: ImageGenStatusResponse = {
     openai: !!process.env.OPENAI_API_KEY,
     gemini: !!process.env.GEMINI_API_KEY,
     flux: !!process.env.FAL_KEY,
   };
-  res.json(response);
-};
+  return response;
+});
 
 // --- Preset CRUD endpoints ---
 
-export const listPresets: RequestHandler = (_req, res) => {
-  res.json(readPresetsFile());
-};
+export const listPresets = defineEventHandler((_event: H3Event) => {
+  return readPresetsFile();
+});
 
-export const createPreset: RequestHandler = (req, res) => {
-  const { name, paths } = req.body;
+export const createPreset = defineEventHandler(async (event: H3Event) => {
+  const { name, paths } = await readBody(event);
   if (!name?.trim() || !Array.isArray(paths) || paths.length === 0) {
-    res.status(400).json({ error: "Name and paths are required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Name and paths are required" };
   }
   const data = readPresetsFile();
   const newPreset: ImagePreset = {
@@ -754,47 +759,49 @@ export const createPreset: RequestHandler = (req, res) => {
   };
   data.presets.push(newPreset);
   writePresetsFile(data);
-  res.json(newPreset);
-};
+  return newPreset;
+});
 
-export const updatePresetHandler: RequestHandler = (req, res) => {
-  const { id } = req.params;
-  const updates = req.body as Partial<
-    Pick<ImagePreset, "name" | "paths" | "instructions">
-  >;
+export const updatePresetHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const id = getRouterParam(event, "id");
+    const updates = (await readBody(event)) as Partial<
+      Pick<ImagePreset, "name" | "paths" | "instructions">
+    >;
+    const data = readPresetsFile();
+    const idx = data.presets.findIndex((p) => p.id === id);
+    if (idx === -1) {
+      setResponseStatus(event, 404);
+      return { error: "Preset not found" };
+    }
+    if (updates.name) data.presets[idx].name = updates.name.trim();
+    if (updates.paths) data.presets[idx].paths = updates.paths;
+    if (updates.instructions !== undefined)
+      data.presets[idx].instructions = updates.instructions || undefined;
+    writePresetsFile(data);
+    return data.presets[idx];
+  },
+);
+
+export const deletePresetHandler = defineEventHandler((event: H3Event) => {
+  const id = getRouterParam(event, "id");
   const data = readPresetsFile();
   const idx = data.presets.findIndex((p) => p.id === id);
   if (idx === -1) {
-    res.status(404).json({ error: "Preset not found" });
-    return;
-  }
-  if (updates.name) data.presets[idx].name = updates.name.trim();
-  if (updates.paths) data.presets[idx].paths = updates.paths;
-  if (updates.instructions !== undefined)
-    data.presets[idx].instructions = updates.instructions || undefined;
-  writePresetsFile(data);
-  res.json(data.presets[idx]);
-};
-
-export const deletePresetHandler: RequestHandler = (req, res) => {
-  const { id } = req.params;
-  const data = readPresetsFile();
-  const idx = data.presets.findIndex((p) => p.id === id);
-  if (idx === -1) {
-    res.status(404).json({ error: "Preset not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "Preset not found" };
   }
   data.presets.splice(idx, 1);
   writePresetsFile(data);
-  res.json({ success: true });
-};
+  return { success: true };
+});
 
-export const configureImageGen: RequestHandler = (req, res) => {
-  const { provider, apiKey } = req.body;
+export const configureImageGen = defineEventHandler(async (event: H3Event) => {
+  const { provider, apiKey } = await readBody(event);
 
   if (!provider || !apiKey) {
-    res.status(400).json({ error: "Provider and API key are required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Provider and API key are required" };
   }
 
   if (provider === "openai") {
@@ -804,9 +811,9 @@ export const configureImageGen: RequestHandler = (req, res) => {
   } else if (provider === "flux") {
     process.env.FAL_KEY = apiKey;
   } else {
-    res.status(400).json({ error: "Invalid provider" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Invalid provider" };
   }
 
-  res.json({ success: true, provider });
-};
+  return { success: true, provider };
+});

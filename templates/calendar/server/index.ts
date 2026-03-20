@@ -24,41 +24,39 @@ import {
 import { getSettings, updateSettings } from "./routes/settings.js";
 
 export function createAppServer() {
-  const app = createServer({ envKeys });
+  const { app, router } = createServer({ envKeys });
 
-  app.get("/api/ping", (_req, res) => {
-    res.json({ message: "pong" });
-  });
+  router.get("/api/ping", () => ({ message: "pong" }));
 
   // Google Auth
-  app.get("/api/google/auth-url", getGoogleAuthUrl);
-  app.get("/api/google/callback", handleGoogleCallback);
-  app.get("/api/google/status", getGoogleStatus);
-  app.post("/api/google/disconnect", disconnectGoogle);
+  router.get("/api/google/auth-url", getGoogleAuthUrl);
+  router.get("/api/google/callback", handleGoogleCallback);
+  router.get("/api/google/status", getGoogleStatus);
+  router.post("/api/google/disconnect", disconnectGoogle);
 
   // Sync
-  app.post("/api/google/sync", syncGoogleCalendar);
+  router.post("/api/google/sync", syncGoogleCalendar);
 
   // Events CRUD
-  app.get("/api/events", listEvents);
-  app.get("/api/events/:id", getEvent);
-  app.post("/api/events", createEvent);
-  app.put("/api/events/:id", updateEvent);
-  app.delete("/api/events/:id", deleteEvent);
+  router.get("/api/events", listEvents);
+  router.get("/api/events/:id", getEvent);
+  router.post("/api/events", createEvent);
+  router.put("/api/events/:id", updateEvent);
+  router.delete("/api/events/:id", deleteEvent);
 
   // Availability
-  app.get("/api/availability", getAvailability);
-  app.put("/api/availability", updateAvailability);
+  router.get("/api/availability", getAvailability);
+  router.put("/api/availability", updateAvailability);
 
   // Bookings
-  app.get("/api/bookings", listBookings);
-  app.post("/api/bookings/create", createBooking);
-  app.get("/api/bookings/available-slots", getAvailableSlots);
-  app.delete("/api/bookings/:id", deleteBooking);
+  router.get("/api/bookings", listBookings);
+  router.post("/api/bookings/create", createBooking);
+  router.get("/api/bookings/available-slots", getAvailableSlots);
+  router.delete("/api/bookings/:id", deleteBooking);
 
   // Settings
-  app.get("/api/settings", getSettings);
-  app.put("/api/settings", updateSettings);
+  router.get("/api/settings", getSettings);
+  router.put("/api/settings", updateSettings);
 
   return app;
 }

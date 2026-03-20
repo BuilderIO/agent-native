@@ -1,4 +1,10 @@
-import { RequestHandler } from "express";
+import {
+  defineEventHandler,
+  getQuery,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import fs from "fs";
 import path from "path";
 import type {
@@ -46,17 +52,18 @@ function isValidProjectPath(project: string): boolean {
   return segments.every((segment) => /^[a-z0-9][a-z0-9-]*$/.test(segment));
 }
 
-export const searchTwitter: RequestHandler = async (req, res) => {
+export const searchTwitter = defineEventHandler(async (event: H3Event) => {
   const apiKey = getApiKey();
   if (!apiKey) {
-    res.status(500).json({ error: "Twitter API key not configured" });
-    return;
+    setResponseStatus(event, 500);
+    return { error: "Twitter API key not configured" };
   }
 
-  const { query, queryType, sinceTime, untilTime, cursor, filter } = req.query;
+  const q = getQuery(event);
+  const { query, queryType, sinceTime, untilTime, cursor, filter } = q;
   if (!query || typeof query !== "string") {
-    res.status(400).json({ error: "query parameter is required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "query parameter is required" };
   }
 
   const params = new URLSearchParams({ query: String(query) });
@@ -88,15 +95,15 @@ export const searchTwitter: RequestHandler = async (req, res) => {
       console.error(`[Twitter Search] API error response: ${text}`);
       // Return user-friendly error for rate limits
       if (response.status === 429) {
-        res.status(429).json({
+        setResponseStatus(event, 429);
+        return {
           error:
             "Rate limited by Twitter API. Please wait a few seconds and try again.",
           retryAfter: 6,
-        });
-        return;
+        };
       }
-      res.status(response.status).json({ error: `Twitter API error: ${text}` });
-      return;
+      setResponseStatus(event, response.status);
+      return { error: `Twitter API error: ${text}` };
     }
 
     const data = await response.json();
@@ -222,28 +229,30 @@ export const searchTwitter: RequestHandler = async (req, res) => {
           })
         : filteredTweets;
 
-    res.json({
+    return {
       tweets: sortedTweets,
       nextCursor: data.next_cursor || data.nextCursor || null,
       hasNextPage: data.has_next_page ?? data.hasNextPage ?? !!data.next_cursor,
-    });
+    };
   } catch (err: any) {
     console.error(`[Twitter Search] Exception:`, err.message, err.stack);
-    res.status(500).json({ error: `Failed to search Twitter: ${err.message}` });
+    setResponseStatus(event, 500);
+    return { error: `Failed to search Twitter: ${err.message}` };
   }
-};
+});
 
-export const getArticle: RequestHandler = async (req, res) => {
+export const getArticle = defineEventHandler(async (event: H3Event) => {
   const apiKey = getApiKey();
   if (!apiKey) {
-    res.status(500).json({ error: "Twitter API key not configured" });
-    return;
+    setResponseStatus(event, 500);
+    return { error: "Twitter API key not configured" };
   }
 
-  const { tweetId } = req.query;
+  const q = getQuery(event);
+  const { tweetId } = q;
   if (!tweetId || typeof tweetId !== "string") {
-    res.status(400).json({ error: "tweetId parameter is required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "tweetId parameter is required" };
   }
 
   try {
@@ -254,27 +263,28 @@ export const getArticle: RequestHandler = async (req, res) => {
 
     if (!response.ok) {
       const text = await response.text();
-      res.status(response.status).json({ error: `Twitter API error: ${text}` });
-      return;
+      setResponseStatus(event, response.status);
+      return { error: `Twitter API error: ${text}` };
     }
 
     const data = await response.json();
-    res.json({
+    return {
       title: data.title || "",
       previewText: data.preview_text || data.previewText || "",
       coverImageUrl: data.cover_media_img_url || data.coverImageUrl || "",
       contents: data.contents || "",
-    });
+    };
   } catch (err: any) {
-    res.status(500).json({ error: `Failed to fetch article: ${err.message}` });
+    setResponseStatus(event, 500);
+    return { error: `Failed to fetch article: ${err.message}` };
   }
-};
+});
 
-export const saveResults: RequestHandler = async (req, res) => {
-  const body: TwitterSaveRequest = req.body;
+export const saveResults = defineEventHandler(async (event: H3Event) => {
+  const body: TwitterSaveRequest = await readBody(event);
   if (!body?.query || !body?.tweets?.length) {
-    res.status(400).json({ error: "query and tweets are required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "query and tweets are required" };
   }
 
   let projectSlug = body.projectSlug;
@@ -304,14 +314,14 @@ export const saveResults: RequestHandler = async (req, res) => {
   }
 
   if (!projectSlug || !isValidProjectPath(projectSlug)) {
-    res.status(400).json({ error: "Valid project slug is required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Valid project slug is required" };
   }
 
   const projectDir = path.join(PROJECTS_DIR, projectSlug);
   if (!fs.existsSync(projectDir)) {
-    res.status(404).json({ error: "Project not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "Project not found" };
   }
 
   const resourcesDir = path.join(projectDir, "resources");
@@ -338,18 +348,19 @@ export const saveResults: RequestHandler = async (req, res) => {
 
   fs.writeFileSync(filePath, JSON.stringify(existing, null, 2), "utf-8");
 
-  res.json({
+  return {
     success: true,
     projectSlug,
     filePath: "resources/twitter-research.json",
-  });
-};
+  };
+});
 
-export const previewLink: RequestHandler = async (req, res) => {
-  const { url } = req.query;
-  if (!url || typeof url !== "string") {
-    res.status(400).json({ error: "url parameter is required" });
-    return;
+export const previewLink = defineEventHandler(async (event: H3Event) => {
+  const q = getQuery(event);
+  const url = q.url as string;
+  if (!url) {
+    setResponseStatus(event, 400);
+    return { error: "url parameter is required" };
   }
 
   try {
@@ -417,21 +428,23 @@ export const previewLink: RequestHandler = async (req, res) => {
       status,
     };
 
-    res.json(preview);
+    return preview;
   } catch (err: any) {
     if (err.name === "AbortError") {
-      res.status(504).json({ error: "Timed out fetching URL" });
-      return;
+      setResponseStatus(event, 504);
+      return { error: "Timed out fetching URL" };
     }
-    res.status(500).json({ error: `Failed to fetch URL: ${err.message}` });
+    setResponseStatus(event, 500);
+    return { error: `Failed to fetch URL: ${err.message}` };
   }
-};
+});
 
-export const fetchAsMarkdown: RequestHandler = async (req, res) => {
-  const { url } = req.query;
-  if (!url || typeof url !== "string") {
-    res.status(400).json({ error: "url parameter is required" });
-    return;
+export const fetchAsMarkdown = defineEventHandler(async (event: H3Event) => {
+  const q = getQuery(event);
+  const url = q.url as string;
+  if (!url) {
+    setResponseStatus(event, 400);
+    return { error: "url parameter is required" };
   }
 
   try {
@@ -451,23 +464,22 @@ export const fetchAsMarkdown: RequestHandler = async (req, res) => {
     clearTimeout(timeout);
 
     if (!response.ok) {
-      res
-        .status(502)
-        .json({ error: `Failed to fetch URL (${response.status})` });
-      return;
+      setResponseStatus(event, 502);
+      return { error: `Failed to fetch URL (${response.status})` };
     }
 
     const html = await response.text();
     const markdown = htmlToMarkdown(html, response.url);
-    res.json({ markdown, url: response.url });
+    return { markdown, url: response.url };
   } catch (err: any) {
     if (err.name === "AbortError") {
-      res.status(504).json({ error: "Timed out fetching URL" });
-      return;
+      setResponseStatus(event, 504);
+      return { error: "Timed out fetching URL" };
     }
-    res.status(500).json({ error: `Failed to fetch URL: ${err.message}` });
+    setResponseStatus(event, 500);
+    return { error: `Failed to fetch URL: ${err.message}` };
   }
-};
+});
 
 function htmlToMarkdown(html: string, sourceUrl: string): string {
   let content = html;

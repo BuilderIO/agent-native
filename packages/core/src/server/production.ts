@@ -1,6 +1,14 @@
 import path from "path";
-import type { Express } from "express";
-import express from "express";
+import { createServer as createNodeServer } from "node:http";
+import { createReadStream, existsSync, statSync } from "node:fs";
+import {
+  toNodeListener,
+  defineEventHandler,
+  setResponseHeader,
+  setResponseStatus,
+  sendStream,
+} from "h3";
+import type { App as H3App, H3Event } from "h3";
 
 export interface ProductionServerOptions {
   /** Port to listen on. Default: process.env.PORT || 3000 */
@@ -11,6 +19,35 @@ export interface ProductionServerOptions {
   appName?: string;
 }
 
+const MIME_MAP: Record<string, string> = {
+  ".html": "text/html",
+  ".css": "text/css",
+  ".js": "application/javascript",
+  ".mjs": "application/javascript",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".eot": "application/vnd.ms-fontobject",
+  ".txt": "text/plain",
+  ".webp": "image/webp",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".xml": "application/xml",
+  ".pdf": "application/pdf",
+};
+
+function getMimeType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  return MIME_MAP[ext] || "application/octet-stream";
+}
+
 /**
  * Start a production server that:
  * 1. Serves the built SPA static files
@@ -19,7 +56,7 @@ export interface ProductionServerOptions {
  * 4. Handles graceful shutdown on SIGTERM/SIGINT
  */
 export function createProductionServer(
-  app: Express,
+  app: H3App,
   options: ProductionServerOptions = {},
 ): void {
   const port = options.port ?? process.env.PORT ?? 3000;
@@ -28,18 +65,45 @@ export function createProductionServer(
   // Resolve SPA directory
   const spaDir = options.spaDir ?? path.resolve(process.cwd(), "dist/spa");
 
-  // Serve static files
-  app.use(express.static(spaDir));
+  // Add SPA static file serving + fallback to H3 app
+  app.use(
+    defineEventHandler((event: H3Event) => {
+      const url = event.node.req.url ?? "/";
+      const urlPath = url.split("?")[0];
 
-  // SPA fallback — serve index.html for all non-API routes
-  app.get("*", (req, res) => {
-    if (req.path.startsWith("/api/") || req.path.startsWith("/health")) {
-      return res.status(404).json({ error: "API endpoint not found" });
-    }
-    res.sendFile(path.join(spaDir, "index.html"));
-  });
+      // API routes handled by mounted router — return 404 for unmatched
+      if (urlPath.startsWith("/api/") || urlPath.startsWith("/health")) {
+        setResponseStatus(event, 404);
+        return { error: "API endpoint not found" };
+      }
 
-  app.listen(port, () => {
+      // Try to serve as a static file
+      const decoded = decodeURIComponent(urlPath).replace(/\.\./g, "");
+      const filePath = path.join(
+        spaDir,
+        decoded === "/" ? "index.html" : decoded,
+      );
+
+      if (existsSync(filePath) && statSync(filePath).isFile()) {
+        setResponseHeader(event, "Content-Type", getMimeType(filePath));
+        return sendStream(event, createReadStream(filePath));
+      }
+
+      // SPA fallback — serve index.html for all non-API routes
+      const indexPath = path.join(spaDir, "index.html");
+      if (existsSync(indexPath)) {
+        setResponseHeader(event, "Content-Type", "text/html");
+        return sendStream(event, createReadStream(indexPath));
+      }
+
+      setResponseStatus(event, 404);
+      return { error: "Not found" };
+    }),
+  );
+
+  const server = createNodeServer(toNodeListener(app));
+
+  server.listen(Number(port), () => {
     console.log(`${appName} server running on port ${port}`);
     console.log(`  Frontend: http://localhost:${port}`);
     console.log(`  API: http://localhost:${port}/api`);
@@ -48,7 +112,7 @@ export function createProductionServer(
   // Graceful shutdown
   const shutdown = (signal: string) => {
     console.log(`Received ${signal}, shutting down gracefully`);
-    process.exit(0);
+    server.close(() => process.exit(0));
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));

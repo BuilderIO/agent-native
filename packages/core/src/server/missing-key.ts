@@ -1,4 +1,4 @@
-import type { Response } from "express";
+import { setResponseStatus, type H3Event } from "h3";
 
 export interface MissingKeyResponse {
   error: "missing_api_key";
@@ -9,24 +9,28 @@ export interface MissingKeyResponse {
 }
 
 /**
- * Check if an env var is set. If not, send a structured missing_api_key response.
- * Returns true if the key is missing (response was sent), false if the key exists.
+ * Check if an env var is set. If not, set response status and return a structured
+ * missing_api_key response object. Returns null if the key exists (no action needed).
+ *
+ * Usage:
+ *   const missing = requireEnvKey(event, 'MY_KEY', 'My Service');
+ *   if (missing) return missing;
  */
 export function requireEnvKey(
-  res: Response,
+  event: H3Event,
   key: string,
   label: string,
   options?: { message?: string; settingsPath?: string },
-): boolean {
-  if (process.env[key]) return false;
+): MissingKeyResponse | null {
+  if (process.env[key]) return null;
 
-  res.status(200).json({
+  setResponseStatus(event, 200);
+  return {
     error: "missing_api_key",
     key,
     label,
     message:
       options?.message ?? `Connect your ${label} account to see this data`,
     settingsPath: options?.settingsPath ?? "/settings",
-  } satisfies MissingKeyResponse);
-  return true;
+  };
 }

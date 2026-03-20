@@ -28,6 +28,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useSendEmail } from "@/hooks/use-emails";
+import { useAliases } from "@/hooks/use-aliases";
+import { expandAliasTokens } from "@/lib/alias-utils";
 import { useAgentChatGenerating } from "@agent-native/core";
 import { toast } from "sonner";
 import type {
@@ -83,6 +85,7 @@ export const InlineReplyComposer = forwardRef<
   const [generatePrompt, setGeneratePrompt] = useState("");
   const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
+  const { data: aliases = [] } = useAliases();
   const editorRef = useRef<ComposeEditorHandle>(null);
   const composerRef = useRef<HTMLDivElement>(null);
 
@@ -188,9 +191,9 @@ export const InlineReplyComposer = forwardRef<
       toast.dismiss(toastId);
       sendEmail.mutate(
         {
-          to: draftSnapshot.to,
-          cc: draftSnapshot.cc || undefined,
-          bcc: draftSnapshot.bcc || undefined,
+          to: expandAliasTokens(draftSnapshot.to, aliases),
+          cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
+          bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
           subject: draftSnapshot.subject,
           body: draftSnapshot.body,
           replyToId: draftSnapshot.replyToId,

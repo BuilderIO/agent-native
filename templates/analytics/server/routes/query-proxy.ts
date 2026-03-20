@@ -1,22 +1,24 @@
-import { RequestHandler } from "express";
+import { defineEventHandler, readBody, setResponseStatus } from "h3";
 import { requireEnvKey } from "@agent-native/core/server";
 import { runQuery } from "../lib/bigquery";
 
-export const handleQuery: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "BIGQUERY_PROJECT_ID", "BigQuery")) return;
-  const { query } = req.body;
+export const handleQuery = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "BIGQUERY_PROJECT_ID", "BigQuery");
+  if (missing) return missing;
+  const { query } = await readBody(event);
 
   if (!query || typeof query !== "string") {
-    res.status(400).json({ error: "Missing or invalid query" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Missing or invalid query" };
   }
 
   try {
     const result = await runQuery(query);
-    res.json(result);
+    return result;
   } catch (error: any) {
     const message = error?.message || String(error);
     console.error("BigQuery error:", message);
-    res.status(400).json({ error: message });
+    setResponseStatus(event, 400);
+    return { error: message };
   }
-};
+});

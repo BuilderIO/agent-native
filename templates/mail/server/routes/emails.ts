@@ -1,4 +1,12 @@
-import type { Request, Response } from "express";
+import {
+  defineEventHandler,
+  getQuery,
+  readBody,
+  getRouterParam,
+  setResponseStatus,
+  setResponseHeader,
+  type H3Event,
+} from "h3";
 import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
@@ -80,8 +88,11 @@ function recomputeUnreadCounts(
 
 // ─── Email list ───────────────────────────────────────────────────────────────
 
-export async function listEmails(req: Request, res: Response): Promise<void> {
-  const { view = "inbox", q } = req.query as { view?: string; q?: string };
+export const listEmails = defineEventHandler(async (event: H3Event) => {
+  const { view = "inbox", q } = getQuery(event) as {
+    view?: string;
+    q?: string;
+  };
 
   // If Google is connected, fetch from Gmail directly (skip demo data)
   if (isConnected()) {
@@ -119,10 +130,10 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
       const { messages, errors } = await listGmailMessages(searchQuery);
       if (messages.length === 0 && errors.length > 0) {
         // All accounts failed — surface as error
-        res.status(502).json({
+        setResponseStatus(event, 502);
+        return {
           error: errors.map((e) => `${e.email}: ${e.error}`).join("; "),
-        });
-        return;
+        };
       }
       const emails = messages.map((m) =>
         gmailToEmailMessage(m, undefined, labelMap),
@@ -133,14 +144,13 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
       );
       // If some accounts failed but others succeeded, add warning header
       if (errors.length > 0) {
-        res.setHeader("X-Account-Errors", JSON.stringify(errors));
+        setResponseHeader(event, "X-Account-Errors", JSON.stringify(errors));
       }
-      res.json(emails);
-      return;
+      return emails;
     } catch (error: any) {
       console.error("[listEmails] Gmail error:", error.message);
-      res.status(500).json({ error: error.message });
-      return;
+      setResponseStatus(event, 500);
+      return { error: error.message };
     }
   }
 
@@ -204,16 +214,13 @@ export async function listEmails(req: Request, res: Response): Promise<void> {
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   );
 
-  res.json(emails);
-}
+  return emails;
+});
 
 // ─── Thread messages ─────────────────────────────────────────────────────────
 
-export async function getThreadMessages(
-  req: Request,
-  res: Response,
-): Promise<void> {
-  const { threadId } = req.params;
+export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
+  const threadId = getRouterParam(event, "threadId") as string;
 
   if (isConnected()) {
     try {
@@ -250,24 +257,23 @@ export async function getThreadMessages(
             (a: any, b: any) =>
               new Date(a.date).getTime() - new Date(b.date).getTime(),
           );
-          res.json(messages);
-          return;
+          return messages;
         } catch (error: any) {
           const status = error?.response?.status;
           if (status === 404) continue;
           console.error("[getThreadMessages] Gmail error:", error.message);
-          res.status(status || 502).json({ error: error.message });
-          return;
+          setResponseStatus(event, status || 502);
+          return { error: error.message };
         }
       }
       if (clients.length > 0) {
-        res.status(404).json({ error: "Thread not found in any account" });
-        return;
+        setResponseStatus(event, 404);
+        return { error: "Thread not found in any account" };
       }
     } catch (error: any) {
       console.error("[getThreadMessages] error:", error.message);
-      res.status(500).json({ error: error.message });
-      return;
+      setResponseStatus(event, 500);
+      return { error: error.message };
     }
   }
 
@@ -278,16 +284,16 @@ export async function getThreadMessages(
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   if (threadMessages.length === 0) {
-    res.status(404).json({ error: "Thread not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "Thread not found" };
   }
 
-  res.json(threadMessages);
-}
+  return threadMessages;
+});
 
 // ─── Single email ─────────────────────────────────────────────────────────────
 
-export async function getEmail(req: Request, res: Response): Promise<void> {
+export const getEmail = defineEventHandler(async (event: H3Event) => {
   if (isConnected()) {
     const clients = await getClients();
     for (const { email, client } of clients) {
@@ -296,11 +302,10 @@ export async function getEmail(req: Request, res: Response): Promise<void> {
         const labelMap = await fetchGmailLabelMap(client);
         const msg = await gmail.users.messages.get({
           userId: "me",
-          id: req.params.id as string,
+          id: getRouterParam(event, "id") as string,
           format: "full",
         });
-        res.json(gmailToEmailMessage((msg as any).data, email, labelMap));
-        return;
+        return gmailToEmailMessage((msg as any).data, email, labelMap);
       } catch (error: any) {
         const status =
           typeof error?.response?.status === "number"
@@ -308,29 +313,29 @@ export async function getEmail(req: Request, res: Response): Promise<void> {
             : undefined;
         if (status === 404) continue;
         console.error("[getEmail] Gmail error:", error.message);
-        res.status(status || 502).json({ error: error.message });
-        return;
+        setResponseStatus(event, status || 502);
+        return { error: error.message };
       }
     }
     if (clients.length > 0) {
-      res.status(404).json({ error: "Message not found in any account" });
-      return;
+      setResponseStatus(event, 404);
+      return { error: "Message not found in any account" };
     }
   }
 
   const emails = readEmails();
-  const email = emails.find((e) => e.id === req.params.id);
+  const email = emails.find((e) => e.id === getRouterParam(event, "id"));
   if (!email) {
-    res.status(404).json({ error: "Email not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "Email not found" };
   }
-  res.json(email);
-}
+  return email;
+});
 
 // ─── Mark read ────────────────────────────────────────────────────────────────
 
-export async function markRead(req: Request, res: Response): Promise<void> {
-  const { isRead, accountEmail } = req.body;
+export const markRead = defineEventHandler(async (event: H3Event) => {
+  const { isRead, accountEmail } = await readBody(event);
 
   if (isConnected()) {
     try {
@@ -338,28 +343,28 @@ export async function markRead(req: Request, res: Response): Promise<void> {
       const client = await getClient(accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
+        const id = getRouterParam(event, "id") as string;
         await gmail.users.messages.modify({
           userId: "me",
-          id: req.params.id as string,
+          id,
           requestBody: isRead
             ? { removeLabelIds: ["UNREAD"] }
             : { addLabelIds: ["UNREAD"] },
         });
-        res.json({ id: req.params.id, isRead });
-        return;
+        return { id, isRead };
       }
     } catch (error: any) {
       console.error("[markRead] Gmail error:", error.message);
-      res.status(500).json({ error: error.message });
-      return;
+      setResponseStatus(event, 500);
+      return { error: error.message };
     }
   }
 
   const emails = readEmails();
-  const idx = emails.findIndex((e) => e.id === req.params.id);
+  const idx = emails.findIndex((e) => e.id === getRouterParam(event, "id"));
   if (idx === -1) {
-    res.status(404).json({ error: "Email not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "Email not found" };
   }
 
   emails[idx] = { ...emails[idx], isRead };
@@ -368,50 +373,54 @@ export async function markRead(req: Request, res: Response): Promise<void> {
   const labels = recomputeUnreadCounts(emails, readLabels());
   writeLabels(labels);
 
-  res.json(emails[idx]);
-}
+  return emails[idx];
+});
 
 // ─── Toggle star ──────────────────────────────────────────────────────────────
 
-export function toggleStar(req: Request, res: Response) {
-  const { isStarred } = req.body;
+export const toggleStar = defineEventHandler(async (event: H3Event) => {
+  const { isStarred } = await readBody(event);
   const emails = readEmails();
-  const idx = emails.findIndex((e) => e.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: "Email not found" });
+  const idx = emails.findIndex((e) => e.id === getRouterParam(event, "id"));
+  if (idx === -1) {
+    setResponseStatus(event, 404);
+    return { error: "Email not found" };
+  }
 
   emails[idx] = { ...emails[idx], isStarred };
   writeEmails(emails);
-  res.json(emails[idx]);
-}
+  return emails[idx];
+});
 
 // ─── Archive ──────────────────────────────────────────────────────────────────
 
-export async function archiveEmail(req: Request, res: Response): Promise<void> {
+export const archiveEmail = defineEventHandler(async (event: H3Event) => {
+  const body = await readBody(event);
   if (isConnected()) {
     try {
-      const client = await getClient(req.body?.accountEmail);
+      const client = await getClient(body?.accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
+        const id = getRouterParam(event, "id") as string;
         await gmail.users.messages.modify({
           userId: "me",
-          id: req.params.id as string,
+          id,
           requestBody: { removeLabelIds: ["INBOX"] },
         });
-        res.json({ id: req.params.id, isArchived: true });
-        return;
+        return { id, isArchived: true };
       }
     } catch (error: any) {
       console.error("[archiveEmail] Gmail error:", error.message);
-      res.status(500).json({ error: error.message });
-      return;
+      setResponseStatus(event, 500);
+      return { error: error.message };
     }
   }
 
   const emails = readEmails();
-  const target = emails.find((e) => e.id === req.params.id);
+  const target = emails.find((e) => e.id === getRouterParam(event, "id"));
   if (!target) {
-    res.status(404).json({ error: "Email not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "Email not found" };
   }
 
   // Archive all messages in the thread, not just the one
@@ -431,40 +440,38 @@ export async function archiveEmail(req: Request, res: Response): Promise<void> {
   const labels = recomputeUnreadCounts(emails, readLabels());
   writeLabels(labels);
 
-  res.json({ id: req.params.id, threadId, isArchived: true });
-}
+  return { id: getRouterParam(event, "id"), threadId, isArchived: true };
+});
 
 // ─── Unarchive ───────────────────────────────────────────────────────────────
 
-export async function unarchiveEmail(
-  req: Request,
-  res: Response,
-): Promise<void> {
+export const unarchiveEmail = defineEventHandler(async (event: H3Event) => {
+  const body = await readBody(event);
   if (isConnected()) {
     try {
-      const client = await getClient(req.body?.accountEmail);
+      const client = await getClient(body?.accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
+        const id = getRouterParam(event, "id") as string;
         await gmail.users.messages.modify({
           userId: "me",
-          id: req.params.id as string,
+          id,
           requestBody: { addLabelIds: ["INBOX"] },
         });
-        res.json({ id: req.params.id, isArchived: false });
-        return;
+        return { id, isArchived: false };
       }
     } catch (error: any) {
       console.error("[unarchiveEmail] Gmail error:", error.message);
-      res.status(500).json({ error: error.message });
-      return;
+      setResponseStatus(event, 500);
+      return { error: error.message };
     }
   }
 
   const emails = readEmails();
-  const target = emails.find((e) => e.id === req.params.id);
+  const target = emails.find((e) => e.id === getRouterParam(event, "id"));
   if (!target) {
-    res.status(404).json({ error: "Email not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "Email not found" };
   }
 
   // Unarchive all messages in the thread
@@ -486,36 +493,37 @@ export async function unarchiveEmail(
   const labels = recomputeUnreadCounts(emails, readLabels());
   writeLabels(labels);
 
-  res.json({ id: req.params.id, threadId, isArchived: false });
-}
+  return { id: getRouterParam(event, "id"), threadId, isArchived: false };
+});
 
 // ─── Trash ────────────────────────────────────────────────────────────────────
 
-export async function trashEmail(req: Request, res: Response): Promise<void> {
+export const trashEmail = defineEventHandler(async (event: H3Event) => {
+  const body = await readBody(event);
   if (isConnected()) {
     try {
-      const client = await getClient(req.body?.accountEmail);
+      const client = await getClient(body?.accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
+        const id = getRouterParam(event, "id") as string;
         await gmail.users.messages.trash({
           userId: "me",
-          id: req.params.id as string,
+          id,
         });
-        res.json({ id: req.params.id, isTrashed: true });
-        return;
+        return { id, isTrashed: true };
       }
     } catch (error: any) {
       console.error("[trashEmail] Gmail error:", error.message);
-      res.status(500).json({ error: error.message });
-      return;
+      setResponseStatus(event, 500);
+      return { error: error.message };
     }
   }
 
   const emails = readEmails();
-  const target = emails.find((e) => e.id === req.params.id);
+  const target = emails.find((e) => e.id === getRouterParam(event, "id"));
   if (!target) {
-    res.status(404).json({ error: "Email not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "Email not found" };
   }
 
   // Trash all messages in the thread
@@ -531,43 +539,43 @@ export async function trashEmail(req: Request, res: Response): Promise<void> {
   const labels = recomputeUnreadCounts(emails, readLabels());
   writeLabels(labels);
 
-  res.json({ id: req.params.id, threadId, isTrashed: true });
-}
+  return { id: getRouterParam(event, "id"), threadId, isTrashed: true };
+});
 
 // ─── Report spam ──────────────────────────────────────────────────────────────
 
-export async function reportSpam(req: Request, res: Response): Promise<void> {
-  const { accountEmail } = req.body;
+export const reportSpam = defineEventHandler(async (event: H3Event) => {
+  const { accountEmail } = await readBody(event);
 
   if (isConnected()) {
     try {
       const client = await getClient(accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
+        const id = getRouterParam(event, "id") as string;
         await gmail.users.messages.modify({
           userId: "me",
-          id: req.params.id as string,
+          id,
           requestBody: {
             addLabelIds: ["SPAM"],
             removeLabelIds: ["INBOX"],
           },
         });
-        res.json({ id: req.params.id, spam: true });
-        return;
+        return { id, spam: true };
       }
     } catch (error: any) {
       console.error("[reportSpam] Gmail error:", error.message);
-      res.status(500).json({ error: error.message });
-      return;
+      setResponseStatus(event, 500);
+      return { error: error.message };
     }
   }
 
   // Local fallback: move to trash with a spam label
   const emails = readEmails();
-  const target = emails.find((e) => e.id === req.params.id);
+  const target = emails.find((e) => e.id === getRouterParam(event, "id"));
   if (!target) {
-    res.status(404).json({ error: "Email not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "Email not found" };
   }
   const threadId = target.threadId || target.id;
   for (let i = 0; i < emails.length; i++) {
@@ -583,8 +591,8 @@ export async function reportSpam(req: Request, res: Response): Promise<void> {
   writeEmails(emails);
   const labels = recomputeUnreadCounts(emails, readLabels());
   writeLabels(labels);
-  res.json({ id: req.params.id, threadId, spam: true });
-}
+  return { id: getRouterParam(event, "id"), threadId, spam: true };
+});
 
 // ─── Block sender ─────────────────────────────────────────────────────────────
 
@@ -602,12 +610,12 @@ function writeBlockedSenders(senders: string[]) {
   fs.writeFileSync(BLOCKED_SENDERS_FILE, JSON.stringify(senders, null, 2));
 }
 
-export async function blockSender(req: Request, res: Response): Promise<void> {
-  const { senderEmail, accountEmail } = req.body;
+export const blockSender = defineEventHandler(async (event: H3Event) => {
+  const { senderEmail, accountEmail } = await readBody(event);
 
   if (!senderEmail) {
-    res.status(400).json({ error: "Missing senderEmail" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Missing senderEmail" };
   }
 
   // If Gmail is connected, create a filter to auto-delete + report spam
@@ -616,11 +624,12 @@ export async function blockSender(req: Request, res: Response): Promise<void> {
       const client = await getClient(accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
+        const id = getRouterParam(event, "id") as string;
 
         // Also report the current message as spam
         await gmail.users.messages.modify({
           userId: "me",
-          id: req.params.id as string,
+          id,
           requestBody: {
             addLabelIds: ["SPAM"],
             removeLabelIds: ["INBOX"],
@@ -644,13 +653,12 @@ export async function blockSender(req: Request, res: Response): Promise<void> {
           );
         }
 
-        res.json({ id: req.params.id, blocked: senderEmail });
-        return;
+        return { id, blocked: senderEmail };
       }
     } catch (error: any) {
       console.error("[blockSender] Gmail error:", error.message);
-      res.status(500).json({ error: error.message });
-      return;
+      setResponseStatus(event, 500);
+      return { error: error.message };
     }
   }
 
@@ -662,10 +670,10 @@ export async function blockSender(req: Request, res: Response): Promise<void> {
   }
 
   const emails = readEmails();
-  const target = emails.find((e) => e.id === req.params.id);
+  const target = emails.find((e) => e.id === getRouterParam(event, "id"));
   if (!target) {
-    res.status(404).json({ error: "Email not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "Email not found" };
   }
   const threadId = target.threadId || target.id;
   for (let i = 0; i < emails.length; i++) {
@@ -681,8 +689,8 @@ export async function blockSender(req: Request, res: Response): Promise<void> {
   writeEmails(emails);
   const labels = recomputeUnreadCounts(emails, readLabels());
   writeLabels(labels);
-  res.json({ id: req.params.id, threadId, blocked: senderEmail });
-}
+  return { id: getRouterParam(event, "id"), threadId, blocked: senderEmail };
+});
 
 // ─── Mute thread ──────────────────────────────────────────────────────────────
 
@@ -700,34 +708,34 @@ function writeMutedThreads(threads: string[]) {
   fs.writeFileSync(MUTED_THREADS_FILE, JSON.stringify(threads, null, 2));
 }
 
-export async function muteThread(req: Request, res: Response): Promise<void> {
-  const { accountEmail } = req.body;
+export const muteThread = defineEventHandler(async (event: H3Event) => {
+  const { accountEmail } = await readBody(event);
 
   if (isConnected()) {
     try {
       const client = await getClient(accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
+        const threadId = getRouterParam(event, "threadId") as string;
         // Gmail "mute" = remove from inbox; future replies also skip inbox
         await gmail.users.threads.modify({
           userId: "me",
-          id: req.params.threadId as string,
+          id: threadId,
           requestBody: {
             removeLabelIds: ["INBOX"],
           },
         });
-        res.json({ threadId: req.params.threadId, muted: true });
-        return;
+        return { threadId, muted: true };
       }
     } catch (error: any) {
       console.error("[muteThread] Gmail error:", error.message);
-      res.status(500).json({ error: error.message });
-      return;
+      setResponseStatus(event, 500);
+      return { error: error.message };
     }
   }
 
   // Local fallback: archive all messages in thread + record as muted
-  const threadId = req.params.threadId as string;
+  const threadId = getRouterParam(event, "threadId") as string;
   const muted = readMutedThreads();
   if (!muted.includes(threadId)) {
     muted.push(threadId);
@@ -748,31 +756,32 @@ export async function muteThread(req: Request, res: Response): Promise<void> {
   writeEmails(emails);
   const labels = recomputeUnreadCounts(emails, readLabels());
   writeLabels(labels);
-  res.json({ threadId, muted: true });
-}
+  return { threadId, muted: true };
+});
 
 // ─── Delete permanently ───────────────────────────────────────────────────────
 
-export function deleteEmail(req: Request, res: Response) {
+export const deleteEmail = defineEventHandler(async (event: H3Event) => {
   const emails = readEmails();
-  const filtered = emails.filter((e) => e.id !== req.params.id);
-  if (filtered.length === emails.length)
-    return res.status(404).json({ error: "Email not found" });
+  const filtered = emails.filter((e) => e.id !== getRouterParam(event, "id"));
+  if (filtered.length === emails.length) {
+    setResponseStatus(event, 404);
+    return { error: "Email not found" };
+  }
   writeEmails(filtered);
-  res.json({ ok: true });
-}
+  return { ok: true };
+});
 
 // ─── Send / compose ───────────────────────────────────────────────────────────
 
-export async function sendEmail(req: Request, res: Response): Promise<void> {
+export const sendEmail = defineEventHandler(async (event: H3Event) => {
   const settings = readSettings();
-  const { to, cc, bcc, subject, body, replyToId, accountEmail } = req.body;
+  const { to, cc, bcc, subject, body, replyToId, accountEmail } =
+    await readBody(event);
 
   if (!to || subject === undefined || body === undefined) {
-    res
-      .status(400)
-      .json({ error: "Missing required fields: to, subject, body" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Missing required fields: to, subject, body" };
   }
 
   // If Gmail is connected, send via Gmail API
@@ -797,6 +806,7 @@ export async function sendEmail(req: Request, res: Response): Promise<void> {
               format: "metadata",
               metadataHeaders: ["Message-Id", "References"],
             });
+
             threadId = original.data.threadId ?? undefined;
             const headers = original.data.payload?.headers || [];
             inReplyTo =
@@ -843,17 +853,17 @@ export async function sendEmail(req: Request, res: Response): Promise<void> {
           requestBody,
         });
 
-        res.status(201).json({
+        setResponseStatus(event, 201);
+        return {
           id: sent.data.id,
           threadId: sent.data.threadId,
           labelIds: sent.data.labelIds || ["SENT"],
-        });
-        return;
+        };
       }
     } catch (error: any) {
       console.error("[sendEmail] Gmail API error:", error.message);
-      res.status(500).json({ error: "Failed to send email via Gmail" });
-      return;
+      setResponseStatus(event, 500);
+      return { error: "Failed to send email via Gmail" };
     }
   }
 
@@ -900,23 +910,25 @@ export async function sendEmail(req: Request, res: Response): Promise<void> {
   emails.push(newEmail);
   writeEmails(emails);
 
-  res.status(201).json(newEmail);
-}
+  setResponseStatus(event, 201);
+  return newEmail;
+});
 
 // ─── Save draft (persistent, Gmail-style) ─────────────────────────────────────
 
-export async function saveDraft(req: Request, res: Response): Promise<void> {
+export const saveDraft = defineEventHandler(async (event: H3Event) => {
   const settings = readSettings();
+  const reqBody = await readBody(event);
   const { to, cc, bcc, subject, body, draftId, replyToId, replyToThreadId } =
-    req.body;
+    reqBody;
 
   // If Gmail is connected, create/update a Gmail draft
   if (isConnected()) {
     try {
-      const client = await getClient(req.body?.accountEmail);
+      const client = await getClient(reqBody?.accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
-        const draftFrom = req.body?.accountEmail || "me";
+        const draftFrom = reqBody?.accountEmail || "me";
         const raw = buildRawEmail({
           from: draftFrom,
           to: to || "",
@@ -934,8 +946,7 @@ export async function saveDraft(req: Request, res: Response): Promise<void> {
               id: draftId,
               requestBody: { message: { raw } },
             });
-            res.json({ draftId: (updated as any).data.id, updated: true });
-            return;
+            return { draftId: (updated as any).data.id, updated: true };
           } catch {
             // Draft may have been deleted; create new
           }
@@ -945,8 +956,7 @@ export async function saveDraft(req: Request, res: Response): Promise<void> {
           userId: "me",
           requestBody: { message: { raw } },
         });
-        res.json({ draftId: (created as any).data.id, created: true });
-        return;
+        return { draftId: (created as any).data.id, created: true };
       }
     } catch (error: any) {
       console.error("[saveDraft] Gmail error:", error.message);
@@ -1013,11 +1023,11 @@ export async function saveDraft(req: Request, res: Response): Promise<void> {
   }
   writeEmails(emails);
 
-  res.json({
+  return {
     draftId: draftEmail.id,
     [existingIdx >= 0 ? "updated" : "created"]: true,
-  });
-}
+  };
+});
 
 /** Build RFC 2822 raw email for Gmail API */
 function buildRawEmail(opts: {
@@ -1052,12 +1062,13 @@ function buildRawEmail(opts: {
 
 // ─── Delete draft ─────────────────────────────────────────────────────────────
 
-export async function deleteDraft(req: Request, res: Response): Promise<void> {
-  const { id } = req.params;
+export const deleteDraft = defineEventHandler(async (event: H3Event) => {
+  const id = getRouterParam(event, "id") as string;
 
   if (isConnected()) {
     try {
-      const client = await getClient(req.body?.accountEmail);
+      const body = await readBody(event).catch(() => ({}));
+      const client = await getClient(body?.accountEmail);
       if (client) {
         const gmail = google.gmail({ version: "v1", auth: client });
         try {
@@ -1068,8 +1079,7 @@ export async function deleteDraft(req: Request, res: Response): Promise<void> {
         } catch {
           // Draft may not exist in Gmail
         }
-        res.json({ ok: true });
-        return;
+        return { ok: true };
       }
     } catch (error: any) {
       console.error("[deleteDraft] Gmail error:", error.message);
@@ -1082,15 +1092,12 @@ export async function deleteDraft(req: Request, res: Response): Promise<void> {
   if (filtered.length !== emails.length) {
     writeEmails(filtered);
   }
-  res.json({ ok: true });
-}
+  return { ok: true };
+});
 
 // ─── Contacts (extracted from email history) ─────────────────────────────────
 
-export async function listContacts(
-  _req: Request,
-  res: Response,
-): Promise<void> {
+export const listContacts = defineEventHandler(async (event: H3Event) => {
   if (isConnected()) {
     try {
       const clients = await getClients();
@@ -1226,8 +1233,7 @@ export async function listContacts(
       const contacts = Array.from(contactMap.values()).sort(
         (a, b) => b.count - a.count,
       );
-      res.json(contacts);
-      return;
+      return contacts;
     } catch (error: any) {
       console.error("[listContacts] error:", error.message);
       // Fall through to demo data
@@ -1273,12 +1279,12 @@ export async function listContacts(
   const contacts = Array.from(contactMap.values()).sort(
     (a, b) => b.count - a.count,
   );
-  res.json(contacts);
-}
+  return contacts;
+});
 
 // ─── Labels ───────────────────────────────────────────────────────────────────
 
-export async function listLabels(_req: Request, res: Response) {
+export const listLabels = defineEventHandler(async (_event: H3Event) => {
   if (isConnected()) {
     try {
       const clients = await getClients();
@@ -1314,30 +1320,32 @@ export async function listLabels(_req: Request, res: Response) {
         ...l,
         unreadCount: 0,
       }));
-      res.json(labels);
-      return;
+      return labels;
     } catch {}
   }
-  res.json(readLabels());
-}
+  return readLabels();
+});
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
-export function getSettings(_req: Request, res: Response) {
-  res.json(readSettings());
-}
+export const getSettings = defineEventHandler((_event: H3Event) => {
+  return readSettings();
+});
 
-export function updateSettings(req: Request, res: Response) {
+export const updateSettings = defineEventHandler(async (event: H3Event) => {
   const current = readSettings();
-  const updated = { ...current, ...req.body };
+  const body = await readBody(event);
+  const updated = { ...current, ...body };
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(updated, null, 2));
-  res.json(updated);
-}
+  return updated;
+});
 
 // ─── Calendar RSVP ───────────────────────────────────────────────────────────
 
-export async function calendarRsvp(req: Request, res: Response): Promise<void> {
-  const { eventId, calendarId, response, accountEmail } = req.body as {
+export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
+  const { eventId, calendarId, response, accountEmail } = (await readBody(
+    event,
+  )) as {
     eventId: string;
     calendarId?: string;
     response: "accepted" | "declined" | "tentative";
@@ -1345,20 +1353,20 @@ export async function calendarRsvp(req: Request, res: Response): Promise<void> {
   };
 
   if (!eventId || !response) {
-    res.status(400).json({ error: "eventId and response are required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "eventId and response are required" };
   }
 
   if (!isConnected()) {
-    res.status(401).json({ error: "No Google account connected" });
-    return;
+    setResponseStatus(event, 401);
+    return { error: "No Google account connected" };
   }
 
   try {
     const client = await getClient(accountEmail);
     if (!client) {
-      res.status(401).json({ error: "Google account not found" });
-      return;
+      setResponseStatus(event, 401);
+      return { error: "Google account not found" };
     }
 
     const calendar = google.calendar({ version: "v3", auth: client });
@@ -1370,16 +1378,16 @@ export async function calendarRsvp(req: Request, res: Response): Promise<void> {
       eventId,
     });
 
-    const event = eventRes.data;
-    if (!event) {
-      res.status(404).json({ error: "Event not found" });
-      return;
+    const calEvent = eventRes.data;
+    if (!calEvent) {
+      setResponseStatus(event, 404);
+      return { error: "Event not found" };
     }
 
     // Find the current user's attendee entry and update their response
     const settings = readSettings();
     const myEmail = settings.email?.toLowerCase();
-    const attendees = event.attendees || [];
+    const attendees = calEvent.attendees || [];
     let found = false;
     for (const attendee of attendees) {
       if (attendee.email?.toLowerCase() === myEmail || attendee.self) {
@@ -1405,9 +1413,10 @@ export async function calendarRsvp(req: Request, res: Response): Promise<void> {
       requestBody: { attendees },
     });
 
-    res.json({ ok: true, response });
+    return { ok: true, response };
   } catch (error: any) {
     console.error("[calendarRsvp] error:", error.message);
-    res.status(500).json({ error: error.message });
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-}
+});

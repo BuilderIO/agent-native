@@ -1,4 +1,9 @@
-import type { Request, Response } from "express";
+import {
+  defineEventHandler,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import path from "path";
 import type { Settings } from "../../shared/api.js";
 import { readJsonFile, writeJsonFile } from "../lib/data-helpers.js";
@@ -12,21 +17,23 @@ const DEFAULT_SETTINGS: Settings = {
   defaultEventDuration: 30,
 };
 
-export function getSettings(_req: Request, res: Response): void {
+export const getSettings = defineEventHandler((_event: H3Event) => {
   try {
     const settings = readJsonFile<Settings>(SETTINGS_PATH) || DEFAULT_SETTINGS;
-    res.json(settings);
+    return settings;
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    setResponseStatus(_event, 500);
+    return { error: error.message };
   }
-}
+});
 
-export function updateSettings(req: Request, res: Response): void {
+export const updateSettings = defineEventHandler(async (event: H3Event) => {
   try {
-    const settings: Settings = req.body;
+    const settings: Settings = await readBody(event);
     writeJsonFile(SETTINGS_PATH, settings);
-    res.json(settings);
+    return settings;
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-}
+});

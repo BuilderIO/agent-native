@@ -1,31 +1,23 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-
-// We can't directly import parseEnvFile (it's not exported), so we test it
-// through createServer's env management routes. But we can extract the logic
-// by testing the route behavior.
-
-// For parseEnvFile and upsertEnvFile, we test via the public createServer API.
+import { describe, it, expect } from "vitest";
 import { createServer } from "./create-server.js";
 
-// Inline test of parseEnvFile logic by sending env vars through the server
-// Since parseEnvFile is private, we test its behavior through integration.
-
 describe("createServer", () => {
-  it("returns an express app", () => {
-    const app = createServer();
+  it("returns an H3 app and router", () => {
+    const { app, router } = createServer();
     expect(app).toBeDefined();
-    expect(typeof app.get).toBe("function");
-    expect(typeof app.post).toBe("function");
+    expect(router).toBeDefined();
+    expect(typeof router.get).toBe("function");
+    expect(typeof router.post).toBe("function");
   });
 
   it("disables CORS when cors is false", () => {
     // Should not throw
-    const app = createServer({ cors: false });
+    const { app } = createServer({ cors: false });
     expect(app).toBeDefined();
   });
 
   it("accepts custom jsonLimit", () => {
-    const app = createServer({ jsonLimit: "1mb" });
+    const { app } = createServer({ jsonLimit: "1mb" });
     expect(app).toBeDefined();
   });
 });

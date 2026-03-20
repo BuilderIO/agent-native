@@ -1,9 +1,9 @@
-import { RequestHandler } from "express";
+import { defineEventHandler } from "h3";
 import { DemoResponse } from "@shared/api";
 
-export const handleDemo: RequestHandler = (req, res) => {
+export const handleDemo = defineEventHandler((_event) => {
   const response: DemoResponse = {
-    message: "Hello from Express server",
+    message: "Hello from H3 server",
   };
-  res.status(200).json(response);
-};
+  return response;
+});

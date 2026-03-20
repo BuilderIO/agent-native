@@ -1,4 +1,10 @@
-import { Request, Response } from "express";
+import {
+  defineEventHandler,
+  getQuery,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import { requireEnvKey } from "@agent-native/core/server";
 import { Client } from "@notionhq/client";
 import { BlockObjectRequest } from "@notionhq/client/build/src/api-endpoints";
@@ -60,11 +66,13 @@ function getClient() {
   return new Client({ auth: token });
 }
 
-export async function getPages(req: Request, res: Response) {
-  if (requireEnvKey(res, "NOTION_API_KEY", "Notion")) return;
+export const getPages = defineEventHandler(async (event: H3Event) => {
+  const missing = requireEnvKey(event, "NOTION_API_KEY", "Notion");
+  if (missing) return missing;
   try {
     const notion = getClient();
-    const { handle } = req.query;
+    const query = getQuery(event);
+    const { handle } = query;
 
     // We want to fetch all pages so the frontend dropdown is fully populated.
     // The frontend handles auto-linking.
@@ -82,20 +90,24 @@ export async function getPages(req: Request, res: Response) {
       cursor = response.next_cursor || undefined;
     } while (cursor);
 
-    res.json(allResults);
+    return allResults;
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-}
+});
 
-export async function fetchPage(req: Request, res: Response) {
-  if (requireEnvKey(res, "NOTION_API_KEY", "Notion")) return;
+export const fetchPage = defineEventHandler(async (event: H3Event) => {
+  const missing = requireEnvKey(event, "NOTION_API_KEY", "Notion");
+  if (missing) return missing;
   try {
     const notion = getClient();
-    const { pageId } = req.body;
+    const body = await readBody(event);
+    const { pageId } = body;
 
     if (!pageId) {
-      return res.status(400).json({ error: "pageId is required" });
+      setResponseStatus(event, 400);
+      return { error: "pageId is required" };
     }
 
     const page = await notionCall(() =>
@@ -144,17 +156,20 @@ export async function fetchPage(req: Request, res: Response) {
       }
     }
 
-    res.json({ page, blocks });
+    return { page, blocks };
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-}
+});
 
-export async function pushPage(req: Request, res: Response) {
-  if (requireEnvKey(res, "NOTION_API_KEY", "Notion")) return;
+export const pushPage = defineEventHandler(async (event: H3Event) => {
+  const missing = requireEnvKey(event, "NOTION_API_KEY", "Notion");
+  if (missing) return missing;
   try {
     const notion = getClient();
-    const { pageId, properties, blocks } = req.body;
+    const body = await readBody(event);
+    const { pageId, properties, blocks } = body;
 
     let targetPageId = pageId;
 
@@ -334,38 +349,44 @@ export async function pushPage(req: Request, res: Response) {
       notion.pages.retrieve({ page_id: targetPageId }),
     );
 
-    res.json({
+    return {
       success: true,
       pageId: targetPageId,
       last_edited_time: (finalPage as any).last_edited_time,
-    });
+    };
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-}
+});
 
-export async function getPageMeta(req: Request, res: Response) {
-  if (requireEnvKey(res, "NOTION_API_KEY", "Notion")) return;
+export const getPageMeta = defineEventHandler(async (event: H3Event) => {
+  const missing = requireEnvKey(event, "NOTION_API_KEY", "Notion");
+  if (missing) return missing;
   try {
     const notion = getClient();
-    const { pageId } = req.query;
+    const query = getQuery(event);
+    const { pageId } = query;
 
     if (!pageId || typeof pageId !== "string") {
-      return res.status(400).json({ error: "pageId is required" });
+      setResponseStatus(event, 400);
+      return { error: "pageId is required" };
     }
 
     const page = await notionCall(() =>
       notion.pages.retrieve({ page_id: pageId }),
     );
 
-    res.json({ page });
+    return { page };
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-}
+});
 
-export async function getDatabaseSchema(req: Request, res: Response) {
-  if (requireEnvKey(res, "NOTION_API_KEY", "Notion")) return;
+export const getDatabaseSchema = defineEventHandler(async (event: H3Event) => {
+  const missing = requireEnvKey(event, "NOTION_API_KEY", "Notion");
+  if (missing) return missing;
   try {
     const notion = getClient();
     const response = await notionCall(() =>
@@ -373,8 +394,9 @@ export async function getDatabaseSchema(req: Request, res: Response) {
         data_source_id: CONTENT_CALENDAR_DB_ID,
       }),
     );
-    res.json(response);
+    return response;
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-}
+});

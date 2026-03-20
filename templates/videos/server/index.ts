@@ -4,12 +4,12 @@ import { handleDemo } from "./routes/demo";
 import { handleSaveCompositionDefaults } from "./routes/save-composition";
 
 export function createAppServer() {
-  const app = createServer();
+  const { app, router } = createServer();
 
-  app.get("/api/demo", handleDemo);
+  router.get("/api/demo", handleDemo);
 
   // Save composition defaults to registry
-  app.post("/api/save-composition-defaults", handleSaveCompositionDefaults);
+  router.post("/api/save-composition-defaults", handleSaveCompositionDefaults);
 
   return app;
 }

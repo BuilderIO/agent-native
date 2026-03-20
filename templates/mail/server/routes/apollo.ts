@@ -1,4 +1,10 @@
-import type { Request, Response } from "express";
+import {
+  defineEventHandler,
+  getQuery,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import fs from "fs";
 import path from "path";
 
@@ -22,31 +28,32 @@ function getApolloKey(): string | undefined {
 }
 
 // GET /api/apollo/status — check if key is configured (never returns the key itself)
-export function apolloStatus(_req: Request, res: Response) {
-  res.json({ connected: !!getApolloKey() });
-}
+export const apolloStatus = defineEventHandler((_event: H3Event) => {
+  return { connected: !!getApolloKey() };
+});
 
 // PUT /api/apollo/key — save API key
-export function apolloSaveKey(req: Request, res: Response) {
-  const { apiKey } = req.body;
+export const apolloSaveKey = defineEventHandler(async (event: H3Event) => {
+  const body = await readBody(event);
+  const { apiKey } = body;
   if (!apiKey || typeof apiKey !== "string") {
-    res.status(400).json({ error: "apiKey is required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "apiKey is required" };
   }
   ensureStateDir();
   fs.writeFileSync(APOLLO_FILE, JSON.stringify({ apiKey }, null, 2));
-  res.json({ connected: true });
-}
+  return { connected: true };
+});
 
 // DELETE /api/apollo/key — remove API key
-export function apolloDeleteKey(_req: Request, res: Response) {
+export const apolloDeleteKey = defineEventHandler((_event: H3Event) => {
   try {
     fs.unlinkSync(APOLLO_FILE);
   } catch {
     // didn't exist
   }
-  res.json({ connected: false });
-}
+  return { connected: false };
+});
 
 // In-memory cache for Apollo person lookups — avoids redundant API calls
 // when flipping through emails from the same person.
@@ -54,24 +61,23 @@ const personCache = new Map<string, { data: any; expiry: number }>();
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 // GET /api/apollo/person?email=... — look up a person
-export async function apolloPersonLookup(req: Request, res: Response) {
-  const { email } = req.query;
+export const apolloPersonLookup = defineEventHandler(async (event: H3Event) => {
+  const { email } = getQuery(event);
   if (!email || typeof email !== "string") {
-    res.status(400).json({ error: "email query param required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "email query param required" };
   }
 
   const apiKey = getApolloKey();
   if (!apiKey) {
-    res.status(401).json({ error: "Apollo API key not configured" });
-    return;
+    setResponseStatus(event, 401);
+    return { error: "Apollo API key not configured" };
   }
 
   // Return cached result if still fresh
   const cached = personCache.get(email);
   if (cached && cached.expiry > Date.now()) {
-    res.json(cached.data);
-    return;
+    return cached.data;
   }
 
   try {
@@ -85,10 +91,8 @@ export async function apolloPersonLookup(req: Request, res: Response) {
     });
 
     if (!response.ok) {
-      res
-        .status(response.status)
-        .json({ error: `Apollo API error: ${response.status}` });
-      return;
+      setResponseStatus(event, response.status);
+      return { error: `Apollo API error: ${response.status}` };
     }
 
     const data = await response.json();
@@ -97,8 +101,9 @@ export async function apolloPersonLookup(req: Request, res: Response) {
     // Cache the result
     personCache.set(email, { data: person, expiry: Date.now() + CACHE_TTL });
 
-    res.json(person);
+    return person;
   } catch {
-    res.status(500).json({ error: "Failed to reach Apollo API" });
+    setResponseStatus(event, 500);
+    return { error: "Failed to reach Apollo API" };
   }
-}
+});

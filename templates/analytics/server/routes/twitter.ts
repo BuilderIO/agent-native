@@ -1,4 +1,4 @@
-import { RequestHandler } from "express";
+import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 import { requireEnvKey } from "@agent-native/core/server";
 import { createHash } from "crypto";
 
@@ -113,10 +113,12 @@ export async function fetchAllTweetsForUser(
 }
 
 // ─── Handler: GET /api/twitter/tweets?userName=...&pages=... ──────────
-export const handleTwitterTweets: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "TWITTER_BEARER_TOKEN", "Twitter")) return;
-  const userName = (req.query.userName as string) || "steve8708";
-  const maxPages = Math.min(Number(req.query.pages) || 5, 10);
+export const handleTwitterTweets = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "TWITTER_BEARER_TOKEN", "Twitter");
+  if (missing) return missing;
+  const { userName: userNameParam, pages: pagesParam } = getQuery(event);
+  const userName = (userNameParam as string) || "steve8708";
+  const maxPages = Math.min(Number(pagesParam) || 5, 10);
 
   const apiKey = process.env.TWITTER_API_KEY;
   console.log(
@@ -129,8 +131,8 @@ export const handleTwitterTweets: RequestHandler = async (req, res) => {
   );
   if (!apiKey) {
     console.error("[Twitter] TWITTER_API_KEY not configured");
-    res.status(500).json({ error: "TWITTER_API_KEY not configured" });
-    return;
+    setResponseStatus(event, 500);
+    return { error: "TWITTER_API_KEY not configured" };
   }
 
   try {
@@ -141,23 +143,25 @@ export const handleTwitterTweets: RequestHandler = async (req, res) => {
       "tweets for",
       userName,
     );
-    res.json({ tweets, count: tweets.length });
+    return { tweets, count: tweets.length };
   } catch (error: any) {
     const message = error?.message || String(error);
     console.error("[Twitter] API error:", message, error);
-    res.status(502).json({ error: message });
+    setResponseStatus(event, 502);
+    return { error: message };
   }
-};
+});
 
 // ─── Handler: GET /api/twitter/multi?userNames=a,b,c&pages=... ──────
-export const handleTwitterMulti: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "TWITTER_BEARER_TOKEN", "Twitter")) return;
-  const userNamesParam = (req.query.userNames as string) || "";
-  const userNames = userNamesParam
+export const handleTwitterMulti = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "TWITTER_BEARER_TOKEN", "Twitter");
+  if (missing) return missing;
+  const { userNames: userNamesParam, pages: pagesParam } = getQuery(event);
+  const userNames = ((userNamesParam as string) || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  const maxPages = Math.min(Number(req.query.pages) || 5, 10);
+  const maxPages = Math.min(Number(pagesParam) || 5, 10);
 
   console.log(
     "[Twitter Multi] Request for users:",
@@ -167,20 +171,20 @@ export const handleTwitterMulti: RequestHandler = async (req, res) => {
   );
 
   if (userNames.length === 0) {
-    res.status(400).json({ error: "Missing userNames parameter" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Missing userNames parameter" };
   }
   if (userNames.length > 10) {
-    res.status(400).json({ error: "Max 10 usernames at a time" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Max 10 usernames at a time" };
   }
 
   const apiKey = process.env.TWITTER_API_KEY;
   console.log("[Twitter Multi] API key present:", !!apiKey);
   if (!apiKey) {
     console.error("[Twitter Multi] TWITTER_API_KEY not configured");
-    res.status(500).json({ error: "TWITTER_API_KEY not configured" });
-    return;
+    setResponseStatus(event, 500);
+    return { error: "TWITTER_API_KEY not configured" };
   }
 
   // Check full multi-user cache
@@ -188,8 +192,7 @@ export const handleTwitterMulti: RequestHandler = async (req, res) => {
   const cached = getCached(multiKey);
   if (cached) {
     console.log("[Twitter Multi] Returning cached data");
-    res.json({ cached: true, ...(cached as object) });
-    return;
+    return { cached: true, ...(cached as object) };
   }
 
   try {
@@ -210,10 +213,11 @@ export const handleTwitterMulti: RequestHandler = async (req, res) => {
       Object.keys(result).length,
       "users",
     );
-    res.json({ cached: false, ...payload });
+    return { cached: false, ...payload };
   } catch (error: any) {
     const message = error?.message || String(error);
     console.error("[Twitter Multi] Error:", message, error);
-    res.status(502).json({ error: message });
+    setResponseStatus(event, 502);
+    return { error: message };
   }
-};
+});

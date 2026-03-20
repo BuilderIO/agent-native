@@ -1,4 +1,4 @@
-import { type RequestHandler } from "express";
+import { defineEventHandler, readBody, setResponseStatus } from "h3";
 import { BigQuery } from "@google-cloud/bigquery";
 
 const PROJECT_ID = process.env.BIGQUERY_PROJECT_ID || "your-gcp-project-id";
@@ -29,13 +29,13 @@ function getBigQueryClient(): BigQuery {
  * Logs custom events to BigQuery events_partitioned table.
  * Used for tracking metric views, user actions, etc.
  */
-export const handleTrackEvent: RequestHandler = async (req, res) => {
+export const handleTrackEvent = defineEventHandler(async (event) => {
   try {
-    const { event, data, userId, timestamp } = req.body;
+    const { event: eventName, data, userId, timestamp } = await readBody(event);
 
-    if (!event || typeof event !== "string") {
-      res.status(400).json({ error: "Missing or invalid 'event' field" });
-      return;
+    if (!eventName || typeof eventName !== "string") {
+      setResponseStatus(event, 400);
+      return { error: "Missing or invalid 'event' field" };
     }
 
     // Auth has been removed — user info comes from request body only
@@ -44,7 +44,7 @@ export const handleTrackEvent: RequestHandler = async (req, res) => {
 
     // Prepare event row for BigQuery
     const eventRow = {
-      event,
+      event: eventName,
       data: typeof data === "string" ? data : JSON.stringify(data || {}),
       userId: authenticatedUserId || userId || null,
       userEmail: userEmail || null,
@@ -71,9 +71,11 @@ export const handleTrackEvent: RequestHandler = async (req, res) => {
       });
 
     // Respond immediately - don't wait for BigQuery
-    res.status(202).json({ success: true });
+    setResponseStatus(event, 202);
+    return { success: true };
   } catch (err: any) {
     console.error("Track event error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});

@@ -1,4 +1,4 @@
-import { RequestHandler } from "express";
+import { defineEventHandler, readBody, setResponseStatus } from "h3";
 import type {
   ImageGenRequest,
   ImageGenResponse,
@@ -159,21 +159,21 @@ Subject to depict: ${prompt}${context?.slideContent ? `\n\n**Current slide conte
 /**
  * POST /api/image-gen/generate
  */
-export const generateImage: RequestHandler = async (req, res) => {
-  const body = req.body as ImageGenRequest;
+export const generateImage = defineEventHandler(async (event) => {
+  const body = await readBody<ImageGenRequest>(event);
   const { prompt, model, referenceImageUrls, uploadedReferenceImages } = body;
 
   if (!prompt?.trim()) {
-    res.status(400).json({ error: "Prompt is required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Prompt is required" };
   }
 
   if (!process.env.GEMINI_API_KEY) {
-    res.status(400).json({
+    setResponseStatus(event, 400);
+    return {
       error:
         "Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
-    });
-    return;
+    };
   }
 
   try {
@@ -209,19 +209,20 @@ export const generateImage: RequestHandler = async (req, res) => {
       prompt,
     };
 
-    res.json(response);
+    return response;
   } catch (err: any) {
     console.error("Image generation error:", err);
-    res.status(500).json({ error: err.message || "Image generation failed" });
+    setResponseStatus(event, 500);
+    return { error: err.message || "Image generation failed" };
   }
-};
+});
 
 /**
  * GET /api/image-gen/status
  */
-export const getImageGenStatus: RequestHandler = (_req, res) => {
+export const getImageGenStatus = defineEventHandler((_event) => {
   const response: ImageGenStatusResponse = {
     gemini: !!process.env.GEMINI_API_KEY,
   };
-  res.json(response);
-};
+  return response;
+});

@@ -1,4 +1,9 @@
-import { RequestHandler } from "express";
+import {
+  defineEventHandler,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import fs, { existsSync, readFileSync } from "fs";
 import { readFile } from "fs/promises";
 import path, { join } from "path";
@@ -12,12 +17,12 @@ import { normalizeBuilderBlogHandle } from "../../shared/builder-slugs.js";
  * Body: { projectSlug: string }
  * Returns: { original, builderJson, converted, summary }
  */
-export const testRoundtrip: RequestHandler = async (req, res) => {
+export const testRoundtrip = defineEventHandler(async (event: H3Event) => {
   try {
-    const { projectSlug } = req.body;
+    const { projectSlug } = await readBody(event);
     if (!projectSlug) {
-      res.status(400).json({ error: "projectSlug is required" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "projectSlug is required" };
     }
 
     // Read the active draft
@@ -55,7 +60,7 @@ export const testRoundtrip: RequestHandler = async (req, res) => {
     // markdownToBuilder uses browser APIs (Image loading)
     // Instead, return a structure that the client can use
 
-    res.json({
+    return {
       original: originalMarkdown,
       message:
         "Client-side conversion required - use the test endpoint from browser context",
@@ -65,11 +70,12 @@ export const testRoundtrip: RequestHandler = async (req, res) => {
         step2: "Then call builderToMarkdown() with the resulting blocks",
         step3: "Compare the original and converted markdown",
       },
-    });
+    };
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 const AUTH_FILE = path.join(process.cwd(), "content", ".builder-auth.json");
 
@@ -106,15 +112,16 @@ function normalizeBuilderHandle(input: string, model: string): string {
  * Body: { apiKey?: string, articleId?: string, handle?: string, model?: string }
  * Returns: { blocks, title, ... }
  */
-export const fetchArticle: RequestHandler = async (req, res) => {
+export const fetchArticle = defineEventHandler(async (event: H3Event) => {
   try {
-    const { articleId, handle, model = "blog-article" } = req.body;
-    const apiKey = req.body?.apiKey || getStoredApiKey();
+    const body = await readBody(event);
+    const { articleId, handle, model = "blog-article" } = body;
+    const apiKey = body?.apiKey || getStoredApiKey();
     if (!apiKey || (!articleId && !handle)) {
-      res.status(400).json({
+      setResponseStatus(event, 400);
+      return {
         error: "Builder API key and either articleId or handle are required",
-      });
-      return;
+      };
     }
 
     const normalizedHandle =
@@ -132,10 +139,8 @@ export const fetchArticle: RequestHandler = async (req, res) => {
       url = `${BUILDER_CDN}/content/${model}/${articleId}?apiKey=${apiKey}&includeUnpublished=true${cacheBuster}`;
       const response = await fetch(url);
       if (!response.ok) {
-        res
-          .status(response.status)
-          .json({ error: `Failed to fetch ${model} from Builder` });
-        return;
+        setResponseStatus(event, response.status);
+        return { error: `Failed to fetch ${model} from Builder` };
       }
       data = await response.json();
     } else {
@@ -155,7 +160,7 @@ export const fetchArticle: RequestHandler = async (req, res) => {
           const idData = await idResponse.json();
           if (idData && idData.id) {
             console.log(
-              `[fetch-article] ✓ Found by direct ID — blocksCount: ${idData.data?.blocks?.length || 0}`,
+              `[fetch-article] Found by direct ID — blocksCount: ${idData.data?.blocks?.length || 0}`,
             );
             data = idData;
           }
@@ -171,7 +176,7 @@ export const fetchArticle: RequestHandler = async (req, res) => {
         if (response.ok) {
           data = await response.json();
           if (data.results && data.results.length > 0) {
-            console.log(`[fetch-article] ✓ Found by data.handle`);
+            console.log(`[fetch-article] Found by data.handle`);
           }
         }
 
@@ -183,7 +188,7 @@ export const fetchArticle: RequestHandler = async (req, res) => {
           if (response.ok) {
             data = await response.json();
             if (data.results && data.results.length > 0) {
-              console.log(`[fetch-article] ✓ Found by root url`);
+              console.log(`[fetch-article] Found by root url`);
             }
           }
         }
@@ -196,7 +201,7 @@ export const fetchArticle: RequestHandler = async (req, res) => {
           if (response.ok) {
             data = await response.json();
             if (data.results && data.results.length > 0) {
-              console.log(`[fetch-article] ✓ Found by data.url`);
+              console.log(`[fetch-article] Found by data.url`);
             }
           }
         }
@@ -209,7 +214,7 @@ export const fetchArticle: RequestHandler = async (req, res) => {
           if (response.ok) {
             data = await response.json();
             if (data?.id) {
-              console.log(`[fetch-article] ✓ Found by direct ID (fallback)`);
+              console.log(`[fetch-article] Found by direct ID (fallback)`);
             }
           }
         }
@@ -217,8 +222,8 @@ export const fetchArticle: RequestHandler = async (req, res) => {
 
       if (!data || ((!data.results || data.results.length === 0) && !data.id)) {
         console.error(`[fetch-article] No data found for handle: ${handle}`);
-        res.status(404).json({ error: `Content not found: ${handle}` });
-        return;
+        setResponseStatus(event, 404);
+        return { error: `Content not found: ${handle}` };
       }
     }
 
@@ -229,10 +234,8 @@ export const fetchArticle: RequestHandler = async (req, res) => {
       console.error(
         `[fetch-article] Invalid article data for handle: ${handle}`,
       );
-      res
-        .status(404)
-        .json({ error: `Invalid content data returned for: ${handle}` });
-      return;
+      setResponseStatus(event, 404);
+      return { error: `Invalid content data returned for: ${handle}` };
     }
     const blocks = article.data?.blocks || [];
     const title = article.data?.title || article.name || "";
@@ -243,15 +246,16 @@ export const fetchArticle: RequestHandler = async (req, res) => {
     // For docs-content, url is typically in article.data.url, not article.url
     const articleUrl = article.url || article.data?.url || "";
 
-    res.json({
+    return {
       blocks,
       title,
       handle: returnedHandle,
       url: articleUrl,
       fullData: article.data,
-    });
+    };
   } catch (err: any) {
     console.error(`[fetch-article] Error:`, err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});

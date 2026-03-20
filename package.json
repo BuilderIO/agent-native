@@ -31,7 +31,8 @@
     "onlyBuiltDependencies": [
       "node-pty",
       "esbuild",
-      "lightningcss"
+      "lightningcss",
+      "better-sqlite3"
     ]
   }
 }

@@ -1,5 +1,11 @@
-import express from "express";
-import cors from "cors";
+import {
+  createApp,
+  createRouter,
+  defineEventHandler,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import fs from "fs";
 import path from "path";
 import { agentEnv } from "../shared/agent-env.js";
@@ -14,9 +20,9 @@ export interface EnvKeyConfig {
 }
 
 export interface CreateServerOptions {
-  /** CORS options. Pass false to disable. Default: enabled with defaults. */
-  cors?: cors.CorsOptions | false;
-  /** JSON body parser limit. Default: "50mb" */
+  /** CORS options. Ignored (H3 handles CORS via middleware). Default: enabled. */
+  cors?: Record<string, unknown> | false;
+  /** JSON body parser limit. Kept for API compatibility (H3 uses readBody). */
   jsonLimit?: string;
   /** Custom ping message. Default: reads PING_MESSAGE env var, falls back to "pong" */
   pingMessage?: string;
@@ -95,81 +101,120 @@ function upsertEnvFile(
   fs.writeFileSync(envPath, result);
 }
 
+export interface CreateServerResult {
+  app: ReturnType<typeof createApp>;
+  router: ReturnType<typeof createRouter>;
+}
+
 /**
- * Create a pre-configured Express app with standard agent-native middleware:
- * - CORS
- * - JSON body parser (50mb limit)
- * - URL-encoded body parser
+ * Create a pre-configured H3 app with standard agent-native setup:
+ * - CORS headers via middleware
  * - /api/ping health check
  * - /api/env-status and /api/env-vars (when envKeys is provided)
+ *
+ * Returns { app, router } — mount routes on `router`.
  */
 export function createServer(
   options: CreateServerOptions = {},
-): express.Express {
-  const app = express();
+): CreateServerResult {
+  const app = createApp({
+    onError(error, event) {
+      console.error("[agent-native] Server error:", error);
+    },
+  });
 
-  // Middleware
+  // CORS middleware
   if (options.cors !== false) {
-    app.use(cors(options.cors));
+    app.use(
+      defineEventHandler((event) => {
+        const headers = event.node.res;
+        headers.setHeader("Access-Control-Allow-Origin", "*");
+        headers.setHeader(
+          "Access-Control-Allow-Methods",
+          "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+        );
+        headers.setHeader(
+          "Access-Control-Allow-Headers",
+          "Content-Type,Authorization,X-Requested-With",
+        );
+
+        if (event.node.req.method === "OPTIONS") {
+          headers.writeHead(204);
+          headers.end();
+          return null;
+        }
+      }),
+    );
   }
-  app.use(express.json({ limit: options.jsonLimit ?? "50mb" }));
-  app.use(express.urlencoded({ extended: true }));
+
+  const router = createRouter();
+  app.use(router);
 
   // Health check
   if (!options.disablePing) {
-    app.get("/api/ping", (_req, res) => {
-      const message = options.pingMessage ?? process.env.PING_MESSAGE ?? "pong";
-      res.json({ message });
-    });
+    router.get(
+      "/api/ping",
+      defineEventHandler(() => {
+        const message =
+          options.pingMessage ?? process.env.PING_MESSAGE ?? "pong";
+        return { message };
+      }),
+    );
   }
 
   // Env key management routes
   if (options.envKeys) {
     const envKeys = options.envKeys;
 
-    app.get("/api/env-status", (_req, res) => {
-      res.json(
-        envKeys.map((cfg) => ({
+    router.get(
+      "/api/env-status",
+      defineEventHandler(() => {
+        return envKeys.map((cfg) => ({
           key: cfg.key,
           label: cfg.label,
           required: cfg.required ?? false,
           configured: !!process.env[cfg.key],
-        })),
-      );
-    });
+        }));
+      }),
+    );
 
-    app.post("/api/env-vars", (req, res) => {
-      const { vars } = req.body as {
-        vars?: Array<{ key: string; value: string }>;
-      };
-      if (!Array.isArray(vars) || vars.length === 0) {
-        res.status(400).json({ error: "vars array required" });
-        return;
-      }
+    router.post(
+      "/api/env-vars",
+      defineEventHandler(async (event: H3Event) => {
+        const body = await readBody(event);
+        const { vars } = body as {
+          vars?: Array<{ key: string; value: string }>;
+        };
 
-      // Only allow keys that are in the env config
-      const allowedKeys = new Set(envKeys.map((k) => k.key));
-      const filtered = vars.filter((v) => allowedKeys.has(v.key));
-      if (filtered.length === 0) {
-        res.status(400).json({ error: "No recognized env keys in request" });
-        return;
-      }
+        if (!Array.isArray(vars) || vars.length === 0) {
+          setResponseStatus(event, 400);
+          return { error: "vars array required" };
+        }
 
-      // Write to .env file
-      const envPath = path.join(process.cwd(), ".env");
-      upsertEnvFile(envPath, filtered);
+        // Only allow keys that are in the env config
+        const allowedKeys = new Set(envKeys.map((k) => k.key));
+        const filtered = vars.filter((v) => allowedKeys.has(v.key));
+        if (filtered.length === 0) {
+          setResponseStatus(event, 400);
+          return { error: "No recognized env keys in request" };
+        }
 
-      // Update process.env so the app picks up the new values immediately
-      for (const { key, value } of filtered) {
-        process.env[key] = value;
-      }
+        // Write to .env file
+        const envPath = path.join(process.cwd(), ".env");
+        upsertEnvFile(envPath, filtered);
 
-      // Notify parent (Builder or harness) via postMessage
-      agentEnv.setVars(filtered);
+        // Update process.env so the app picks up the new values immediately
+        for (const { key, value } of filtered) {
+          process.env[key] = value;
+        }
 
-      res.json({ saved: filtered.map((v) => v.key) });
-    });
+        // Notify parent (Builder or harness) via postMessage
+        agentEnv.setVars(filtered);
+
+        return { saved: filtered.map((v) => v.key) };
+      }),
+    );
   }
 
-  return app;
+  return { app, router };
 }

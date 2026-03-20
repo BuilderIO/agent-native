@@ -1,13 +1,14 @@
-import { RequestHandler } from "express";
+import { defineEventHandler, getQuery, readBody, setResponseStatus } from "h3";
 import fs from "fs/promises";
 import path from "path";
 const SKILLS_DIR = path.join(process.cwd(), ".builder/skills");
 const RULES_DIR = path.join(process.cwd(), ".builder/rules");
 
 // Auth removed — stub always returns a local user
-async function getUserInfoFromToken(
-  _req: any,
-): Promise<{ uid: string; email: string } | null> {
+async function getUserInfoFromToken(): Promise<{
+  uid: string;
+  email: string;
+} | null> {
   return { uid: "local", email: "local@localhost" };
 }
 
@@ -24,7 +25,7 @@ interface SkillFile {
  *
  * List all SKILL.md and .mdc files (public endpoint)
  */
-export const handleListInstructions: RequestHandler = async (req, res) => {
+export const handleListInstructions = defineEventHandler(async (event) => {
   try {
     const files: SkillFile[] = [];
 
@@ -103,55 +104,56 @@ export const handleListInstructions: RequestHandler = async (req, res) => {
       console.error("Error reading rules directory:", err);
     }
 
-    res.json({ files });
+    return { files };
   } catch (err: any) {
     console.error("List instructions error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 /**
  * GET /api/ai-instructions/get?path=.builder/skills/bigquery/SKILL.md
  *
  * Get content of a specific SKILL.md or .mdc file
  */
-export const handleGetInstruction: RequestHandler = async (req, res) => {
+export const handleGetInstruction = defineEventHandler(async (event) => {
   try {
-    const { path: filePath } = req.query;
+    const { path: filePath } = getQuery(event);
 
     if (!filePath || typeof filePath !== "string") {
-      res.status(400).json({ error: "Missing path parameter" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "Missing path parameter" };
     }
 
     // Security: ensure path is within .builder directory
     if (!filePath.startsWith(".builder/")) {
-      res.status(403).json({ error: "Access denied" });
-      return;
+      setResponseStatus(event, 403);
+      return { error: "Access denied" };
     }
 
     const fullPath = path.join(process.cwd(), filePath);
     const content = await fs.readFile(fullPath, "utf-8");
 
-    res.json({ content, path: filePath });
+    return { content, path: filePath };
   } catch (err: any) {
     console.error("Get instruction error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 /**
  * GET /api/ai-instructions/can-edit
  *
  * Check if current user can edit AI instructions
  */
-export const handleCanEditInstructions: RequestHandler = async (req, res) => {
+export const handleCanEditInstructions = defineEventHandler(async (event) => {
   try {
-    const userInfo = await getUserInfoFromToken(req);
+    const userInfo = await getUserInfoFromToken();
 
     if (!userInfo) {
-      res.json({ canEdit: false, email: "" });
-      return;
+      return { canEdit: false, email: "" };
     }
 
     // Check if user is admin (matches ADMIN_EMAIL_DOMAIN) or in analytics team (DATA_DICT_REVIEWERS)
@@ -168,12 +170,12 @@ export const handleCanEditInstructions: RequestHandler = async (req, res) => {
     const isAnalytics = allowedReviewers.includes(userInfo.email.toLowerCase());
     const canEdit = isAdmin || isAnalytics;
 
-    res.json({ canEdit, email: userInfo.email });
+    return { canEdit, email: userInfo.email };
   } catch (err: any) {
     console.error("Can edit check error:", err.message);
-    res.json({ canEdit: false, email: "" });
+    return { canEdit: false, email: "" };
   }
-};
+});
 
 /**
  * POST /api/ai-instructions/save
@@ -181,13 +183,13 @@ export const handleCanEditInstructions: RequestHandler = async (req, res) => {
  * Save content to a SKILL.md or .mdc file
  * Body: { path: string, content: string }
  */
-export const handleSaveInstruction: RequestHandler = async (req, res) => {
+export const handleSaveInstruction = defineEventHandler(async (event) => {
   try {
-    const userInfo = await getUserInfoFromToken(req);
+    const userInfo = await getUserInfoFromToken();
 
     if (!userInfo) {
-      res.status(401).json({ error: "Authentication required" });
-      return;
+      setResponseStatus(event, 401);
+      return { error: "Authentication required" };
     }
 
     // Check if user is admin (matches ADMIN_EMAIL_DOMAIN) or in analytics team (DATA_DICT_REVIEWERS)
@@ -204,28 +206,28 @@ export const handleSaveInstruction: RequestHandler = async (req, res) => {
     const isAnalytics = allowedReviewers.includes(userInfo.email.toLowerCase());
 
     if (!isAdmin && !isAnalytics) {
-      res.status(403).json({
+      setResponseStatus(event, 403);
+      return {
         error: "Only admins and analytics team can edit AI instructions",
-      });
-      return;
+      };
     }
 
-    const { path: filePath, content } = req.body;
+    const { path: filePath, content } = await readBody(event);
 
     if (!filePath || typeof filePath !== "string") {
-      res.status(400).json({ error: "Missing path parameter" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "Missing path parameter" };
     }
 
     if (typeof content !== "string") {
-      res.status(400).json({ error: "Missing content parameter" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "Missing content parameter" };
     }
 
     // Security: ensure path is within .builder directory
     if (!filePath.startsWith(".builder/")) {
-      res.status(403).json({ error: "Access denied" });
-      return;
+      setResponseStatus(event, 403);
+      return { error: "Access denied" };
     }
 
     const fullPath = path.join(process.cwd(), filePath);
@@ -238,13 +240,14 @@ export const handleSaveInstruction: RequestHandler = async (req, res) => {
 
     console.log(`[ai-instructions] Saved ${filePath} by ${userInfo.email}`);
 
-    res.json({
+    return {
       success: true,
       path: filePath,
       savedBy: userInfo.email,
-    });
+    };
   } catch (err: any) {
     console.error("Save instruction error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});

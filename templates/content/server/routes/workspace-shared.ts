@@ -1,4 +1,11 @@
-import { RequestHandler } from "express";
+import {
+  defineEventHandler,
+  getQuery,
+  readBody,
+  getRouterParam,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import fs from "fs";
 import path from "path";
 import type {
@@ -105,31 +112,32 @@ function buildFileTree(dir: string, basePath = ""): FileNode[] {
   return nodes;
 }
 
-export const getWorkspaceSharedTree: RequestHandler = (req, res) => {
-  const workspace = req.params.workspace as string;
+export const getWorkspaceSharedTree = defineEventHandler((event: H3Event) => {
+  const workspace = getRouterParam(event, "workspace") as string;
   if (!isValidWorkspace(workspace)) {
-    res.status(400).json({ error: "Invalid workspace" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Invalid workspace" };
   }
   const dir = getWorkspaceSharedDir(workspace);
   ensureDir(dir);
   const tree = buildFileTree(dir);
   const response: FileTreeResponse = { tree };
-  res.json(response);
-};
+  return response;
+});
 
-export const getWorkspaceSharedFile: RequestHandler = (req, res) => {
-  const workspace = req.params.workspace as string;
-  const filePath = req.query.path as string;
+export const getWorkspaceSharedFile = defineEventHandler((event: H3Event) => {
+  const workspace = getRouterParam(event, "workspace") as string;
+  const query = getQuery(event);
+  const filePath = query.path as string;
   if (!isValidWorkspace(workspace) || !filePath || !isValidPath(filePath)) {
-    res.status(400).json({ error: "Invalid request" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Invalid request" };
   }
 
   const fullPath = path.join(getWorkspaceSharedDir(workspace), filePath);
   if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) {
-    res.status(404).json({ error: "File not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "File not found" };
   }
 
   const content = fs.readFileSync(fullPath, "utf-8");
@@ -138,97 +146,109 @@ export const getWorkspaceSharedFile: RequestHandler = (req, res) => {
     title: extractTitle(content, path.basename(filePath)),
     content,
   };
-  res.json(response);
-};
+  return response;
+});
 
-export const saveWorkspaceSharedFile: RequestHandler = (req, res) => {
-  const workspace = req.params.workspace as string;
-  const filePath = req.query.path as string;
-  if (!isValidWorkspace(workspace) || !filePath || !isValidPath(filePath)) {
-    res.status(400).json({ error: "Invalid request" });
-    return;
-  }
-
-  const { content } = req.body;
-  if (typeof content !== "string") {
-    res.status(400).json({ error: "Content is required" });
-    return;
-  }
-
-  const fullPath = path.join(getWorkspaceSharedDir(workspace), filePath);
-  ensureDir(path.dirname(fullPath));
-  fs.writeFileSync(fullPath, content, "utf-8");
-  res.json({ success: true });
-};
-
-export const createWorkspaceSharedFile: RequestHandler = (req, res) => {
-  const workspace = req.params.workspace as string;
-  if (!isValidWorkspace(workspace)) {
-    res.status(400).json({ error: "Invalid workspace" });
-    return;
-  }
-
-  const { name, type, parentPath, content } = req.body;
-  if (!name || typeof name !== "string") {
-    res.status(400).json({ error: "Name is required" });
-    return;
-  }
-
-  const baseDir = getWorkspaceSharedDir(workspace);
-  ensureDir(baseDir);
-
-  const parent =
-    parentPath && isValidPath(parentPath)
-      ? path.join(baseDir, parentPath)
-      : baseDir;
-  ensureDir(parent);
-
-  if (type === "directory") {
-    const dirSlug = slugify(name) || "folder";
-    let finalName = dirSlug;
-    let counter = 2;
-    while (fs.existsSync(path.join(parent, finalName))) {
-      finalName = `${dirSlug}-${counter}`;
-      counter++;
+export const saveWorkspaceSharedFile = defineEventHandler(
+  async (event: H3Event) => {
+    const workspace = getRouterParam(event, "workspace") as string;
+    const query = getQuery(event);
+    const filePath = query.path as string;
+    if (!isValidWorkspace(workspace) || !filePath || !isValidPath(filePath)) {
+      setResponseStatus(event, 400);
+      return { error: "Invalid request" };
     }
-    fs.mkdirSync(path.join(parent, finalName), { recursive: true });
-    const relativePath = parentPath ? `${parentPath}/${finalName}` : finalName;
-    res.json({ path: relativePath, name: finalName });
-  } else {
-    const fileSlug = slugify(name) || "untitled";
-    let fileName = `${fileSlug}.md`;
-    let counter = 2;
-    while (fs.existsSync(path.join(parent, fileName))) {
-      fileName = `${fileSlug}-${counter}.md`;
-      counter++;
+
+    const body = await readBody(event);
+    const { content } = body;
+    if (typeof content !== "string") {
+      setResponseStatus(event, 400);
+      return { error: "Content is required" };
     }
-    const defaultContent = content || `# ${name}\n\n`;
-    fs.writeFileSync(path.join(parent, fileName), defaultContent, "utf-8");
-    const relativePath = parentPath ? `${parentPath}/${fileName}` : fileName;
-    res.json({ path: relativePath, name: fileName });
-  }
-};
 
-export const deleteWorkspaceSharedFile: RequestHandler = (req, res) => {
-  const workspace = req.params.workspace as string;
-  const filePath = req.query.path as string;
-  if (!isValidWorkspace(workspace) || !filePath || !isValidPath(filePath)) {
-    res.status(400).json({ error: "Invalid request" });
-    return;
-  }
+    const fullPath = path.join(getWorkspaceSharedDir(workspace), filePath);
+    ensureDir(path.dirname(fullPath));
+    fs.writeFileSync(fullPath, content, "utf-8");
+    return { success: true };
+  },
+);
 
-  const fullPath = path.join(getWorkspaceSharedDir(workspace), filePath);
-  if (!fs.existsSync(fullPath)) {
-    res.status(404).json({ error: "File not found" });
-    return;
-  }
+export const createWorkspaceSharedFile = defineEventHandler(
+  async (event: H3Event) => {
+    const workspace = getRouterParam(event, "workspace") as string;
+    if (!isValidWorkspace(workspace)) {
+      setResponseStatus(event, 400);
+      return { error: "Invalid workspace" };
+    }
 
-  const stat = fs.statSync(fullPath);
-  if (stat.isDirectory()) {
-    fs.rmSync(fullPath, { recursive: true, force: true });
-  } else {
-    fs.unlinkSync(fullPath);
-  }
+    const body = await readBody(event);
+    const { name, type, parentPath, content } = body;
+    if (!name || typeof name !== "string") {
+      setResponseStatus(event, 400);
+      return { error: "Name is required" };
+    }
 
-  res.json({ success: true });
-};
+    const baseDir = getWorkspaceSharedDir(workspace);
+    ensureDir(baseDir);
+
+    const parent =
+      parentPath && isValidPath(parentPath)
+        ? path.join(baseDir, parentPath)
+        : baseDir;
+    ensureDir(parent);
+
+    if (type === "directory") {
+      const dirSlug = slugify(name) || "folder";
+      let finalName = dirSlug;
+      let counter = 2;
+      while (fs.existsSync(path.join(parent, finalName))) {
+        finalName = `${dirSlug}-${counter}`;
+        counter++;
+      }
+      fs.mkdirSync(path.join(parent, finalName), { recursive: true });
+      const relativePath = parentPath
+        ? `${parentPath}/${finalName}`
+        : finalName;
+      return { path: relativePath, name: finalName };
+    } else {
+      const fileSlug = slugify(name) || "untitled";
+      let fileName = `${fileSlug}.md`;
+      let counter = 2;
+      while (fs.existsSync(path.join(parent, fileName))) {
+        fileName = `${fileSlug}-${counter}.md`;
+        counter++;
+      }
+      const defaultContent = content || `# ${name}\n\n`;
+      fs.writeFileSync(path.join(parent, fileName), defaultContent, "utf-8");
+      const relativePath = parentPath ? `${parentPath}/${fileName}` : fileName;
+      return { path: relativePath, name: fileName };
+    }
+  },
+);
+
+export const deleteWorkspaceSharedFile = defineEventHandler(
+  (event: H3Event) => {
+    const workspace = getRouterParam(event, "workspace") as string;
+    const query = getQuery(event);
+    const filePath = query.path as string;
+    if (!isValidWorkspace(workspace) || !filePath || !isValidPath(filePath)) {
+      setResponseStatus(event, 400);
+      return { error: "Invalid request" };
+    }
+
+    const fullPath = path.join(getWorkspaceSharedDir(workspace), filePath);
+    if (!fs.existsSync(fullPath)) {
+      setResponseStatus(event, 404);
+      return { error: "File not found" };
+    }
+
+    const stat = fs.statSync(fullPath);
+    if (stat.isDirectory()) {
+      fs.rmSync(fullPath, { recursive: true, force: true });
+    } else {
+      fs.unlinkSync(fullPath);
+    }
+
+    return { success: true };
+  },
+);

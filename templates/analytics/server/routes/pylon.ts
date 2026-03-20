@@ -1,29 +1,35 @@
-import { type RequestHandler } from "express";
+import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 import { requireEnvKey } from "@agent-native/core/server";
 import { getAccounts, getIssues } from "../lib/pylon";
 
-export const handlePylonIssues: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "PYLON_API_KEY", "Pylon")) return;
+export const handlePylonIssues = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "PYLON_API_KEY", "Pylon");
+  if (missing) return missing;
   try {
+    const { account_id, state, query } = getQuery(event);
     const issues = await getIssues({
-      account_id: req.query.account_id as string | undefined,
-      state: req.query.state as string | undefined,
-      query: req.query.query as string | undefined,
+      account_id: account_id as string | undefined,
+      state: state as string | undefined,
+      query: query as string | undefined,
     });
-    res.json({ issues, total: issues.length });
+    return { issues, total: issues.length };
   } catch (err: any) {
     console.error("Pylon issues error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
-export const handlePylonAccounts: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "PYLON_API_KEY", "Pylon")) return;
+export const handlePylonAccounts = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "PYLON_API_KEY", "Pylon");
+  if (missing) return missing;
   try {
-    const accounts = await getAccounts(req.query.query as string | undefined);
-    res.json({ accounts, total: accounts.length });
+    const { query } = getQuery(event);
+    const accounts = await getAccounts(query as string | undefined);
+    return { accounts, total: accounts.length };
   } catch (err: any) {
     console.error("Pylon accounts error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});

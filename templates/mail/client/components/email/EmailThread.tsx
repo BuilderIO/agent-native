@@ -273,6 +273,18 @@ export function EmailThread({
     }
   }, [threadId, emailIds, view, navigate, goBack]);
 
+  // Advance to next thread when current email is dismissed (snoozed/spam/muted)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { emailId } = (e as CustomEvent<{ emailId: string }>).detail;
+      if (messages.some((m) => m.id === emailId)) {
+        advanceOrGoBack();
+      }
+    };
+    window.addEventListener("email:snoozed", handler);
+    return () => window.removeEventListener("email:snoozed", handler);
+  }, [messages, advanceOrGoBack]);
+
   // Navigate between messages within the thread (n/p)
   const focusMessage = useCallback(
     (delta: number) => {
@@ -491,7 +503,17 @@ export function EmailThread({
       { key: "n", handler: () => focusMessage(1) },
       { key: "p", handler: () => focusMessage(-1) },
       { key: "Enter", handler: toggleFocused },
-      { key: "o", handler: toggleFocused },
+      {
+        key: "o",
+        handler: toggleFocused,
+      },
+      {
+        key: "o",
+        meta: true,
+        handler: () => {
+          if (githubPrUrl) window.open(githubPrUrl, "_blank");
+        },
+      },
       { key: "e", handler: handleArchive },
       { key: "d", handler: handleTrash },
       { key: "#", handler: handleTrash, shift: true },
@@ -549,6 +571,18 @@ export function EmailThread({
     );
   }
 
+  // Extract GitHub PR URL from any message in the thread
+  const githubPrUrl = useMemo(() => {
+    for (const msg of messages) {
+      const text = msg.bodyHtml
+        ? msg.bodyHtml.replace(/<[^>]+>/g, " ")
+        : msg.body || "";
+      const match = text.match(/https:\/\/github\.com\/[^\s"'<>]+\/pull\/\d+/);
+      if (match) return match[0].replace(/[.,;)]+$/, ""); // strip trailing punctuation
+    }
+    return null;
+  }, [messages]);
+
   // Filter to user labels for display
   const systemLabels = new Set([
     "inbox",
@@ -589,6 +623,40 @@ export function EmailThread({
           </button>
 
           <div className="flex-1 min-w-0">
+            {githubPrUrl && (
+              <div className="mb-1.5">
+                <a
+                  href={githubPrUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group relative inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                  title="View Pull Request (⌘O)"
+                >
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-3 w-3"
+                  >
+                    <path d="M6 3H3v10h10v-3M9 3h4m0 0v4m0-4L7 11" />
+                  </svg>
+                  View Pull Request
+                  {/* Tooltip showing ⌘O shortcut */}
+                  <span className="pointer-events-none absolute left-0 top-full mt-1 z-50 hidden group-hover:flex items-center gap-1.5 rounded-md border border-border/50 bg-popover px-2.5 py-1.5 text-[12px] font-medium text-foreground shadow-lg whitespace-nowrap">
+                    View Pull Request
+                    <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1 text-[10px] text-muted-foreground">
+                      ⌘
+                    </kbd>
+                    <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1.5 text-[10px] text-muted-foreground">
+                      O
+                    </kbd>
+                  </span>
+                </a>
+              </div>
+            )}
             <div className="flex items-start gap-2 flex-wrap">
               <h1 className="text-lg font-semibold leading-tight text-foreground">
                 {threadSubject}
@@ -1233,7 +1301,36 @@ function PlainTextBody({
 // ─── HTML email body (iframe) ────────────────────────────────────────────────
 
 // Match the expanded card bg: hsl(220, 5%, 10%) ≈ #17181a
-const IFRAME_BG = "#17181a";
+const IFRAME_BG_DARK = "#17181a";
+const IFRAME_BG_LIGHT = "#ffffff";
+
+/**
+ * Detect if an HTML email has its own custom color/background styling.
+ * Emails with custom styling were designed for specific backgrounds — we render
+ * them on white instead of inverting to dark mode (like Superhuman does).
+ */
+function emailHasCustomStyling(html: string): boolean {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+
+  // bgcolor attribute on any element (classic HTML email tables)
+  if (doc.querySelector("[bgcolor]")) return true;
+
+  // background-color or background in any inline style attribute
+  const styledEls = doc.querySelectorAll("[style]");
+  for (const el of styledEls) {
+    const style = el.getAttribute("style") || "";
+    if (/background(-color)?:/i.test(style)) return true;
+  }
+
+  // background-color in <style> blocks
+  const styleTags = doc.querySelectorAll("style");
+  for (const tag of styleTags) {
+    if (/background(-color)?:/i.test(tag.textContent || "")) return true;
+  }
+
+  return false;
+}
 
 // Known tracking pixel domains (partial matches against hostname)
 const TRACKER_DOMAINS = [
@@ -1341,6 +1438,8 @@ function HtmlEmailBody({
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
+  const isCustomStyled = useMemo(() => emailHasCustomStyling(html), [html]);
+  const IFRAME_BG = isCustomStyled ? IFRAME_BG_LIGHT : IFRAME_BG_DARK;
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
 
@@ -1385,11 +1484,33 @@ function HtmlEmailBody({
     if (!doc) return;
 
     doc.open();
-    doc.write(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <style>
+    const iframeCss = isCustomStyled
+      ? `
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: ${IFRAME_BG};
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      overflow: hidden;
+    }
+    img { max-width: 100%; height: auto; }
+    .quoted-hidden { display: none; }
+    .quote-toggle {
+      display: inline-block;
+      cursor: pointer;
+      color: rgba(0,0,0,0.4);
+      font-size: 13px;
+      letter-spacing: 0.15em;
+      padding: 2px 0;
+      border: none;
+      background: none;
+      margin-top: 4px;
+    }
+    .quote-toggle:hover { color: rgba(0,0,0,0.7); }
+`
+      : `
     html, body {
       margin: 0;
       padding: 0;
@@ -1400,7 +1521,6 @@ function HtmlEmailBody({
       line-height: 1.6;
       overflow: hidden;
     }
-    
     a { color: #818cf8 }
     img { max-width: 100%; height: auto; }
     hr { border-color: rgba(255,255,255,0.1); }
@@ -1417,7 +1537,13 @@ function HtmlEmailBody({
       margin-top: 4px;
     }
     .quote-toggle:hover { color: rgba(161,161,170,0.8); }
-  </style>
+`;
+
+    doc.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>${iframeCss}  </style>
 </head>
 <body>${processedHtml}</body>
 </html>`);
@@ -1624,7 +1750,7 @@ function HtmlEmailBody({
       clearTimeout(timer2);
       images.forEach((img) => img.removeEventListener("load", resize));
     };
-  }, [processedHtml]);
+  }, [processedHtml, isCustomStyled]);
 
   // Inject / clear search highlights in the iframe whenever searchTerm or content changes
   useEffect(() => {
@@ -1752,7 +1878,8 @@ function HtmlEmailBody({
           height: `${height}px`,
           border: "none",
           background: IFRAME_BG,
-          colorScheme: "dark",
+          colorScheme: isCustomStyled ? "light" : "dark",
+          borderRadius: isCustomStyled ? "6px" : undefined,
         }}
         title="Email content"
       />

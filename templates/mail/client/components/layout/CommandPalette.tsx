@@ -22,6 +22,7 @@ import {
   ImageOff,
   Image,
   Eye,
+  AlarmClock,
 } from "lucide-react";
 import {
   CommandDialog,
@@ -42,6 +43,7 @@ interface CommandPaletteProps {
   onOpenChange: (open: boolean) => void;
   onCompose: () => void;
   onReply?: () => void;
+  onSnooze?: () => void;
   onSpam?: () => void;
   onBlockSender?: () => void;
   onMuteThread?: () => void;
@@ -64,6 +66,7 @@ export function CommandPalette({
   onOpenChange,
   onCompose,
   onReply,
+  onSnooze,
   onSpam,
   onBlockSender,
   onMuteThread,
@@ -100,6 +103,13 @@ export function CommandPalette({
               <CornerUpLeft className="mr-2 h-4 w-4" />
               Reply to thread
               <CommandShortcut>R</CommandShortcut>
+            </CommandItem>
+          )}
+          {onSnooze && (
+            <CommandItem onSelect={() => run(onSnooze)}>
+              <AlarmClock className="mr-2 h-4 w-4" />
+              Snooze email
+              <CommandShortcut>H</CommandShortcut>
             </CommandItem>
           )}
           <CommandItem onSelect={() => run(() => navigate(`/inbox?q=`))}>

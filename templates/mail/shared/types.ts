@@ -112,6 +112,14 @@ export type UserSettings = {
   trustedSenders?: string[];
 };
 
+export type Alias = {
+  id: string;
+  name: string;
+  emails: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ApolloPersonResult = {
   id?: string;
   first_name?: string;

@@ -1,4 +1,9 @@
-import { Request, Response } from "express";
+import {
+  defineEventHandler,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 
 interface FeedbackPayload {
   message: string;
@@ -8,18 +13,18 @@ interface FeedbackPayload {
   };
 }
 
-export async function sendFeedback(req: Request, res: Response) {
-  const { message, user }: FeedbackPayload = req.body;
+export const sendFeedback = defineEventHandler(async (event: H3Event) => {
+  const { message, user }: FeedbackPayload = await readBody(event);
 
   if (!message?.trim()) {
-    res.status(400).json({ error: "Message is required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Message is required" };
   }
 
   const webhookUrl = process.env.SLACK_FEEDBACK_WEBHOOK_URL;
   if (!webhookUrl) {
-    res.status(503).json({ error: "Slack webhook not configured" });
-    return;
+    setResponseStatus(event, 503);
+    return { error: "Slack webhook not configured" };
   }
 
   const userLine =
@@ -56,9 +61,7 @@ export async function sendFeedback(req: Request, res: Response) {
     ],
   };
 
-  // Fire and forget — respond immediately, let Slack call happen in background
-  res.json({ ok: true });
-
+  // Fire and forget - respond immediately, let Slack call happen in background
   fetch(webhookUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -66,4 +69,6 @@ export async function sendFeedback(req: Request, res: Response) {
   }).catch((err) => {
     console.error("[feedback] Slack webhook error:", err);
   });
-}
+
+  return { ok: true };
+});

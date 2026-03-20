@@ -1,4 +1,9 @@
-import { RequestHandler } from "express";
+import {
+  defineEventHandler,
+  getRouterParam,
+  readBody,
+  setResponseStatus,
+} from "h3";
 import fs from "fs";
 import path from "path";
 
@@ -13,7 +18,7 @@ function ensureDir() {
   }
 }
 
-export const listExplorerConfigs: RequestHandler = (_req, res) => {
+export const listExplorerConfigs = defineEventHandler((_event) => {
   ensureDir();
   try {
     const files = fs.readdirSync(CONFIG_DIR).filter((f) => f.endsWith(".json"));
@@ -26,46 +31,50 @@ export const listExplorerConfigs: RequestHandler = (_req, res) => {
         ...data,
       };
     });
-    res.json({ configs });
+    return { configs };
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(_event, 500);
+    return { error: err.message };
   }
-};
+});
 
-export const getExplorerConfig: RequestHandler = (req, res) => {
+export const getExplorerConfig = defineEventHandler((event) => {
   ensureDir();
-  const id = req.params.id;
+  const id = getRouterParam(event, "id");
   const filePath = path.join(CONFIG_DIR, `${id}.json`);
   if (!fs.existsSync(filePath)) {
-    res.status(404).json({ error: "Config not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "Config not found" };
   }
   try {
     const raw = fs.readFileSync(filePath, "utf8");
-    res.json({ id, ...JSON.parse(raw) });
+    return { id, ...JSON.parse(raw) };
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
-export const saveExplorerConfig: RequestHandler = (req, res) => {
+export const saveExplorerConfig = defineEventHandler(async (event) => {
   ensureDir();
-  const id = req.params.id;
+  const id = getRouterParam(event, "id");
   const filePath = path.join(CONFIG_DIR, `${id}.json`);
   try {
-    fs.writeFileSync(filePath, JSON.stringify(req.body, null, 2));
-    res.json({ id, success: true });
+    const body = await readBody(event);
+    fs.writeFileSync(filePath, JSON.stringify(body, null, 2));
+    return { id, success: true };
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
-export const deleteExplorerConfig: RequestHandler = (req, res) => {
+export const deleteExplorerConfig = defineEventHandler((event) => {
   ensureDir();
-  const id = req.params.id;
+  const id = getRouterParam(event, "id");
   const filePath = path.join(CONFIG_DIR, `${id}.json`);
   if (fs.existsSync(filePath)) {
     fs.unlinkSync(filePath);
   }
-  res.json({ id, success: true });
-};
+  return { id, success: true };
+});

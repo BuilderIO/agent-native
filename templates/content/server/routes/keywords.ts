@@ -1,4 +1,10 @@
-import type { Request, Response } from "express";
+import {
+  defineEventHandler,
+  getQuery,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import type {
   KeywordSuggestion,
   KeywordSuggestResponse,
@@ -46,7 +52,7 @@ interface DataForSEOKeywordResult {
   search_volume?: number;
   cpc?: number;
   competition?: string; // "LOW" | "MEDIUM" | "HIGH"
-  competition_index?: number; // 0–100
+  competition_index?: number; // 0-100
 }
 
 /**
@@ -115,10 +121,11 @@ async function fetchDataForSEOMetrics(
  * 1. Always fetches keyword suggestions from Google Autocomplete (free).
  * 2. If DataForSEO credentials are set, enriches them with volume/competition/CPC.
  */
-export const suggestKeywords = async (req: Request, res: Response) => {
-  const query = ((req.query.q as string) || "").trim();
+export const suggestKeywords = defineEventHandler(async (event: H3Event) => {
+  const query = ((getQuery(event).q as string) || "").trim();
   if (!query) {
-    return res.status(400).json({ error: "Query parameter 'q' is required" });
+    setResponseStatus(event, 400);
+    return { error: "Query parameter 'q' is required" };
   }
 
   try {
@@ -142,11 +149,11 @@ export const suggestKeywords = async (req: Request, res: Response) => {
           };
         });
 
-        return res.json({
+        return {
           query,
           suggestions,
           source: "dataforseo",
-        } as KeywordSuggestResponse);
+        } as KeywordSuggestResponse;
       } catch (err: any) {
         console.error(
           "DataForSEO enrichment failed, using plain suggestions:",
@@ -159,34 +166,38 @@ export const suggestKeywords = async (req: Request, res: Response) => {
     const suggestions: KeywordSuggestion[] = rawSuggestions.map((s) => ({
       keyword: s,
     }));
-    return res.json({
+    return {
       query,
       suggestions,
       source: "autocomplete",
-    } as KeywordSuggestResponse);
+    } as KeywordSuggestResponse;
   } catch (err: any) {
     console.error("Keyword suggest error:", err);
-    return res.status(500).json({ error: "Failed to fetch suggestions" });
+    setResponseStatus(event, 500);
+    return { error: "Failed to fetch suggestions" };
   }
-};
+});
 
 /**
  * POST /api/keywords/volume
  * Body: { keywords: string[], locationCode?: number, languageCode?: string }
  * Fetches volume/competition/CPC from DataForSEO for given keywords.
  */
-export const getKeywordVolume = async (req: Request, res: Response) => {
-  const { keywords, locationCode, languageCode } = req.body;
+export const getKeywordVolume = defineEventHandler(async (event: H3Event) => {
+  const body = await readBody(event);
+  const { keywords, locationCode, languageCode } = body;
 
   if (!Array.isArray(keywords) || keywords.length === 0) {
-    return res.status(400).json({ error: "'keywords' array is required" });
+    setResponseStatus(event, 400);
+    return { error: "'keywords' array is required" };
   }
 
   const creds = getDataForSEOCredentials();
   if (!creds) {
-    return res.status(400).json({
+    setResponseStatus(event, 400);
+    return {
       error: "DataForSEO credentials are not configured.",
-    });
+    };
   }
 
   try {
@@ -208,26 +219,25 @@ export const getKeywordVolume = async (req: Request, res: Response) => {
       };
     });
 
-    return res.json({ keywords: results } as KeywordVolumeResponse);
+    return { keywords: results } as KeywordVolumeResponse;
   } catch (err: any) {
     console.error("Keyword volume error:", err);
-    return res
-      .status(500)
-      .json({ error: err.message || "Failed to fetch volume data" });
+    setResponseStatus(event, 500);
+    return { error: err.message || "Failed to fetch volume data" };
   }
-};
+});
 
 /**
  * POST /api/keywords/configure
  * Body: { login: string, password: string }
  * Validates and stores DataForSEO credentials at runtime.
  */
-export const configureApi = async (req: Request, res: Response) => {
-  const { login, password } = req.body;
+export const configureApi = defineEventHandler(async (event: H3Event) => {
+  const body = await readBody(event);
+  const { login, password } = body;
   if (!login || !password) {
-    return res
-      .status(400)
-      .json({ error: "'login' and 'password' are required" });
+    setResponseStatus(event, 400);
+    return { error: "'login' and 'password' are required" };
   }
 
   // Validate credentials with a lightweight test call
@@ -242,27 +252,27 @@ export const configureApi = async (req: Request, res: Response) => {
       body: JSON.stringify(testBody),
     });
     if (testRes.status === 401 || testRes.status === 403) {
-      return res
-        .status(401)
-        .json({ error: "Invalid credentials — DataForSEO rejected them" });
+      setResponseStatus(event, 401);
+      return { error: "Invalid credentials - DataForSEO rejected them" };
     }
   } catch {
-    return res.status(500).json({
+    setResponseStatus(event, 500);
+    return {
       error: "Could not reach DataForSEO API to validate credentials",
-    });
+    };
   }
 
   process.env.DATAFORSEO_LOGIN = login;
   process.env.DATAFORSEO_PASSWORD = password;
-  return res.json({ success: true, provider: "DataForSEO" });
-};
+  return { success: true, provider: "DataForSEO" };
+});
 
 /** GET /api/keywords/status */
-export const getApiStatus = async (_req: Request, res: Response) => {
+export const getApiStatus = defineEventHandler((_event: H3Event) => {
   const creds = getDataForSEOCredentials();
   const status: KeywordApiStatus = {
     configured: !!creds,
     provider: creds ? "DataForSEO" : "Google Suggest (free)",
   };
-  return res.json(status);
-};
+  return status;
+});

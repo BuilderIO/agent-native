@@ -1,7 +1,15 @@
-import { RequestHandler } from "express";
-import multer from "multer";
+import {
+  defineEventHandler,
+  getQuery,
+  readBody,
+  readMultipartFormData,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import fs from "fs";
 import path from "path";
+import { createReadStream } from "fs";
+import { sendStream } from "h3";
 import type {
   FileTreeResponse,
   FileContentResponse,
@@ -101,24 +109,25 @@ function buildFileTree(dir: string, basePath: string = ""): FileNode[] {
   return nodes;
 }
 
-export const getSharedTree: RequestHandler = (_req, res) => {
+export const getSharedTree = defineEventHandler((_event: H3Event) => {
   ensureDir(SHARED_DIR);
   const tree = buildFileTree(SHARED_DIR);
   const response: FileTreeResponse = { tree };
-  res.json(response);
-};
+  return response;
+});
 
-export const serveSharedAsset: RequestHandler = (req, res) => {
-  const filePath = req.query.path as string;
+export const serveSharedAsset = defineEventHandler(async (event: H3Event) => {
+  const query = getQuery(event);
+  const filePath = query.path as string;
   if (!filePath || !isValidPath(filePath)) {
-    res.status(400).json({ error: "Invalid request" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Invalid request" };
   }
 
   const fullPath = path.join(SHARED_DIR, filePath);
   if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) {
-    res.status(404).json({ error: "File not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "File not found" };
   }
 
   const ext = path.extname(fullPath).toLowerCase();
@@ -132,22 +141,23 @@ export const serveSharedAsset: RequestHandler = (req, res) => {
   };
 
   const contentType = mimeTypes[ext] || "application/octet-stream";
-  res.setHeader("Content-Type", contentType);
-  res.setHeader("Cache-Control", "public, max-age=3600");
-  fs.createReadStream(fullPath).pipe(res);
-};
+  event.node.res.setHeader("Content-Type", contentType);
+  event.node.res.setHeader("Cache-Control", "public, max-age=3600");
+  return sendStream(event, createReadStream(fullPath));
+});
 
-export const getSharedFile: RequestHandler = (req, res) => {
-  const filePath = req.query.path as string;
+export const getSharedFile = defineEventHandler((event: H3Event) => {
+  const query = getQuery(event);
+  const filePath = query.path as string;
   if (!filePath || !isValidPath(filePath)) {
-    res.status(400).json({ error: "Invalid request" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Invalid request" };
   }
 
   const fullPath = path.join(SHARED_DIR, filePath);
   if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) {
-    res.status(404).json({ error: "File not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "File not found" };
   }
 
   const content = fs.readFileSync(fullPath, "utf-8");
@@ -156,33 +166,36 @@ export const getSharedFile: RequestHandler = (req, res) => {
     title: extractTitle(content, path.basename(filePath)),
     content,
   };
-  res.json(response);
-};
+  return response;
+});
 
-export const saveSharedFile: RequestHandler = (req, res) => {
-  const filePath = req.query.path as string;
+export const saveSharedFile = defineEventHandler(async (event: H3Event) => {
+  const query = getQuery(event);
+  const filePath = query.path as string;
   if (!filePath || !isValidPath(filePath)) {
-    res.status(400).json({ error: "Invalid request" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Invalid request" };
   }
 
-  const { content } = req.body;
+  const body = await readBody(event);
+  const { content } = body;
   if (typeof content !== "string") {
-    res.status(400).json({ error: "Content is required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Content is required" };
   }
 
   const fullPath = path.join(SHARED_DIR, filePath);
   ensureDir(path.dirname(fullPath));
   fs.writeFileSync(fullPath, content, "utf-8");
-  res.json({ success: true });
-};
+  return { success: true };
+});
 
-export const createSharedFile: RequestHandler = (req, res) => {
-  const { name, type, parentPath, content } = req.body;
+export const createSharedFile = defineEventHandler(async (event: H3Event) => {
+  const body = await readBody(event);
+  const { name, type, parentPath, content } = body;
   if (!name || typeof name !== "string") {
-    res.status(400).json({ error: "Name is required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Name is required" };
   }
 
   ensureDir(SHARED_DIR);
@@ -204,7 +217,7 @@ export const createSharedFile: RequestHandler = (req, res) => {
     }
     fs.mkdirSync(path.join(parent, finalName), { recursive: true });
     const relativePath = parentPath ? `${parentPath}/${finalName}` : finalName;
-    res.json({ path: relativePath, name: finalName });
+    return { path: relativePath, name: finalName };
   } else {
     const fileSlug = slugify(name) || "untitled";
     let fileName = `${fileSlug}.md`;
@@ -216,21 +229,22 @@ export const createSharedFile: RequestHandler = (req, res) => {
     const defaultContent = content || `# ${name}\n\n`;
     fs.writeFileSync(path.join(parent, fileName), defaultContent, "utf-8");
     const relativePath = parentPath ? `${parentPath}/${fileName}` : fileName;
-    res.json({ path: relativePath, name: fileName });
+    return { path: relativePath, name: fileName };
   }
-};
+});
 
-export const deleteSharedFile: RequestHandler = (req, res) => {
-  const filePath = req.query.path as string;
+export const deleteSharedFile = defineEventHandler((event: H3Event) => {
+  const query = getQuery(event);
+  const filePath = query.path as string;
   if (!filePath || !isValidPath(filePath)) {
-    res.status(400).json({ error: "Invalid request" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Invalid request" };
   }
 
   const fullPath = path.join(SHARED_DIR, filePath);
   if (!fs.existsSync(fullPath)) {
-    res.status(404).json({ error: "File not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "File not found" };
   }
 
   const stat = fs.statSync(fullPath);
@@ -240,15 +254,14 @@ export const deleteSharedFile: RequestHandler = (req, res) => {
     fs.unlinkSync(fullPath);
   }
 
-  res.json({ success: true });
-};
+  return { success: true };
+});
 
-export const getImageFolders: RequestHandler = (_req, res) => {
+export const getImageFolders = defineEventHandler((_event: H3Event) => {
   const baseDir = path.join(SHARED_DIR, "image-references");
   if (!fs.existsSync(baseDir)) {
     fs.mkdirSync(baseDir, { recursive: true });
-    res.json({ folders: [] } as ImageFoldersResponse);
-    return;
+    return { folders: [] } as ImageFoldersResponse;
   }
 
   const entries = fs.readdirSync(baseDir, { withFileTypes: true });
@@ -278,67 +291,77 @@ export const getImageFolders: RequestHandler = (_req, res) => {
     });
   }
 
-  res.json({ folders } as ImageFoldersResponse);
-};
+  return { folders } as ImageFoldersResponse;
+});
 
 // Upload images to a shared resource folder
-const sharedUploadStorage = multer.diskStorage({
-  destination: (req, _file, cb) => {
-    const folder = req.query.folder as string;
-    if (!folder || !isValidPath(folder)) {
-      return cb(new Error("Invalid folder path"), "");
-    }
-    const dir = path.join(SHARED_DIR, folder);
-    ensureDir(dir);
-    cb(null, dir);
-  },
-  filename: (_req, file, cb) => {
-    cb(null, file.originalname);
-  },
-});
+export const uploadSharedImages = defineEventHandler(async (event: H3Event) => {
+  const query = getQuery(event);
+  const folder = query.folder as string;
 
-const sharedUpload = multer({
-  storage: sharedUploadStorage,
-  limits: { fileSize: 50 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const allowed = [
-      "image/jpeg",
-      "image/png",
-      "image/gif",
-      "image/webp",
-      "image/svg+xml",
-    ];
-    cb(null, allowed.includes(file.mimetype));
-  },
-});
-
-export const sharedImageUploadMiddleware = sharedUpload.array("files", 20);
-
-export const uploadSharedImages: RequestHandler = (req, res) => {
-  const folder = req.query.folder as string;
-  const files = req.files as Express.Multer.File[];
-  if (!files?.length) {
-    res.status(400).json({ error: "No files provided" });
-    return;
+  if (!folder || !isValidPath(folder)) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid folder path" };
   }
-  const uploaded = files.map((f) => ({
-    name: f.filename,
-    path: `${folder}/${f.filename}`,
-  }));
-  res.json({ uploaded });
-};
 
-export const deleteSharedImage: RequestHandler = (req, res) => {
-  const filePath = req.query.path as string;
+  const parts = await readMultipartFormData(event);
+  const fileParts = parts?.filter((p) => p.name === "files") ?? [];
+
+  if (!fileParts.length) {
+    setResponseStatus(event, 400);
+    return { error: "No files provided" };
+  }
+
+  const MAX_FILES = 20;
+  const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+
+  if (fileParts.length > MAX_FILES) {
+    setResponseStatus(event, 413);
+    return { error: `Too many files (max ${MAX_FILES})` };
+  }
+
+  const oversized = fileParts.find((p) => p.data.length > MAX_FILE_SIZE);
+  if (oversized) {
+    setResponseStatus(event, 413);
+    return { error: "File too large (max 50 MB per file)" };
+  }
+
+  const allowedMimeTypes = [
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "image/svg+xml",
+  ];
+
+  const dir = path.join(SHARED_DIR, folder);
+  ensureDir(dir);
+
+  const uploaded: { name: string; path: string }[] = [];
+  for (const part of fileParts) {
+    if (!part.filename || !part.data) continue;
+    const mime = part.type || "";
+    if (!allowedMimeTypes.includes(mime)) continue;
+    const filename = part.filename;
+    fs.writeFileSync(path.join(dir, filename), part.data);
+    uploaded.push({ name: filename, path: `${folder}/${filename}` });
+  }
+
+  return { uploaded };
+});
+
+export const deleteSharedImage = defineEventHandler((event: H3Event) => {
+  const query = getQuery(event);
+  const filePath = query.path as string;
   if (!filePath || !isValidPath(filePath)) {
-    res.status(400).json({ error: "Invalid path" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Invalid path" };
   }
   const fullPath = path.join(SHARED_DIR, filePath);
   if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) {
-    res.status(404).json({ error: "File not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "File not found" };
   }
   fs.unlinkSync(fullPath);
-  res.json({ success: true });
-};
+  return { success: true };
+});

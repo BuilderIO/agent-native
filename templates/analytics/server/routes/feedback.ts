@@ -1,11 +1,11 @@
-import { type RequestHandler } from "express";
+import { defineEventHandler, readBody, setResponseStatus } from "h3";
 
-export const handleFeedback: RequestHandler = async (req, res) => {
+export const handleFeedback = defineEventHandler(async (event) => {
   try {
-    const { message, url, app, email, name } = req.body;
+    const { message, url, app, email, name } = await readBody(event);
     if (!message) {
-      res.status(400).json({ error: "message is required" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "message is required" };
     }
 
     const webhookUrl = process.env.SLACK_FEEDBACK_WEBHOOK_URL;
@@ -49,9 +49,10 @@ export const handleFeedback: RequestHandler = async (req, res) => {
       throw new Error(`Slack webhook error: ${slackRes.status}`);
     }
 
-    res.json({ ok: true });
+    return { ok: true };
   } catch (err: any) {
     console.error("Feedback error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});

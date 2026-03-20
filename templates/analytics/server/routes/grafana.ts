@@ -1,4 +1,4 @@
-import { type RequestHandler } from "express";
+import { defineEventHandler, getQuery, readBody, setResponseStatus } from "h3";
 import { requireEnvKey } from "@agent-native/core/server";
 import {
   listDashboards,
@@ -9,77 +9,86 @@ import {
   queryDatasource,
 } from "../lib/grafana";
 
-export const handleGrafanaDashboards: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "GRAFANA_URL", "Grafana")) return;
+export const handleGrafanaDashboards = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "GRAFANA_URL", "Grafana");
+  if (missing) return missing;
   try {
-    const dashboards = await listDashboards(
-      req.query.query as string | undefined,
-    );
-    res.json({ dashboards, total: dashboards.length });
+    const { query } = getQuery(event);
+    const dashboards = await listDashboards(query as string | undefined);
+    return { dashboards, total: dashboards.length };
   } catch (err: any) {
     console.error("Grafana dashboards error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
-export const handleGrafanaDashboard: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "GRAFANA_URL", "Grafana")) return;
+export const handleGrafanaDashboard = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "GRAFANA_URL", "Grafana");
+  if (missing) return missing;
   try {
-    const uid = req.query.uid as string;
+    const { uid } = getQuery(event);
     if (!uid) {
-      res.status(400).json({ error: "uid query parameter is required" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "uid query parameter is required" };
     }
-    const dashboard = await getDashboard(uid);
-    res.json(dashboard);
+    const dashboard = await getDashboard(uid as string);
+    return dashboard;
   } catch (err: any) {
     console.error("Grafana dashboard error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
-export const handleGrafanaDatasources: RequestHandler = async (_req, res) => {
-  if (requireEnvKey(res, "GRAFANA_URL", "Grafana")) return;
+export const handleGrafanaDatasources = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "GRAFANA_URL", "Grafana");
+  if (missing) return missing;
   try {
     const datasources = await getDatasources();
-    res.json({ datasources, total: datasources.length });
+    return { datasources, total: datasources.length };
   } catch (err: any) {
     console.error("Grafana datasources error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
-export const handleGrafanaAlerts: RequestHandler = async (_req, res) => {
-  if (requireEnvKey(res, "GRAFANA_URL", "Grafana")) return;
+export const handleGrafanaAlerts = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "GRAFANA_URL", "Grafana");
+  if (missing) return missing;
   try {
     const [rules, instances] = await Promise.all([
       getAlertRules(),
       getAlertInstances(),
     ]);
-    res.json({
+    return {
       rules,
       totalRules: rules.length,
       instances,
       totalFiring: instances.filter((a) => a.state === "firing").length,
-    });
+    };
   } catch (err: any) {
     console.error("Grafana alerts error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
-export const handleGrafanaQuery: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "GRAFANA_URL", "Grafana")) return;
+export const handleGrafanaQuery = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "GRAFANA_URL", "Grafana");
+  if (missing) return missing;
   try {
-    const { datasourceUid, queries, from, to } = req.body;
+    const { datasourceUid, queries, from, to } = await readBody(event);
     if (!datasourceUid || !queries) {
-      res.status(400).json({ error: "datasourceUid and queries are required" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "datasourceUid and queries are required" };
     }
     const result = await queryDatasource(datasourceUid, queries, from, to);
-    res.json(result);
+    return result;
   } catch (err: any) {
     console.error("Grafana query error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});

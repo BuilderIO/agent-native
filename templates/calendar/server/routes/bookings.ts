@@ -1,4 +1,11 @@
-import type { Request, Response } from "express";
+import {
+  defineEventHandler,
+  getQuery,
+  readBody,
+  getRouterParam,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import path from "path";
 import { nanoid } from "nanoid";
 import type {
@@ -22,24 +29,26 @@ function bookingPath(id: string): string {
   return path.join(BOOKINGS_DIR, `${id}.json`);
 }
 
-export function listBookings(_req: Request, res: Response): void {
+export const listBookings = defineEventHandler((_event: H3Event) => {
   try {
     const bookings = listJsonFiles<Booking>(BOOKINGS_DIR);
     bookings.sort(
       (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
     );
-    res.json(bookings);
+    return bookings;
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    setResponseStatus(_event, 500);
+    return { error: error.message };
   }
-}
+});
 
-export function createBooking(req: Request, res: Response): void {
+export const createBooking = defineEventHandler(async (event: H3Event) => {
   try {
+    const body = await readBody(event);
     const now = new Date().toISOString();
     const id = nanoid();
     const booking: Booking = {
-      ...req.body,
+      ...body,
       id,
       status: "confirmed",
       createdAt: now,
@@ -47,17 +56,15 @@ export function createBooking(req: Request, res: Response): void {
 
     // Validate required fields
     if (!booking.name || !booking.email || !booking.start || !booking.end) {
-      res
-        .status(400)
-        .json({ error: "name, email, start, and end are required" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "name, email, start, and end are required" };
     }
 
     writeJsonFile(bookingPath(id), booking);
 
     // Create a corresponding calendar event
     const eventId = nanoid();
-    const event: CalendarEvent = {
+    const calEvent: CalendarEvent = {
       id: eventId,
       title: booking.eventTitle || `Booking with ${booking.name}`,
       description: `Booking by ${booking.name} (${booking.email})${booking.notes ? `\n\nNotes: ${booking.notes}` : ""}`,
@@ -70,28 +77,30 @@ export function createBooking(req: Request, res: Response): void {
       createdAt: now,
       updatedAt: now,
     };
-    writeJsonFile(path.join(EVENTS_DIR, `${eventId}.json`), event);
+    writeJsonFile(path.join(EVENTS_DIR, `${eventId}.json`), calEvent);
 
-    res.status(201).json(booking);
+    setResponseStatus(event, 201);
+    return booking;
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-}
+});
 
-export function getAvailableSlots(req: Request, res: Response): void {
+export const getAvailableSlots = defineEventHandler((event: H3Event) => {
   try {
-    const date = req.query.date as string;
-    const duration = parseInt((req.query.duration as string) || "30", 10);
+    const query = getQuery(event);
+    const date = query.date as string;
+    const duration = parseInt((query.duration as string) || "30", 10);
 
     if (!date) {
-      res.status(400).json({ error: "date query parameter is required" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "date query parameter is required" };
     }
 
     const config = readJsonFile<AvailabilityConfig>(AVAILABILITY_PATH);
     if (!config) {
-      res.json({ slots: [] });
-      return;
+      return { slots: [] };
     }
 
     // Determine the day of the week
@@ -114,8 +123,7 @@ export function getAvailableSlots(req: Request, res: Response): void {
       !daySchedule.enabled ||
       daySchedule.slots.length === 0
     ) {
-      res.json({ slots: [] });
-      return;
+      return { slots: [] };
     }
 
     // Get all events for this date to check for conflicts
@@ -184,24 +192,26 @@ export function getAvailableSlots(req: Request, res: Response): void {
       }
     }
 
-    res.json({ slots: availableSlots });
+    return { slots: availableSlots };
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-}
+});
 
-export function deleteBooking(req: Request, res: Response): void {
+export const deleteBooking = defineEventHandler((event: H3Event) => {
   try {
-    const id = req.params.id as string;
+    const id = getRouterParam(event, "id") as string;
     const existing = readJsonFile<Booking>(bookingPath(id));
     if (!existing) {
-      res.status(404).json({ error: "Booking not found" });
-      return;
+      setResponseStatus(event, 404);
+      return { error: "Booking not found" };
     }
 
     deleteJsonFile(bookingPath(id));
-    res.json({ success: true });
+    return { success: true };
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-}
+});

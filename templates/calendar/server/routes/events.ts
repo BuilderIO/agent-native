@@ -1,4 +1,12 @@
-import type { Request, Response } from "express";
+import {
+  defineEventHandler,
+  getQuery,
+  readBody,
+  getRouterParam,
+  setResponseStatus,
+  setResponseHeader,
+  type H3Event,
+} from "h3";
 import path from "path";
 import { nanoid } from "nanoid";
 import type { CalendarEvent } from "../../shared/api.js";
@@ -16,10 +24,11 @@ function eventPath(id: string): string {
   return path.join(EVENTS_DIR, `${id}.json`);
 }
 
-export async function listEvents(req: Request, res: Response): Promise<void> {
+export const listEvents = defineEventHandler(async (event: H3Event) => {
   try {
-    const from = req.query.from as string | undefined;
-    const to = req.query.to as string | undefined;
+    const query = getQuery(event);
+    const from = query.from as string | undefined;
+    const to = query.to as string | undefined;
     const connected = googleCalendar.isConnected();
 
     // If Google is connected, fetch Google events (skip local demo data)
@@ -30,10 +39,10 @@ export async function listEvents(req: Request, res: Response): Promise<void> {
       );
 
       if (googleEvents.length === 0 && errors.length > 0) {
-        res.status(502).json({
+        setResponseStatus(event, 502);
+        return {
           error: errors.map((e) => `${e.email}: ${e.error}`).join("; "),
-        });
-        return;
+        };
       }
 
       let events = googleEvents;
@@ -50,10 +59,9 @@ export async function listEvents(req: Request, res: Response): Promise<void> {
         (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
       );
       if (errors.length > 0) {
-        res.setHeader("X-Account-Errors", JSON.stringify(errors));
+        setResponseHeader(event, "X-Account-Errors", JSON.stringify(errors));
       }
-      res.json(events);
-      return;
+      return events;
     }
 
     // Not connected — show local events
@@ -71,66 +79,72 @@ export async function listEvents(req: Request, res: Response): Promise<void> {
     events.sort(
       (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
     );
-    res.json(events);
+    return events;
   } catch (error: any) {
     console.error("[listEvents] Error:", error.message);
-    res.status(500).json({ error: error.message });
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-}
+});
 
-export function getEvent(req: Request, res: Response): void {
+export const getEvent = defineEventHandler((event: H3Event) => {
   try {
-    const id = req.params.id as string;
-    const event = readJsonFile<CalendarEvent>(eventPath(id));
-    if (!event) {
-      res.status(404).json({ error: "Event not found" });
-      return;
+    const id = getRouterParam(event, "id") as string;
+    const calEvent = readJsonFile<CalendarEvent>(eventPath(id));
+    if (!calEvent) {
+      setResponseStatus(event, 404);
+      return { error: "Event not found" };
     }
-    res.json(event);
+    return calEvent;
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-}
+});
 
-export async function createEvent(req: Request, res: Response): Promise<void> {
+export const createEvent = defineEventHandler(async (event: H3Event) => {
   try {
+    const body = await readBody(event);
     const now = new Date().toISOString();
     const id = nanoid();
-    const event: CalendarEvent = {
-      ...req.body,
+    const calEvent: CalendarEvent = {
+      ...body,
       id,
       createdAt: now,
       updatedAt: now,
-      source: req.body.source || "local",
+      source: body.source || "local",
     };
 
     // If syncing to Google Calendar
-    if (event.source === "google" && googleCalendar.isConnected()) {
-      const googleEventId = await googleCalendar.createEvent(event);
+    if (calEvent.source === "google" && googleCalendar.isConnected()) {
+      const googleEventId = await googleCalendar.createEvent(calEvent);
       if (googleEventId) {
-        event.googleEventId = googleEventId;
+        calEvent.googleEventId = googleEventId;
       }
     }
 
-    writeJsonFile(eventPath(id), event);
-    res.status(201).json(event);
+    writeJsonFile(eventPath(id), calEvent);
+    setResponseStatus(event, 201);
+    return calEvent;
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-}
+});
 
-export async function updateEvent(req: Request, res: Response): Promise<void> {
+export const updateEvent = defineEventHandler(async (event: H3Event) => {
   try {
-    const id = req.params.id as string;
+    const id = getRouterParam(event, "id") as string;
     const existing = readJsonFile<CalendarEvent>(eventPath(id));
     if (!existing) {
-      res.status(404).json({ error: "Event not found" });
-      return;
+      setResponseStatus(event, 404);
+      return { error: "Event not found" };
     }
 
+    const body = await readBody(event);
     const updated: CalendarEvent = {
       ...existing,
-      ...req.body,
+      ...body,
       id,
       updatedAt: new Date().toISOString(),
     };
@@ -145,19 +159,20 @@ export async function updateEvent(req: Request, res: Response): Promise<void> {
     }
 
     writeJsonFile(eventPath(id), updated);
-    res.json(updated);
+    return updated;
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-}
+});
 
-export async function deleteEvent(req: Request, res: Response): Promise<void> {
+export const deleteEvent = defineEventHandler(async (event: H3Event) => {
   try {
-    const id = req.params.id as string;
+    const id = getRouterParam(event, "id") as string;
     const existing = readJsonFile<CalendarEvent>(eventPath(id));
     if (!existing) {
-      res.status(404).json({ error: "Event not found" });
-      return;
+      setResponseStatus(event, 404);
+      return { error: "Event not found" };
     }
 
     // Delete from Google if connected
@@ -173,8 +188,9 @@ export async function deleteEvent(req: Request, res: Response): Promise<void> {
     }
 
     deleteJsonFile(eventPath(id));
-    res.json({ success: true });
+    return { success: true };
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-}
+});

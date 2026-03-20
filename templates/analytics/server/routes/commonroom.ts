@@ -1,23 +1,25 @@
-import { type RequestHandler } from "express";
+import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 import { requireEnvKey } from "@agent-native/core/server";
 import { getMemberByEmail, getMembers } from "../lib/commonroom";
 
-export const handleCommonRoomMembers: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "COMMONROOM_API_KEY", "Common Room")) return;
+export const handleCommonRoomMembers = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "COMMONROOM_API_KEY", "Common Room");
+  if (missing) return missing;
   try {
-    const email = req.query.email as string | undefined;
+    const { email, query, limit: limitParam } = getQuery(event);
     if (email) {
-      const member = await getMemberByEmail(email);
-      res.json({ member });
+      const member = await getMemberByEmail(email as string);
+      return { member };
     } else {
       const result = await getMembers({
-        query: req.query.query as string | undefined,
-        limit: req.query.limit ? parseInt(req.query.limit as string) : 25,
+        query: query as string | undefined,
+        limit: limitParam ? parseInt(limitParam as string) : 25,
       });
-      res.json({ members: result.items, total: result.items?.length ?? 0 });
+      return { members: result.items, total: result.items?.length ?? 0 };
     }
   } catch (err: any) {
     console.error("Common Room members error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});

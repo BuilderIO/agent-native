@@ -1,4 +1,9 @@
-import { RequestHandler } from "express";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import fs from "fs";
 import path from "path";
 import { parse as parseYaml } from "yaml";
@@ -122,17 +127,17 @@ function buildFileTree(dir: string, basePath: string = ""): FileNode[] {
  * Returns a flat Page[] with parentId references that form a unified page tree.
  * Wraps existing project + file data into a Notion-like page hierarchy.
  */
-export const getPages: RequestHandler = (req, res) => {
-  const workspace = req.query.workspace as string;
+export const getPages = defineEventHandler((event: H3Event) => {
+  const query = getQuery(event);
+  const workspace = query.workspace as string;
   if (!workspace) {
-    res.status(400).json({ error: "workspace query parameter is required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "workspace query parameter is required" };
   }
 
   const workspaceDir = path.join(PROJECTS_DIR, workspace);
   if (!fs.existsSync(workspaceDir)) {
-    res.json({ pages: [], workspace } as PageTreeResponse);
-    return;
+    return { pages: [], workspace } as PageTreeResponse;
   }
 
   const pages: Page[] = [];
@@ -236,7 +241,7 @@ export const getPages: RequestHandler = (req, res) => {
 
   function collectFileNodes(tree: FileNode[], activeDraft: string): FileNode[] {
     return tree.filter((node) => {
-      // Skip the active draft — it's represented by the project page itself
+      // Skip the active draft - it's represented by the project page itself
       if (node.type === "file" && node.path === activeDraft) return false;
       return true;
     });
@@ -268,5 +273,5 @@ export const getPages: RequestHandler = (req, res) => {
 
   discover(workspaceDir, "", null);
 
-  res.json({ pages, workspace } as PageTreeResponse);
-};
+  return { pages, workspace } as PageTreeResponse;
+});

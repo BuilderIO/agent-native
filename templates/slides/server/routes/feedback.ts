@@ -1,19 +1,18 @@
-import { type RequestHandler } from "express";
+import { defineEventHandler, readBody, setResponseStatus } from "h3";
 
-export const handleFeedback: RequestHandler = (req, res) => {
-  const { message, path, app, userName, userEmail } = req.body;
+export const handleFeedback = defineEventHandler(async (event) => {
+  const body = await readBody(event);
+  const { message, path, app, userName, userEmail } = body;
   if (!message) {
-    res.status(400).json({ error: "message is required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "message is required" };
   }
 
   // Respond immediately — don't wait for Slack
-  res.json({ ok: true });
-
   const webhookUrl = process.env.SLACK_FEEDBACK_WEBHOOK_URL;
   if (!webhookUrl) {
     console.error("SLACK_FEEDBACK_WEBHOOK_URL env var is not set");
-    return;
+    return { ok: true };
   }
 
   const userLabel =
@@ -54,4 +53,6 @@ export const handleFeedback: RequestHandler = (req, res) => {
   }).catch((err) => {
     console.error("Slack webhook error:", err.message);
   });
-};
+
+  return { ok: true };
+});

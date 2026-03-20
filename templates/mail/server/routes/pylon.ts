@@ -1,4 +1,9 @@
-import type { Request, Response } from "express";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import fs from "fs";
 import path from "path";
 
@@ -15,20 +20,17 @@ function getPylonKey(): string | undefined {
 }
 
 // GET /api/pylon/contact?email=...
-export async function pylonContactLookup(
-  req: Request,
-  res: Response,
-): Promise<void> {
-  const { email } = req.query;
+export const pylonContactLookup = defineEventHandler(async (event: H3Event) => {
+  const { email } = getQuery(event);
   if (!email || typeof email !== "string") {
-    res.status(400).json({ error: "email query param required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "email query param required" };
   }
 
   const apiKey = getPylonKey();
   if (!apiKey) {
-    res.status(401).json({ error: "Pylon API key not configured" });
-    return;
+    setResponseStatus(event, 401);
+    return { error: "Pylon API key not configured" };
   }
 
   const headers = {
@@ -97,7 +99,7 @@ export async function pylonContactLookup(
       }
     }
 
-    res.json({
+    return {
       account: account
         ? {
             id: account.id,
@@ -109,8 +111,9 @@ export async function pylonContactLookup(
           }
         : null,
       issues,
-    });
+    };
   } catch {
-    res.status(500).json({ error: "Failed to reach Pylon API" });
+    setResponseStatus(event, 500);
+    return { error: "Failed to reach Pylon API" };
   }
-}
+});

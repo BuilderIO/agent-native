@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 
 const LOGO_DEV_PK = "pk_VwOyCAOgT0aBNpecT2qO-A";
 
@@ -6,21 +6,23 @@ const LOGO_DEV_PK = "pk_VwOyCAOgT0aBNpecT2qO-A";
  * Logo config endpoint - returns client-side safe config
  * GET /api/logo/config
  */
-export function logoConfig(_req: Request, res: Response) {
-  res.json({
+export const logoConfig = defineEventHandler((_event) => {
+  return {
     brandfetchId: process.env.BRANDFETCH_CLIENT_ID || null,
     hasLogoDevSecret: !!process.env.LOGO_DEV_SECRET_KEY?.startsWith("sk_"),
-  });
-}
+  };
+});
 
 /**
  * Logo search endpoint
  * GET /api/logo/search?q=acme
  */
-export async function searchLogos(req: Request, res: Response) {
-  const q = ((req.query.q as string) || "").trim().toLowerCase();
+export const searchLogos = defineEventHandler(async (event) => {
+  const query = getQuery(event);
+  const q = ((query.q as string) || "").trim().toLowerCase();
   if (!q) {
-    return res.status(400).json({ error: "Missing ?q= parameter" });
+    setResponseStatus(event, 400);
+    return { error: "Missing ?q= parameter" };
   }
 
   const secretKey = process.env.LOGO_DEV_SECRET_KEY;
@@ -36,9 +38,7 @@ export async function searchLogos(req: Request, res: Response) {
       if (response.ok) {
         const results: Array<{ name: string; domain: string }> =
           await response.json();
-        return res.json(
-          results.map((r) => ({ name: r.name, domain: r.domain })),
-        );
+        return results.map((r) => ({ name: r.name, domain: r.domain }));
       }
     } catch {
       // Fall through to domain guessing
@@ -74,5 +74,5 @@ export async function searchLogos(req: Request, res: Response) {
     }
   }
 
-  res.json(candidates);
-}
+  return candidates;
+});
