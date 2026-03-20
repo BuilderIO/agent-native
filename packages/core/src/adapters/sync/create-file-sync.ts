@@ -105,22 +105,12 @@ async function createAdapter(
     case "supabase": {
       try {
         const url = requireEnv("SUPABASE_URL");
-        // Support both new key format (SUPABASE_PUBLISHABLE_KEY / SUPABASE_SECRET_KEY)
-        // and legacy format (SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY)
-        const secretKey =
-          process.env.SUPABASE_SECRET_KEY ||
-          process.env.SUPABASE_SERVICE_ROLE_KEY;
-        const publishableKey =
+        // Support new key name (SUPABASE_PUBLISHABLE_KEY) and legacy (SUPABASE_ANON_KEY)
+        const key =
           process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY;
-        const key = secretKey || publishableKey;
         if (!key) {
           throw new Error(
             "Missing required environment variable: SUPABASE_PUBLISHABLE_KEY (or legacy SUPABASE_ANON_KEY)",
-          );
-        }
-        if (secretKey) {
-          console.warn(
-            "[file-sync] Using secret key — bypasses all RLS. Not for multi-tenant production.",
           );
         }
         const { SupabaseFileSyncAdapter } =
