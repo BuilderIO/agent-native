@@ -1,4 +1,4 @@
-import { type RequestHandler } from "express";
+import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 import { requireEnvKey } from "@agent-native/core/server";
 import {
   listChannels,
@@ -14,29 +14,35 @@ function parseWorkspace(raw?: string): Workspace {
   return raw === "secondary" ? "secondary" : "primary";
 }
 
-export const handleSlackTeam: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "SLACK_TOKEN", "Slack")) return;
+export const handleSlackTeam = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "SLACK_TOKEN", "Slack");
+  if (missing) return missing;
   try {
-    const workspace = parseWorkspace(req.query.workspace as string);
+    const { workspace: workspaceParam } = getQuery(event);
+    const workspace = parseWorkspace(workspaceParam as string);
     const team = await getTeamInfo(workspace);
-    res.json({ team });
+    return { team };
   } catch (err: any) {
     console.error("Slack team error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
-export const handleSlackChannels: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "SLACK_TOKEN", "Slack")) return;
+export const handleSlackChannels = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "SLACK_TOKEN", "Slack");
+  if (missing) return missing;
   try {
-    const workspace = parseWorkspace(req.query.workspace as string);
+    const { workspace: workspaceParam } = getQuery(event);
+    const workspace = parseWorkspace(workspaceParam as string);
     const channels = await listChannels(workspace);
-    res.json({ channels, total: channels.length });
+    return { channels, total: channels.length };
   } catch (err: any) {
     console.error("Slack channels error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 /** Reconstruct text from Slack blocks for better line-break formatting */
 function enrichMessages(messages: SlackMessage[]): SlackMessage[] {
@@ -58,24 +64,29 @@ function enrichMessages(messages: SlackMessage[]): SlackMessage[] {
   });
 }
 
-export const handleSlackHistory: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "SLACK_TOKEN", "Slack")) return;
+export const handleSlackHistory = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "SLACK_TOKEN", "Slack");
+  if (missing) return missing;
   try {
-    const workspace = parseWorkspace(req.query.workspace as string);
-    const channel = req.query.channel as string;
-    const limit = parseInt((req.query.limit as string) || "50", 10);
-    const cursor = (req.query.cursor as string) || undefined;
+    const {
+      workspace: workspaceParam,
+      channel,
+      limit: limitParam,
+      cursor,
+    } = getQuery(event);
+    const workspace = parseWorkspace(workspaceParam as string);
+    const limit = parseInt((limitParam as string) || "50", 10);
 
     if (!channel) {
-      res.status(400).json({ error: "channel query parameter is required" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "channel query parameter is required" };
     }
 
     const result = await getChannelHistory(
       workspace,
-      channel,
+      channel as string,
       Math.min(limit, 200),
-      cursor,
+      cursor as string | undefined,
     );
 
     const userIds = result.messages
@@ -85,17 +96,18 @@ export const handleSlackHistory: RequestHandler = async (req, res) => {
 
     const enrichedMessages = enrichMessages(result.messages);
 
-    res.json({
+    return {
       messages: enrichedMessages,
       users,
       has_more: result.has_more,
       next_cursor: result.next_cursor,
-    });
+    };
   } catch (err: any) {
     console.error("Slack history error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 /**
  * Multi-channel paginated history endpoint.
@@ -103,25 +115,32 @@ export const handleSlackHistory: RequestHandler = async (req, res) => {
  * merges by timestamp, and returns the top `pageSize` messages.
  * Returns per-channel cursors for next page.
  */
-export const handleSlackMultiHistory: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "SLACK_TOKEN", "Slack")) return;
+export const handleSlackMultiHistory = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "SLACK_TOKEN", "Slack");
+  if (missing) return missing;
   try {
-    const workspace = parseWorkspace(req.query.workspace as string);
-    const channelsParam = req.query.channels as string; // comma-separated IDs
-    const namesParam = req.query.names as string; // comma-separated names
-    const pageSize = parseInt((req.query.pageSize as string) || "20", 10);
+    const {
+      workspace: workspaceParam,
+      channels: channelsParam,
+      names: namesParam,
+      pageSize: pageSizeParam,
+      cursors: cursorsParam,
+    } = getQuery(event);
+    const workspace = parseWorkspace(workspaceParam as string);
     // cursors is a JSON-encoded object: { channelId: timestamp }
-    const cursorsParam = (req.query.cursors as string) || undefined;
+    const pageSize = parseInt((pageSizeParam as string) || "20", 10);
 
     if (!channelsParam) {
-      res.status(400).json({ error: "channels query parameter is required" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "channels query parameter is required" };
     }
 
-    const channelIds = channelsParam.split(",").filter(Boolean);
-    const channelNamesList = namesParam ? namesParam.split(",") : channelIds;
+    const channelIds = (channelsParam as string).split(",").filter(Boolean);
+    const channelNamesList = namesParam
+      ? (namesParam as string).split(",")
+      : channelIds;
     const cursors: Record<string, string> = cursorsParam
-      ? JSON.parse(cursorsParam)
+      ? JSON.parse(cursorsParam as string)
       : {};
 
     // Fetch pageSize messages from each channel in parallel
@@ -168,40 +187,43 @@ export const handleSlackMultiHistory: RequestHandler = async (req, res) => {
       Object.values(perChannelHasMore).some(Boolean) ||
       allMessages.length > pageSize;
 
-    res.json({
+    return {
       messages: enrichedMessages,
       users,
       has_more: hasMore,
       next_cursors: nextCursors,
       total: allMessages.length,
-    });
+    };
   } catch (err: any) {
     console.error("Slack multi-history error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
-export const handleSlackSearch: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "SLACK_TOKEN", "Slack")) return;
+export const handleSlackSearch = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "SLACK_TOKEN", "Slack");
+  if (missing) return missing;
   try {
-    const workspace = parseWorkspace(req.query.workspace as string);
-    const query = req.query.query as string;
+    const { workspace: workspaceParam, query } = getQuery(event);
+    const workspace = parseWorkspace(workspaceParam as string);
 
     if (!query) {
-      res.status(400).json({ error: "query parameter is required" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "query parameter is required" };
     }
 
-    const result = await searchMessages(workspace, query);
+    const result = await searchMessages(workspace, query as string);
 
     const userIds = result.messages
       .map((m) => m.user)
       .filter((id): id is string => !!id);
     const users = await resolveUsers(workspace, userIds, result.messages);
 
-    res.json({ messages: result.messages, users, total: result.total });
+    return { messages: result.messages, users, total: result.total };
   } catch (err: any) {
     console.error("Slack search error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});

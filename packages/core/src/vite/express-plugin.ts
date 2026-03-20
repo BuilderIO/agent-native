@@ -1,5 +1,6 @@
 import type { Plugin, ViteDevServer } from "vite";
 import type { IncomingMessage, ServerResponse } from "http";
+import { toNodeListener } from "h3";
 
 export interface ExpressPluginOptions {
   /** Path to the module that exports createServer(). Default: "./server" */
@@ -7,10 +8,10 @@ export interface ExpressPluginOptions {
 }
 
 /**
- * Vite plugin that mounts the Express app as middleware during dev.
+ * Vite plugin that mounts the H3 app as middleware during dev.
  * Only active in serve mode (not during build).
  *
- * The Express app is re-created when server files change so you don't
+ * The H3 app is re-created when server files change so you don't
  * have to manually restart `pnpm dev` after editing server code.
  */
 export function expressPlugin(options: ExpressPluginOptions = {}): Plugin {
@@ -37,11 +38,13 @@ export function expressPlugin(options: ExpressPluginOptions = {}): Plugin {
         if (typeof createServer !== "function") {
           throw new Error(
             `[@agent-native/core] Could not find createServer export in "${serverEntry}". ` +
-              `Export a createServer() function that returns an Express app.`,
+              `Export a createAppServer() function that returns an H3 app or { app }.`,
           );
         }
 
-        app = createServer();
+        const result = createServer();
+        // Support both { app } (new H3 style) and direct app return
+        app = result?.app ?? result;
       }
 
       // Initial load
@@ -59,12 +62,14 @@ export function expressPlugin(options: ExpressPluginOptions = {}): Plugin {
         }
       });
 
-      // Proxy middleware — delegates to the latest Express app
+      // Proxy middleware — delegates to the latest H3 app via toNodeListener.
+      // Only intercept /api/* requests so Vite handles the SPA frontend.
       server.middlewares.use(
         async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
           await ready; // wait for initial load
-          if (app) {
-            app(req, res, next);
+          if (app && req.url?.startsWith("/api")) {
+            const listener = toNodeListener(app);
+            listener(req, res);
           } else {
             next();
           }

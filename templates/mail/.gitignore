@@ -41,6 +41,9 @@ data/uploads/
 
 # Ephemeral data
 data/refresh-trigger.json
+data/app.db
+data/app.db-wal
+data/app.db-shm
 .claude/scheduled_tasks.lock
 
 # Ephemeral UI state (agent-readable, not persisted)

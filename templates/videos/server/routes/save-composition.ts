@@ -1,12 +1,10 @@
-import type { Request, Response } from "express";
+import { defineEventHandler, readBody, setResponseStatus, type H3Event } from "h3";
 import fs from "fs/promises";
 import path from "path";
 
-export async function handleSaveCompositionDefaults(
-  req: Request,
-  res: Response,
-) {
+export const handleSaveCompositionDefaults = defineEventHandler(async (event: H3Event) => {
   try {
+    const body = await readBody(event);
     const {
       compositionId,
       tracks,
@@ -15,10 +13,11 @@ export async function handleSaveCompositionDefaults(
       fps,
       width,
       height,
-    } = req.body;
+    } = body;
 
     if (!compositionId) {
-      return res.status(400).send("Missing compositionId");
+      setResponseStatus(event, 400);
+      return "Missing compositionId";
     }
 
     // Read the current registry file
@@ -41,9 +40,8 @@ export async function handleSaveCompositionDefaults(
     }
 
     if (matches.length === 0) {
-      return res
-        .status(404)
-        .send(`Composition "${compositionId}" not found in registry`);
+      setResponseStatus(event, 404);
+      return `Composition "${compositionId}" not found in registry`;
     }
 
     // Find the composition object that starts with { id: "compositionId"
@@ -60,7 +58,8 @@ export async function handleSaveCompositionDefaults(
     }
 
     if (openBrace === -1) {
-      return res.status(500).send("Could not find composition opening brace");
+      setResponseStatus(event, 500);
+      return "Could not find composition opening brace";
     }
 
     // Now find the matching closing brace
@@ -78,7 +77,8 @@ export async function handleSaveCompositionDefaults(
     }
 
     if (closeBrace === -1) {
-      return res.status(500).send("Could not find composition closing brace");
+      setResponseStatus(event, 500);
+      return "Could not find composition closing brace";
     }
 
     // Extract the old composition
@@ -113,17 +113,16 @@ export async function handleSaveCompositionDefaults(
     // Write back to the file
     await fs.writeFile(registryPath, registryContent, "utf-8");
 
-    res.json({
+    return {
       success: true,
       message: `Composition "${compositionId}" defaults saved`,
-    });
+    };
   } catch (error) {
     console.error("Save composition error:", error);
-    res
-      .status(500)
-      .send(error instanceof Error ? error.message : String(error));
+    setResponseStatus(event, 500);
+    return error instanceof Error ? error.message : String(error);
   }
-}
+});
 
 function formatTracksAsCode(tracks: any[]): string {
   const formatted = tracks

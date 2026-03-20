@@ -1,4 +1,9 @@
-import { RequestHandler } from "express";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -101,14 +106,15 @@ export async function saveLogoToProject(
 /**
  * GET /api/clearbit/logo?domain=example.com&size=256&project=steve/my-project
  */
-export const getClearbitLogo: RequestHandler = async (req, res) => {
-  const domain = req.query.domain as string;
-  const size = parseInt(req.query.size as string) || 256;
-  const project = req.query.project as string | undefined;
+export const getClearbitLogo = defineEventHandler(async (event: H3Event) => {
+  const query = getQuery(event);
+  const domain = query.domain as string;
+  const size = parseInt(query.size as string) || 256;
+  const project = query.project as string | undefined;
 
   if (!domain?.trim()) {
-    res.status(400).json({ error: "domain query param is required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "domain query param is required" };
   }
 
   try {
@@ -127,13 +133,14 @@ export const getClearbitLogo: RequestHandler = async (req, res) => {
       );
     }
 
-    res.json({
+    return {
       savedPath,
       mimeType,
       domain: domain.trim(),
       source,
-    });
+    };
   } catch (err: any) {
-    res.status(502).json({ error: err.message || "Failed to fetch logo" });
+    setResponseStatus(event, 502);
+    return { error: err.message || "Failed to fetch logo" };
   }
-};
+});

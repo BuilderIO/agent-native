@@ -62,6 +62,7 @@ export function defineServerConfig(
       rollupOptions: {
         external: [
           ...NODE_BUILTINS,
+          "h3",
           "express",
           "cors",
           ...(options.external ?? []),

@@ -1,7 +1,9 @@
 import "dotenv/config";
-import express from "express";
 import path from "path";
+import { createReadStream } from "fs";
+import { stat } from "fs/promises";
 import fs from "fs";
+import { defineEventHandler, readBody, sendStream, setResponseStatus } from "h3";
 import { createServer } from "@agent-native/core/server";
 import { handleDemo } from "./routes/demo";
 import { handleQuery } from "./routes/query-proxy";
@@ -105,150 +107,170 @@ import {
 } from "./routes/explorer-dashboards";
 
 export function createAppServer() {
-  const app = createServer({ envKeys });
+  const { app, router } = createServer({ envKeys });
 
   // Serve generated chart images (no auth needed, ephemeral)
   const mediaDir = path.join(import.meta.dirname, "../media");
-  app.use("/api/media", express.static(mediaDir));
+  router.get(
+    "/api/media/**",
+    defineEventHandler(async (event) => {
+      const filename = event.path.replace("/api/media/", "");
+      const filepath = path.join(mediaDir, filename);
+      try {
+        await stat(filepath);
+        return sendStream(event, createReadStream(filepath));
+      } catch {
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }
+    }),
+  );
 
   // Theme persistence (no auth needed)
   const themeFile = path.join(mediaDir, "theme.json");
-  app.get("/api/theme", (_req, res) => {
-    try {
-      if (fs.existsSync(themeFile)) {
-        const data = JSON.parse(fs.readFileSync(themeFile, "utf8"));
-        res.json(data);
-      } else {
-        res.json({ theme: "dark" });
+  router.get(
+    "/api/theme",
+    defineEventHandler((_event) => {
+      try {
+        if (fs.existsSync(themeFile)) {
+          const data = JSON.parse(fs.readFileSync(themeFile, "utf8"));
+          return data;
+        } else {
+          return { theme: "dark" };
+        }
+      } catch {
+        return { theme: "dark" };
       }
-    } catch {
-      res.json({ theme: "dark" });
-    }
-  });
-  app.post("/api/theme", (req, res) => {
-    const theme = req.body?.theme === "light" ? "light" : "dark";
-    if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
-    fs.writeFileSync(themeFile, JSON.stringify({ theme }));
-    res.json({ theme });
-  });
+    }),
+  );
+  router.post(
+    "/api/theme",
+    defineEventHandler(async (event) => {
+      const body = await readBody(event);
+      const theme = body?.theme === "light" ? "light" : "dark";
+      if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
+      fs.writeFileSync(themeFile, JSON.stringify({ theme }));
+      return { theme };
+    }),
+  );
 
   // Events tracking (before auth middleware - needs to be public for beacons)
-  app.post("/api/events/track", handleTrackEvent);
+  router.post("/api/events/track", handleTrackEvent);
 
   // AI Instructions - read endpoints are public, write requires auth
-  app.get("/api/ai-instructions/list", handleListInstructions);
-  app.get("/api/ai-instructions/get", handleGetInstruction);
-  app.get("/api/ai-instructions/can-edit", handleCanEditInstructions);
-  app.post("/api/ai-instructions/save", handleSaveInstruction);
+  router.get("/api/ai-instructions/list", handleListInstructions);
+  router.get("/api/ai-instructions/get", handleGetInstruction);
+  router.get("/api/ai-instructions/can-edit", handleCanEditInstructions);
+  router.post("/api/ai-instructions/save", handleSaveInstruction);
 
-  app.get("/api/demo", handleDemo);
+  router.get("/api/demo", handleDemo);
 
   // Query endpoint - runs SQL directly against BigQuery
-  app.post("/api/query", handleQuery);
+  router.post("/api/query", handleQuery);
 
   // DataForSEO SEO data
-  app.get("/api/seo/blog-pages", handleBlogPagesSeo);
-  app.get("/api/seo/keywords", handlePageKeywords);
-  app.get("/api/seo/top-keywords", handleTopKeywords);
+  router.get("/api/seo/blog-pages", handleBlogPagesSeo);
+  router.get("/api/seo/keywords", handlePageKeywords);
+  router.get("/api/seo/top-keywords", handleTopKeywords);
 
   // HubSpot CRM
-  app.get("/api/hubspot/deals", handleHubspotDeals);
-  app.get("/api/hubspot/pipelines", handleHubspotPipelines);
-  app.get("/api/hubspot/metrics", handleHubspotMetrics);
+  router.get("/api/hubspot/deals", handleHubspotDeals);
+  router.get("/api/hubspot/pipelines", handleHubspotPipelines);
+  router.get("/api/hubspot/metrics", handleHubspotMetrics);
 
   // Notion content calendar + page rendering
-  app.get("/api/notion/content-calendar", handleContentCalendar);
-  app.get("/api/notion/content-calendar/schema", handleContentCalendarSchema);
-  app.get("/api/notion/page/:pageId", handleNotionPage);
+  router.get("/api/notion/content-calendar", handleContentCalendar);
+  router.get("/api/notion/content-calendar/schema", handleContentCalendarSchema);
+  router.get("/api/notion/page/:pageId", handleNotionPage);
   // Twitter
-  app.get("/api/twitter/tweets", handleTwitterTweets);
-  app.get("/api/twitter/multi", handleTwitterMulti);
+  router.get("/api/twitter/tweets", handleTwitterTweets);
+  router.get("/api/twitter/multi", handleTwitterMulti);
 
   // Pylon support
-  app.get("/api/pylon/issues", handlePylonIssues);
-  app.get("/api/pylon/accounts", handlePylonAccounts);
+  router.get("/api/pylon/issues", handlePylonIssues);
+  router.get("/api/pylon/accounts", handlePylonAccounts);
 
   // Common Room community
-  app.get("/api/commonroom/members", handleCommonRoomMembers);
+  router.get("/api/commonroom/members", handleCommonRoomMembers);
 
   // Gong sales calls
-  app.get("/api/gong/calls", handleGongCalls);
-  app.get("/api/gong/users", handleGongUsers);
+  router.get("/api/gong/calls", handleGongCalls);
+  router.get("/api/gong/users", handleGongUsers);
 
   // Apollo contact/company enrichment
-  app.get("/api/apollo/search", handleApolloSearch);
+  router.get("/api/apollo/search", handleApolloSearch);
 
   // Grafana monitoring
-  app.get("/api/grafana/dashboards", handleGrafanaDashboards);
-  app.get("/api/grafana/dashboard", handleGrafanaDashboard);
-  app.get("/api/grafana/datasources", handleGrafanaDatasources);
-  app.get("/api/grafana/alerts", handleGrafanaAlerts);
-  app.post("/api/grafana/query", handleGrafanaQuery);
+  router.get("/api/grafana/dashboards", handleGrafanaDashboards);
+  router.get("/api/grafana/dashboard", handleGrafanaDashboard);
+  router.get("/api/grafana/datasources", handleGrafanaDatasources);
+  router.get("/api/grafana/alerts", handleGrafanaAlerts);
+  router.post("/api/grafana/query", handleGrafanaQuery);
 
   // Sentry error tracking
-  app.get("/api/sentry/projects", handleSentryProjects);
-  app.get("/api/sentry/issues", handleSentryIssues);
-  app.get("/api/sentry/issue-events", handleSentryIssueEvents);
-  app.get("/api/sentry/stats", handleSentryStats);
+  router.get("/api/sentry/projects", handleSentryProjects);
+  router.get("/api/sentry/issues", handleSentryIssues);
+  router.get("/api/sentry/issue-events", handleSentryIssueEvents);
+  router.get("/api/sentry/stats", handleSentryStats);
 
   // Google Cloud monitoring
-  app.get("/api/gcloud/services", handleGCloudServices);
-  app.get("/api/gcloud/metrics", handleGCloudMetrics);
-  app.get("/api/gcloud/logs", handleGCloudLogs);
+  router.get("/api/gcloud/services", handleGCloudServices);
+  router.get("/api/gcloud/metrics", handleGCloudMetrics);
+  router.get("/api/gcloud/logs", handleGCloudLogs);
 
   // Slack feedback
-  app.get("/api/slack/team", handleSlackTeam);
-  app.get("/api/slack/channels", handleSlackChannels);
-  app.get("/api/slack/history", handleSlackHistory);
-  app.get("/api/slack/multi-history", handleSlackMultiHistory);
-  app.get("/api/slack/search", handleSlackSearch);
+  router.get("/api/slack/team", handleSlackTeam);
+  router.get("/api/slack/channels", handleSlackChannels);
+  router.get("/api/slack/history", handleSlackHistory);
+  router.get("/api/slack/multi-history", handleSlackMultiHistory);
+  router.get("/api/slack/search", handleSlackSearch);
 
   // Feedback
-  app.post("/api/feedback", handleFeedback);
+  router.post("/api/feedback", handleFeedback);
 
   // GitHub
-  app.get("/api/github/search", handleGitHubSearch);
-  app.get("/api/github/pr", handleGitHubPR);
-  app.get("/api/github/issue", handleGitHubIssue);
-  app.get("/api/github/prs", handleGitHubPRList);
-  app.get("/api/github/org-prs", handleGitHubOrgPRs);
-  app.post("/api/github/graphql", handleGitHubGraphQL);
+  router.get("/api/github/search", handleGitHubSearch);
+  router.get("/api/github/pr", handleGitHubPR);
+  router.get("/api/github/issue", handleGitHubIssue);
+  router.get("/api/github/prs", handleGitHubPRList);
+  router.get("/api/github/org-prs", handleGitHubOrgPRs);
+  router.post("/api/github/graphql", handleGitHubGraphQL);
 
   // Explorer configs
-  app.get("/api/explorer-configs", listExplorerConfigs);
-  app.get("/api/explorer-configs/:id", getExplorerConfig);
-  app.post("/api/explorer-configs/:id", saveExplorerConfig);
-  app.delete("/api/explorer-configs/:id", deleteExplorerConfig);
+  router.get("/api/explorer-configs", listExplorerConfigs);
+  router.get("/api/explorer-configs/:id", getExplorerConfig);
+  router.post("/api/explorer-configs/:id", saveExplorerConfig);
+  router.delete("/api/explorer-configs/:id", deleteExplorerConfig);
 
   // Explorer dashboards
-  app.get("/api/explorer-dashboards", listExplorerDashboards);
-  app.get("/api/explorer-dashboards/:id", getExplorerDashboard);
-  app.post("/api/explorer-dashboards/:id", saveExplorerDashboard);
-  app.delete("/api/explorer-dashboards/:id", deleteExplorerDashboard);
+  router.get("/api/explorer-dashboards", listExplorerDashboards);
+  router.get("/api/explorer-dashboards/:id", getExplorerDashboard);
+  router.post("/api/explorer-dashboards/:id", saveExplorerDashboard);
+  router.delete("/api/explorer-dashboards/:id", deleteExplorerDashboard);
 
   // Jira tickets
-  app.get("/api/jira/search", handleJiraSearch);
-  app.get("/api/jira/issue", handleJiraIssue);
-  app.get("/api/jira/projects", handleJiraProjects);
-  app.get("/api/jira/statuses", handleJiraStatuses);
-  app.get("/api/jira/boards", handleJiraBoards);
-  app.get("/api/jira/sprints", handleJiraSprints);
-  app.get("/api/jira/analytics", handleJiraAnalytics);
+  router.get("/api/jira/search", handleJiraSearch);
+  router.get("/api/jira/issue", handleJiraIssue);
+  router.get("/api/jira/projects", handleJiraProjects);
+  router.get("/api/jira/statuses", handleJiraStatuses);
+  router.get("/api/jira/boards", handleJiraBoards);
+  router.get("/api/jira/sprints", handleJiraSprints);
+  router.get("/api/jira/analytics", handleJiraAnalytics);
 
   // Stripe billing
-  app.get("/api/stripe/billing", handleStripeBilling);
-  app.get("/api/stripe/billing-by-product", handleStripeBillingByProduct);
-  app.get("/api/stripe/payment-status", handleStripePaymentStatus);
-  app.get("/api/stripe/refunds", handleStripeRefunds);
-  app.get("/api/stripe/subscriptions", handleStripeSubscriptions);
+  router.get("/api/stripe/billing", handleStripeBilling);
+  router.get("/api/stripe/billing-by-product", handleStripeBillingByProduct);
+  router.get("/api/stripe/payment-status", handleStripePaymentStatus);
+  router.get("/api/stripe/refunds", handleStripeRefunds);
+  router.get("/api/stripe/subscriptions", handleStripeSubscriptions);
 
   // Gamification system
-  app.get("/api/gamification/persona", handleGetPersona);
-  app.post("/api/gamification/persona", handleSetPersona);
-  app.post("/api/gamification/validate-metric", handleValidateMetric);
-  app.get("/api/gamification/leaderboard", handleLeaderboard);
-  app.get("/api/gamification/my-stats", handleMyStats);
-  app.get("/api/gamification/new-metrics", handleNewMetrics);
+  router.get("/api/gamification/persona", handleGetPersona);
+  router.post("/api/gamification/persona", handleSetPersona);
+  router.post("/api/gamification/validate-metric", handleValidateMetric);
+  router.get("/api/gamification/leaderboard", handleLeaderboard);
+  router.get("/api/gamification/my-stats", handleMyStats);
+  router.get("/api/gamification/new-metrics", handleNewMetrics);
 
   return app;
 }

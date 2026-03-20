@@ -1,7 +1,15 @@
-import { Router } from "express";
-import multer from "multer";
 import fs from "fs";
 import path from "path";
+import {
+  defineEventHandler,
+  getQuery,
+  readBody,
+  getRouterParam,
+  setResponseStatus,
+  readMultipartFormData,
+  type H3Event,
+} from "h3";
+import type { Router } from "h3";
 import type {
   AssetCategory,
   AssetInfo,
@@ -10,27 +18,6 @@ import type {
 } from "@shared/types.js";
 
 const BRAND_DIR = path.join(process.cwd(), "data", "brand");
-
-// Multer config for brand asset uploads
-const storage = multer.diskStorage({
-  destination: (req, _file, cb) => {
-    const category = req.query.category as string;
-    if (!isValidCategory(category)) {
-      cb(new Error(`Invalid category: ${category}`), "");
-      return;
-    }
-    const dir = path.join(BRAND_DIR, category);
-    fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
-  },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const base = path
-      .basename(file.originalname, ext)
-      .replace(/[^a-zA-Z0-9_-]/g, "_");
-    cb(null, `${base}-${Date.now()}${ext}`);
-  },
-});
 
 const ALLOWED_IMAGE_TYPES = [
   "image/jpeg",
@@ -47,20 +34,6 @@ const ALLOWED_FONT_TYPES = [
   "application/x-font-ttf",
 ];
 
-const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
-  fileFilter: (_req, file, cb) => {
-    if (
-      [...ALLOWED_IMAGE_TYPES, ...ALLOWED_FONT_TYPES].includes(file.mimetype)
-    ) {
-      cb(null, true);
-    } else {
-      cb(new Error(`File type ${file.mimetype} not allowed`));
-    }
-  },
-});
-
 const VALID_CATEGORIES = new Set<AssetCategory>(["logos", "references"]);
 
 function isValidCategory(cat: string): cat is AssetCategory {
@@ -72,55 +45,91 @@ function isSafePath(base: string, ...segments: string[]): boolean {
   return resolved.startsWith(path.resolve(base));
 }
 
-export const brandRouter = Router();
+export function registerBrandRoutes(router: Router) {
+  router.get("/api/brand/config", getBrandConfig);
+  router.put("/api/brand/config", updateBrandConfig);
+  router.get("/api/brand/style-profile", getStyleProfile);
+  router.post("/api/brand/upload", uploadBrandAsset);
+  router.get("/api/brand/assets", listBrandAssets);
+  router.delete("/api/brand/assets/:category/:filename", deleteBrandAsset);
+}
 
 // GET /api/brand/config
-brandRouter.get("/config", (_req, res) => {
+export const getBrandConfig = defineEventHandler(async (_event: H3Event) => {
   const configPath = path.join(BRAND_DIR, "config.json");
   if (!fs.existsSync(configPath)) {
-    res.json({ name: "", description: "", colors: {}, fonts: {} });
-    return;
+    return { name: "", description: "", colors: {}, fonts: {} };
   }
   const data = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-  res.json(data as BrandConfig);
+  return data as BrandConfig;
 });
 
 // PUT /api/brand/config
-brandRouter.put("/config", (req, res) => {
+export const updateBrandConfig = defineEventHandler(async (event: H3Event) => {
   const configPath = path.join(BRAND_DIR, "config.json");
-  const config = req.body as BrandConfig;
+  const config = (await readBody(event)) as BrandConfig;
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-  res.json(config);
+  return config;
 });
 
 // GET /api/brand/style-profile
-brandRouter.get("/style-profile", (_req, res) => {
+export const getStyleProfile = defineEventHandler(async (_event: H3Event) => {
   const profilePath = path.join(BRAND_DIR, "style-profile.json");
   if (!fs.existsSync(profilePath)) {
-    res.json({});
-    return;
+    return {};
   }
   const data = JSON.parse(fs.readFileSync(profilePath, "utf-8"));
-  res.json(data as StyleProfile);
+  return data as StyleProfile;
 });
 
 // POST /api/brand/upload?category=logos|references
-brandRouter.post("/upload", upload.single("file"), (req, res) => {
-  if (!req.file) {
-    res.status(400).json({ error: "No file uploaded" });
-    return;
+export const uploadBrandAsset = defineEventHandler(async (event: H3Event) => {
+  const query = getQuery(event);
+  const category = query.category as string;
+
+  if (!isValidCategory(category)) {
+    setResponseStatus(event, 400);
+    return { error: `Invalid category: ${category}` };
   }
-  const category = req.query.category as AssetCategory;
-  res.json({
-    filename: req.file.filename,
-    category,
-    url: `/api/brand/files/${category}/${req.file.filename}`,
-  });
+
+  const parts = await readMultipartFormData(event);
+  const filePart = parts?.find((p) => p.name === "file");
+
+  if (!filePart?.data) {
+    setResponseStatus(event, 400);
+    return { error: "No file uploaded" };
+  }
+
+  const contentType = filePart.type ?? "";
+  if (![...ALLOWED_IMAGE_TYPES, ...ALLOWED_FONT_TYPES].includes(contentType)) {
+    setResponseStatus(event, 400);
+    return { error: `File type ${contentType} not allowed` };
+  }
+
+  const originalName = filePart.filename ?? "upload";
+  const ext = path.extname(originalName);
+  const base = path
+    .basename(originalName, ext)
+    .replace(/[^a-zA-Z0-9_-]/g, "_");
+  const filename = `${base}-${Date.now()}${ext}`;
+
+  const dir = path.join(BRAND_DIR, category);
+  fs.mkdirSync(dir, { recursive: true });
+
+  const destPath = path.join(dir, filename);
+  fs.writeFileSync(destPath, filePart.data);
+
+  return {
+    filename,
+    category: category as AssetCategory,
+    url: `/api/brand/files/${category}/${filename}`,
+  };
 });
 
 // GET /api/brand/assets?category=logos|references (or all if omitted)
-brandRouter.get("/assets", (req, res) => {
-  const category = req.query.category as AssetCategory | undefined;
+export const listBrandAssets = defineEventHandler(async (event: H3Event) => {
+  const query = getQuery(event);
+  const category = query.category as AssetCategory | undefined;
   const categories: AssetCategory[] = category
     ? [category]
     : ["logos", "references"];
@@ -142,21 +151,23 @@ brandRouter.get("/assets", (req, res) => {
     }
   }
 
-  res.json(assets);
+  return assets;
 });
 
 // DELETE /api/brand/assets/:category/:filename
-brandRouter.delete("/assets/:category/:filename", (req, res) => {
-  const { category, filename } = req.params;
+export const deleteBrandAsset = defineEventHandler(async (event: H3Event) => {
+  const category = getRouterParam(event, "category") ?? "";
+  const filename = getRouterParam(event, "filename") ?? "";
+
   if (!isSafePath(BRAND_DIR, category, filename)) {
-    res.status(400).json({ error: "Invalid path" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Invalid path" };
   }
   const filePath = path.join(BRAND_DIR, category, filename);
   if (!fs.existsSync(filePath)) {
-    res.status(404).json({ error: "File not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "File not found" };
   }
   fs.unlinkSync(filePath);
-  res.json({ deleted: true });
+  return { deleted: true };
 });

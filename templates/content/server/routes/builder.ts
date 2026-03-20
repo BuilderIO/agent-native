@@ -1,5 +1,12 @@
-import { RequestHandler } from "express";
-import multer from "multer";
+import {
+  defineEventHandler,
+  getQuery,
+  getRequestHeader,
+  readBody,
+  readMultipartFormData,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import path from "path";
 import fs from "fs";
 import { parse as parseYaml } from "yaml";
@@ -107,8 +114,8 @@ function getStoredAuth(): { apiKey: string | null; privateKey: string | null } {
   }
 }
 
-function getApiKey(req: Parameters<RequestHandler>[0]): string | null {
-  const headerApiKey = req.headers["x-builder-api-key"];
+function getApiKey(event: H3Event): string | null {
+  const headerApiKey = getRequestHeader(event, "x-builder-api-key");
   if (typeof headerApiKey === "string" && headerApiKey) return headerApiKey;
   return getStoredAuth().apiKey;
 }
@@ -373,87 +380,81 @@ function resolveMappedWorkspace(
   return undefined;
 }
 
-// Multer memory storage for image uploads (forward to Builder, don't save locally)
-const memoryUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
-  fileFilter: (_req, file, cb) => {
-    const mimeType = getMimeType(file.originalname, file.mimetype);
-    if (mimeType.startsWith("image/")) {
-      cb(null, true);
-    } else {
-      cb(
-        new Error(
-          `Only image files are allowed, got ${file.mimetype} (${path.extname(file.originalname)})`,
-        ),
-      );
-    }
-  },
-});
-
-export const imageUploadMiddleware = memoryUpload.single("file");
-
 // POST /api/builder/image — Upload image to Builder.io CDN
-export const uploadImage: RequestHandler = async (req, res) => {
+export const uploadImage = defineEventHandler(async (event: H3Event) => {
   try {
-    const apiKey = req.headers["x-builder-api-key"] as string;
-    const privateKey = req.headers["x-builder-private-key"] as string;
-    const file = req.file;
+    const apiKey = getRequestHeader(event, "x-builder-api-key");
+    const privateKey = getRequestHeader(event, "x-builder-private-key");
 
     if (!apiKey || !privateKey) {
-      res.status(400).json({ error: "Missing API key or private key" });
-      return;
-    }
-    if (!file) {
-      res.status(400).json({ error: "No file provided" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "Missing API key or private key" };
     }
 
-    const mimeType = getMimeType(file.originalname, file.mimetype);
-    const uploadUrl = `${BUILDER_API}/upload?apiKey=${apiKey}&name=${encodeURIComponent(file.originalname)}`;
+    const parts = await readMultipartFormData(event);
+    const filePart = parts?.find((p) => p.name === "file");
+
+    if (!filePart) {
+      setResponseStatus(event, 400);
+      return { error: "No file provided" };
+    }
+
+    const originalname = filePart.filename || "upload";
+    const mimeType = getMimeType(
+      originalname,
+      filePart.type || "application/octet-stream",
+    );
+
+    if (!mimeType.startsWith("image/")) {
+      setResponseStatus(event, 400);
+      return {
+        error: `Only image files are allowed, got ${filePart.type} (${path.extname(originalname)})`,
+      };
+    }
+
+    const fileBuffer = filePart.data;
+    const uploadUrl = `${BUILDER_API}/upload?apiKey=${apiKey}&name=${encodeURIComponent(originalname)}`;
 
     const requestInit: RequestInit = {
       method: "POST",
       headers: {
         Authorization: `Bearer ${privateKey}`,
         "Content-Type": mimeType,
-        "Content-Length": file.buffer.length.toString(),
+        "Content-Length": fileBuffer.length.toString(),
       },
-      body: file.buffer as unknown as BodyInit,
+      body: fileBuffer as unknown as BodyInit,
     };
 
     const response = await fetch(uploadUrl, requestInit);
 
     if (!response.ok) {
       const text = await response.text();
-      res
-        .status(response.status)
-        .json({ error: `Builder upload failed: ${text}` });
-      return;
+      setResponseStatus(event, response.status);
+      return { error: `Builder upload failed: ${text}` };
     }
 
     const data = await response.json();
     const url = data?.url || data?.[0]?.url || data?.results?.[0]?.url;
     if (!url) {
-      res.status(500).json({ error: "No URL returned from Builder" });
-      return;
+      setResponseStatus(event, 500);
+      return { error: "No URL returned from Builder" };
     }
 
-    res.json({ success: true, url: normalizeBuilderAssetUrl(url) });
+    return { success: true, url: normalizeBuilderAssetUrl(url) };
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 // POST /api/builder/upload — Create a new blog-article or docs-content
-export const uploadArticle: RequestHandler = async (req, res) => {
+export const uploadArticle = defineEventHandler(async (event: H3Event) => {
   try {
-    const { apiKey, privateKey, article, model = "blog-article" } = req.body;
+    const { apiKey, privateKey, article, model = "blog-article" } =
+      await readBody(event);
     if (!apiKey || !privateKey || !article) {
-      res
-        .status(400)
-        .json({ success: false, error: "Missing required fields" });
-      return;
+      setResponseStatus(event, 400);
+      return { success: false, error: "Missing required fields" };
     }
 
     // Auto-reupload non-CDN images before pushing to Builder
@@ -477,34 +478,34 @@ export const uploadArticle: RequestHandler = async (req, res) => {
 
     if (!response.ok) {
       const text = await response.text();
-      res.status(response.status).json({ success: false, error: text });
-      return;
+      setResponseStatus(event, response.status);
+      return { success: false, error: text };
     }
 
     const data = await response.json();
-    res.json({
+    return {
       success: true,
       id: data.id || data._id,
       ...(reuploadResult &&
       (reuploadResult.reuploaded > 0 || reuploadResult.failed > 0)
         ? { imageReupload: reuploadResult }
         : {}),
-    });
+    };
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    setResponseStatus(event, 500);
+    return { success: false, error: err.message };
   }
-};
+});
 
 // PUT /api/builder/upload/:id — Update an existing blog-article or docs-content
-export const updateArticle: RequestHandler = async (req, res) => {
+export const updateArticle = defineEventHandler(async (event: H3Event) => {
   try {
-    const { id } = req.params;
-    const { apiKey, privateKey, article, model = "blog-article" } = req.body;
+    const id = event.context.params?.id;
+    const { apiKey, privateKey, article, model = "blog-article" } =
+      await readBody(event);
     if (!apiKey || !privateKey || !article) {
-      res
-        .status(400)
-        .json({ success: false, error: "Missing required fields" });
-      return;
+      setResponseStatus(event, 400);
+      return { success: false, error: "Missing required fields" };
     }
 
     // Auto-reupload non-CDN images before pushing to Builder
@@ -531,31 +532,32 @@ export const updateArticle: RequestHandler = async (req, res) => {
 
     if (!response.ok) {
       const text = await response.text();
-      res.status(response.status).json({ success: false, error: text });
-      return;
+      setResponseStatus(event, response.status);
+      return { success: false, error: text };
     }
 
     const data = await response.json();
-    res.json({
+    return {
       success: true,
       id: data.id || data._id || id,
       ...(reuploadResult &&
       (reuploadResult.reuploaded > 0 || reuploadResult.failed > 0)
         ? { imageReupload: reuploadResult }
         : {}),
-    });
+    };
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    setResponseStatus(event, 500);
+    return { success: false, error: err.message };
   }
-};
+});
 
 // GET /api/builder/authors — Fetch blog-author entries
-export const getAuthors: RequestHandler = async (req, res) => {
+export const getAuthors = defineEventHandler(async (event: H3Event) => {
   try {
-    const apiKey = getApiKey(req);
+    const apiKey = getApiKey(event);
     if (!apiKey) {
-      res.status(400).json({ error: "Missing Builder API key" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "Missing Builder API key" };
     }
 
     const authors = await fetchBuilderContent<BuilderAuthorEntry>({
@@ -564,22 +566,24 @@ export const getAuthors: RequestHandler = async (req, res) => {
       fields: "id,name,data.fullName,data.photo,data.handle",
     });
 
-    res.json({ authors });
+    return { authors };
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 // GET /api/builder/articles — Fetch existing blog-article entries
-export const getArticles: RequestHandler = async (req, res) => {
+export const getArticles = defineEventHandler(async (event: H3Event) => {
   try {
-    const apiKey = getApiKey(req);
+    const apiKey = getApiKey(event);
     if (!apiKey) {
-      res.status(400).json({ error: "Missing Builder API key" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "Missing Builder API key" };
     }
 
-    const limit = parseInt((req.query.limit as string) || "100", 10);
+    const q = getQuery(event);
+    const limit = parseInt((q.limit as string) || "100", 10);
     const articles = await fetchBuilderContent<BuilderArticleEntry>({
       apiKey,
       model: "blog-article",
@@ -589,19 +593,20 @@ export const getArticles: RequestHandler = async (req, res) => {
         "id,name,published,lastUpdated,data.handle,data.title,data.tags,data.topic,data.blurb,data.metaTitle,data.date,data.readTime,data.image,data.hideImage,data.author,data.authors",
     });
 
-    res.json({ articles });
+    return { articles };
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 // GET /api/builder/blog-index — Fetch normalized Builder blog rows for /blog
-export const getBlogIndex: RequestHandler = async (req, res) => {
+export const getBlogIndex = defineEventHandler(async (event: H3Event) => {
   try {
-    const apiKey = getApiKey(req);
+    const apiKey = getApiKey(event);
     if (!apiKey) {
-      res.status(400).json({ error: "Missing Builder API key" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "Missing Builder API key" };
     }
 
     const [articles, authors] = await Promise.all([
@@ -664,11 +669,12 @@ export const getBlogIndex: RequestHandler = async (req, res) => {
         return bTime - aTime || a.title.localeCompare(b.title);
       });
 
-    res.json({ articles: rows });
+    return { articles: rows };
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 function getLocalDocProjectLinks(): Map<string, LocalProjectLink> {
   const links = new Map<string, LocalProjectLink>();
@@ -744,12 +750,12 @@ type BuilderDocsEntry = {
 };
 
 // GET /api/builder/docs-index — Fetch normalized Builder docs rows for /docs
-export const getDocsIndex: RequestHandler = async (req, res) => {
+export const getDocsIndex = defineEventHandler(async (event: H3Event) => {
   try {
-    const apiKey = getApiKey(req);
+    const apiKey = getApiKey(event);
     if (!apiKey) {
-      res.status(400).json({ error: "Missing Builder API key" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "Missing Builder API key" };
     }
 
     const entries = await fetchBuilderContent<BuilderDocsEntry>({
@@ -791,22 +797,24 @@ export const getDocsIndex: RequestHandler = async (req, res) => {
         return a.title.localeCompare(b.title);
       });
 
-    res.json({ docs: rows });
+    return { docs: rows };
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 // GET /api/builder/docs — Fetch existing docs-content entries
-export const getDocs: RequestHandler = async (req, res) => {
+export const getDocs = defineEventHandler(async (event: H3Event) => {
   try {
-    const apiKey = req.headers["x-builder-api-key"] as string;
+    const apiKey = getRequestHeader(event, "x-builder-api-key");
     if (!apiKey) {
-      res.status(400).json({ error: "Missing x-builder-api-key header" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "Missing x-builder-api-key header" };
     }
 
-    const limit = parseInt((req.query.limit as string) || "100", 10);
+    const q = getQuery(event);
+    const limit = parseInt((q.limit as string) || "100", 10);
     // Fetch all fields including url at root level (not data.url) and all data fields
     const fields = "id,name,lastUpdated,url,data";
 
@@ -822,10 +830,8 @@ export const getDocs: RequestHandler = async (req, res) => {
       if (!response.ok) {
         const errorText = await response.text();
         if (allDocs.length === 0) {
-          res
-            .status(response.status)
-            .json({ error: `Failed to fetch docs: ${errorText}` });
-          return;
+          setResponseStatus(event, response.status);
+          return { error: `Failed to fetch docs: ${errorText}` };
         }
         break;
       }
@@ -841,19 +847,20 @@ export const getDocs: RequestHandler = async (req, res) => {
       offset += limit;
     }
 
-    res.json({ docs: allDocs });
+    return { docs: allDocs };
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 // POST /api/builder/validate — Validate connection
-export const validateConnection: RequestHandler = async (req, res) => {
+export const validateConnection = defineEventHandler(async (event: H3Event) => {
   try {
-    const { apiKey, privateKey } = req.body;
+    const { apiKey, privateKey } = await readBody(event);
     if (!apiKey || !privateKey) {
-      res.status(400).json({ valid: false, error: "Missing keys" });
-      return;
+      setResponseStatus(event, 400);
+      return { valid: false, error: "Missing keys" };
     }
 
     const response = await fetch(
@@ -861,43 +868,46 @@ export const validateConnection: RequestHandler = async (req, res) => {
     );
 
     if (!response.ok) {
-      res.status(401).json({ valid: false, error: "Invalid API key" });
-      return;
+      setResponseStatus(event, 401);
+      return { valid: false, error: "Invalid API key" };
     }
 
-    res.json({ valid: true });
+    return { valid: true };
   } catch (err: any) {
-    res.status(500).json({ valid: false, error: err.message });
+    setResponseStatus(event, 500);
+    return { valid: false, error: err.message };
   }
-};
+});
 
 // POST /api/builder/auth — Save Builder auth keys
-export const saveAuth: RequestHandler = async (req, res) => {
+export const saveAuth = defineEventHandler(async (event: H3Event) => {
   try {
-    const { apiKey, privateKey } = req.body;
+    const { apiKey, privateKey } = await readBody(event);
     if (!apiKey || !privateKey) {
-      res.status(400).json({ success: false, error: "Missing keys" });
-      return;
+      setResponseStatus(event, 400);
+      return { success: false, error: "Missing keys" };
     }
     fs.mkdirSync(path.dirname(AUTH_FILE), { recursive: true });
     fs.writeFileSync(
       AUTH_FILE,
       JSON.stringify({ apiKey, privateKey }, null, 2),
     );
-    res.json({ success: true });
+    return { success: true };
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    setResponseStatus(event, 500);
+    return { success: false, error: err.message };
   }
-};
+});
 
 // DELETE /api/builder/auth — Clear Builder auth keys
-export const clearAuth: RequestHandler = async (_req, res) => {
+export const clearAuth = defineEventHandler(async (event: H3Event) => {
   try {
     if (fs.existsSync(AUTH_FILE)) {
       fs.unlinkSync(AUTH_FILE);
     }
-    res.json({ success: true });
+    return { success: true };
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    setResponseStatus(event, 500);
+    return { success: false, error: err.message };
   }
-};
+});

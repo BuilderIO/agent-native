@@ -1,4 +1,4 @@
-import { RequestHandler } from "express";
+import { defineEventHandler, readBody, getRouterParam, setResponseStatus } from "h3";
 import crypto from "crypto";
 import type {
   ShareDeckRequest,
@@ -28,13 +28,13 @@ function cleanupOldShares() {
  * POST /api/share
  * Store a deck snapshot and return a share token
  */
-export const shareDeck: RequestHandler = (req, res) => {
-  const body = req.body as ShareDeckRequest;
+export const shareDeck = defineEventHandler(async (event) => {
+  const body = await readBody<ShareDeckRequest>(event);
   const { deck } = body;
 
   if (!deck || !deck.slides?.length) {
-    res.status(400).json({ error: "Deck with slides is required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Deck with slides is required" };
   }
 
   cleanupOldShares();
@@ -56,27 +56,29 @@ export const shareDeck: RequestHandler = (req, res) => {
   });
 
   const response: ShareDeckResponse = { shareToken };
-  res.json(response);
-};
+  return response;
+});
 
 /**
  * GET /api/share/:token
  * Retrieve a shared deck by token
  */
-export const getSharedDeck: RequestHandler = (req, res) => {
-  const token = req.params.token as string;
+export const getSharedDeck = defineEventHandler((event) => {
+  const token = getRouterParam(event, "token");
+  if (!token) {
+    setResponseStatus(event, 400);
+    return { error: "Token is required" };
+  }
   const shared = sharedDecks.get(token);
 
   if (!shared) {
-    res
-      .status(404)
-      .json({ error: "Shared presentation not found or has expired" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "Shared presentation not found or has expired" };
   }
 
   const response: SharedDeckResponse = {
     title: shared.title,
     slides: shared.slides,
   };
-  res.json(response);
-};
+  return response;
+});

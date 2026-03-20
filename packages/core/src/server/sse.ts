@@ -1,6 +1,6 @@
 import { watch, type FSWatcher } from "chokidar";
 import { EventEmitter } from "events";
-import type { Request, Response } from "express";
+import { defineEventHandler, createEventStream } from "h3";
 
 export type { FSWatcher } from "chokidar";
 
@@ -31,42 +31,39 @@ export interface SSEHandlerOptions {
 }
 
 /**
- * Create an Express route handler that streams Server-Sent Events for file changes.
+ * Create an H3 event handler that streams Server-Sent Events for file changes.
  *
  * Usage:
- *   app.get("/api/events", createSSEHandler(watcher));
+ *   router.get("/api/events", createSSEHandler(watcher));
  */
 export function createSSEHandler(
   watcher: FSWatcher,
   options: SSEHandlerOptions = {},
-): (req: Request, res: Response) => void {
-  return (req: Request, res: Response) => {
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders();
+) {
+  return defineEventHandler(async (event) => {
+    const stream = createEventStream(event);
 
     const onChange = (eventName: string, filePath: string) => {
-      res.write(
-        `data: ${JSON.stringify({ type: eventName, path: filePath })}\n\n`,
-      );
+      stream.push(JSON.stringify({ type: eventName, path: filePath }));
     };
 
     watcher.on("all", onChange);
 
     // Subscribe to extra emitters
     const cleanups: Array<() => void> = [];
-    for (const { emitter, event } of options.extraEmitters ?? []) {
+    for (const { emitter, event: evtName } of options.extraEmitters ?? []) {
       const handler = (data: any) => {
-        res.write(`data: ${JSON.stringify(data)}\n\n`);
+        stream.push(JSON.stringify(data));
       };
-      emitter.on(event, handler);
-      cleanups.push(() => emitter.off(event, handler));
+      emitter.on(evtName, handler);
+      cleanups.push(() => emitter.off(evtName, handler));
     }
 
-    req.on("close", () => {
+    stream.onClosed(() => {
       watcher.off("all", onChange);
       for (const cleanup of cleanups) cleanup();
     });
-  };
+
+    return stream.send();
+  });
 }

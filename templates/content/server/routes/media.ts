@@ -1,5 +1,17 @@
-import express, { RequestHandler } from "express";
-import multer, { MulterError } from "multer";
+import {
+  defineEventHandler,
+  getQuery,
+  getRequestHeader,
+  getRouterParam,
+  readBody,
+  readMultipartFormData,
+  readRawBody,
+  sendRedirect,
+  sendStream,
+  setResponseHeader,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -24,7 +36,6 @@ const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
 const ALLOWED_TYPES = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_VIDEO_TYPES];
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const CHUNK_SIZE = 1 * 1024 * 1024;
-const MAX_CHUNK_BODY_SIZE = CHUNK_SIZE + 64 * 1024;
 const UPLOAD_SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 const BUILDER_VIDEO_UPLOAD_RETRIES = 2;
 
@@ -81,13 +92,6 @@ function logMediaEvent(
         ? console.warn
         : console.info;
   log(`[media] ${message}`, details);
-}
-
-function getHeaderValue(value: string | string[] | undefined): string {
-  if (Array.isArray(value)) {
-    return value[0] ?? "";
-  }
-  return value ?? "";
 }
 
 function isLoopbackHost(value: string): boolean {
@@ -156,9 +160,8 @@ function parseByteRange(
   return { start, end };
 }
 
-function streamMediaFile(
-  req: express.Request,
-  res: express.Response,
+async function streamMediaFileH3(
+  event: H3Event,
   options: {
     filePath: string;
     mimeType: string;
@@ -177,26 +180,25 @@ function streamMediaFile(
     logDetails,
   } = options;
   const stat = fs.statSync(filePath);
-  const range = parseByteRange(
-    typeof req.headers.range === "string" ? req.headers.range : undefined,
-    stat.size,
-  );
+  const rangeHeader = getRequestHeader(event, "range");
+  const range = parseByteRange(rangeHeader, stat.size);
 
-  res.setHeader("Content-Type", mimeType);
-  res.setHeader("Accept-Ranges", "bytes");
-  res.setHeader("Cache-Control", cacheControl);
+  setResponseHeader(event, "Content-Type", mimeType);
+  setResponseHeader(event, "Accept-Ranges", "bytes");
+  setResponseHeader(event, "Cache-Control", cacheControl);
 
   if (range) {
     const contentLength = range.end - range.start + 1;
-    res.status(206);
-    res.setHeader("Content-Length", String(contentLength));
-    res.setHeader(
+    setResponseStatus(event, 206);
+    setResponseHeader(event, "Content-Length", contentLength);
+    setResponseHeader(
+      event,
       "Content-Range",
       `bytes ${range.start}-${range.end}/${stat.size}`,
     );
 
-    if (req.method === "HEAD") {
-      res.end();
+    if (event.node.req.method === "HEAD") {
+      event.node.res.end();
       return;
     }
 
@@ -204,47 +206,18 @@ function streamMediaFile(
       start: range.start,
       end: range.end,
     });
-    stream.on("error", (error) => {
-      logMediaEvent("error", streamErrorMessage, {
-        ...logDetails,
-        error: getErrorMessage(error),
-        rangeStart: range.start,
-        rangeEnd: range.end,
-      });
-      if (!res.headersSent) {
-        res
-          .status(500)
-          .json({ error: streamErrorMessage, code: streamErrorCode });
-        return;
-      }
-      res.destroy(error instanceof Error ? error : undefined);
-    });
-    stream.pipe(res);
-    return;
+    return sendStream(event, stream);
   }
 
-  res.setHeader("Content-Length", String(stat.size));
+  setResponseHeader(event, "Content-Length", stat.size);
 
-  if (req.method === "HEAD") {
-    res.end();
+  if (event.node.req.method === "HEAD") {
+    event.node.res.end();
     return;
   }
 
   const stream = fs.createReadStream(filePath);
-  stream.on("error", (error) => {
-    logMediaEvent("error", streamErrorMessage, {
-      ...logDetails,
-      error: getErrorMessage(error),
-    });
-    if (!res.headersSent) {
-      res
-        .status(500)
-        .json({ error: streamErrorMessage, code: streamErrorCode });
-      return;
-    }
-    res.destroy(error instanceof Error ? error : undefined);
-  });
-  stream.pipe(res);
+  return sendStream(event, stream);
 }
 
 function isValidProjectPath(project: string): boolean {
@@ -648,37 +621,92 @@ function getChunkIndex(value: unknown): number | null {
   return parsed;
 }
 
-function getUploadToken(req: express.Request): string {
-  const headerToken = req.headers["x-upload-token"];
+function getUploadToken(event: H3Event): string {
+  const headerToken = getRequestHeader(event, "x-upload-token");
   if (typeof headerToken === "string") return headerToken;
-  if (Array.isArray(headerToken)) return headerToken[0] ?? "";
-  return typeof req.query.token === "string" ? req.query.token : "";
+  const q = getQuery(event);
+  return typeof q.token === "string" ? q.token : "";
 }
 
-function getUploadRequestId(res: express.Response): string | undefined {
-  return typeof res.locals.uploadRequestId === "string"
-    ? res.locals.uploadRequestId
-    : undefined;
+function getRequestBaseUrl(event: H3Event, project: string): string {
+  const envOrigin = process.env.APP_ORIGIN?.trim();
+  if (envOrigin) {
+    try {
+      return new URL(envOrigin).origin;
+    } catch {
+      throw new Error("APP_ORIGIN is not a valid absolute URL");
+    }
+  }
+
+  const originHeader = (getRequestHeader(event, "origin") || "").trim();
+  if (originHeader && !isLoopbackHost(originHeader)) {
+    try {
+      return new URL(originHeader).origin;
+    } catch {
+      logMediaEvent(
+        "warn",
+        "Ignoring invalid origin header during Builder upload handoff",
+        { originHeader, project },
+      );
+    }
+  }
+
+  const refererHeader = (getRequestHeader(event, "referer") || "").trim();
+  if (refererHeader && !isLoopbackHost(refererHeader)) {
+    try {
+      return new URL(refererHeader).origin;
+    } catch {
+      logMediaEvent(
+        "warn",
+        "Ignoring invalid referer header during Builder upload handoff",
+        { refererHeader, project },
+      );
+    }
+  }
+
+  const forwardedProto = (
+    getRequestHeader(event, "x-forwarded-proto") || ""
+  )
+    .split(",")[0]
+    ?.trim();
+  const forwardedHost = (
+    getRequestHeader(event, "x-forwarded-host") || ""
+  )
+    .split(",")[0]
+    ?.trim();
+  const host =
+    forwardedHost ||
+    getRequestHeader(event, "host")?.trim() ||
+    "";
+  const protocol = forwardedProto || "https";
+
+  if (host && !isLoopbackHost(host)) {
+    return `${protocol}://${host}`;
+  }
+
+  throw new Error(
+    "Public upload origin is unavailable. Set APP_ORIGIN to the public app URL before uploading large videos.",
+  );
 }
 
-function getChunkRequestLogDetails(
-  req: express.Request,
-  res: express.Response,
+function getChunkedUploadSourceUrl(
+  event: H3Event,
+  project: string,
+  session: UploadSession,
+): string {
+  const baseUrl = getRequestBaseUrl(event, project);
+  const pathname = `/api/projects/${project}/media/chunked/${session.id}/source`;
+  const url = new URL(pathname, `${baseUrl}/`);
+  url.searchParams.set("token", session.accessToken);
+  return url.toString();
+}
+
+function validateChunkUploadSession(
+  event: H3Event,
+  project: string,
+  uploadId: string,
 ) {
-  return {
-    requestId: getUploadRequestId(res),
-    project: normalizeProjectParam(req.params.project),
-    uploadId:
-      typeof req.params.uploadId === "string" ? req.params.uploadId : "",
-    chunkIndex: getChunkIndex(req.query.index),
-  };
-}
-
-function validateChunkUploadSession(req: express.Request) {
-  const project = normalizeProjectParam(req.params.project);
-  const uploadId =
-    typeof req.params.uploadId === "string" ? req.params.uploadId : "";
-  const uploadToken = getUploadToken(req);
+  const uploadToken = getUploadToken(event);
 
   if (!isValidProjectPath(project) || !uploadId) {
     return {
@@ -729,619 +757,460 @@ function validateChunkUploadSession(req: express.Request) {
   return { project, uploadId, session };
 }
 
-function sendBuilderUploadError(
-  res: express.Response,
-  req: express.Request,
-  err: BuilderUploadError,
-) {
-  console.error("[media] Builder media upload failed", {
-    project: normalizeProjectParam(req.params.project),
-    filename: req.file?.originalname,
-    size: req.file?.size,
-    mimeType: req.file
-      ? getMimeType(req.file.originalname, req.file.mimetype)
-      : undefined,
-    status: err.status,
-    code: err.code,
-    response: err.responseBody.slice(0, 500),
-  });
+export const initializeChunkedMediaUpload = defineEventHandler(
+  async (event: H3Event) => {
+    const projectParam = getRouterParam(event, "project") || "";
+    const project = normalizeProjectParam(projectParam);
+    const { originalName, size, mimeType } = (await readBody(event)) as {
+      originalName?: string;
+      size?: number;
+      mimeType?: string;
+    };
 
-  res.status(err.status || 502).json({
-    error: err.message,
-    code: err.code,
-    details: err.responseBody || undefined,
-  });
-}
-
-function getRequestBaseUrl(req: express.Request): string {
-  const envOrigin = process.env.APP_ORIGIN?.trim();
-  if (envOrigin) {
-    try {
-      return new URL(envOrigin).origin;
-    } catch {
-      throw new Error("APP_ORIGIN is not a valid absolute URL");
-    }
-  }
-
-  const originHeader = getHeaderValue(req.headers.origin).trim();
-  if (originHeader && !isLoopbackHost(originHeader)) {
-    try {
-      return new URL(originHeader).origin;
-    } catch {
-      logMediaEvent(
-        "warn",
-        "Ignoring invalid origin header during Builder upload handoff",
-        {
-          originHeader,
-          project: normalizeProjectParam(req.params.project),
-        },
-      );
-    }
-  }
-
-  const refererHeader = getHeaderValue(req.headers.referer).trim();
-  if (refererHeader && !isLoopbackHost(refererHeader)) {
-    try {
-      return new URL(refererHeader).origin;
-    } catch {
-      logMediaEvent(
-        "warn",
-        "Ignoring invalid referer header during Builder upload handoff",
-        {
-          refererHeader,
-          project: normalizeProjectParam(req.params.project),
-        },
-      );
-    }
-  }
-
-  const forwardedProto = getHeaderValue(req.headers["x-forwarded-proto"])
-    .split(",")[0]
-    ?.trim();
-  const forwardedHost = getHeaderValue(req.headers["x-forwarded-host"])
-    .split(",")[0]
-    ?.trim();
-  const host = forwardedHost || req.get("host")?.trim() || "";
-  const protocol = forwardedProto || req.protocol || "https";
-
-  if (host && !isLoopbackHost(host)) {
-    return `${protocol}://${host}`;
-  }
-
-  throw new Error(
-    "Public upload origin is unavailable. Set APP_ORIGIN to the public app URL before uploading large videos.",
-  );
-}
-
-function getChunkedUploadSourceUrl(
-  req: express.Request,
-  project: string,
-  session: UploadSession,
-): string {
-  const baseUrl = getRequestBaseUrl(req);
-  const pathname = `/api/projects/${project}/media/chunked/${session.id}/source`;
-  const url = new URL(pathname, `${baseUrl}/`);
-  url.searchParams.set("token", session.accessToken);
-  return url.toString();
-}
-
-const storage = multer.memoryStorage();
-
-const upload = multer({
-  storage,
-  limits: { fileSize: MAX_FILE_SIZE },
-  fileFilter: (_req, file, cb) => {
-    const mimeType = getMimeType(file.originalname, file.mimetype);
-
-    if (ALLOWED_TYPES.includes(mimeType)) {
-      cb(null, true);
-      return;
+    if (!isValidProjectPath(project)) {
+      setResponseStatus(event, 400);
+      return { error: "Invalid project slug" };
     }
 
-    const ext = path.extname(file.originalname).toLowerCase();
-    const allowedExtensions = [
-      ".jpg",
-      ".jpeg",
-      ".png",
-      ".gif",
-      ".webp",
-      ".svg",
-      ".mp4",
-      ".webm",
-      ".mov",
-    ];
-
-    if (
-      allowedExtensions.includes(ext) ||
-      mimeType.startsWith("image/") ||
-      mimeType.startsWith("video/")
-    ) {
-      cb(null, true);
-    } else {
-      cb(new Error(`File type ${file.mimetype} (${ext}) not allowed`));
-    }
-  },
-});
-
-export const uploadMiddleware: RequestHandler = (req, res, next) => {
-  upload.single("file")(req, res, (err) => {
-    if (!err) {
-      next();
-      return;
+    if (!originalName || typeof size !== "number" || !mimeType) {
+      setResponseStatus(event, 400);
+      return {
+        error: "Missing upload metadata",
+        code: "missing_upload_metadata",
+      };
     }
 
-    if (err instanceof MulterError && err.code === "LIMIT_FILE_SIZE") {
-      res.status(413).json({
+    if (!Number.isFinite(size) || size <= 0 || size > MAX_FILE_SIZE) {
+      setResponseStatus(event, 413);
+      return {
         error: `File too large. Max upload size is ${Math.round(MAX_FILE_SIZE / (1024 * 1024))}MB.`,
         code: "file_too_large",
         maxBytes: MAX_FILE_SIZE,
-      });
-      return;
+      };
     }
 
-    res.status(400).json({
-      error: err.message || "Invalid media upload",
-      code: "invalid_media_upload",
-    });
-  });
-};
-
-const rawChunkParser = express.raw({
-  type: "application/octet-stream",
-  limit: MAX_CHUNK_BODY_SIZE,
-});
-
-export const requireChunkedUploadAccess: RequestHandler = (req, res, next) => {
-  logMediaEvent("info", "Authenticating chunk upload session", {
-    ...getChunkRequestLogDetails(req, res),
-  });
-
-  const result = validateChunkUploadSession(req);
-  if ("error" in result) {
-    logMediaEvent("warn", "Chunk upload session rejected", {
-      ...getChunkRequestLogDetails(req, res),
-      status: result.error.status,
-      code: result.error.body.code,
-    });
-    res.status(result.error.status).json(result.error.body);
-    return;
-  }
-
-  logMediaEvent("info", "Chunk upload session authenticated", {
-    ...getChunkRequestLogDetails(req, res),
-    receivedBytes: result.session.receivedBytes,
-    nextChunkIndex: result.session.nextChunkIndex,
-  });
-  next();
-};
-
-export const chunkUploadMiddleware: RequestHandler = (req, res, next) => {
-  logMediaEvent("info", "Starting chunk body parse", {
-    ...getChunkRequestLogDetails(req, res),
-    contentLength: req.headers["content-length"],
-    contentType: req.headers["content-type"],
-  });
-
-  rawChunkParser(req, res, (err) => {
-    if (!err) {
-      logMediaEvent("info", "Completed chunk body parse", {
-        ...getChunkRequestLogDetails(req, res),
-        parsedBytes: Buffer.isBuffer(req.body) ? req.body.length : 0,
-      });
-      next();
-      return;
+    if (!isAllowedMediaType(originalName, mimeType)) {
+      setResponseStatus(event, 400);
+      return {
+        error: `File type ${mimeType} not allowed`,
+        code: "invalid_media_upload",
+      };
     }
 
-    logMediaEvent("warn", "Chunk body parse failed", {
-      ...getChunkRequestLogDetails(req, res),
-      error: err instanceof Error ? err.message : String(err),
-      type: (err as { type?: string }).type,
-    });
-
-    if ((err as { type?: string }).type === "entity.too.large") {
-      res.status(413).json({
-        error: `Chunk too large. Max chunk size is ${Math.round(CHUNK_SIZE / (1024 * 1024))}MB.`,
-        code: "chunk_too_large",
-        maxBytes: CHUNK_SIZE,
+    try {
+      logMediaEvent("info", "Initializing chunked media upload", {
+        project,
+        originalName,
+        size,
+        mimeType,
       });
-      return;
+
+      const session = createUploadSession(project, {
+        originalName,
+        size,
+        mimeType,
+      });
+      return {
+        uploadId: session.id,
+        uploadToken: session.accessToken,
+        chunkSize: CHUNK_SIZE,
+        totalChunks: Math.ceil(size / CHUNK_SIZE),
+      };
+    } catch (error) {
+      logMediaEvent("error", "Failed to initialize chunked media upload", {
+        project,
+        originalName,
+        size,
+        mimeType,
+        error: getErrorMessage(error),
+      });
+      setResponseStatus(event, 500);
+      return {
+        error: "Could not create an upload session",
+        code: "upload_session_create_failed",
+      };
     }
+  },
+);
 
-    res.status(400).json({
-      error: err instanceof Error ? err.message : "Invalid upload chunk",
-      code: "invalid_upload_chunk",
-    });
-  });
-};
+export const appendChunkedMediaUpload = defineEventHandler(
+  async (event: H3Event) => {
+    const projectParam = getRouterParam(event, "project") || "";
+    const project = normalizeProjectParam(projectParam);
+    const uploadId = getRouterParam(event, "uploadId") || "";
+    const q = getQuery(event);
+    const chunkIndex = getChunkIndex(q.index);
 
-export const initializeChunkedMediaUpload: RequestHandler = (req, res) => {
-  const project = normalizeProjectParam(req.params.project);
-  const { originalName, size, mimeType } = req.body as {
-    originalName?: string;
-    size?: number;
-    mimeType?: string;
-  };
-
-  if (!isValidProjectPath(project)) {
-    res.status(400).json({ error: "Invalid project slug" });
-    return;
-  }
-
-  if (!originalName || typeof size !== "number" || !mimeType) {
-    res.status(400).json({
-      error: "Missing upload metadata",
-      code: "missing_upload_metadata",
-    });
-    return;
-  }
-
-  if (!Number.isFinite(size) || size <= 0 || size > MAX_FILE_SIZE) {
-    res.status(413).json({
-      error: `File too large. Max upload size is ${Math.round(MAX_FILE_SIZE / (1024 * 1024))}MB.`,
-      code: "file_too_large",
-      maxBytes: MAX_FILE_SIZE,
-    });
-    return;
-  }
-
-  if (!isAllowedMediaType(originalName, mimeType)) {
-    res.status(400).json({
-      error: `File type ${mimeType} not allowed`,
-      code: "invalid_media_upload",
-    });
-    return;
-  }
-
-  try {
-    logMediaEvent("info", "Initializing chunked media upload", {
+    logMediaEvent("info", "Chunk append handler entered", {
       project,
-      originalName,
-      size,
-      mimeType,
-    });
-
-    const session = createUploadSession(project, {
-      originalName,
-      size,
-      mimeType,
-    });
-    res.json({
-      uploadId: session.id,
-      uploadToken: session.accessToken,
-      chunkSize: CHUNK_SIZE,
-      totalChunks: Math.ceil(size / CHUNK_SIZE),
-    });
-  } catch (error) {
-    logMediaEvent("error", "Failed to initialize chunked media upload", {
-      project,
-      originalName,
-      size,
-      mimeType,
-      error: getErrorMessage(error),
-    });
-    res.status(500).json({
-      error: "Could not create an upload session",
-      code: "upload_session_create_failed",
-    });
-  }
-};
-
-export const appendChunkedMediaUpload: RequestHandler = (req, res) => {
-  const project = normalizeProjectParam(req.params.project);
-  const uploadId =
-    typeof req.params.uploadId === "string" ? req.params.uploadId : "";
-  const chunkIndex = getChunkIndex(req.query.index);
-
-  logMediaEvent("info", "Chunk append handler entered", {
-    ...getChunkRequestLogDetails(req, res),
-  });
-
-  if (!isValidProjectPath(project) || !uploadId) {
-    res.status(400).json({ error: "Invalid upload request" });
-    return;
-  }
-
-  if (chunkIndex === null) {
-    res
-      .status(400)
-      .json({ error: "Chunk index is required", code: "missing_chunk_index" });
-    return;
-  }
-
-  try {
-    const session = readUploadSession(project, uploadId);
-    if (!session) {
-      res.status(404).json({
-        error: "Upload session not found",
-        code: "upload_session_not_found",
-      });
-      return;
-    }
-
-    if (session.status !== "uploading") {
-      res.status(409).json({
-        error: `Upload can no longer accept chunks while ${session.status}.`,
-        code: "upload_not_appendable",
-        status: session.status,
-      });
-      return;
-    }
-
-    if (chunkIndex !== session.nextChunkIndex) {
-      res.status(409).json({
-        error: `Unexpected chunk index ${chunkIndex}. Expected ${session.nextChunkIndex}.`,
-        code: "unexpected_chunk_index",
-        expectedChunkIndex: session.nextChunkIndex,
-      });
-      return;
-    }
-
-    const chunk = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
-    if (chunk.length === 0) {
-      res
-        .status(400)
-        .json({ error: "Chunk body is required", code: "missing_chunk_body" });
-      return;
-    }
-
-    if (chunk.length > CHUNK_SIZE) {
-      res.status(413).json({
-        error: `Chunk too large. Max chunk size is ${Math.round(CHUNK_SIZE / (1024 * 1024))}MB.`,
-        code: "chunk_too_large",
-        maxBytes: CHUNK_SIZE,
-      });
-      return;
-    }
-
-    const nextReceivedBytes = session.receivedBytes + chunk.length;
-    if (nextReceivedBytes > session.size) {
-      res.status(400).json({
-        error: "Chunk exceeds declared file size",
-        code: "chunk_out_of_bounds",
-      });
-      return;
-    }
-
-    logMediaEvent("info", "Appending upload chunk", {
-      ...getChunkRequestLogDetails(req, res),
-      chunkBytes: chunk.length,
-      nextReceivedBytes,
-      expectedBytes: session.size,
-    });
-
-    fs.appendFileSync(getUploadSessionDataPath(project, uploadId), chunk);
-    session.receivedBytes = nextReceivedBytes;
-    session.nextChunkIndex += 1;
-    writeUploadSession(project, session);
-
-    res.json({
       uploadId,
-      receivedBytes: session.receivedBytes,
-      nextChunkIndex: session.nextChunkIndex,
-      complete: session.receivedBytes === session.size,
+      chunkIndex,
     });
-  } catch (error) {
-    logMediaEvent("error", "Failed while appending upload chunk", {
-      ...getChunkRequestLogDetails(req, res),
-      error: getErrorMessage(error),
-    });
-    res.status(500).json({
-      error: "Could not persist the uploaded chunk",
-      code: "chunk_write_failed",
-    });
-  }
-};
 
-export const serveChunkedMediaUploadSource: RequestHandler = (req, res) => {
-  const project = normalizeProjectParam(req.params.project);
-  const uploadId =
-    typeof req.params.uploadId === "string" ? req.params.uploadId : "";
-  const token = typeof req.query.token === "string" ? req.query.token : "";
+    if (!isValidProjectPath(project) || !uploadId) {
+      setResponseStatus(event, 400);
+      return { error: "Invalid upload request" };
+    }
 
-  if (!isValidProjectPath(project) || !uploadId || !token) {
-    res.status(400).json({ error: "Invalid upload source request" });
-    return;
-  }
+    if (chunkIndex === null) {
+      setResponseStatus(event, 400);
+      return { error: "Chunk index is required", code: "missing_chunk_index" };
+    }
 
-  try {
-    const session = readUploadSession(project, uploadId);
-    if (!session) {
-      res.status(404).json({
-        error: "Upload session not found",
-        code: "upload_session_not_found",
+    // Validate session and token
+    const authResult = validateChunkUploadSession(event, project, uploadId);
+    if ("error" in authResult) {
+      setResponseStatus(event, authResult.error.status);
+      return authResult.error.body;
+    }
+
+    try {
+      const session = readUploadSession(project, uploadId);
+      if (!session) {
+        setResponseStatus(event, 404);
+        return {
+          error: "Upload session not found",
+          code: "upload_session_not_found",
+        };
+      }
+
+      if (session.status !== "uploading") {
+        setResponseStatus(event, 409);
+        return {
+          error: `Upload can no longer accept chunks while ${session.status}.`,
+          code: "upload_not_appendable",
+          status: session.status,
+        };
+      }
+
+      if (chunkIndex !== session.nextChunkIndex) {
+        setResponseStatus(event, 409);
+        return {
+          error: `Unexpected chunk index ${chunkIndex}. Expected ${session.nextChunkIndex}.`,
+          code: "unexpected_chunk_index",
+          expectedChunkIndex: session.nextChunkIndex,
+        };
+      }
+
+      const rawBody = await readRawBody(event, false);
+      const chunk = rawBody
+        ? Buffer.isBuffer(rawBody)
+          ? rawBody
+          : Buffer.from(rawBody)
+        : Buffer.alloc(0);
+
+      if (chunk.length === 0) {
+        setResponseStatus(event, 400);
+        return {
+          error: "Chunk body is required",
+          code: "missing_chunk_body",
+        };
+      }
+
+      if (chunk.length > CHUNK_SIZE) {
+        setResponseStatus(event, 413);
+        return {
+          error: `Chunk too large. Max chunk size is ${Math.round(CHUNK_SIZE / (1024 * 1024))}MB.`,
+          code: "chunk_too_large",
+          maxBytes: CHUNK_SIZE,
+        };
+      }
+
+      const nextReceivedBytes = session.receivedBytes + chunk.length;
+      if (nextReceivedBytes > session.size) {
+        setResponseStatus(event, 400);
+        return {
+          error: "Chunk exceeds declared file size",
+          code: "chunk_out_of_bounds",
+        };
+      }
+
+      logMediaEvent("info", "Appending upload chunk", {
+        project,
+        uploadId,
+        chunkIndex,
+        chunkBytes: chunk.length,
+        nextReceivedBytes,
+        expectedBytes: session.size,
       });
-      return;
+
+      fs.appendFileSync(getUploadSessionDataPath(project, uploadId), chunk);
+      session.receivedBytes = nextReceivedBytes;
+      session.nextChunkIndex += 1;
+      writeUploadSession(project, session);
+
+      return {
+        uploadId,
+        receivedBytes: session.receivedBytes,
+        nextChunkIndex: session.nextChunkIndex,
+        complete: session.receivedBytes === session.size,
+      };
+    } catch (error) {
+      logMediaEvent("error", "Failed while appending upload chunk", {
+        project,
+        uploadId,
+        chunkIndex,
+        error: getErrorMessage(error),
+      });
+      setResponseStatus(event, 500);
+      return {
+        error: "Could not persist the uploaded chunk",
+        code: "chunk_write_failed",
+      };
+    }
+  },
+);
+
+export const serveChunkedMediaUploadSource = defineEventHandler(
+  async (event: H3Event) => {
+    const projectParam = getRouterParam(event, "project") || "";
+    const project = normalizeProjectParam(projectParam);
+    const uploadId = getRouterParam(event, "uploadId") || "";
+    const q = getQuery(event);
+    const token = typeof q.token === "string" ? q.token : "";
+
+    if (!isValidProjectPath(project) || !uploadId || !token) {
+      setResponseStatus(event, 400);
+      return { error: "Invalid upload source request" };
     }
 
-    if (token !== session.accessToken) {
-      res
-        .status(403)
-        .json({ error: "Invalid upload token", code: "invalid_upload_token" });
-      return;
+    try {
+      const session = readUploadSession(project, uploadId);
+      if (!session) {
+        setResponseStatus(event, 404);
+        return {
+          error: "Upload session not found",
+          code: "upload_session_not_found",
+        };
+      }
+
+      if (token !== session.accessToken) {
+        setResponseStatus(event, 403);
+        return {
+          error: "Invalid upload token",
+          code: "invalid_upload_token",
+        };
+      }
+
+      if (session.receivedBytes !== session.size) {
+        setResponseStatus(event, 409);
+        return {
+          error: "Upload is incomplete",
+          code: "incomplete_upload",
+          receivedBytes: session.receivedBytes,
+          expectedBytes: session.size,
+        };
+      }
+
+      const filePath = getUploadSessionDataPath(project, uploadId);
+      if (!fs.existsSync(filePath)) {
+        setResponseStatus(event, 404);
+        return {
+          error: "Upload file not found",
+          code: "upload_file_not_found",
+        };
+      }
+
+      const stat = fs.statSync(filePath);
+      logMediaEvent("info", "Serving chunked upload source for Builder fetch", {
+        project,
+        uploadId,
+        bytes: stat.size,
+        mimeType: session.mimeType,
+        method: event.node.req.method,
+        range: getRequestHeader(event, "range"),
+      });
+
+      return streamMediaFileH3(event, {
+        filePath,
+        mimeType: session.mimeType,
+        cacheControl: "private, max-age=300",
+        streamErrorMessage: "Could not stream the upload source",
+        streamErrorCode: "upload_source_stream_failed",
+        logDetails: {
+          project,
+          uploadId,
+        },
+      });
+    } catch (error) {
+      logMediaEvent("error", "Failed while preparing chunked upload source", {
+        project,
+        uploadId,
+        error: getErrorMessage(error),
+      });
+      setResponseStatus(event, 500);
+      return {
+        error: "Could not prepare the upload source",
+        code: "upload_source_failed",
+      };
     }
+  },
+);
+
+export const getChunkedMediaUploadStatus = defineEventHandler(
+  (event: H3Event) => {
+    const projectParam = getRouterParam(event, "project") || "";
+    const project = normalizeProjectParam(projectParam);
+    const uploadId = getRouterParam(event, "uploadId") || "";
+    const result = validateChunkUploadSession(event, project, uploadId);
+    if ("error" in result) {
+      setResponseStatus(event, result.error.status);
+      return result.error.body;
+    }
+
+    return getChunkedUploadStatusPayload(result.session);
+  },
+);
+
+export const completeChunkedMediaUpload = defineEventHandler(
+  async (event: H3Event) => {
+    const apiKey = getRequestHeader(event, "x-builder-api-key");
+    const privateKey = getRequestHeader(event, "x-builder-private-key");
+
+    const projectParam = getRouterParam(event, "project") || "";
+    const project = normalizeProjectParam(projectParam);
+    const uploadId = getRouterParam(event, "uploadId") || "";
+    const result = validateChunkUploadSession(event, project, uploadId);
+    if ("error" in result) {
+      setResponseStatus(event, result.error.status);
+      return result.error.body;
+    }
+
+    const { session } = result;
 
     if (session.receivedBytes !== session.size) {
-      res.status(409).json({
+      setResponseStatus(event, 400);
+      return {
         error: "Upload is incomplete",
         code: "incomplete_upload",
         receivedBytes: session.receivedBytes,
         expectedBytes: session.size,
-      });
-      return;
+      };
     }
 
-    const filePath = getUploadSessionDataPath(project, uploadId);
-    if (!fs.existsSync(filePath)) {
-      res.status(404).json({
-        error: "Upload file not found",
-        code: "upload_file_not_found",
-      });
-      return;
+    if (session.status === "complete" && session.resultMetadata) {
+      return {
+        ...getChunkedUploadStatusPayload(session),
+        ...session.resultMetadata,
+      };
     }
 
-    const stat = fs.statSync(filePath);
-    logMediaEvent("info", "Serving chunked upload source for Builder fetch", {
+    if (session.status === "failed") {
+      setResponseStatus(event, 409);
+      return {
+        ...getChunkedUploadStatusPayload(session),
+        code: "chunked_upload_failed",
+      };
+    }
+
+    if (session.status !== "processing") {
+      const dataPath = getUploadSessionDataPath(project, uploadId);
+      if (!fs.existsSync(dataPath)) {
+        setResponseStatus(event, 404);
+        return {
+          error: "Upload file not found",
+          code: "upload_file_not_found",
+        };
+      }
+
+      const stat = fs.statSync(dataPath);
+      if (stat.size !== session.size) {
+        setResponseStatus(event, 400);
+        return {
+          error: "Upload size mismatch",
+          code: "upload_size_mismatch",
+          receivedBytes: stat.size,
+          expectedBytes: session.size,
+        };
+      }
+
+      session.status = "processing";
+      session.processingStartedAt = Date.now();
+      session.completedAt = undefined;
+      session.failureMessage = undefined;
+      session.uploadFilename =
+        session.uploadFilename || generateFilename(session.originalName);
+      writeUploadSession(project, session);
+
+      logMediaEvent(
+        "info",
+        "Queued chunked media upload for background Builder processing",
+        {
+          project,
+          uploadId,
+          filename: session.originalName,
+          uploadFilename: session.uploadFilename,
+          bytes: stat.size,
+          mimeType: session.mimeType,
+        },
+      );
+    }
+
+    const sourceUrl = getChunkedUploadSourceUrl(event, project, session);
+    startChunkedMediaUploadProcessing({
       project,
       uploadId,
-      bytes: stat.size,
-      mimeType: session.mimeType,
-      method: req.method,
-      range: req.headers.range,
+      sourceUrl,
+      apiKey,
+      privateKey,
     });
 
-    streamMediaFile(req, res, {
-      filePath,
-      mimeType: session.mimeType,
-      cacheControl: "private, max-age=300",
-      streamErrorMessage: "Could not stream the upload source",
-      streamErrorCode: "upload_source_stream_failed",
-      logDetails: {
-        project,
-        uploadId,
-      },
-    });
-  } catch (error) {
-    logMediaEvent("error", "Failed while preparing chunked upload source", {
-      project,
-      uploadId,
-      error: getErrorMessage(error),
-    });
-    res.status(500).json({
-      error: "Could not prepare the upload source",
-      code: "upload_source_failed",
-    });
-  }
-};
+    setResponseStatus(event, 202);
+    return getChunkedUploadStatusPayload(session);
+  },
+);
 
-export const getChunkedMediaUploadStatus: RequestHandler = (req, res) => {
-  const result = validateChunkUploadSession(req);
-  if ("error" in result) {
-    res.status(result.error.status).json(result.error.body);
-    return;
-  }
-
-  res.json(getChunkedUploadStatusPayload(result.session));
-};
-
-export const completeChunkedMediaUpload: RequestHandler = async (req, res) => {
-  const apiKey = req.headers["x-builder-api-key"] as string | undefined;
-  const privateKey = req.headers["x-builder-private-key"] as string | undefined;
-
-  const result = validateChunkUploadSession(req);
-  if ("error" in result) {
-    res.status(result.error.status).json(result.error.body);
-    return;
-  }
-
-  const { project, uploadId, session } = result;
-
-  if (session.receivedBytes !== session.size) {
-    res.status(400).json({
-      error: "Upload is incomplete",
-      code: "incomplete_upload",
-      receivedBytes: session.receivedBytes,
-      expectedBytes: session.size,
-    });
-    return;
-  }
-
-  if (session.status === "complete" && session.resultMetadata) {
-    res.json({
-      ...getChunkedUploadStatusPayload(session),
-      ...session.resultMetadata,
-    });
-    return;
-  }
-
-  if (session.status === "failed") {
-    res.status(409).json({
-      ...getChunkedUploadStatusPayload(session),
-      code: "chunked_upload_failed",
-    });
-    return;
-  }
-
-  if (session.status !== "processing") {
-    const dataPath = getUploadSessionDataPath(project, uploadId);
-    if (!fs.existsSync(dataPath)) {
-      res.status(404).json({
-        error: "Upload file not found",
-        code: "upload_file_not_found",
-      });
-      return;
-    }
-
-    const stat = fs.statSync(dataPath);
-    if (stat.size !== session.size) {
-      res.status(400).json({
-        error: "Upload size mismatch",
-        code: "upload_size_mismatch",
-        receivedBytes: stat.size,
-        expectedBytes: session.size,
-      });
-      return;
-    }
-
-    session.status = "processing";
-    session.processingStartedAt = Date.now();
-    session.completedAt = undefined;
-    session.failureMessage = undefined;
-    session.uploadFilename =
-      session.uploadFilename || generateFilename(session.originalName);
-    writeUploadSession(project, session);
-
-    logMediaEvent(
-      "info",
-      "Queued chunked media upload for background Builder processing",
-      {
-        project,
-        uploadId,
-        filename: session.originalName,
-        uploadFilename: session.uploadFilename,
-        bytes: stat.size,
-        mimeType: session.mimeType,
-      },
-    );
-  }
-
-  const sourceUrl = getChunkedUploadSourceUrl(req, project, session);
-  startChunkedMediaUploadProcessing({
-    project,
-    uploadId,
-    sourceUrl,
-    apiKey,
-    privateKey,
-  });
-
-  res.status(202).json(getChunkedUploadStatusPayload(session));
-};
-
-export const uploadMedia: RequestHandler = async (req, res) => {
+export const uploadMedia = defineEventHandler(async (event: H3Event) => {
   try {
-    const project = normalizeProjectParam(req.params.project);
-    const file = req.file;
-    const apiKey = req.headers["x-builder-api-key"] as string;
-    const privateKey = req.headers["x-builder-private-key"] as string;
+    const projectParam = getRouterParam(event, "project") || "";
+    const project = normalizeProjectParam(projectParam);
+    const apiKey = getRequestHeader(event, "x-builder-api-key");
+    const privateKey = getRequestHeader(event, "x-builder-private-key");
 
     if (!isValidProjectPath(project)) {
-      res.status(400).json({ error: "Invalid project slug" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "Invalid project slug" };
     }
 
-    if (!file) {
-      res.status(400).json({ error: "No file provided" });
-      return;
+    const parts = await readMultipartFormData(event);
+    const filePart = parts?.find((p) => p.name === "file");
+
+    if (!filePart) {
+      setResponseStatus(event, 400);
+      return { error: "No file provided" };
     }
 
-    const filename = generateFilename(file.originalname);
-    const mimeType = getMimeType(file.originalname, file.mimetype);
+    const originalname = filePart.filename || "upload";
+    const mimeType = getMimeType(
+      originalname,
+      filePart.type || "application/octet-stream",
+    );
+
+    if (!isAllowedMediaType(originalname, mimeType)) {
+      setResponseStatus(event, 400);
+      return {
+        error: `File type ${mimeType} not allowed`,
+        code: "invalid_media_upload",
+      };
+    }
+
+    if (filePart.data.length > MAX_FILE_SIZE) {
+      setResponseStatus(event, 413);
+      return {
+        error: `File too large. Max upload size is ${Math.round(MAX_FILE_SIZE / (1024 * 1024))}MB.`,
+        code: "file_too_large",
+        maxBytes: MAX_FILE_SIZE,
+      };
+    }
+
+    const filename = generateFilename(originalname);
     const isVideo = ALLOWED_VIDEO_TYPES.includes(mimeType);
     const uploadMimeType =
       mimeType === "image/svg+xml" ? "image/svg+xml" : mimeType;
 
     const cdnUrl = await uploadBufferToBuilderCDN(
       filename,
-      file.buffer,
+      filePart.data,
       uploadMimeType,
       {
         apiKey,
@@ -1353,37 +1222,45 @@ export const uploadMedia: RequestHandler = async (req, res) => {
       filename,
       url: cdnUrl,
       type: isVideo ? "video" : "image",
-      size: file.size,
+      size: filePart.data.length,
       mimeType,
     });
 
-    res.json(metadata);
+    return metadata;
   } catch (err: any) {
     if (err instanceof BuilderUploadError) {
-      sendBuilderUploadError(res, req, err);
-      return;
+      console.error("[media] Builder media upload failed", {
+        status: err.status,
+        code: err.code,
+        response: err.responseBody.slice(0, 500),
+      });
+      setResponseStatus(event, err.status || 502);
+      return {
+        error: err.message,
+        code: err.code,
+        details: err.responseBody || undefined,
+      };
     }
 
     console.error("[media] Upload failed", {
-      project: normalizeProjectParam(req.params.project),
-      filename: req.file?.originalname,
-      size: req.file?.size,
       error: err?.message || String(err),
     });
-    res.status(500).json({
+    setResponseStatus(event, 500);
+    return {
       error: err.message || "Upload failed",
       code: "media_upload_failed",
-    });
+    };
   }
-};
+});
 
-export const serveMedia: RequestHandler = (req, res) => {
-  const project = normalizeProjectParam(req.params.project);
-  const filename = req.params.filename as string;
+export const serveMedia = defineEventHandler(async (event: H3Event) => {
+  const projectParam = getRouterParam(event, "project") || "";
+  const project = normalizeProjectParam(projectParam);
+  const filename = getRouterParam(event, "filename") || "";
 
   if (!isValidProjectPath(project) || !filename) {
-    res.status(400).json({ error: "Invalid request" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Invalid request" };
   }
 
   const safeName = path.basename(filename);
@@ -1395,19 +1272,18 @@ export const serveMedia: RequestHandler = (req, res) => {
       try {
         const meta = JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
         if (meta && meta.url) {
-          res.redirect(302, normalizeBuilderAssetUrl(meta.url));
-          return;
+          return sendRedirect(event, normalizeBuilderAssetUrl(meta.url), 302);
         }
       } catch {}
     }
 
-    res.status(404).json({ error: "File not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "File not found" };
   }
 
   const contentType = getMimeType(safeName, "application/octet-stream");
 
-  streamMediaFile(req, res, {
+  return streamMediaFileH3(event, {
     filePath,
     mimeType: contentType,
     cacheControl: "public, max-age=31536000, immutable",
@@ -1418,20 +1294,20 @@ export const serveMedia: RequestHandler = (req, res) => {
       filename: safeName,
     },
   });
-};
+});
 
-export const listMedia: RequestHandler = (req, res) => {
-  const project = normalizeProjectParam(req.params.project);
+export const listMedia = defineEventHandler((event: H3Event) => {
+  const projectParam = getRouterParam(event, "project") || "";
+  const project = normalizeProjectParam(projectParam);
 
   if (!isValidProjectPath(project)) {
-    res.status(400).json({ error: "Invalid project slug" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Invalid project slug" };
   }
 
   const mediaDir = getMediaDir(project);
   if (!fs.existsSync(mediaDir)) {
-    res.json({ files: [] });
-    return;
+    return { files: [] };
   }
 
   const entries = fs.readdirSync(mediaDir);
@@ -1491,21 +1367,22 @@ export const listMedia: RequestHandler = (req, res) => {
 
   files.sort((a, b) => b.modifiedAt - a.modifiedAt);
 
-  res.json({ files });
-};
+  return { files };
+});
 
-export const bulkDeleteMedia: RequestHandler = (req, res) => {
-  const project = normalizeProjectParam(req.params.project);
-  const { filenames } = req.body as { filenames?: string[] };
+export const bulkDeleteMedia = defineEventHandler(async (event: H3Event) => {
+  const projectParam = getRouterParam(event, "project") || "";
+  const project = normalizeProjectParam(projectParam);
+  const { filenames } = (await readBody(event)) as { filenames?: string[] };
 
   if (!isValidProjectPath(project)) {
-    res.status(400).json({ error: "Invalid project slug" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Invalid project slug" };
   }
 
   if (!Array.isArray(filenames) || filenames.length === 0) {
-    res.status(400).json({ error: "filenames array is required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "filenames array is required" };
   }
 
   const mediaDir = getMediaDir(project);
@@ -1539,16 +1416,17 @@ export const bulkDeleteMedia: RequestHandler = (req, res) => {
     }
   }
 
-  res.json({ deleted, errors });
-};
+  return { deleted, errors };
+});
 
-export const deleteMedia: RequestHandler = (req, res) => {
-  const project = normalizeProjectParam(req.params.project);
-  const filename = req.params.filename as string;
+export const deleteMedia = defineEventHandler((event: H3Event) => {
+  const projectParam = getRouterParam(event, "project") || "";
+  const project = normalizeProjectParam(projectParam);
+  const filename = getRouterParam(event, "filename") || "";
 
   if (!isValidProjectPath(project) || !filename) {
-    res.status(400).json({ error: "Invalid request" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Invalid request" };
   }
 
   const safeName = path.basename(filename);
@@ -1566,9 +1444,9 @@ export const deleteMedia: RequestHandler = (req, res) => {
   }
 
   if (!deleted) {
-    res.status(404).json({ error: "File not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "File not found" };
   }
 
-  res.json({ success: true });
-};
+  return { success: true };
+});

@@ -1,5 +1,8 @@
-import { Router } from "express";
-import multer from "multer";
+import {
+  defineEventHandler,
+  setResponseStatus,
+  readMultipartFormData,
+} from "h3";
 import path from "path";
 import fs from "fs";
 
@@ -10,38 +13,35 @@ if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const base = path
-      .basename(file.originalname, ext)
-      .replace(/[^a-zA-Z0-9_-]/g, "_");
-    const unique = `${base}-${Date.now()}${ext}`;
-    cb(null, unique);
-  },
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB to allow PDFs, docs, etc.
-});
-
-export const uploadsRouter = Router();
-
 // Upload one or more files
-uploadsRouter.post("/", upload.array("files", 20), (req, res) => {
-  const files = req.files as Express.Multer.File[] | undefined;
-  if (!files || files.length === 0) {
-    res.status(400).json({ error: "No files uploaded" });
-    return;
+export const uploadFiles = defineEventHandler(async (event) => {
+  const parts = await readMultipartFormData(event);
+  const fileParts = parts?.filter((p) => p.name === "files" && p.data) ?? [];
+
+  if (fileParts.length === 0) {
+    setResponseStatus(event, 400);
+    return { error: "No files uploaded" };
   }
-  const results = files.map((f) => ({
-    path: path.join("data", "uploads", f.filename),
-    originalName: f.originalname,
-    filename: f.filename,
-    type: f.mimetype,
-    size: f.size,
-  }));
-  res.json(results);
+
+  const results = await Promise.all(
+    fileParts.map(async (part) => {
+      const originalName = part.filename || "upload";
+      const ext = path.extname(originalName);
+      const base = path
+        .basename(originalName, ext)
+        .replace(/[^a-zA-Z0-9_-]/g, "_");
+      const filename = `${base}-${Date.now()}${ext}`;
+      const destPath = path.join(UPLOADS_DIR, filename);
+      await fs.promises.writeFile(destPath, part.data);
+      return {
+        path: path.join("data", "uploads", filename),
+        originalName,
+        filename,
+        type: part.type || "application/octet-stream",
+        size: part.data.length,
+      };
+    }),
+  );
+
+  return results;
 });

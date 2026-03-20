@@ -17,6 +17,8 @@ import {
   IconChevronRight,
   IconChevronLeft,
   IconSettings,
+  IconAlarm,
+  IconClockHour4,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "./CommandPalette";
@@ -43,6 +45,7 @@ import {
   useDisconnectGoogle,
 } from "@/hooks/use-google-auth";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
+import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { getCallbackOrigin } from "@agent-native/core/client";
 import type { Label } from "@shared/types";
 import { toast } from "sonner";
@@ -87,6 +90,7 @@ const collapsibleViews = [
 export function AppLayout({ children }: AppLayoutProps) {
   const compose = useComposeState();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
@@ -375,6 +379,14 @@ export function AppLayout({ children }: AppLayoutProps) {
     [visibleTabs, navigate],
   );
 
+  const handleSnooze = useCallback(() => {
+    if (!targetEmail) {
+      toast.error("No email selected.");
+      return;
+    }
+    setSnoozeOpen(true);
+  }, [targetEmail]);
+
   useKeyboardShortcuts([
     {
       key: "k",
@@ -389,6 +401,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       },
     },
     { key: "c", handler: handleCompose },
+    { key: "h", handler: handleSnooze },
     { key: "z", handler: runUndo },
     {
       key: "Tab",
@@ -709,7 +722,9 @@ export function AppLayout({ children }: AppLayoutProps) {
                     {[
                       { id: "inbox", label: "Inbox", href: "/inbox" },
                       { id: "starred", label: "Starred", href: "/starred" },
+                      { id: "snoozed", label: "Snoozed", href: "/snoozed", icon: <IconAlarm className="h-4 w-4 shrink-0 text-muted-foreground/60" /> },
                       { id: "sent", label: "Sent", href: "/sent" },
+                      { id: "scheduled", label: "Scheduled", href: "/scheduled", icon: <IconClockHour4 className="h-4 w-4 shrink-0 text-muted-foreground/60" /> },
                       { id: "drafts", label: "Drafts", href: "/drafts" },
                       { id: "archive", label: "Done", href: "/archive" },
                       { id: "trash", label: "Trash", href: "/trash" },
@@ -725,7 +740,10 @@ export function AppLayout({ children }: AppLayoutProps) {
                             : "text-foreground/70 hover:bg-accent/50",
                         )}
                       >
-                        <span>{item.label}</span>
+                        <span className="flex items-center gap-2">
+                          {"icon" in item && item.icon}
+                          {item.label}
+                        </span>
                         {item.id === "inbox" && labelCounts["inbox"] > 0 && (
                           <span className="text-[12px] text-muted-foreground/50 tabular-nums">
                             {labelCounts["inbox"]}
@@ -906,9 +924,17 @@ export function AppLayout({ children }: AppLayoutProps) {
           open={paletteOpen}
           onOpenChange={setPaletteOpen}
           onCompose={handleCompose}
+          onSnooze={targetEmail ? handleSnooze : undefined}
           onSpam={handleSpam}
           onBlockSender={handleBlockSender}
           onMuteThread={handleMuteThread}
+          hasEmail={!!targetEmail}
+        />
+        <SnoozeModal
+          open={snoozeOpen}
+          emailId={targetEmail?.id ?? null}
+          onClose={() => setSnoozeOpen(false)}
+          onSnoozed={() => setSnoozeOpen(false)}
         />
       </div>
     </AccountFilterContext.Provider>

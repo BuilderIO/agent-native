@@ -1,4 +1,10 @@
-import type { Request, Response } from "express";
+import {
+  defineEventHandler,
+  readBody,
+  getRouterParam,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
@@ -19,15 +25,15 @@ function writeAliases(aliases: Alias[]): void {
   fs.writeFileSync(ALIASES_FILE, JSON.stringify(aliases, null, 2));
 }
 
-export function listAliases(req: Request, res: Response) {
-  res.json(readAliases());
-}
+export const listAliases = defineEventHandler((_event: H3Event) => {
+  return readAliases();
+});
 
-export function createAlias(req: Request, res: Response) {
-  const { name, emails } = req.body as { name: string; emails: string[] };
+export const createAlias = defineEventHandler(async (event: H3Event) => {
+  const { name, emails } = await readBody(event) as { name: string; emails: string[] };
   if (!name?.trim() || !Array.isArray(emails) || emails.length === 0) {
-    res.status(400).json({ error: "name and emails are required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "name and emails are required" };
   }
   const aliases = readAliases();
   const now = new Date().toISOString();
@@ -40,17 +46,18 @@ export function createAlias(req: Request, res: Response) {
   };
   aliases.push(alias);
   writeAliases(aliases);
-  res.status(201).json(alias);
-}
+  setResponseStatus(event, 201);
+  return alias;
+});
 
-export function updateAlias(req: Request, res: Response) {
-  const { id } = req.params;
-  const { name, emails } = req.body as { name?: string; emails?: string[] };
+export const updateAlias = defineEventHandler(async (event: H3Event) => {
+  const id = getRouterParam(event, "id");
+  const { name, emails } = await readBody(event) as { name?: string; emails?: string[] };
   const aliases = readAliases();
   const idx = aliases.findIndex((a) => a.id === id);
   if (idx === -1) {
-    res.status(404).json({ error: "Alias not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "Alias not found" };
   }
   aliases[idx] = {
     ...aliases[idx],
@@ -59,17 +66,18 @@ export function updateAlias(req: Request, res: Response) {
     updatedAt: new Date().toISOString(),
   };
   writeAliases(aliases);
-  res.json(aliases[idx]);
-}
+  return aliases[idx];
+});
 
-export function deleteAlias(req: Request, res: Response) {
-  const { id } = req.params;
+export const deleteAlias = defineEventHandler(async (event: H3Event) => {
+  const id = getRouterParam(event, "id");
   const aliases = readAliases();
   const filtered = aliases.filter((a) => a.id !== id);
   if (filtered.length === aliases.length) {
-    res.status(404).json({ error: "Alias not found" });
-    return;
+    setResponseStatus(event, 404);
+    return { error: "Alias not found" };
   }
   writeAliases(filtered);
-  res.status(204).end();
-}
+  setResponseStatus(event, 204);
+  return null;
+});

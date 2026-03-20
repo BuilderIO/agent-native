@@ -1,4 +1,9 @@
-import type { Request, Response } from "express";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import fs from "fs";
 import path from "path";
 
@@ -15,20 +20,17 @@ function getHubSpotKey(): string | undefined {
 }
 
 // GET /api/hubspot/contact?email=...
-export async function hubspotContactLookup(
-  req: Request,
-  res: Response,
-): Promise<void> {
-  const { email } = req.query;
+export const hubspotContactLookup = defineEventHandler(async (event: H3Event) => {
+  const { email } = getQuery(event);
   if (!email || typeof email !== "string") {
-    res.status(400).json({ error: "email query param required" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "email query param required" };
   }
 
   const apiKey = getHubSpotKey();
   if (!apiKey) {
-    res.status(401).json({ error: "HubSpot API key not configured" });
-    return;
+    setResponseStatus(event, 401);
+    return { error: "HubSpot API key not configured" };
   }
 
   try {
@@ -67,17 +69,14 @@ export async function hubspotContactLookup(
     );
 
     if (!searchRes.ok) {
-      res
-        .status(searchRes.status)
-        .json({ error: `HubSpot API error: ${searchRes.status}` });
-      return;
+      setResponseStatus(event, searchRes.status);
+      return { error: `HubSpot API error: ${searchRes.status}` };
     }
 
     const searchData = await searchRes.json();
     const contact = searchData.results?.[0] || null;
     if (!contact) {
-      res.json(null);
-      return;
+      return null;
     }
 
     // Fetch associated deals
@@ -177,7 +176,7 @@ export async function hubspotContactLookup(
       }
     } catch {}
 
-    res.json({
+    return {
       id: contact.id,
       firstName: contact.properties?.firstname,
       lastName: contact.properties?.lastname,
@@ -191,8 +190,9 @@ export async function hubspotContactLookup(
       created: contact.properties?.createdate,
       deals,
       tickets,
-    });
+    };
   } catch {
-    res.status(500).json({ error: "Failed to reach HubSpot API" });
+    setResponseStatus(event, 500);
+    return { error: "Failed to reach HubSpot API" };
   }
-}
+});

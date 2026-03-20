@@ -1,6 +1,13 @@
-import { Router, Request, Response } from "express";
+import {
+  defineEventHandler,
+  readBody,
+  getRouterParam,
+  setResponseStatus,
+  createEventStream,
+} from "h3";
 import fs from "fs";
 import path from "path";
+
 const DECKS_DIR = path.join(process.cwd(), "data", "decks");
 
 // Ensure the directory exists
@@ -59,7 +66,8 @@ function listAllDecks(): any[] {
 
 // --- SSE for file change notifications ---
 // When the agent edits a JSON file directly, the frontend gets notified
-const sseClients = new Set<Response>();
+type SSEPush = (data: string) => void;
+const sseClients = new Set<SSEPush>();
 
 // Watch the decks directory for changes
 let fsWatcher: fs.FSWatcher | null = null;
@@ -72,13 +80,12 @@ function startWatching() {
       // Skip SSE notification if this write came from the API (frontend save)
       if (recentAPISaves.has(deckId)) return;
       // Notify all SSE clients (external/agent file edits only)
-      for (const client of sseClients) {
+      const message = JSON.stringify({ type: "deck-changed", deckId });
+      for (const push of sseClients) {
         try {
-          client.write(
-            `data: ${JSON.stringify({ type: "deck-changed", deckId })}\n\n`,
-          );
+          push(message);
         } catch {
-          sseClients.delete(client);
+          sseClients.delete(push);
         }
       }
     });
@@ -91,52 +98,63 @@ startWatching();
 // Track which saves came from the API (to avoid notifying the client that just saved)
 const recentAPISaves = new Map<string, number>();
 
-export const decksRouter = Router();
-
 // SSE endpoint — client subscribes for real-time file change notifications
-decksRouter.get("/events", (req: Request, res: Response) => {
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    Connection: "keep-alive",
-  });
-  res.write('data: {"type":"connected"}\n\n');
+export const deckEvents = defineEventHandler((event) => {
+  const eventStream = createEventStream(event);
 
-  sseClients.add(res);
-  req.on("close", () => {
-    sseClients.delete(res);
+  // Send initial connected event
+  eventStream.push(JSON.stringify({ type: "connected" }));
+
+  // Register this client's push function
+  const push: SSEPush = (data: string) => {
+    eventStream.push(data);
+  };
+  sseClients.add(push);
+
+  eventStream.onClosed(() => {
+    sseClients.delete(push);
   });
+
+  return eventStream.send();
 });
 
 // GET /api/decks — list all decks
-decksRouter.get("/", (_req: Request, res: Response) => {
+export const listDecks = defineEventHandler((_event) => {
   const decks = listAllDecks();
   // Sort by updatedAt desc
   decks.sort((a, b) => {
     return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
   });
-  res.json(decks);
+  return decks;
 });
 
 // GET /api/decks/:id — get a specific deck
-decksRouter.get("/:id", (req: Request, res: Response) => {
-  const id = req.params.id as string;
+export const getDeck = defineEventHandler((event) => {
+  const id = getRouterParam(event, "id");
+  if (!id) {
+    setResponseStatus(event, 400);
+    return { error: "Deck id is required" };
+  }
   const deck = readDeckFile(id);
   if (deck) {
-    res.json(deck);
-    return;
+    return deck;
   }
-  res.status(404).json({ error: "Deck not found" });
+  setResponseStatus(event, 404);
+  return { error: "Deck not found" };
 });
 
 // PUT /api/decks/:id — create or update a deck
-decksRouter.put("/:id", (req: Request, res: Response) => {
-  const id = req.params.id as string;
-  const deck = req.body;
+export const updateDeck = defineEventHandler(async (event) => {
+  const id = getRouterParam(event, "id");
+  if (!id) {
+    setResponseStatus(event, 400);
+    return { error: "Deck id is required" };
+  }
+  const deck = await readBody(event);
 
   if (!deck || typeof deck !== "object") {
-    res.status(400).json({ error: "Invalid deck data" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Invalid deck data" };
   }
 
   deck.id = id;
@@ -147,33 +165,39 @@ decksRouter.put("/:id", (req: Request, res: Response) => {
   setTimeout(() => recentAPISaves.delete(id), 2000);
 
   writeDeckFile(id, deck);
-  res.json(deck);
+  return deck;
 });
 
 // POST /api/decks — create a new deck
-decksRouter.post("/", (req: Request, res: Response) => {
-  const deck = req.body;
+export const createDeck = defineEventHandler(async (event) => {
+  const deck = await readBody(event);
 
   if (!deck || !deck.id) {
-    res.status(400).json({ error: "Deck must have an id" });
-    return;
+    setResponseStatus(event, 400);
+    return { error: "Deck must have an id" };
   }
 
   deck.createdAt = deck.createdAt || new Date().toISOString();
   deck.updatedAt = new Date().toISOString();
 
   writeDeckFile(deck.id, deck);
-  res.status(201).json(deck);
+  setResponseStatus(event, 201);
+  return deck;
 });
 
 // DELETE /api/decks/:id — delete a deck
-decksRouter.delete("/:id", (req: Request, res: Response) => {
-  const id = req.params.id as string;
+export const deleteDeck = defineEventHandler((event) => {
+  const id = getRouterParam(event, "id");
+  if (!id) {
+    setResponseStatus(event, 400);
+    return { error: "Deck id is required" };
+  }
 
   const deleted = deleteDeckFile(id);
   if (deleted) {
-    res.json({ success: true });
+    return { success: true };
   } else {
-    res.status(404).json({ error: "Deck not found" });
+    setResponseStatus(event, 404);
+    return { error: "Deck not found" };
   }
 });

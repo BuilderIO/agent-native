@@ -1,4 +1,4 @@
-import { type RequestHandler } from "express";
+import { defineEventHandler, getQuery, setResponseStatus, type H3Event } from "h3";
 import { requireEnvKey } from "@agent-native/core/server";
 import {
   getCustomersByEmail,
@@ -13,18 +13,18 @@ import {
   getRefunds,
 } from "../lib/stripe";
 
-async function resolveCustomer(req: { query: Record<string, any> }) {
-  const { email, customerId, query } = req.query;
+async function resolveCustomer(event: H3Event) {
+  const { email, customerId, query } = getQuery(event);
 
   // Direct customer ID lookup (fastest)
   if (customerId) {
-    const customer = await getCustomerById(customerId);
+    const customer = await getCustomerById(customerId as string);
     return [customer];
   }
 
   // Email search (existing behavior)
   if (email) {
-    const customers = await getCustomersByEmail(email);
+    const customers = await getCustomersByEmail(email as string);
     if (customers.length === 0) {
       throw new Error(`No Stripe customer found for email: ${email}`);
     }
@@ -34,11 +34,11 @@ async function resolveCustomer(req: { query: Record<string, any> }) {
   // Smart query search: try name first, then root_id metadata
   if (query) {
     // Try name search first
-    let customers = await searchCustomersByName(query);
+    let customers = await searchCustomersByName(query as string);
 
     // If no name matches, try root_id metadata search
     if (customers.length === 0) {
-      customers = await getCustomersByRootId(query);
+      customers = await getCustomersByRootId(query as string);
     }
 
     if (customers.length === 0) {
@@ -52,11 +52,13 @@ async function resolveCustomer(req: { query: Record<string, any> }) {
 }
 
 // GET /api/stripe/billing?email=...&months=6
-export const handleStripeBilling: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "STRIPE_SECRET_KEY", "Stripe")) return;
+export const handleStripeBilling = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "STRIPE_SECRET_KEY", "Stripe");
+  if (missing) return missing;
   try {
-    const months = parseInt((req.query.months as string) || "6", 10);
-    const customers = await resolveCustomer(req);
+    const { months: monthsParam } = getQuery(event);
+    const months = parseInt((monthsParam as string) || "6", 10);
+    const customers = await resolveCustomer(event);
 
     const allInvoices = (
       await Promise.all(customers.map((c) => getInvoices(c.id, months)))
@@ -64,7 +66,7 @@ export const handleStripeBilling: RequestHandler = async (req, res) => {
 
     allInvoices.sort((a, b) => b.created - a.created);
 
-    res.json({
+    return {
       customers: customers.map((c) => ({
         id: c.id,
         email: c.email,
@@ -72,20 +74,20 @@ export const handleStripeBilling: RequestHandler = async (req, res) => {
       })),
       invoices: allInvoices,
       total: allInvoices.length,
-    });
+    };
   } catch (err: any) {
     console.error("Stripe billing error:", err.message);
-    res
-      .status(err.message.includes("not configured") ? 503 : 500)
-      .json({ error: err.message });
+    setResponseStatus(event, err.message.includes("not configured") ? 503 : 500);
+    return { error: err.message };
   }
-};
+});
 
 // GET /api/stripe/payment-status?email=...
-export const handleStripePaymentStatus: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "STRIPE_SECRET_KEY", "Stripe")) return;
+export const handleStripePaymentStatus = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "STRIPE_SECRET_KEY", "Stripe");
+  if (missing) return missing;
   try {
-    const customers = await resolveCustomer(req);
+    const customers = await resolveCustomer(event);
 
     const [allCharges, allIntents] = await Promise.all([
       Promise.all(customers.map((c) => getCharges(c.id, 10))).then((r) =>
@@ -99,7 +101,7 @@ export const handleStripePaymentStatus: RequestHandler = async (req, res) => {
     allCharges.sort((a, b) => b.created - a.created);
     allIntents.sort((a, b) => b.created - a.created);
 
-    res.json({
+    return {
       customers: customers.map((c) => ({
         id: c.id,
         email: c.email,
@@ -107,20 +109,20 @@ export const handleStripePaymentStatus: RequestHandler = async (req, res) => {
       })),
       charges: allCharges,
       paymentIntents: allIntents,
-    });
+    };
   } catch (err: any) {
     console.error("Stripe payment status error:", err.message);
-    res
-      .status(err.message.includes("not configured") ? 503 : 500)
-      .json({ error: err.message });
+    setResponseStatus(event, err.message.includes("not configured") ? 503 : 500);
+    return { error: err.message };
   }
-};
+});
 
 // GET /api/stripe/refunds?email=...
-export const handleStripeRefunds: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "STRIPE_SECRET_KEY", "Stripe")) return;
+export const handleStripeRefunds = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "STRIPE_SECRET_KEY", "Stripe");
+  if (missing) return missing;
   try {
-    const customers = await resolveCustomer(req);
+    const customers = await resolveCustomer(event);
 
     const allRefunds = (
       await Promise.all(customers.map((c) => getRefunds(c.id)))
@@ -128,7 +130,7 @@ export const handleStripeRefunds: RequestHandler = async (req, res) => {
 
     allRefunds.sort((a, b) => b.created - a.created);
 
-    res.json({
+    return {
       customers: customers.map((c) => ({
         id: c.id,
         email: c.email,
@@ -136,20 +138,20 @@ export const handleStripeRefunds: RequestHandler = async (req, res) => {
       })),
       refunds: allRefunds,
       total: allRefunds.length,
-    });
+    };
   } catch (err: any) {
     console.error("Stripe refunds error:", err.message);
-    res
-      .status(err.message.includes("not configured") ? 503 : 500)
-      .json({ error: err.message });
+    setResponseStatus(event, err.message.includes("not configured") ? 503 : 500);
+    return { error: err.message };
   }
-};
+});
 
 // GET /api/stripe/subscriptions?email=...
-export const handleStripeSubscriptions: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "STRIPE_SECRET_KEY", "Stripe")) return;
+export const handleStripeSubscriptions = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "STRIPE_SECRET_KEY", "Stripe");
+  if (missing) return missing;
   try {
-    const customers = await resolveCustomer(req);
+    const customers = await resolveCustomer(event);
 
     const allSubs = (
       await Promise.all(customers.map((c) => getSubscriptions(c.id)))
@@ -157,7 +159,7 @@ export const handleStripeSubscriptions: RequestHandler = async (req, res) => {
 
     allSubs.sort((a, b) => b.created - a.created);
 
-    res.json({
+    return {
       customers: customers.map((c) => ({
         id: c.id,
         email: c.email,
@@ -165,24 +167,22 @@ export const handleStripeSubscriptions: RequestHandler = async (req, res) => {
       })),
       subscriptions: allSubs,
       total: allSubs.length,
-    });
+    };
   } catch (err: any) {
     console.error("Stripe subscriptions error:", err.message);
-    res
-      .status(err.message.includes("not configured") ? 503 : 500)
-      .json({ error: err.message });
+    setResponseStatus(event, err.message.includes("not configured") ? 503 : 500);
+    return { error: err.message };
   }
-};
+});
 
 // GET /api/stripe/billing-by-product?email=...&months=6
-export const handleStripeBillingByProduct: RequestHandler = async (
-  req,
-  res,
-) => {
-  if (requireEnvKey(res, "STRIPE_SECRET_KEY", "Stripe")) return;
+export const handleStripeBillingByProduct = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "STRIPE_SECRET_KEY", "Stripe");
+  if (missing) return missing;
   try {
-    const months = parseInt((req.query.months as string) || "6", 10);
-    const customers = await resolveCustomer(req);
+    const { months: monthsParam } = getQuery(event);
+    const months = parseInt((monthsParam as string) || "6", 10);
+    const customers = await resolveCustomer(event);
 
     const allProducts = (
       await Promise.all(
@@ -206,7 +206,7 @@ export const handleStripeBillingByProduct: RequestHandler = async (
       (a, b) => b.totalAmount - a.totalAmount,
     );
 
-    res.json({
+    return {
       customers: customers.map((c) => ({
         id: c.id,
         email: c.email,
@@ -214,11 +214,10 @@ export const handleStripeBillingByProduct: RequestHandler = async (
       })),
       products,
       total: products.length,
-    });
+    };
   } catch (err: any) {
     console.error("Stripe billing by product error:", err.message);
-    res
-      .status(err.message.includes("not configured") ? 503 : 500)
-      .json({ error: err.message });
+    setResponseStatus(event, err.message.includes("not configured") ? 503 : 500);
+    return { error: err.message };
   }
-};
+});

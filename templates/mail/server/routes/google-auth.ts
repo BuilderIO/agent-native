@@ -1,4 +1,11 @@
-import type { Request, Response } from "express";
+import {
+  defineEventHandler,
+  getQuery,
+  readBody,
+  setResponseStatus,
+  getHeader,
+  type H3Event,
+} from "h3";
 import {
   getAuthUrl,
   exchangeCode,
@@ -6,57 +13,56 @@ import {
   disconnect,
 } from "../lib/google-auth.js";
 
-function getOrigin(req: Request): string {
-  const host = req.get("x-forwarded-host") || req.get("host");
-  return `${req.protocol}://${host}`;
+function getOrigin(event: H3Event): string {
+  const host = getHeader(event, "x-forwarded-host") || getHeader(event, "host");
+  const proto = getHeader(event, "x-forwarded-proto") || "http";
+  return `${proto}://${host}`;
 }
 
 // Track the redirect URI used for auth so the callback can match it
 let lastRedirectUri: string | undefined;
 
-export function getGoogleAuthUrl(req: Request, res: Response): void {
+export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    res.status(422).json({
+    setResponseStatus(event, 422);
+    return {
       error: "missing_credentials",
       message:
         "Google OAuth credentials are not configured. Add your Client ID and Secret in Settings.",
-    });
-    return;
+    };
   }
   try {
     const redirectUri =
-      (req.query.redirect_uri as string) ||
-      `${getOrigin(req)}/api/google/callback`;
+      (getQuery(event).redirect_uri as string) ||
+      `${getOrigin(event)}/api/google/callback`;
     lastRedirectUri = redirectUri;
     const url = getAuthUrl(undefined, redirectUri);
-    res.json({ url });
+    return { url };
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-}
+});
 
-export async function handleGoogleCallback(
-  req: Request,
-  res: Response,
-): Promise<void> {
+export const handleGoogleCallback = defineEventHandler(async (event: H3Event) => {
   try {
-    const code = req.query.code as string;
+    const code = getQuery(event).code as string;
     if (!code) {
-      res.status(400).json({ error: "Missing authorization code" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "Missing authorization code" };
     }
     // Use the same redirect URI that was used to generate the auth URL
     const redirectUri =
-      lastRedirectUri || `${getOrigin(req)}/api/google/callback`;
+      lastRedirectUri || `${getOrigin(event)}/api/google/callback`;
     const email = await exchangeCode(code, undefined, redirectUri);
     const safeEmail = JSON.stringify(email);
-    res.send(`<!DOCTYPE html><html><body><script>
+    return `<!DOCTYPE html><html><body><script>
       window.close();
       var p = document.createElement('p');
       p.style.cssText = 'font-family:system-ui;text-align:center;margin-top:40vh';
       p.textContent = 'Connected ' + ${safeEmail} + '! You can close this tab.';
       document.body.appendChild(p);
-    </script></body></html>`);
+    </script></body></html>`;
   } catch (error: any) {
     const msg = error.message || "Unknown error";
     const isPermission =
@@ -65,33 +71,33 @@ export async function handleGoogleCallback(
     const userMessage = isPermission
       ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
       : `Connection failed: ${msg}`;
-    res.send(`<!DOCTYPE html><html><body>
+    return `<!DOCTYPE html><html><body>
       <div style="font-family:system-ui;max-width:420px;margin:30vh auto;text-align:center">
         <p style="font-size:15px;color:#e55">${userMessage}</p>
         <p style="margin-top:16px;font-size:13px;color:#888">You can close this tab and try again.</p>
       </div>
-    </body></html>`);
+    </body></html>`;
   }
-}
+});
 
-export async function getGoogleStatus(
-  _req: Request,
-  res: Response,
-): Promise<void> {
+export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
   try {
     const status = await getAuthStatus();
-    res.json(status);
+    return status;
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-}
+});
 
-export function disconnectGoogle(req: Request, res: Response): void {
+export const disconnectGoogle = defineEventHandler(async (event: H3Event) => {
   try {
-    const email = req.body?.email as string | undefined;
+    const body = await readBody(event);
+    const email = body?.email as string | undefined;
     disconnect(email);
-    res.json({ success: true });
+    return { success: true };
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    setResponseStatus(event, 500);
+    return { error: error.message };
   }
-}
+});

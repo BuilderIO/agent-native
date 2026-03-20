@@ -1,4 +1,10 @@
-import type { Request, Response } from "express";
+import {
+  defineEventHandler,
+  getQuery,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import type {
   GoogleSearchResult,
   GoogleSearchResponse,
@@ -166,50 +172,50 @@ async function searchWithDataForSEO(
  *
  * Auto-detects provider: prefers Google CSE if configured, falls back to DataForSEO.
  */
-export const searchGoogle = async (req: Request, res: Response) => {
-  const query = ((req.query.q as string) || "").trim();
+export const searchGoogle = defineEventHandler(async (event: H3Event) => {
+  const q = getQuery(event);
+  const query = ((q.q as string) || "").trim();
   if (!query) {
-    return res.status(400).json({ error: "Query parameter 'q' is required" });
+    setResponseStatus(event, 400);
+    return { error: "Query parameter 'q' is required" };
   }
 
-  const page = parseInt((req.query.page as string) || "0", 10);
+  const page = parseInt((q.page as string) || "0", 10);
 
   try {
     const cseCreds = getGoogleCSECredentials();
     if (cseCreds) {
-      const result = await searchWithGoogleCSE(query, page, cseCreds);
-      return res.json(result);
+      return await searchWithGoogleCSE(query, page, cseCreds);
     }
 
     const dfsCreds = getDataForSEOCredentials();
     if (dfsCreds) {
-      const result = await searchWithDataForSEO(query, page, dfsCreds);
-      return res.json(result);
+      return await searchWithDataForSEO(query, page, dfsCreds);
     }
 
-    return res.status(400).json({
+    setResponseStatus(event, 400);
+    return {
       error:
         "No Google search provider configured. Set GOOGLE_CSE_API_KEY + GOOGLE_CSE_CX, or DATAFORSEO_LOGIN + DATAFORSEO_PASSWORD.",
-    });
+    };
   } catch (err: any) {
     console.error("Google search error:", err);
-    return res
-      .status(500)
-      .json({ error: err.message || "Failed to fetch search results" });
+    setResponseStatus(event, 500);
+    return { error: err.message || "Failed to fetch search results" };
   }
-};
+});
 
 /**
  * GET /api/google/status
  *
  * Returns which Google search provider is active.
  */
-export const googleSearchStatus = async (_req: Request, res: Response) => {
+export const googleSearchStatus = defineEventHandler((_event: H3Event) => {
   const provider = getActiveProvider();
   const cse = !!getGoogleCSECredentials();
   const dfs = !!getDataForSEOCredentials();
 
-  res.json({
+  return {
     configured: provider !== null,
     provider:
       provider === "google-cse"
@@ -219,67 +225,73 @@ export const googleSearchStatus = async (_req: Request, res: Response) => {
           : "None",
     googleCSE: cse,
     dataForSEO: dfs,
-  });
-};
+  };
+});
 
 /**
  * POST /api/google/configure
  * Body: { provider: "google-cse", apiKey, cx } or { provider: "dataforseo", login, password }
  */
-export const configureGoogleSearch = async (req: Request, res: Response) => {
-  const { provider } = req.body;
+export const configureGoogleSearch = defineEventHandler(
+  async (event: H3Event) => {
+    const body = await readBody(event);
+    const { provider } = body;
 
-  if (provider === "google-cse") {
-    const { apiKey, cx } = req.body;
-    if (!apiKey || !cx) {
-      return res
-        .status(400)
-        .json({ error: "'apiKey' and 'cx' are required for Google CSE" });
-    }
-
-    // Validate with a test query
-    try {
-      const testUrl = new URL("https://www.googleapis.com/customsearch/v1");
-      testUrl.searchParams.set("key", apiKey);
-      testUrl.searchParams.set("cx", cx);
-      testUrl.searchParams.set("q", "test");
-      const testRes = await fetch(testUrl.toString());
-      if (
-        testRes.status === 400 ||
-        testRes.status === 401 ||
-        testRes.status === 403
-      ) {
-        const body = await testRes.json().catch(() => null);
-        return res.status(401).json({
-          error: body?.error?.message || "Invalid Google CSE credentials",
-        });
+    if (provider === "google-cse") {
+      const { apiKey, cx } = body;
+      if (!apiKey || !cx) {
+        setResponseStatus(event, 400);
+        return { error: "'apiKey' and 'cx' are required for Google CSE" };
       }
-    } catch {
-      return res.status(500).json({ error: "Could not reach Google CSE API" });
+
+      // Validate with a test query
+      try {
+        const testUrl = new URL("https://www.googleapis.com/customsearch/v1");
+        testUrl.searchParams.set("key", apiKey);
+        testUrl.searchParams.set("cx", cx);
+        testUrl.searchParams.set("q", "test");
+        const testRes = await fetch(testUrl.toString());
+        if (
+          testRes.status === 400 ||
+          testRes.status === 401 ||
+          testRes.status === 403
+        ) {
+          const resBody = await testRes.json().catch(() => null);
+          setResponseStatus(event, 401);
+          return {
+            error: resBody?.error?.message || "Invalid Google CSE credentials",
+          };
+        }
+      } catch {
+        setResponseStatus(event, 500);
+        return { error: "Could not reach Google CSE API" };
+      }
+
+      process.env.GOOGLE_CSE_API_KEY = apiKey;
+      process.env.GOOGLE_CSE_CX = cx;
+      return { success: true, provider: "Google Custom Search" };
     }
 
-    process.env.GOOGLE_CSE_API_KEY = apiKey;
-    process.env.GOOGLE_CSE_CX = cx;
-    return res.json({ success: true, provider: "Google Custom Search" });
-  }
+    if (provider === "dataforseo") {
+      const { login, password } = body;
+      if (!login || !password) {
+        setResponseStatus(event, 400);
+        return {
+          error: "'login' and 'password' are required for DataForSEO",
+        };
+      }
 
-  if (provider === "dataforseo") {
-    const { login, password } = req.body;
-    if (!login || !password) {
-      return res
-        .status(400)
-        .json({ error: "'login' and 'password' are required for DataForSEO" });
+      process.env.DATAFORSEO_LOGIN = login;
+      process.env.DATAFORSEO_PASSWORD = password;
+      return { success: true, provider: "DataForSEO" };
     }
 
-    process.env.DATAFORSEO_LOGIN = login;
-    process.env.DATAFORSEO_PASSWORD = password;
-    return res.json({ success: true, provider: "DataForSEO" });
-  }
-
-  return res
-    .status(400)
-    .json({ error: "Invalid provider. Use 'google-cse' or 'dataforseo'." });
-};
+    setResponseStatus(event, 400);
+    return {
+      error: "Invalid provider. Use 'google-cse' or 'dataforseo'.",
+    };
+  },
+);
 
 function getDomain(url: string): string {
   try {

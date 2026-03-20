@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import {
   X,
   Minus,
-  Send,
   Bold,
   Italic,
   Link,
@@ -25,6 +24,8 @@ import {
 } from "@/components/ui/tooltip";
 import { useSendEmail } from "@/hooks/use-emails";
 import { useAliases } from "@/hooks/use-aliases";
+import { useCreateScheduledJob } from "@/hooks/use-scheduled-jobs";
+import { SendLaterButton } from "./SendLaterButton";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { useAgentChatGenerating } from "@agent-native/core";
 import { toast } from "sonner";
@@ -86,6 +87,7 @@ export function ComposeModal({
 
   const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
+  const createJob = useCreateScheduledJob();
   const { data: aliases = [] } = useAliases();
   const editorRef = useRef<ComposeEditorHandle>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -180,6 +182,47 @@ export function ComposeModal({
         },
       );
     }, 5000);
+  };
+
+  const handleSendLater = async (runAt: number) => {
+    if (!activeDraft || !activeId) return;
+    if (!activeDraft.to.trim()) {
+      toast.error("Please add at least one recipient");
+      return;
+    }
+
+    const draftSnapshot = { ...activeDraft };
+    const { savedDraftId } = activeDraft;
+
+    // Close composer immediately
+    onDiscard(activeId);
+
+    if (savedDraftId) {
+      fetch(`/api/emails/draft/${savedDraftId}`, { method: "DELETE" });
+    }
+
+    await createJob.mutateAsync({
+      type: "send_later",
+      payload: {
+        to: expandAliasTokens(draftSnapshot.to, aliases),
+        cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
+        bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
+        subject: draftSnapshot.subject,
+        body: draftSnapshot.body,
+        replyToId: draftSnapshot.replyToId,
+        accountEmail: draftSnapshot.accountEmail,
+      },
+      runAt,
+    });
+
+    const scheduledDate = new Date(runAt).toLocaleString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    toast(`Scheduled for ${scheduledDate}`);
   };
 
   const composeRef = useRef<HTMLDivElement>(null);
@@ -591,15 +634,12 @@ export function ComposeModal({
               >
                 <Trash2 className="h-4 w-4" />
               </button>
-              <Button
-                size="sm"
-                onClick={handleSend}
-                disabled={sendEmail.isPending || !activeDraft.to.trim()}
-                className="gap-1.5"
-              >
-                <Send className="h-3.5 w-3.5" />
-                Send
-              </Button>
+              <SendLaterButton
+                onSend={handleSend}
+                onSendLater={handleSendLater}
+                disabled={!activeDraft.to.trim()}
+                isSending={sendEmail.isPending}
+              />
             </div>
           </div>
         </>

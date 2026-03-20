@@ -1,14 +1,20 @@
-import type { RequestHandler } from "express";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 
 /**
  * Proxies any URL and strips X-Frame-Options / CSP frame-ancestors headers
  * so the content can be loaded in an iframe inside our app.
  */
-export const proxyUrl: RequestHandler = async (req, res) => {
-  const { url } = req.query;
-  if (!url || typeof url !== "string") {
-    res.status(400).json({ error: "url parameter is required" });
-    return;
+export const proxyUrl = defineEventHandler(async (event: H3Event) => {
+  const query = getQuery(event);
+  const url = query.url as string;
+  if (!url) {
+    setResponseStatus(event, 400);
+    return { error: "url parameter is required" };
   }
 
   try {
@@ -29,7 +35,7 @@ export const proxyUrl: RequestHandler = async (req, res) => {
     clearTimeout(timeout);
 
     // Forward status
-    res.status(response.status);
+    setResponseStatus(event, response.status);
 
     // Forward headers, but strip frame-blocking ones
     const skipHeaders = new Set([
@@ -43,7 +49,7 @@ export const proxyUrl: RequestHandler = async (req, res) => {
 
     response.headers.forEach((value, key) => {
       if (!skipHeaders.has(key.toLowerCase())) {
-        res.setHeader(key, value);
+        event.node.res.setHeader(key, value);
       }
     });
 
@@ -61,18 +67,21 @@ export const proxyUrl: RequestHandler = async (req, res) => {
         html = html.replace(/(<head[^>]*>)/i, `$1<base href="${baseUrl}" />`);
       }
 
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.send(html);
+      event.node.res.setHeader("Content-Type", "text/html; charset=utf-8");
+      event.node.res.end(html);
+      return;
     } else {
-      // For non-HTML, just pipe through
+      // For non-HTML, just send through
       const buffer = await response.arrayBuffer();
-      res.send(Buffer.from(buffer));
+      event.node.res.end(Buffer.from(buffer));
+      return;
     }
   } catch (err: any) {
     if (err.name === "AbortError") {
-      res.status(504).json({ error: "Timed out fetching URL" });
-      return;
+      setResponseStatus(event, 504);
+      return { error: "Timed out fetching URL" };
     }
-    res.status(500).json({ error: `Proxy fetch failed: ${err.message}` });
+    setResponseStatus(event, 500);
+    return { error: `Proxy fetch failed: ${err.message}` };
   }
-};
+});

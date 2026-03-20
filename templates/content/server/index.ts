@@ -1,13 +1,9 @@
 import "dotenv/config";
 import fs from "fs";
-import express from "express";
-import cors from "cors";
 import chokidar from "chokidar";
 import type { FSWatcher } from "chokidar";
 import path from "path";
-import crypto from "crypto";
-import { createServer } from "@agent-native/core/server";
-import { pagePinRoutes } from "@agent-native/pinpoint/server";
+import { createServer, createSSEHandler } from "@agent-native/core";
 import { envKeys } from "./lib/env-config.js";
 import {
   listProjects,
@@ -37,7 +33,6 @@ import {
   createSharedFile,
   deleteSharedFile,
   getImageFolders,
-  sharedImageUploadMiddleware,
   uploadSharedImages,
   deleteSharedImage,
 } from "./routes/shared";
@@ -55,10 +50,7 @@ import {
   configureApi,
 } from "./routes/keywords";
 import {
-  uploadMiddleware,
-  chunkUploadMiddleware,
   initializeChunkedMediaUpload,
-  requireChunkedUploadAccess,
   appendChunkedMediaUpload,
   getChunkedMediaUploadStatus,
   completeChunkedMediaUpload,
@@ -78,7 +70,6 @@ import {
   getBlogIndex,
   getDocsIndex,
   validateConnection,
-  imageUploadMiddleware,
   uploadImage,
   saveAuth,
   clearAuth,
@@ -193,368 +184,178 @@ function getContentWatcher() {
   return contentWatcher;
 }
 
-const CHUNK_UPLOAD_ROUTE =
-  /^\/api\/projects\/.+\/media\/chunked\/[^/]+\/chunk$/;
-
-function getRequestPath(req: express.Request): string {
-  return req.originalUrl.split("?")[0] || req.originalUrl;
-}
-
-function isChunkUploadRequest(req: express.Request): boolean {
-  return req.method === "POST" && CHUNK_UPLOAD_ROUTE.test(getRequestPath(req));
-}
-
 export function createAppServer() {
-  const app = createServer({
-    cors: {
-      origin: true,
-      credentials: true,
-      methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-      allowedHeaders: [
-        "Accept",
-        "Authorization",
-        "Content-Type",
-        "x-builder-api-key",
-        "x-builder-private-key",
-        "x-upload-token",
-      ],
-      maxAge: 86400,
-    },
-    pingMessage: "ok",
-    envKeys,
-  });
-
-  app.options(
-    /.*/,
-    cors({
-      origin: true,
-      credentials: true,
-      methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-      allowedHeaders: [
-        "Accept",
-        "Authorization",
-        "Content-Type",
-        "x-builder-api-key",
-        "x-builder-private-key",
-        "x-upload-token",
-      ],
-      maxAge: 86400,
-    }),
-  );
-  app.use(/^\/api\/projects\/.+\/media(?:\/.*)?$/, (req, _res, next) => {
-    if (req.method === "OPTIONS") {
-      console.info("[media] Upload preflight", {
-        path: req.originalUrl,
-        origin: req.headers.origin,
-        requestMethod: req.headers["access-control-request-method"],
-        requestHeaders: req.headers["access-control-request-headers"],
-      });
-    }
-    next();
-  });
-  app.use((req, res, next) => {
-    if (!isChunkUploadRequest(req)) {
-      next();
-      return;
-    }
-
-    const requestId = crypto.randomBytes(6).toString("hex");
-    const path = getRequestPath(req);
-    const startedAt = Date.now();
-    let responseFinished = false;
-
-    res.locals.uploadRequestId = requestId;
-
-    console.info("[media] Chunk request received", {
-      requestId,
-      method: req.method,
-      path,
-      chunkIndex:
-        typeof req.query.index === "string" ? req.query.index : undefined,
-      contentLength: req.headers["content-length"],
-      contentType: req.headers["content-type"],
-      origin: req.headers.origin,
-    });
-
-    req.on("aborted", () => {
-      console.warn("[media] Chunk request aborted", {
-        requestId,
-        method: req.method,
-        path,
-        chunkIndex:
-          typeof req.query.index === "string" ? req.query.index : undefined,
-        durationMs: Date.now() - startedAt,
-      });
-    });
-
-    req.on("close", () => {
-      console.info("[media] Chunk request stream closed", {
-        requestId,
-        method: req.method,
-        path,
-        chunkIndex:
-          typeof req.query.index === "string" ? req.query.index : undefined,
-        requestComplete: req.complete,
-        durationMs: Date.now() - startedAt,
-      });
-    });
-
-    res.on("finish", () => {
-      responseFinished = true;
-      console.info("[media] Chunk response finished", {
-        requestId,
-        method: req.method,
-        path,
-        chunkIndex:
-          typeof req.query.index === "string" ? req.query.index : undefined,
-        statusCode: res.statusCode,
-        durationMs: Date.now() - startedAt,
-      });
-    });
-
-    res.on("close", () => {
-      if (responseFinished) return;
-      console.warn("[media] Chunk response closed before finish", {
-        requestId,
-        method: req.method,
-        path,
-        chunkIndex:
-          typeof req.query.index === "string" ? req.query.index : undefined,
-        statusCode: res.statusCode,
-        durationMs: Date.now() - startedAt,
-      });
-    });
-
-    next();
-  });
-
-  // Pinpoint annotations
-  app.use("/api/pins", pagePinRoutes());
+  const { app, router } = createServer({ envKeys });
 
   // Pages API (unified page tree)
-  app.get("/api/pages", getPageTree);
+  router.get("/api/pages", getPageTree);
 
   // Project routes
-  app.get("/api/projects", listProjects);
-  app.post("/api/projects", createProject);
-  app.post("/api/projects/groups", createProjectGroup);
-  app.patch("/api/projects/*project/rename", renameProject);
-  app.patch("/api/projects/*project/move", moveProject);
-  app.patch("/api/projects/*project/meta", updateProjectMeta);
+  router.get("/api/projects", listProjects);
+  router.post("/api/projects", createProject);
+  router.post("/api/projects/groups", createProjectGroup);
+  router.patch("/api/projects/**:project/rename", renameProject);
+  router.patch("/api/projects/**:project/move", moveProject);
+  router.patch("/api/projects/**:project/meta", updateProjectMeta);
 
   // Folder CRUD (workspace-level organizational folders)
-  app.post("/api/workspace/:workspace/folder", createFolder);
-  app.delete("/api/workspace/:workspace/folder", deleteFolder);
-  app.patch("/api/workspace/:workspace/folder", renameFolder);
+  router.post("/api/workspace/:workspace/folder", createFolder);
+  router.delete("/api/workspace/:workspace/folder", deleteFolder);
+  router.patch("/api/workspace/:workspace/folder", renameFolder);
 
   // Project file tree & CRUD (must be registered before the wildcard project delete)
-  app.get("/api/projects/*project/tree", getFileTree);
-  app.get("/api/projects/*project/file", getFile);
-  app.put("/api/projects/*project/file", saveFile);
-  app.post("/api/projects/*project/file", createFile);
-  app.delete("/api/projects/*project/file", deleteFile);
-  app.get("/api/projects/*project/version-history", getVersionHistory);
-  app.get(
-    "/api/projects/*project/version-history/:versionId",
+  router.get("/api/projects/**:project/tree", getFileTree);
+  router.get("/api/projects/**:project/file", getFile);
+  router.put("/api/projects/**:project/file", saveFile);
+  router.post("/api/projects/**:project/file", createFile);
+  router.delete("/api/projects/**:project/file", deleteFile);
+  router.get("/api/projects/**:project/version-history", getVersionHistory);
+  router.get(
+    "/api/projects/**:project/version-history/:versionId",
     getVersionContent,
   );
-  app.post("/api/projects/*project/restore-version", restoreVersion);
+  router.post("/api/projects/**:project/restore-version", restoreVersion);
 
   // Shared resources
-  app.get("/api/shared/tree", getSharedTree);
-  app.get("/api/shared/asset", serveSharedAsset);
-  app.get("/api/shared/file", getSharedFile);
-  app.put("/api/shared/file", saveSharedFile);
-  app.post("/api/shared/file", createSharedFile);
-  app.delete("/api/shared/file", deleteSharedFile);
-  app.get("/api/shared/image-folders", getImageFolders);
-  app.post(
-    "/api/shared/image-upload",
-    sharedImageUploadMiddleware,
-    uploadSharedImages,
-  );
-  app.delete("/api/shared/image", deleteSharedImage);
+  router.get("/api/shared/tree", getSharedTree);
+  router.get("/api/shared/asset", serveSharedAsset);
+  router.get("/api/shared/file", getSharedFile);
+  router.put("/api/shared/file", saveSharedFile);
+  router.post("/api/shared/file", createSharedFile);
+  router.delete("/api/shared/file", deleteSharedFile);
+  router.get("/api/shared/image-folders", getImageFolders);
+  router.post("/api/shared/image-upload", uploadSharedImages);
+  router.delete("/api/shared/image", deleteSharedImage);
 
   // Workspace-scoped shared resources
-  app.get("/api/workspace/:workspace/shared/tree", getWorkspaceSharedTree);
-  app.get("/api/workspace/:workspace/shared/file", getWorkspaceSharedFile);
-  app.put("/api/workspace/:workspace/shared/file", saveWorkspaceSharedFile);
-  app.post("/api/workspace/:workspace/shared/file", createWorkspaceSharedFile);
-  app.delete(
+  router.get("/api/workspace/:workspace/shared/tree", getWorkspaceSharedTree);
+  router.get("/api/workspace/:workspace/shared/file", getWorkspaceSharedFile);
+  router.put(
+    "/api/workspace/:workspace/shared/file",
+    saveWorkspaceSharedFile,
+  );
+  router.post(
+    "/api/workspace/:workspace/shared/file",
+    createWorkspaceSharedFile,
+  );
+  router.delete(
     "/api/workspace/:workspace/shared/file",
     deleteWorkspaceSharedFile,
   );
 
   // Media upload & serving
-  app.get("/api/projects/*project/media", listMedia);
-  app.post("/api/projects/*project/media", uploadMiddleware, uploadMedia);
-  app.post(
-    "/api/projects/*project/media/chunked/init",
+  router.get("/api/projects/**:project/media", listMedia);
+  router.post("/api/projects/**:project/media", uploadMedia);
+  router.post(
+    "/api/projects/**:project/media/chunked/init",
     initializeChunkedMediaUpload,
   );
-  app.post(
-    "/api/projects/*project/media/chunked/:uploadId/chunk",
-    requireChunkedUploadAccess,
-    chunkUploadMiddleware,
+  router.post(
+    "/api/projects/**:project/media/chunked/:uploadId/chunk",
     appendChunkedMediaUpload,
   );
-  app.get(
-    "/api/projects/*project/media/chunked/:uploadId/status",
+  router.get(
+    "/api/projects/**:project/media/chunked/:uploadId/status",
     getChunkedMediaUploadStatus,
   );
-  app.post(
-    "/api/projects/*project/media/chunked/:uploadId/complete",
+  router.post(
+    "/api/projects/**:project/media/chunked/:uploadId/complete",
     completeChunkedMediaUpload,
   );
-  app.get(
-    "/api/projects/*project/media/chunked/:uploadId/source",
+  router.get(
+    "/api/projects/**:project/media/chunked/:uploadId/source",
     serveChunkedMediaUploadSource,
   );
-  app.post("/api/projects/*project/media/bulk-delete", bulkDeleteMedia);
-  app.get("/api/projects/*project/media/:filename", serveMedia);
-  app.delete("/api/projects/*project/media/:filename", deleteMedia);
+  router.post("/api/projects/**:project/media/bulk-delete", bulkDeleteMedia);
+  router.get("/api/projects/**:project/media/:filename", serveMedia);
+  router.delete("/api/projects/**:project/media/:filename", deleteMedia);
 
   // Research
-  app.get("/api/projects/*project/research", getResearch);
-  app.put("/api/projects/*project/research", saveResearch);
+  router.get("/api/projects/**:project/research", getResearch);
+  router.put("/api/projects/**:project/research", saveResearch);
 
   // Project delete (wildcard, must come after more specific routes)
-  app.delete("/api/projects/*project", deleteProject);
+  router.delete("/api/projects/**:project", deleteProject);
 
   // Keyword research
-  app.get("/api/keywords/suggest", suggestKeywords);
-  app.post("/api/keywords/volume", getKeywordVolume);
-  app.get("/api/keywords/status", getApiStatus);
-  app.post("/api/keywords/configure", configureApi);
+  router.get("/api/keywords/suggest", suggestKeywords);
+  router.post("/api/keywords/volume", getKeywordVolume);
+  router.get("/api/keywords/status", getApiStatus);
+  router.post("/api/keywords/configure", configureApi);
 
   // Image generation
-  app.post("/api/image-gen/generate", generateImage);
-  app.get("/api/image-gen/status", getImageGenStatus);
-  app.post("/api/image-gen/configure", configureImageGen);
+  router.post("/api/image-gen/generate", generateImage);
+  router.get("/api/image-gen/status", getImageGenStatus);
+  router.post("/api/image-gen/configure", configureImageGen);
 
   // Alt text generation
-  app.post("/api/alt-text/generate", generateAltText);
+  router.post("/api/alt-text/generate", generateAltText);
 
   // Meta description generation
-  app.post("/api/meta-description/generate", generateMetaDescription);
+  router.post("/api/meta-description/generate", generateMetaDescription);
 
   // Image presets
-  app.get("/api/image-presets", listPresets);
-  app.post("/api/image-presets", createPreset);
-  app.put("/api/image-presets/:id", updatePresetHandler);
-  app.delete("/api/image-presets/:id", deletePresetHandler);
+  router.get("/api/image-presets", listPresets);
+  router.post("/api/image-presets", createPreset);
+  router.put("/api/image-presets/:id", updatePresetHandler);
+  router.delete("/api/image-presets/:id", deletePresetHandler);
 
   // Builder.io integration
-  app.post("/api/builder/upload", uploadArticle);
-  app.put("/api/builder/upload/:id", updateArticle);
-  app.get("/api/builder/authors", getAuthors);
-  app.get("/api/builder/articles", getArticles);
-  app.get("/api/builder/docs", getDocs);
-  app.get("/api/builder/blog-index", getBlogIndex);
-  app.get("/api/builder/docs-index", getDocsIndex);
-  app.post("/api/builder/validate", validateConnection);
-  app.post("/api/builder/image", imageUploadMiddleware, uploadImage);
-  app.post("/api/builder/auth", saveAuth);
-  app.delete("/api/builder/auth", clearAuth);
+  router.post("/api/builder/upload", uploadArticle);
+  router.put("/api/builder/upload/:id", updateArticle);
+  router.get("/api/builder/authors", getAuthors);
+  router.get("/api/builder/articles", getArticles);
+  router.get("/api/builder/docs", getDocs);
+  router.get("/api/builder/blog-index", getBlogIndex);
+  router.get("/api/builder/docs-index", getDocsIndex);
+  router.post("/api/builder/validate", validateConnection);
+  router.post("/api/builder/image", uploadImage);
+  router.post("/api/builder/auth", saveAuth);
+  router.delete("/api/builder/auth", clearAuth);
 
   // Builder.io conversion testing
-  app.post("/api/builder/test-roundtrip", testRoundtrip);
-  app.post("/api/builder/fetch-article", fetchArticle);
+  router.post("/api/builder/test-roundtrip", testRoundtrip);
+  router.post("/api/builder/fetch-article", fetchArticle);
 
   // Google search
-  app.get("/api/google/search", searchGoogle);
-  app.get("/api/google/status", googleSearchStatus);
-  app.post("/api/google/configure", configureGoogleSearch);
+  router.get("/api/google/search", searchGoogle);
+  router.get("/api/google/status", googleSearchStatus);
+  router.post("/api/google/configure", configureGoogleSearch);
 
   // Notion integration
-  app.get("/api/notion/pages", getPages);
-  app.get("/api/notion/page-meta", getPageMeta);
-  app.post("/api/notion/fetch-page", fetchPage);
-  app.post("/api/notion/push-page", pushPage);
-  app.get("/api/notion/schema", getDatabaseSchema);
+  router.get("/api/notion/pages", getPages);
+  router.get("/api/notion/page-meta", getPageMeta);
+  router.post("/api/notion/fetch-page", fetchPage);
+  router.post("/api/notion/push-page", pushPage);
+  router.get("/api/notion/schema", getDatabaseSchema);
 
   // Twitter research
-  app.get("/api/twitter/search", searchTwitter);
-  app.get("/api/twitter/article", getTwitterArticle);
-  app.post("/api/twitter/results", saveTwitterResults);
-  app.get("/api/twitter/preview", previewLink);
-  app.get("/api/twitter/fetch-markdown", fetchAsMarkdown);
+  router.get("/api/twitter/search", searchTwitter);
+  router.get("/api/twitter/article", getTwitterArticle);
+  router.post("/api/twitter/results", saveTwitterResults);
+  router.get("/api/twitter/preview", previewLink);
+  router.get("/api/twitter/fetch-markdown", fetchAsMarkdown);
 
   // YouTube transcript
-  app.get("/api/youtube/transcript", getYouTubeTranscript);
+  router.get("/api/youtube/transcript", getYouTubeTranscript);
 
   // Editor selection (ephemeral state for agent)
-  app.post("/api/selection", saveSelection);
-  app.get("/api/selection", getSelection);
-  app.delete("/api/selection", clearSelection);
+  router.post("/api/selection", saveSelection);
+  router.get("/api/selection", getSelection);
+  router.delete("/api/selection", clearSelection);
 
   // Clearbit logo API
-  app.get("/api/clearbit/logo", getClearbitLogo);
+  router.get("/api/clearbit/logo", getClearbitLogo);
 
   // Proxy (strips X-Frame-Options for iframe embedding)
-  app.get("/api/proxy", proxyUrl);
+  router.get("/api/proxy", proxyUrl);
 
-  // SSE for File Watching
+  // SSE for File Watching (keep last)
   const watcher = getContentWatcher();
-
-  app.get("/api/events", (req, res) => {
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders();
-
-    const onChange = (eventName: string, filePath: string) => {
-      res.write(
-        `data: ${JSON.stringify({ type: eventName, path: filePath })}\n\n`,
-      );
-    };
-
-    watcher.on("all", onChange);
-
-    req.on("close", () => {
-      watcher.off("all", onChange);
-    });
-  });
-
-  app.use(
-    (
-      err: unknown,
-      req: express.Request,
-      res: express.Response,
-      next: express.NextFunction,
-    ) => {
-      const path = getRequestPath(req);
-      if (!path.startsWith("/api/projects/") || !path.includes("/media")) {
-        next(err);
-        return;
-      }
-
-      console.error("[media] Upload route error", {
-        requestId:
-          typeof res.locals.uploadRequestId === "string"
-            ? res.locals.uploadRequestId
-            : undefined,
-        method: req.method,
-        path,
-        chunkIndex:
-          typeof req.query.index === "string" ? req.query.index : undefined,
-        error: err instanceof Error ? err.message : String(err),
-      });
-
-      if (res.headersSent) {
-        next(err);
-        return;
-      }
-
-      res.status(500).json({
-        error: "Upload request failed",
-        code: "upload_request_failed",
-      });
-    },
-  );
+  router.get("/api/events", createSSEHandler(watcher));
 
   // Feedback
-  app.post("/api/feedback", sendFeedback);
+  router.post("/api/feedback", sendFeedback);
 
   return app;
 }

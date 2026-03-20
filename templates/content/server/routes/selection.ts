@@ -1,4 +1,9 @@
-import { RequestHandler } from "express";
+import {
+  defineEventHandler,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 import fs from "fs";
 import path from "path";
 
@@ -8,7 +13,7 @@ const SELECTION_FILE = path.join(
   ".editor-selection.json",
 );
 
-export const saveSelection: RequestHandler = (req, res) => {
+export const saveSelection = defineEventHandler(async (event: H3Event) => {
   const {
     projectSlug,
     filePath,
@@ -19,7 +24,7 @@ export const saveSelection: RequestHandler = (req, res) => {
     imageSrc,
     imageAlt,
     videoSrc,
-  } = req.body;
+  } = await readBody(event);
 
   if (!text || !filePath) {
     // Clear selection when no text is selected
@@ -30,8 +35,7 @@ export const saveSelection: RequestHandler = (req, res) => {
     } catch {
       // ignore
     }
-    res.json({ ok: true, cleared: true });
-    return;
+    return { ok: true, cleared: true };
   }
 
   const data: Record<string, unknown> = {
@@ -49,17 +53,17 @@ export const saveSelection: RequestHandler = (req, res) => {
 
   try {
     fs.writeFileSync(SELECTION_FILE, JSON.stringify(data, null, 2), "utf-8");
-    res.json({ ok: true });
+    return { ok: true };
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
-export const getSelection: RequestHandler = (_req, res) => {
+export const getSelection = defineEventHandler((event: H3Event) => {
   try {
     if (!fs.existsSync(SELECTION_FILE)) {
-      res.json({ selection: null });
-      return;
+      return { selection: null };
     }
 
     const data = JSON.parse(fs.readFileSync(SELECTION_FILE, "utf-8"));
@@ -68,23 +72,24 @@ export const getSelection: RequestHandler = (_req, res) => {
     const age = Date.now() - new Date(data.timestamp).getTime();
     if (age > 5 * 60 * 1000) {
       fs.unlinkSync(SELECTION_FILE);
-      res.json({ selection: null, reason: "expired" });
-      return;
+      return { selection: null, reason: "expired" };
     }
 
-    res.json({ selection: data });
+    return { selection: data };
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
-export const clearSelection: RequestHandler = (_req, res) => {
+export const clearSelection = defineEventHandler((event: H3Event) => {
   try {
     if (fs.existsSync(SELECTION_FILE)) {
       fs.unlinkSync(SELECTION_FILE);
     }
-    res.json({ ok: true });
+    return { ok: true };
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});

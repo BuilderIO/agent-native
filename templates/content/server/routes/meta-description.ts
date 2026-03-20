@@ -1,4 +1,9 @@
-import type { RequestHandler } from "express";
+import {
+  defineEventHandler,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 
 const MIN_META_DESCRIPTION_LENGTH = 150;
 const MAX_META_DESCRIPTION_LENGTH = 160;
@@ -14,7 +19,7 @@ interface MetaDescriptionRequestBody {
 function normalizeDescription(text: string) {
   return text
     .trim()
-    .replace(/^['"“”‘’]+|['"“”‘’]+$/g, "")
+    .replace(/^['"""'']+|['"""'']+$/g, "")
     .replace(/\s+/g, " ");
 }
 
@@ -39,77 +44,78 @@ async function generateDescription(prompt: string) {
   return normalizeDescription(response.output_text || "");
 }
 
-export const generateMetaDescription: RequestHandler = async (req, res) => {
-  try {
-    const { articleContent, projectSlug, title } =
-      req.body as MetaDescriptionRequestBody;
+export const generateMetaDescription = defineEventHandler(
+  async (event: H3Event) => {
+    try {
+      const { articleContent, projectSlug, title } =
+        (await readBody(event)) as MetaDescriptionRequestBody;
 
-    if (!projectSlug) {
-      res.status(400).json({ error: "projectSlug is required" });
-      return;
-    }
-
-    if (!articleContent?.trim()) {
-      res.status(400).json({ error: "articleContent is required" });
-      return;
-    }
-
-    if (!process.env.OPENAI_API_KEY) {
-      res.status(400).json({ error: "OpenAI API key not configured" });
-      return;
-    }
-
-    const basePrompt = [
-      "You are an SEO editor writing meta descriptions for technical blog posts.",
-      `Write exactly one meta description between ${MIN_META_DESCRIPTION_LENGTH} and ${MAX_META_DESCRIPTION_LENGTH} characters inclusive. Aim for ${TARGET_META_DESCRIPTION_LENGTH} characters.`,
-      "Return plain text only.",
-      "Do not use quotation marks.",
-      "Do not add labels, markdown, or explanation.",
-      title?.trim() ? `Article title: ${title.trim()}` : null,
-      `Full article:\n\n${articleContent.trim()}`,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-
-    let description = await generateDescription(basePrompt);
-
-    for (let attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt += 1) {
-      if (
-        description.length >= MIN_META_DESCRIPTION_LENGTH &&
-        description.length <= MAX_META_DESCRIPTION_LENGTH
-      ) {
-        res.json({ description });
-        return;
+      if (!projectSlug) {
+        setResponseStatus(event, 400);
+        return { error: "projectSlug is required" };
       }
 
-      const retryPrompt = [
-        "Revise this meta description so it fits the required length.",
-        `Target length: ${MIN_META_DESCRIPTION_LENGTH}-${MAX_META_DESCRIPTION_LENGTH} characters inclusive.`,
-        `Aim for ${TARGET_META_DESCRIPTION_LENGTH} characters.`,
+      if (!articleContent?.trim()) {
+        setResponseStatus(event, 400);
+        return { error: "articleContent is required" };
+      }
+
+      if (!process.env.OPENAI_API_KEY) {
+        setResponseStatus(event, 400);
+        return { error: "OpenAI API key not configured" };
+      }
+
+      const basePrompt = [
+        "You are an SEO editor writing meta descriptions for technical blog posts.",
+        `Write exactly one meta description between ${MIN_META_DESCRIPTION_LENGTH} and ${MAX_META_DESCRIPTION_LENGTH} characters inclusive. Aim for ${TARGET_META_DESCRIPTION_LENGTH} characters.`,
         "Return plain text only.",
         "Do not use quotation marks.",
-        "Keep the meaning aligned with the article.",
-        "Keep it to a single sentence.",
-        "Do not rewrite from scratch.",
-        "Only make the smallest possible edit to the current meta description.",
-        getLengthFeedback(description),
-        "Before responding, check the final character count and make sure it is within range.",
+        "Do not add labels, markdown, or explanation.",
         title?.trim() ? `Article title: ${title.trim()}` : null,
-        `Current meta description:\n\n${description}`,
+        `Full article:\n\n${articleContent.trim()}`,
       ]
         .filter(Boolean)
         .join("\n\n");
 
-      description = await generateDescription(retryPrompt);
-    }
+      let description = await generateDescription(basePrompt);
 
-    res.status(500).json({
-      error: `Failed to generate a meta description between ${MIN_META_DESCRIPTION_LENGTH} and ${MAX_META_DESCRIPTION_LENGTH} characters`,
-    });
-  } catch (err: any) {
-    console.error("Meta description generation error:", err);
-    res
-      .status(500)
-      .json({ error: err.message || "Meta description generation failed" });
-  }
-};
+      for (let attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt += 1) {
+        if (
+          description.length >= MIN_META_DESCRIPTION_LENGTH &&
+          description.length <= MAX_META_DESCRIPTION_LENGTH
+        ) {
+          return { description };
+        }
+
+        const retryPrompt = [
+          "Revise this meta description so it fits the required length.",
+          `Target length: ${MIN_META_DESCRIPTION_LENGTH}-${MAX_META_DESCRIPTION_LENGTH} characters inclusive.`,
+          `Aim for ${TARGET_META_DESCRIPTION_LENGTH} characters.`,
+          "Return plain text only.",
+          "Do not use quotation marks.",
+          "Keep the meaning aligned with the article.",
+          "Keep it to a single sentence.",
+          "Do not rewrite from scratch.",
+          "Only make the smallest possible edit to the current meta description.",
+          getLengthFeedback(description),
+          "Before responding, check the final character count and make sure it is within range.",
+          title?.trim() ? `Article title: ${title.trim()}` : null,
+          `Current meta description:\n\n${description}`,
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+
+        description = await generateDescription(retryPrompt);
+      }
+
+      setResponseStatus(event, 500);
+      return {
+        error: `Failed to generate a meta description between ${MIN_META_DESCRIPTION_LENGTH} and ${MAX_META_DESCRIPTION_LENGTH} characters`,
+      };
+    } catch (err: any) {
+      console.error("Meta description generation error:", err);
+      setResponseStatus(event, 500);
+      return { error: err.message || "Meta description generation failed" };
+    }
+  },
+);

@@ -1,4 +1,4 @@
-import { type RequestHandler } from "express";
+import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 import { requireEnvKey } from "@agent-native/core/server";
 import {
   getContentCalendar,
@@ -7,45 +7,48 @@ import {
 } from "../lib/notion";
 
 // GET /api/notion/content-calendar — returns all content calendar entries
-export const handleContentCalendar: RequestHandler = async (_req, res) => {
-  if (requireEnvKey(res, "NOTION_API_KEY", "Notion")) return;
+export const handleContentCalendar = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "NOTION_API_KEY", "Notion");
+  if (missing) return missing;
   try {
     const entries = await getContentCalendar();
-    res.json({ entries, total: entries.length });
+    return { entries, total: entries.length };
   } catch (err: any) {
     console.error("Notion content-calendar error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 // GET /api/notion/content-calendar/schema — returns the database schema
-export const handleContentCalendarSchema: RequestHandler = async (
-  _req,
-  res,
-) => {
-  if (requireEnvKey(res, "NOTION_API_KEY", "Notion")) return;
+export const handleContentCalendarSchema = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "NOTION_API_KEY", "Notion");
+  if (missing) return missing;
   try {
     const schema = await getContentCalendarSchema();
-    res.json({ schema });
+    return { schema };
   } catch (err: any) {
     console.error("Notion schema error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
 
 // GET /api/notion/page/:pageId — returns page title and blocks for rendering
-export const handleNotionPage: RequestHandler = async (req, res) => {
-  if (requireEnvKey(res, "NOTION_API_KEY", "Notion")) return;
+export const handleNotionPage = defineEventHandler(async (event) => {
+  const missing = requireEnvKey(event, "NOTION_API_KEY", "Notion");
+  if (missing) return missing;
   try {
-    const pageId = req.params.pageId as string;
+    const pageId = getRouterParam(event, "pageId");
     if (!pageId) {
-      res.status(400).json({ error: "pageId is required" });
-      return;
+      setResponseStatus(event, 400);
+      return { error: "pageId is required" };
     }
     const data = await getNotionPage(pageId);
-    res.json(data);
+    return data;
   } catch (err: any) {
     console.error("Notion page error:", err.message);
-    res.status(500).json({ error: err.message });
+    setResponseStatus(event, 500);
+    return { error: err.message };
   }
-};
+});
