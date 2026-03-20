@@ -48,6 +48,12 @@ import {
   apolloSaveKey,
   apolloDeleteKey,
 } from "./routes/apollo.js";
+import {
+  listAliases,
+  createAlias,
+  updateAlias,
+  deleteAlias,
+} from "./routes/aliases.js";
 import { hubspotContactLookup } from "./routes/hubspot.js";
 import { gongCallsLookup } from "./routes/gong.js";
 import { pylonContactLookup } from "./routes/pylon.js";
@@ -90,6 +96,12 @@ export function createAppServer() {
 
   // Contacts
   app.get("/api/contacts", listContacts);
+
+  // Aliases
+  app.get("/api/aliases", listAliases);
+  app.post("/api/aliases", createAlias);
+  app.patch("/api/aliases/:id", updateAlias);
+  app.delete("/api/aliases/:id", deleteAlias);
 
   // Settings
   app.get("/api/settings", getSettings);
