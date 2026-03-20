@@ -167,17 +167,16 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
           if (urlBuffer.current.length > 2048) {
             urlBuffer.current = urlBuffer.current.slice(-2048);
           }
-          // Detect the OAuth URL start, grab a generous chunk (600 chars covers
-          // the full URL even with PTY-inserted whitespace at line wraps), strip
-          // all whitespace, then extract the clean URL.
-          const startIdx = urlBuffer.current.indexOf(
+          // Collapse whitespace first so a line wrap between "authorize" and "?"
+          // doesn't prevent detection.
+          const collapsed = urlBuffer.current.replace(/\s+/g, " ");
+          const startIdx = collapsed.indexOf(
             "https://claude.ai/oauth/authorize?",
           );
           if (startIdx !== -1) {
-            const chunk = urlBuffer.current.slice(startIdx, startIdx + 600);
-            const collapsed = chunk.replace(/\s+/g, "");
-            // Extract valid URL characters from the collapsed string
-            const urlMatch = collapsed.match(
+            const chunk = collapsed.slice(startIdx, startIdx + 600);
+            const stripped = chunk.replace(/\s+/g, "");
+            const urlMatch = stripped.match(
               /https:\/\/claude\.ai\/oauth\/authorize\?[A-Za-z0-9%&=+:_.~\-\/]+/,
             );
             if (urlMatch && urlMatch[0].includes("state=")) {
@@ -281,7 +280,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
 
       const fitAd = new FitAddon();
       const webLinksAd = new WebLinksAddon((_event, uri) => {
-        window.open(uri, "_blank");
+        window.open(uri, "_blank", "noopener");
       });
       term.loadAddon(fitAd);
       term.loadAddon(webLinksAd);
