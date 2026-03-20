@@ -23,6 +23,12 @@ export const uploadAsset = defineEventHandler(async (event) => {
     return { error: "No file uploaded" };
   }
 
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+  if (filePart.data.length > MAX_FILE_SIZE) {
+    setResponseStatus(event, 413);
+    return { error: "File too large (max 10 MB)" };
+  }
+
   const originalName = filePart.filename || "upload";
   const ext = path.extname(originalName);
   const allowed = /\.(jpg|jpeg|png|gif|svg|webp|avif|ico)$/i;

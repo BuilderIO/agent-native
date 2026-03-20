@@ -312,6 +312,20 @@ export const uploadSharedImages = defineEventHandler(async (event: H3Event) => {
     return { error: "No files provided" };
   }
 
+  const MAX_FILES = 20;
+  const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+
+  if (fileParts.length > MAX_FILES) {
+    setResponseStatus(event, 413);
+    return { error: `Too many files (max ${MAX_FILES})` };
+  }
+
+  const oversized = fileParts.find((p) => p.data.length > MAX_FILE_SIZE);
+  if (oversized) {
+    setResponseStatus(event, 413);
+    return { error: "File too large (max 50 MB per file)" };
+  }
+
   const allowedMimeTypes = [
     "image/jpeg",
     "image/png",

@@ -71,6 +71,16 @@ export const createScheduledJob = defineEventHandler(async (event: H3Event) => {
     return { error: "type and runAt are required" };
   }
 
+  if (type !== "snooze" && type !== "send_later") {
+    setResponseStatus(event, 400);
+    return { error: "type must be 'snooze' or 'send_later'" };
+  }
+
+  if (!Number.isFinite(runAt) || runAt <= Date.now()) {
+    setResponseStatus(event, 400);
+    return { error: "runAt must be a future timestamp" };
+  }
+
   const job = {
     id: nanoid(12),
     type,

@@ -144,13 +144,16 @@ export function SnoozeModal({
           payload: {},
           runAt: opt.date.getTime(),
         });
-        // Dispatch event before archive so list can advance selection immediately
+        // Archive before dispatching — don't advance UI if archive failed
+        const archiveRes = await fetch(`/api/emails/${emailId}/archive`, {
+          method: "PATCH",
+        });
+        if (!archiveRes.ok) throw new Error("Archive failed");
+        queryClient.invalidateQueries({ queryKey: ["emails"] });
+        // Dispatch after successful archive so list advances selection
         window.dispatchEvent(
           new CustomEvent("email:snoozed", { detail: { emailId } }),
         );
-        // Archive immediately
-        await fetch(`/api/emails/${emailId}/archive`, { method: "PATCH" });
-        queryClient.invalidateQueries({ queryKey: ["emails"] });
         onSnoozed?.(emailId);
         onClose();
         toast(`Snoozed until ${formatRight(opt.date, opt.sublabel)}`);
