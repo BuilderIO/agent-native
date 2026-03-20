@@ -67,9 +67,11 @@ async function createAdapter(
         const { FirestoreFileSyncAdapter } =
           await import("../firestore/adapter.js");
         // Dynamic import of firebase-admin — only loads if installed
-        const admin = await import("firebase-admin");
+        const adminModule = await import("firebase-admin");
+        // ESM dynamic import wraps CJS modules — unwrap .default if present
+        const admin = (adminModule as any).default ?? adminModule;
         const app =
-          admin.apps.length > 0
+          (admin.apps?.length ?? 0) > 0
             ? admin.apps[0]!
             : admin.initializeApp({
                 credential: admin.credential.applicationDefault(),
