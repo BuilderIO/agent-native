@@ -203,21 +203,25 @@ File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.en
 | `CONVEX_URL`                     | For Convex    | Deployment URL from `npx convex dev` (must be HTTPS) |
 
 **How sync works:**
+
 - `createFileSync()` factory reads env vars and initializes sync
 - Files matching `sync-config.json` patterns are synced to/from the database
 - Sync events flow through SSE (`source: "sync"`) alongside file change events
 - Conflicts produce `.conflict` sidecar files and notify the agent
 
 **Checking sync status:**
+
 - Read `data/.sync-status.json` for current sync state
 - Read `data/.sync-failures.json` for permanently failed sync operations
 
 **Handling conflicts:**
+
 - When `application-state/sync-conflict.json` appears, resolve the conflict
 - Read the `.conflict` file alongside the original to understand both versions
 - Edit the original file to resolve, then delete the `.conflict` file
 
 **Scratch files (not synced):**
+
 - Prefix temporary files with `_tmp-` to exclude from sync
 
 ## Project Structure
