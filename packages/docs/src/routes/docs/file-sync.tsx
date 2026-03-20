@@ -300,7 +300,8 @@ SUPABASE_ANON_KEY=eyJ...`}
         <li>
           Create the schema at <code>convex/schema.ts</code>:
           <CodeBlock
-            code={`import { defineSchema, defineTable, v } from "convex/values";
+            code={`import { defineSchema, defineTable } from "convex/server";
+import { v } from "convex/values";
 
 export default defineSchema({
   files: defineTable({
