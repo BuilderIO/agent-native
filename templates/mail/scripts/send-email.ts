@@ -28,7 +28,10 @@ export const tool: ScriptTool = {
   parameters: {
     type: "object",
     properties: {
-      to: { type: "string", description: "Recipient email(s), comma-separated" },
+      to: {
+        type: "string",
+        description: "Recipient email(s), comma-separated",
+      },
       subject: { type: "string", description: "Email subject" },
       body: { type: "string", description: "Email body text" },
       cc: { type: "string", description: "CC email(s), comma-separated" },

@@ -18,7 +18,8 @@ import {
 import type { ScriptTool } from "@agent-native/core";
 
 export const tool: ScriptTool = {
-  description: "Get a single email by ID, including its full body and metadata.",
+  description:
+    "Get a single email by ID, including its full body and metadata.",
   parameters: {
     type: "object",
     properties: {
@@ -55,18 +56,26 @@ export async function run(args: Record<string, string>): Promise<string> {
 
 export default async function main(): Promise<void> {
   const args = parseArgs() as Record<string, string>;
-  if (!args.id) fatal("--id is required. Usage: pnpm script get-email --id=msg123");
+  if (!args.id)
+    fatal("--id is required. Usage: pnpm script get-email --id=msg123");
 
   const clients = await getClients();
-  if (clients.length === 0) fatal("No Google account connected. Connect an account in the app first.");
+  if (clients.length === 0)
+    fatal("No Google account connected. Connect an account in the app first.");
 
   for (const { email, client } of clients) {
     const gmail = google.gmail({ version: "v1", auth: client });
     try {
       const labelMap = await fetchGmailLabelMap(client);
-      const msg = await gmail.users.messages.get({ userId: "me", id: args.id, format: "full" });
+      const msg = await gmail.users.messages.get({
+        userId: "me",
+        id: args.id,
+        format: "full",
+      });
       const parsed = gmailToEmailMessage((msg as any).data, email, labelMap);
-      console.error(`Email: ${parsed.subject} from ${parsed.from?.name || parsed.from?.email}`);
+      console.error(
+        `Email: ${parsed.subject} from ${parsed.from?.name || parsed.from?.email}`,
+      );
       output(parsed);
       return;
     } catch (err: any) {

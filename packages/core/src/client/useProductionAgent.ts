@@ -5,7 +5,11 @@ export interface ProductionAgentMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
-  toolCalls?: Array<{ tool: string; input: Record<string, string>; result?: string }>;
+  toolCalls?: Array<{
+    tool: string;
+    input: Record<string, string>;
+    result?: string;
+  }>;
 }
 
 export interface UseProductionAgentResult {
@@ -34,7 +38,11 @@ export function useProductionAgent(): UseProductionAgentResult {
       setIsGenerating(true);
 
       // Notify any listeners that generation is running
-      window.dispatchEvent(new CustomEvent("builder.fusion.chatRunning", { detail: { running: true } }));
+      window.dispatchEvent(
+        new CustomEvent("builder.fusion.chatRunning", {
+          detail: { running: true },
+        }),
+      );
 
       // Build history for this request (exclude the message we just added)
       const history: AgentMessage[] = messages.map((m) => ({
@@ -119,7 +127,8 @@ export function useProductionAgent(): UseProductionAgentResult {
                   const calls = [...(m.toolCalls ?? [])];
                   // Update last tool call with result
                   const idx = calls.map((c) => c.tool).lastIndexOf(ev.tool);
-                  if (idx >= 0) calls[idx] = { ...calls[idx], result: ev.result };
+                  if (idx >= 0)
+                    calls[idx] = { ...calls[idx], result: ev.result };
                   return { ...m, toolCalls: calls };
                 }),
               );
@@ -142,14 +151,22 @@ export function useProductionAgent(): UseProductionAgentResult {
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
-                ? { ...m, content: m.content || "Something went wrong. Please try again." }
+                ? {
+                    ...m,
+                    content:
+                      m.content || "Something went wrong. Please try again.",
+                  }
                 : m,
             ),
           );
         }
       } finally {
         setIsGenerating(false);
-        window.dispatchEvent(new CustomEvent("builder.fusion.chatRunning", { detail: { running: false } }));
+        window.dispatchEvent(
+          new CustomEvent("builder.fusion.chatRunning", {
+            detail: { running: false },
+          }),
+        );
         abortRef.current = null;
       }
     },

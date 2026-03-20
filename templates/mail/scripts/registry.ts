@@ -13,11 +13,23 @@ import { tool as searchTool, run as searchRun } from "./search-emails.js";
 import { tool as getEmailTool, run as getEmailRun } from "./get-email.js";
 import { tool as getThreadTool, run as getThreadRun } from "./get-thread.js";
 import { tool as navigateTool, run as navigateRun } from "./navigate.js";
-import { tool as manageDraftTool, run as manageDraftRun } from "./manage-draft.js";
+import {
+  tool as manageDraftTool,
+  run as manageDraftRun,
+} from "./manage-draft.js";
 import { tool as viewScreenTool, run as viewScreenRun } from "./view-screen.js";
-import { tool as viewComposerTool, run as viewComposerRun } from "./view-composer.js";
-import { tool as refreshListTool, run as refreshListRun } from "./refresh-list.js";
-import { tool as bulkArchiveTool, run as bulkArchiveRun } from "./bulk-archive.js";
+import {
+  tool as viewComposerTool,
+  run as viewComposerRun,
+} from "./view-composer.js";
+import {
+  tool as refreshListTool,
+  run as refreshListRun,
+} from "./refresh-list.js";
+import {
+  tool as bulkArchiveTool,
+  run as bulkArchiveRun,
+} from "./bulk-archive.js";
 import type { ScriptEntry } from "@agent-native/core";
 
 export const scriptRegistry: Record<string, ScriptEntry> = {

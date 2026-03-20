@@ -25,7 +25,11 @@ export const tool: ScriptTool = {
     type: "object",
     properties: {
       id: { type: "string", description: "Thread ID" },
-      compact: { type: "string", description: "Set to 'true' for compact summary", enum: ["true", "false"] },
+      compact: {
+        type: "string",
+        description: "Set to 'true' for compact summary",
+        enum: ["true", "false"],
+      },
     },
     required: ["id"],
   },
@@ -57,13 +61,20 @@ export async function run(args: Record<string, string>): Promise<string> {
         format: "full",
       });
       const messages = ((threadRes as any).data.messages || [])
-        .map((m: any) => gmailToEmailMessage({ ...m, _accountEmail: email }, email, labelMap))
-        .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        .map((m: any) =>
+          gmailToEmailMessage({ ...m, _accountEmail: email }, email, labelMap),
+        )
+        .sort(
+          (a: any, b: any) =>
+            new Date(a.date).getTime() - new Date(b.date).getTime(),
+        );
 
       const result = compact
         ? messages.map((m: any) => ({
             id: m.id,
-            from: m.from.name ? `${m.from.name} <${m.from.email}>` : m.from.email,
+            from: m.from.name
+              ? `${m.from.name} <${m.from.email}>`
+              : m.from.email,
             subject: m.subject,
             snippet: m.snippet,
             date: m.date,

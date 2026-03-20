@@ -24,11 +24,17 @@ function readJson(filename: string): unknown | null {
 }
 
 export const tool: ScriptTool = {
-  description: "See what the user is currently looking at on screen. Returns the current view, email list, and open thread (if any). Always call this first before taking any action.",
+  description:
+    "See what the user is currently looking at on screen. Returns the current view, email list, and open thread (if any). Always call this first before taking any action.",
   parameters: {
     type: "object",
     properties: {
-      full: { type: "string", description: "Set to 'true' for full detail (deprecated, now always returns full detail)", enum: ["true", "false"] },
+      full: {
+        type: "string",
+        description:
+          "Set to 'true' for full detail (deprecated, now always returns full detail)",
+        enum: ["true", "false"],
+      },
     },
   },
 };

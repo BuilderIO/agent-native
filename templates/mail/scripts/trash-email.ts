@@ -19,14 +19,20 @@ export const tool: ScriptTool = {
   parameters: {
     type: "object",
     properties: {
-      id: { type: "string", description: "Email ID(s) to trash, comma-separated" },
+      id: {
+        type: "string",
+        description: "Email ID(s) to trash, comma-separated",
+      },
     },
     required: ["id"],
   },
 };
 
 export async function run(args: Record<string, string>): Promise<string> {
-  const ids = args.id?.split(",").map((s) => s.trim()).filter(Boolean);
+  const ids = args.id
+    ?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   if (!ids || ids.length === 0) return "Error: --id is required";
 
   const clients = await getClients();
@@ -46,20 +52,28 @@ export async function run(args: Record<string, string>): Promise<string> {
         errors.push(err?.message || "Gmail API error");
       }
     }
-    results.push(success ? { id, success: true } : { id, success: false, error: errors.join("; ") });
+    results.push(
+      success
+        ? { id, success: true }
+        : { id, success: false, error: errors.join("; ") },
+    );
   }
 
   const succeeded = results.filter((r) => r.success).length;
   const failed = results.filter((r) => !r.success).length;
   if (failed > 0) {
-    return `Trashed ${succeeded}/${ids.length} email(s). Failures: ${results.filter((r) => !r.success).map((r) => `${r.id}: ${r.error}`).join("; ")}`;
+    return `Trashed ${succeeded}/${ids.length} email(s). Failures: ${results
+      .filter((r) => !r.success)
+      .map((r) => `${r.id}: ${r.error}`)
+      .join("; ")}`;
   }
   return `Trashed ${succeeded} email(s) successfully`;
 }
 
 export default async function main(): Promise<void> {
   const args = parseArgs() as Record<string, string>;
-  if (!args.id) fatal("--id is required. Usage: pnpm script trash-email --id=msg123");
+  if (!args.id)
+    fatal("--id is required. Usage: pnpm script trash-email --id=msg123");
   const result = await run(args);
   console.error(result);
   output({ result });

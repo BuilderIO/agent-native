@@ -30,10 +30,31 @@ export const tool: ScriptTool = {
   parameters: {
     type: "object",
     properties: {
-      q: { type: "string", description: "Search query (required), supports Gmail search operators like from:, to:, subject:, is:unread" },
-      view: { type: "string", description: "Limit search to a view (default: all)", enum: ["inbox", "unread", "starred", "sent", "drafts", "archive", "trash", "all"] },
+      q: {
+        type: "string",
+        description:
+          "Search query (required), supports Gmail search operators like from:, to:, subject:, is:unread",
+      },
+      view: {
+        type: "string",
+        description: "Limit search to a view (default: all)",
+        enum: [
+          "inbox",
+          "unread",
+          "starred",
+          "sent",
+          "drafts",
+          "archive",
+          "trash",
+          "all",
+        ],
+      },
       limit: { type: "string", description: "Max results (default: 25)" },
-      compact: { type: "string", description: "Set to 'true' for compact output", enum: ["true", "false"] },
+      compact: {
+        type: "string",
+        description: "Set to 'true' for compact output",
+        enum: ["true", "false"],
+      },
     },
     required: ["q"],
   },
@@ -68,7 +89,10 @@ export async function run(args: Record<string, string>): Promise<string> {
 
   const emails = messages
     .map((m) => gmailToEmailMessage(m, m._accountEmail, labelMap))
-    .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .sort(
+      (a: any, b: any) =>
+        new Date(b.date).getTime() - new Date(a.date).getTime(),
+    )
     .slice(0, limit);
 
   return JSON.stringify(compact ? toCompact(emails) : emails, null, 2);

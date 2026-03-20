@@ -21,14 +21,21 @@ export const tool: ScriptTool = {
     type: "object",
     properties: {
       id: { type: "string", description: "Email ID(s), comma-separated" },
-      unread: { type: "string", description: "Set to 'true' to mark as unread instead of read", enum: ["true", "false"] },
+      unread: {
+        type: "string",
+        description: "Set to 'true' to mark as unread instead of read",
+        enum: ["true", "false"],
+      },
     },
     required: ["id"],
   },
 };
 
 export async function run(args: Record<string, string>): Promise<string> {
-  const ids = args.id?.split(",").map((s) => s.trim()).filter(Boolean);
+  const ids = args.id
+    ?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   if (!ids || ids.length === 0) return "Error: --id is required";
   const markUnread = args.unread === "true";
 
@@ -45,7 +52,9 @@ export async function run(args: Record<string, string>): Promise<string> {
         await gmail.users.messages.modify({
           userId: "me",
           id,
-          requestBody: markUnread ? { addLabelIds: ["UNREAD"] } : { removeLabelIds: ["UNREAD"] },
+          requestBody: markUnread
+            ? { addLabelIds: ["UNREAD"] }
+            : { removeLabelIds: ["UNREAD"] },
         });
         success = true;
         break;
@@ -53,7 +62,11 @@ export async function run(args: Record<string, string>): Promise<string> {
         errors.push(err?.message || "Gmail API error");
       }
     }
-    results.push(success ? { id, success: true } : { id, success: false, error: errors.join("; ") });
+    results.push(
+      success
+        ? { id, success: true }
+        : { id, success: false, error: errors.join("; ") },
+    );
   }
 
   const action = markUnread ? "unread" : "read";
@@ -63,7 +76,10 @@ export async function run(args: Record<string, string>): Promise<string> {
 
 export default async function main(): Promise<void> {
   const args = parseArgs() as Record<string, string>;
-  if (!args.id) fatal("--id is required. Usage: pnpm script mark-read --id=msg123 [--unread]");
+  if (!args.id)
+    fatal(
+      "--id is required. Usage: pnpm script mark-read --id=msg123 [--unread]",
+    );
   const result = await run(args);
   console.error(result);
   output({ result });

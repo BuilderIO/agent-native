@@ -138,7 +138,11 @@ export function createProductionAgentHandler(
           const scriptEntry = options.scripts[toolUse.name];
           if (!scriptEntry) {
             const result = `Error: Unknown tool "${toolUse.name}"`;
-            send({ type: "tool_start", tool: toolUse.name, input: toolUse.input as Record<string, string> });
+            send({
+              type: "tool_start",
+              tool: toolUse.name,
+              input: toolUse.input as Record<string, string>,
+            });
             send({ type: "tool_done", tool: toolUse.name, result });
             toolResults.push({
               type: "tool_result",

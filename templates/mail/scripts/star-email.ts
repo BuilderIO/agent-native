@@ -22,14 +22,21 @@ export const tool: ScriptTool = {
     type: "object",
     properties: {
       id: { type: "string", description: "Email ID(s), comma-separated" },
-      unstar: { type: "string", description: "Set to 'true' to remove star", enum: ["true", "false"] },
+      unstar: {
+        type: "string",
+        description: "Set to 'true' to remove star",
+        enum: ["true", "false"],
+      },
     },
     required: ["id"],
   },
 };
 
 export async function run(args: Record<string, string>): Promise<string> {
-  const ids = args.id?.split(",").map((s) => s.trim()).filter(Boolean);
+  const ids = args.id
+    ?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   if (!ids || ids.length === 0) return "Error: --id is required";
   const unstar = args.unstar === "true";
 
@@ -46,7 +53,9 @@ export async function run(args: Record<string, string>): Promise<string> {
         await gmail.users.messages.modify({
           userId: "me",
           id,
-          requestBody: unstar ? { removeLabelIds: ["STARRED"] } : { addLabelIds: ["STARRED"] },
+          requestBody: unstar
+            ? { removeLabelIds: ["STARRED"] }
+            : { addLabelIds: ["STARRED"] },
         });
         success = true;
         break;
@@ -54,7 +63,11 @@ export async function run(args: Record<string, string>): Promise<string> {
         errors.push(err?.message || "Gmail API error");
       }
     }
-    results.push(success ? { id, success: true } : { id, success: false, error: errors.join("; ") });
+    results.push(
+      success
+        ? { id, success: true }
+        : { id, success: false, error: errors.join("; ") },
+    );
   }
 
   const action = unstar ? "Unstarred" : "Starred";

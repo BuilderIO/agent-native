@@ -21,7 +21,10 @@ export const tool: ScriptTool = {
   parameters: {
     type: "object",
     properties: {
-      id: { type: "string", description: "Specific draft ID to view (optional)" },
+      id: {
+        type: "string",
+        description: "Specific draft ID to view (optional)",
+      },
     },
   },
 };
@@ -29,18 +32,31 @@ export const tool: ScriptTool = {
 export async function run(args: Record<string, string>): Promise<string> {
   if (args.id) {
     try {
-      const draft = JSON.parse(fs.readFileSync(path.join(STATE_DIR, `compose-${args.id}.json`), "utf-8"));
+      const draft = JSON.parse(
+        fs.readFileSync(
+          path.join(STATE_DIR, `compose-${args.id}.json`),
+          "utf-8",
+        ),
+      );
       return JSON.stringify(draft, null, 2);
     } catch {
       return `No draft found with id "${args.id}"`;
     }
   }
 
-  const files = fs.readdirSync(STATE_DIR).filter((f) => f.startsWith("compose-") && f.endsWith(".json"));
+  const files = fs
+    .readdirSync(STATE_DIR)
+    .filter((f) => f.startsWith("compose-") && f.endsWith(".json"));
   if (files.length === 0) return "No compose drafts are open.";
 
   const drafts = files
-    .map((f) => { try { return JSON.parse(fs.readFileSync(path.join(STATE_DIR, f), "utf-8")); } catch { return null; } })
+    .map((f) => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(STATE_DIR, f), "utf-8"));
+      } catch {
+        return null;
+      }
+    })
     .filter(Boolean);
 
   return JSON.stringify(drafts, null, 2);

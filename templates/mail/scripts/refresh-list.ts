@@ -26,11 +26,16 @@ import {
 import type { ScriptTool } from "@agent-native/core";
 
 export const tool: ScriptTool = {
-  description: "Refresh the email list displayed in the UI. Fetches fresh emails from Gmail and triggers the UI to refetch. Call this after any backend change (archive, trash, star, mark-read, send, etc.).",
+  description:
+    "Refresh the email list displayed in the UI. Fetches fresh emails from Gmail and triggers the UI to refetch. Call this after any backend change (archive, trash, star, mark-read, send, etc.).",
   parameters: {
     type: "object",
     properties: {
-      view: { type: "string", description: "View to refresh (default: current view from navigation state)" },
+      view: {
+        type: "string",
+        description:
+          "View to refresh (default: current view from navigation state)",
+      },
     },
   },
 };
@@ -62,7 +67,10 @@ export async function run(args: Record<string, string>): Promise<string> {
   );
 
   const viewPrefix = VIEW_QUERIES[view] ?? `label:${view}`;
-  const { messages, errors } = await listGmailMessages(viewPrefix || "in:inbox", 50);
+  const { messages, errors } = await listGmailMessages(
+    viewPrefix || "in:inbox",
+    50,
+  );
 
   if (errors.length > 0 && messages.length === 0) {
     return `Gmail error: ${errors.map((e) => `${e.email}: ${e.error}`).join("; ")}`;
@@ -70,13 +78,18 @@ export async function run(args: Record<string, string>): Promise<string> {
 
   const emails = messages
     .map((m) => gmailToEmailMessage(m, m._accountEmail, labelMap))
-    .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .sort(
+      (a: any, b: any) =>
+        new Date(b.date).getTime() - new Date(a.date).getTime(),
+    )
     .slice(0, 50);
 
   const compact = emails.map((e: any) => ({
     id: e.id,
     threadId: e.threadId,
-    from: e.from?.name ? `${e.from.name} <${e.from.email}>` : (e.from?.email ?? ""),
+    from: e.from?.name
+      ? `${e.from.name} <${e.from.email}>`
+      : (e.from?.email ?? ""),
     subject: e.subject,
     snippet: e.snippet,
     date: e.date,
@@ -85,9 +98,19 @@ export async function run(args: Record<string, string>): Promise<string> {
   }));
 
   fs.mkdirSync(STATE_DIR, { recursive: true });
-  fs.writeFileSync(EMAIL_LIST_FILE, JSON.stringify({ view, label: null, count: emails.length, emails: compact }, null, 2));
+  fs.writeFileSync(
+    EMAIL_LIST_FILE,
+    JSON.stringify(
+      { view, label: null, count: emails.length, emails: compact },
+      null,
+      2,
+    ),
+  );
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(TRIGGER_FILE, JSON.stringify({ refreshedAt: new Date().toISOString(), view }));
+  fs.writeFileSync(
+    TRIGGER_FILE,
+    JSON.stringify({ refreshedAt: new Date().toISOString(), view }),
+  );
 
   return `Refreshed ${emails.length} email(s) in "${view}"`;
 }

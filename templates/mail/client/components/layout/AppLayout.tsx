@@ -46,7 +46,10 @@ import {
 } from "@/hooks/use-google-auth";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
-import { getCallbackOrigin, ProductionAgentPanel } from "@agent-native/core/client";
+import {
+  getCallbackOrigin,
+  ProductionAgentPanel,
+} from "@agent-native/core/client";
 import type { Label } from "@shared/types";
 import { toast } from "sonner";
 

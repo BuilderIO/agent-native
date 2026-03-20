@@ -1,9 +1,4 @@
-import React, {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-} from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useProductionAgent } from "./useProductionAgent.js";
 import type { ProductionAgentMessage } from "./useProductionAgent.js";
 import { cn } from "./utils.js";
@@ -123,8 +118,18 @@ function ToolCallBubble({
             />
           </svg>
         ) : (
-          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path d="M20 7 9 18l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+          <svg
+            className="h-3 w-3"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              d="M20 7 9 18l-5-5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         )}
       </span>
@@ -142,11 +147,21 @@ function MessageBubble({ msg }: { msg: ProductionAgentMessage }) {
   const isUser = msg.role === "user";
 
   return (
-    <div className={cn("flex flex-col gap-1", isUser ? "items-end" : "items-start")}>
+    <div
+      className={cn(
+        "flex flex-col gap-1",
+        isUser ? "items-end" : "items-start",
+      )}
+    >
       {!isUser && msg.toolCalls && msg.toolCalls.length > 0 && (
         <div className="flex flex-col gap-1 w-full max-w-[85%]">
           {msg.toolCalls.map((tc, i) => (
-            <ToolCallBubble key={i} tool={tc.tool} input={tc.input} result={tc.result} />
+            <ToolCallBubble
+              key={i}
+              tool={tc.tool}
+              input={tc.input}
+              result={tc.result}
+            />
           ))}
         </div>
       )}
@@ -378,7 +393,8 @@ export function ProductionAgentPanel({ children }: ProductionAgentPanelProps) {
       if (detail?.running) setHasAgentActivity(true);
     };
     window.addEventListener("builder.fusion.chatRunning", handler);
-    return () => window.removeEventListener("builder.fusion.chatRunning", handler);
+    return () =>
+      window.removeEventListener("builder.fusion.chatRunning", handler);
   }, []);
 
   if (!IS_PROD) {
@@ -388,7 +404,12 @@ export function ProductionAgentPanel({ children }: ProductionAgentPanelProps) {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Content area */}
-      <div className={cn("flex flex-1 overflow-hidden", activeTab !== "mail" && "hidden")}>
+      <div
+        className={cn(
+          "flex flex-1 overflow-hidden",
+          activeTab !== "mail" && "hidden",
+        )}
+      >
         {children}
       </div>
       {activeTab === "agent" && <AgentChatView />}
