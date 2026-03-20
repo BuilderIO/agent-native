@@ -53,7 +53,7 @@ export function useDeleteAlias() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      fetch(`/api/aliases/${id}`, { method: "DELETE" }),
+      apiFetch(`/api/aliases/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["aliases"] }),
   });
 }
