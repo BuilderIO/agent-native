@@ -142,6 +142,7 @@ function isDevMode(): boolean {
 
 let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
   null;
+let authDisabledMode = false;
 
 const DEV_SESSION: AuthSession = { email: "local@localhost" };
 
@@ -154,6 +155,7 @@ const DEV_SESSION: AuthSession = { email: "local@localhost" };
  */
 export async function getSession(event: H3Event): Promise<AuthSession | null> {
   if (isDevMode()) return DEV_SESSION;
+  if (authDisabledMode) return DEV_SESSION;
 
   if (customGetSession) return customGetSession(event);
 
@@ -162,6 +164,24 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     return { email: "user", token: cookie };
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Constant-time token comparison
+// ---------------------------------------------------------------------------
+
+function safeTokenMatch(input: string, tokens: string[]): boolean {
+  const inputBuf = Buffer.from(input);
+  for (const token of tokens) {
+    const tokenBuf = Buffer.from(token);
+    if (
+      inputBuf.length === tokenBuf.length &&
+      crypto.timingSafeEqual(inputBuf, tokenBuf)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -279,7 +299,11 @@ function mountAuthRoutes(app: H3App, accessTokens: string[]): void {
         return { error: "Method not allowed" };
       }
       const body = await readBody(event);
-      if (!body?.token || !accessTokens.includes(body.token)) {
+      if (
+        !body?.token ||
+        typeof body.token !== "string" ||
+        !safeTokenMatch(body.token, accessTokens)
+      ) {
         setResponseStatus(event, 401);
         return { error: "Invalid token" };
       }
@@ -322,7 +346,7 @@ function mountAuthRoutes(app: H3App, accessTokens: string[]): void {
 
   // Auth guard — runs before all other handlers
   app.use(
-    defineEventHandler((event) => {
+    defineEventHandler(async (event) => {
       const url = event.node.req.url ?? "/";
       const p = url.split("?")[0];
 
@@ -335,8 +359,9 @@ function mountAuthRoutes(app: H3App, accessTokens: string[]): void {
         return;
       }
 
-      const cookie = getCookie(event, COOKIE_NAME);
-      if (cookie && hasSession(cookie)) {
+      // Use getSession() so BYOA custom auth is respected
+      const session = await getSession(event);
+      if (session) {
         return; // Authenticated
       }
 
@@ -377,7 +402,9 @@ function mountAuthRoutes(app: H3App, accessTokens: string[]): void {
  * Returns true if auth was mounted, false if skipped.
  */
 export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
-  // Apply options
+  // Reset globals to avoid stale state from prior calls
+  customGetSession = null;
+  authDisabledMode = false;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
   sessionsFilePath = resolveSessionsPath(options.sessionsPath);
 
@@ -412,18 +439,71 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
     return false;
   }
 
+  // BYOA with custom getSession — skip token check, mount session/guard routes
+  if (customGetSession) {
+    // Mount session endpoint
+    app.use(
+      "/api/auth/session",
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const session = await getSession(event);
+        return session ?? { error: "Not authenticated" };
+      }),
+    );
+    app.use(
+      "/api/auth/login",
+      defineEventHandler(() => ({ ok: true })),
+    );
+    app.use(
+      "/api/auth/logout",
+      defineEventHandler(() => ({ ok: true })),
+    );
+
+    // Mount auth guard that delegates to custom getSession
+    app.use(
+      defineEventHandler(async (event) => {
+        const url = event.node.req.url ?? "/";
+        const p = url.split("?")[0];
+        if (
+          p === "/api/auth/login" ||
+          p === "/api/auth/logout" ||
+          p === "/api/auth/session"
+        ) {
+          return;
+        }
+        const session = await getSession(event);
+        if (session) return;
+        if (p.startsWith("/api/")) {
+          setResponseStatus(event, 401);
+          setResponseHeader(event, "Content-Type", "application/json");
+          event.node.res.end(JSON.stringify({ error: "Unauthorized" }));
+          return;
+        }
+        setResponseHeader(event, "Content-Type", "text/html");
+        event.node.res.end(LOGIN_HTML);
+      }),
+    );
+
+    console.log("[agent-native] Auth enabled — custom getSession provider.");
+    return true;
+  }
+
   // Production — check for tokens
   const tokens = getAccessTokens();
 
   if (tokens.length === 0) {
     // No tokens set — check if auth is explicitly disabled
     if (process.env.AUTH_DISABLED === "true") {
+      authDisabledMode = true;
       console.warn(
         "[agent-native] AUTH_DISABLED=true — running in production without auth. " +
           "Ensure this app is behind infrastructure-level auth (Cloudflare Access, VPN, etc.).",
       );
 
-      // Still mount session endpoint returning null
+      // Mount session endpoint — getSession() will return DEV_SESSION
       app.use(
         "/api/auth/session",
         defineEventHandler(async (event) => {
