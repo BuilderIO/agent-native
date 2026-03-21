@@ -23,12 +23,80 @@ This is an **agent-native** app built with `@agent-native/core`. See `.agents/sk
 
 Keep entries concise and actionable. Group by category. This file is gitignored so personal data stays local.
 
+## Framework Basics (Nitro + @agent-native/core)
+
+This app uses **Nitro** (via `@agent-native/core`) for the server. All server code lives in `server/`.
+
+### Server Directory
+
+```
+server/
+  routes/     # File-based API routes (auto-discovered by Nitro)
+  handlers/   # Route handler logic modules
+  plugins/    # Server plugins — run at startup (file watcher, file sync, auth)
+  lib/        # Shared server modules (watcher instance, helpers)
+```
+
+### Adding an API Route
+
+Create a file in `server/routes/api/`. The filename determines the URL path and HTTP method:
+
+```
+server/routes/api/items/index.get.ts    → GET  /api/items
+server/routes/api/items/index.post.ts   → POST /api/items
+server/routes/api/items/[id].get.ts     → GET  /api/items/:id
+server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
+```
+
+Each file exports a default `defineEventHandler`:
+
+```ts
+export default defineEventHandler(async (event) => {
+  const body = await readBody(event);
+  return { ok: true };
+});
+```
+
+### Server Plugins
+
+Startup logic (file watcher, file sync, auth) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
+
+```ts
+import { defineNitroPlugin } from "@agent-native/core";
+
+export default defineNitroPlugin(async (nitroApp) => {
+  // Runs once at server startup
+});
+```
+
+### Key Imports from `@agent-native/core`
+
+| Import                                       | Purpose                                           |
+| -------------------------------------------- | ------------------------------------------------- |
+| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)   |
+| `createFileWatcher`                          | Watch data directory for changes                  |
+| `createSSEHandler`                           | Create SSE endpoint for real-time updates         |
+| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)          |
+| `sendToAgentChat`                            | Send messages to agent from UI (client-side)      |
+| `agentChat`                                  | Send messages to agent from scripts (server-side) |
+
+### Build & Dev Commands
+
+```bash
+pnpm dev        # Vite dev server + Nitro plugin (single process)
+pnpm build      # Single Vite build (client SPA + Nitro server)
+pnpm start      # node .output/server/index.mjs (production)
+pnpm typecheck  # TypeScript validation
+```
+
+---
+
 > **CRITICAL: Before doing ANY work, read [docs/learnings.md](docs/learnings.md) first.**
 > It contains essential cross-cutting knowledge about agent behavior, customer data, user preferences, and UI patterns.
 > **Provider-specific knowledge** (BigQuery tables, API quirks, auth, script usage) lives in `.builder/skills/<provider>/SKILL.md`.
 > Read the relevant skill before querying any provider. After completing work, **update the relevant skill or learnings.md** with new discoveries.
 
-Internal analytics dashboard. Built with React + Express + TypeScript.
+Internal analytics dashboard. Built with React + Nitro + TypeScript.
 
 ## Skills
 
@@ -70,7 +138,7 @@ Skills should be **continuously improved** based on learnings and feedback. When
          │  fetch /api/*                 │  pnpm script <name>
          │                               │
 ┌────────▼────────────┐       ┌──────────▼──────────┐
-│  Backend (Express)  │◄─────►│    scripts/          │
+│  Backend (Nitro)  │◄─────►│    scripts/          │
 │                     │       │                     │
 │  API routes         │       │  standalone TS files │
 │  BigQuery, HubSpot, │       │  import server libs  │
@@ -126,7 +194,7 @@ File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.en
 ## Tech Stack
 
 - **Frontend**: React 18 + React Router 6 (SPA) + TypeScript + Vite + TailwindCSS 3
-- **Backend**: Express server integrated with Vite dev server
+- **Backend**: Nitro (via @agent-native/core) — file-based API routing
 - **Testing**: Vitest
 - **UI Components**: Radix UI + TailwindCSS 3 + Lucide React icons
 - **Package Manager**: pnpm
@@ -138,13 +206,14 @@ client/                   # React SPA frontend
 ├── pages/                # Route components
 ├── components/ui/        # Pre-built UI component library
 ├── lib/                  # Client utilities (auth, query helpers)
-├── App.tsx               # App entry point with SPA routing
+├── root.tsx               # HTML shell + global providers
 └── global.css            # TailwindCSS 3 theming and global styles
 
-server/                   # Express API backend
-├── index.ts              # Server setup (express config + routes)
-├── lib/                  # Shared server libraries (BigQuery, HubSpot, etc.)
-└── routes/               # API route handlers
+server/                   # Nitro API server
+├── routes/               # File-based API routes (auto-discovered by Nitro)
+├── handlers/             # Route handler modules (BigQuery, HubSpot, etc.)
+├── plugins/              # Server plugins (startup logic)
+└── lib/                  # Shared server libraries
 
 scripts/                  # CLI scripts for backend automation
 ├── run.ts                # Universal script runner
@@ -274,15 +343,11 @@ pnpm test       # Run Vitest tests
 
 ## Routing
 
-Routes are defined in `client/App.tsx`:
+Routes are file-based in `client/routes/` via `flatRoutes()`. Create a file to add a route (e.g. `client/routes/settings.tsx` → `/settings`).
 
-```typescript
-<Route path="/" element={<Index />} />
-<Route path="/adhoc/:id" element={<AdhocRouter />} />
-```
-
-- `client/pages/Index.tsx` — home/overview page
-- `client/pages/adhoc/` — dashboard pages, registered in `registry.ts`
+- `client/routes/_index.tsx` — home/overview page (`/`)
+- `client/routes/adhoc.$id.tsx` — dashboard router (`/adhoc/:id`)
+- `client/pages/adhoc/` — dashboard page components, registered in `registry.ts`
 
 ### Tools vs Dashboards
 
@@ -298,7 +363,7 @@ When a user asks for a **chart, metrics view, or data breakdown** → add it to 
 
 **IMPORTANT**: When creating a new dashboard, YOU (the creator) must provide your name or email as the author. Do NOT pull this from git logs or other sources.
 
-1. Create component in `client/pages/adhoc/my-dashboard/index.tsx`
+1. Create component in `client/pages/adhoc/my-dashboard/index.tsx` (these are regular components, not route files)
 2. Use `<DashboardHeader />` component at the top to display metadata
 3. Add entry to `dashboards` array in `client/pages/adhoc/registry.ts` with **REQUIRED fields**:
    - `id`: kebab-case identifier
@@ -324,7 +389,7 @@ When a user asks for a **chart, metrics view, or data breakdown** → add it to 
 
 **IMPORTANT**: When creating a new tool, YOU (the creator) must provide your name or email as the author.
 
-1. Create component in `client/pages/adhoc/my-tool/index.tsx`
+1. Create component in `client/pages/adhoc/my-tool/index.tsx` (these are regular components, not route files)
 2. Use `<DashboardHeader />` component at the top to display metadata
 3. Add entry to `dashboards` array in `client/pages/adhoc/registry.ts` (for routing) with **REQUIRED fields**:
    - `author`: **YOUR name or email** - the person creating this tool

@@ -35,9 +35,10 @@ function DocsIndex() {
     App.tsx        # Entry point
     components/    # UI components
     lib/utils.ts   # cn() utility
-  server/          # Express backend
-    index.ts       # createAppServer()
-    node-build.ts  # Production entry point
+  server/          # Nitro API server
+    routes/        # File-based API routes (auto-discovered)
+    plugins/       # Server plugins (startup logic)
+    lib/           # Shared server modules
   shared/          # Isomorphic code (client & server)
   scripts/         # Agent-callable scripts
     run.ts         # Script dispatcher
@@ -46,23 +47,28 @@ function DocsIndex() {
       />
 
       <h2 id="vite-configuration">Vite Configuration</h2>
-      <p>Two config files — client SPA and server build:</p>
+      <p>A single config file handles both client SPA and server build:</p>
       <CodeBlock
         code={`// vite.config.ts
 import { defineConfig } from "@agent-native/core/vite";
 export default defineConfig();`}
       />
-      <CodeBlock
-        code={`// vite.config.server.ts
-import { defineServerConfig } from "@agent-native/core/vite";
-export default defineServerConfig();`}
-      />
       <p>
         <code>defineConfig()</code> sets up React SWC, path aliases (
         <code>@/</code> {"->"} <code>client/</code>, <code>@shared/</code>{" "}
-        {"->"} <code>shared/</code>), fs restrictions, and the Express dev
-        plugin.
+        {"->"} <code>shared/</code>), fs restrictions, and the Nitro server
+        plugin (file-based API routing, server plugins, deploy-anywhere
+        presets).
       </p>
+
+      <h3>Nitro options</h3>
+      <CodeBlock
+        code={`export default defineConfig({
+  nitro: {
+    preset: "vercel", // Deploy target (default: "node")
+  },
+});`}
+      />
 
       <h2 id="typescript-tailwind">TypeScript & Tailwind</h2>
       <CodeBlock
@@ -93,19 +99,16 @@ export default {
             {[
               [
                 "@agent-native/core",
-                "Server, client, scripts: createServer, createFileWatcher, createSSEHandler, createProductionServer, runScript, parseArgs, loadEnv, fail, agentChat, sendToAgentChat, useAgentChatGenerating, useFileWatcher, cn",
+                "Server, client, scripts: createServer, createFileWatcher, createSSEHandler, runScript, parseArgs, loadEnv, fail, agentChat, sendToAgentChat, useAgentChatGenerating, useFileWatcher, cn",
               ],
-              [
-                "@agent-native/core/vite",
-                "defineConfig(), defineServerConfig()",
-              ],
+              ["@agent-native/core/vite", "defineConfig()"],
               [
                 "@agent-native/core/tailwind",
                 "Tailwind preset (HSL colors, shadcn/ui tokens, animations)",
               ],
               [
-                "@agent-native/core/adapters/firestore",
-                "FileSync, threeWayMerge, loadSyncConfig",
+                "@agent-native/core/adapters/sync",
+                "createFileSync, FileSync, FileSyncAdapter, FileRecord, FileChange",
               ],
             ].map(([imp, desc]) => (
               <tr key={imp}>
@@ -139,6 +142,10 @@ export default {
         <li>
           <strong>Agent can update code</strong> — The agent modifies the app
           itself.
+        </li>
+        <li>
+          <strong>Deploy anywhere</strong> — Nitro presets let you deploy to
+          Node.js, Vercel, Netlify, Cloudflare, AWS Lambda, Deno, and more.
         </li>
       </ol>
     </DocsLayout>

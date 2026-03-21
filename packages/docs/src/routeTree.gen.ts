@@ -25,6 +25,7 @@ import { Route as DocsScriptsRouteImport } from './routes/docs/scripts'
 import { Route as DocsKeyConceptsRouteImport } from './routes/docs/key-concepts'
 import { Route as DocsHarnessesRouteImport } from './routes/docs/harnesses'
 import { Route as DocsFileSyncRouteImport } from './routes/docs/file-sync'
+import { Route as DocsDeploymentRouteImport } from './routes/docs/deployment'
 import { Route as DocsDatabaseAdaptersRouteImport } from './routes/docs/database-adapters'
 import { Route as DocsCreatingTemplatesRouteImport } from './routes/docs/creating-templates'
 import { Route as DocsClientRouteImport } from './routes/docs/client'
@@ -110,6 +111,11 @@ const DocsFileSyncRoute = DocsFileSyncRouteImport.update({
   path: '/docs/file-sync',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DocsDeploymentRoute = DocsDeploymentRouteImport.update({
+  id: '/docs/deployment',
+  path: '/docs/deployment',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DocsDatabaseAdaptersRoute = DocsDatabaseAdaptersRouteImport.update({
   id: '/docs/database-adapters',
   path: '/docs/database-adapters',
@@ -138,6 +144,7 @@ export interface FileRoutesByFullPath {
   '/docs/client': typeof DocsClientRoute
   '/docs/creating-templates': typeof DocsCreatingTemplatesRoute
   '/docs/database-adapters': typeof DocsDatabaseAdaptersRoute
+  '/docs/deployment': typeof DocsDeploymentRoute
   '/docs/file-sync': typeof DocsFileSyncRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
   '/docs/key-concepts': typeof DocsKeyConceptsRoute
@@ -159,6 +166,7 @@ export interface FileRoutesByTo {
   '/docs/client': typeof DocsClientRoute
   '/docs/creating-templates': typeof DocsCreatingTemplatesRoute
   '/docs/database-adapters': typeof DocsDatabaseAdaptersRoute
+  '/docs/deployment': typeof DocsDeploymentRoute
   '/docs/file-sync': typeof DocsFileSyncRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
   '/docs/key-concepts': typeof DocsKeyConceptsRoute
@@ -182,6 +190,7 @@ export interface FileRoutesById {
   '/docs/client': typeof DocsClientRoute
   '/docs/creating-templates': typeof DocsCreatingTemplatesRoute
   '/docs/database-adapters': typeof DocsDatabaseAdaptersRoute
+  '/docs/deployment': typeof DocsDeploymentRoute
   '/docs/file-sync': typeof DocsFileSyncRoute
   '/docs/harnesses': typeof DocsHarnessesRoute
   '/docs/key-concepts': typeof DocsKeyConceptsRoute
@@ -206,6 +215,7 @@ export interface FileRouteTypes {
     | '/docs/client'
     | '/docs/creating-templates'
     | '/docs/database-adapters'
+    | '/docs/deployment'
     | '/docs/file-sync'
     | '/docs/harnesses'
     | '/docs/key-concepts'
@@ -227,6 +237,7 @@ export interface FileRouteTypes {
     | '/docs/client'
     | '/docs/creating-templates'
     | '/docs/database-adapters'
+    | '/docs/deployment'
     | '/docs/file-sync'
     | '/docs/harnesses'
     | '/docs/key-concepts'
@@ -249,6 +260,7 @@ export interface FileRouteTypes {
     | '/docs/client'
     | '/docs/creating-templates'
     | '/docs/database-adapters'
+    | '/docs/deployment'
     | '/docs/file-sync'
     | '/docs/harnesses'
     | '/docs/key-concepts'
@@ -272,6 +284,7 @@ export interface RootRouteChildren {
   DocsClientRoute: typeof DocsClientRoute
   DocsCreatingTemplatesRoute: typeof DocsCreatingTemplatesRoute
   DocsDatabaseAdaptersRoute: typeof DocsDatabaseAdaptersRoute
+  DocsDeploymentRoute: typeof DocsDeploymentRoute
   DocsFileSyncRoute: typeof DocsFileSyncRoute
   DocsHarnessesRoute: typeof DocsHarnessesRoute
   DocsKeyConceptsRoute: typeof DocsKeyConceptsRoute
@@ -394,6 +407,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsFileSyncRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/docs/deployment': {
+      id: '/docs/deployment'
+      path: '/docs/deployment'
+      fullPath: '/docs/deployment'
+      preLoaderRoute: typeof DocsDeploymentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/docs/database-adapters': {
       id: '/docs/database-adapters'
       path: '/docs/database-adapters'
@@ -458,6 +478,7 @@ const rootRouteChildren: RootRouteChildren = {
   DocsClientRoute: DocsClientRoute,
   DocsCreatingTemplatesRoute: DocsCreatingTemplatesRoute,
   DocsDatabaseAdaptersRoute: DocsDatabaseAdaptersRoute,
+  DocsDeploymentRoute: DocsDeploymentRoute,
   DocsFileSyncRoute: DocsFileSyncRoute,
   DocsHarnessesRoute: DocsHarnessesRoute,
   DocsKeyConceptsRoute: DocsKeyConceptsRoute,

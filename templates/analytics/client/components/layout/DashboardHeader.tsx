@@ -1,6 +1,6 @@
 import { User, Calendar } from "lucide-react";
 import { useMemo } from "react";
-import { useParams } from "react-router-dom";
+import { useParams } from "react-router";
 import { dashboards } from "@/pages/adhoc/registry";
 
 interface DashboardHeaderProps {

@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import { Layout } from "@/components/layout/Layout";
 import { QueryEditor } from "@/components/query/QueryEditor";
 import { QueryResults } from "@/components/query/QueryResults";

@@ -17,11 +17,10 @@ export {
   createServer,
   createFileWatcher,
   createSSEHandler,
-  createProductionServer,
+  defineNitroPlugin,
   type CreateServerOptions,
   type FileWatcherOptions,
   type SSEHandlerOptions,
-  type ProductionServerOptions,
 } from "./server/index.js";
 
 // Client

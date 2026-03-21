@@ -24,11 +24,13 @@
     "noFallthroughCasesInSwitch": false,
     "strictNullChecks": false,
 
+    "rootDirs": [".", "./.react-router/types"],
     "baseUrl": ".",
     "paths": {
       "@/*": ["./client/*"],
       "@shared/*": ["./shared/*"]
-    }
+    },
+    "types": ["vite/client"]
   },
   "include": [
     "client/**/*",

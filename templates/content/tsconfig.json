@@ -23,11 +23,13 @@
     "noFallthroughCasesInSwitch": false,
     "strictNullChecks": false,
 
+    "rootDirs": [".", "./.react-router/types"],
     "baseUrl": ".",
     "paths": {
       "@/*": ["./client/*"],
       "@shared/*": ["./shared/*"]
-    }
+    },
+    "types": ["vite/client"]
   },
   "include": [
     "client/**/*",
@@ -35,7 +37,9 @@
     "shared/**/*",
     "scripts/**/*",
     "vite.config.ts",
-    "vite.config.server.ts"
+    "vite.config.server.ts",
+    "react-router.config.ts",
+    ".react-router/types/**/*"
   ],
   "exclude": ["node_modules", "dist"]
 }

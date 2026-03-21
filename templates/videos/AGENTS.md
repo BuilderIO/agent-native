@@ -23,17 +23,85 @@ This is an **agent-native** app built with `@agent-native/core`. See `.agents/sk
 
 Keep entries concise and actionable. Group by category. This file is gitignored so personal data stays local.
 
+## Framework Basics (Nitro + @agent-native/core)
+
+This app uses **Nitro** (via `@agent-native/core`) for the server. All server code lives in `server/`.
+
+### Server Directory
+
+```
+server/
+  routes/     # File-based API routes (auto-discovered by Nitro)
+  handlers/   # Route handler logic modules
+  plugins/    # Server plugins — run at startup (file watcher, file sync, auth)
+  lib/        # Shared server modules (watcher instance, helpers)
+```
+
+### Adding an API Route
+
+Create a file in `server/routes/api/`. The filename determines the URL path and HTTP method:
+
+```
+server/routes/api/items/index.get.ts    → GET  /api/items
+server/routes/api/items/index.post.ts   → POST /api/items
+server/routes/api/items/[id].get.ts     → GET  /api/items/:id
+server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
+```
+
+Each file exports a default `defineEventHandler`:
+
+```ts
+export default defineEventHandler(async (event) => {
+  const body = await readBody(event);
+  return { ok: true };
+});
+```
+
+### Server Plugins
+
+Startup logic (file watcher, file sync, auth) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
+
+```ts
+import { defineNitroPlugin } from "@agent-native/core";
+
+export default defineNitroPlugin(async (nitroApp) => {
+  // Runs once at server startup
+});
+```
+
+### Key Imports from `@agent-native/core`
+
+| Import                                       | Purpose                                           |
+| -------------------------------------------- | ------------------------------------------------- |
+| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)   |
+| `createFileWatcher`                          | Watch data directory for changes                  |
+| `createSSEHandler`                           | Create SSE endpoint for real-time updates         |
+| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)          |
+| `sendToAgentChat`                            | Send messages to agent from UI (client-side)      |
+| `agentChat`                                  | Send messages to agent from scripts (server-side) |
+
+### Build & Dev Commands
+
+```bash
+pnpm dev        # Vite dev server + Nitro plugin (single process)
+pnpm build      # Single Vite build (client SPA + Nitro server)
+pnpm start      # node .output/server/index.mjs (production)
+pnpm typecheck  # TypeScript validation
+```
+
+---
+
 # Agent-Native Starter
 
-A production-ready full-stack React application template with integrated Express server, featuring React Router 6 SPA mode, TypeScript, Vitest, Zod and modern tooling.
+A production-ready full-stack React application template with integrated Nitro server, featuring React Router 6 SPA mode, TypeScript, Vitest, Zod and modern tooling.
 
-While the starter comes with a express server, only create endpoint when strictly neccesary, for example to encapsulate logic that must leave in the server, such as private keys handling, or certain DB operations, db...
+While the starter comes with a Nitro server, only create endpoint when strictly neccesary, for example to encapsulate logic that must leave in the server, such as private keys handling, or certain DB operations, db...
 
 ## Tech Stack
 
 - **PNPM**: Prefer pnpm
 - **Frontend**: React 18 + React Router 6 (spa) + TypeScript + Vite + TailwindCSS 3
-- **Backend**: Express server integrated with Vite dev server
+- **Backend**: Nitro (via @agent-native/core) — file-based API routing
 - **Testing**: Vitest
 - **UI**: Radix UI + TailwindCSS 3 + Lucide React icons
 
@@ -43,24 +111,26 @@ While the starter comes with a express server, only create endpoint when strictl
 client/                   # React SPA frontend
 ├── pages/                # Route components (Index.tsx = home)
 ├── components/ui/        # Pre-built UI component library
-├── App.tsx               # App entry point and SPA routing setup
+├── root.tsx               # HTML shell + global providers setup
 └── global.css            # TailwindCSS 3 theming and global styles
 
-server/                   # Express API backend
-├── index.ts              # Main server setup (express config + routes)
-└── routes/               # API handlers
+server/                   # Nitro API server
+├── routes/               # File-based API routes (auto-discovered by Nitro)
+├── plugins/              # Server plugins (startup logic)
+└── lib/                  # Shared server modules
 
 shared/                   # Types used by both client & server
 └── api.ts                # Shared API interfaces
 ```
 
-## SPA Routing System
+## Routing System
 
-The routing system is powered by React Router 6:
+The routing system uses React Router v7 framework mode with file-based routing:
 
-- `client/pages/Index.tsx` represents the home page.
-- Routes are defined in `client/App.tsx` using the `react-router-dom` import
-- Route files are located in the `client/pages/` directory
+- Routes are auto-discovered from `client/routes/` via `flatRoutes()`.
+- `client/routes/_index.tsx` is the home page (`/`).
+- Create a file to add a route (e.g. `client/routes/settings.tsx` → `/settings`).
+- Dynamic params use `$` prefix (e.g. `client/routes/c.$compositionId.tsx` → `/c/:compositionId`).
 
 ### Styling System
 
@@ -131,19 +201,19 @@ This project is a **Remotion-based animation studio** — a web UI for composing
 
 ### Key Files
 
-| File                                         | Role                                                                                  |
-| -------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `client/remotion/registry.ts`                | Single source of truth for all compositions and their default track data              |
-| `client/remotion/trackAnimation.ts`          | Pure helpers: `trackProgress()`, `getPropValue()`, `findTrack()`                      |
-| `client/remotion/compositions/*.tsx`         | Individual Remotion composition components                                            |
-| `client/types.ts`                            | `AnimationTrack`, `AnimatedProp`, `EasingKey`, `COMMON_PROP_TEMPLATES`                |
-| `client/components/Timeline.tsx`             | Timeline UI — controlled by `viewStart`/`viewEnd` from parent                         |
-| `client/components/VideoPlayer.tsx`          | Remotion `<Player>` wrapper with range-constrained playback                           |
-| `client/components/TrackPropertiesPanel.tsx` | Sidebar panel for editing selected track properties                                   |
-| `client/components/CompSettingsEditor.tsx`   | Sidebar panel for duration, fps, and size overrides (Square/Wide presets)             |
-| `client/components/PropsEditor.tsx`          | Sidebar panel for composition-level user props                                        |
-| `client/pages/CompositionView.tsx`           | Owns `viewStart`/`viewEnd` state; connects Timeline ↔ VideoPlayer                     |
-| `client/pages/Index.tsx`                     | Studio shell — owns all state (tracks, props, compSettings), persists to localStorage |
+| File                                         | Role                                                                      |
+| -------------------------------------------- | ------------------------------------------------------------------------- |
+| `client/remotion/registry.ts`                | Single source of truth for all compositions and their default track data  |
+| `client/remotion/trackAnimation.ts`          | Pure helpers: `trackProgress()`, `getPropValue()`, `findTrack()`          |
+| `client/remotion/compositions/*.tsx`         | Individual Remotion composition components                                |
+| `client/types.ts`                            | `AnimationTrack`, `AnimatedProp`, `EasingKey`, `COMMON_PROP_TEMPLATES`    |
+| `client/components/Timeline.tsx`             | Timeline UI — controlled by `viewStart`/`viewEnd` from parent             |
+| `client/components/VideoPlayer.tsx`          | Remotion `<Player>` wrapper with range-constrained playback               |
+| `client/components/TrackPropertiesPanel.tsx` | Sidebar panel for editing selected track properties                       |
+| `client/components/CompSettingsEditor.tsx`   | Sidebar panel for duration, fps, and size overrides (Square/Wide presets) |
+| `client/components/PropsEditor.tsx`          | Sidebar panel for composition-level user props                            |
+| `client/pages/CompositionView.tsx`           | Owns `viewStart`/`viewEnd` state; connects Timeline ↔ VideoPlayer         |
+| `client/routes/_index.tsx`                   | Home route — renders Studio shell                                         |
 
 ---
 
@@ -968,7 +1038,7 @@ Users can override duration, fps, dimensions, and render quality per composition
 
 ---
 
-### State & Persistence (`client/pages/Index.tsx`)
+### State & Persistence (`client/pages/Index.tsx` / `client/routes/_index.tsx`)
 
 All studio state lives in `Index.tsx` and is persisted to `localStorage`:
 
@@ -1414,7 +1484,7 @@ interface HoverAnimationResult {
 
 ## Architecture Notes
 
-- Single-port development with Vite + Express integration
+- Single-port development with Vite + Nitro integration
 - TypeScript throughout (client, server, shared)
 - Full hot reload for rapid development
 - Comprehensive UI component library included

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, ReactNode } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 import { ProjectSidebar } from "@/components/sidebar/ProjectSidebar";
 import { QuickSearch } from "@/components/QuickSearch";
 import {
