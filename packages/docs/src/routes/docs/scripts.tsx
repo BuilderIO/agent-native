@@ -11,7 +11,6 @@ const TOC = [
   { id: "parseargs", label: "parseArgs()" },
   { id: "shared-agent-chat", label: "Shared Agent Chat" },
   { id: "utility-functions", label: "Utility Functions" },
-  { id: "database-sync-adapters", label: "Database Sync Adapters" },
 ];
 
 function ScriptsDocs() {
@@ -130,68 +129,6 @@ agentChat.send({
           ))}
         </tbody>
       </table>
-
-      <h2 id="database-sync-adapters">Database Sync Adapters</h2>
-      <p>
-        For apps that need bidirectional file sync across instances,
-        agent-native provides adapters for{" "}
-        <strong>Google Cloud Firestore</strong> and <strong>Supabase</strong>{" "}
-        (Postgres). All adapters implement the same <code>FileSyncAdapter</code>{" "}
-        interface and plug into <code>FileSync</code>:
-      </p>
-      <CodeBlock
-        code={`// Google Cloud Firestore
-import { FileSync, FirestoreFileSyncAdapter } from "@agent-native/core/adapters/firestore";
-
-const adapter = new FirestoreFileSyncAdapter(() => db.collection("files"));
-const sync = new FileSync({
-  appId: "my-app",
-  ownerId: "owner-123",
-  contentRoot: "./content",
-  adapter,
-});
-await sync.initFileSync();`}
-      />
-      <CodeBlock
-        code={`// Supabase
-import { FileSync, SupabaseFileSyncAdapter } from "@agent-native/core/adapters/supabase";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-const adapter = new SupabaseFileSyncAdapter(supabase);
-const sync = new FileSync({
-  appId: "my-app",
-  ownerId: "owner-123",
-  contentRoot: "./content",
-  adapter,
-});
-await sync.initFileSync();`}
-      />
-      <p>
-        All adapters support: startup sync, remote change listeners, chokidar
-        file watchers, three-way merge with LCS-based conflict resolution, and{" "}
-        <code>.conflict</code> sidecar files for unresolvable conflicts.
-      </p>
-      <p>
-        Supabase requires a <code>files</code> table. Run this migration:
-      </p>
-      <CodeBlock
-        code={`CREATE TABLE files (
-  id TEXT PRIMARY KEY,
-  path TEXT NOT NULL,
-  content TEXT NOT NULL DEFAULT '',
-  app TEXT NOT NULL,
-  owner_id TEXT NOT NULL,
-  last_updated BIGINT NOT NULL DEFAULT 0,
-  created_at BIGINT
-);
-CREATE INDEX idx_files_app_owner ON files(app, owner_id);`}
-        lang="sql"
-      />
-      <p>
-        The adapter interface (<code>@agent-native/core/adapters/sync</code>) is
-        also available for building custom adapters for other databases.
-      </p>
     </DocsLayout>
   );
 }
