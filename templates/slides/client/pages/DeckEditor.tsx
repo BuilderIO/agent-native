@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { useParams, Navigate, useSearchParams } from "react-router-dom";
+import { useParams, Navigate, useSearchParams } from "react-router";
 import {
   DndContext,
   closestCenter,

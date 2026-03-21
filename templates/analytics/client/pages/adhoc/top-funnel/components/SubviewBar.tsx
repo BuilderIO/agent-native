@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Bookmark, Plus, X } from "lucide-react";
 import type { DashboardSubview } from "@/pages/adhoc/registry";

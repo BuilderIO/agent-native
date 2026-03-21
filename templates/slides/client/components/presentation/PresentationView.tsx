@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { Slide } from "@/context/DeckContext";
 import SlideRenderer from "@/components/deck/SlideRenderer";

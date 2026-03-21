@@ -23,6 +23,74 @@ This is an **agent-native** app built with `@agent-native/core`. See `.agents/sk
 
 Keep entries concise and actionable. Group by category. This file is gitignored so personal data stays local.
 
+## Framework Basics (Nitro + @agent-native/core)
+
+This app uses **Nitro** (via `@agent-native/core`) for the server. All server code lives in `server/`.
+
+### Server Directory
+
+```
+server/
+  routes/     # File-based API routes (auto-discovered by Nitro)
+  handlers/   # Route handler logic modules
+  plugins/    # Server plugins — run at startup (file watcher, file sync, auth)
+  lib/        # Shared server modules (watcher instance, helpers)
+```
+
+### Adding an API Route
+
+Create a file in `server/routes/api/`. The filename determines the URL path and HTTP method:
+
+```
+server/routes/api/items/index.get.ts    → GET  /api/items
+server/routes/api/items/index.post.ts   → POST /api/items
+server/routes/api/items/[id].get.ts     → GET  /api/items/:id
+server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
+```
+
+Each file exports a default `defineEventHandler`:
+
+```ts
+export default defineEventHandler(async (event) => {
+  const body = await readBody(event);
+  return { ok: true };
+});
+```
+
+### Server Plugins
+
+Startup logic (file watcher, file sync, auth) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
+
+```ts
+import { defineNitroPlugin } from "@agent-native/core";
+
+export default defineNitroPlugin(async (nitroApp) => {
+  // Runs once at server startup
+});
+```
+
+### Key Imports from `@agent-native/core`
+
+| Import                                       | Purpose                                           |
+| -------------------------------------------- | ------------------------------------------------- |
+| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)   |
+| `createFileWatcher`                          | Watch data directory for changes                  |
+| `createSSEHandler`                           | Create SSE endpoint for real-time updates         |
+| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)          |
+| `sendToAgentChat`                            | Send messages to agent from UI (client-side)      |
+| `agentChat`                                  | Send messages to agent from scripts (server-side) |
+
+### Build & Dev Commands
+
+```bash
+pnpm dev        # Vite dev server + Nitro plugin (single process)
+pnpm build      # Single Vite build (client SPA + Nitro server)
+pnpm start      # node .output/server/index.mjs (production)
+pnpm typecheck  # TypeScript validation
+```
+
+---
+
 ## Architecture
 
 Three pillars. Understand these and you understand the entire app.
@@ -43,7 +111,7 @@ Three pillars. Understand these and you understand the entire app.
 │         ▼                      ▼                             │
 │   ┌──────────┐          ┌──────────┐                         │
 │   │ Backend  │◄────────►│ scripts/ │                         │
-│   │(Express) │          │ (CLI)    │                         │
+│   │(Nitro) │          │ (CLI)    │                         │
 │   └──────────┘          └──────────┘                         │
 │                    npm run script --                          │
 └─────────────────────────────────────────────────────────────┘
@@ -80,7 +148,7 @@ npm run script -- search-twitter --query "topic" --filter articles
 npm run script -- fetch-url-as-markdown --url "https://..."
 ```
 
-**Key design:** Scripts directly import and reuse core functions from `server/routes/*` rather than making HTTP calls. The UI endpoints and the agent scripts share the exact same implementation — one function, two interfaces.
+**Key design:** Scripts directly import and reuse core functions from `server/handlers/*` rather than making HTTP calls. The UI endpoints and the agent scripts share the exact same implementation — one function, two interfaces.
 
 **Adding a new script:**
 
@@ -237,7 +305,7 @@ These rules are non-negotiable. They exist because of past mistakes.
 
 - **PNPM** (prefer pnpm)
 - **Frontend**: React 18 + React Router 6 (SPA) + TypeScript + Vite + TailwindCSS 3
-- **Backend**: Express (integrated with Vite dev server, single port 8080)
+- **Backend**: Nitro (via @agent-native/core) — file-based API routing, deploy-anywhere presets
 - **UI**: Radix UI + TailwindCSS 3 + Lucide React icons
 - **Testing**: Vitest
 
@@ -249,12 +317,14 @@ client/                   # React SPA frontend
 ├── components/ui/        # Pre-built UI component library
 ├── lib/                  # Utilities
 │   └── utils.ts          # cn() helper
-├── App.tsx               # App entry + SPA routing
+├── root.tsx               # HTML shell + global providers
 └── global.css            # TailwindCSS 3 theming
 
-server/                   # Express API backend
-├── index.ts              # Server setup + route registration
-└── routes/               # API handlers (shared with scripts)
+server/                   # Nitro API server
+├── routes/               # File-based API routes (auto-discovered by Nitro)
+├── handlers/             # Route handler modules (shared with scripts)
+├── plugins/              # Server plugins (startup logic)
+└── lib/                  # Shared server modules
 
 scripts/                  # CLI scripts for agent operations
 ├── run.ts                # Dispatcher (npm run script)
@@ -289,7 +359,7 @@ Follow this decision tree:
 1. **Persistent state?** → Store as a file (markdown, JSON, image). Both UI and agent get access automatically.
 2. **External API call?** → Add a server route in `server/routes/`, then add a script in `scripts/` so the agent can use it too.
 3. **AI-assisted UI action?** → Wire a button to `sendToAgentChat()` with the right prompt and context.
-4. **New page?** → Create in `client/pages/`, add route in `client/App.tsx`.
+4. **New page?** → Create a route file in `client/routes/` (e.g. `client/routes/my-page.tsx` → `/my-page`).
 
 ### New Script
 
@@ -318,10 +388,9 @@ Immediately available: `npm run script -- my-script --name world`
 
 ### New API Route
 
-1. Create handler in `server/routes/my-route.ts`
-2. Register in `server/index.ts`
-3. Optionally add shared types in `shared/api.ts`
-4. Add a corresponding script in `scripts/` if the agent needs it
+Create a file in `server/routes/api/`, e.g. `server/routes/api/items/index.get.ts` exporting a default `defineEventHandler`. Nitro auto-discovers route files — no manual registration needed.
+
+Optionally add shared types in `shared/api.ts` and a corresponding script in `scripts/` if the agent needs it.
 
 ---
 

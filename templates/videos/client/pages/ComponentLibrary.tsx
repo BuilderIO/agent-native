@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 import { StudioHeader } from "@/components/StudioHeader";
 import { ComponentLibraryView } from "@/pages/ComponentLibraryView";
 import { ComponentLibrarySidebar } from "@/components/ComponentLibrarySidebar";

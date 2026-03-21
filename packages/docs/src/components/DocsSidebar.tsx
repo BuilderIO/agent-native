@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { label: "Scripts", to: "/docs/scripts" as const },
   { label: "File Sync", to: "/docs/file-sync" as const },
   { label: "CLI Adapters", to: "/docs/cli-adapters" as const },
+  { label: "Deployment", to: "/docs/deployment" as const },
   { label: "Harnesses", to: "/docs/harnesses" as const },
   { label: "Creating Templates", to: "/docs/creating-templates" as const },
 ];

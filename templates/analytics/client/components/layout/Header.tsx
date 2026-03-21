@@ -1,5 +1,5 @@
 import { useAuth } from "@/components/auth/AuthProvider";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import { dashboards } from "@/pages/adhoc/registry";
 import { useHeaderActions } from "./HeaderActions";
 

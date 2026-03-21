@@ -7,7 +7,7 @@
  *   npx tsx scripts/run.ts twitter-tweets --userName=builderio --pages=3
  */
 import { parseArgs, output, fatal } from "./helpers";
-import { fetchAllTweetsForUser } from "../server/routes/twitter";
+import { fetchAllTweetsForUser } from "../server/handlers/twitter";
 
 const args = parseArgs();
 if (!args.userName)

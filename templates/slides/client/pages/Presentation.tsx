@@ -1,4 +1,4 @@
-import { useParams, Navigate, useSearchParams } from "react-router-dom";
+import { useParams, Navigate, useSearchParams } from "react-router";
 import { useDecks } from "@/context/DeckContext";
 import PresentationView from "@/components/presentation/PresentationView";
 

@@ -25,6 +25,74 @@ This is an **agent-native** app built with `@agent-native/core`. See `.agents/sk
 
 Keep entries concise and actionable. Group by category. This file is gitignored so personal data stays local.
 
+## Framework Basics (Nitro + @agent-native/core)
+
+This app uses **Nitro** (via `@agent-native/core`) for the server. All server code lives in `server/`.
+
+### Server Directory
+
+```
+server/
+  routes/     # File-based API routes (auto-discovered by Nitro)
+  handlers/   # Route handler logic modules
+  plugins/    # Server plugins — run at startup (file watcher, file sync, auth)
+  lib/        # Shared server modules (watcher instance, helpers)
+```
+
+### Adding an API Route
+
+Create a file in `server/routes/api/`. The filename determines the URL path and HTTP method:
+
+```
+server/routes/api/items/index.get.ts    → GET  /api/items
+server/routes/api/items/index.post.ts   → POST /api/items
+server/routes/api/items/[id].get.ts     → GET  /api/items/:id
+server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
+```
+
+Each file exports a default `defineEventHandler`:
+
+```ts
+export default defineEventHandler(async (event) => {
+  const body = await readBody(event);
+  return { ok: true };
+});
+```
+
+### Server Plugins
+
+Startup logic (file watcher, file sync, auth) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
+
+```ts
+import { defineNitroPlugin } from "@agent-native/core";
+
+export default defineNitroPlugin(async (nitroApp) => {
+  // Runs once at server startup
+});
+```
+
+### Key Imports from `@agent-native/core`
+
+| Import                                       | Purpose                                           |
+| -------------------------------------------- | ------------------------------------------------- |
+| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)   |
+| `createFileWatcher`                          | Watch data directory for changes                  |
+| `createSSEHandler`                           | Create SSE endpoint for real-time updates         |
+| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)          |
+| `sendToAgentChat`                            | Send messages to agent from UI (client-side)      |
+| `agentChat`                                  | Send messages to agent from scripts (server-side) |
+
+### Build & Dev Commands
+
+```bash
+pnpm dev        # Vite dev server + Nitro plugin (single process)
+pnpm build      # Single Vite build (client SPA + Nitro server)
+pnpm start      # node .output/server/index.mjs (production)
+pnpm typecheck  # TypeScript validation
+```
+
+---
+
 ## Architecture
 
 This is an agent-native calendar app with Google Calendar integration and a public booking page. Everything is files — JSON files in `data/` are the single source of truth.
@@ -32,7 +100,7 @@ This is an agent-native calendar app with Google Calendar integration and a publ
 ### How it works
 
 1. **Frontend** (React + Vite) reads state via API routes
-2. **Server** (Express) reads/writes JSON files in `data/`
+2. **Server** (Nitro) reads/writes JSON files in `data/`
 3. **Agent** reads/writes files directly — changes propagate to UI via SSE
 4. **Google Calendar** synced via pull-based approach (no webhooks)
 
@@ -50,7 +118,7 @@ This is an agent-native calendar app with Google Calendar integration and a publ
          │                                 │
          │         ┌───────────────┐       │
          └────────►│  Backend      │◄──────┘
-                   │  (Express)    │
+                   │  (Nitro)    │
                    │               │
                    │  - API routes │
                    │  - Google Cal │
@@ -132,16 +200,7 @@ export default async function main(args: string[]) {
 }
 ```
 
-2. Register in `scripts/run.ts`:
-
-```typescript
-const scripts: Record<string, () => Promise<...>> = {
-  "my-script": () => import("./my-script.js"),
-  // ...existing scripts
-};
-```
-
-3. The agent can now run it: `pnpm script my-script --whatever`
+2. It's immediately available as `pnpm script my-script --whatever` (auto-discovered by filename, no registration needed).
 
 ## Google Calendar OAuth Flow
 
@@ -235,7 +294,7 @@ client/          # React SPA
     ui/          # shadcn/ui components
   hooks/         # React Query hooks (use-events, use-bookings, etc.)
   pages/         # Route pages
-server/          # Express backend
+server/          # Nitro API server
   routes/        # API route handlers
   lib/           # Google Calendar client, data helpers, env config
 shared/          # Shared TypeScript types
@@ -248,7 +307,7 @@ data/            # File-based data storage
 - **Framework**: @agent-native/core
 - **Package manager**: pnpm
 - **Frontend**: React 18, React Router 6, TypeScript, Vite, TailwindCSS
-- **Backend**: Express
+- **Backend**: Nitro (via @agent-native/core)
 - **UI components**: Radix UI + Lucide icons
 - **Google Integration**: googleapis npm package
 - **State**: File-based JSON in `data/`

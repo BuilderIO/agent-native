@@ -1,0 +1,91 @@
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  isRouteErrorResponse,
+} from "react-router";
+import { useState } from "react";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useFileWatcher } from "@agent-native/core";
+import { Layout as AppLayout } from "@/components/Layout";
+import "./global.css";
+
+/** React Router HTML shell — wraps root component, error boundary, and hydrate fallback */
+export function Layout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en" className="dark">
+      <head>
+        <meta charSet="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link
+          rel="icon"
+          type="image/svg+xml"
+          href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎴</text></svg>"
+        />
+        <Meta />
+        <Links />
+      </head>
+      <body>
+        {children}
+        <ScrollRestoration />
+        <Scripts />
+      </body>
+    </html>
+  );
+}
+
+function FileWatcher({ children }: { children: React.ReactNode }) {
+  const qc = useQueryClient();
+  useFileWatcher({ queryClient: qc, queryKeys: ["brand", "generations"] });
+  return <>{children}</>;
+}
+
+export default function Root() {
+  const [queryClient] = useState(() => new QueryClient());
+  return (
+    <QueryClientProvider client={queryClient}>
+      <FileWatcher>
+        <AppLayout>
+          <Outlet />
+        </AppLayout>
+      </FileWatcher>
+    </QueryClientProvider>
+  );
+}
+
+export function ErrorBoundary({ error }: { error: unknown }) {
+  let message = "Oops!";
+  let details = "An unexpected error occurred.";
+  let stack: string | undefined;
+
+  if (isRouteErrorResponse(error)) {
+    message = error.status === 404 ? "404" : "Error";
+    details =
+      error.status === 404
+        ? "The requested page could not be found."
+        : error.statusText || details;
+  } else if (import.meta.env.DEV && error instanceof Error) {
+    details = error.message;
+    stack = error.stack;
+  }
+
+  return (
+    <main className="flex items-center justify-center min-h-screen p-4">
+      <div className="text-center">
+        <h1 className="text-4xl font-bold mb-2">{message}</h1>
+        <p className="text-muted-foreground">{details}</p>
+        {stack && (
+          <pre className="mt-4 text-left text-xs overflow-auto max-w-lg mx-auto p-4 bg-muted rounded">
+            <code>{stack}</code>
+          </pre>
+        )}
+      </div>
+    </main>
+  );
+}

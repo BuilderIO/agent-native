@@ -15,25 +15,33 @@ This is an **@agent-native/core** application — the AI agent and UI share stat
 ### Directory Structure
 
 ```
-client/          # React frontend (Vite SPA)
-  App.tsx        # Entry point
-  components/    # UI components
-  hooks/         # React hooks
-  lib/           # Utilities (cn, etc)
+client/                # React frontend
+  root.tsx             # HTML shell + global providers
+  entry.client.tsx     # Client hydration entry
+  routes.ts            # Route config — flatRoutes()
+  routes/              # File-based page routes (auto-discovered)
+    _index.tsx         # / (home page)
+  components/          # UI components
+  hooks/               # React hooks
+  lib/                 # Utilities (cn, etc)
 
-server/          # Express backend
-  index.ts       # createAppServer() — routes + middleware
-  node-build.ts  # Production entry point
+server/                # Nitro API server
+  routes/
+    api/               # File-based API routes (auto-discovered)
+    [...page].get.ts   # SSR catch-all (delegates to React Router)
+  plugins/             # Server plugins (startup logic)
+  lib/                 # Shared server modules
 
-shared/          # Isomorphic code (imported by both client & server)
+shared/                # Isomorphic code (imported by both client & server)
 
-scripts/         # Agent-callable scripts
-  run.ts         # Script dispatcher
-  *.ts           # Individual scripts (pnpm script <name>)
+scripts/               # Agent-callable scripts
+  run.ts               # Script dispatcher
+  *.ts                 # Individual scripts (pnpm script <name>)
 
-data/            # App data files (watched by SSE)
+data/                  # App data files (watched by SSE)
 
-.agents/skills/  # Agent skills — detailed guidance for each rule
+react-router.config.ts # React Router framework config
+.agents/skills/        # Agent skills — detailed guidance for each rule
 ```
 
 ## Learnings & Preferences
@@ -64,10 +72,79 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 
 The **`frontend-design`** skill (sourced from [Anthropic's skills library](https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md)) enforces distinctive, production-grade aesthetics — committing to a clear visual direction and avoiding generic patterns like purple gradients, overused fonts, and cookie-cutter layouts.
 
+### Framework Basics
+
+**SSR-first framework, CSR-by-default content:** This app uses React Router v7 framework mode with `ssr: true`. But virtually every route renders only an SSR shell (loading spinner + meta tags). All real data fetching and rendering happens on the client via React Query hooks. Server-side data fetching is the exception — only used for public pages that need SEO/og tags.
+
+**Adding a page:**
+Create a file in `client/routes/`. The filename determines the URL path:
+
+```
+client/routes/_index.tsx              → /
+client/routes/settings.tsx            → /settings
+client/routes/inbox.tsx               → /inbox
+client/routes/inbox.$threadId.tsx     → /inbox/:threadId
+client/routes/$id.tsx                 → /:id (dynamic param)
+```
+
+Each route file exports a default component, optional `meta()`, and optional `HydrateFallback()`:
+
+```tsx
+import MyPage from "@/pages/MyPage";
+
+export function meta() {
+  return [{ title: "My Page" }];
+}
+
+export function HydrateFallback() {
+  return (
+    <div className="flex items-center justify-center h-screen">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
+    </div>
+  );
+}
+
+export default function MyPageRoute() {
+  return <MyPage />;
+}
+```
+
+**Do NOT fetch data server-side** in route loaders unless the page genuinely needs SEO content or og tags based on dynamic data. The standard pattern is: SSR renders a loading spinner, client hydrates, React Query hooks fetch from `/api/*`.
+
 ### Key Patterns
 
 **Adding an API route:**
-Edit `server/index.ts`, add your route to `createAppServer()`.
+Create a file in `server/routes/api/`. The filename determines the URL path and HTTP method:
+
+```
+server/routes/api/items/index.get.ts    → GET  /api/items
+server/routes/api/items/[id].get.ts     → GET  /api/items/:id
+server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
+```
+
+Each file exports a default `defineEventHandler`.
+
+**Adding a server plugin:**
+Startup logic (file watcher, file sync, auth) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
+
+```ts
+import { defineNitroPlugin } from "@agent-native/core";
+
+export default defineNitroPlugin(async (nitroApp) => {
+  // Runs once at server startup
+});
+```
+
+**Key imports from `@agent-native/core`:**
+
+| Import                                       | Purpose                                           |
+| -------------------------------------------- | ------------------------------------------------- |
+| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)   |
+| `createFileWatcher`                          | Watch data directory for changes                  |
+| `createSSEHandler`                           | Create SSE endpoint for real-time updates         |
+| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)          |
+| `sendToAgentChat`                            | Send messages to agent from UI (client-side)      |
+| `agentChat`                                  | Send messages to agent from scripts (server-side) |
 
 **Adding a script:**
 Create `scripts/my-script.ts` exporting `default async function(args: string[])`.
@@ -108,7 +185,7 @@ File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.en
 
 **How sync works:**
 
-- `createFileSync()` factory in `server/index.ts` reads env vars and initializes sync
+- `createFileSync()` factory in `server/plugins/file-sync.ts` reads env vars and initializes sync
 - Files matching `sync-config.json` patterns are synced to/from the remote database
 - Sync events flow through SSE (`source: "sync"`) alongside file change events
 - Conflicts produce `.conflict` sidecar files and notify the agent
@@ -130,9 +207,11 @@ File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.en
 
 ### Tech Stack
 
-- **Framework:** @agent-native/core
+- **Framework:** @agent-native/core + React Router v7 (framework mode)
 - **Frontend:** React 18, Vite, TailwindCSS, shadcn/ui
-- **Backend:** Express 5
+- **Routing:** File-based via `flatRoutes()` — SSR shell + client rendering
+- **Backend:** Nitro (via @agent-native/core) — file-based API routing, server plugins, deploy-anywhere presets
 - **State:** File-based (SSE for real-time updates)
-- **Build:** `pnpm build` (client SPA + server bundle)
-- **Dev:** `pnpm dev` (Vite dev server with Express middleware)
+- **Build:** `pnpm build` (React Router build — client + SSR + Nitro server)
+- **Dev:** `pnpm dev` (Vite dev server with both React Router + Nitro plugins)
+- **Start:** `node .output/server/index.mjs` (production)

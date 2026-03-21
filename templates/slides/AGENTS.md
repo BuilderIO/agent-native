@@ -10,6 +10,74 @@ This is an **agent-native** app built with `@agent-native/core`. See `.agents/sk
 
 ---
 
+## Framework Basics (Nitro + @agent-native/core)
+
+This app uses **Nitro** (via `@agent-native/core`) for the server. All server code lives in `server/`.
+
+### Server Directory
+
+```
+server/
+  routes/     # File-based API routes (auto-discovered by Nitro)
+  handlers/   # Route handler logic modules
+  plugins/    # Server plugins — run at startup (file watcher, file sync, auth)
+  lib/        # Shared server modules (watcher instance, helpers)
+```
+
+### Adding an API Route
+
+Create a file in `server/routes/api/`. The filename determines the URL path and HTTP method:
+
+```
+server/routes/api/items/index.get.ts    → GET  /api/items
+server/routes/api/items/index.post.ts   → POST /api/items
+server/routes/api/items/[id].get.ts     → GET  /api/items/:id
+server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
+```
+
+Each file exports a default `defineEventHandler`:
+
+```ts
+export default defineEventHandler(async (event) => {
+  const body = await readBody(event);
+  return { ok: true };
+});
+```
+
+### Server Plugins
+
+Startup logic (file watcher, file sync, auth) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
+
+```ts
+import { defineNitroPlugin } from "@agent-native/core";
+
+export default defineNitroPlugin(async (nitroApp) => {
+  // Runs once at server startup
+});
+```
+
+### Key Imports from `@agent-native/core`
+
+| Import                                       | Purpose                                           |
+| -------------------------------------------- | ------------------------------------------------- |
+| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)   |
+| `createFileWatcher`                          | Watch data directory for changes                  |
+| `createSSEHandler`                           | Create SSE endpoint for real-time updates         |
+| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)          |
+| `sendToAgentChat`                            | Send messages to agent from UI (client-side)      |
+| `agentChat`                                  | Send messages to agent from scripts (server-side) |
+
+### Build & Dev Commands
+
+```bash
+pnpm dev        # Vite dev server + Nitro plugin (single process)
+pnpm build      # Single Vite build (client SPA + Nitro server)
+pnpm start      # node .output/server/index.mjs (production)
+pnpm typecheck  # TypeScript validation
+```
+
+---
+
 ## Core Principle: Everything is Files
 
 All stateful data in this app is stored in **files**. The frontend (React/Vite) reads and writes files. The agent chat reads and writes files. Scripts read and write files. Files are the shared state mechanism between all three.
@@ -36,7 +104,7 @@ This means:
          │                                 │
          │         ┌───────────────┐       │
          └────────►│  Backend      │◄──────┘
-                   │  (Express)    │
+                   │  (Nitro)    │
                    │               │
                    │  - API routes │
                    │  - image gen  │
@@ -120,16 +188,7 @@ export default async function main(args: string[]) {
 }
 ```
 
-2. Register in `scripts/run.ts`:
-
-```typescript
-const scripts: Record<string, () => Promise<...>> = {
-  "my-script": () => import("./my-script.js"),
-  // ...existing scripts
-};
-```
-
-3. The agent can now run it: `pnpm script my-script --whatever`
+2. It's immediately available as `pnpm script my-script --whatever` (auto-discovered by filename, no registration needed).
 
 ### When to Generate vs Reuse Scripts
 
@@ -296,15 +355,17 @@ client/                        # React SPA frontend
 │   └── DeckContext.tsx        # Central state: decks, slides, undo/redo (fetches from /api/decks)
 ├── lib/
 │   └── utils.ts               # cn() utility
-└── App.tsx                    # Router setup
+└── root.tsx               # HTML shell + global providers
 
-server/                        # Express API backend
-├── index.ts                   # Server setup + route registration
-└── routes/
-    ├── decks.ts               # GET/PUT/POST/DELETE /api/decks (file-based CRUD)
-    ├── image-gen.ts           # POST /api/image-gen/generate (Gemini)
-    ├── generate-slides.ts     # POST /api/generate-slides (Gemini)
-    └── share.ts               # POST /api/share, GET /api/share/:token
+server/                        # Nitro API server
+├── routes/                    # File-based API routes (auto-discovered by Nitro)
+├── handlers/                  # Route handler modules
+│   ├── decks.ts               # GET/PUT/POST/DELETE /api/decks (file-based CRUD)
+│   ├── image-gen.ts           # POST /api/image-gen/generate (Gemini)
+│   ├── generate-slides.ts     # POST /api/generate-slides (Gemini)
+│   └── share.ts               # POST /api/share, GET /api/share/:token
+├── plugins/                   # Server plugins (startup logic)
+└── lib/                       # Shared server modules
 
 data/                          # File-based data storage
 └── decks/                     # User-created deck JSON files
@@ -325,7 +386,7 @@ scripts/                       # Runnable via `pnpm script <name>`
 - **Framework**: @agent-native/core
 - **Package manager**: pnpm
 - **Frontend**: React 18, React Router 6, TypeScript, Vite, TailwindCSS 3
-- **Backend**: Express (integrated with Vite dev server in dev)
+- **Backend**: Nitro (via @agent-native/core) — file-based API routing
 - **UI components**: Radix UI primitives + Lucide icons
 - **Image generation**: Google Gemini via `@google/genai`
 - **State**: File-based via `/api/decks` (JSON files in `data/decks/`), in-memory undo/redo, share tokens

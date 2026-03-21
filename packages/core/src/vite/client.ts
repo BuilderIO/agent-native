@@ -1,14 +1,24 @@
 import path from "path";
 import type { Plugin, UserConfig } from "vite";
-import { expressPlugin, type ExpressPluginOptions } from "./express-plugin.js";
+
+export interface NitroOptions {
+  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "cloudflare_pages"). Default: "node" */
+  preset?: string;
+  /** Source directory for server files. Default: "./server" */
+  srcDir?: string;
+  /** Routes directory name (relative to srcDir). Default: "routes" */
+  routesDir?: string;
+  /** Any additional Nitro config overrides */
+  [key: string]: unknown;
+}
 
 export interface ClientConfigOptions {
   /** Port for dev server. Default: 8080 */
   port?: number;
   /** Additional Vite plugins */
   plugins?: any[];
-  /** Express plugin options (serverEntry, etc) */
-  express?: ExpressPluginOptions;
+  /** Nitro plugin options (preset, srcDir, etc) */
+  nitro?: NitroOptions;
   /** Override resolve aliases */
   aliases?: Record<string, string>;
   /** Override build.outDir. Default: "dist/spa" */
@@ -17,6 +27,16 @@ export interface ClientConfigOptions {
   fsAllow?: string[];
   /** Additional fs.deny patterns */
   fsDeny?: string[];
+  /**
+   * @deprecated Pass `reactRouter()` directly in the `plugins` array instead.
+   * Previously used to auto-load the React Router Vite plugin via require(),
+   * but this fails in ESM contexts. Templates should now do:
+   * ```ts
+   * import { reactRouter } from "@react-router/dev/vite";
+   * defineConfig({ plugins: [reactRouter()] })
+   * ```
+   */
+  reactRouter?: boolean | Record<string, unknown>;
 }
 
 /**
@@ -53,20 +73,57 @@ function baseRedirectGuard(): Plugin {
 }
 
 /**
- * Create the client/SPA Vite config with sensible agent-native defaults.
- * Includes React SWC, path aliases, fs restrictions, and the Express dev plugin.
+ * Create the client Vite config with sensible agent-native defaults.
+ * Supports two modes:
+ * - Legacy SPA mode (default): React SWC plugin, client-only routing
+ * - React Router framework mode: SSR-capable with file-based routing
+ *
+ * Both modes include Nitro for API routes, path aliases, and fs restrictions.
  */
 export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
-  // Dynamic import to keep it optional
-  let reactPlugin: any;
+  // Check if React Router plugin was passed directly in plugins array
+  const hasReactRouterPlugin = options.plugins?.some(
+    (p: any) =>
+      p?.name === "react-router" ||
+      (Array.isArray(p) && p.some((pp: any) => pp?.name === "react-router")),
+  );
+
+  let reactTransformPlugin: any;
+
+  if (!hasReactRouterPlugin && !options.reactRouter) {
+    // Legacy SPA mode — use React SWC plugin (only when React Router is not used)
+    try {
+      reactTransformPlugin = require("@vitejs/plugin-react-swc");
+      if (reactTransformPlugin.default)
+        reactTransformPlugin = reactTransformPlugin.default;
+    } catch {
+      // Will be resolved at runtime by Vite
+    }
+  }
+
+  // Dynamic import for nitro/vite — it's a dependency of @agent-native/core
+  let nitroPlugin: any;
   try {
-    reactPlugin = require("@vitejs/plugin-react-swc");
-    if (reactPlugin.default) reactPlugin = reactPlugin.default;
+    nitroPlugin = require("nitro/vite");
+    if (nitroPlugin.default) nitroPlugin = nitroPlugin.default;
+    if (nitroPlugin.nitro) nitroPlugin = nitroPlugin.nitro;
   } catch {
     // Will be resolved at runtime by Vite
   }
 
   const cwd = process.cwd();
+
+  // Build nitro options from user config
+  const { preset, srcDir, routesDir, ...restNitro } = options.nitro ?? {};
+  const nitroOpts: Record<string, unknown> = {
+    ...restNitro,
+  };
+  if (preset) nitroOpts.preset = preset;
+  if (srcDir) nitroOpts.srcDir = srcDir;
+  if (routesDir) nitroOpts.routesDir = routesDir;
+
+  // Build the React transform plugin (only for legacy SPA mode)
+  const reactPluginInstance = reactTransformPlugin?.();
 
   return {
     server: {
@@ -79,7 +136,6 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
           ".env.*",
           "*.{crt,pem}",
           "**/.git/**",
-          "server/**",
           ...(options.fsDeny ?? []),
         ],
       },
@@ -89,8 +145,8 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     },
     plugins: [
       baseRedirectGuard(),
-      reactPlugin?.(),
-      expressPlugin(options.express),
+      reactPluginInstance,
+      nitroPlugin?.(nitroOpts),
       ...(options.plugins ?? []),
     ].filter(Boolean),
     resolve: {

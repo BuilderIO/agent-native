@@ -7,7 +7,7 @@ import {
 } from "react";
 import { agentChat } from "@agent-native/core";
 import { createPortal } from "react-dom";
-import { enterSelectionMode } from "@/App";
+import { enterSelectionMode } from "@/root";
 import type { Slide } from "@/context/DeckContext";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import CodeEditor from "./CodeEditor";

@@ -15,12 +15,21 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
+    "rootDirs": [".", "./.react-router/types"],
     "baseUrl": ".",
     "paths": {
       "@/*": ["./client/*"],
       "@shared/*": ["./shared/*"]
-    }
+    },
+    "types": ["vite/client"]
   },
-  "include": ["client", "server", "shared", "scripts"],
+  "include": [
+    "client",
+    "server",
+    "shared",
+    "scripts",
+    "react-router.config.ts",
+    ".react-router/types/**/*"
+  ],
   "exclude": ["node_modules", "dist", "client/components/ui"]
 }

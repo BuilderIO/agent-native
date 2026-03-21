@@ -59,7 +59,7 @@ agentChat.send({
 });
 ```
 
-In the browser, messages are sent via `window.postMessage()`. In Node.js (scripts), they use the `BUILDER_PARENT_MESSAGE:` stdout format that the Electron host translates to postMessage.
+In the browser, messages are sent via `window.postMessage()`. In Node.js (scripts), they use the `BUILDER_PARENT_MESSAGE:` stdout format that the harness host translates to postMessage.
 
 ## Utility Functions
 
@@ -72,51 +72,80 @@ In the browser, messages are sent via `window.postMessage()`. In Node.js (script
 | `ensureDir(dir)`        | `void`    | mkdir -p helper                                    |
 | `fail(message)`         | `never`   | Print error to stderr and exit(1)                  |
 
-## Database Sync Adapters
+## File Sync
 
-For apps that need bidirectional file sync across instances, agent-native provides adapters for **Google Cloud Firestore** and **Supabase** (Postgres). All adapters implement the same `FileSyncAdapter` interface and plug into `FileSync`:
+For apps that need bidirectional file sync across instances (e.g. multi-user collaboration or cloud backup), agent-native provides a `createFileSync()` factory and adapters for **Firestore**, **Supabase**, and **Convex**. File sync is **opt-in** — it's a no-op unless `FILE_SYNC_ENABLED=true` is set.
+
+### Environment Variables
+
+| Variable                         | Required      | Description                                          |
+| -------------------------------- | ------------- | ---------------------------------------------------- |
+| `FILE_SYNC_ENABLED`              | No            | Set to `"true"` to enable sync                       |
+| `FILE_SYNC_BACKEND`              | When enabled  | `"firestore"`, `"supabase"`, or `"convex"`           |
+| `SUPABASE_URL`                   | For Supabase  | Project URL                                          |
+| `SUPABASE_PUBLISHABLE_KEY`       | For Supabase  | Publishable (anon) key                               |
+| `GOOGLE_APPLICATION_CREDENTIALS` | For Firestore | Path to service account JSON                         |
+| `CONVEX_URL`                     | For Convex    | Deployment URL from `npx convex dev` (must be HTTPS) |
+
+### createFileSync() — the factory (recommended)
+
+`createFileSync()` reads env vars and initializes the right adapter automatically. It's wired into every template via a server plugin (`server/plugins/file-sync.ts`).
+
+```ts
+// server/plugins/file-sync.ts
+import { defineNitroPlugin } from "@agent-native/core";
+import { createFileSync } from "@agent-native/core/adapters/sync";
+import { setSyncResult, sseExtraEmitters } from "../lib/watcher.js";
+
+export default defineNitroPlugin(async () => {
+  const syncResult = await createFileSync({ contentRoot: "./data" });
+
+  if (syncResult.status === "error") {
+    console.warn(`[app] File sync failed: ${syncResult.reason}`);
+  }
+
+  setSyncResult(syncResult);
+
+  // Graceful shutdown
+  process.on("SIGTERM", async () => {
+    if (syncResult.status === "ready") await syncResult.shutdown();
+    process.exit(0);
+  });
+});
+```
+
+The watcher and SSE emitters are shared via `server/lib/watcher.ts`, and the SSE endpoint is a file-based route at `server/routes/api/events.get.ts`. See [Server](./server.md) for the full pattern.
+
+### sync-config.json
+
+Each template (and the default app) ships a `sync-config.json` that controls which files are synced:
+
+```json
+{
+  "appId": "my-app",
+  "ownerId": "default",
+  "include": ["**/*.json", "**/*.md"],
+  "exclude": ["application-state/**"]
+}
+```
+
+`application-state/` is always excluded — it holds ephemeral per-session state, not shared data.
 
 ### Google Cloud Firestore
 
 ```ts
-import {
-  FileSync,
-  FirestoreFileSyncAdapter,
-} from "@agent-native/core/adapters/firestore";
-
-const adapter = new FirestoreFileSyncAdapter(() => db.collection("files"));
-const sync = new FileSync({
-  appId: "my-app",
-  ownerId: "owner-123",
-  contentRoot: "./content",
-  adapter,
-});
-await sync.initFileSync();
+import { FirestoreFileSyncAdapter } from "@agent-native/core/adapters/firestore";
 ```
+
+Requires `GOOGLE_APPLICATION_CREDENTIALS` pointing to a service account JSON. `createFileSync()` initializes firebase-admin automatically.
 
 ### Supabase
 
 ```ts
-import {
-  FileSync,
-  SupabaseFileSyncAdapter,
-} from "@agent-native/core/adapters/supabase";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-const adapter = new SupabaseFileSyncAdapter(supabase);
-const sync = new FileSync({
-  appId: "my-app",
-  ownerId: "owner-123",
-  contentRoot: "./content",
-  adapter,
-});
-await sync.initFileSync();
+import { SupabaseFileSyncAdapter } from "@agent-native/core/adapters/supabase";
 ```
 
-### SQL Migration (Supabase)
-
-Supabase uses the following Postgres table schema:
+Requires `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. Create the required table:
 
 ```sql
 CREATE TABLE files (
@@ -131,12 +160,82 @@ CREATE TABLE files (
 CREATE INDEX idx_files_app_owner ON files(app, owner_id);
 ```
 
+### Convex
+
+```ts
+import { ConvexFileSyncAdapter } from "@agent-native/core/adapters/convex";
+```
+
+Requires `CONVEX_URL`. Add the `files` table to your Convex schema and define a `by_sync_id` index:
+
+```ts
+// convex/schema.ts
+import { defineSchema, defineTable } from "convex/server";
+import { v } from "convex/values";
+
+export default defineSchema({
+  files: defineTable({
+    syncId: v.string(),
+    path: v.string(),
+    content: v.string(),
+    app: v.string(),
+    ownerId: v.string(),
+    lastUpdated: v.number(),
+  }).index("by_sync_id", ["syncId"]),
+});
+```
+
 ### Custom Adapters
 
-The adapter interface is available at `@agent-native/core/adapters/sync` for building custom adapters:
+Implement the `FileSyncAdapter` interface from `@agent-native/core/adapters/sync` to build your own backend:
 
 ```ts
 import type { FileSyncAdapter } from "@agent-native/core/adapters/sync";
 ```
 
-All adapters support: startup sync, remote change listeners, chokidar file watchers, three-way merge with LCS-based conflict resolution, and `.conflict` sidecar files for unresolvable conflicts.
+All adapters support: startup sync, remote change listeners, three-way merge with LCS-based conflict resolution, and `.conflict` sidecar files for unresolvable conflicts.
+
+## Production Scripts (run() export)
+
+Scripts used by the embedded production agent must export a `tool` definition and a `run()` function alongside the standard `main()` CLI entry:
+
+```ts
+import type { ScriptTool } from "@agent-native/core";
+
+export const tool: ScriptTool = {
+  description: "Archive an email by ID",
+  parameters: {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "Email ID to archive" },
+    },
+    required: ["id"],
+  },
+};
+
+export async function run(args: Record<string, string>): Promise<string> {
+  // same logic as main(), but returns a string result
+  const result = await archiveEmail(args.id);
+  return `Archived email ${args.id}`;
+}
+
+// CLI entry point — unaffected
+export default async function main(args: string[]) {
+  const { id } = parseArgs(args);
+  await archiveEmail(id);
+}
+```
+
+Register all production scripts in a registry file:
+
+```ts
+// scripts/registry.ts
+import type { ScriptEntry } from "@agent-native/core";
+import * as archiveEmail from "./archive-email.js";
+
+export const scripts: Record<string, ScriptEntry> = {
+  "archive-email": { tool: archiveEmail.tool, run: archiveEmail.run },
+};
+```
+
+Pass the registry to `createProductionAgentHandler()` in a server plugin. See [Server](./server.md) for the full wiring.

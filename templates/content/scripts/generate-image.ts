@@ -10,7 +10,7 @@ import {
   getPresetImagePaths,
   getPresetByName,
   buildReferencePathSets,
-} from "../server/routes/image-gen.js";
+} from "../server/handlers/image-gen.js";
 import {
   loadEnv,
   parseArgs,

@@ -29,6 +29,74 @@ See `.agents/skills/` for the framework rules that apply to all agent-native app
 
 Keep entries concise and actionable. Group by category. This file is gitignored so personal data stays local.
 
+## Framework Basics (Nitro + @agent-native/core)
+
+This app uses **Nitro** (via `@agent-native/core`) for the server. All server code lives in `server/`.
+
+### Server Directory
+
+```
+server/
+  routes/     # File-based API routes (auto-discovered by Nitro)
+  handlers/   # Route handler logic modules
+  plugins/    # Server plugins — run at startup (file watcher, file sync, auth)
+  lib/        # Shared server modules (watcher instance, helpers)
+```
+
+### Adding an API Route
+
+Create a file in `server/routes/api/`. The filename determines the URL path and HTTP method:
+
+```
+server/routes/api/items/index.get.ts    → GET  /api/items
+server/routes/api/items/index.post.ts   → POST /api/items
+server/routes/api/items/[id].get.ts     → GET  /api/items/:id
+server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
+```
+
+Each file exports a default `defineEventHandler`:
+
+```ts
+export default defineEventHandler(async (event) => {
+  const body = await readBody(event);
+  return { ok: true };
+});
+```
+
+### Server Plugins
+
+Startup logic (file watcher, file sync, auth) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
+
+```ts
+import { defineNitroPlugin } from "@agent-native/core";
+
+export default defineNitroPlugin(async (nitroApp) => {
+  // Runs once at server startup
+});
+```
+
+### Key Imports from `@agent-native/core`
+
+| Import                                       | Purpose                                           |
+| -------------------------------------------- | ------------------------------------------------- |
+| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)   |
+| `createFileWatcher`                          | Watch data directory for changes                  |
+| `createSSEHandler`                           | Create SSE endpoint for real-time updates         |
+| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)          |
+| `sendToAgentChat`                            | Send messages to agent from UI (client-side)      |
+| `agentChat`                                  | Send messages to agent from scripts (server-side) |
+
+### Build & Dev Commands
+
+```bash
+pnpm dev        # Vite dev server + Nitro plugin (single process)
+pnpm build      # Single Vite build (client SPA + Nitro server)
+pnpm start      # node .output/server/index.mjs (production)
+pnpm typecheck  # TypeScript validation
+```
+
+---
+
 ### File Sync (Multi-User Collaboration)
 
 File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.env`.

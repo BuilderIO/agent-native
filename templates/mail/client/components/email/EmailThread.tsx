@@ -6,7 +6,7 @@ import {
   useMemo,
   forwardRef,
 } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { cn, formatEmailDate, formatFileSize } from "@/lib/utils";
 import { useComposeState } from "@/hooks/use-compose-state";
 import { useAccountFilter } from "@/components/layout/AppLayout";

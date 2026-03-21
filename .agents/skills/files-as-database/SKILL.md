@@ -19,7 +19,7 @@ Files are the shared interface between the AI agent and the UI. The agent reads 
 ## How
 
 - Store data as JSON or markdown files in `data/` (or a project-specific subdirectory).
-- API routes in `server/index.ts` read files with `fs.readFile` and return them.
+- API routes in `server/routes/` read files with `fs.readFile` and return them (Nitro file-based routing).
 - The agent modifies files directly — no API calls needed from the agent side.
 - `createFileWatcher("./data")` watches for changes and streams them via SSE.
 - `useFileWatcher()` on the client invalidates React Query caches when files change.
@@ -44,10 +44,12 @@ fs.writeFileSync(
 );
 
 // Reading state (server route) — note the path sanitization
-app.get("/api/projects/:id", (req, res) => {
-  const id = req.params.id.replace(/[^a-zA-Z0-9_-]/g, "");
+// server/routes/api/projects/[id].get.ts
+import { defineEventHandler, getRouterParam } from "h3";
+export default defineEventHandler((event) => {
+  const id = (getRouterParam(event, "id") || "").replace(/[^a-zA-Z0-9_-]/g, "");
   const data = fs.readFileSync(`data/projects/${id}.json`, "utf-8");
-  res.json(JSON.parse(data));
+  return JSON.parse(data);
 });
 ```
 
@@ -83,6 +85,10 @@ For list endpoints serving many files, use `fs.promises.readFile` instead of `re
 
 - **Path sanitization** — Always sanitize IDs from request params before constructing file paths. Use `id.replace(/[^a-zA-Z0-9_-]/g, "")` or the core utility `isValidPath()`. Without this, `../../.env` as an ID reads your environment file.
 - **Validate before writing** — Check data shape before writing files, especially for user-submitted data. A malformed write can break all subsequent reads.
+
+## Route Loaders vs API Routes
+
+React Router route `loader` functions can fetch data server-side during SSR. However, the default pattern is **SSR shell + client rendering**: the server renders a loading spinner and the client fetches data from `/api/*` routes via React Query. Only use server `loader` when a page genuinely needs server-rendered content for SEO or og tags (e.g., public booking pages). For all app pages behind auth, stick with the client-side React Query pattern.
 
 ## Related Skills
 

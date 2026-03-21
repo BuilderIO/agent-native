@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { getAllPresets } from "../server/routes/image-gen.js";
+import { getAllPresets } from "../server/handlers/image-gen.js";
 import { loadEnv, IMAGE_REFS_DIR } from "./_utils.js";
 
 function listFolderPresets() {

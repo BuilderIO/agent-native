@@ -6,7 +6,7 @@ import {
   useLayoutEffect,
 } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import {
   IconX,
   IconUsersGroup,

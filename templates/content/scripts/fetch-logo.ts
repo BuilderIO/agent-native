@@ -5,7 +5,7 @@ import {
   isValidProjectPath,
   fail,
 } from "./_utils.js";
-import { fetchLogo, saveLogoToProject } from "../server/routes/clearbit.js";
+import { fetchLogo, saveLogoToProject } from "../server/handlers/clearbit.js";
 
 export default async function main(args: string[]) {
   loadEnv();

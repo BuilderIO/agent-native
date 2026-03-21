@@ -33,6 +33,20 @@ function findTsxBin(): string {
   return "tsx";
 }
 
+function findReactRouterBin(): string {
+  const localBin = path.resolve("node_modules/.bin/react-router");
+  if (fs.existsSync(localBin)) return localBin;
+  return "react-router";
+}
+
+/** Check if the project uses React Router framework mode (has react-router.config.ts) */
+function isReactRouterFramework(): boolean {
+  return (
+    fs.existsSync(path.resolve("react-router.config.ts")) ||
+    fs.existsSync(path.resolve("react-router.config.js"))
+  );
+}
+
 function run(
   cmd: string,
   cmdArgs: string[],
@@ -49,7 +63,7 @@ function run(
 
 switch (command) {
   case "dev": {
-    // Like `next dev` — runs Vite dev server with express plugin
+    // Like `next dev` — runs Vite dev server (Nitro plugin handles API routes)
     // Supports --base <path> for mounting under a prefix (e.g. agent-native dev --base /app/)
     const vite = findViteBin();
     run(vite, args);
@@ -57,21 +71,25 @@ switch (command) {
   }
 
   case "build": {
-    // Like `next build` — builds client SPA + server bundle
-    const vite = findViteBin();
-    console.log("Building client...");
-    execSync(`${vite} build`, { stdio: "inherit" });
-    console.log("\nBuilding server...");
-    execSync(`${vite} build --config vite.config.server.ts`, {
-      stdio: "inherit",
-    });
+    // Like `next build` — builds client + server
+    // React Router framework mode uses `react-router build`
+    // Legacy SPA mode uses `vite build`
+    if (isReactRouterFramework()) {
+      const rr = findReactRouterBin();
+      console.log("Building (React Router framework mode)...");
+      execSync(`${rr} build`, { stdio: "inherit" });
+    } else {
+      const vite = findViteBin();
+      console.log("Building...");
+      execSync(`${vite} build`, { stdio: "inherit" });
+    }
     console.log("\nBuild complete.");
     break;
   }
 
   case "start": {
-    // Like `next start` — runs production server
-    const serverEntry = path.resolve("dist/server/production.mjs");
+    // Like `next start` — runs Nitro production server
+    const serverEntry = path.resolve(".output/server/index.mjs");
     if (!fs.existsSync(serverEntry)) {
       console.error(
         'No production build found. Run "agent-native build" first.',
@@ -96,6 +114,15 @@ switch (command) {
 
   case "typecheck": {
     // Run TypeScript type checking
+    // React Router framework mode generates route types first
+    if (isReactRouterFramework()) {
+      const rr = findReactRouterBin();
+      try {
+        execSync(`${rr} typegen`, { stdio: "inherit" });
+      } catch {
+        // typegen may fail if routes aren't set up yet — continue to tsc
+      }
+    }
     const tsc = path.resolve("node_modules/.bin/tsc");
     const tscBin = fs.existsSync(tsc) ? tsc : "tsc";
     run(tscBin, ["--noEmit", ...args]);

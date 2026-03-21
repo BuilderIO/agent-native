@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Bot, History, User } from "lucide-react";
 import { Badge } from "@/components/ui/badge";

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { useParams } from "react-router";
 import { Loader2, AlertCircle } from "lucide-react";
 import type { SharedDeckResponse } from "@shared/api";
 import type { Slide } from "@/context/DeckContext";

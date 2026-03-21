@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { EditorView } from "@/components/editor/EditorView";
 import { EmptyState } from "@/components/EmptyState";

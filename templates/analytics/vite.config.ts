@@ -1,2 +1,6 @@
+import { reactRouter } from "@react-router/dev/vite";
 import { defineConfig } from "@agent-native/core/vite";
-export default defineConfig({ port: 8081 });
+
+export default defineConfig({
+  plugins: [reactRouter()],
+});
