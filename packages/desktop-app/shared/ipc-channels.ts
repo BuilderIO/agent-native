@@ -17,6 +17,13 @@ export const IPC = {
 
   /** App status events (main → renderer) */
   APP_STATUS: "app:status",
+
+  /** App config management (renderer ↔ main) */
+  APPS_LOAD: "apps:load",
+  APPS_ADD: "apps:add",
+  APPS_REMOVE: "apps:remove",
+  APPS_UPDATE: "apps:update",
+  APPS_RESET: "apps:reset",
 } as const;
 
 export interface InterAppMessage {
