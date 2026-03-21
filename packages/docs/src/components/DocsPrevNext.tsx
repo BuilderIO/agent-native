@@ -69,7 +69,7 @@ export default function DocsPrevNext() {
       )}
       {next ? (
         <Link to={next.to} className="docs-prev-next-link docs-next-link">
-          <div className="docs-prev-next-text" style={{ textAlign: "right" }}>
+          <div className="docs-prev-next-text docs-next-text">
             <span className="docs-prev-next-label">Next</span>
             <span className="docs-prev-next-title">{next.label}</span>
           </div>
