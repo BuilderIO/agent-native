@@ -9,7 +9,13 @@ export {
   type FileWatcherOptions,
   type SSEHandlerOptions,
 } from "./sse.js";
-export { mountAuthMiddleware } from "./auth.js";
+export {
+  mountAuthMiddleware,
+  autoMountAuth,
+  getSession,
+  type AuthSession,
+  type AuthOptions,
+} from "./auth.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
 export {
   createProductionAgentHandler,

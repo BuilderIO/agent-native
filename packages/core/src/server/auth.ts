@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import {
   defineEventHandler,
   readBody,
@@ -8,14 +10,183 @@ import {
   getCookie,
   setCookie,
   deleteCookie,
-  getRequestURL,
 } from "h3";
-import type { App as H3App } from "h3";
+import type { App as H3App, H3Event } from "h3";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface AuthSession {
+  email: string;
+  userId?: string;
+  token?: string;
+}
+
+export interface AuthOptions {
+  /** Session max age in seconds. Default: 30 days */
+  maxAge?: number;
+  /** Path to the sessions file. Default: data/.sessions.json */
+  sessionsPath?: string;
+  /**
+   * Custom getSession implementation (for BYOA — Auth.js, Clerk, etc.).
+   * When provided, the built-in token auth is bypassed entirely.
+   */
+  getSession?: (event: H3Event) => Promise<AuthSession | null>;
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 const COOKIE_NAME = "an_session";
+const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+const DEFAULT_SESSIONS_PATH = "data/.sessions.json";
 
-// In-memory session store — maps random session tokens to their creation time
-const activeSessions = new Set<string>();
+// ---------------------------------------------------------------------------
+// Session store — file-backed
+// ---------------------------------------------------------------------------
+
+interface StoredSession {
+  token: string;
+  createdAt: number;
+}
+
+let sessions: Map<string, StoredSession> = new Map();
+let sessionsFilePath = DEFAULT_SESSIONS_PATH;
+let sessionMaxAge = DEFAULT_MAX_AGE;
+
+function resolveSessionsPath(customPath?: string): string {
+  return path.resolve(process.cwd(), customPath ?? DEFAULT_SESSIONS_PATH);
+}
+
+function loadSessions(): void {
+  try {
+    const raw = fs.readFileSync(sessionsFilePath, "utf-8");
+    const entries: StoredSession[] = JSON.parse(raw);
+    sessions = new Map(entries.map((s) => [s.token, s]));
+  } catch {
+    sessions = new Map();
+  }
+}
+
+function saveSessions(): void {
+  const dir = path.dirname(sessionsFilePath);
+  fs.mkdirSync(dir, { recursive: true });
+  const entries = Array.from(sessions.values());
+  fs.writeFileSync(sessionsFilePath, JSON.stringify(entries, null, 2));
+}
+
+function pruneExpiredSessions(): void {
+  const now = Date.now();
+  let pruned = false;
+  for (const [token, session] of sessions) {
+    if (now - session.createdAt > sessionMaxAge * 1000) {
+      sessions.delete(token);
+      pruned = true;
+    }
+  }
+  if (pruned) saveSessions();
+}
+
+function addSession(token: string): void {
+  sessions.set(token, { token, createdAt: Date.now() });
+  saveSessions();
+}
+
+function removeSession(token: string): void {
+  sessions.delete(token);
+  saveSessions();
+}
+
+function hasSession(token: string): boolean {
+  const session = sessions.get(token);
+  if (!session) return false;
+  if (Date.now() - session.createdAt > sessionMaxAge * 1000) {
+    sessions.delete(token);
+    saveSessions();
+    return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Token resolution — supports ACCESS_TOKEN (single) or ACCESS_TOKENS (multi)
+// ---------------------------------------------------------------------------
+
+function getAccessTokens(): string[] {
+  const single = process.env.ACCESS_TOKEN;
+  const multi = process.env.ACCESS_TOKENS;
+  const tokens: string[] = [];
+  if (single) tokens.push(single);
+  if (multi) {
+    for (const t of multi.split(",")) {
+      const trimmed = t.trim();
+      if (trimmed && !tokens.includes(trimmed)) tokens.push(trimmed);
+    }
+  }
+  return tokens;
+}
+
+// ---------------------------------------------------------------------------
+// Dev mode detection
+// ---------------------------------------------------------------------------
+
+function isDevMode(): boolean {
+  return process.env.NODE_ENV !== "production";
+}
+
+// ---------------------------------------------------------------------------
+// getSession — the auth contract
+// ---------------------------------------------------------------------------
+
+let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
+  null;
+let authDisabledMode = false;
+
+const DEV_SESSION: AuthSession = { email: "local@localhost" };
+
+/**
+ * Get the current auth session for a request.
+ *
+ * - In dev mode: always returns { email: "local@localhost" }
+ * - In production with built-in auth: returns session if cookie is valid
+ * - With custom auth (BYOA): delegates to the custom getSession
+ */
+export async function getSession(event: H3Event): Promise<AuthSession | null> {
+  if (isDevMode()) return DEV_SESSION;
+  if (authDisabledMode) return DEV_SESSION;
+
+  if (customGetSession) return customGetSession(event);
+
+  const cookie = getCookie(event, COOKIE_NAME);
+  if (cookie && hasSession(cookie)) {
+    return { email: "user", token: cookie };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Constant-time token comparison
+// ---------------------------------------------------------------------------
+
+function safeTokenMatch(input: string, tokens: string[]): boolean {
+  const inputBuf = Buffer.from(input);
+  for (const token of tokens) {
+    const tokenBuf = Buffer.from(token);
+    if (
+      inputBuf.length === tokenBuf.length &&
+      crypto.timingSafeEqual(inputBuf, tokenBuf)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Login page HTML
+// ---------------------------------------------------------------------------
 
 const LOGIN_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -103,15 +274,23 @@ const LOGIN_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
+// ---------------------------------------------------------------------------
+// mountAuthMiddleware — mounts login/logout/session routes + auth guard
+// ---------------------------------------------------------------------------
+
 /**
- * Mount auth middleware + login/logout routes onto an H3 app.
+ * Mount auth middleware + login/logout/session routes onto an H3 app.
  *
- * - POST /api/auth/login  — validates token, sets HttpOnly session cookie
- * - POST /api/auth/logout — clears session cookie
- * - All other routes: redirects/blocks unauthenticated requests
+ * @deprecated Use `autoMountAuth(app, options?)` instead for automatic
+ * dev/prod behavior. This function is kept for backwards compatibility
+ * when you need explicit control over the access token.
  */
 export function mountAuthMiddleware(app: H3App, accessToken: string): void {
-  // Login route
+  mountAuthRoutes(app, [accessToken]);
+}
+
+function mountAuthRoutes(app: H3App, accessTokens: string[]): void {
+  // POST /api/auth/login
   app.use(
     "/api/auth/login",
     defineEventHandler(async (event) => {
@@ -120,52 +299,74 @@ export function mountAuthMiddleware(app: H3App, accessToken: string): void {
         return { error: "Method not allowed" };
       }
       const body = await readBody(event);
-      if (body?.token !== accessToken) {
+      if (
+        !body?.token ||
+        typeof body.token !== "string" ||
+        !safeTokenMatch(body.token, accessTokens)
+      ) {
         setResponseStatus(event, 401);
         return { error: "Invalid token" };
       }
       const sessionToken = crypto.randomBytes(32).toString("hex");
-      activeSessions.add(sessionToken);
+      addSession(sessionToken);
       setCookie(event, COOKIE_NAME, sessionToken, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: true,
         sameSite: "lax",
         path: "/",
-        maxAge: 60 * 60 * 24 * 30, // 30 days
+        maxAge: sessionMaxAge,
       });
       return { ok: true };
     }),
   );
 
-  // Logout route
+  // POST /api/auth/logout
   app.use(
     "/api/auth/logout",
     defineEventHandler((event) => {
-      const session = getCookie(event, COOKIE_NAME);
-      if (session) activeSessions.delete(session);
+      const cookie = getCookie(event, COOKIE_NAME);
+      if (cookie) removeSession(cookie);
       deleteCookie(event, COOKIE_NAME, { path: "/" });
       return { ok: true };
     }),
   );
 
-  // Auth guard middleware (runs before all other handlers)
+  // GET /api/auth/session — client session check
   app.use(
-    defineEventHandler((event) => {
-      const url = event.node.req.url ?? "/";
-      const path = url.split("?")[0];
+    "/api/auth/session",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "GET") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const session = await getSession(event);
+      return session ?? { error: "Not authenticated" };
+    }),
+  );
 
-      // Skip auth check for login/logout routes
-      if (path === "/api/auth/login" || path === "/api/auth/logout") {
+  // Auth guard — runs before all other handlers
+  app.use(
+    defineEventHandler(async (event) => {
+      const url = event.node.req.url ?? "/";
+      const p = url.split("?")[0];
+
+      // Skip auth routes
+      if (
+        p === "/api/auth/login" ||
+        p === "/api/auth/logout" ||
+        p === "/api/auth/session"
+      ) {
         return;
       }
 
-      const session = getCookie(event, COOKIE_NAME);
-      if (session && activeSessions.has(session)) {
-        return; // Authenticated — continue
+      // Use getSession() so BYOA custom auth is respected
+      const session = await getSession(event);
+      if (session) {
+        return; // Authenticated
       }
 
-      // Unauthenticated — API routes get 401, all others get login page
-      if (path.startsWith("/api/")) {
+      // Unauthenticated
+      if (p.startsWith("/api/")) {
         setResponseStatus(event, 401);
         setResponseHeader(event, "Content-Type", "application/json");
         event.node.res.end(JSON.stringify({ error: "Unauthorized" }));
@@ -176,4 +377,177 @@ export function mountAuthMiddleware(app: H3App, accessToken: string): void {
       event.node.res.end(LOGIN_HTML);
     }),
   );
+}
+
+// ---------------------------------------------------------------------------
+// autoMountAuth — the recommended entry point
+// ---------------------------------------------------------------------------
+
+/**
+ * Automatically configure auth based on the environment:
+ *
+ * - **Dev mode** (`NODE_ENV !== "production"`): Auth is skipped entirely.
+ *   `getSession()` returns `{ email: "local@localhost" }` for all requests.
+ *
+ * - **Production with ACCESS_TOKEN/ACCESS_TOKENS set**: Auth middleware is
+ *   mounted. Unauthenticated requests see a login page. One env var is all
+ *   you need.
+ *
+ * - **Production without tokens and AUTH_DISABLED !== "true"**: Refuses to
+ *   start. Logs a clear error explaining what to do.
+ *
+ * - **Production with AUTH_DISABLED=true**: Auth is skipped (for apps behind
+ *   infrastructure-level auth like Cloudflare Access or a VPN).
+ *
+ * Returns true if auth was mounted, false if skipped.
+ */
+export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
+  // Reset globals to avoid stale state from prior calls
+  customGetSession = null;
+  authDisabledMode = false;
+  sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
+  sessionsFilePath = resolveSessionsPath(options.sessionsPath);
+
+  if (options.getSession) {
+    customGetSession = options.getSession;
+  }
+
+  // Dev mode — skip auth entirely
+  if (isDevMode()) {
+    // Mount a session endpoint that returns the dev stub
+    app.use(
+      "/api/auth/session",
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return DEV_SESSION;
+      }),
+    );
+
+    // Mount no-op login/logout so client code doesn't break
+    app.use(
+      "/api/auth/login",
+      defineEventHandler(() => ({ ok: true })),
+    );
+    app.use(
+      "/api/auth/logout",
+      defineEventHandler(() => ({ ok: true })),
+    );
+
+    return false;
+  }
+
+  // BYOA with custom getSession — skip token check, mount session/guard routes
+  if (customGetSession) {
+    // Mount session endpoint
+    app.use(
+      "/api/auth/session",
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const session = await getSession(event);
+        return session ?? { error: "Not authenticated" };
+      }),
+    );
+    app.use(
+      "/api/auth/login",
+      defineEventHandler(() => ({ ok: true })),
+    );
+    app.use(
+      "/api/auth/logout",
+      defineEventHandler(() => ({ ok: true })),
+    );
+
+    // Mount auth guard that delegates to custom getSession
+    app.use(
+      defineEventHandler(async (event) => {
+        const url = event.node.req.url ?? "/";
+        const p = url.split("?")[0];
+        if (
+          p === "/api/auth/login" ||
+          p === "/api/auth/logout" ||
+          p === "/api/auth/session"
+        ) {
+          return;
+        }
+        const session = await getSession(event);
+        if (session) return;
+        if (p.startsWith("/api/")) {
+          setResponseStatus(event, 401);
+          setResponseHeader(event, "Content-Type", "application/json");
+          event.node.res.end(JSON.stringify({ error: "Unauthorized" }));
+          return;
+        }
+        setResponseHeader(event, "Content-Type", "text/html");
+        event.node.res.end(LOGIN_HTML);
+      }),
+    );
+
+    console.log("[agent-native] Auth enabled — custom getSession provider.");
+    return true;
+  }
+
+  // Production — check for tokens
+  const tokens = getAccessTokens();
+
+  if (tokens.length === 0) {
+    // No tokens set — check if auth is explicitly disabled
+    if (process.env.AUTH_DISABLED === "true") {
+      authDisabledMode = true;
+      console.warn(
+        "[agent-native] AUTH_DISABLED=true — running in production without auth. " +
+          "Ensure this app is behind infrastructure-level auth (Cloudflare Access, VPN, etc.).",
+      );
+
+      // Mount session endpoint — getSession() will return DEV_SESSION
+      app.use(
+        "/api/auth/session",
+        defineEventHandler(async (event) => {
+          if (getMethod(event) !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          return DEV_SESSION;
+        }),
+      );
+      app.use(
+        "/api/auth/login",
+        defineEventHandler(() => ({ ok: true })),
+      );
+      app.use(
+        "/api/auth/logout",
+        defineEventHandler(() => ({ ok: true })),
+      );
+
+      return false;
+    }
+
+    // Refuse to start without auth in production
+    const msg =
+      "\n" +
+      "=".repeat(70) +
+      "\n" +
+      " ERROR: Running in production without authentication.\n\n" +
+      " Set ACCESS_TOKEN=<your-secret> to enable auth, or\n" +
+      " set AUTH_DISABLED=true if this app is behind infrastructure auth.\n\n" +
+      " For multi-user access: ACCESS_TOKENS=token1,token2,token3\n" +
+      "=".repeat(70) +
+      "\n";
+    console.error(msg);
+    process.exit(1);
+  }
+
+  // Production with tokens — mount auth
+  loadSessions();
+  pruneExpiredSessions();
+  mountAuthRoutes(app, tokens);
+
+  console.log(
+    `[agent-native] Auth enabled — ${tokens.length} access token(s) configured.`,
+  );
+  return true;
 }

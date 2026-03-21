@@ -33,6 +33,8 @@ const SYNC_DENYLIST = [
   "**/*.sqlite",
   "**/*.db",
   "**/*.tfstate*",
+  // Auth sessions (sensitive runtime state)
+  "**/.sessions.json",
   // Sync meta-files (prevents meta-sync attack)
   "**/sync-config.json",
   "**/.sync-status.json",

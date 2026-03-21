@@ -4,6 +4,7 @@ export { useFileWatcher } from "./use-file-watcher.js";
 export { useFileSyncStatus } from "./use-file-sync-status.js";
 export { cn } from "./utils.js";
 export { ApiKeySettings } from "./components/ApiKeySettings.js";
+export { useSession, type AuthSession } from "./use-session.js";
 export {
   sendToHarness,
   onHarnessMessage,

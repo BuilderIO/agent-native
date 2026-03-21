@@ -12,6 +12,16 @@ This is an **@agent-native/core** application — the AI agent and UI share stat
 4. **Bidirectional SSE events** — The file watcher keeps the UI in sync when the agent modifies files.
 5. **Agent can update code** — The agent can modify this app's source code directly.
 
+### Authentication
+
+Auth is automatic and environment-driven. The `server/plugins/auth.ts` plugin calls `autoMountAuth(app)` at startup.
+
+- **Dev mode**: Auth is bypassed. `getSession()` returns `{ email: "local@localhost" }`. Zero friction.
+- **Production** (`ACCESS_TOKEN` set): Auth middleware auto-mounts. Login page for unauthenticated visitors.
+- **Production** (no token, no `AUTH_DISABLED=true`): Server refuses to start.
+
+Use `getSession(event)` server-side and `useSession()` client-side. See [docs/auth.md](docs/auth.md).
+
 ### Directory Structure
 
 ```
