@@ -173,8 +173,8 @@ export default defineEventHandler(async () => {
 });`}
       />
       <p>
-        Each route file exports a default <code>defineEventHandler</code>.
-        Both the UI and the agent can create items — the UI via{" "}
+        Each route file exports a default <code>defineEventHandler</code>. Both
+        the UI and the agent can create items — the UI via{" "}
         <code>POST /api/items</code>, the agent by writing directly to{" "}
         <code>data/items/</code>. The SSE watcher ensures both paths trigger UI
         updates.

@@ -47,9 +47,7 @@ function DocsIndex() {
       />
 
       <h2 id="vite-configuration">Vite Configuration</h2>
-      <p>
-        A single config file handles both client SPA and server build:
-      </p>
+      <p>A single config file handles both client SPA and server build:</p>
       <CodeBlock
         code={`// vite.config.ts
 import { defineConfig } from "@agent-native/core/vite";
@@ -103,10 +101,7 @@ export default {
                 "@agent-native/core",
                 "Server, client, scripts: createServer, createFileWatcher, createSSEHandler, runScript, parseArgs, loadEnv, fail, agentChat, sendToAgentChat, useAgentChatGenerating, useFileWatcher, cn",
               ],
-              [
-                "@agent-native/core/vite",
-                "defineConfig()",
-              ],
+              ["@agent-native/core/vite", "defineConfig()"],
               [
                 "@agent-native/core/tailwind",
                 "Tailwind preset (HSL colors, shadcn/ui tokens, animations)",

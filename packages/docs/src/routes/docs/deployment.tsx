@@ -22,9 +22,7 @@ const TOC = [
 function DeploymentDocs() {
   return (
     <DocsLayout toc={TOC}>
-      <h1 className="mb-2 text-4xl font-semibold tracking-tight">
-        Deployment
-      </h1>
+      <h1 className="mb-2 text-4xl font-semibold tracking-tight">Deployment</h1>
       <p className="mb-4 text-base text-[var(--fg-secondary)]">
         Agent-native apps use{" "}
         <a href="https://nitro.build" target="_blank" rel="noopener noreferrer">

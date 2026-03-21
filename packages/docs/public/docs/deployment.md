@@ -135,13 +135,13 @@ Each platform has its own way to set environment variables:
 
 Common variables:
 
-| Variable             | Description                            |
-| -------------------- | -------------------------------------- |
-| `PORT`               | Server port (Node.js only)             |
-| `NITRO_PRESET`       | Override build preset at build time    |
-| `ACCESS_TOKEN`       | Enable auth gating for production mode |
-| `ANTHROPIC_API_KEY`  | API key for embedded production agent  |
-| `FILE_SYNC_ENABLED`  | Enable file sync for multi-instance    |
+| Variable            | Description                            |
+| ------------------- | -------------------------------------- |
+| `PORT`              | Server port (Node.js only)             |
+| `NITRO_PRESET`      | Override build preset at build time    |
+| `ACCESS_TOKEN`      | Enable auth gating for production mode |
+| `ANTHROPIC_API_KEY` | API key for embedded production agent  |
+| `FILE_SYNC_ENABLED` | Enable file sync for multi-instance    |
 
 ## File Sync in Production
 

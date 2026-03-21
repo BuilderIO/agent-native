@@ -86,10 +86,7 @@ export default defineEventHandler(async (event: H3Event) => {
     }
 
     // Extract the old composition
-    const oldComposition = registryContent.substring(
-      openBrace,
-      closeBrace + 1,
-    );
+    const oldComposition = registryContent.substring(openBrace, closeBrace + 1);
 
     // Extract metadata from the old composition
     const titleMatch = oldComposition.match(/title:\s*"([^"]+)"/);

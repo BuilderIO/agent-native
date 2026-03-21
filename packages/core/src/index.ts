@@ -17,6 +17,7 @@ export {
   createServer,
   createFileWatcher,
   createSSEHandler,
+  defineNitroPlugin,
   type CreateServerOptions,
   type FileWatcherOptions,
   type SSEHandlerOptions,

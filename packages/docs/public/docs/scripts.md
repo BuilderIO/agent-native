@@ -89,60 +89,32 @@ For apps that need bidirectional file sync across instances (e.g. multi-user col
 
 ### createFileSync() — the factory (recommended)
 
-`createFileSync()` reads env vars and initializes the right adapter automatically. It's wired into every template's `server/index.ts` and the default app template.
+`createFileSync()` reads env vars and initializes the right adapter automatically. It's wired into every template via a server plugin (`server/plugins/file-sync.ts`).
 
 ```ts
+// server/plugins/file-sync.ts
+import { defineNitroPlugin } from "@agent-native/core";
 import { createFileSync } from "@agent-native/core/adapters/sync";
-import {
-  createServer,
-  createFileWatcher,
-  createSSEHandler,
-} from "@agent-native/core";
+import { setSyncResult, sseExtraEmitters } from "../lib/watcher.js";
 
-export async function createAppServer() {
-  const { app, router } = createServer();
-  const watcher = createFileWatcher("./data");
-
+export default defineNitroPlugin(async () => {
   const syncResult = await createFileSync({ contentRoot: "./data" });
 
   if (syncResult.status === "error") {
     console.warn(`[app] File sync failed: ${syncResult.reason}`);
   }
 
-  const extraEmitters =
-    syncResult.status === "ready" ? [syncResult.sseEmitter] : [];
-
-  // ... your routes ...
-
-  // Diagnostic endpoint
-  router.get(
-    "/api/file-sync/status",
-    defineEventHandler(() => {
-      if (syncResult.status !== "ready")
-        return { enabled: false, conflicts: 0 };
-      return {
-        enabled: true,
-        connected: true,
-        conflicts: syncResult.fileSync.conflictCount,
-      };
-    }),
-  );
-
-  // SSE — wire in file sync emitter alongside local watcher
-  router.get(
-    "/api/events",
-    createSSEHandler(watcher, { extraEmitters, contentRoot: "./data" }),
-  );
+  setSyncResult(syncResult);
 
   // Graceful shutdown
   process.on("SIGTERM", async () => {
     if (syncResult.status === "ready") await syncResult.shutdown();
     process.exit(0);
   });
-
-  return app;
-}
+});
 ```
+
+The watcher and SSE emitters are shared via `server/lib/watcher.ts`, and the SSE endpoint is a file-based route at `server/routes/api/events.get.ts`. See [Server](./server.md) for the full pattern.
 
 ### sync-config.json
 
@@ -266,4 +238,4 @@ export const scripts: Record<string, ScriptEntry> = {
 };
 ```
 
-Pass the registry to `createProductionAgentHandler()` in `server/node-build.ts`. See [Server](./server.md) for the full wiring.
+Pass the registry to `createProductionAgentHandler()` in a server plugin. See [Server](./server.md) for the full wiring.

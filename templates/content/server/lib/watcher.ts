@@ -72,9 +72,8 @@ export function getContentWatcher() {
 }
 
 export const watcher = getContentWatcher();
-export const sseExtraEmitters: NonNullable<
-  SSEHandlerOptions["extraEmitters"]
-> = [];
+export const sseExtraEmitters: NonNullable<SSEHandlerOptions["extraEmitters"]> =
+  [];
 
 export let syncResult: any = { status: "disabled" };
 

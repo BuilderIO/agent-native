@@ -12,7 +12,10 @@ const TOC = [
   { id: "createssehandler", label: "createSSEHandler()" },
   { id: "createserver", label: "createServer()" },
   { id: "mountauthmiddleware", label: "mountAuthMiddleware()" },
-  { id: "createproductionagenthandler", label: "createProductionAgentHandler()" },
+  {
+    id: "createproductionagenthandler",
+    label: "createProductionAgentHandler()",
+  },
 ];
 
 function ServerDocs() {
@@ -117,10 +120,10 @@ export default defineEventHandler(async (event) => {
       </p>
       <CodeBlock
         code={`// server/plugins/file-sync.ts
-import { definePlugin } from "nitro";
+import { defineNitroPlugin } from "@agent-native/core";
 import { createFileSync } from "@agent-native/core/adapters/sync";
 
-export default definePlugin(async () => {
+export default defineNitroPlugin(async () => {
   const result = await createFileSync({ contentRoot: "./data" });
   if (result.status === "error") {
     console.warn(\`[app] File sync failed: \${result.reason}\`);
@@ -298,7 +301,7 @@ const agent = createProductionAgentHandler({
           {[
             [
               "scripts",
-              'Record<string, ScriptEntry>',
+              "Record<string, ScriptEntry>",
               "Map of script name → { tool, run } entries",
             ],
             ["systemPrompt", "string", "System prompt for the embedded agent"],
@@ -307,11 +310,7 @@ const agent = createProductionAgentHandler({
               "string",
               "Anthropic API key. Default: ANTHROPIC_API_KEY env",
             ],
-            [
-              "model",
-              "string",
-              "Model to use. Default: claude-sonnet-4-6",
-            ],
+            ["model", "string", "Model to use. Default: claude-sonnet-4-6"],
           ].map(([name, type, desc]) => (
             <tr key={name}>
               <td>{name}</td>

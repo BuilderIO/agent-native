@@ -56,12 +56,12 @@ Configure the production agent via a server plugin:
 
 ```ts
 // server/plugins/agent.ts
-import { definePlugin } from "nitro";
+import { defineNitroPlugin } from "@agent-native/core";
 import { createProductionAgentHandler } from "@agent-native/core";
 import { scripts } from "../../scripts/registry.js";
 import { readFileSync } from "fs";
 
-export default definePlugin((nitroApp) => {
+export default defineNitroPlugin((nitroApp) => {
   // The agent handler is available at POST /api/agent-chat
   // Auth is handled separately via mountAuthMiddleware
 });

@@ -2,9 +2,8 @@ import { createFileWatcher } from "@agent-native/core";
 import type { SSEHandlerOptions } from "@agent-native/core";
 
 export const watcher = createFileWatcher(["./data", "./application-state"]);
-export const sseExtraEmitters: NonNullable<
-  SSEHandlerOptions["extraEmitters"]
-> = [];
+export const sseExtraEmitters: NonNullable<SSEHandlerOptions["extraEmitters"]> =
+  [];
 
 export let syncResult: any = { status: "disabled" };
 

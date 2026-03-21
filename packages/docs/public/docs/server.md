@@ -31,7 +31,9 @@ export default defineEventHandler(async () => {
   const items = await Promise.all(
     files
       .filter((f) => f.endsWith(".json"))
-      .map(async (f) => JSON.parse(await fs.readFile(`./data/items/${f}`, "utf-8"))),
+      .map(async (f) =>
+        JSON.parse(await fs.readFile(`./data/items/${f}`, "utf-8")),
+      ),
   );
   return items;
 });
@@ -39,14 +41,14 @@ export default defineEventHandler(async () => {
 
 ### Route naming conventions
 
-| File name pattern     | HTTP method | Example path           |
-| --------------------- | ----------- | ---------------------- |
-| `index.get.ts`        | GET         | `/api/items`           |
-| `index.post.ts`       | POST        | `/api/items`           |
-| `[id].get.ts`         | GET         | `/api/items/:id`       |
-| `[id].patch.ts`       | PATCH       | `/api/items/:id`       |
-| `[id].delete.ts`      | DELETE      | `/api/items/:id`       |
-| `[...slug].get.ts`    | GET         | `/api/items/*` (catch-all) |
+| File name pattern  | HTTP method | Example path               |
+| ------------------ | ----------- | -------------------------- |
+| `index.get.ts`     | GET         | `/api/items`               |
+| `index.post.ts`    | POST        | `/api/items`               |
+| `[id].get.ts`      | GET         | `/api/items/:id`           |
+| `[id].patch.ts`    | PATCH       | `/api/items/:id`           |
+| `[id].delete.ts`   | DELETE      | `/api/items/:id`           |
+| `[...slug].get.ts` | GET         | `/api/items/*` (catch-all) |
 
 ### Accessing route parameters
 
@@ -73,10 +75,10 @@ Cross-cutting concerns — file watchers, file sync, scheduled jobs, auth — go
 
 ```ts
 // server/plugins/file-sync.ts
-import { definePlugin } from "nitro";
+import { defineNitroPlugin } from "@agent-native/core";
 import { createFileSync } from "@agent-native/core/adapters/sync";
 
-export default definePlugin(async () => {
+export default defineNitroPlugin(async () => {
   const result = await createFileSync({ contentRoot: "./data" });
   if (result.status === "error") {
     console.warn(`[app] File sync failed: ${result.reason}`);
@@ -94,7 +96,8 @@ import { createFileWatcher } from "@agent-native/core";
 import type { SSEHandlerOptions } from "@agent-native/core";
 
 export const watcher = createFileWatcher("./data");
-export const sseExtraEmitters: NonNullable<SSEHandlerOptions["extraEmitters"]> = [];
+export const sseExtraEmitters: NonNullable<SSEHandlerOptions["extraEmitters"]> =
+  [];
 
 export let syncResult: any = { status: "disabled" };
 export function setSyncResult(result: any) {

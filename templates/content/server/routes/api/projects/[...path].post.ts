@@ -14,7 +14,12 @@ export default defineEventHandler(async (event) => {
   const segments = path.split("/");
 
   // /api/projects/**:project/media/chunked/:uploadId/chunk
-  const chunkedChunkIdx = findSuffix(segments, ["media", "chunked", null, "chunk"]);
+  const chunkedChunkIdx = findSuffix(segments, [
+    "media",
+    "chunked",
+    null,
+    "chunk",
+  ]);
   if (chunkedChunkIdx >= 0) {
     setProjectParam(event, segments.slice(0, chunkedChunkIdx));
     event.context.params!.uploadId = segments[chunkedChunkIdx + 2];
@@ -22,7 +27,12 @@ export default defineEventHandler(async (event) => {
   }
 
   // /api/projects/**:project/media/chunked/:uploadId/complete
-  const chunkedCompleteIdx = findSuffix(segments, ["media", "chunked", null, "complete"]);
+  const chunkedCompleteIdx = findSuffix(segments, [
+    "media",
+    "chunked",
+    null,
+    "complete",
+  ]);
   if (chunkedCompleteIdx >= 0) {
     setProjectParam(event, segments.slice(0, chunkedCompleteIdx));
     event.context.params!.uploadId = segments[chunkedCompleteIdx + 2];

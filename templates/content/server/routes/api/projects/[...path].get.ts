@@ -27,7 +27,12 @@ export default defineEventHandler(async (event) => {
   // Try longest suffix first
 
   // /api/projects/**:project/media/chunked/:uploadId/status
-  const chunkedStatusIdx = findSuffix(segments, ["media", "chunked", null, "status"]);
+  const chunkedStatusIdx = findSuffix(segments, [
+    "media",
+    "chunked",
+    null,
+    "status",
+  ]);
   if (chunkedStatusIdx >= 0) {
     setProjectParam(event, segments.slice(0, chunkedStatusIdx));
     event.context.params!.uploadId = segments[chunkedStatusIdx + 2];
@@ -35,7 +40,12 @@ export default defineEventHandler(async (event) => {
   }
 
   // /api/projects/**:project/media/chunked/:uploadId/source
-  const chunkedSourceIdx = findSuffix(segments, ["media", "chunked", null, "source"]);
+  const chunkedSourceIdx = findSuffix(segments, [
+    "media",
+    "chunked",
+    null,
+    "source",
+  ]);
   if (chunkedSourceIdx >= 0) {
     setProjectParam(event, segments.slice(0, chunkedSourceIdx));
     event.context.params!.uploadId = segments[chunkedSourceIdx + 2];
@@ -106,10 +116,7 @@ function setProjectParam(event: any, projectSegments: string[]) {
  * `null` in the pattern matches any segment (wildcard).
  * Returns -1 if not found.
  */
-function findSuffix(
-  segments: string[],
-  pattern: (string | null)[],
-): number {
+function findSuffix(segments: string[], pattern: (string | null)[]): number {
   const start = segments.length - pattern.length;
   if (start < 0) return -1;
 

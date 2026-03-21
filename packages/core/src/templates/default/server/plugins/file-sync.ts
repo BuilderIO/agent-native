@@ -1,10 +1,10 @@
 import "dotenv/config";
 import fs from "fs";
-import { definePlugin } from "nitro";
+import { defineNitroPlugin } from "@agent-native/core";
 import { createFileSync } from "@agent-native/core/adapters/sync";
 import { setSyncResult } from "../lib/watcher";
 
-export default definePlugin(async () => {
+export default defineNitroPlugin(async () => {
   const result = await createFileSync({ contentRoot: "./data" });
   setSyncResult(result);
 

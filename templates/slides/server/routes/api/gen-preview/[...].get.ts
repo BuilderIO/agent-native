@@ -6,7 +6,15 @@ const genPreviewDir = path.resolve(process.cwd(), "public/generated");
 export default defineEventHandler(async (event) => {
   const filename = event.path.replace("/api/gen-preview/", "");
   const filepath = path.resolve(genPreviewDir, filename);
-  if (!filepath.startsWith(genPreviewDir + path.sep)) { setResponseStatus(event, 403); return { error: "Forbidden" }; }
-  try { await stat(filepath); return sendStream(event, createReadStream(filepath)); }
-  catch { setResponseStatus(event, 404); return { error: "Not found" }; }
+  if (!filepath.startsWith(genPreviewDir + path.sep)) {
+    setResponseStatus(event, 403);
+    return { error: "Forbidden" };
+  }
+  try {
+    await stat(filepath);
+    return sendStream(event, createReadStream(filepath));
+  } catch {
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
+  }
 });
