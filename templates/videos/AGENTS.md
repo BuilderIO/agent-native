@@ -25,15 +25,15 @@ Keep entries concise and actionable. Group by category. This file is gitignored 
 
 # Agent-Native Starter
 
-A production-ready full-stack React application template with integrated Express server, featuring React Router 6 SPA mode, TypeScript, Vitest, Zod and modern tooling.
+A production-ready full-stack React application template with integrated Nitro server, featuring React Router 6 SPA mode, TypeScript, Vitest, Zod and modern tooling.
 
-While the starter comes with a express server, only create endpoint when strictly neccesary, for example to encapsulate logic that must leave in the server, such as private keys handling, or certain DB operations, db...
+While the starter comes with a Nitro server, only create endpoint when strictly neccesary, for example to encapsulate logic that must leave in the server, such as private keys handling, or certain DB operations, db...
 
 ## Tech Stack
 
 - **PNPM**: Prefer pnpm
 - **Frontend**: React 18 + React Router 6 (spa) + TypeScript + Vite + TailwindCSS 3
-- **Backend**: Express server integrated with Vite dev server
+- **Backend**: Nitro (via @agent-native/core) — file-based API routing
 - **Testing**: Vitest
 - **UI**: Radix UI + TailwindCSS 3 + Lucide React icons
 
@@ -46,8 +46,8 @@ client/                   # React SPA frontend
 ├── App.tsx               # App entry point and SPA routing setup
 └── global.css            # TailwindCSS 3 theming and global styles
 
-server/                   # Express API backend
-├── index.ts              # Main server setup (express config + routes)
+server/                   # Nitro API server
+├── index.ts              # Main server setup (route handlers)
 └── routes/               # API handlers
 
 shared/                   # Types used by both client & server
@@ -1414,7 +1414,7 @@ interface HoverAnimationResult {
 
 ## Architecture Notes
 
-- Single-port development with Vite + Express integration
+- Single-port development with Vite + Nitro integration
 - TypeScript throughout (client, server, shared)
 - Full hot reload for rapid development
 - Comprehensive UI component library included

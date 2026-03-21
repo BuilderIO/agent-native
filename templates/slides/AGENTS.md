@@ -36,7 +36,7 @@ This means:
          │                                 │
          │         ┌───────────────┐       │
          └────────►│  Backend      │◄──────┘
-                   │  (Express)    │
+                   │  (Nitro)    │
                    │               │
                    │  - API routes │
                    │  - image gen  │
@@ -298,7 +298,7 @@ client/                        # React SPA frontend
 │   └── utils.ts               # cn() utility
 └── App.tsx                    # Router setup
 
-server/                        # Express API backend
+server/                        # Nitro API server
 ├── index.ts                   # Server setup + route registration
 └── routes/
     ├── decks.ts               # GET/PUT/POST/DELETE /api/decks (file-based CRUD)
@@ -325,7 +325,7 @@ scripts/                       # Runnable via `pnpm script <name>`
 - **Framework**: @agent-native/core
 - **Package manager**: pnpm
 - **Frontend**: React 18, React Router 6, TypeScript, Vite, TailwindCSS 3
-- **Backend**: Express (integrated with Vite dev server in dev)
+- **Backend**: Nitro (via @agent-native/core) — file-based API routing
 - **UI components**: Radix UI primitives + Lucide icons
 - **Image generation**: Google Gemini via `@google/genai`
 - **State**: File-based via `/api/decks` (JSON files in `data/decks/`), in-memory undo/redo, share tokens

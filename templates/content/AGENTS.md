@@ -43,7 +43,7 @@ Three pillars. Understand these and you understand the entire app.
 │         ▼                      ▼                             │
 │   ┌──────────┐          ┌──────────┐                         │
 │   │ Backend  │◄────────►│ scripts/ │                         │
-│   │(Express) │          │ (CLI)    │                         │
+│   │(Nitro) │          │ (CLI)    │                         │
 │   └──────────┘          └──────────┘                         │
 │                    npm run script --                          │
 └─────────────────────────────────────────────────────────────┘
@@ -237,7 +237,7 @@ These rules are non-negotiable. They exist because of past mistakes.
 
 - **PNPM** (prefer pnpm)
 - **Frontend**: React 18 + React Router 6 (SPA) + TypeScript + Vite + TailwindCSS 3
-- **Backend**: Express (integrated with Vite dev server, single port 8080)
+- **Backend**: Nitro (via @agent-native/core) — file-based API routing, deploy-anywhere presets
 - **UI**: Radix UI + TailwindCSS 3 + Lucide React icons
 - **Testing**: Vitest
 
@@ -252,7 +252,7 @@ client/                   # React SPA frontend
 ├── App.tsx               # App entry + SPA routing
 └── global.css            # TailwindCSS 3 theming
 
-server/                   # Express API backend
+server/                   # Nitro API server
 ├── index.ts              # Server setup + route registration
 └── routes/               # API handlers (shared with scripts)
 

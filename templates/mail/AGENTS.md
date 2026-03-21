@@ -53,7 +53,7 @@ To check the current state:
                     ▼
             ┌───────────────┐
             │  Backend      │
-            │  (Express)    │
+            │  (Nitro)    │
             │               │
             │  /api/emails  │
             │  /api/labels  │
@@ -466,7 +466,7 @@ data/
 - **Framework**: `@agent-native/core`
 - **Package manager**: `pnpm`
 - **Frontend**: React 18, React Router 6, TypeScript, Vite, TailwindCSS
-- **Backend**: Express 5
+- **Backend**: Nitro (via @agent-native/core)
 - **UI**: Radix UI + shadcn/ui
 - **Icons**: `@tabler/icons-react` — use Tabler icons for all icons. Do not use Lucide or inline SVGs.
 - **Themes**: next-themes (dark/light/system)

@@ -28,7 +28,7 @@ Keep entries concise and actionable. Group by category. This file is gitignored 
 > **Provider-specific knowledge** (BigQuery tables, API quirks, auth, script usage) lives in `.builder/skills/<provider>/SKILL.md`.
 > Read the relevant skill before querying any provider. After completing work, **update the relevant skill or learnings.md** with new discoveries.
 
-Internal analytics dashboard. Built with React + Express + TypeScript.
+Internal analytics dashboard. Built with React + Nitro + TypeScript.
 
 ## Skills
 
@@ -70,7 +70,7 @@ Skills should be **continuously improved** based on learnings and feedback. When
          │  fetch /api/*                 │  pnpm script <name>
          │                               │
 ┌────────▼────────────┐       ┌──────────▼──────────┐
-│  Backend (Express)  │◄─────►│    scripts/          │
+│  Backend (Nitro)  │◄─────►│    scripts/          │
 │                     │       │                     │
 │  API routes         │       │  standalone TS files │
 │  BigQuery, HubSpot, │       │  import server libs  │
@@ -126,7 +126,7 @@ File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.en
 ## Tech Stack
 
 - **Frontend**: React 18 + React Router 6 (SPA) + TypeScript + Vite + TailwindCSS 3
-- **Backend**: Express server integrated with Vite dev server
+- **Backend**: Nitro (via @agent-native/core) — file-based API routing
 - **Testing**: Vitest
 - **UI Components**: Radix UI + TailwindCSS 3 + Lucide React icons
 - **Package Manager**: pnpm
@@ -141,8 +141,8 @@ client/                   # React SPA frontend
 ├── App.tsx               # App entry point with SPA routing
 └── global.css            # TailwindCSS 3 theming and global styles
 
-server/                   # Express API backend
-├── index.ts              # Server setup (express config + routes)
+server/                   # Nitro API server
+├── index.ts              # Server setup (route handlers)
 ├── lib/                  # Shared server libraries (BigQuery, HubSpot, etc.)
 └── routes/               # API route handlers
 

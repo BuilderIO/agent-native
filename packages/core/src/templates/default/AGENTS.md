@@ -109,7 +109,7 @@ File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.en
 
 **How sync works:**
 
-- `createFileSync()` factory in `server/index.ts` reads env vars and initializes sync
+- `createFileSync()` factory in `server/plugins/file-sync.ts` reads env vars and initializes sync
 - Files matching `sync-config.json` patterns are synced to/from the remote database
 - Sync events flow through SSE (`source: "sync"`) alongside file change events
 - Conflicts produce `.conflict` sidecar files and notify the agent

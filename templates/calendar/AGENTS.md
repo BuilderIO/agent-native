@@ -32,7 +32,7 @@ This is an agent-native calendar app with Google Calendar integration and a publ
 ### How it works
 
 1. **Frontend** (React + Vite) reads state via API routes
-2. **Server** (Express) reads/writes JSON files in `data/`
+2. **Server** (Nitro) reads/writes JSON files in `data/`
 3. **Agent** reads/writes files directly — changes propagate to UI via SSE
 4. **Google Calendar** synced via pull-based approach (no webhooks)
 
@@ -50,7 +50,7 @@ This is an agent-native calendar app with Google Calendar integration and a publ
          │                                 │
          │         ┌───────────────┐       │
          └────────►│  Backend      │◄──────┘
-                   │  (Express)    │
+                   │  (Nitro)    │
                    │               │
                    │  - API routes │
                    │  - Google Cal │
@@ -235,7 +235,7 @@ client/          # React SPA
     ui/          # shadcn/ui components
   hooks/         # React Query hooks (use-events, use-bookings, etc.)
   pages/         # Route pages
-server/          # Express backend
+server/          # Nitro API server
   routes/        # API route handlers
   lib/           # Google Calendar client, data helpers, env config
 shared/          # Shared TypeScript types
@@ -248,7 +248,7 @@ data/            # File-based data storage
 - **Framework**: @agent-native/core
 - **Package manager**: pnpm
 - **Frontend**: React 18, React Router 6, TypeScript, Vite, TailwindCSS
-- **Backend**: Express
+- **Backend**: Nitro (via @agent-native/core)
 - **UI components**: Radix UI + Lucide icons
 - **Google Integration**: googleapis npm package
 - **State**: File-based JSON in `data/`
