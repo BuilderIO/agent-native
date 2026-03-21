@@ -86,10 +86,6 @@ function ThreadListSidebar({
         {threads.map((thread) => {
           const email = thread.latestMessage;
           const isActive = (email.threadId || email.id) === activeThreadId;
-          const senderName =
-            thread.messageCount > 1
-              ? thread.participants.map((p) => p.split(" ")[0]).join(", ")
-              : email.from.name || email.from.email;
           return (
             <button
               key={email.id}
