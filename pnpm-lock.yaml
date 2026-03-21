@@ -35,7 +35,7 @@ importers:
         version: 2.1.1
       convex:
         specifier: '>=1'
-        version: 1.33.1(react@18.3.1)
+        version: 1.34.0(react@18.3.1)
       dotenv:
         specifier: ^17.2.1
         version: 17.3.1
@@ -7166,8 +7166,8 @@ packages:
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
 
-  convex@1.33.1:
-    resolution: {integrity: sha512-mRhR1XqZPLhgJsUepecM/kOgQVRCWKJtHHtyEX/XYY4zmzfItG0D1GNh5fjNEkuO5+72X4PCkzbEFA6327rxog==}
+  convex@1.34.0:
+    resolution: {integrity: sha512-TbC509Z4urZMChZR2aLPgalQ8gMhAYSz2VMxaYsCvba8YqB0Uxma7zWnXwRn7aEGXuA8ro5/uHgD1IJ0HhYYPg==}
     engines: {node: '>=18.0.0', npm: '>=7.0.0'}
     hasBin: true
     peerDependencies:
@@ -17186,7 +17186,7 @@ snapshots:
 
   convert-source-map@2.0.0: {}
 
-  convex@1.33.1(react@18.3.1):
+  convex@1.34.0(react@18.3.1):
     dependencies:
       esbuild: 0.27.0
       prettier: 3.8.1
