@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import DocsSidebar from "./DocsSidebar";
 import TableOfContents from "./TableOfContents";
+import MobileDocsNav from "./MobileDocsNav";
+import DocsPrevNext from "./DocsPrevNext";
 
 interface TocItem {
   id: string;
@@ -16,12 +18,16 @@ export default function DocsLayout({
   toc?: TocItem[];
 }) {
   return (
-    <div className="mx-auto flex max-w-[1440px] px-6">
+    <div className="mx-auto flex max-w-[1440px] px-0 lg:px-6">
       <DocsSidebar />
-      <main className="min-w-0 flex-1 border-x border-[var(--border)] px-8 pb-16 pt-8 lg:px-12">
+      <main className="min-w-0 flex-1 border-0 border-[var(--border)] px-4 pb-16 pt-0 sm:px-6 lg:border-x lg:px-12 lg:pt-8">
+        <MobileDocsNav />
         <article className="docs-content mx-auto max-w-[720px]">
           {children}
         </article>
+        <div className="mx-auto max-w-[720px]">
+          <DocsPrevNext />
+        </div>
       </main>
       {toc && toc.length > 0 ? (
         <TableOfContents items={toc} />
