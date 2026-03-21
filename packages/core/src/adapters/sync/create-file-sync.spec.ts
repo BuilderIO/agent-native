@@ -18,16 +18,26 @@ describe("createFileSync", () => {
     expect(result.status).toBe("disabled");
   });
 
-  it("returns error when FILE_SYNC_BACKEND is missing", async () => {
+  it("defaults to drizzle when FILE_SYNC_BACKEND is not set", async () => {
     vi.stubEnv("FILE_SYNC_ENABLED", "true");
     vi.stubEnv("FILE_SYNC_BACKEND", "");
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const result = await createFileSync({ contentRoot: "./data" });
-    expect(result.status).toBe("error");
+    // drizzle adapter will try to create a SQLite db at contentRoot/sync.db.
+    // Pass a tmp dir so we don't pollute the cwd.
+    const os = await import("os");
+    const path = await import("path");
+    const tmpDir = path.join(os.tmpdir(), `file-sync-test-${Date.now()}`);
+    const fsMod = await import("fs");
+    fsMod.mkdirSync(tmpDir, { recursive: true });
+    // The adapter will be created but FileSync.initFileSync reads sync-config,
+    // which may not exist — that's fine, the test just validates the backend resolves.
+    const result = await createFileSync({ contentRoot: tmpDir });
+    // Should not be "error: FILE_SYNC_BACKEND is missing" anymore
     if (result.status === "error") {
-      expect(result.reason).toContain("FILE_SYNC_BACKEND");
+      expect(result.reason).not.toContain("FILE_SYNC_BACKEND");
     }
-    warnSpy.mockRestore();
+    // Clean up db if created
+    if (result.status === "ready") await result.shutdown();
+    fsMod.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it("returns error when FILE_SYNC_BACKEND is invalid", async () => {

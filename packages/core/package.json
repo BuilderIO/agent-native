@@ -24,6 +24,7 @@
     "./shared": "./dist/shared/index.js",
     "./scripts": "./dist/scripts/index.js",
     "./adapters/sync": "./dist/adapters/sync/index.js",
+    "./adapters/drizzle": "./dist/adapters/drizzle/index.js",
     "./adapters/firestore": "./dist/adapters/firestore/index.js",
     "./adapters/supabase": "./dist/adapters/supabase/index.js",
     "./adapters/convex": "./dist/adapters/convex/index.js",
