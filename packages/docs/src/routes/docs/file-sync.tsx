@@ -20,6 +20,7 @@ const TOC = [
   { id: "overview", label: "Overview" },
   { id: "quick-start", label: "Quick Start" },
   { id: "configuration", label: "Configuration" },
+  { id: "backend-drizzle", label: "Backend: Drizzle (SQLite)" },
   { id: "backend-firestore", label: "Backend: Firestore" },
   { id: "backend-supabase", label: "Backend: Supabase" },
   { id: "backend-convex", label: "Backend: Convex" },
@@ -55,9 +56,9 @@ function FileSyncDocs() {
         and pulls remote updates back to disk.
       </p>
       <p>
-        Three backends ship with <code>@agent-native/core</code>: Firestore,
-        Supabase, and Convex. You can also build your own adapter for any
-        backend.
+        Four backends ship with <code>@agent-native/core</code>: Drizzle/SQLite
+        (the zero-config default), Firestore, Supabase, and Convex. You can also
+        build your own adapter for any backend.
       </p>
       <p>
         The sync engine handles file watching, pattern matching, conflict
@@ -71,17 +72,37 @@ function FileSyncDocs() {
       {/* ------------------------------------------------------------------ */}
 
       <h2 id="quick-start">Quick Start</h2>
+      <p>
+        The fastest way to enable file sync is with the built-in Drizzle/SQLite
+        backend — no extra packages, no external services, no configuration
+        beyond a single env var.
+      </p>
 
-      <h3>1. Install the peer dependency for your backend</h3>
+      <h3>Drizzle/SQLite (recommended, zero-config)</h3>
       <CodeBlock
-        code={`# Pick one:
-pnpm add firebase-admin       # Firestore
-pnpm add @supabase/supabase-js  # Supabase
-pnpm add convex                # Convex`}
+        code={`# .env
+FILE_SYNC_ENABLED=true
+# FILE_SYNC_BACKEND defaults to "drizzle" — no need to set it`}
         lang="bash"
       />
+      <p>
+        The SQLite database is created automatically at{" "}
+        <code>data/sync.db</code> on first run. Restart your app and sync is
+        live.
+      </p>
 
-      <h3>2. Set environment variables</h3>
+      <h3>External backends (multi-instance / team sync)</h3>
+      <p>
+        When you need to sync across multiple servers or share state with
+        teammates, choose an external backend and install its peer dependency:
+      </p>
+      <CodeBlock
+        code={`# Pick one:
+pnpm add firebase-admin         # Firestore
+pnpm add @supabase/supabase-js  # Supabase
+pnpm add convex                 # Convex`}
+        lang="bash"
+      />
       <CodeBlock
         code={`# .env
 FILE_SYNC_ENABLED=true
@@ -95,7 +116,7 @@ GOOGLE_APPLICATION_CREDENTIALS=./service-account.json  # Firestore
         lang="bash"
       />
 
-      <h3>3. Restart your app</h3>
+      <h3>Restart your app</h3>
       <p>
         The default template server already calls <code>createFileSync()</code>.
         Once the env vars are set, sync starts automatically on the next server
@@ -188,6 +209,73 @@ GOOGLE_APPLICATION_CREDENTIALS=./service-account.json  # Firestore
       <p>
         The denylist is hardcoded and cannot be overridden by user patterns.
         This prevents accidental credential leaks.
+      </p>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Backend: Drizzle (SQLite)                                           */}
+      {/* ------------------------------------------------------------------ */}
+
+      <h2 id="backend-drizzle">
+        Backend: Drizzle (SQLite){" "}
+        <span className="ml-2 inline-flex items-center rounded-full bg-[var(--accent)]/10 px-2.5 py-0.5 text-xs font-medium text-[var(--accent)]">
+          Default
+        </span>
+      </h2>
+      <p>
+        The Drizzle/SQLite adapter is the zero-config default. It uses{" "}
+        <code>drizzle-orm</code> and <code>better-sqlite3</code> — both already
+        bundled with <code>@agent-native/core</code> — so there's nothing extra
+        to install.
+      </p>
+      <p>
+        The SQLite database lives at <code>data/sync.db</code> alongside your
+        app data. The table is created automatically on first run.
+      </p>
+
+      <h3>Setup</h3>
+      <p>Just set one env var — no backend configuration required:</p>
+      <CodeBlock
+        code={`# .env
+FILE_SYNC_ENABLED=true
+# FILE_SYNC_BACKEND=drizzle  (this is the default — no need to set it)`}
+        lang="bash"
+      />
+      <p>
+        That's it. Restart your app and sync is active. The database is created
+        at <code>data/sync.db</code>.
+      </p>
+
+      <h3>When to use Drizzle</h3>
+      <div className="my-4 grid gap-4 sm:grid-cols-2">
+        <div className="rounded-xl border border-[var(--border)] p-5">
+          <div className="mb-2 text-sm font-semibold text-green-600 dark:text-green-400">
+            Good fit
+          </div>
+          <ul className="m-0 list-disc pl-4 text-sm text-[var(--fg-secondary)]">
+            <li>Single-server deployments</li>
+            <li>Local development and testing</li>
+            <li>Persisting data between server restarts</li>
+            <li>Getting started quickly with no external services</li>
+          </ul>
+        </div>
+        <div className="rounded-xl border border-[var(--border)] p-5">
+          <div className="mb-2 text-sm font-semibold text-yellow-600 dark:text-yellow-400">
+            Consider another backend when…
+          </div>
+          <ul className="m-0 list-disc pl-4 text-sm text-[var(--fg-secondary)]">
+            <li>Running multiple server instances in parallel</li>
+            <li>Sharing state across teammates in real-time</li>
+            <li>Deploying to ephemeral / read-only filesystems</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>Subscribe uses polling</h3>
+      <p>
+        SQLite has no native change-notification mechanism. The adapter polls
+        every second using a lightweight <code>MAX(last_updated)</code> query.
+        Full rows are only fetched when the max changes, making idle polling
+        cheap.
       </p>
 
       {/* ------------------------------------------------------------------ */}
