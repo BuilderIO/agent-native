@@ -10,7 +10,7 @@
     "script": "agent-native script"
   },
   "dependencies": {
-    "@agent-native/core": "^0.2.0",
+    "@agent-native/core": "^0.4.1",
     "dotenv": "^17.2.1"
   },
   "devDependencies": {

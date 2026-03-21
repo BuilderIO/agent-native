@@ -7,6 +7,7 @@ import {
   isRouteErrorResponse,
 } from "react-router";
 import { useEffect } from "react";
+import { useState } from "react";
 import {
   QueryClient,
   QueryClientProvider,
@@ -18,12 +19,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useFileWatcher } from "@agent-native/core";
 import "./global.css";
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { staleTime: 30_000, retry: 1 },
-  },
-});
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -93,6 +88,14 @@ function FileWatcherSetup() {
 }
 
 export default function Root() {
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: { staleTime: 30_000, retry: 1 },
+        },
+      }),
+  );
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider

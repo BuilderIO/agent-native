@@ -6,12 +6,15 @@ import {
   ScrollRestoration,
   isRouteErrorResponse,
 } from "react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useState } from "react";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useFileWatcher } from "@agent-native/core";
 import { Layout as AppLayout } from "@/components/Layout";
 import "./global.css";
-
-const queryClient = new QueryClient();
 
 /** React Router HTML shell — wraps root component, error boundary, and hydrate fallback */
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -38,11 +41,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 function FileWatcher({ children }: { children: React.ReactNode }) {
-  useFileWatcher({ queryClient, queryKeys: ["brand", "generations"] });
+  const qc = useQueryClient();
+  useFileWatcher({ queryClient: qc, queryKeys: ["brand", "generations"] });
   return <>{children}</>;
 }
 
 export default function Root() {
+  const [queryClient] = useState(() => new QueryClient());
   return (
     <QueryClientProvider client={queryClient}>
       <FileWatcher>

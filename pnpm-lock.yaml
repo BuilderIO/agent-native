@@ -79,6 +79,9 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
       '@types/node':
         specifier: ^24.2.1
         version: 24.12.0
@@ -91,6 +94,9 @@ importers:
       autoprefixer:
         specifier: ^10.4.21
         version: 10.4.27(postcss@8.5.8)
+      express:
+        specifier: ^5.2.1
+        version: 5.2.1
       firebase-admin:
         specifier: ^13.0.0
         version: 13.7.0(encoding@0.1.13)

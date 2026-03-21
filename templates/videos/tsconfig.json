@@ -6,7 +6,6 @@
     "module": "ESNext",
     "skipLibCheck": true,
 
-    
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "isolatedModules": true,
@@ -17,7 +16,6 @@
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
 
-    
     "strict": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
@@ -25,12 +23,13 @@
     "noFallthroughCasesInSwitch": false,
     "strictNullChecks": false,
 
-    
+    "rootDirs": [".", "./.react-router/types"],
     "baseUrl": ".",
     "paths": {
       "@/*": ["./client/*"],
       "@shared/*": ["./shared/*"]
-    }
+    },
+    "types": ["vite/client"]
   },
   "include": [
     "client/**/*",

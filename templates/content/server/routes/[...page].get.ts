@@ -2,7 +2,7 @@ import { createRequestHandler } from "react-router";
 import { defineEventHandler, toWebRequest } from "h3";
 
 const handler = createRequestHandler(
-  // @ts-expect-error — virtual module provided by React Router Vite plugin
+  // virtual module provided by React Router Vite plugin
   () => import("virtual:react-router/server-build"),
 );
 
