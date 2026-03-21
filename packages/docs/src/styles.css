@@ -684,6 +684,11 @@ html.dark .shiki span {
   margin-left: auto;
 }
 
+.docs-next-text {
+  text-align: right;
+  align-items: flex-end;
+}
+
 @media (max-width: 479px) {
   .docs-prev-next {
     gap: 8px;
