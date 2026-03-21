@@ -70,7 +70,10 @@ body,
   min-height: 100%;
 }
 
-html,
+html {
+  overflow-x: clip;
+}
+
 body {
   overflow-x: hidden;
 }
@@ -613,6 +616,13 @@ html.dark .shiki span {
   background: var(--accent-light);
 }
 
+/* Push doc content below the sticky mobile nav */
+@media (max-width: 1023px) {
+  .mobile-docs-nav + .docs-content {
+    margin-top: 24px;
+  }
+}
+
 /* Prev / Next navigation */
 .docs-prev-next {
   display: flex;
@@ -676,18 +686,11 @@ html.dark .shiki span {
 
 @media (max-width: 479px) {
   .docs-prev-next {
-    flex-direction: column;
     gap: 8px;
   }
   .docs-prev-next-link {
-    width: 100%;
-  }
-  .docs-next-link {
-    flex-direction: row-reverse;
-    margin-left: 0;
-  }
-  .docs-next-link .docs-prev-next-text {
-    text-align: left;
+    flex: 1;
+    min-width: 0;
   }
 }
 

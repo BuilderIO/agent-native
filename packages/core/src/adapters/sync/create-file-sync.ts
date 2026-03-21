@@ -12,7 +12,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-export type FileSyncBackend = "firestore" | "supabase" | "convex";
+export type FileSyncBackend = "drizzle" | "firestore" | "supabase" | "convex";
 
 export type FileSyncResult =
   | { readonly status: "disabled" }
@@ -32,7 +32,12 @@ export type FileSyncResult =
 // ---------------------------------------------------------------------------
 
 function isValidBackend(value: string): value is FileSyncBackend {
-  return value === "firestore" || value === "supabase" || value === "convex";
+  return (
+    value === "drizzle" ||
+    value === "firestore" ||
+    value === "supabase" ||
+    value === "convex"
+  );
 }
 
 function requireEnv(key: string): string {
@@ -59,8 +64,24 @@ function readPackageName(): string | null {
 
 async function createAdapter(
   backend: FileSyncBackend,
+  options: { contentRoot: string },
 ): Promise<FileSyncAdapter | null> {
   switch (backend) {
+    case "drizzle": {
+      try {
+        const { DrizzleFileSyncAdapter } =
+          await import("../drizzle/adapter.js");
+        const dbPath = path.resolve(options.contentRoot, "sync.db");
+        return new DrizzleFileSyncAdapter(dbPath);
+      } catch (err: unknown) {
+        const safeMsg =
+          err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
+        console.error(
+          `[file-sync] Failed to initialize Drizzle/SQLite adapter: ${safeMsg}`,
+        );
+        return null;
+      }
+    }
     case "firestore": {
       try {
         requireEnv("GOOGLE_APPLICATION_CREDENTIALS");
@@ -207,14 +228,16 @@ export async function createFileSync(options: {
     return { status: "disabled" };
   }
 
-  const backend = process.env.FILE_SYNC_BACKEND;
-  if (!backend || !isValidBackend(backend)) {
-    const reason = `FILE_SYNC_ENABLED=true but FILE_SYNC_BACKEND is missing or invalid ("${backend}")`;
+  // Default to "drizzle" (SQLite, zero-config) when FILE_SYNC_BACKEND is not set.
+  const backendEnv = process.env.FILE_SYNC_BACKEND || "drizzle";
+  if (!isValidBackend(backendEnv)) {
+    const reason = `FILE_SYNC_ENABLED=true but FILE_SYNC_BACKEND is invalid ("${backendEnv}")`;
     console.warn(`[file-sync] ${reason}`);
     return { status: "error", reason };
   }
+  const backend = backendEnv;
 
-  const adapter = await createAdapter(backend);
+  const adapter = await createAdapter(backend, options);
   if (!adapter) {
     return {
       status: "error",
