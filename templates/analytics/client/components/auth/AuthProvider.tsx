@@ -1,8 +1,8 @@
 import { createContext, useContext, type ReactNode } from "react";
-import { type BuilderAuth } from "@/lib/auth";
+import { useSession, type AuthSession } from "@agent-native/core";
 
 interface AuthContextValue {
-  auth: BuilderAuth | null;
+  auth: AuthSession | null;
   isLoading: boolean;
   logout: () => void;
 }
@@ -10,11 +10,15 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // No authentication — always treat the user as logged in.
+  const { session, isLoading } = useSession();
+
   const value: AuthContextValue = {
-    auth: { email: "local@localhost" },
-    isLoading: false,
-    logout: () => {},
+    auth: session,
+    isLoading,
+    logout: () =>
+      fetch("/api/auth/logout", { method: "POST" }).then(() =>
+        location.reload(),
+      ),
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

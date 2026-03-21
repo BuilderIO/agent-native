@@ -28,6 +28,9 @@ dist-ssr
 .config/
 .env
 
+# Auth sessions (sensitive, never commit)
+data/.sessions.json
+
 # Ephemeral editor state
 .editor-selection.json
 
