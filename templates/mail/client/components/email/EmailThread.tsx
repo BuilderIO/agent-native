@@ -1313,20 +1313,37 @@ function emailHasCustomStyling(html: string): boolean {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
 
-  // bgcolor attribute on any element (classic HTML email tables)
+  // bgcolor on ANY element — this attribute is exclusively used in HTML emails
+  // to set structural background colors; it's never set by accident
   if (doc.querySelector("[bgcolor]")) return true;
 
-  // background-color or background in any inline style attribute
-  const styledEls = doc.querySelectorAll("[style]");
-  for (const el of styledEls) {
-    const style = el.getAttribute("style") || "";
+  // background-color on <body> inline style
+  const body = doc.body;
+  const bodyStyle = body?.getAttribute("style") || "";
+  if (/background(-color)?:/i.test(bodyStyle)) return true;
+
+  // background-color on direct children of <body> (outer wrapper divs/tables)
+  for (const child of Array.from(body?.children ?? [])) {
+    const style = child.getAttribute("style") || "";
     if (/background(-color)?:/i.test(style)) return true;
   }
 
-  // background-color in <style> blocks
+  // background-color in <style> blocks targeting structural email selectors
   const styleTags = doc.querySelectorAll("style");
   for (const tag of styleTags) {
-    if (/background(-color)?:/i.test(tag.textContent || "")) return true;
+    const text = tag.textContent || "";
+    // html/body/table/td/div element selectors
+    if (
+      /(?:html|body|table|td|th|div)\s*\{[^}]*background(-color)?:/im.test(text)
+    )
+      return true;
+    // common email wrapper class names
+    if (
+      /\.(?:wrapper|container|email|body|content|main|outer)\s*\{[^}]*background(-color)?:/im.test(
+        text,
+      )
+    )
+      return true;
   }
 
   return false;

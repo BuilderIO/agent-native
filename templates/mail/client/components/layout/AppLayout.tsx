@@ -13,13 +13,6 @@ import {
   useLocation,
   useSearchParams,
 } from "react-router-dom";
-import {
-  IconChevronRight,
-  IconChevronLeft,
-  IconSettings,
-  IconAlarm,
-  IconClockHour4,
-} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "./CommandPalette";
 import { ComposeModal } from "@/components/email/ComposeModal";
@@ -710,34 +703,78 @@ export function AppLayout({ children }: AppLayoutProps) {
           {sidebarOpen && (
             <>
               <div
-                className="fixed inset-0 z-30 bg-black/40"
+                className="fixed inset-0 z-30 bg-black/20"
                 onClick={() => setSidebarOpen(false)}
               />
-              <div className="fixed left-0 top-0 bottom-0 z-40 w-64 bg-card border-r border-border/50 shadow-xl overflow-y-auto">
+              <div className="fixed left-0 top-0 bottom-0 z-40 w-64 bg-background/70 backdrop-blur-2xl border-r border-white/8 shadow-2xl overflow-y-auto">
+                {/* Accounts */}
+                {hasAccounts && (
+                  <div className="px-4 pt-5 pb-4 border-b border-white/8">
+                    <div className="space-y-2">
+                      {accounts.map((account) => {
+                        const isActive =
+                          activeAccounts.size === 0 ||
+                          activeAccounts.has(account.email);
+                        return (
+                          <button
+                            key={account.email}
+                            onClick={() => {
+                              setActiveAccounts((prev) => {
+                                const next = new Set(prev);
+                                if (next.size === 0) {
+                                  for (const a of accounts) {
+                                    if (a.email !== account.email)
+                                      next.add(a.email);
+                                  }
+                                } else if (next.has(account.email)) {
+                                  next.delete(account.email);
+                                  if (next.size === 0) return new Set();
+                                } else {
+                                  next.add(account.email);
+                                  if (next.size === accounts.length)
+                                    return new Set();
+                                }
+                                return next;
+                              });
+                            }}
+                            className={cn(
+                              "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-all",
+                              isActive ? "opacity-100" : "opacity-30",
+                            )}
+                          >
+                            {account.photoUrl ? (
+                              <img
+                                src={account.photoUrl}
+                                alt=""
+                                className="h-8 w-8 rounded-full object-cover shrink-0"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-[12px] font-semibold text-primary shrink-0">
+                                {account.email[0]?.toUpperCase()}
+                              </div>
+                            )}
+                            <span className="text-[13px] text-foreground truncate">
+                              {account.email}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 <div className="p-4">
-                  <h2 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mb-3">
-                    Mailbox
-                  </h2>
                   <div className="space-y-0.5">
                     {[
                       { id: "inbox", label: "Inbox", href: "/inbox" },
                       { id: "starred", label: "Starred", href: "/starred" },
-                      {
-                        id: "snoozed",
-                        label: "Snoozed",
-                        href: "/snoozed",
-                        icon: (
-                          <IconAlarm className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-                        ),
-                      },
+                      { id: "snoozed", label: "Snoozed", href: "/snoozed" },
                       { id: "sent", label: "Sent", href: "/sent" },
                       {
                         id: "scheduled",
                         label: "Scheduled",
                         href: "/scheduled",
-                        icon: (
-                          <IconClockHour4 className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-                        ),
                       },
                       { id: "drafts", label: "Drafts", href: "/drafts" },
                       { id: "archive", label: "Done", href: "/archive" },
@@ -750,14 +787,11 @@ export function AppLayout({ children }: AppLayoutProps) {
                         className={cn(
                           "flex items-center justify-between rounded-md px-3 py-2 text-[14px] transition-colors",
                           view === item.id
-                            ? "bg-accent text-foreground font-medium"
-                            : "text-foreground/70 hover:bg-accent/50",
+                            ? "bg-accent/60 text-foreground font-medium"
+                            : "text-foreground/70 hover:bg-accent/30",
                         )}
                       >
-                        <span className="flex items-center gap-2">
-                          {"icon" in item && item.icon}
-                          {item.label}
-                        </span>
+                        <span>{item.label}</span>
                         {item.id === "inbox" && labelCounts["inbox"] > 0 && (
                           <span className="text-[12px] text-muted-foreground/50 tabular-nums">
                             {labelCounts["inbox"]}
@@ -765,19 +799,18 @@ export function AppLayout({ children }: AppLayoutProps) {
                         )}
                       </Link>
                     ))}
-                    <div className="mt-2 pt-2 border-t border-border/30">
+                    <div className="mt-2 pt-2 border-t border-white/8">
                       <Link
                         to="/settings"
                         onClick={() => setSidebarOpen(false)}
                         className={cn(
-                          "flex items-center gap-2.5 rounded-md px-3 py-2 text-[14px] transition-colors",
+                          "flex items-center rounded-md px-3 py-2 text-[14px] transition-colors",
                           location.pathname === "/settings"
-                            ? "bg-accent text-foreground font-medium"
-                            : "text-foreground/70 hover:bg-accent/50",
+                            ? "bg-accent/60 text-foreground font-medium"
+                            : "text-foreground/70 hover:bg-accent/30",
                         )}
                       >
-                        <IconSettings className="h-4 w-4 shrink-0" />
-                        <span>Settings</span>
+                        Settings
                       </Link>
                     </div>
                   </div>
@@ -807,8 +840,8 @@ export function AppLayout({ children }: AppLayoutProps) {
                                 className={cn(
                                   "flex items-center justify-between rounded-md px-3 py-2 text-[14px] transition-colors",
                                   tab.isActive
-                                    ? "bg-accent text-foreground font-medium"
-                                    : "text-foreground/70 hover:bg-accent/50",
+                                    ? "bg-accent/60 text-foreground font-medium"
+                                    : "text-foreground/70 hover:bg-accent/30",
                                 )}
                               >
                                 <span className="flex items-center gap-2">

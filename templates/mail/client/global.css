@@ -615,3 +615,15 @@
   background: transparent !important;
   border-color: transparent !important;
 }
+
+/* Inbox Zero — tab text: active white, inactive white/60, icons white/40 */
+.inbox-zero .inbox-zero-header a,
+.inbox-zero .inbox-zero-header button,
+.inbox-zero .inbox-zero-header span {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.inbox-zero .inbox-zero-header a[aria-current],
+.inbox-zero .inbox-zero-header a.font-semibold {
+  color: rgba(255, 255, 255, 1) !important;
+}
