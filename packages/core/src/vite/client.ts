@@ -28,10 +28,13 @@ export interface ClientConfigOptions {
   /** Additional fs.deny patterns */
   fsDeny?: string[];
   /**
-   * Use React Router framework mode instead of plain React SWC plugin.
-   * When true, uses `reactRouter()` from `@react-router/dev/vite` which
-   * includes React transformation internally — no need for `@vitejs/plugin-react-swc`.
-   * Default: false (uses @vitejs/plugin-react-swc for backward compatibility)
+   * @deprecated Pass `reactRouter()` directly in the `plugins` array instead.
+   * Previously used to auto-load the React Router Vite plugin via require(),
+   * but this fails in ESM contexts. Templates should now do:
+   * ```ts
+   * import { reactRouter } from "@react-router/dev/vite";
+   * defineConfig({ plugins: [reactRouter()] })
+   * ```
    */
   reactRouter?: boolean | Record<string, unknown>;
 }
@@ -78,20 +81,17 @@ function baseRedirectGuard(): Plugin {
  * Both modes include Nitro for API routes, path aliases, and fs restrictions.
  */
 export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
-  const useReactRouter = !!options.reactRouter;
+  // Check if React Router plugin was passed directly in plugins array
+  const hasReactRouterPlugin = options.plugins?.some(
+    (p: any) =>
+      p?.name === "react-router" ||
+      (Array.isArray(p) && p.some((pp: any) => pp?.name === "react-router")),
+  );
 
   let reactTransformPlugin: any;
 
-  if (useReactRouter) {
-    // React Router framework mode — includes React transformation internally
-    try {
-      const rrDev = require("@react-router/dev/vite");
-      reactTransformPlugin = rrDev.reactRouter ?? rrDev.default ?? rrDev;
-    } catch {
-      // Will be resolved at runtime by Vite
-    }
-  } else {
-    // Legacy SPA mode — use React SWC plugin
+  if (!hasReactRouterPlugin && !options.reactRouter) {
+    // Legacy SPA mode — use React SWC plugin (only when React Router is not used)
     try {
       reactTransformPlugin = require("@vitejs/plugin-react-swc");
       if (reactTransformPlugin.default)
@@ -122,12 +122,8 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
   if (srcDir) nitroOpts.srcDir = srcDir;
   if (routesDir) nitroOpts.routesDir = routesDir;
 
-  // Build the React transform plugin with appropriate options
-  const reactRouterOpts =
-    typeof options.reactRouter === "object" ? options.reactRouter : {};
-  const reactPluginInstance = useReactRouter
-    ? reactTransformPlugin?.(reactRouterOpts)
-    : reactTransformPlugin?.();
+  // Build the React transform plugin (only for legacy SPA mode)
+  const reactPluginInstance = reactTransformPlugin?.();
 
   return {
     server: {
