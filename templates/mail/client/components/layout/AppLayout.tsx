@@ -739,9 +739,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                             }}
                             className={cn(
                               "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-all",
-                              isActive
-                                ? "opacity-100"
-                                : "opacity-30",
+                              isActive ? "opacity-100" : "opacity-30",
                             )}
                           >
                             {account.photoUrl ? (
@@ -773,7 +771,11 @@ export function AppLayout({ children }: AppLayoutProps) {
                       { id: "starred", label: "Starred", href: "/starred" },
                       { id: "snoozed", label: "Snoozed", href: "/snoozed" },
                       { id: "sent", label: "Sent", href: "/sent" },
-                      { id: "scheduled", label: "Scheduled", href: "/scheduled" },
+                      {
+                        id: "scheduled",
+                        label: "Scheduled",
+                        href: "/scheduled",
+                      },
                       { id: "drafts", label: "Drafts", href: "/drafts" },
                       { id: "archive", label: "Done", href: "/archive" },
                       { id: "trash", label: "Trash", href: "/trash" },
