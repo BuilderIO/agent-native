@@ -27,7 +27,8 @@
     "dotenv": "^17.2.1",
     "h3": "^1.15.3",
     "remotion": "^4.0.434",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "isbot": "^5"
   },
   "devDependencies": {
     "@react-router/dev": "^7.13.1",

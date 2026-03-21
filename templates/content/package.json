@@ -58,7 +58,8 @@
     "tiptap-markdown": "^0.9.0",
     "turndown": "^7.2.2",
     "yaml": "^2.8.2",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "isbot": "^5"
   },
   "devDependencies": {
     "@react-router/dev": "^7.13.1",

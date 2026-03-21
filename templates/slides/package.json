@@ -31,7 +31,8 @@
     "pdf-parse": "^2.4.5",
     "react-markdown": "^10.1.0",
     "rehype-raw": "^7.0.0",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "isbot": "^5"
   },
   "devDependencies": {
     "@react-router/dev": "^7.13.1",

@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@agent-native/core": "^0.4.1",
-    "dotenv": "^17.2.1"
+    "dotenv": "^17.2.1",
+    "isbot": "^5"
   },
   "devDependencies": {
     "@react-router/dev": "^7.13.1",

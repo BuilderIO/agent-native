@@ -400,6 +400,9 @@ importers:
       h3:
         specifier: ^1.15.3
         version: 1.15.6
+      isbot:
+        specifier: ^5
+        version: 5.1.36
       zod:
         specifier: ^3.25.76
         version: 3.25.76
@@ -668,6 +671,9 @@ importers:
       h3:
         specifier: ^1.13.0
         version: 1.15.6
+      isbot:
+        specifier: ^5
+        version: 5.1.36
       lucide-react:
         specifier: ^0.469.0
         version: 0.469.0(react@18.3.1)
@@ -747,6 +753,9 @@ importers:
       h3:
         specifier: ^1.15.3
         version: 1.15.6
+      isbot:
+        specifier: ^5
+        version: 5.1.36
       nanoid:
         specifier: ^4.0.2
         version: 4.0.2
@@ -1030,6 +1039,9 @@ importers:
       h3:
         specifier: ^1.14.0
         version: 1.15.6
+      isbot:
+        specifier: ^5
+        version: 5.1.36
       lowlight:
         specifier: ^3.3.0
         version: 3.3.0
@@ -1349,6 +1361,9 @@ importers:
       h3:
         specifier: ^1.15.1
         version: 1.15.6
+      isbot:
+        specifier: ^5
+        version: 5.1.36
       lucide-react:
         specifier: ^0.469.0
         version: 0.469.0(react@18.3.1)
@@ -1440,6 +1455,9 @@ importers:
       h3:
         specifier: ^1.13.0
         version: 1.15.6
+      isbot:
+        specifier: ^5
+        version: 5.1.36
       nanoid:
         specifier: ^4.0.2
         version: 4.0.2
@@ -1690,6 +1708,9 @@ importers:
       h3:
         specifier: ^1.15.3
         version: 1.15.6
+      isbot:
+        specifier: ^5
+        version: 5.1.36
       nanoid:
         specifier: ^4.0.2
         version: 4.0.2
@@ -1934,6 +1955,9 @@ importers:
       h3:
         specifier: ^1.15.3
         version: 1.15.6
+      isbot:
+        specifier: ^5
+        version: 5.1.36
       remotion:
         specifier: ^4.0.434
         version: 4.0.435(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
