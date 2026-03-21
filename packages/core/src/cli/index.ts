@@ -33,6 +33,20 @@ function findTsxBin(): string {
   return "tsx";
 }
 
+function findReactRouterBin(): string {
+  const localBin = path.resolve("node_modules/.bin/react-router");
+  if (fs.existsSync(localBin)) return localBin;
+  return "react-router";
+}
+
+/** Check if the project uses React Router framework mode (has react-router.config.ts) */
+function isReactRouterFramework(): boolean {
+  return (
+    fs.existsSync(path.resolve("react-router.config.ts")) ||
+    fs.existsSync(path.resolve("react-router.config.js"))
+  );
+}
+
 function run(
   cmd: string,
   cmdArgs: string[],
@@ -57,10 +71,18 @@ switch (command) {
   }
 
   case "build": {
-    // Like `next build` — single vite build (Nitro plugin builds client + server)
-    const vite = findViteBin();
-    console.log("Building...");
-    execSync(`${vite} build`, { stdio: "inherit" });
+    // Like `next build` — builds client + server
+    // React Router framework mode uses `react-router build`
+    // Legacy SPA mode uses `vite build`
+    if (isReactRouterFramework()) {
+      const rr = findReactRouterBin();
+      console.log("Building (React Router framework mode)...");
+      execSync(`${rr} build`, { stdio: "inherit" });
+    } else {
+      const vite = findViteBin();
+      console.log("Building...");
+      execSync(`${vite} build`, { stdio: "inherit" });
+    }
     console.log("\nBuild complete.");
     break;
   }
@@ -92,6 +114,15 @@ switch (command) {
 
   case "typecheck": {
     // Run TypeScript type checking
+    // React Router framework mode generates route types first
+    if (isReactRouterFramework()) {
+      const rr = findReactRouterBin();
+      try {
+        execSync(`${rr} typegen`, { stdio: "inherit" });
+      } catch {
+        // typegen may fail if routes aren't set up yet — continue to tsc
+      }
+    }
     const tsc = path.resolve("node_modules/.bin/tsc");
     const tscBin = fs.existsSync(tsc) ? tsc : "tsc";
     run(tscBin, ["--noEmit", ...args]);

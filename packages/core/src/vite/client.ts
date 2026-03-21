@@ -27,6 +27,13 @@ export interface ClientConfigOptions {
   fsAllow?: string[];
   /** Additional fs.deny patterns */
   fsDeny?: string[];
+  /**
+   * Use React Router framework mode instead of plain React SWC plugin.
+   * When true, uses `reactRouter()` from `@react-router/dev/vite` which
+   * includes React transformation internally — no need for `@vitejs/plugin-react-swc`.
+   * Default: false (uses @vitejs/plugin-react-swc for backward compatibility)
+   */
+  reactRouter?: boolean | Record<string, unknown>;
 }
 
 /**
@@ -63,17 +70,36 @@ function baseRedirectGuard(): Plugin {
 }
 
 /**
- * Create the client/SPA Vite config with sensible agent-native defaults.
- * Includes React SWC, path aliases, fs restrictions, and the Nitro server plugin.
+ * Create the client Vite config with sensible agent-native defaults.
+ * Supports two modes:
+ * - Legacy SPA mode (default): React SWC plugin, client-only routing
+ * - React Router framework mode: SSR-capable with file-based routing
+ *
+ * Both modes include Nitro for API routes, path aliases, and fs restrictions.
  */
 export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
-  // Dynamic import to keep it optional
-  let reactPlugin: any;
-  try {
-    reactPlugin = require("@vitejs/plugin-react-swc");
-    if (reactPlugin.default) reactPlugin = reactPlugin.default;
-  } catch {
-    // Will be resolved at runtime by Vite
+  const useReactRouter = !!options.reactRouter;
+
+  let reactTransformPlugin: any;
+
+  if (useReactRouter) {
+    // React Router framework mode — includes React transformation internally
+    try {
+      const rrDev = require("@react-router/dev/vite");
+      reactTransformPlugin =
+        rrDev.reactRouter ?? rrDev.default ?? rrDev;
+    } catch {
+      // Will be resolved at runtime by Vite
+    }
+  } else {
+    // Legacy SPA mode — use React SWC plugin
+    try {
+      reactTransformPlugin = require("@vitejs/plugin-react-swc");
+      if (reactTransformPlugin.default)
+        reactTransformPlugin = reactTransformPlugin.default;
+    } catch {
+      // Will be resolved at runtime by Vite
+    }
   }
 
   // Dynamic import for nitro/vite — it's a dependency of @agent-native/core
@@ -97,6 +123,13 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
   if (srcDir) nitroOpts.srcDir = srcDir;
   if (routesDir) nitroOpts.routesDir = routesDir;
 
+  // Build the React transform plugin with appropriate options
+  const reactRouterOpts =
+    typeof options.reactRouter === "object" ? options.reactRouter : {};
+  const reactPluginInstance = useReactRouter
+    ? reactTransformPlugin?.(reactRouterOpts)
+    : reactTransformPlugin?.();
+
   return {
     server: {
       host: "::",
@@ -117,7 +150,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     },
     plugins: [
       baseRedirectGuard(),
-      reactPlugin?.(),
+      reactPluginInstance,
       nitroPlugin?.(nitroOpts),
       ...(options.plugins ?? []),
     ].filter(Boolean),

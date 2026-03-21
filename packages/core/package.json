@@ -28,6 +28,7 @@
     "./adapters/supabase": "./dist/adapters/supabase/index.js",
     "./adapters/convex": "./dist/adapters/convex/index.js",
     "./adapters/cli": "./dist/adapters/cli/index.js",
+    "./router": "./dist/router/index.js",
     "./a2a": "./dist/a2a/index.js",
     "./tailwind": "./dist/tailwind.preset.js",
     "./tsconfig.base.json": "./tsconfig.base.json"
@@ -55,6 +56,10 @@
     "drizzle-orm": "^0.38.0",
     "h3": "^1.14.0",
     "nitro": "^3.0.0",
+    "react-router": "^7.13.1",
+    "@react-router/dev": "^7.13.1",
+    "@react-router/fs-routes": "^7.13.1",
+    "@react-router/node": "^7.13.1",
     "minimatch": "^10.0.0",
     "p-limit": "^7.3.0",
     "tailwind-merge": "^2.6.0"
@@ -63,6 +68,7 @@
     "@supabase/supabase-js": ">=2",
     "@tanstack/react-query": ">=5",
     "@vitejs/plugin-react-swc": ">=4",
+    "react-router": ">=7",
     "autoprefixer": ">=10",
     "convex": ">=1",
     "postcss": ">=8",
@@ -92,6 +98,9 @@
     "@vitejs/plugin-react-swc": {
       "optional": true
     },
+    "react-router": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     },
@@ -108,7 +117,11 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.2.1",
     "@types/react": "^18.3.23",
+    "@react-router/dev": "^7.13.1",
+    "@react-router/fs-routes": "^7.13.1",
+    "@react-router/node": "^7.13.1",
     "@vitejs/plugin-react-swc": "^4.0.0",
+    "react-router": "^7.13.1",
     "autoprefixer": "^10.4.21",
     "firebase-admin": "^13.0.0",
     "postcss": "^8.5.6",
