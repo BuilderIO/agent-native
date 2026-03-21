@@ -86,10 +86,6 @@ function ThreadListSidebar({
         {threads.map((thread) => {
           const email = thread.latestMessage;
           const isActive = (email.threadId || email.id) === activeThreadId;
-          const senderName =
-            thread.messageCount > 1
-              ? thread.participants.map((p) => p.split(" ")[0]).join(", ")
-              : email.from.name || email.from.email;
           return (
             <button
               key={email.id}
@@ -101,17 +97,17 @@ function ThreadListSidebar({
                 );
               }}
               className={cn(
-                "w-full text-left px-3 py-2 border-b border-border/10 transition-colors",
+                "w-full text-left px-3 h-[38px] flex items-center border-b border-border/10 transition-colors",
                 isActive ? "bg-primary/10" : "hover:bg-[hsl(220,5%,13%)]",
               )}
             >
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 w-full">
                 {thread.hasUnread && (
-                  <div className="h-[5px] w-[5px] rounded-full bg-primary shrink-0" />
+                  <div className="h-[7px] w-[7px] rounded-full bg-primary shrink-0" />
                 )}
                 <span
                   className={cn(
-                    "text-[12px] truncate",
+                    "text-[13px] truncate",
                     thread.hasUnread
                       ? "font-semibold text-foreground"
                       : "text-foreground/80",
@@ -125,9 +121,6 @@ function ThreadListSidebar({
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-muted-foreground truncate mt-0.5 pl-0">
-                {senderName}
-              </p>
             </button>
           );
         })}
