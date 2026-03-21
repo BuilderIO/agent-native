@@ -132,29 +132,29 @@ The framework doesn't ship Auth.js, Clerk, or any specific auth library. Instead
 
 ### Environment Variables
 
-| Variable | Description |
-|---|---|
-| `ACCESS_TOKEN` | Single access token for production auth |
-| `ACCESS_TOKENS` | Comma-separated tokens for team access |
+| Variable        | Description                                |
+| --------------- | ------------------------------------------ |
+| `ACCESS_TOKEN`  | Single access token for production auth    |
+| `ACCESS_TOKENS` | Comma-separated tokens for team access     |
 | `AUTH_DISABLED` | Set to `"true"` to skip auth in production |
 
 ### `AuthOptions`
 
 ```ts
 autoMountAuth(app, {
-  maxAge: 60 * 60 * 24 * 30,       // Session lifetime in seconds (default: 30 days)
+  maxAge: 60 * 60 * 24 * 30, // Session lifetime in seconds (default: 30 days)
   sessionsPath: "data/.sessions.json", // Path to session store (default)
-  getSession: async (event) => {},     // Custom auth (BYOA)
+  getSession: async (event) => {}, // Custom auth (BYOA)
 });
 ```
 
 ### Routes
 
-| Route | Method | Description |
-|---|---|---|
-| `/api/auth/login` | POST | Validate token, set session cookie |
-| `/api/auth/logout` | POST | Clear session cookie |
-| `/api/auth/session` | GET | Get current session |
+| Route               | Method | Description                        |
+| ------------------- | ------ | ---------------------------------- |
+| `/api/auth/login`   | POST   | Validate token, set session cookie |
+| `/api/auth/logout`  | POST   | Clear session cookie               |
+| `/api/auth/session` | GET    | Get current session                |
 
 ## Security
 

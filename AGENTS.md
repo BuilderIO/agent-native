@@ -61,6 +61,7 @@ Auth is automatic and environment-driven. Templates include a `server/plugins/au
 - **Production** (no token, no `AUTH_DISABLED=true`): Server refuses to start with a clear error.
 
 **Key APIs:**
+
 - Server: `getSession(event)` from `@agent-native/core/server` — returns `AuthSession | null`
 - Client: `useSession()` from `@agent-native/core` — returns `{ session, isLoading }`
 - Routes: `GET /api/auth/session`, `POST /api/auth/login`, `POST /api/auth/logout`

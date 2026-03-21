@@ -140,9 +140,8 @@ function isDevMode(): boolean {
 // getSession — the auth contract
 // ---------------------------------------------------------------------------
 
-let customGetSession:
-  | ((event: H3Event) => Promise<AuthSession | null>)
-  | null = null;
+let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
+  null;
 
 const DEV_SESSION: AuthSession = { email: "local@localhost" };
 
