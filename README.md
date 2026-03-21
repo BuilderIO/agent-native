@@ -117,6 +117,33 @@ Or **[launch a template](https://agent-native.com/templates)** — no setup requ
 | **Ownership**        | Rented             | N/A                     | Yours but costly | You own the code        |
 | **Non-dev friendly** | Yes                | No                      | Rarely           | Guided UI + agent       |
 
+## Architecture
+
+Agent-native is designed to be agnostic at every layer — use the defaults or swap in your own.
+
+| Layer        | Default                                                           | Swappable?                                                                    |
+| ------------ | ----------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| **Server**   | [Nitro](https://nitro.build) (H3)                                 | Deploy anywhere Nitro supports (Node, Cloudflare, Vercel, Netlify, Deno, Bun) |
+| **Auth**     | Token-based (zero-config)                                         | Plug in Auth.js, Clerk, Lucia, or any auth system via `getSession()` contract |
+| **Database** | Files (`data/` directory)                                         | Add Drizzle, Prisma, or any ORM when you need a real DB                       |
+| **Frontend** | React + React Router + Tailwind                                   | Modify or replace — it's your code                                            |
+| **Agent**    | Works with any CLI-based agent (Claude Code, Codex, Cursor, etc.) | Agent-agnostic by design                                                      |
+| **Hosting**  | Any (Netlify, Vercel, Cloudflare, self-hosted)                    | Nitro's preset system handles deployment targets                              |
+
+### Auth: Zero to Production
+
+Auth is invisible in development and automatic in production. No code changes required.
+
+```bash
+# Development — no auth, no config
+pnpm dev
+
+# Production — set one env var, auth activates
+ACCESS_TOKEN=your-secret pnpm start
+```
+
+See [docs/auth.md](docs/auth.md) for the full auth guide, including multi-token team access and bring-your-own-auth.
+
 ## Docs
 
 Full documentation at **[agent-native.com](https://agent-native.com)**.

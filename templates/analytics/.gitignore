@@ -28,6 +28,9 @@ dist-ssr
 .config/
 .env
 
+# Auth sessions (sensitive, never commit)
+data/.sessions.json
+
 # Generated chart images (ephemeral)
 media/*.png
 media/theme.json

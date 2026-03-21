@@ -5,9 +5,11 @@ export {
   sendToAgentChat,
   useAgentChatGenerating,
   useFileWatcher,
+  useSession,
   cn,
   ApiKeySettings,
   type AgentChatMessage,
+  type AuthSession,
 } from "./client/index.js";
 
 // Shared (isomorphic)

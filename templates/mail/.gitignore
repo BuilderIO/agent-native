@@ -28,6 +28,9 @@ dist-ssr
 .config/
 .env
 
+# Auth sessions (sensitive, never commit)
+data/.sessions.json
+
 # User data (gitignored, defaults copied on first run)
 data/settings.json
 data/emails.json

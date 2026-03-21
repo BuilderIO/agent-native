@@ -52,6 +52,24 @@ Ephemeral UI state lives in `application-state/` as JSON files. Both the agent a
 - File existence = state is active. Deleting the file = clearing the state.
 - The SSE file watcher watches `application-state/` alongside `data/`
 
+## Authentication
+
+Auth is automatic and environment-driven. Templates include a `server/plugins/auth.ts` Nitro plugin that calls `autoMountAuth(app)` at startup.
+
+- **Dev mode** (`NODE_ENV !== "production"`): Auth is bypassed. `getSession()` returns `{ email: "local@localhost" }`. No login page.
+- **Production** (`ACCESS_TOKEN` set): Auth middleware mounts automatically. Login page for unauthenticated visitors. Cookie-based sessions stored in `data/.sessions.json`.
+- **Production** (no token, no `AUTH_DISABLED=true`): Server refuses to start with a clear error.
+
+**Key APIs:**
+
+- Server: `getSession(event)` from `@agent-native/core/server` — returns `AuthSession | null`
+- Client: `useSession()` from `@agent-native/core` — returns `{ session, isLoading }`
+- Routes: `GET /api/auth/session`, `POST /api/auth/login`, `POST /api/auth/logout`
+
+**Bring your own auth**: Pass a custom `getSession` function to `autoMountAuth(app, { getSession: ... })` to plug in Auth.js, Clerk, or any auth system. Templates don't change.
+
+See [docs/auth.md](docs/auth.md) for the full guide.
+
 ## Project Structure
 
 ```
