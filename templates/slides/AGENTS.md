@@ -355,7 +355,7 @@ client/                        # React SPA frontend
 │   └── DeckContext.tsx        # Central state: decks, slides, undo/redo (fetches from /api/decks)
 ├── lib/
 │   └── utils.ts               # cn() utility
-└── App.tsx                    # Router setup
+└── root.tsx               # HTML shell + global providers
 
 server/                        # Nitro API server
 ├── routes/                    # File-based API routes (auto-discovered by Nitro)

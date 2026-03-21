@@ -86,6 +86,10 @@ For list endpoints serving many files, use `fs.promises.readFile` instead of `re
 - **Path sanitization** — Always sanitize IDs from request params before constructing file paths. Use `id.replace(/[^a-zA-Z0-9_-]/g, "")` or the core utility `isValidPath()`. Without this, `../../.env` as an ID reads your environment file.
 - **Validate before writing** — Check data shape before writing files, especially for user-submitted data. A malformed write can break all subsequent reads.
 
+## Route Loaders vs API Routes
+
+React Router route `loader` functions can fetch data server-side during SSR. However, the default pattern is **SSR shell + client rendering**: the server renders a loading spinner and the client fetches data from `/api/*` routes via React Query. Only use server `loader` when a page genuinely needs server-rendered content for SEO or og tags (e.g., public booking pages). For all app pages behind auth, stick with the client-side React Query pattern.
+
 ## Related Skills
 
 - **sse-file-watcher** — Set up real-time sync so the UI updates when data files change

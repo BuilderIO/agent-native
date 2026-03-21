@@ -13,7 +13,7 @@ export function HydrateFallback() {
 export default function IndexPage() {
   return (
     <div className="flex items-center justify-center h-screen">
-      <h1 className="text-2xl font-bold">{{APP_TITLE}}</h1>
+      <h1 className="text-2xl font-bold">{{ APP_TITLE }}</h1>
     </div>
   );
 }

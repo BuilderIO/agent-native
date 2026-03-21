@@ -55,15 +55,25 @@ Ephemeral UI state lives in `application-state/` as JSON files. Both the agent a
 ## Project Structure
 
 ```
-client/          # React frontend (Vite SPA)
-server/          # Nitro API server
-  routes/        # File-based API routes (auto-discovered)
-  plugins/       # Server plugins (startup logic)
-  lib/           # Shared server modules
-  handlers/      # Route handler modules (for larger apps)
-shared/          # Isomorphic code (client + server)
-scripts/         # Agent-callable scripts
-data/            # App data files (watched by SSE)
+client/                # React frontend
+  root.tsx             # HTML shell + global providers
+  entry.client.tsx     # Client hydration entry
+  routes.ts            # Route config — flatRoutes()
+  routes/              # File-based page routes (auto-discovered)
+  components/          # UI components
+  hooks/               # React hooks
+  lib/                 # Utilities
+server/                # Nitro API server
+  routes/
+    api/               # File-based API routes (auto-discovered)
+    [...page].get.ts   # SSR catch-all (delegates to React Router)
+  plugins/             # Server plugins (startup logic)
+  lib/                 # Shared server modules
+  handlers/            # Route handler modules (for larger apps)
+shared/                # Isomorphic code (client + server)
+scripts/               # Agent-callable scripts
+data/                  # App data files (watched by SSE)
+react-router.config.ts # React Router framework config
 ```
 
 ## Scripts

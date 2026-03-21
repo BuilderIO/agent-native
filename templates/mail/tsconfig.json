@@ -30,7 +30,9 @@
     "server/**/*",
     "shared/**/*",
     "vite.config.ts",
-    "vite.config.server.ts"
+    "vite.config.server.ts",
+    "react-router.config.ts",
+    ".react-router/types/**/*"
   ],
   "exclude": ["node_modules", "dist"]
 }

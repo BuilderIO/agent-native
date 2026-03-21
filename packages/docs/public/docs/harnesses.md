@@ -67,15 +67,15 @@ export default defineNitroPlugin((nitroApp) => {
 });
 ```
 
-In `client/App.tsx`:
+In `client/root.tsx` (the app shell):
 
 ```tsx
 import { ProductionAgentPanel } from "@agent-native/core";
 
-export default function App() {
+export default function Root() {
   return (
     <ProductionAgentPanel appLabel="Mail">
-      <MailApp />
+      <Outlet />
     </ProductionAgentPanel>
   );
 }

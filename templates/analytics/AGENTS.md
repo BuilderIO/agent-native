@@ -206,7 +206,7 @@ client/                   # React SPA frontend
 ├── pages/                # Route components
 ├── components/ui/        # Pre-built UI component library
 ├── lib/                  # Client utilities (auth, query helpers)
-├── App.tsx               # App entry point with SPA routing
+├── root.tsx               # HTML shell + global providers
 └── global.css            # TailwindCSS 3 theming and global styles
 
 server/                   # Nitro API server
@@ -343,15 +343,11 @@ pnpm test       # Run Vitest tests
 
 ## Routing
 
-Routes are defined in `client/App.tsx`:
+Routes are file-based in `client/routes/` via `flatRoutes()`. Create a file to add a route (e.g. `client/routes/settings.tsx` → `/settings`).
 
-```typescript
-<Route path="/" element={<Index />} />
-<Route path="/adhoc/:id" element={<AdhocRouter />} />
-```
-
-- `client/pages/Index.tsx` — home/overview page
-- `client/pages/adhoc/` — dashboard pages, registered in `registry.ts`
+- `client/routes/_index.tsx` — home/overview page (`/`)
+- `client/routes/adhoc.$id.tsx` — dashboard router (`/adhoc/:id`)
+- `client/pages/adhoc/` — dashboard page components, registered in `registry.ts`
 
 ### Tools vs Dashboards
 
@@ -367,7 +363,7 @@ When a user asks for a **chart, metrics view, or data breakdown** → add it to 
 
 **IMPORTANT**: When creating a new dashboard, YOU (the creator) must provide your name or email as the author. Do NOT pull this from git logs or other sources.
 
-1. Create component in `client/pages/adhoc/my-dashboard/index.tsx`
+1. Create component in `client/pages/adhoc/my-dashboard/index.tsx` (these are regular components, not route files)
 2. Use `<DashboardHeader />` component at the top to display metadata
 3. Add entry to `dashboards` array in `client/pages/adhoc/registry.ts` with **REQUIRED fields**:
    - `id`: kebab-case identifier
@@ -393,7 +389,7 @@ When a user asks for a **chart, metrics view, or data breakdown** → add it to 
 
 **IMPORTANT**: When creating a new tool, YOU (the creator) must provide your name or email as the author.
 
-1. Create component in `client/pages/adhoc/my-tool/index.tsx`
+1. Create component in `client/pages/adhoc/my-tool/index.tsx` (these are regular components, not route files)
 2. Use `<DashboardHeader />` component at the top to display metadata
 3. Add entry to `dashboards` array in `client/pages/adhoc/registry.ts` (for routing) with **REQUIRED fields**:
    - `author`: **YOUR name or email** - the person creating this tool

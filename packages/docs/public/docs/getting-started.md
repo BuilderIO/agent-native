@@ -16,18 +16,26 @@ Every agent-native app follows the same convention:
 
 ```
 my-app/
-  client/          # React frontend (Vite SPA)
-    App.tsx        # Entry point
-    components/    # UI components
-    lib/utils.ts   # cn() utility
-  server/          # Nitro API server
-    routes/        # File-based API routes (auto-discovered)
-    plugins/       # Server plugins (startup logic)
-    lib/           # Shared server modules
-  shared/          # Isomorphic code (client & server)
-  scripts/         # Agent-callable scripts
-    run.ts         # Script dispatcher
-  data/            # App data files (watched by SSE)
+  client/                # React frontend
+    root.tsx             # HTML shell + global providers
+    entry.client.tsx     # Client hydration entry
+    routes.ts            # Route config — flatRoutes()
+    routes/              # File-based page routes (auto-discovered)
+      _index.tsx         # / (home page)
+      settings.tsx       # /settings
+    components/          # UI components
+    lib/utils.ts         # cn() utility
+  server/                # Nitro API server
+    routes/
+      api/               # File-based API routes (auto-discovered)
+      [...page].get.ts   # SSR catch-all (delegates to React Router)
+    plugins/             # Server plugins (startup logic)
+    lib/                 # Shared server modules
+  shared/                # Isomorphic code (client & server)
+  scripts/               # Agent-callable scripts
+    run.ts               # Script dispatcher
+  data/                  # App data files (watched by SSE)
+  react-router.config.ts # React Router framework config
 ```
 
 ## Vite Configuration
@@ -37,10 +45,13 @@ A single config file handles both client SPA and server build:
 ```ts
 // vite.config.ts
 import { defineConfig } from "@agent-native/core/vite";
-export default defineConfig();
+
+export default defineConfig({
+  reactRouter: true,
+});
 ```
 
-`defineConfig()` sets up React SWC, path aliases (`@/` → `client/`, `@shared/` → `shared/`), fs restrictions, and the Nitro server plugin (file-based API routing, server plugins, deploy-anywhere presets).
+`defineConfig()` sets up React Router framework mode (SSR + file-based routing), path aliases (`@/` → `client/`, `@shared/` → `shared/`), fs restrictions, and the Nitro server plugin (file-based API routing, server plugins, deploy-anywhere presets). See the [Routing docs](./routing.md) for full details on adding pages.
 
 ### Nitro options
 
@@ -77,6 +88,7 @@ export default {
 | Import                                  | Exports                                                                                                                                                                                                                                                                                                                |
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `@agent-native/core`                    | Server: `createServer`, `createFileWatcher`, `createSSEHandler`, `mountAuthMiddleware`, `createProductionAgentHandler` · Client: `sendToAgentChat`, `useAgentChatGenerating`, `useFileWatcher`, `useProductionAgent`, `ProductionAgentPanel`, `cn` · Scripts: `runScript`, `parseArgs`, `loadEnv`, `fail`, `agentChat` |
+| `@agent-native/core/router`             | React Router re-exports: `Link`, `NavLink`, `Outlet`, `useNavigate`, `useParams`, `useLoaderData`, `redirect`, `Form`, `Links`, `Meta`, `Scripts`, `ScrollRestoration`                                                                                                                                                 |
 | `@agent-native/core/vite`               | `defineConfig()`                                                                                                                                                                                                                                                                                                       |
 | `@agent-native/core/tailwind`           | Tailwind preset (HSL colors, shadcn/ui tokens, animations)                                                                                                                                                                                                                                                             |
 | `@agent-native/core/db`                 | `createDb()` — Drizzle ORM factory (SQLite via better-sqlite3)                                                                                                                                                                                                                                                         |

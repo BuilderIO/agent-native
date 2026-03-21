@@ -78,19 +78,23 @@ function CreatingTemplatesDocs() {
       <p>Every template follows the same convention:</p>
       <CodeBlock
         code={`my-template/
-  client/             # React frontend (Vite SPA)
-    App.tsx           # Entry point — routes, providers, file watcher
-    pages/            # Route components
+  client/             # React frontend
+    routes/           # File-based page routes (auto-discovered)
+      _index.tsx      # / (home page)
+      settings.tsx    # /settings
+    root.tsx          # App shell — <html>, <head>, <body>, providers
+    entry.client.tsx  # Client hydration entry
+    routes.ts         # Route config — flatRoutes()
     components/       # UI components
     components/ui/    # Reusable primitives (shadcn/ui)
     hooks/            # React hooks
     lib/utils.ts      # cn() utility
 
   server/             # Nitro API server
-    routes/           # File-based API routes (auto-discovered)
+    routes/           # File-based API routes (auto-discovered by Nitro)
+      [...page].get.ts # SSR catch-all (delegates to React Router)
     plugins/          # Server plugins (startup logic)
     lib/              # Shared server modules
-    handlers/         # Route handler modules (for larger apps)
 
   shared/             # Isomorphic types (imported by client & server)
     api.ts            # Shared interfaces
@@ -105,42 +109,67 @@ function CreatingTemplatesDocs() {
   .agents/skills/     # Agent skills — detailed guidance per topic
 
   AGENTS.md           # Master agent instructions
+  react-router.config.ts # React Router config (ssr, appDirectory)
   package.json        # Scripts: dev, build, start, script, typecheck
-  vite.config.ts      # Vite config (client + Nitro server)
+  vite.config.ts      # Vite config (React Router + Nitro)
   tsconfig.json       # TypeScript config`}
         lang="text"
       />
 
       <h2 id="build-your-client">Build your client</h2>
       <p>
-        The client is a standard React SPA. Use React Router for navigation,
-        React Query for data fetching, and TailwindCSS + shadcn/ui for styling.
+        The client uses React Router v7 framework mode with file-based routing.
+        Pages go in <code>client/routes/</code>, global providers live in{" "}
+        <code>client/root.tsx</code>, and React Query handles data fetching.
       </p>
       <CodeBlock
-        code={`// client/App.tsx
+        code={`// client/root.tsx — App shell with providers
+import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useFileWatcher } from "@agent-native/core";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
 
 const queryClient = new QueryClient();
 
-function App() {
+export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <QueryClientProvider client={queryClient}>
-      <FileWatcher />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
-      </BrowserRouter>
-    </QueryClientProvider>
+    <html lang="en">
+      <head>
+        <meta charSet="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <Meta />
+        <Links />
+      </head>
+      <body>
+        {children}
+        <ScrollRestoration />
+        <Scripts />
+      </body>
+    </html>
   );
 }
 
-function FileWatcher() {
+export default function Root() {
   useFileWatcher({ queryClient, queryKeys: ["items", "projects"] });
-  return null;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <Outlet />
+    </QueryClientProvider>
+  );
+}`}
+      />
+      <p>
+        Routes are auto-discovered from <code>client/routes/</code> via{" "}
+        <code>flatRoutes()</code>. Create a file to add a page:
+      </p>
+      <CodeBlock
+        code={`// client/routes/_index.tsx → /
+export default function Dashboard() {
+  return <div>Home page</div>;
+}
+
+// client/routes/settings.tsx → /settings
+export default function Settings() {
+  return <div>Settings page</div>;
 }`}
       />
       <p>
@@ -261,8 +290,8 @@ This is an **@agent-native/core** application.
 ### Directory Structure
 
 \\\`\\\`\\\`
-client/          # React SPA
-server/          # Express API
+client/          # React frontend (file-based routing in client/routes/)
+server/          # Nitro API server
 scripts/         # Agent-callable scripts
 data/            # File-based state
 \\\`\\\`\\\`

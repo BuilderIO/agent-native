@@ -111,7 +111,7 @@ While the starter comes with a Nitro server, only create endpoint when strictly 
 client/                   # React SPA frontend
 ├── pages/                # Route components (Index.tsx = home)
 ├── components/ui/        # Pre-built UI component library
-├── App.tsx               # App entry point and SPA routing setup
+├── root.tsx               # HTML shell + global providers setup
 └── global.css            # TailwindCSS 3 theming and global styles
 
 server/                   # Nitro API server
@@ -123,13 +123,14 @@ shared/                   # Types used by both client & server
 └── api.ts                # Shared API interfaces
 ```
 
-## SPA Routing System
+## Routing System
 
-The routing system is powered by React Router 6:
+The routing system uses React Router v7 framework mode with file-based routing:
 
-- `client/pages/Index.tsx` represents the home page.
-- Routes are defined in `client/App.tsx` using the `react-router-dom` import
-- Route files are located in the `client/pages/` directory
+- Routes are auto-discovered from `client/routes/` via `flatRoutes()`.
+- `client/routes/_index.tsx` is the home page (`/`).
+- Create a file to add a route (e.g. `client/routes/settings.tsx` → `/settings`).
+- Dynamic params use `$` prefix (e.g. `client/routes/c.$compositionId.tsx` → `/c/:compositionId`).
 
 ### Styling System
 
@@ -200,19 +201,19 @@ This project is a **Remotion-based animation studio** — a web UI for composing
 
 ### Key Files
 
-| File                                         | Role                                                                                  |
-| -------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `client/remotion/registry.ts`                | Single source of truth for all compositions and their default track data              |
-| `client/remotion/trackAnimation.ts`          | Pure helpers: `trackProgress()`, `getPropValue()`, `findTrack()`                      |
-| `client/remotion/compositions/*.tsx`         | Individual Remotion composition components                                            |
-| `client/types.ts`                            | `AnimationTrack`, `AnimatedProp`, `EasingKey`, `COMMON_PROP_TEMPLATES`                |
-| `client/components/Timeline.tsx`             | Timeline UI — controlled by `viewStart`/`viewEnd` from parent                         |
-| `client/components/VideoPlayer.tsx`          | Remotion `<Player>` wrapper with range-constrained playback                           |
-| `client/components/TrackPropertiesPanel.tsx` | Sidebar panel for editing selected track properties                                   |
-| `client/components/CompSettingsEditor.tsx`   | Sidebar panel for duration, fps, and size overrides (Square/Wide presets)             |
-| `client/components/PropsEditor.tsx`          | Sidebar panel for composition-level user props                                        |
-| `client/pages/CompositionView.tsx`           | Owns `viewStart`/`viewEnd` state; connects Timeline ↔ VideoPlayer                     |
-| `client/pages/Index.tsx`                     | Studio shell — owns all state (tracks, props, compSettings), persists to localStorage |
+| File                                         | Role                                                                      |
+| -------------------------------------------- | ------------------------------------------------------------------------- |
+| `client/remotion/registry.ts`                | Single source of truth for all compositions and their default track data  |
+| `client/remotion/trackAnimation.ts`          | Pure helpers: `trackProgress()`, `getPropValue()`, `findTrack()`          |
+| `client/remotion/compositions/*.tsx`         | Individual Remotion composition components                                |
+| `client/types.ts`                            | `AnimationTrack`, `AnimatedProp`, `EasingKey`, `COMMON_PROP_TEMPLATES`    |
+| `client/components/Timeline.tsx`             | Timeline UI — controlled by `viewStart`/`viewEnd` from parent             |
+| `client/components/VideoPlayer.tsx`          | Remotion `<Player>` wrapper with range-constrained playback               |
+| `client/components/TrackPropertiesPanel.tsx` | Sidebar panel for editing selected track properties                       |
+| `client/components/CompSettingsEditor.tsx`   | Sidebar panel for duration, fps, and size overrides (Square/Wide presets) |
+| `client/components/PropsEditor.tsx`          | Sidebar panel for composition-level user props                            |
+| `client/pages/CompositionView.tsx`           | Owns `viewStart`/`viewEnd` state; connects Timeline ↔ VideoPlayer         |
+| `client/routes/_index.tsx`                   | Home route — renders Studio shell                                         |
 
 ---
 
@@ -1037,7 +1038,7 @@ Users can override duration, fps, dimensions, and render quality per composition
 
 ---
 
-### State & Persistence (`client/pages/Index.tsx`)
+### State & Persistence (`client/pages/Index.tsx` / `client/routes/_index.tsx`)
 
 All studio state lives in `Index.tsx` and is persisted to `localStorage`:
 

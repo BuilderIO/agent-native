@@ -86,8 +86,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     // React Router framework mode — includes React transformation internally
     try {
       const rrDev = require("@react-router/dev/vite");
-      reactTransformPlugin =
-        rrDev.reactRouter ?? rrDev.default ?? rrDev;
+      reactTransformPlugin = rrDev.reactRouter ?? rrDev.default ?? rrDev;
     } catch {
       // Will be resolved at runtime by Vite
     }

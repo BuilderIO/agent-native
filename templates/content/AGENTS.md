@@ -317,7 +317,7 @@ client/                   # React SPA frontend
 ├── components/ui/        # Pre-built UI component library
 ├── lib/                  # Utilities
 │   └── utils.ts          # cn() helper
-├── App.tsx               # App entry + SPA routing
+├── root.tsx               # HTML shell + global providers
 └── global.css            # TailwindCSS 3 theming
 
 server/                   # Nitro API server
@@ -359,7 +359,7 @@ Follow this decision tree:
 1. **Persistent state?** → Store as a file (markdown, JSON, image). Both UI and agent get access automatically.
 2. **External API call?** → Add a server route in `server/routes/`, then add a script in `scripts/` so the agent can use it too.
 3. **AI-assisted UI action?** → Wire a button to `sendToAgentChat()` with the right prompt and context.
-4. **New page?** → Create in `client/pages/`, add route in `client/App.tsx`.
+4. **New page?** → Create a route file in `client/routes/` (e.g. `client/routes/my-page.tsx` → `/my-page`).
 
 ### New Script
 

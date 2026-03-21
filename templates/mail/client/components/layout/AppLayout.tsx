@@ -7,12 +7,7 @@ import {
   createContext,
   useContext,
 } from "react";
-import {
-  Link,
-  useNavigate,
-  useLocation,
-  useSearchParams,
-} from "react-router";
+import { Link, useNavigate, useLocation, useSearchParams } from "react-router";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "./CommandPalette";
 import { ComposeModal } from "@/components/email/ComposeModal";
