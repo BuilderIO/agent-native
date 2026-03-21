@@ -11,6 +11,9 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@agent-native/shared-app-config": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^24.2.1",
     "@types/react": "^18.3.23",

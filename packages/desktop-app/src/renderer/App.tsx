@@ -1,8 +1,14 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { APP_REGISTRY, type AppDefinition } from "@shared/app-registry";
+import {
+  APP_REGISTRY,
+  type AppDefinition,
+  type AppConfig,
+  toAppDefinition,
+} from "@shared/app-registry";
 import Sidebar from "./components/Sidebar.js";
 import TabBar from "./components/TabBar.js";
 import AppWebview from "./components/AppWebview.js";
+import AppSettings from "./components/AppSettings.js";
 
 export interface Tab {
   id: string;
@@ -12,7 +18,7 @@ export interface Tab {
 
 let nextTabId = 1;
 
-function createTab(app: AppDefinition): Tab {
+function createTab(app: AppDefinition | AppConfig): Tab {
   return {
     id: `tab-${nextTabId++}`,
     appId: app.id,
@@ -26,9 +32,11 @@ interface AppTabState {
   activeTabId: string;
 }
 
-function initAppTabs(): Record<string, AppTabState> {
+function initAppTabs(
+  apps: (AppDefinition | AppConfig)[],
+): Record<string, AppTabState> {
   const state: Record<string, AppTabState> = {};
-  for (const app of APP_REGISTRY) {
+  for (const app of apps) {
     const tab = createTab(app);
     state[app.id] = { tabs: [tab], activeTabId: tab.id };
   }
@@ -36,16 +44,69 @@ function initAppTabs(): Record<string, AppTabState> {
 }
 
 export default function App() {
-  const defaultApp =
-    APP_REGISTRY.find((a) => !a.placeholder) ?? APP_REGISTRY[0];
+  const [apps, setApps] = useState<AppConfig[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
 
-  const [activeSidebarAppId, setActiveSidebarAppId] = useState(defaultApp.id);
-  const [appTabs, setAppTabs] =
-    useState<Record<string, AppTabState>>(initAppTabs);
+  // Load apps from persistent store
+  useEffect(() => {
+    async function load() {
+      if (window.electronAPI?.appConfig) {
+        const loaded = await window.electronAPI.appConfig.load();
+        setApps(loaded);
+      } else {
+        // Fallback for dev without electron
+        setApps(
+          APP_REGISTRY.map((a) => ({
+            ...a,
+            url: `http://localhost:${a.devPort}`,
+            isBuiltIn: true,
+            enabled: true,
+          })),
+        );
+      }
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  const enabledApps = apps.filter((a) => a.enabled);
+  const appDefs = enabledApps.map(toAppDefinition);
+
+  const defaultApp = appDefs.find((a) => !a.placeholder) ?? appDefs[0];
+
+  const [activeSidebarAppId, setActiveSidebarAppId] = useState("");
+  const [appTabs, setAppTabs] = useState<Record<string, AppTabState>>({});
+
+  // Initialize tabs when apps load
+  useEffect(() => {
+    if (enabledApps.length === 0) return;
+    setAppTabs((prev) => {
+      // Only init tabs for apps that don't have tabs yet
+      const next = { ...prev };
+      for (const app of enabledApps) {
+        if (!next[app.id]) {
+          const tab = createTab(app);
+          next[app.id] = { tabs: [tab], activeTabId: tab.id };
+        }
+      }
+      return next;
+    });
+    setActiveSidebarAppId((prev) => {
+      if (prev && enabledApps.find((a) => a.id === prev)) return prev;
+      const def =
+        enabledApps.find((a) => !("placeholder" in a)) ?? enabledApps[0];
+      return def?.id ?? "";
+    });
+  }, [enabledApps.map((a) => a.id).join(",")]);
 
   const closedTabsRef = useRef<{ tab: Tab; appId: string }[]>([]);
 
   const currentAppTabs = appTabs[activeSidebarAppId];
+
+  const handleAppsChanged = useCallback((newApps: AppConfig[]) => {
+    setApps(newApps);
+  }, []);
 
   const handleSidebarTabChange = useCallback((appId: string) => {
     setActiveSidebarAppId(appId);
@@ -66,8 +127,6 @@ export default function App() {
 
   const handleTabClose = useCallback(
     (tabId: string) => {
-      // Push to closed-tabs stack outside the updater to avoid
-      // double-push in React 18 StrictMode (updaters must be pure).
       const appState = appTabs[activeSidebarAppId];
       const closedTab = appState?.tabs.find((t) => t.id === tabId);
       if (closedTab) {
@@ -83,7 +142,8 @@ export default function App() {
         const next = prevAppState.tabs.filter((t) => t.id !== tabId);
 
         if (next.length === 0) {
-          const app = APP_REGISTRY.find((a) => a.id === activeSidebarAppId)!;
+          const app = enabledApps.find((a) => a.id === activeSidebarAppId);
+          if (!app) return prev;
           const tab = createTab(app);
           return {
             ...prev,
@@ -103,7 +163,7 @@ export default function App() {
         };
       });
     },
-    [activeSidebarAppId, appTabs],
+    [activeSidebarAppId, appTabs, enabledApps],
   );
 
   const handleReopenTab = useCallback(() => {
@@ -120,7 +180,7 @@ export default function App() {
   }, []);
 
   const handleNewTab = useCallback(() => {
-    const app = APP_REGISTRY.find((a) => a.id === activeSidebarAppId);
+    const app = enabledApps.find((a) => a.id === activeSidebarAppId);
     if (!app) return;
     const tab = createTab(app);
     setAppTabs((prev) => ({
@@ -130,11 +190,8 @@ export default function App() {
         activeTabId: tab.id,
       },
     }));
-  }, [activeSidebarAppId]);
+  }, [activeSidebarAppId, enabledApps]);
 
-  // Shared shortcut handler used by both the native keydown listener
-  // (fires when the shell has focus) and the IPC forwarder (fires when
-  // a webview guest has focus).
   const handleShortcut = useCallback(
     (key: string, shiftKey: boolean) => {
       const k = key.toLowerCase();
@@ -147,27 +204,26 @@ export default function App() {
 
       const digit = parseInt(key, 10);
       if (digit >= 1 && digit <= 9) {
-        if (digit - 1 < APP_REGISTRY.length) {
-          setActiveSidebarAppId(APP_REGISTRY[digit - 1].id);
+        if (digit - 1 < appDefs.length) {
+          setActiveSidebarAppId(appDefs[digit - 1].id);
         }
         return;
       }
 
       if (key === "[" || key === "]") {
         setActiveSidebarAppId((current) => {
-          const idx = APP_REGISTRY.findIndex((a) => a.id === current);
+          const idx = appDefs.findIndex((a) => a.id === current);
           const next =
             key === "]"
-              ? (idx + 1) % APP_REGISTRY.length
-              : (idx - 1 + APP_REGISTRY.length) % APP_REGISTRY.length;
-          return APP_REGISTRY[next].id;
+              ? (idx + 1) % appDefs.length
+              : (idx - 1 + appDefs.length) % appDefs.length;
+          return appDefs[next].id;
         });
       }
     },
-    [handleNewTab, handleReopenTab],
+    [handleNewTab, handleReopenTab, appDefs],
   );
 
-  // Keyboard shortcuts — shell has focus
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!e.metaKey && !e.ctrlKey) return;
@@ -178,7 +234,6 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, [handleShortcut]);
 
-  // Keyboard shortcuts — forwarded from webview guests via main process IPC
   useEffect(() => {
     if (!window.electronAPI?.shortcuts?.onKeydown) return;
     return window.electronAPI.shortcuts.onKeydown(({ key, shiftKey }) => {
@@ -186,7 +241,6 @@ export default function App() {
     });
   }, [handleShortcut]);
 
-  // Cmd+W — close active tab (intercepted by main process, forwarded via IPC)
   const activeTabIdRef = useRef(currentAppTabs?.activeTabId ?? "");
   activeTabIdRef.current = currentAppTabs?.activeTabId ?? "";
 
@@ -199,15 +253,32 @@ export default function App() {
     });
   }, [handleTabClose]);
 
-  // Collect all mounted webviews across all apps
-  const allWebviews: { tab: Tab; app: AppDefinition; isActive: boolean }[] = [];
-  for (const app of APP_REGISTRY) {
+  if (loading) {
+    return (
+      <div
+        className="shell"
+        style={{ alignItems: "center", justifyContent: "center" }}
+      >
+        <p style={{ color: "#666" }}>Loading...</p>
+      </div>
+    );
+  }
+
+  // Collect all mounted webviews across all enabled apps
+  const allWebviews: {
+    tab: Tab;
+    app: AppConfig;
+    appDef: AppDefinition;
+    isActive: boolean;
+  }[] = [];
+  for (const app of enabledApps) {
     const state = appTabs[app.id];
     if (!state) continue;
     for (const tab of state.tabs) {
       allWebviews.push({
         tab,
         app,
+        appDef: toAppDefinition(app),
         isActive: app.id === activeSidebarAppId && tab.id === state.activeTabId,
       });
     }
@@ -224,16 +295,30 @@ export default function App() {
       />
       <div className="shell-body">
         <Sidebar
-          apps={APP_REGISTRY}
+          apps={appDefs}
           activeAppId={activeSidebarAppId}
           onTabChange={handleSidebarTabChange}
+          onSettingsClick={() => setShowSettings(true)}
         />
         <div className="content-area">
-          {allWebviews.map(({ tab, app, isActive }) => (
-            <AppWebview key={tab.id} app={app} isActive={isActive} />
+          {allWebviews.map(({ tab, app, appDef, isActive }) => (
+            <AppWebview
+              key={tab.id}
+              app={appDef}
+              appConfig={app}
+              isActive={isActive}
+            />
           ))}
         </div>
       </div>
+
+      {showSettings && (
+        <AppSettings
+          apps={apps}
+          onClose={() => setShowSettings(false)}
+          onAppsChanged={handleAppsChanged}
+        />
+      )}
     </div>
   );
 }

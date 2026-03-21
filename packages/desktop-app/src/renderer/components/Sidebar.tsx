@@ -7,6 +7,7 @@ import {
   Layers,
   Video,
   Image,
+  Settings,
   type LucideProps,
 } from "lucide-react";
 import type { AppDefinition } from "@shared/app-registry";
@@ -27,12 +28,14 @@ interface SidebarProps {
   apps: AppDefinition[];
   activeAppId: string;
   onTabChange: (appId: string) => void;
+  onSettingsClick?: () => void;
 }
 
 export default function Sidebar({
   apps,
   activeAppId,
   onTabChange,
+  onSettingsClick,
 }: SidebarProps) {
   return (
     <aside className="sidebar">
@@ -66,6 +69,23 @@ export default function Sidebar({
           />
         ))}
       </nav>
+
+      {/* Settings button at bottom */}
+      {onSettingsClick && (
+        <div className="sidebar-footer">
+          <button
+            className="sidebar-item"
+            onClick={onSettingsClick}
+            title="App Settings"
+            aria-label="Settings"
+          >
+            <span className="icon-wrapper">
+              <Settings size={18} strokeWidth={1.75} />
+            </span>
+            <span className="item-label">Settings</span>
+          </button>
+        </div>
+      )}
     </aside>
   );
 }
