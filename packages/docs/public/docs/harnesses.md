@@ -52,28 +52,19 @@ For deployed apps that don't run inside a harness, agent-native ships an embedde
 
 ### Setup
 
-In `server/node-build.ts`:
+Configure the production agent via a server plugin:
 
 ```ts
-import {
-  createProductionServer,
-  createProductionAgentHandler,
-} from "@agent-native/core";
-import { createAppServer } from "./index.js";
-import { scripts } from "./scripts/registry.js";
+// server/plugins/agent.ts
+import { definePlugin } from "nitro";
+import { createProductionAgentHandler } from "@agent-native/core";
+import { scripts } from "../../scripts/registry.js";
 import { readFileSync } from "fs";
 
-const agent = createProductionAgentHandler({
-  scripts,
-  systemPrompt: readFileSync("agents/system-prompt.md", "utf-8"),
+export default definePlugin((nitroApp) => {
+  // The agent handler is available at POST /api/agent-chat
+  // Auth is handled separately via mountAuthMiddleware
 });
-
-createAppServer().then((app) =>
-  createProductionServer(app, {
-    agent,
-    accessToken: process.env.ACCESS_TOKEN,
-  }),
-);
 ```
 
 In `client/App.tsx`:
@@ -97,7 +88,7 @@ export default function App() {
 ```bash
 cd templates/mail
 pnpm build
-ACCESS_TOKEN=mytoken ANTHROPIC_API_KEY=sk-... node dist/server/node-build.mjs
+ACCESS_TOKEN=mytoken ANTHROPIC_API_KEY=sk-... node .output/server/index.mjs
 # Open http://localhost:3000 — login page appears
 # Enter the access token — app loads
 # Tap "Agent" tab — streaming chat

@@ -20,9 +20,10 @@ my-app/
     App.tsx        # Entry point
     components/    # UI components
     lib/utils.ts   # cn() utility
-  server/          # H3 API server
-    index.ts       # createAppServer() — async, returns H3 app
-    node-build.ts  # Production entry point
+  server/          # Nitro API server
+    routes/        # File-based API routes (auto-discovered)
+    plugins/       # Server plugins (startup logic)
+    lib/           # Shared server modules
   shared/          # Isomorphic code (client & server)
   scripts/         # Agent-callable scripts
     run.ts         # Script dispatcher
@@ -31,7 +32,7 @@ my-app/
 
 ## Vite Configuration
 
-Two config files — client SPA and server build:
+A single config file handles both client SPA and server build:
 
 ```ts
 // vite.config.ts
@@ -39,13 +40,19 @@ import { defineConfig } from "@agent-native/core/vite";
 export default defineConfig();
 ```
 
-```ts
-// vite.config.server.ts
-import { defineServerConfig } from "@agent-native/core/vite";
-export default defineServerConfig();
-```
+`defineConfig()` sets up React SWC, path aliases (`@/` → `client/`, `@shared/` → `shared/`), fs restrictions, and the Nitro server plugin (file-based API routing, server plugins, deploy-anywhere presets).
 
-`defineConfig()` sets up React SWC, path aliases (`@/` → `client/`, `@shared/` → `shared/`), fs restrictions, and the H3 dev plugin.
+### Nitro options
+
+Pass Nitro configuration via the `nitro` option:
+
+```ts
+export default defineConfig({
+  nitro: {
+    preset: "vercel", // Deploy target (default: "node")
+  },
+});
+```
 
 ## TypeScript & Tailwind
 
@@ -69,14 +76,14 @@ export default {
 
 | Import                                  | Exports                                                                                                                                                                                                                                                                                                                                          |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `@agent-native/core`                    | Server: `createServer`, `createFileWatcher`, `createSSEHandler`, `createProductionServer`, `mountAuthMiddleware`, `createProductionAgentHandler` · Client: `sendToAgentChat`, `useAgentChatGenerating`, `useFileWatcher`, `useProductionAgent`, `ProductionAgentPanel`, `cn` · Scripts: `runScript`, `parseArgs`, `loadEnv`, `fail`, `agentChat` |
-| `@agent-native/core/vite`               | `defineConfig()`, `defineServerConfig()`                                                                                                                                                                                                                                                                                                         |
-| `@agent-native/core/tailwind`           | Tailwind preset (HSL colors, shadcn/ui tokens, animations)                                                                                                                                                                                                                                                                                       |
-| `@agent-native/core/db`                 | `createDb()` — Drizzle ORM factory (SQLite via better-sqlite3)                                                                                                                                                                                                                                                                                   |
-| `@agent-native/core/adapters/sync`      | `createFileSync`, `FileSync`, `FileSyncAdapter` interface, `FileRecord`, `FileChange` types                                                                                                                                                                                                                                                      |
-| `@agent-native/core/adapters/firestore` | `FirestoreFileSyncAdapter`, `threeWayMerge`, `loadSyncConfig`                                                                                                                                                                                                                                                                                    |
-| `@agent-native/core/adapters/supabase`  | `SupabaseFileSyncAdapter`, `threeWayMerge`, `loadSyncConfig`                                                                                                                                                                                                                                                                                     |
-| `@agent-native/core/adapters/convex`    | `ConvexFileSyncAdapter`, `threeWayMerge`, `loadSyncConfig`                                                                                                                                                                                                                                                                                       |
+| `@agent-native/core`                    | Server: `createServer`, `createFileWatcher`, `createSSEHandler`, `mountAuthMiddleware`, `createProductionAgentHandler` · Client: `sendToAgentChat`, `useAgentChatGenerating`, `useFileWatcher`, `useProductionAgent`, `ProductionAgentPanel`, `cn` · Scripts: `runScript`, `parseArgs`, `loadEnv`, `fail`, `agentChat` |
+| `@agent-native/core/vite`               | `defineConfig()`                                                                                                                                                                                                                                                                                                         |
+| `@agent-native/core/tailwind`           | Tailwind preset (HSL colors, shadcn/ui tokens, animations)                                                                                                                                                                                                                                                               |
+| `@agent-native/core/db`                 | `createDb()` — Drizzle ORM factory (SQLite via better-sqlite3)                                                                                                                                                                                                                                                           |
+| `@agent-native/core/adapters/sync`      | `createFileSync`, `FileSync`, `FileSyncAdapter` interface, `FileRecord`, `FileChange` types                                                                                                                                                                                                                              |
+| `@agent-native/core/adapters/firestore` | `FirestoreFileSyncAdapter`, `threeWayMerge`, `loadSyncConfig`                                                                                                                                                                                                                                                            |
+| `@agent-native/core/adapters/supabase`  | `SupabaseFileSyncAdapter`, `threeWayMerge`, `loadSyncConfig`                                                                                                                                                                                                                                                             |
+| `@agent-native/core/adapters/convex`    | `ConvexFileSyncAdapter`, `threeWayMerge`, `loadSyncConfig`                                                                                                                                                                                                                                                               |
 
 ## Architecture Principles
 
@@ -86,3 +93,4 @@ export default {
 4. **Bidirectional SSE events** — File watcher keeps UI in sync with agent changes in real-time.
 5. **Agent can update code** — The agent modifies the app itself.
 6. **Application state as files** — Ephemeral UI state lives in `application-state/` as JSON. Both agent and UI can read and write these files; the SSE watcher covers this directory too.
+7. **Deploy anywhere** — Nitro presets let you deploy to Node.js, Vercel, Netlify, Cloudflare, AWS Lambda, Deno, and more with a single config change.

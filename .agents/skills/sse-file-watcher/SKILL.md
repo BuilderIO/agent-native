@@ -18,12 +18,19 @@ The agent modifies files on disk, but the UI runs in the browser. SSE bridges th
 
 ## How It Works
 
-1. **Server** watches the data directory with chokidar:
+1. **Server** watches the data directory with chokidar. The watcher is set up in a shared module (`server/lib/watcher.ts`) and the SSE endpoint is a file-based route:
 
    ```ts
-   import { createFileWatcher, createSSEHandler } from "@agent-native/core";
-   const watcher = createFileWatcher("./data");
-   app.get("/api/events", createSSEHandler(watcher));
+   // server/lib/watcher.ts
+   import { createFileWatcher } from "@agent-native/core";
+   export const watcher = createFileWatcher("./data");
+   ```
+
+   ```ts
+   // server/routes/api/events.get.ts
+   import { createSSEHandler } from "@agent-native/core";
+   import { watcher } from "../../lib/watcher.js";
+   export default createSSEHandler(watcher);
    ```
 
 2. **Client** listens for changes and invalidates React Query caches:

@@ -21,9 +21,10 @@ client/          # React frontend (Vite SPA)
   hooks/         # React hooks
   lib/           # Utilities (cn, etc)
 
-server/          # H3 API server
-  index.ts       # createAppServer() — async, returns H3 app
-  node-build.ts  # Production entry point
+server/          # Nitro API server
+  routes/        # File-based API routes (auto-discovered)
+  plugins/       # Server plugins (startup logic)
+  lib/           # Shared server modules
 
 shared/          # Isomorphic code (imported by both client & server)
 
@@ -67,7 +68,7 @@ The **`frontend-design`** skill (sourced from [Anthropic's skills library](https
 ### Key Patterns
 
 **Adding an API route:**
-Edit `server/index.ts`, add your route to `createAppServer()`.
+Create a file in `server/routes/api/`, e.g. `server/routes/api/items/index.get.ts` exporting a default `defineEventHandler`.
 
 **Adding a script:**
 Create `scripts/my-script.ts` exporting `default async function(args: string[])`.
@@ -132,7 +133,8 @@ File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.en
 
 - **Framework:** @agent-native/core
 - **Frontend:** React 18, Vite, TailwindCSS, shadcn/ui
-- **Backend:** H3 (via @agent-native/core)
+- **Backend:** Nitro (via @agent-native/core) — file-based API routing, server plugins, deploy-anywhere presets
 - **State:** File-based (SSE for real-time updates)
-- **Build:** `pnpm build` (client SPA + server bundle)
-- **Dev:** `pnpm dev` (Vite dev server with H3 middleware)
+- **Build:** `pnpm build` (single Vite build — client SPA + Nitro server)
+- **Dev:** `pnpm dev` (Vite dev server with Nitro plugin)
+- **Start:** `node .output/server/index.mjs` (production)

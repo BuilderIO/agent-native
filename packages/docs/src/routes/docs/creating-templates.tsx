@@ -86,10 +86,11 @@ function CreatingTemplatesDocs() {
     hooks/            # React hooks
     lib/utils.ts      # cn() utility
 
-  server/             # Express backend
-    index.ts          # createAppServer() — routes + middleware
-    node-build.ts     # Production entry point
-    routes/           # API route handlers
+  server/             # Nitro API server
+    routes/           # File-based API routes (auto-discovered)
+    plugins/          # Server plugins (startup logic)
+    lib/              # Shared server modules
+    handlers/         # Route handler modules (for larger apps)
 
   shared/             # Isomorphic types (imported by client & server)
     api.ts            # Shared interfaces
@@ -105,8 +106,7 @@ function CreatingTemplatesDocs() {
 
   AGENTS.md           # Master agent instructions
   package.json        # Scripts: dev, build, start, script, typecheck
-  vite.config.ts      # Client Vite config
-  vite.config.server.ts  # Server Vite config
+  vite.config.ts      # Vite config (client + Nitro server)
   tsconfig.json       # TypeScript config`}
         lang="text"
       />
@@ -152,47 +152,28 @@ function FileWatcher() {
       <h2 id="add-api-routes">Add API routes</h2>
       <p>
         API routes serve data from files and handle mutations. They go in{" "}
-        <code>server/index.ts</code>
-        or a <code>server/routes/</code> directory for larger apps:
+        <code>server/routes/</code> as file-based routes:
       </p>
       <CodeBlock
-        code={`// server/index.ts
-import { createServer, createFileWatcher, createSSEHandler } from "@agent-native/core";
-import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
+        code={`// server/routes/api/items/index.get.ts
+import { defineEventHandler } from "h3";
+import { readdir, readFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
-export function createAppServer() {
-  const app = createServer();
-  const watcher = createFileWatcher("./data");
-
-  // List items from files
-  app.get("/api/items", async (_req, res) => {
-    const dir = "./data/items";
-    await mkdir(dir, { recursive: true });
-    const files = await readdir(dir);
-    const items = await Promise.all(
-      files.filter(f => f.endsWith(".json")).map(async f => {
-        const content = await readFile(path.join(dir, f), "utf-8");
-        return JSON.parse(content);
-      })
-    );
-    res.json(items);
-  });
-
-  // Create an item (write a file)
-  app.post("/api/items", async (req, res) => {
-    const item = { id: crypto.randomUUID(), ...req.body, createdAt: new Date().toISOString() };
-    await mkdir("./data/items", { recursive: true });
-    await writeFile(\`./data/items/\${item.id}.json\`, JSON.stringify(item, null, 2));
-    res.json(item);
-  });
-
-  // SSE events (keep last)
-  app.get("/api/events", createSSEHandler(watcher));
-  return app;
-}`}
+export default defineEventHandler(async () => {
+  const dir = "./data/items";
+  await mkdir(dir, { recursive: true });
+  const files = await readdir(dir);
+  return Promise.all(
+    files.filter(f => f.endsWith(".json")).map(async f => {
+      const content = await readFile(path.join(dir, f), "utf-8");
+      return JSON.parse(content);
+    })
+  );
+});`}
       />
       <p>
+        Each route file exports a default <code>defineEventHandler</code>.
         Both the UI and the agent can create items — the UI via{" "}
         <code>POST /api/items</code>, the agent by writing directly to{" "}
         <code>data/items/</code>. The SSE watcher ensures both paths trigger UI
