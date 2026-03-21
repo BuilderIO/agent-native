@@ -1,7 +1,7 @@
 import "./global.css";
 import { createRoot } from "react-dom/client";
 import { useEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router";
 import {
   QueryClient,
   QueryClientProvider,

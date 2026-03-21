@@ -16,7 +16,6 @@
   "devDependencies": {
     "@react-router/dev": "^7.13.1",
     "@react-router/fs-routes": "^7.13.1",
-    "@react-router/node": "^7.13.1",
     "@tanstack/react-query": "^5.84.2",
     "@types/node": "^24.2.1",
     "@types/react": "^18.3.23",

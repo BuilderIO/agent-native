@@ -21,6 +21,13 @@
       "@shared/*": ["./shared/*"]
     }
   },
-  "include": ["client", "server", "shared", "scripts"],
+  "include": [
+    "client",
+    "server",
+    "shared",
+    "scripts",
+    "react-router.config.ts",
+    ".react-router/types/**/*"
+  ],
   "exclude": ["node_modules", "dist", "client/components/ui"]
 }

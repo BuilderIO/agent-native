@@ -2,7 +2,7 @@ import "./global.css";
 
 import { createRoot } from "react-dom/client";
 import { useEffect } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router";
 import { DeckProvider } from "@/context/DeckContext";
 import Index from "./pages/Index";
 import Settings from "./pages/Settings";

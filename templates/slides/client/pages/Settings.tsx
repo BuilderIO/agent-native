@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { ApiKeySettings } from "@agent-native/core/client";
 
 export default function Settings() {

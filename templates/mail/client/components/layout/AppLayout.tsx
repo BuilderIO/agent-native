@@ -12,7 +12,7 @@ import {
   useNavigate,
   useLocation,
   useSearchParams,
-} from "react-router-dom";
+} from "react-router";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "./CommandPalette";
 import { ComposeModal } from "@/components/email/ComposeModal";

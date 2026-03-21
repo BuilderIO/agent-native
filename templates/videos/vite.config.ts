@@ -1,2 +1,5 @@
 import { defineConfig } from "@agent-native/core/vite";
-export default defineConfig({ port: 8087 });
+
+export default defineConfig({
+  reactRouter: true,
+});

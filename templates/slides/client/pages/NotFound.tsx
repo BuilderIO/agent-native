@@ -1,4 +1,4 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router";
 import { useEffect } from "react";
 import { ArrowLeft } from "lucide-react";
 

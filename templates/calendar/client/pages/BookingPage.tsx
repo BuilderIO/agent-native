@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams } from "react-router";
 import { format } from "date-fns";
 import { CalendarDays } from "lucide-react";
 import { DatePicker } from "@/components/booking/DatePicker";
