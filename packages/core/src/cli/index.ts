@@ -49,7 +49,7 @@ function run(
 
 switch (command) {
   case "dev": {
-    // Like `next dev` — runs Vite dev server with express plugin
+    // Like `next dev` — runs Vite dev server (Nitro plugin handles API routes)
     // Supports --base <path> for mounting under a prefix (e.g. agent-native dev --base /app/)
     const vite = findViteBin();
     run(vite, args);
@@ -57,21 +57,17 @@ switch (command) {
   }
 
   case "build": {
-    // Like `next build` — builds client SPA + server bundle
+    // Like `next build` — single vite build (Nitro plugin builds client + server)
     const vite = findViteBin();
-    console.log("Building client...");
+    console.log("Building...");
     execSync(`${vite} build`, { stdio: "inherit" });
-    console.log("\nBuilding server...");
-    execSync(`${vite} build --config vite.config.server.ts`, {
-      stdio: "inherit",
-    });
     console.log("\nBuild complete.");
     break;
   }
 
   case "start": {
-    // Like `next start` — runs production server
-    const serverEntry = path.resolve("dist/server/production.mjs");
+    // Like `next start` — runs Nitro production server
+    const serverEntry = path.resolve(".output/server/index.mjs");
     if (!fs.existsSync(serverEntry)) {
       console.error(
         'No production build found. Run "agent-native build" first.',

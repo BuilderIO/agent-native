@@ -1,14 +1,24 @@
 import path from "path";
 import type { Plugin, UserConfig } from "vite";
-import { expressPlugin, type ExpressPluginOptions } from "./express-plugin.js";
+
+export interface NitroOptions {
+  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "cloudflare_pages"). Default: "node" */
+  preset?: string;
+  /** Source directory for server files. Default: "./server" */
+  srcDir?: string;
+  /** Routes directory name (relative to srcDir). Default: "routes" */
+  routesDir?: string;
+  /** Any additional Nitro config overrides */
+  [key: string]: unknown;
+}
 
 export interface ClientConfigOptions {
   /** Port for dev server. Default: 8080 */
   port?: number;
   /** Additional Vite plugins */
   plugins?: any[];
-  /** Express plugin options (serverEntry, etc) */
-  express?: ExpressPluginOptions;
+  /** Nitro plugin options (preset, srcDir, etc) */
+  nitro?: NitroOptions;
   /** Override resolve aliases */
   aliases?: Record<string, string>;
   /** Override build.outDir. Default: "dist/spa" */
@@ -54,7 +64,7 @@ function baseRedirectGuard(): Plugin {
 
 /**
  * Create the client/SPA Vite config with sensible agent-native defaults.
- * Includes React SWC, path aliases, fs restrictions, and the Express dev plugin.
+ * Includes React SWC, path aliases, fs restrictions, and the Nitro server plugin.
  */
 export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
   // Dynamic import to keep it optional
@@ -66,7 +76,26 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     // Will be resolved at runtime by Vite
   }
 
+  // Dynamic import for nitro/vite — it's a dependency of @agent-native/core
+  let nitroPlugin: any;
+  try {
+    nitroPlugin = require("nitro/vite");
+    if (nitroPlugin.default) nitroPlugin = nitroPlugin.default;
+    if (nitroPlugin.nitro) nitroPlugin = nitroPlugin.nitro;
+  } catch {
+    // Will be resolved at runtime by Vite
+  }
+
   const cwd = process.cwd();
+
+  // Build nitro options from user config
+  const { preset, srcDir, routesDir, ...restNitro } = options.nitro ?? {};
+  const nitroOpts: Record<string, unknown> = {
+    ...restNitro,
+  };
+  if (preset) nitroOpts.preset = preset;
+  if (srcDir) nitroOpts.srcDir = srcDir;
+  if (routesDir) nitroOpts.routesDir = routesDir;
 
   return {
     server: {
@@ -79,7 +108,6 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
           ".env.*",
           "*.{crt,pem}",
           "**/.git/**",
-          "server/**",
           ...(options.fsDeny ?? []),
         ],
       },
@@ -90,7 +118,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     plugins: [
       baseRedirectGuard(),
       reactPlugin?.(),
-      expressPlugin(options.express),
+      nitroPlugin?.(nitroOpts),
       ...(options.plugins ?? []),
     ].filter(Boolean),
     resolve: {

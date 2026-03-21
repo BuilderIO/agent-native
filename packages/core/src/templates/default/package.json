@@ -11,13 +11,10 @@
   },
   "dependencies": {
     "@agent-native/core": "^0.2.0",
-    "dotenv": "^17.2.1",
-    "express": "^5.1.0"
+    "dotenv": "^17.2.1"
   },
   "devDependencies": {
     "@tanstack/react-query": "^5.84.2",
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.3",
     "@types/node": "^24.2.1",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
@@ -25,7 +22,6 @@
     "autoprefixer": "^10.4.21",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "cors": "^2.8.5",
     "lucide-react": "^0.539.0",
     "postcss": "^8.5.6",
     "prettier": "^3.6.2",

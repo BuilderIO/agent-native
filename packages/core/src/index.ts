@@ -17,11 +17,9 @@ export {
   createServer,
   createFileWatcher,
   createSSEHandler,
-  createProductionServer,
   type CreateServerOptions,
   type FileWatcherOptions,
   type SSEHandlerOptions,
-  type ProductionServerOptions,
 } from "./server/index.js";
 
 // Client

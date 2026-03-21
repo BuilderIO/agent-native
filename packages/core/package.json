@@ -54,6 +54,7 @@
     "dotenv": "^17.2.1",
     "drizzle-orm": "^0.38.0",
     "h3": "^1.14.0",
+    "nitro": "^3.0.0",
     "minimatch": "^10.0.0",
     "p-limit": "^7.3.0",
     "tailwind-merge": "^2.6.0"
@@ -64,8 +65,6 @@
     "@vitejs/plugin-react-swc": ">=4",
     "autoprefixer": ">=10",
     "convex": ">=1",
-    "cors": ">=2",
-    "express": ">=5",
     "postcss": ">=8",
     "react": ">=18",
     "react-dom": ">=18",
@@ -90,12 +89,6 @@
     "postcss": {
       "optional": true
     },
-    "cors": {
-      "optional": true
-    },
-    "express": {
-      "optional": true
-    },
     "@vitejs/plugin-react-swc": {
       "optional": true
     },
@@ -113,14 +106,10 @@
     "@supabase/supabase-js": "^2.49.0",
     "@tanstack/react-query": "^5.84.2",
     "@types/better-sqlite3": "^7.6.13",
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.3",
     "@types/node": "^24.2.1",
     "@types/react": "^18.3.23",
     "@vitejs/plugin-react-swc": "^4.0.0",
     "autoprefixer": "^10.4.21",
-    "cors": "^2.8.5",
-    "express": "^5.1.0",
     "firebase-admin": "^13.0.0",
     "postcss": "^8.5.6",
     "react": "^18.3.1",
