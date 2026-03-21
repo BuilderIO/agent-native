@@ -21,8 +21,8 @@ client/          # React frontend (Vite SPA)
   hooks/         # React hooks
   lib/           # Utilities (cn, etc)
 
-server/          # Express backend
-  index.ts       # createAppServer() — routes + middleware
+server/          # H3 API server
+  index.ts       # createAppServer() — async, returns H3 app
   node-build.ts  # Production entry point
 
 shared/          # Isomorphic code (imported by both client & server)
@@ -132,7 +132,7 @@ File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.en
 
 - **Framework:** @agent-native/core
 - **Frontend:** React 18, Vite, TailwindCSS, shadcn/ui
-- **Backend:** Express 5
+- **Backend:** H3 (via @agent-native/core)
 - **State:** File-based (SSE for real-time updates)
 - **Build:** `pnpm build` (client SPA + server bundle)
-- **Dev:** `pnpm dev` (Vite dev server with Express middleware)
+- **Dev:** `pnpm dev` (Vite dev server with H3 middleware)

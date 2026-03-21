@@ -4,7 +4,7 @@
 
 Agent-native is a framework for building apps where an AI agent and UI share state through files. Think Next.js, but the AI agent is a first-class citizen.
 
-## The Five Rules
+## The Six Rules
 
 Every agent-native app follows these rules. Violating them breaks the architecture.
 
@@ -56,7 +56,7 @@ Ephemeral UI state lives in `application-state/` as JSON files. Both the agent a
 
 ```
 client/          # React frontend (Vite SPA)
-server/          # Express backend
+server/          # H3 API server
 shared/          # Isomorphic code (client + server)
 scripts/         # Agent-callable scripts
 data/            # App data files (watched by SSE)
