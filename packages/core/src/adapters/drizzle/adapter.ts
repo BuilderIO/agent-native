@@ -110,8 +110,9 @@ export class DrizzleFileSyncAdapter implements FileSyncAdapter {
     const existing = this.db.select().from(files).where(eq(files.id, id)).get();
 
     if (existing) {
-      // Update only provided fields
-      const updates: Partial<typeof files.$inferInsert> = {};
+      // Update only provided fields. Use a plain record to avoid drizzle's
+      // strict inferred-insert type, which may omit nullable columns.
+      const updates: Record<string, unknown> = {};
       if (record.path !== undefined) updates.path = record.path;
       if (record.content !== undefined) updates.content = record.content;
       if (record.app !== undefined) updates.app = record.app;
@@ -121,21 +122,27 @@ export class DrizzleFileSyncAdapter implements FileSyncAdapter {
       if (record.createdAt !== undefined) updates.createdAt = record.createdAt;
 
       if (Object.keys(updates).length > 0) {
-        this.db.update(files).set(updates).where(eq(files.id, id)).run();
+        this.db
+          .update(files)
+          .set(updates as typeof files.$inferInsert)
+          .where(eq(files.id, id))
+          .run();
       }
     } else {
       // Insert new record — require all required fields
+      const values: Record<string, unknown> = {
+        id,
+        path: record.path ?? "",
+        content: record.content ?? "",
+        app: record.app ?? "",
+        ownerId: record.ownerId ?? "",
+        lastUpdated: record.lastUpdated ?? 0,
+      };
+      if (record.createdAt !== undefined) values.createdAt = record.createdAt;
+
       this.db
         .insert(files)
-        .values({
-          id,
-          path: record.path ?? "",
-          content: record.content ?? "",
-          app: record.app ?? "",
-          ownerId: record.ownerId ?? "",
-          lastUpdated: record.lastUpdated ?? 0,
-          createdAt: record.createdAt ?? null,
-        })
+        .values(values as typeof files.$inferInsert)
         .run();
     }
   }
