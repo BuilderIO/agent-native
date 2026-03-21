@@ -11,7 +11,6 @@ import {
   Plus,
   type LucideProps,
 } from "lucide-react";
-import { APP_REGISTRY } from "@shared/app-registry";
 import type { Tab } from "../App.js";
 
 const ICON_MAP: Record<string, React.ComponentType<LucideProps>> = {
@@ -43,8 +42,6 @@ export default function TabBar({
   return (
     <div className="tabbar">
       {tabs.map((tab) => {
-        const app = APP_REGISTRY.find((a) => a.id === tab.appId);
-        const Icon = app ? (ICON_MAP[app.icon] ?? Layers) : Layers;
         const isActive = tab.id === activeTabId;
 
         return (
@@ -61,9 +58,6 @@ export default function TabBar({
             }}
             title={tab.title}
           >
-            <span className="tab-icon">
-              <Icon size={13} strokeWidth={1.75} />
-            </span>
             <span className="tab-label">{tab.title}</span>
             <span
               className="tab-close"

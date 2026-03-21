@@ -21,6 +21,21 @@ interface ElectronAPI {
     send(targetAppId: string, event: string, data: unknown): void;
     on(cb: (from: string, event: string, data: unknown) => void): () => void;
   };
+
+  appConfig: {
+    load(): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
+    add(
+      app: import("@agent-native/shared-app-config").AppConfig,
+    ): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
+    remove(
+      id: string,
+    ): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
+    update(
+      id: string,
+      updates: Partial<import("@agent-native/shared-app-config").AppConfig>,
+    ): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
+    reset(): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
+  };
 }
 
 declare interface Window {

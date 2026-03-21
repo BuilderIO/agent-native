@@ -45,6 +45,17 @@ const electronAPI = {
     },
   },
 
+  /** App config management */
+  appConfig: {
+    load: (): Promise<any[]> => ipcRenderer.invoke(IPC.APPS_LOAD),
+    add: (app: any): Promise<any[]> => ipcRenderer.invoke(IPC.APPS_ADD, app),
+    remove: (id: string): Promise<any[]> =>
+      ipcRenderer.invoke(IPC.APPS_REMOVE, id),
+    update: (id: string, updates: any): Promise<any[]> =>
+      ipcRenderer.invoke(IPC.APPS_UPDATE, id, updates),
+    reset: (): Promise<any[]> => ipcRenderer.invoke(IPC.APPS_RESET),
+  },
+
   /** Inter-app communication — relay messages between loaded apps */
   interApp: {
     /** Send a message to a specific app (or broadcast with targetAppId = "*") */

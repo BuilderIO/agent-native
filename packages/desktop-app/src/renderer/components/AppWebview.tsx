@@ -1,16 +1,48 @@
 import { useRef, useEffect, useState } from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
-import type { AppDefinition } from "@shared/app-registry";
+import type { AppDefinition, AppConfig } from "@shared/app-registry";
 import { getAppUrl } from "@shared/app-registry";
 
 interface AppWebviewProps {
   app: AppDefinition;
+  /** Full app config with URL overrides (optional for backward compat) */
+  appConfig?: AppConfig;
   isActive: boolean;
 }
 
-export default function AppWebview({ app, isActive }: AppWebviewProps) {
+/**
+ * Determine the URL to load for this app.
+ * - In dev (IS_DEV): use harness URL (getAppUrl) so terminal+iframe works
+ * - In production: use the app's configured production URL
+ */
+function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
+  const isDev =
+    typeof window !== "undefined" &&
+    window.location.protocol === "http:" &&
+    window.location.hostname === "localhost";
+
+  if (isDev) {
+    // In dev mode, use the harness URL
+    return getAppUrl(app);
+  }
+
+  // In production, use the configured URL
+  if (appConfig?.url) {
+    return appConfig.url;
+  }
+
+  // Fallback to harness
+  return getAppUrl(app);
+}
+
+export default function AppWebview({
+  app,
+  appConfig,
+  isActive,
+}: AppWebviewProps) {
   const webviewRef = useRef<ElectronWebviewElement>(null);
   const [error, setError] = useState(false);
+  const url = resolveUrl(app, appConfig);
 
   useEffect(() => {
     if (app.placeholder) return;
@@ -45,7 +77,7 @@ export default function AppWebview({ app, isActive }: AppWebviewProps) {
     setError(false);
     const wv = webviewRef.current;
     if (wv) {
-      wv.src = getAppUrl(app);
+      wv.src = url;
     }
   }
 
@@ -54,13 +86,18 @@ export default function AppWebview({ app, isActive }: AppWebviewProps) {
       {app.placeholder && <PlaceholderScreen app={app} />}
 
       {!app.placeholder && error && (
-        <ErrorScreen app={app} onRetry={handleRetry} />
+        <ErrorScreen
+          app={app}
+          appConfig={appConfig}
+          url={url}
+          onRetry={handleRetry}
+        />
       )}
 
       {!app.placeholder && (
         <webview
           ref={webviewRef}
-          src={getAppUrl(app)}
+          src={url}
           className="app-webview"
           allowpopups=""
           webpreferences="contextIsolation=false"
@@ -72,9 +109,13 @@ export default function AppWebview({ app, isActive }: AppWebviewProps) {
 
 function ErrorScreen({
   app,
+  appConfig,
+  url,
   onRetry,
 }: {
   app: AppDefinition;
+  appConfig?: AppConfig;
+  url: string;
   onRetry: () => void;
 }) {
   return (
@@ -82,12 +123,15 @@ function ErrorScreen({
       <AlertCircle size={40} className="error-icon" />
       <p className="error-title">Could not connect to {app.name}</p>
       <p className="error-hint">
-        Make sure the dev server is running on port {app.devPort}.
-        <br />
-        Run:{" "}
-        <code>
-          pnpm --filter {app.id} exec vite --port {app.devPort}
-        </code>
+        {appConfig?.devCommand ? (
+          <>
+            Run: <code>{appConfig.devCommand}</code>
+          </>
+        ) : (
+          <>
+            Make sure the app is running at <code>{url}</code>
+          </>
+        )}
       </p>
       <button className="retry-button" onClick={onRetry}>
         <RefreshCw size={11} style={{ display: "inline", marginRight: 5 }} />

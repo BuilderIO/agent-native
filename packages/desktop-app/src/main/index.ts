@@ -10,7 +10,9 @@ import {
 } from "electron";
 import path from "path";
 import { IPC, type InterAppMessage } from "@shared/ipc-channels";
-import { APP_REGISTRY, HARNESS_PORT } from "@shared/app-registry";
+import { HARNESS_PORT } from "@shared/app-registry";
+import type { AppConfig } from "@shared/app-registry";
+import * as AppStore from "./app-store";
 
 const IS_DEV = !app.isPackaged;
 
@@ -97,6 +99,41 @@ ipcMain.handle(
     return BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false;
   },
 );
+
+// ---------- IPC: App config management ----------
+
+ipcMain.handle(IPC.APPS_LOAD, (): AppConfig[] => {
+  return AppStore.loadApps();
+});
+
+ipcMain.handle(
+  IPC.APPS_ADD,
+  (_event: IpcMainInvokeEvent, app: AppConfig): AppConfig[] => {
+    return AppStore.addApp(app);
+  },
+);
+
+ipcMain.handle(
+  IPC.APPS_REMOVE,
+  (_event: IpcMainInvokeEvent, id: string): AppConfig[] => {
+    return AppStore.removeApp(id);
+  },
+);
+
+ipcMain.handle(
+  IPC.APPS_UPDATE,
+  (
+    _event: IpcMainInvokeEvent,
+    id: string,
+    updates: Partial<AppConfig>,
+  ): AppConfig[] => {
+    return AppStore.updateApp(id, updates);
+  },
+);
+
+ipcMain.handle(IPC.APPS_RESET, (): AppConfig[] => {
+  return AppStore.resetToDefaults();
+});
 
 // ---------- IPC: Inter-app message relay ----------
 // Routes messages from one app to all renderer windows so webviews can forward them.
@@ -195,7 +232,8 @@ app.whenReady().then(() => {
     { urls: [`http://localhost:${HARNESS_PORT}/api/google/callback*`] },
     (details, callback) => {
       // Find which app handles this callback (currently only mail has Google auth)
-      const mailApp = APP_REGISTRY.find((a) => a.id === "mail");
+      const apps = AppStore.loadApps();
+      const mailApp = apps.find((a) => a.id === "mail");
       if (mailApp) {
         const appUrl = details.url.replace(
           `http://localhost:${HARNESS_PORT}`,
