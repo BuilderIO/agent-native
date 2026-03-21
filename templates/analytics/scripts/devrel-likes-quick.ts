@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 import "dotenv/config";
 import { parseArgs, output, fatal } from "./helpers";
-import { fetchAllTweetsForUser } from "../server/routes/twitter";
+import { fetchAllTweetsForUser } from "../server/handlers/twitter";
 
 const DEVREL_USERS = [
   { name: "Steve", handle: "Steve8708" },
