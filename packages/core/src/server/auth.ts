@@ -300,9 +300,11 @@ function isPublicPath(url: string, publicPaths: string[]): boolean {
   return publicPaths.some((pp) => p === pp || p.startsWith(pp + "/"));
 }
 
-let configuredPublicPaths: string[] = [];
-
-function mountAuthRoutes(app: H3App, accessTokens: string[]): void {
+function mountAuthRoutes(
+  app: H3App,
+  accessTokens: string[],
+  publicPaths: string[] = [],
+): void {
   // POST /api/auth/login
   app.use(
     "/api/auth/login",
@@ -373,7 +375,7 @@ function mountAuthRoutes(app: H3App, accessTokens: string[]): void {
       }
 
       // Skip public paths
-      if (isPublicPath(url, configuredPublicPaths)) {
+      if (isPublicPath(url, publicPaths)) {
         return;
       }
 
@@ -425,7 +427,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
   authDisabledMode = false;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
   sessionsFilePath = resolveSessionsPath(options.sessionsPath);
-  configuredPublicPaths = options.publicPaths ?? [];
+  const publicPaths = options.publicPaths ?? [];
 
   if (options.getSession) {
     customGetSession = options.getSession;
@@ -494,7 +496,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
           return;
         }
         // Skip public paths
-        if (isPublicPath(url, configuredPublicPaths)) {
+        if (isPublicPath(url, publicPaths)) {
           return;
         }
         const session = await getSession(event);
@@ -567,7 +569,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
   // Production with tokens — mount auth
   loadSessions();
   pruneExpiredSessions();
-  mountAuthRoutes(app, tokens);
+  mountAuthRoutes(app, tokens, publicPaths);
 
   console.log(
     `[agent-native] Auth enabled — ${tokens.length} access token(s) configured.`,
