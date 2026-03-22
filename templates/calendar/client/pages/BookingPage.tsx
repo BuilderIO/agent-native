@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams } from "react-router";
 import { format } from "date-fns";
 import { CalendarDays } from "lucide-react";
+import { PoweredByBadge } from "@agent-native/core/client";
 import { DatePicker } from "@/components/booking/DatePicker";
 import { TimeSlotPicker } from "@/components/booking/TimeSlotPicker";
 import { BookingForm } from "@/components/booking/BookingForm";
@@ -50,6 +51,7 @@ export default function BookingPage() {
     name: string;
     email: string;
     notes?: string;
+    captchaToken?: string;
   }) {
     if (!selectedSlot || !slug) return;
 
@@ -58,7 +60,10 @@ export default function BookingPage() {
 
     createBooking.mutate(
       {
-        ...data,
+        name: data.name,
+        email: data.email,
+        notes: data.notes,
+        captchaToken: data.captchaToken,
         start: slot.start,
         end: slot.end,
         slug,
@@ -186,6 +191,7 @@ export default function BookingPage() {
           )}
         </div>
       </div>
+      <PoweredByBadge />
     </div>
   );
 }

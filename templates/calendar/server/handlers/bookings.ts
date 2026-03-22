@@ -8,34 +8,28 @@ import {
 } from "h3";
 import path from "path";
 import { nanoid } from "nanoid";
+import { eq, and, gte, lte, ne } from "drizzle-orm";
+import { verifyCaptcha } from "@agent-native/core/server";
 import type {
   Booking,
   CalendarEvent,
   AvailabilityConfig,
   TimeSlot,
 } from "../../shared/api.js";
-import {
-  readJsonFile,
-  writeJsonFile,
-  listJsonFiles,
-  deleteJsonFile,
-} from "../lib/data-helpers.js";
+import { readJsonFile, writeJsonFile, listJsonFiles } from "../lib/data-helpers.js";
+import { db, schema } from "../db/index.js";
 
-const BOOKINGS_DIR = path.join(process.cwd(), "data", "bookings");
 const EVENTS_DIR = path.join(process.cwd(), "data", "events");
 const AVAILABILITY_PATH = path.join(process.cwd(), "data", "availability.json");
 
-function bookingPath(id: string): string {
-  return path.join(BOOKINGS_DIR, `${id}.json`);
-}
-
 export const listBookings = defineEventHandler((_event: H3Event) => {
   try {
-    const bookings = listJsonFiles<Booking>(BOOKINGS_DIR);
-    bookings.sort(
-      (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
-    );
-    return bookings;
+    const rows = db
+      .select()
+      .from(schema.bookings)
+      .orderBy(schema.bookings.start)
+      .all();
+    return rows.map(rowToBooking);
   } catch (error: any) {
     setResponseStatus(_event, 500);
     return { error: error.message };
@@ -45,31 +39,47 @@ export const listBookings = defineEventHandler((_event: H3Event) => {
 export const createBooking = defineEventHandler(async (event: H3Event) => {
   try {
     const body = await readBody(event);
+
+    // Verify captcha token
+    const captchaResult = await verifyCaptcha(body.captchaToken ?? "");
+    if (!captchaResult.success) {
+      setResponseStatus(event, 403);
+      return { error: "Captcha verification failed" };
+    }
+
     const now = new Date().toISOString();
     const id = nanoid();
-    const booking: Booking = {
-      ...body,
-      id,
-      status: "confirmed",
-      createdAt: now,
-    };
 
     // Validate required fields
-    if (!booking.name || !booking.email || !booking.start || !booking.end) {
+    if (!body.name || !body.email || !body.start || !body.end) {
       setResponseStatus(event, 400);
       return { error: "name, email, start, and end are required" };
     }
 
-    writeJsonFile(bookingPath(id), booking);
+    // Insert booking into DB
+    db.insert(schema.bookings)
+      .values({
+        id,
+        name: body.name,
+        email: body.email,
+        start: body.start,
+        end: body.end,
+        slug: body.slug || "",
+        eventTitle: body.eventTitle || null,
+        notes: body.notes || null,
+        status: "confirmed",
+        createdAt: now,
+      })
+      .run();
 
-    // Create a corresponding calendar event
+    // Create a corresponding calendar event (file-based for Google Calendar sync)
     const eventId = nanoid();
     const calEvent: CalendarEvent = {
       id: eventId,
-      title: booking.eventTitle || `Booking with ${booking.name}`,
-      description: `Booking by ${booking.name} (${booking.email})${booking.notes ? `\n\nNotes: ${booking.notes}` : ""}`,
-      start: booking.start,
-      end: booking.end,
+      title: body.eventTitle || `Booking with ${body.name}`,
+      description: `Booking by ${body.name} (${body.email})${body.notes ? `\n\nNotes: ${body.notes}` : ""}`,
+      start: body.start,
+      end: body.end,
       location: "",
       allDay: false,
       source: "local",
@@ -78,6 +88,19 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       updatedAt: now,
     };
     writeJsonFile(path.join(EVENTS_DIR, `${eventId}.json`), calEvent);
+
+    const booking: Booking = {
+      id,
+      name: body.name,
+      email: body.email,
+      start: body.start,
+      end: body.end,
+      slug: body.slug || "",
+      eventTitle: body.eventTitle,
+      notes: body.notes,
+      status: "confirmed",
+      createdAt: now,
+    };
 
     setResponseStatus(event, 201);
     return booking;
@@ -136,14 +159,18 @@ export const getAvailableSlots = defineEventHandler((event: H3Event) => {
       return eventStart < new Date(dayEnd) && eventEnd > new Date(dayStart);
     });
 
-    // Get all bookings for this date
-    const allBookings = listJsonFiles<Booking>(BOOKINGS_DIR);
-    const dayBookings = allBookings.filter((b) => {
-      if (b.status === "cancelled") return false;
-      const bStart = new Date(b.start);
-      const bEnd = new Date(b.end);
-      return bStart < new Date(dayEnd) && bEnd > new Date(dayStart);
-    });
+    // Get bookings for this date from DB
+    const dayBookings = db
+      .select()
+      .from(schema.bookings)
+      .where(
+        and(
+          ne(schema.bookings.status, "cancelled"),
+          lte(schema.bookings.start, dayEnd),
+          gte(schema.bookings.end, dayStart),
+        ),
+      )
+      .all();
 
     // Generate available slots
     const availableSlots: TimeSlot[] = [];
@@ -171,8 +198,12 @@ export const getAvailableSlots = defineEventHandler((event: H3Event) => {
           current.getTime() + slotDuration * 60 * 1000,
         );
 
-        // Check for conflicts with events (including buffer)
-        const hasConflict = [...dayEvents, ...dayBookings].some((item) => {
+        // Check for conflicts with events and DB bookings (including buffer)
+        const allConflictItems = [
+          ...dayEvents.map((e) => ({ start: e.start, end: e.end })),
+          ...dayBookings.map((b) => ({ start: b.start, end: b.end })),
+        ];
+        const hasConflict = allConflictItems.some((item) => {
           const itemStart = new Date(item.start).getTime() - bufferMs;
           const itemEnd = new Date(item.end).getTime() + bufferMs;
           return (
@@ -202,16 +233,38 @@ export const getAvailableSlots = defineEventHandler((event: H3Event) => {
 export const deleteBooking = defineEventHandler((event: H3Event) => {
   try {
     const id = getRouterParam(event, "id") as string;
-    const existing = readJsonFile<Booking>(bookingPath(id));
+
+    const existing = db
+      .select()
+      .from(schema.bookings)
+      .where(eq(schema.bookings.id, id))
+      .get();
+
     if (!existing) {
       setResponseStatus(event, 404);
       return { error: "Booking not found" };
     }
 
-    deleteJsonFile(bookingPath(id));
+    db.delete(schema.bookings).where(eq(schema.bookings.id, id)).run();
     return { success: true };
   } catch (error: any) {
     setResponseStatus(event, 500);
     return { error: error.message };
   }
 });
+
+// Helper to convert DB row to Booking type
+function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    start: row.start,
+    end: row.end,
+    slug: row.slug,
+    eventTitle: row.eventTitle ?? undefined,
+    notes: row.notes ?? undefined,
+    status: row.status,
+    createdAt: row.createdAt,
+  };
+}

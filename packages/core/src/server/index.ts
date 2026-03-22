@@ -17,6 +17,7 @@ export {
   type AuthOptions,
 } from "./auth.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
+export { verifyCaptcha, type CaptchaVerifyResult } from "./captcha.js";
 export {
   createProductionAgentHandler,
   type ScriptEntry,
