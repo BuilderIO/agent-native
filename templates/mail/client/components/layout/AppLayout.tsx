@@ -95,7 +95,6 @@ export function AppLayout({ children }: AppLayoutProps) {
   const activeLabel = searchParams.get("label");
   const { data: labels = [], isLoading: labelsLoading } = useLabels();
   const { data: settings, isLoading: settingsLoading } = useSettings();
-  const tabsLoading = labelsLoading || settingsLoading || emailsLoading;
   useContacts(); // Prefetch contacts so composer autocomplete is instant
   const updateSettings = useUpdateSettings();
   const googleStatus = useGoogleAuthStatus();
@@ -112,6 +111,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const pinnedLabels = settings?.pinnedLabels ?? [];
   const { data: inboxEmails = [], isLoading: emailsLoading } =
     useEmails("inbox");
+  const tabsLoading = labelsLoading || settingsLoading || emailsLoading;
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Compute thread counts per label from inbox emails
