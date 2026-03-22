@@ -17,6 +17,8 @@ interface ElectronAPI {
     ): () => void;
   };
 
+  setActiveApp(appId: string): void;
+
   interApp: {
     send(targetAppId: string, event: string, data: unknown): void;
     on(cb: (from: string, event: string, data: unknown) => void): () => void;

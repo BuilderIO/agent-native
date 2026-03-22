@@ -241,6 +241,13 @@ export default function App() {
     });
   }, [handleShortcut]);
 
+  // Report the active app to main process so DevTools targets the right webview
+  useEffect(() => {
+    if (activeSidebarAppId && window.electronAPI?.setActiveApp) {
+      window.electronAPI.setActiveApp(activeSidebarAppId);
+    }
+  }, [activeSidebarAppId]);
+
   const activeTabIdRef = useRef(currentAppTabs?.activeTabId ?? "");
   activeTabIdRef.current = currentAppTabs?.activeTabId ?? "";
 

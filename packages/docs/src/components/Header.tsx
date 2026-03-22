@@ -110,6 +110,14 @@ export default function Header() {
             >
               GitHub
             </a>
+            <a
+              href="https://discord.gg/qm82StQ2NC"
+              target="_blank"
+              rel="noreferrer"
+              className="header-link"
+            >
+              Discord
+            </a>
           </div>
 
           <div className="ml-auto flex items-center gap-3">
@@ -154,6 +162,14 @@ export default function Header() {
               className="header-link"
             >
               GitHub
+            </a>
+            <a
+              href="https://discord.gg/qm82StQ2NC"
+              target="_blank"
+              rel="noreferrer"
+              className="header-link"
+            >
+              Discord
             </a>
           </div>
         )}
