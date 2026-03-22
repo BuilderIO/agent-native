@@ -34,10 +34,22 @@ Options:
     );
   }
 
-  // Block SELECT — use db-query for reads
-  const trimmed = sql.trim().toUpperCase();
-  if (trimmed.startsWith("SELECT") || trimmed.startsWith("WITH")) {
-    fail("Use db-query for SELECT statements. db-exec is for writes only.");
+  // Allowlist: only permit DML statements the agent should run
+  const stripped = sql.replace(/^\s*--[^\n]*\n/gm, "").trim();
+  const upper = stripped.toUpperCase();
+  const allowed = ["INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "ALTER"];
+  const blocked = ["SELECT", "WITH", "EXPLAIN", "PRAGMA"];
+
+  if (blocked.some((kw) => upper.startsWith(kw))) {
+    fail(
+      "Use db-query for SELECT/read statements. db-exec is for writes only.",
+    );
+  }
+  if (!allowed.some((kw) => upper.startsWith(kw))) {
+    fail(
+      `Only ${allowed.join(", ")} statements are allowed. ` +
+        `Dangerous operations like DROP, ATTACH, VACUUM, and DETACH are blocked.`,
+    );
   }
 
   const dbPath = parsed.db || path.join(process.cwd(), "data", "app.db");

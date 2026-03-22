@@ -32,13 +32,15 @@ Options:
     fail('--sql is required. Example: --sql "SELECT * FROM forms"');
   }
 
-  // Safety: only allow SELECT / WITH / EXPLAIN / PRAGMA (read-only)
-  const trimmed = sql.trim().toUpperCase();
+  // Safety: only allow read-only statements.
+  // Strip leading SQL comments before checking the prefix.
+  const stripped = sql.replace(/^\s*--[^\n]*\n/gm, "").trim();
+  const upper = stripped.toUpperCase();
   if (
-    !trimmed.startsWith("SELECT") &&
-    !trimmed.startsWith("WITH") &&
-    !trimmed.startsWith("EXPLAIN") &&
-    !trimmed.startsWith("PRAGMA")
+    !upper.startsWith("SELECT") &&
+    !upper.startsWith("WITH") &&
+    !upper.startsWith("EXPLAIN") &&
+    !upper.startsWith("PRAGMA")
   ) {
     fail(
       "Only SELECT, WITH, EXPLAIN, and PRAGMA queries are allowed. Use db-exec for writes.",
