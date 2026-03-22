@@ -59,7 +59,6 @@ const fieldTypeDefaults: Record<FormFieldType, Partial<FormField>> = {
     options: ["Option 1", "Option 2", "Option 3"],
   },
   date: { label: "Date" },
-  file: { label: "File Upload" },
   rating: { label: "Rating" },
   scale: { label: "Scale", validation: { min: 1, max: 10 } },
 };
@@ -74,7 +73,6 @@ const fieldTypeLabels: Record<FormFieldType, string> = {
   checkbox: "Checkbox",
   radio: "Multiple Choice",
   date: "Date",
-  file: "File Upload",
   rating: "Rating",
   scale: "Scale",
 };

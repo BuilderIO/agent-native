@@ -204,14 +204,6 @@ export function FieldRenderer({
           </div>
         </div>
       )}
-
-      {field.type === "file" && (
-        <Input
-          type="file"
-          disabled={disabled || preview}
-          className="cursor-pointer"
-        />
-      )}
     </div>
   );
 }

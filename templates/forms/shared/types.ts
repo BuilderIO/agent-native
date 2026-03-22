@@ -12,7 +12,6 @@ export type FormFieldType =
   | "checkbox"
   | "radio"
   | "date"
-  | "file"
   | "rating"
   | "scale";
 

@@ -31,7 +31,6 @@ const fieldTypeLabels: Record<FormFieldType, string> = {
   checkbox: "Checkbox",
   radio: "Radio Buttons",
   date: "Date",
-  file: "File Upload",
   rating: "Rating",
   scale: "Scale",
 };

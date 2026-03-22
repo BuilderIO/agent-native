@@ -60,6 +60,24 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       return { error: "name, email, start, and end are required" };
     }
 
+    // Check for conflicting bookings (prevent double-booking)
+    const conflicting = db
+      .select()
+      .from(schema.bookings)
+      .where(
+        and(
+          ne(schema.bookings.status, "cancelled"),
+          lte(schema.bookings.start, body.end),
+          gte(schema.bookings.end, body.start),
+        ),
+      )
+      .all();
+
+    if (conflicting.length > 0) {
+      setResponseStatus(event, 409);
+      return { error: "This time slot is no longer available" };
+    }
+
     // Insert booking into DB
     db.insert(schema.bookings)
       .values({

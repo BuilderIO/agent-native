@@ -3,6 +3,7 @@ import { useParams } from "react-router";
 import { Button } from "@/components/ui/button";
 import { FieldRenderer } from "@/components/builder/FieldRenderer";
 import { Turnstile, PoweredByBadge } from "@agent-native/core/client";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { usePublicForm, useSubmitForm } from "@/hooks/use-forms";
 import { toast } from "sonner";
 import { CheckCircle2 } from "lucide-react";
@@ -155,7 +156,10 @@ export function FormFillPage() {
   const primaryColor = settings.primaryColor || "#2563eb";
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4 py-12">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4 py-12 relative">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
       <div className="w-full max-w-2xl">
         {/* Form header */}
         <div className="mb-8">

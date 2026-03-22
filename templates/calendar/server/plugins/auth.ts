@@ -6,8 +6,7 @@ export default defineNitroPlugin((nitroApp: any) => {
       "/book",
       "/api/bookings/available-slots",
       "/api/bookings/create",
-      "/api/availability",
-      "/api/settings",
+      "/api/public",
     ],
   });
 });

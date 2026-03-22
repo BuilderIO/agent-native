@@ -5,6 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useForms, useCreateForm } from "@/hooks/use-forms";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const statusColors: Record<string, string> = {
   draft: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400",
@@ -92,6 +93,11 @@ export function Sidebar() {
           )}
         </div>
       </ScrollArea>
+
+      {/* Theme toggle */}
+      <div className="border-t border-sidebar-border px-3 py-2 flex items-center">
+        <ThemeToggle />
+      </div>
     </div>
   );
 }

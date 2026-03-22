@@ -8,14 +8,22 @@ import type { Form, FormField, FormSettings } from "@shared/types";
 export function useForms() {
   return useQuery<Form[]>({
     queryKey: ["forms"],
-    queryFn: () => fetch("/api/forms").then((r) => r.json()),
+    queryFn: async () => {
+      const r = await fetch("/api/forms");
+      if (!r.ok) throw new Error("Failed to fetch forms");
+      return r.json();
+    },
   });
 }
 
 export function useForm(id: string) {
   return useQuery<Form>({
     queryKey: ["forms", id],
-    queryFn: () => fetch(`/api/forms/${id}`).then((r) => r.json()),
+    queryFn: async () => {
+      const r = await fetch(`/api/forms/${id}`);
+      if (!r.ok) throw new Error("Failed to fetch form");
+      return r.json();
+    },
     enabled: !!id,
   });
 }
@@ -33,7 +41,10 @@ export function useCreateForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
-      }).then((r) => r.json()),
+      }).then((r) => {
+        if (!r.ok) return r.json().then((e: any) => Promise.reject(e));
+        return r.json();
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["forms"] }),
   });
 }
@@ -57,7 +68,10 @@ export function useUpdateForm() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
-      }).then((r) => r.json()),
+      }).then((r) => {
+        if (!r.ok) return r.json().then((e: any) => Promise.reject(e));
+        return r.json();
+      }),
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["forms"] });
       qc.invalidateQueries({ queryKey: ["forms", vars.id] });
@@ -69,7 +83,10 @@ export function useDeleteForm() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      fetch(`/api/forms/${id}`, { method: "DELETE" }).then((r) => r.json()),
+      fetch(`/api/forms/${id}`, { method: "DELETE" }).then((r) => {
+        if (!r.ok) return r.json().then((e: any) => Promise.reject(e));
+        return r.json();
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["forms"] }),
   });
 }

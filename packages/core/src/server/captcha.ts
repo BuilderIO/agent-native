@@ -29,6 +29,10 @@ export async function verifyCaptcha(
 
   // No secret configured — captcha is opt-in, allow through
   if (!secret) {
+    console.warn(
+      "[captcha] TURNSTILE_SECRET_KEY is not set — captcha verification is disabled. " +
+        "Set TURNSTILE_SECRET_KEY and VITE_TURNSTILE_SITE_KEY to enable bot protection.",
+    );
     return { success: true };
   }
 

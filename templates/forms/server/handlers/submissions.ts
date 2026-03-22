@@ -36,11 +36,28 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     return { error: "Captcha verification failed" };
   }
 
-  // Validate required fields
+  // Validate required fields (respecting conditional visibility)
   const fields: FormField[] = JSON.parse(form.fields);
   const data = body.data || {};
+
+  function isFieldVisible(field: FormField): boolean {
+    if (!field.conditional) return true;
+    const { fieldId, operator, value: condValue } = field.conditional;
+    const fieldVal = String(data[fieldId] ?? "");
+    switch (operator) {
+      case "equals":
+        return fieldVal === condValue;
+      case "not_equals":
+        return fieldVal !== condValue;
+      case "contains":
+        return fieldVal.includes(condValue);
+      default:
+        return true;
+    }
+  }
+
   for (const field of fields) {
-    if (field.required) {
+    if (field.required && isFieldVisible(field)) {
       const val = data[field.id];
       if (val === undefined || val === null || val === "") {
         setResponseStatus(event, 400);
