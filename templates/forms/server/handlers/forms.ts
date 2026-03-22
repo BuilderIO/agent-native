@@ -95,19 +95,27 @@ export const createForm = defineEventHandler(async (event: H3Event) => {
     showProgressBar: false,
   };
 
-  db.insert(schema.forms)
-    .values({
-      id,
-      title: body.title || "Untitled Form",
-      description: body.description || null,
-      slug,
-      fields: JSON.stringify(body.fields || []),
-      settings: JSON.stringify(body.settings || defaultSettings),
-      status: body.status || "draft",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  try {
+    db.insert(schema.forms)
+      .values({
+        id,
+        title: body.title || "Untitled Form",
+        description: body.description || null,
+        slug,
+        fields: JSON.stringify(body.fields || []),
+        settings: JSON.stringify(body.settings || defaultSettings),
+        status: body.status || "draft",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err: any) {
+    if (err?.message?.includes("UNIQUE constraint")) {
+      setResponseStatus(event, 409);
+      return { error: "A form with this slug already exists" };
+    }
+    throw err;
+  }
 
   const row = db
     .select()
@@ -142,7 +150,15 @@ export const updateForm = defineEventHandler(async (event: H3Event) => {
     updates.settings = JSON.stringify(body.settings);
   if (body.status !== undefined) updates.status = body.status;
 
-  db.update(schema.forms).set(updates).where(eq(schema.forms.id, id)).run();
+  try {
+    db.update(schema.forms).set(updates).where(eq(schema.forms.id, id)).run();
+  } catch (err: any) {
+    if (err?.message?.includes("UNIQUE constraint")) {
+      setResponseStatus(event, 409);
+      return { error: "A form with this slug already exists" };
+    }
+    throw err;
+  }
 
   const row = db
     .select()

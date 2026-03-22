@@ -60,39 +60,46 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       return { error: "name, email, start, and end are required" };
     }
 
-    // Check for conflicting bookings (prevent double-booking)
-    const conflicting = db
-      .select()
-      .from(schema.bookings)
-      .where(
-        and(
-          ne(schema.bookings.status, "cancelled"),
-          lte(schema.bookings.start, body.end),
-          gte(schema.bookings.end, body.start),
-        ),
-      )
-      .all();
+    // Check for conflicts + insert atomically in a transaction
+    const insertResult = db.transaction((tx) => {
+      const conflicting = tx
+        .select()
+        .from(schema.bookings)
+        .where(
+          and(
+            ne(schema.bookings.status, "cancelled"),
+            lte(schema.bookings.start, body.end),
+            gte(schema.bookings.end, body.start),
+          ),
+        )
+        .all();
 
-    if (conflicting.length > 0) {
+      if (conflicting.length > 0) {
+        return { conflict: true } as const;
+      }
+
+      tx.insert(schema.bookings)
+        .values({
+          id,
+          name: body.name,
+          email: body.email,
+          start: body.start,
+          end: body.end,
+          slug: body.slug || "",
+          eventTitle: body.eventTitle || null,
+          notes: body.notes || null,
+          status: "confirmed",
+          createdAt: now,
+        })
+        .run();
+
+      return { conflict: false } as const;
+    });
+
+    if (insertResult.conflict) {
       setResponseStatus(event, 409);
       return { error: "This time slot is no longer available" };
     }
-
-    // Insert booking into DB
-    db.insert(schema.bookings)
-      .values({
-        id,
-        name: body.name,
-        email: body.email,
-        start: body.start,
-        end: body.end,
-        slug: body.slug || "",
-        eventTitle: body.eventTitle || null,
-        notes: body.notes || null,
-        status: "confirmed",
-        createdAt: now,
-      })
-      .run();
 
     // Create a corresponding calendar event (file-based for Google Calendar sync)
     const eventId = nanoid();

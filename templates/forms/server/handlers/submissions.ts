@@ -59,7 +59,13 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   for (const field of fields) {
     if (field.required && isFieldVisible(field)) {
       const val = data[field.id];
-      if (val === undefined || val === null || val === "") {
+      const isEmpty =
+        val === undefined ||
+        val === null ||
+        val === "" ||
+        val === false ||
+        (Array.isArray(val) && val.length === 0);
+      if (isEmpty) {
         setResponseStatus(event, 400);
         return { error: `${field.label} is required` };
       }
