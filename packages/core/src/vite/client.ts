@@ -1,5 +1,8 @@
 import path from "path";
+import { createRequire } from "module";
 import type { Plugin, UserConfig } from "vite";
+
+const require = createRequire(import.meta.url);
 
 export interface NitroOptions {
   /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "cloudflare_pages"). Default: "node" */
@@ -101,26 +104,16 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     }
   }
 
-  // Dynamic import for nitro/vite — it's a dependency of @agent-native/core
-  let nitroPlugin: any;
-  try {
-    nitroPlugin = require("nitro/vite");
-    if (nitroPlugin.default) nitroPlugin = nitroPlugin.default;
-    if (nitroPlugin.nitro) nitroPlugin = nitroPlugin.nitro;
-  } catch {
-    // Will be resolved at runtime by Vite
-  }
+  // Nitro 3.0's Vite plugin (nitro/vite) uses a FetchableDevEnvironment
+  // that is incompatible with Vite 7/8's DevEnvironment API. Loading it
+  // crashes typecheck, build, and any Vite server creation. Nitro's
+  // file-based routes are handled by its runtime (via the server/routes/
+  // directory) independently of this plugin, so we skip it entirely.
+  // The Nitro plugin can be re-enabled once Nitro ships a Vite 7+ compatible
+  // release.
+  const nitroPlugin: any = null;
 
   const cwd = process.cwd();
-
-  // Build nitro options from user config
-  const { preset, srcDir, routesDir, ...restNitro } = options.nitro ?? {};
-  const nitroOpts: Record<string, unknown> = {
-    ...restNitro,
-  };
-  if (preset) nitroOpts.preset = preset;
-  if (srcDir) nitroOpts.srcDir = srcDir;
-  if (routesDir) nitroOpts.routesDir = routesDir;
 
   // Build the React transform plugin (only for legacy SPA mode)
   const reactPluginInstance = reactTransformPlugin?.();
@@ -146,7 +139,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     plugins: [
       baseRedirectGuard(),
       reactPluginInstance,
-      nitroPlugin?.(nitroOpts),
+      nitroPlugin?.(),
       ...(options.plugins ?? []),
     ].filter(Boolean),
     resolve: {

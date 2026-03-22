@@ -11,9 +11,10 @@ export function useFormResponses(formId: string, limit = 100) {
   return useQuery<ResponsesResult>({
     queryKey: ["responses", formId, limit],
     queryFn: () =>
-      fetch(`/api/forms/${formId}/responses?limit=${limit}`).then((r) =>
-        r.json(),
-      ),
+      fetch(`/api/forms/${formId}/responses?limit=${limit}`).then((r) => {
+        if (!r.ok) throw new Error("Failed to fetch responses");
+        return r.json();
+      }),
     enabled: !!formId,
   });
 }
