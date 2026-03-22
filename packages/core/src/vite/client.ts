@@ -120,18 +120,10 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
   const { preset, srcDir, routesDir, ...restNitro } = options.nitro ?? {};
   const nitroOpts: Record<string, unknown> = {
     ...restNitro,
-    // Ensure Nitro scans the server directory for file-based routes
-    config: {
-      srcDir: srcDir ?? "./server",
-      ...(restNitro.config as Record<string, unknown>),
-    },
   };
   if (preset) nitroOpts.preset = preset;
-  if (routesDir)
-    nitroOpts.config = {
-      ...(nitroOpts.config as Record<string, unknown>),
-      routesDir,
-    };
+  if (srcDir) nitroOpts.srcDir = srcDir;
+  if (routesDir) nitroOpts.routesDir = routesDir;
 
   // Build the React transform plugin (only for legacy SPA mode)
   const reactPluginInstance = reactTransformPlugin?.();
