@@ -1,6 +1,7 @@
 import type { AppLoadContext, EntryContext } from "react-router";
 import { ServerRouter } from "react-router";
-import { renderToReadableStream } from "react-dom/server";
+import ReactDOMServer from "react-dom/server.browser";
+const { renderToReadableStream } = ReactDOMServer;
 import { isbot } from "isbot";
 
 export const streamTimeout = 5_000;
@@ -22,13 +23,18 @@ export default async function handleRequest(
   const userAgent = request.headers.get("user-agent");
   const waitForAll = (userAgent && isbot(userAgent)) || routerContext.isSpaMode;
 
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), streamTimeout);
+
   const body = await renderToReadableStream(
     <ServerRouter context={routerContext} url={request.url} />,
     {
-      signal: AbortSignal.timeout(streamTimeout),
+      signal: abortController.signal,
       onError(error: unknown) {
-        responseStatusCode = 500;
-        console.error(error);
+        if (!abortController.signal.aborted) {
+          responseStatusCode = 500;
+          console.error(error);
+        }
       },
     },
   );
@@ -36,6 +42,8 @@ export default async function handleRequest(
   if (waitForAll) {
     await body.allReady;
   }
+
+  clearTimeout(timeoutId);
 
   responseHeaders.set("Content-Type", "text/html");
   return new Response(body, {

@@ -422,6 +422,19 @@ function mountAuthRoutes(
  * Returns true if auth was mounted, false if skipped.
  */
 export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
+  // In Nitro 3.0 dev mode, the H3 app may not be available yet.
+  // In dev mode auth is bypassed anyway, so we can safely skip.
+  if (!app) {
+    if (isDevMode()) {
+      authDisabledMode = false;
+      customGetSession = null;
+      return false;
+    }
+    throw new Error(
+      "autoMountAuth: H3 app is required. In Nitro plugins, pass nitroApp.h3App.",
+    );
+  }
+
   // Reset globals to avoid stale state from prior calls
   customGetSession = null;
   authDisabledMode = false;
