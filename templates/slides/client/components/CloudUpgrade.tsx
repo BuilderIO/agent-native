@@ -124,7 +124,7 @@ export function CloudUpgrade({
         try {
           const healthRes = await fetch("/api/db-health");
           const health = await healthRes.json();
-          if (health.ok) {
+          if (health.ok && health.local === false) {
             ok = true;
             break;
           }

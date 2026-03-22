@@ -120,7 +120,7 @@ export default async function main(args: string[]) {
             content,
             metadata: metadata ? JSON.stringify(metadata) : null,
             updatedAt: now,
-            ...(shouldPublish ? { publishedAt: now } : {}),
+            publishedAt: shouldPublish ? now : null,
           })
           .where(eq(schema.pages.id, id));
         console.log(`  Updated: ${workspace}/${project}`);

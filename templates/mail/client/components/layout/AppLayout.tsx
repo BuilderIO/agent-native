@@ -93,8 +93,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   const threadId = pathSegments[1] || undefined;
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
-  const { data: labels = [] } = useLabels();
-  const { data: settings } = useSettings();
+  const { data: labels = [], isLoading: labelsLoading } = useLabels();
+  const { data: settings, isLoading: settingsLoading } = useSettings();
+  const tabsLoading = labelsLoading || settingsLoading || emailsLoading;
   useContacts(); // Prefetch contacts so composer autocomplete is instant
   const updateSettings = useUpdateSettings();
   const googleStatus = useGoogleAuthStatus();
@@ -109,7 +110,8 @@ export function AppLayout({ children }: AppLayoutProps) {
   const tabSettingsRef = useRef<HTMLDivElement>(null);
 
   const pinnedLabels = settings?.pinnedLabels ?? [];
-  const { data: inboxEmails = [] } = useEmails("inbox");
+  const { data: inboxEmails = [], isLoading: emailsLoading } =
+    useEmails("inbox");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Compute thread counts per label from inbox emails
@@ -469,53 +471,68 @@ export function AppLayout({ children }: AppLayoutProps) {
             </button>
 
             {/* Visible tabs */}
-            <nav className="flex items-center gap-0.5 overflow-x-auto hide-scrollbar">
-              {visibleTabs.map((tab) => {
-                const count = getTotalCount(tab.id);
-                return (
-                  <Link
-                    key={tab.id}
-                    to={tab.href}
-                    className={cn(
-                      "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px] transition-colors",
-                      tab.isActive
-                        ? "text-foreground font-semibold"
-                        : "text-muted-foreground font-medium hover:text-foreground/80",
-                    )}
-                  >
-                    {tab.color && (
-                      <span
-                        className="h-1.5 w-1.5 rounded-full shrink-0"
-                        style={{ backgroundColor: tab.color }}
-                      />
-                    )}
-                    {tab.label}
-                    {count > 0 && (
-                      <span
-                        className={cn(
-                          "text-[11px] tabular-nums",
-                          tab.isActive
-                            ? "text-foreground/60"
-                            : "text-muted-foreground/70",
-                        )}
-                      >
-                        {count}
-                      </span>
-                    )}
-                  </Link>
-                );
-              })}
+            {tabsLoading ? (
+              <nav className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
+                {[1, 2, 3].map((i) => (
+                  <span
+                    key={i}
+                    className="h-4 rounded bg-muted animate-pulse"
+                    style={{ width: `${48 + i * 12}px` }}
+                  />
+                ))}
+              </nav>
+            ) : (
+              <nav className="flex items-center gap-0.5 overflow-x-auto hide-scrollbar">
+                {visibleTabs.map((tab) => {
+                  const count = getTotalCount(tab.id);
+                  return (
+                    <Link
+                      key={tab.id}
+                      to={tab.href}
+                      className={cn(
+                        "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px]",
+                        tab.isActive
+                          ? "text-foreground font-semibold"
+                          : "text-muted-foreground font-medium hover:text-foreground/80",
+                      )}
+                    >
+                      {tab.color && (
+                        <span
+                          className="h-1.5 w-1.5 rounded-full shrink-0"
+                          style={{ backgroundColor: tab.color }}
+                        />
+                      )}
+                      {tab.label}
+                      {count > 0 && (
+                        <span
+                          className={cn(
+                            "text-[11px] tabular-nums",
+                            tab.isActive
+                              ? "text-foreground/60"
+                              : "text-muted-foreground/70",
+                          )}
+                        >
+                          {count}
+                        </span>
+                      )}
+                    </Link>
+                  );
+                })}
 
-              {/* If navigated to an unpinned view (e.g. via keyboard shortcut), show it */}
-              {currentInHidden && (
-                <span className="flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
-                  {collapsibleViews.find((v) => v.id === view)?.label}
-                </span>
-              )}
-            </nav>
+                {/* If navigated to an unpinned view (e.g. via keyboard shortcut), show it */}
+                {currentInHidden && (
+                  <span className="flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
+                    {collapsibleViews.find((v) => v.id === view)?.label}
+                  </span>
+                )}
+              </nav>
+            )}
 
             {/* Tab settings cog */}
-            <div className="relative" ref={tabSettingsRef}>
+            <div
+              className={cn("relative", tabsLoading && "invisible")}
+              ref={tabSettingsRef}
+            >
               <button
                 onClick={() => setTabSettingsOpen(!tabSettingsOpen)}
                 className={cn(

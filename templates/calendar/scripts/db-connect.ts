@@ -44,7 +44,8 @@ export default async function main(args: string[]) {
   const token = opts["token"] || "";
 
   // Test the connection first
-  console.log(`Testing connection to ${url}...`);
+  const maskedUrl = url.replace(/\/\/.*@/, "//***@");
+  console.log(`Testing connection to ${maskedUrl}...`);
   try {
     const { createClient } = await import("@libsql/client");
     const client = createClient({ url, authToken: token || undefined });
@@ -52,7 +53,9 @@ export default async function main(args: string[]) {
     console.log("Connection successful!");
   } catch (err: any) {
     console.error(`Connection failed: ${err.message}`);
-    agentChat.submit(`Failed to connect to database at ${url}: ${err.message}`);
+    agentChat.submit(
+      `Failed to connect to database at ${maskedUrl}: ${err.message}`,
+    );
     process.exit(1);
   }
 
@@ -77,6 +80,6 @@ export default async function main(args: string[]) {
   console.log("Restart the server to use the new database connection.");
 
   agentChat.submit(
-    `Database connection configured: ${url}. Restart the server to apply.`,
+    `Database connection configured: ${maskedUrl}. Restart the server to apply.`,
   );
 }
