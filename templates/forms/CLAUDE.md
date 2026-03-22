@@ -20,6 +20,7 @@ This is an **agent-native** app built with `@agent-native/core`. See `.agents/sk
 ## Architecture
 
 This is an agent-native form builder with:
+
 - **Admin (logged in):** Agent + GUI to build forms (split-pane live preview + properties panel)
 - **Public (logged out):** Fill out forms at `/f/:slug` — no agent, no login
 - **Responses:** Stored in SQLite DB via Drizzle ORM
@@ -30,21 +31,22 @@ This is an agent-native form builder with:
 
 Form data lives in SQLite (`data/app.db`) via Drizzle ORM:
 
-| Table | Contents |
-|-------|----------|
-| `forms` | Form definitions (title, fields JSON, settings JSON, status, slug) |
-| `responses` | Form submissions (data JSON, submittedAt, formId) |
+| Table       | Contents                                                           |
+| ----------- | ------------------------------------------------------------------ |
+| `forms`     | Form definitions (title, fields JSON, settings JSON, status, slug) |
+| `responses` | Form submissions (data JSON, submittedAt, formId)                  |
 
 Configuration files in `data/`:
 
-| File | Contents |
-|------|----------|
-| `data/settings.json` | App settings (theme defaults) |
-| `data/sync-config.json` | File sync patterns |
+| File                    | Contents                      |
+| ----------------------- | ----------------------------- |
+| `data/settings.json`    | App settings (theme defaults) |
+| `data/sync-config.json` | File sync patterns            |
 
 ### Form Field Types
 
 Forms support these field types:
+
 - `text` — Short text input
 - `email` — Email input
 - `number` — Number input
@@ -66,13 +68,13 @@ The agent executes operations via `pnpm script <name> [--args]`:
 
 ### Available Scripts
 
-| Script | Args | Purpose |
-|--------|------|---------|
-| `list-forms` | `[--status draft\|published\|closed]` | List all forms |
-| `create-form` | `--title "..." [--description "..."] [--fields <json>]` | Create a new form |
-| `update-form` | `--id <id> [--title] [--fields <json>] [--status]` | Update a form |
-| `list-responses` | `--form <id> [--limit N]` | List responses for a form |
-| `export-responses` | `--form <id> --output <path> [--format csv\|json]` | Export responses |
+| Script             | Args                                                    | Purpose                   |
+| ------------------ | ------------------------------------------------------- | ------------------------- |
+| `list-forms`       | `[--status draft\|published\|closed]`                   | List all forms            |
+| `create-form`      | `--title "..." [--description "..."] [--fields <json>]` | Create a new form         |
+| `update-form`      | `--id <id> [--title] [--fields <json>] [--status]`      | Update a form             |
+| `list-responses`   | `--form <id> [--limit N]`                               | List responses for a form |
+| `export-responses` | `--form <id> --output <path> [--format csv\|json]`      | Export responses          |
 
 ### Creating Forms via Script
 
@@ -83,26 +85,28 @@ pnpm script create-form --title "Contact Form" --fields '[{"id":"name","type":"t
 ```
 
 After creating, publish it:
+
 ```bash
 pnpm script update-form --id <id> --status published
 ```
 
 ## API Routes
 
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| GET | `/api/forms` | Yes | List all forms (admin) |
-| POST | `/api/forms` | Yes | Create form (admin) |
-| GET | `/api/forms/:id` | Yes | Get form with response count (admin) |
-| PATCH | `/api/forms/:id` | Yes | Update form (admin) |
-| DELETE | `/api/forms/:id` | Yes | Delete form (admin) |
-| GET | `/api/forms/:id/responses` | Yes | List responses (admin) |
-| GET | `/api/forms/public/:slug` | **No** | Get published form (public) |
-| POST | `/api/submit/:id` | **No** | Submit response (public, captcha-verified) |
+| Method | Path                       | Auth   | Purpose                                    |
+| ------ | -------------------------- | ------ | ------------------------------------------ |
+| GET    | `/api/forms`               | Yes    | List all forms (admin)                     |
+| POST   | `/api/forms`               | Yes    | Create form (admin)                        |
+| GET    | `/api/forms/:id`           | Yes    | Get form with response count (admin)       |
+| PATCH  | `/api/forms/:id`           | Yes    | Update form (admin)                        |
+| DELETE | `/api/forms/:id`           | Yes    | Delete form (admin)                        |
+| GET    | `/api/forms/:id/responses` | Yes    | List responses (admin)                     |
+| GET    | `/api/forms/public/:slug`  | **No** | Get published form (public)                |
+| POST   | `/api/submit/:id`          | **No** | Submit response (public, captcha-verified) |
 
 ## Public vs Admin Routes
 
 The auth plugin declares public paths:
+
 - `/f` — Public form filling pages
 - `/api/forms/public` — Public form definition endpoint
 - `/api/submit` — Public form submission endpoint
@@ -112,6 +116,7 @@ Everything else requires authentication in production.
 ## Captcha Configuration
 
 Cloudflare Turnstile is opt-in. Set these env vars to enable:
+
 - `TURNSTILE_SECRET_KEY` — Server-side verification key
 - `VITE_TURNSTILE_SITE_KEY` — Client-side widget key
 

@@ -1,9 +1,5 @@
 import { Link, useLocation, useNavigate } from "react-router";
-import {
-  FileText,
-  Plus,
-  LayoutDashboard,
-} from "lucide-react";
+import { FileText, Plus, LayoutDashboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -35,7 +31,10 @@ export function Sidebar() {
     <div className="flex h-screen w-64 flex-col border-r border-border bg-sidebar">
       {/* Header */}
       <div className="flex h-14 items-center justify-between border-b border-sidebar-border px-4">
-        <Link to="/forms" className="flex items-center gap-2 font-semibold text-sidebar-foreground">
+        <Link
+          to="/forms"
+          className="flex items-center gap-2 font-semibold text-sidebar-foreground"
+        >
           <LayoutDashboard className="h-5 w-5" />
           <span>Forms</span>
         </Link>
@@ -75,7 +74,10 @@ export function Sidebar() {
                 <span className="truncate flex-1">{form.title}</span>
                 <Badge
                   variant="secondary"
-                  className={cn("text-[10px] px-1.5 py-0", statusColors[form.status])}
+                  className={cn(
+                    "text-[10px] px-1.5 py-0",
+                    statusColors[form.status],
+                  )}
                 >
                   {form.status}
                 </Badge>

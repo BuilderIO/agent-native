@@ -53,11 +53,23 @@ export function FormFillPage() {
       }
       if (field.validation) {
         const val = values[field.id];
-        if (field.validation.min !== undefined && Number(val) < field.validation.min) {
-          return field.validation.message || `${field.label} must be at least ${field.validation.min}`;
+        if (
+          field.validation.min !== undefined &&
+          Number(val) < field.validation.min
+        ) {
+          return (
+            field.validation.message ||
+            `${field.label} must be at least ${field.validation.min}`
+          );
         }
-        if (field.validation.max !== undefined && Number(val) > field.validation.max) {
-          return field.validation.message || `${field.label} must be at most ${field.validation.max}`;
+        if (
+          field.validation.max !== undefined &&
+          Number(val) > field.validation.max
+        ) {
+          return (
+            field.validation.message ||
+            `${field.label} must be at most ${field.validation.max}`
+          );
         }
         if (field.validation.pattern && typeof val === "string") {
           const regex = new RegExp(field.validation.pattern);
@@ -101,7 +113,9 @@ export function FormFillPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-pulse text-muted-foreground">Loading form...</div>
+        <div className="animate-pulse text-muted-foreground">
+          Loading form...
+        </div>
       </div>
     );
   }

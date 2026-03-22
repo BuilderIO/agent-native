@@ -20,7 +20,14 @@ function parseArgs(args: string[]): Record<string, string> {
 }
 
 export default async function main(args: string[]) {
-  const { id, title, status, fields: fieldsJson, description, help } = parseArgs(args);
+  const {
+    id,
+    title,
+    status,
+    fields: fieldsJson,
+    description,
+    help,
+  } = parseArgs(args);
 
   if (help) {
     console.log(

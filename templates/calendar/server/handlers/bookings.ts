@@ -16,7 +16,11 @@ import type {
   AvailabilityConfig,
   TimeSlot,
 } from "../../shared/api.js";
-import { readJsonFile, writeJsonFile, listJsonFiles } from "../lib/data-helpers.js";
+import {
+  readJsonFile,
+  writeJsonFile,
+  listJsonFiles,
+} from "../lib/data-helpers.js";
 import { db, schema } from "../db/index.js";
 
 const EVENTS_DIR = path.join(process.cwd(), "data", "events");

@@ -35,7 +35,11 @@ export default async function main(args: string[]) {
     process.exit(1);
   }
 
-  const form = db.select().from(schema.forms).where(eq(schema.forms.id, formId)).get();
+  const form = db
+    .select()
+    .from(schema.forms)
+    .where(eq(schema.forms.id, formId))
+    .get();
   if (!form) {
     console.error(`Error: Form ${formId} not found`);
     process.exit(1);
@@ -49,7 +53,8 @@ export default async function main(args: string[]) {
     .all();
 
   const fields = JSON.parse(form.fields);
-  const outputPath = output || `data/export-${formId}.${fmt === "json" ? "json" : "csv"}`;
+  const outputPath =
+    output || `data/export-${formId}.${fmt === "json" ? "json" : "csv"}`;
 
   if (fmt === "json" || outputPath.endsWith(".json")) {
     const data = responses.map((r) => ({

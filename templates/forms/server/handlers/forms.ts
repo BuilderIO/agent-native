@@ -37,7 +37,11 @@ function rowToForm(
 }
 
 export const listForms = defineEventHandler((_event: H3Event) => {
-  const rows = db.select().from(schema.forms).orderBy(schema.forms.updatedAt).all();
+  const rows = db
+    .select()
+    .from(schema.forms)
+    .orderBy(schema.forms.updatedAt)
+    .all();
 
   // Get response counts per form
   const counts = db
@@ -79,7 +83,8 @@ export const createForm = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event);
   const now = new Date().toISOString();
   const id = nanoid();
-  const slug = body.slug || slugify(body.title || "untitled") + "-" + id.slice(0, 6);
+  const slug =
+    body.slug || slugify(body.title || "untitled") + "-" + id.slice(0, 6);
 
   const defaultSettings: FormSettings = {
     primaryColor: "#2563eb",
@@ -104,7 +109,11 @@ export const createForm = defineEventHandler(async (event: H3Event) => {
     })
     .run();
 
-  const row = db.select().from(schema.forms).where(eq(schema.forms.id, id)).get();
+  const row = db
+    .select()
+    .from(schema.forms)
+    .where(eq(schema.forms.id, id))
+    .get();
   return rowToForm(row!, 0);
 });
 
@@ -129,12 +138,17 @@ export const updateForm = defineEventHandler(async (event: H3Event) => {
   if (body.description !== undefined) updates.description = body.description;
   if (body.slug !== undefined) updates.slug = body.slug;
   if (body.fields !== undefined) updates.fields = JSON.stringify(body.fields);
-  if (body.settings !== undefined) updates.settings = JSON.stringify(body.settings);
+  if (body.settings !== undefined)
+    updates.settings = JSON.stringify(body.settings);
   if (body.status !== undefined) updates.status = body.status;
 
   db.update(schema.forms).set(updates).where(eq(schema.forms.id, id)).run();
 
-  const row = db.select().from(schema.forms).where(eq(schema.forms.id, id)).get();
+  const row = db
+    .select()
+    .from(schema.forms)
+    .where(eq(schema.forms.id, id))
+    .get();
   return rowToForm(row!);
 });
 

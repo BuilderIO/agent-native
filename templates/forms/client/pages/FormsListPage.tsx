@@ -17,13 +17,20 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useForms, useCreateForm, useDeleteForm, useUpdateForm } from "@/hooks/use-forms";
+import {
+  useForms,
+  useCreateForm,
+  useDeleteForm,
+  useUpdateForm,
+} from "@/hooks/use-forms";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const statusColors: Record<string, string> = {
-  draft: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20",
-  published: "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20",
+  draft:
+    "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20",
+  published:
+    "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20",
   closed: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20",
 };
 
@@ -132,7 +139,10 @@ export function FormsListPage() {
                   )}
                 </div>
                 <DropdownMenu>
-                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                  <DropdownMenuTrigger
+                    asChild
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <Button
                       variant="ghost"
                       size="sm"

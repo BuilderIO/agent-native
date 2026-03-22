@@ -23,7 +23,9 @@ export default async function main(args: string[]) {
   const { form: formId, limit: limitStr, help } = parseArgs(args);
 
   if (help) {
-    console.log("Usage: pnpm script list-responses --form <form-id> [--limit N]");
+    console.log(
+      "Usage: pnpm script list-responses --form <form-id> [--limit N]",
+    );
     return;
   }
 
@@ -32,7 +34,11 @@ export default async function main(args: string[]) {
     process.exit(1);
   }
 
-  const form = db.select().from(schema.forms).where(eq(schema.forms.id, formId)).get();
+  const form = db
+    .select()
+    .from(schema.forms)
+    .where(eq(schema.forms.id, formId))
+    .get();
   if (!form) {
     console.error(`Error: Form ${formId} not found`);
     process.exit(1);
@@ -55,14 +61,18 @@ export default async function main(args: string[]) {
 
   const fields = JSON.parse(form.fields);
 
-  console.log(`\nResponses for "${form.title}" (${total?.count ?? 0} total, showing ${responses.length}):\n`);
+  console.log(
+    `\nResponses for "${form.title}" (${total?.count ?? 0} total, showing ${responses.length}):\n`,
+  );
 
   for (const response of responses) {
     const data = JSON.parse(response.data);
     console.log(`  Response ${response.id} — ${response.submittedAt}`);
     for (const field of fields) {
       const val = data[field.id];
-      console.log(`    ${field.label}: ${Array.isArray(val) ? val.join(", ") : val ?? "-"}`);
+      console.log(
+        `    ${field.label}: ${Array.isArray(val) ? val.join(", ") : (val ?? "-")}`,
+      );
     }
     console.log("");
   }

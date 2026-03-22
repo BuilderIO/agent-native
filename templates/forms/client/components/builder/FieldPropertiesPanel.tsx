@@ -36,11 +36,7 @@ const fieldTypeLabels: Record<FormFieldType, string> = {
   scale: "Scale",
 };
 
-const hasOptions: FormFieldType[] = [
-  "select",
-  "multiselect",
-  "radio",
-];
+const hasOptions: FormFieldType[] = ["select", "multiselect", "radio"];
 
 export function FieldPropertiesPanel({
   field,
@@ -225,7 +221,9 @@ export function FieldPropertiesPanel({
                     update({
                       validation: {
                         ...field.validation,
-                        min: e.target.value ? Number(e.target.value) : undefined,
+                        min: e.target.value
+                          ? Number(e.target.value)
+                          : undefined,
                       },
                     })
                   }
@@ -241,7 +239,9 @@ export function FieldPropertiesPanel({
                     update({
                       validation: {
                         ...field.validation,
-                        max: e.target.value ? Number(e.target.value) : undefined,
+                        max: e.target.value
+                          ? Number(e.target.value)
+                          : undefined,
                       },
                     })
                   }

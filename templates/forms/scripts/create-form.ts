@@ -84,5 +84,7 @@ export default async function main(args: string[]) {
   console.log(`  Title: ${title}`);
   console.log(`  Slug: ${slug}`);
   console.log(`  Status: draft`);
-  console.log(`\n  To publish: pnpm script update-form --id ${id} --status published`);
+  console.log(
+    `\n  To publish: pnpm script update-form --id ${id} --status published`,
+  );
 }

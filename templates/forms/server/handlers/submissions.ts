@@ -17,7 +17,11 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   const id = getRouterParam(event, "id") as string;
 
   // Look up the form
-  const form = db.select().from(schema.forms).where(eq(schema.forms.id, id)).get();
+  const form = db
+    .select()
+    .from(schema.forms)
+    .where(eq(schema.forms.id, id))
+    .get();
   if (!form || form.status !== "published") {
     setResponseStatus(event, 404);
     return { error: "Form not found or not accepting responses" };
@@ -68,7 +72,11 @@ export const listResponses = defineEventHandler((event: H3Event) => {
   const limit = parseInt((query.limit as string) || "100", 10);
 
   // Verify form exists
-  const form = db.select().from(schema.forms).where(eq(schema.forms.id, id)).get();
+  const form = db
+    .select()
+    .from(schema.forms)
+    .where(eq(schema.forms.id, id))
+    .get();
   if (!form) {
     setResponseStatus(event, 404);
     return { error: "Form not found" };

@@ -23,16 +23,16 @@ export default async function main(args: string[]) {
   const { status, help } = parseArgs(args);
 
   if (help) {
-    console.log("Usage: pnpm script list-forms [--status draft|published|closed]");
+    console.log(
+      "Usage: pnpm script list-forms [--status draft|published|closed]",
+    );
     return;
   }
 
   let query = db.select().from(schema.forms);
 
   const rows = query.all();
-  const filtered = status
-    ? rows.filter((r) => r.status === status)
-    : rows;
+  const filtered = status ? rows.filter((r) => r.status === status) : rows;
 
   // Get response counts
   const counts = db
@@ -49,7 +49,9 @@ export default async function main(args: string[]) {
   for (const form of filtered) {
     const responseCount = countMap.get(form.id) || 0;
     console.log(`  [${form.status}] ${form.title}`);
-    console.log(`    ID: ${form.id} | Slug: ${form.slug} | Responses: ${responseCount}`);
+    console.log(
+      `    ID: ${form.id} | Slug: ${form.slug} | Responses: ${responseCount}`,
+    );
     console.log(`    Created: ${form.createdAt}\n`);
   }
 }

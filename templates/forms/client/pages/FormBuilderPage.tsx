@@ -49,9 +49,15 @@ const fieldTypeDefaults: Record<FormFieldType, Partial<FormField>> = {
   number: { label: "Number", placeholder: "0" },
   textarea: { label: "Long Answer", placeholder: "Type your answer..." },
   select: { label: "Dropdown", options: ["Option 1", "Option 2", "Option 3"] },
-  multiselect: { label: "Multi-select", options: ["Option 1", "Option 2", "Option 3"] },
+  multiselect: {
+    label: "Multi-select",
+    options: ["Option 1", "Option 2", "Option 3"],
+  },
   checkbox: { label: "Checkbox" },
-  radio: { label: "Multiple Choice", options: ["Option 1", "Option 2", "Option 3"] },
+  radio: {
+    label: "Multiple Choice",
+    options: ["Option 1", "Option 2", "Option 3"],
+  },
   date: { label: "Date" },
   file: { label: "File Upload" },
   rating: { label: "Rating" },
@@ -281,11 +287,7 @@ export function FormBuilderPage() {
             </DialogContent>
           </Dialog>
 
-          <Button
-            size="sm"
-            className="text-xs"
-            onClick={handleTogglePublish}
-          >
+          <Button size="sm" className="text-xs" onClick={handleTogglePublish}>
             {form.status === "published" ? "Unpublish" : "Publish"}
           </Button>
         </div>

@@ -33,7 +33,9 @@ export function FieldRenderer({
   const handleChange = (v: unknown) => onChange?.(v);
 
   return (
-    <div className={cn("space-y-2", field.width === "half" ? "w-1/2" : "w-full")}>
+    <div
+      className={cn("space-y-2", field.width === "half" ? "w-1/2" : "w-full")}
+    >
       <Label className="text-sm font-medium">
         {field.label}
         {field.required && <span className="text-destructive ml-0.5">*</span>}
@@ -188,7 +190,7 @@ export function FieldRenderer({
       {field.type === "scale" && (
         <div className="pt-2">
           <Slider
-            value={[((value as number) || field.validation?.min || 1)]}
+            value={[(value as number) || field.validation?.min || 1]}
             onValueChange={([v]) => handleChange(v)}
             min={field.validation?.min || 1}
             max={field.validation?.max || 10}
@@ -197,7 +199,7 @@ export function FieldRenderer({
           />
           <div className="flex justify-between text-xs text-muted-foreground mt-1">
             <span>{field.validation?.min || 1}</span>
-            <span>{value || "-"}</span>
+            <span>{String(value ?? "-")}</span>
             <span>{field.validation?.max || 10}</span>
           </div>
         </div>
