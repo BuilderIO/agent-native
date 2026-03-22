@@ -64,14 +64,17 @@ Options:
       .all() as any;
 
     const tableInfos: TableInfo[] = tables.map((t) => {
-      const columns = db.pragma(`table_info("${t.name}")`) as any[];
-      const fks = db.pragma(`foreign_key_list("${t.name}")`) as any[];
-      const idxList = db.pragma(`index_list("${t.name}")`) as any[];
+      const escaped = t.name.replace(/"/g, '""');
+      const columns = db.pragma(`table_info("${escaped}")`) as any[];
+      const fks = db.pragma(`foreign_key_list("${escaped}")`) as any[];
+      const idxList = db.pragma(`index_list("${escaped}")`) as any[];
 
       const indexes = idxList
         .filter((idx) => !idx.name.startsWith("sqlite_"))
         .map((idx) => {
-          const idxInfo = db.pragma(`index_info("${idx.name}")`) as any[];
+          const idxInfo = db.pragma(
+            `index_info("${idx.name.replace(/"/g, '""')}")`,
+          ) as any[];
           return {
             name: idx.name,
             unique: idx.unique === 1,

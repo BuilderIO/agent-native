@@ -65,7 +65,10 @@ Options:
       (upper.startsWith("SELECT") || upper.startsWith("WITH")) &&
       !/\bLIMIT\b/i.test(stripped)
     ) {
-      finalSql = `${sql} LIMIT ${parseInt(parsed.limit, 10)}`;
+      const limitVal = parseInt(parsed.limit, 10);
+      if (isNaN(limitVal) || limitVal < 1)
+        fail("--limit must be a positive integer");
+      finalSql = `${sql} LIMIT ${limitVal}`;
     }
 
     const rows: Record<string, any>[] = db.prepare(finalSql).all() as any;
