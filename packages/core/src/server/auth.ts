@@ -33,6 +33,12 @@ export interface AuthOptions {
    * When provided, the built-in token auth is bypassed entirely.
    */
   getSession?: (event: H3Event) => Promise<AuthSession | null>;
+  /**
+   * Paths that are accessible without authentication.
+   * Supports prefix matching: "/book" matches /book/anything.
+   * Both page routes and API routes can be made public.
+   */
+  publicPaths?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -289,7 +295,16 @@ export function mountAuthMiddleware(app: H3App, accessToken: string): void {
   mountAuthRoutes(app, [accessToken]);
 }
 
-function mountAuthRoutes(app: H3App, accessTokens: string[]): void {
+function isPublicPath(url: string, publicPaths: string[]): boolean {
+  const p = url.split("?")[0];
+  return publicPaths.some((pp) => p === pp || p.startsWith(pp + "/"));
+}
+
+function mountAuthRoutes(
+  app: H3App,
+  accessTokens: string[],
+  publicPaths: string[] = [],
+): void {
   // POST /api/auth/login
   app.use(
     "/api/auth/login",
@@ -359,6 +374,11 @@ function mountAuthRoutes(app: H3App, accessTokens: string[]): void {
         return;
       }
 
+      // Skip public paths
+      if (isPublicPath(url, publicPaths)) {
+        return;
+      }
+
       // Use getSession() so BYOA custom auth is respected
       const session = await getSession(event);
       if (session) {
@@ -407,6 +427,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
   authDisabledMode = false;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
   sessionsFilePath = resolveSessionsPath(options.sessionsPath);
+  const publicPaths = options.publicPaths ?? [];
 
   if (options.getSession) {
     customGetSession = options.getSession;
@@ -472,6 +493,10 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
           p === "/api/auth/logout" ||
           p === "/api/auth/session"
         ) {
+          return;
+        }
+        // Skip public paths
+        if (isPublicPath(url, publicPaths)) {
           return;
         }
         const session = await getSession(event);
@@ -544,7 +569,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
   // Production with tokens — mount auth
   loadSessions();
   pruneExpiredSessions();
-  mountAuthRoutes(app, tokens);
+  mountAuthRoutes(app, tokens, publicPaths);
 
   console.log(
     `[agent-native] Auth enabled — ${tokens.length} access token(s) configured.`,

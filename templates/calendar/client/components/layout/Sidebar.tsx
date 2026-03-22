@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useGoogleAuthStatus, useGoogleAuthUrl } from "@/hooks/use-google-auth";
 import { useCalendarContext } from "./AppLayout";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const navItems = [
   { path: "/", label: "Calendar", icon: CalendarDays },
@@ -264,6 +265,11 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             ))}
           </div>
         )}
+
+        {/* Theme toggle */}
+        <div className="border-t border-border px-3 py-2 flex items-center">
+          <ThemeToggle />
+        </div>
       </aside>
     </>
   );
