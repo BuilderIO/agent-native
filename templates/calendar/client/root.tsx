@@ -61,7 +61,8 @@ export default function Root() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider
         attribute="class"
-        defaultTheme="dark"
+        defaultTheme="system"
+        enableSystem
         disableTransitionOnChange
       >
         <FileWatcherSetup />

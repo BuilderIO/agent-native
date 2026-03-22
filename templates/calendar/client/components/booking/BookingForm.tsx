@@ -1,11 +1,17 @@
 import { useState } from "react";
+import { Turnstile } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 
 interface BookingFormProps {
-  onSubmit: (data: { name: string; email: string; notes?: string }) => void;
+  onSubmit: (data: {
+    name: string;
+    email: string;
+    notes?: string;
+    captchaToken?: string;
+  }) => void;
   loading?: boolean;
 }
 
@@ -13,6 +19,7 @@ export function BookingForm({ onSubmit, loading }: BookingFormProps) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
+  const [captchaToken, setCaptchaToken] = useState<string | undefined>();
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -21,6 +28,7 @@ export function BookingForm({ onSubmit, loading }: BookingFormProps) {
       name: name.trim(),
       email: email.trim(),
       notes: notes.trim() || undefined,
+      captchaToken,
     });
   }
 
@@ -59,6 +67,8 @@ export function BookingForm({ onSubmit, loading }: BookingFormProps) {
           rows={3}
         />
       </div>
+
+      <Turnstile onVerify={setCaptchaToken} />
 
       <Button type="submit" className="w-full" disabled={loading}>
         {loading ? "Booking..." : "Confirm Booking"}

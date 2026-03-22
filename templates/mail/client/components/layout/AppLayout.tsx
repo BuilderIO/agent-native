@@ -34,6 +34,7 @@ import {
 } from "@/hooks/use-google-auth";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   getCallbackOrigin,
   ProductionAgentPanel,
@@ -603,6 +604,9 @@ export function AppLayout({ children }: AppLayoutProps) {
                 onFocus={() => setSearchFocused(true)}
               />
             )}
+
+            {/* Theme toggle */}
+            <ThemeToggle />
 
             {/* Compose (pen) icon */}
             <button

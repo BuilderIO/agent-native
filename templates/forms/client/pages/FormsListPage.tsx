@@ -1,0 +1,214 @@
+import { useNavigate } from "react-router";
+import { format } from "date-fns";
+import {
+  FileText,
+  Plus,
+  MoreHorizontal,
+  Trash2,
+  Copy,
+  ExternalLink,
+  BarChart3,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  useForms,
+  useCreateForm,
+  useDeleteForm,
+  useUpdateForm,
+} from "@/hooks/use-forms";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+
+const statusColors: Record<string, string> = {
+  draft:
+    "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20",
+  published:
+    "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20",
+  closed: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20",
+};
+
+export function FormsListPage() {
+  const navigate = useNavigate();
+  const { data: forms = [], isLoading } = useForms();
+  const createForm = useCreateForm();
+  const deleteForm = useDeleteForm();
+  const updateForm = useUpdateForm();
+
+  function handleCreate() {
+    createForm.mutate(
+      { title: "Untitled Form" },
+      { onSuccess: (form) => navigate(`/forms/${form.id}`) },
+    );
+  }
+
+  function handleDuplicate(form: (typeof forms)[0]) {
+    createForm.mutate(
+      {
+        title: `${form.title} (copy)`,
+        description: form.description,
+        fields: form.fields,
+        settings: form.settings,
+      },
+      {
+        onSuccess: (newForm) => {
+          toast.success("Form duplicated");
+          navigate(`/forms/${newForm.id}`);
+        },
+      },
+    );
+  }
+
+  function handleDelete(id: string) {
+    deleteForm.mutate(id, {
+      onSuccess: () => toast.success("Form deleted"),
+    });
+  }
+
+  function handleTogglePublish(form: (typeof forms)[0]) {
+    const newStatus = form.status === "published" ? "draft" : "published";
+    updateForm.mutate(
+      { id: form.id, status: newStatus },
+      {
+        onSuccess: () =>
+          toast.success(
+            newStatus === "published" ? "Form published" : "Form unpublished",
+          ),
+      },
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-muted-foreground">Loading forms...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-semibold">Forms</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Create and manage your forms
+          </p>
+        </div>
+        <Button onClick={handleCreate} className="gap-2">
+          <Plus className="h-4 w-4" />
+          New Form
+        </Button>
+      </div>
+
+      {forms.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 border border-dashed border-border rounded-xl">
+          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4">
+            <FileText className="h-6 w-6 text-muted-foreground" />
+          </div>
+          <h3 className="font-medium mb-1">No forms yet</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            Create your first form to get started
+          </p>
+          <Button onClick={handleCreate} size="sm" className="gap-2">
+            <Plus className="h-4 w-4" />
+            Create Form
+          </Button>
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {forms.map((form) => (
+            <div
+              key={form.id}
+              className="group relative border border-border rounded-xl p-5 hover:border-primary/30 transition-colors cursor-pointer bg-card"
+              onClick={() => navigate(`/forms/${form.id}`)}
+            >
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-medium truncate">{form.title}</h3>
+                  {form.description && (
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                      {form.description}
+                    </p>
+                  )}
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    asChild
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100"
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/forms/${form.id}/responses`);
+                      }}
+                    >
+                      <BarChart3 className="h-4 w-4 mr-2" />
+                      View Responses
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleTogglePublish(form);
+                      }}
+                    >
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      {form.status === "published" ? "Unpublish" : "Publish"}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDuplicate(form);
+                      }}
+                    >
+                      <Copy className="h-4 w-4 mr-2" />
+                      Duplicate
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-destructive"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(form.id);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Badge
+                  variant="outline"
+                  className={cn("text-[10px]", statusColors[form.status])}
+                >
+                  {form.status}
+                </Badge>
+                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <span>{form.responseCount ?? 0} responses</span>
+                  <span>{format(new Date(form.createdAt), "MMM d")}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

@@ -32,6 +32,7 @@ export function useCreateBooking() {
       name: string;
       email: string;
       notes?: string;
+      captchaToken?: string;
       start: string;
       end: string;
       slug: string;

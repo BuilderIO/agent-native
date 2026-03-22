@@ -49,6 +49,7 @@ export interface Booking {
   eventTitle: string;
   start: string; // ISO 8601
   end: string; // ISO 8601
+  slug: string;
   notes?: string;
   status: "confirmed" | "cancelled";
   createdAt: string;

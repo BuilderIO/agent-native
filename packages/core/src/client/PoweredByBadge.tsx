@@ -1,0 +1,100 @@
+import type { CSSProperties } from "react";
+
+export interface PoweredByBadgeProps {
+  position?: "bottom-right" | "bottom-left";
+}
+
+const containerStyle = (
+  position: "bottom-right" | "bottom-left",
+): CSSProperties => ({
+  position: "fixed",
+  bottom: 16,
+  ...(position === "bottom-right" ? { right: 16 } : { left: 16 }),
+  zIndex: 50,
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "6px 12px",
+  borderRadius: 8,
+  fontSize: 12,
+  fontFamily:
+    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  fontWeight: 500,
+  lineHeight: 1,
+  color: "rgba(150, 150, 150, 0.9)",
+  background: "rgba(0, 0, 0, 0.05)",
+  backdropFilter: "blur(8px)",
+  WebkitBackdropFilter: "blur(8px)",
+  border: "1px solid rgba(0, 0, 0, 0.06)",
+  textDecoration: "none",
+  transition: "opacity 0.2s, color 0.2s",
+  opacity: 0.7,
+});
+
+const darkQuery = "(prefers-color-scheme: dark)";
+
+/**
+ * Small branding badge: "Built with Agent Native"
+ *
+ * - Fixed position in the corner
+ * - Subtle, semi-transparent
+ * - Links to https://agent-native.com
+ * - Respects prefers-color-scheme
+ * - Can be hidden via HIDE_BRANDING=true env var (for white-label)
+ */
+export function PoweredByBadge({
+  position = "bottom-right",
+}: PoweredByBadgeProps) {
+  // Allow hiding via env var
+  const hidden =
+    typeof import.meta !== "undefined" &&
+    (import.meta as any).env?.VITE_HIDE_BRANDING === "true";
+
+  if (hidden) return null;
+
+  return (
+    <>
+      <style>{`
+        @media ${darkQuery} {
+          .an-powered-badge {
+            background: rgba(255, 255, 255, 0.06) !important;
+            border-color: rgba(255, 255, 255, 0.08) !important;
+            color: rgba(180, 180, 180, 0.9) !important;
+          }
+        }
+        .an-powered-badge:hover {
+          opacity: 1 !important;
+          color: rgba(100, 100, 100, 1) !important;
+        }
+        @media ${darkQuery} {
+          .an-powered-badge:hover {
+            color: rgba(220, 220, 220, 1) !important;
+          }
+        }
+      `}</style>
+      <a
+        href="https://agent-native.com"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="an-powered-badge"
+        style={containerStyle(position)}
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M12 2L2 7l10 5 10-5-10-5z" />
+          <path d="M2 17l10 5 10-5" />
+          <path d="M2 12l10 5 10-5" />
+        </svg>
+        Built with Agent Native
+      </a>
+    </>
+  );
+}

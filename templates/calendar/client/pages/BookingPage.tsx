@@ -2,12 +2,16 @@ import { useState } from "react";
 import { useParams } from "react-router";
 import { format } from "date-fns";
 import { CalendarDays } from "lucide-react";
+import { PoweredByBadge } from "@agent-native/core/client";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { DatePicker } from "@/components/booking/DatePicker";
 import { TimeSlotPicker } from "@/components/booking/TimeSlotPicker";
 import { BookingForm } from "@/components/booking/BookingForm";
 import { BookingConfirmation } from "@/components/booking/BookingConfirmation";
-import { useSettings } from "@/hooks/use-settings";
-import { useAvailability } from "@/hooks/use-availability";
+import {
+  usePublicSettings,
+  usePublicAvailability,
+} from "@/hooks/use-public-data";
 import { useAvailableSlots, useCreateBooking } from "@/hooks/use-bookings";
 import { toast } from "sonner";
 import type { Booking } from "@shared/api";
@@ -16,8 +20,8 @@ type Step = "date" | "time" | "info" | "confirmed";
 
 export default function BookingPage() {
   const { slug } = useParams<{ slug: string }>();
-  const { data: settings } = useSettings();
-  const { data: availability } = useAvailability();
+  const { data: settings } = usePublicSettings();
+  const { data: availability } = usePublicAvailability();
 
   const [step, setStep] = useState<Step>("date");
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -50,6 +54,7 @@ export default function BookingPage() {
     name: string;
     email: string;
     notes?: string;
+    captchaToken?: string;
   }) {
     if (!selectedSlot || !slug) return;
 
@@ -58,7 +63,10 @@ export default function BookingPage() {
 
     createBooking.mutate(
       {
-        ...data,
+        name: data.name,
+        email: data.email,
+        notes: data.notes,
+        captchaToken: data.captchaToken,
         start: slot.start,
         end: slot.end,
         slug,
@@ -85,7 +93,10 @@ export default function BookingPage() {
     settings?.bookingPageDescription || "Pick a time that works for you.";
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4 relative">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
       <div className="w-full max-w-lg">
         {/* Header */}
         <div className="mb-8 text-center">
@@ -186,6 +197,7 @@ export default function BookingPage() {
           )}
         </div>
       </div>
+      <PoweredByBadge />
     </div>
   );
 }
