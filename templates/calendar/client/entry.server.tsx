@@ -26,28 +26,30 @@ export default async function handleRequest(
   const abortController = new AbortController();
   const timeoutId = setTimeout(() => abortController.abort(), streamTimeout);
 
-  const body = await renderToReadableStream(
-    <ServerRouter context={routerContext} url={request.url} />,
-    {
-      signal: abortController.signal,
-      onError(error: unknown) {
-        if (!abortController.signal.aborted) {
-          responseStatusCode = 500;
-          console.error(error);
-        }
+  try {
+    const body = await renderToReadableStream(
+      <ServerRouter context={routerContext} url={request.url} />,
+      {
+        signal: abortController.signal,
+        onError(error: unknown) {
+          if (!abortController.signal.aborted) {
+            responseStatusCode = 500;
+            console.error(error);
+          }
+        },
       },
-    },
-  );
+    );
 
-  if (waitForAll) {
-    await body.allReady;
+    if (waitForAll) {
+      await body.allReady;
+    }
+
+    responseHeaders.set("Content-Type", "text/html");
+    return new Response(body, {
+      headers: responseHeaders,
+      status: responseStatusCode,
+    });
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  clearTimeout(timeoutId);
-
-  responseHeaders.set("Content-Type", "text/html");
-  return new Response(body, {
-    headers: responseHeaders,
-    status: responseStatusCode,
-  });
 }
