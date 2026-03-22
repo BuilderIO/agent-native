@@ -50,6 +50,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
+    "@libsql/client": "^0.15.0",
     "@react-router/dev": "^7.13.1",
     "@react-router/fs-routes": "^7.13.1",
     "better-sqlite3": "^12.8.0",

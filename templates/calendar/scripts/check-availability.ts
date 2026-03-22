@@ -11,7 +11,7 @@
  */
 
 import { config } from "dotenv";
-import { readdirSync, readFileSync } from "fs";
+import { readFileSync } from "fs";
 import { join } from "path";
 import { agentChat } from "@agent-native/core";
 import { parseArgs, formatMinutes } from "./helpers.js";
@@ -19,15 +19,6 @@ import { parseArgs, formatMinutes } from "./helpers.js";
 interface AvailabilitySchedule {
   timezone: string;
   schedule: Record<string, { start: string; end: string }[]>;
-}
-
-interface CalendarEvent {
-  id: string;
-  title: string;
-  start: string;
-  end: string;
-  allDay?: boolean;
-  status?: string;
 }
 
 function timeToMinutes(timeStr: string): number {
@@ -79,36 +70,36 @@ export default async function main(args: string[]) {
     return;
   }
 
-  // Load events for this date
-  const eventsDir = join("data", "events");
-  const dayEvents: CalendarEvent[] = [];
+  // Fetch events from Google Calendar for this date
+  const dayStart = new Date(dateStr + "T00:00:00").toISOString();
+  const dayEnd = new Date(dateStr + "T23:59:59").toISOString();
+
+  const dayEvents: Array<{
+    title: string;
+    start: string;
+    end: string;
+    allDay?: boolean;
+  }> = [];
 
   try {
-    const files = readdirSync(eventsDir).filter((f) => f.endsWith(".json"));
-    for (const file of files) {
-      try {
-        const event: CalendarEvent = JSON.parse(
-          readFileSync(join(eventsDir, file), "utf-8"),
-        );
+    const googleCalendar = await import("../server/lib/google-calendar.js");
 
-        // Skip cancelled events
-        if (event.status === "cancelled") continue;
-
-        // Check if event overlaps with this date
-        const eventStart = new Date(event.start);
-        const eventEnd = new Date(event.end);
-        const dayStart = new Date(dateStr + "T00:00:00");
-        const dayEnd = new Date(dateStr + "T23:59:59");
-
-        if (eventStart <= dayEnd && eventEnd >= dayStart) {
-          dayEvents.push(event);
-        }
-      } catch {
-        // Skip malformed files
+    if (googleCalendar.isConnected()) {
+      const { events } = await googleCalendar.listEvents(dayStart, dayEnd);
+      for (const event of events) {
+        dayEvents.push({
+          title: event.title,
+          start: event.start,
+          end: event.end,
+          allDay: event.allDay,
+        });
       }
     }
   } catch {
-    // No events directory — all slots are free
+    // Continue without Google events if unavailable
+    console.warn(
+      "Warning: Could not fetch Google Calendar events. Showing availability based on schedule only.",
+    );
   }
 
   // Convert events to busy intervals (minutes since midnight)

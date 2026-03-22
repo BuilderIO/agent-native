@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import { db, schema } from "../server/db/index.js";
+import { getDb, schema } from "../server/db/index.js";
 import type { FormField, FormSettings } from "../shared/types.js";
 
 function parseArgs(args: string[]): Record<string, string> {
@@ -65,7 +65,9 @@ export default async function main(args: string[]) {
     showProgressBar: false,
   };
 
-  db.insert(schema.forms)
+  const db = getDb();
+  await db
+    .insert(schema.forms)
     .values({
       id,
       title,

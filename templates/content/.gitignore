@@ -31,6 +31,11 @@ dist-ssr
 # Auth sessions (sensitive, never commit)
 data/.sessions.json
 
+# Local SQLite database
+data/app.db
+data/app.db-shm
+data/app.db-wal
+
 # Ephemeral editor state
 .editor-selection.json
 

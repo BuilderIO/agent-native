@@ -7,7 +7,7 @@ const scriptName = process.argv[2];
 if (!scriptName) {
   console.error("Usage: pnpm script <script-name> [--args]");
   console.error(
-    "Available scripts: sync-google-calendar, create-event, list-events, check-availability",
+    "Available scripts: list-events, create-event, check-availability, sync-google-calendar, db-status, db-connect",
   );
   process.exit(1);
 }
@@ -20,6 +20,8 @@ const scripts: Record<
   "create-event": () => import("./create-event.js"),
   "list-events": () => import("./list-events.js"),
   "check-availability": () => import("./check-availability.js"),
+  "db-status": () => import("./db-status.js"),
+  "db-connect": () => import("./db-connect.js"),
 };
 
 const loader = scripts[scriptName];

@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
-    "better-sqlite3": "^11.9.1",
+    "@libsql/client": "^0.15.0",
     "dotenv": "^17.2.1",
     "drizzle-orm": "^0.44.2",
     "h3": "^1.15.3",
@@ -42,7 +42,6 @@
     "@swc/core": "^1.13.3",
     "@tailwindcss/typography": "^0.5.16",
     "@tanstack/react-query": "^5.84.2",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.2.1",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",

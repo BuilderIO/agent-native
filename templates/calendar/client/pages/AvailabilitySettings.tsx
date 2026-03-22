@@ -14,6 +14,8 @@ import {
   useAvailability,
   useUpdateAvailability,
 } from "@/hooks/use-availability";
+import { useDbStatus } from "@/hooks/use-db-status";
+import { CloudUpgrade } from "@/components/CloudUpgrade";
 import { toast } from "sonner";
 import type { AvailabilityConfig, DaySchedule } from "@shared/api";
 
@@ -55,6 +57,8 @@ export default function AvailabilitySettings() {
   const [slotDuration, setSlotDuration] = useState(30);
   const [bookingSlug, setBookingSlug] = useState("meeting");
   const [timezone, setTimezone] = useState("America/New_York");
+  const { isLocal } = useDbStatus();
+  const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
 
   useEffect(() => {
     if (availability) {
@@ -229,6 +233,25 @@ export default function AvailabilitySettings() {
               />
             </div>
           </div>
+
+          <div className="space-y-2">
+            <Label>Share booking link</Label>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (isLocal) {
+                  setShowCloudUpgrade(true);
+                  return;
+                }
+                const url = `${window.location.origin}/book/${bookingSlug}`;
+                navigator.clipboard.writeText(url);
+                toast.success("Booking link copied to clipboard");
+              }}
+            >
+              Copy Booking Link
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -239,6 +262,16 @@ export default function AvailabilitySettings() {
       >
         {updateAvailability.isPending ? "Saving..." : "Save Availability"}
       </Button>
+
+      {showCloudUpgrade && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <CloudUpgrade
+            title="Share Booking Link"
+            description="To share your booking page publicly, connect a cloud database so bookings can be received from anywhere."
+            onClose={() => setShowCloudUpgrade(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }

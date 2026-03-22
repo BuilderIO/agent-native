@@ -16,10 +16,9 @@ const PORT_MAP: Record<string, number> = {
   analytics: 8081,
   calendar: 8082,
   content: 8083,
-  imagegen: 8084,
-  mail: 8085,
-  slides: 8086,
-  videos: 8087,
+  mail: 8084,
+  slides: 8085,
+  videos: 8086,
 };
 
 // ── Parse --apps flag ──────────────────────────────────────────

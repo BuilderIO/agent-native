@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router";
 import { format } from "date-fns";
 import {
@@ -23,6 +24,8 @@ import {
   useDeleteForm,
   useUpdateForm,
 } from "@/hooks/use-forms";
+import { useDbStatus } from "@/hooks/use-db-status";
+import { CloudUpgrade } from "@/components/CloudUpgrade";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +43,8 @@ export function FormsListPage() {
   const createForm = useCreateForm();
   const deleteForm = useDeleteForm();
   const updateForm = useUpdateForm();
+  const { isLocal } = useDbStatus();
+  const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
 
   function handleCreate() {
     createForm.mutate(
@@ -73,6 +78,10 @@ export function FormsListPage() {
 
   function handleTogglePublish(form: (typeof forms)[0]) {
     const newStatus = form.status === "published" ? "draft" : "published";
+    if (newStatus === "published" && isLocal) {
+      setShowCloudUpgrade(true);
+      return;
+    }
     updateForm.mutate(
       { id: form.id, status: newStatus },
       {
@@ -207,6 +216,16 @@ export function FormsListPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {showCloudUpgrade && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <CloudUpgrade
+            title="Publish Form"
+            description="To publish forms publicly, connect a cloud database so submissions can be received from anywhere."
+            onClose={() => setShowCloudUpgrade(false)}
+          />
         </div>
       )}
     </div>

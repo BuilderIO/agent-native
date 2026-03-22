@@ -1,5 +1,5 @@
 import { eq, desc, sql } from "drizzle-orm";
-import { db, schema } from "../server/db/index.js";
+import { getDb, schema } from "../server/db/index.js";
 
 function parseArgs(args: string[]): Record<string, string> {
   const result: Record<string, string> = {};
@@ -34,7 +34,8 @@ export default async function main(args: string[]) {
     process.exit(1);
   }
 
-  const form = db
+  const db = getDb();
+  const form = await db
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.id, formId))
@@ -45,7 +46,7 @@ export default async function main(args: string[]) {
   }
 
   const limit = parseInt(limitStr || "50", 10);
-  const responses = db
+  const responses = await db
     .select()
     .from(schema.responses)
     .where(eq(schema.responses.formId, formId))
@@ -53,7 +54,7 @@ export default async function main(args: string[]) {
     .limit(limit)
     .all();
 
-  const total = db
+  const total = await db
     .select({ count: sql<number>`count(*)` })
     .from(schema.responses)
     .where(eq(schema.responses.formId, formId))

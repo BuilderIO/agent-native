@@ -38,6 +38,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useDbStatus } from "@/hooks/use-db-status";
+import { CloudUpgrade } from "@/components/CloudUpgrade";
 
 import {
   getBuilderMetadata,
@@ -107,6 +109,8 @@ export function BuilderSyncPanel({
   const { data: docs = EMPTY_ARRAY } = useBuilderDocs();
   const uploadMutation = useUploadArticle();
   const generateMetaDescription = useGenerateMetaDescription();
+  const { isLocal } = useDbStatus();
+  const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
 
   const [conversion, setConversion] = useState<MarkdownConversionResult | null>(
     null,
@@ -1028,6 +1032,10 @@ export function BuilderSyncPanel({
   };
 
   const handleUpload = async () => {
+    if (isLocal) {
+      setShowCloudUpgrade(true);
+      return;
+    }
     if (!auth || !conversion) return;
 
     // Determine the model to use
@@ -1530,6 +1538,27 @@ export function BuilderSyncPanel({
             </>
           )}
         </>
+      )}
+
+      {showCloudUpgrade && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.5)",
+            backdropFilter: "blur(4px)",
+          }}
+        >
+          <CloudUpgrade
+            title="Publish Content"
+            description="To publish content, connect a cloud database so your articles can be accessed publicly."
+            onClose={() => setShowCloudUpgrade(false)}
+          />
+        </div>
       )}
     </div>
   );

@@ -2,18 +2,18 @@
 
 ## What This Is
 
-Agent-native is a framework for building apps where an AI agent and UI share state through files. Think Next.js, but the AI agent is a first-class citizen.
+Agent-native is a framework for building apps where an AI agent is a first-class citizen alongside the UI. Think Next.js, but the AI agent can read data, write data, run scripts, and even modify the app's own code.
 
 ## The Six Rules
 
 Every agent-native app follows these rules. Violating them breaks the architecture.
 
-### 1. Files are the database
+### 1. Data lives in `data/`
 
-All app state lives in files (usually in `data/`). There is no traditional database. The UI reads files via API routes, the agent reads and writes files directly. This is what makes the architecture work — both sides operate on the same source of truth.
+All app state lives in `data/` — either as SQLite (via Drizzle ORM) or as files (JSON/markdown). Most templates use SQLite (`data/app.db`) as the default data layer. SQLite works locally out of the box and can be upgraded to a cloud database (Turso, Neon, Supabase, D1) for public sharing and deployment.
 
-**Do:** Store state as JSON/markdown files in `data/`.
-**Don't:** Add a database, use localStorage for app state, or store state only in memory.
+**Do:** Use SQLite via Drizzle for structured data (forms, bookings, compositions). Use files for content that benefits from being human-readable (markdown, settings JSON). Use `application-state/` for ephemeral UI state.
+**Don't:** Use localStorage for app state, store state only in memory, or call external databases directly without going through the Drizzle layer.
 
 ### 2. All AI goes through the agent chat
 
@@ -85,12 +85,13 @@ server/                # Nitro API server
   routes/
     api/               # File-based API routes (auto-discovered)
     [...page].get.ts   # SSR catch-all (delegates to React Router)
-  plugins/             # Server plugins (startup logic)
+  plugins/             # Server plugins (startup logic, DB migrations)
+  db/                  # Drizzle schema + DB connection (getDb singleton)
   lib/                 # Shared server modules
   handlers/            # Route handler modules (for larger apps)
 shared/                # Isomorphic code (client + server)
 scripts/               # Agent-callable scripts
-data/                  # App data files (watched by SSE)
+data/                  # App data (SQLite DB + config files, watched by SSE)
 react-router.config.ts # React Router framework config
 ```
 
@@ -102,7 +103,7 @@ Create `scripts/my-script.ts`:
 import { parseArgs } from "@agent-native/core";
 export default async function (args: string[]) {
   const { name } = parseArgs(args);
-  // do work, write files to data/
+  // do work — query DB, write files, call APIs
 }
 ```
 
@@ -110,7 +111,7 @@ Run with: `pnpm script my-script --name foo`
 
 ## Database Scripts (Core)
 
-If your app uses SQLite via Drizzle ORM (DB at `data/app.db`), these scripts are available automatically — no local script files needed:
+Most templates use SQLite via Drizzle ORM. These core scripts are available automatically — no local script files needed:
 
 | Script      | Purpose                         | Example                                            |
 | ----------- | ------------------------------- | -------------------------------------------------- |
@@ -118,7 +119,7 @@ If your app uses SQLite via Drizzle ORM (DB at `data/app.db`), these scripts are
 | `db-query`  | Run a SELECT query              | `pnpm script db-query --sql "SELECT * FROM forms"` |
 | `db-exec`   | Run INSERT/UPDATE/DELETE        | `pnpm script db-exec --sql "UPDATE forms SET ..."` |
 
-Use `db-schema` first to understand the data model, then `db-query` and `db-exec` to read and write data. All scripts support `--db <path>` to override the default DB location and `--format json` for structured output.
+Use `db-schema` first to understand the data model, then `db-query` and `db-exec` to read and write data. Scripts read `DATABASE_URL` from env (defaults to `file:./data/app.db`). Use `--db <path>` to override, and `--format json` for structured output.
 
 Local scripts in `scripts/` always take priority over core scripts. Run `pnpm script --help` to see all available scripts.
 
@@ -147,7 +148,7 @@ Agent skills in `.agents/skills/` provide detailed guidance for architectural ru
 | Skill                 | When to use                                          |
 | --------------------- | ---------------------------------------------------- |
 | `delegate-to-agent`   | Delegating AI work from UI or scripts to the agent   |
-| `files-as-database`   | Storing or reading app state                         |
+| `files-as-database`   | Storing app state as files (for content, settings)   |
 | `scripts`             | Creating or running agent scripts                    |
 | `sse-file-watcher`    | Wiring up real-time UI sync                          |
 | `self-modifying-code` | Editing app source, components, or styles            |

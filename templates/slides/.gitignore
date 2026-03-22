@@ -35,5 +35,10 @@ data/uploads/
 data/decks/
 data/*.md
 
+# SQLite database files
+data/app.db
+data/app.db-wal
+data/app.db-shm
+
 # Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
 learnings.md

@@ -38,6 +38,8 @@ import {
 import { FieldRenderer } from "@/components/builder/FieldRenderer";
 import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel";
 import { useForm, useUpdateForm } from "@/hooks/use-forms";
+import { useDbStatus } from "@/hooks/use-db-status";
+import { CloudUpgrade } from "@/components/CloudUpgrade";
 import { sendToAgentChat } from "@agent-native/core/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -87,6 +89,8 @@ export function FormBuilderPage() {
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const { isLocal } = useDbStatus();
+  const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
 
   // Debounced save
   const saveTimeout = useRef<ReturnType<typeof setTimeout>>();
@@ -177,6 +181,10 @@ export function FormBuilderPage() {
 
   function handleTogglePublish() {
     const newStatus = form.status === "published" ? "draft" : "published";
+    if (newStatus === "published" && isLocal) {
+      setShowCloudUpgrade(true);
+      return;
+    }
     updateForm.mutate(
       { id: form.id, status: newStatus },
       {
@@ -189,6 +197,10 @@ export function FormBuilderPage() {
   }
 
   function copyShareLink() {
+    if (isLocal) {
+      setShowCloudUpgrade(true);
+      return;
+    }
     const url = `${window.location.origin}/f/${form.slug}`;
     navigator.clipboard.writeText(url);
     setCopied(true);
@@ -386,6 +398,16 @@ export function FormBuilderPage() {
           </div>
         )}
       </div>
+
+      {showCloudUpgrade && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <CloudUpgrade
+            title="Publish Form"
+            description="To publish forms publicly, connect a cloud database so submissions can be received from anywhere."
+            onClose={() => setShowCloudUpgrade(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }
