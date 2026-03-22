@@ -29,10 +29,11 @@
       "@types/react-dom": "^18.3.7"
     },
     "onlyBuiltDependencies": [
-      "node-pty",
+      "better-sqlite3",
+      "canvas",
       "esbuild",
       "lightningcss",
-      "better-sqlite3"
+      "node-pty"
     ]
   }
 }

@@ -4,7 +4,7 @@ You are the AI assistant for this calendar app. You can view, create, update, an
 
 This is an **agent-native** app built with `@agent-native/core`. See `.agents/skills/` for the framework rules that apply to all agent-native apps:
 
-- **files-as-database** — All state is files. No databases, no localStorage.
+- **files-as-database** — Settings and configuration as files. Structured data (bookings) in SQLite via Drizzle ORM + @libsql/client.
 - **delegate-to-agent** — UI never calls an LLM directly. All AI goes through the agent chat.
 - **scripts** — Complex operations are scripts in `scripts/`, run via `pnpm script <name>`.
 - **sse-file-watcher** — UI stays in sync with agent changes via SSE.
@@ -95,14 +95,14 @@ pnpm typecheck  # TypeScript validation
 
 ## Architecture
 
-This is an agent-native calendar app with Google Calendar integration and a public booking page. Everything is files — JSON files in `data/` are the single source of truth.
+This is an agent-native calendar app with Google Calendar integration and a public booking page. Events come from Google Calendar API directly (not synced to local files). Bookings and availability are stored in SQLite via Drizzle ORM + @libsql/client. Settings and configuration live in JSON files in `data/`.
 
 ### How it works
 
 1. **Frontend** (React + Vite) reads state via API routes
-2. **Server** (Nitro) reads/writes JSON files in `data/`
-3. **Agent** reads/writes files directly — changes propagate to UI via SSE
-4. **Google Calendar** synced via pull-based approach (no webhooks)
+2. **Server** (Nitro) reads events from Google Calendar API, reads/writes bookings in SQLite, reads/writes config files in `data/`
+3. **Agent** reads/writes config files directly, uses scripts for DB operations — changes propagate to UI via SSE
+4. **Google Calendar** queried via pull-based approach (no webhooks)
 
 ```
 ┌─────────────────────┐         ┌─────────────────────┐
@@ -135,35 +135,42 @@ This is an agent-native calendar app with Google Calendar integration and a publ
                    └───────────────┘
 ```
 
-## Core Principle: Everything is Files
+## Data Architecture
 
-All stateful data in this app is stored in **files**. The frontend (React/Vite) reads and writes files. The agent chat reads and writes files. Scripts read and write files. Files are the shared state mechanism between all three.
+This app uses a hybrid approach: structured data in SQLite, configuration and content in files.
 
-This means:
+### SQLite (via Drizzle ORM + @libsql/client)
 
-- When the UI updates something, it writes to files via the backend API (`/api/events`, `/api/bookings`, etc.)
-- When the agent needs to do something, it reads/writes the same JSON files directly (in `data/events/`, `data/bookings/`)
-- **No localStorage** — JSON files are the only source of truth
-- The frontend subscribes to file changes via SSE, so agent edits to JSON files appear in the UI in real-time
+Structured data lives in SQLite (`data/app.db`):
 
-### Data Model (files-as-database)
+| Table      | Contents                                       |
+| ---------- | ---------------------------------------------- |
+| `bookings` | Incoming bookings from the public booking page |
 
-All state lives in JSON files:
+### Files (in `data/`)
 
-| Path                      | Contents                                       |
-| ------------------------- | ---------------------------------------------- |
-| `data/events/{id}.json`   | Calendar events (local or synced from Google)  |
-| `data/bookings/{id}.json` | Incoming bookings from the public booking page |
-| `data/availability.json`  | Availability schedule configuration            |
-| `data/settings.json`      | App settings (timezone, booking page config)   |
-| `data/google-auth.json`   | Google OAuth tokens (gitignored, sensitive)    |
-| `data/sync-config.json`   | File sync patterns                             |
+Configuration and credentials live in JSON files:
+
+| Path                     | Contents                                     |
+| ------------------------ | -------------------------------------------- |
+| `data/availability.json` | Availability schedule configuration          |
+| `data/settings.json`     | App settings (timezone, booking page config) |
+| `data/google-auth.json`  | Google OAuth tokens (gitignored, sensitive)  |
+| `data/sync-config.json`  | File sync patterns                           |
+
+### Events
+
+Calendar events come directly from the Google Calendar API. They are **not** stored locally — the app queries Google Calendar on each request.
+
+### Database Access
+
+Use `getDb()` from `server/db/index.ts` to get a Drizzle database instance. All queries are async. Set `DATABASE_URL` env var for cloud database (Turso); defaults to local `file:data/app.db`.
 
 ### Skills
 
 Read the skill files in `.agents/skills/` for detailed patterns:
 
-- **files-as-database** — All state as JSON files in `data/`
+- **files-as-database** — Settings and config as files in `data/`
 - **delegate-to-agent** — UI never calls LLMs directly
 - **scripts** — Complex operations as `pnpm script <name>`
 - **sse-file-watcher** — Real-time UI sync via SSE
@@ -310,7 +317,8 @@ data/            # File-based data storage
 - **Backend**: Nitro (via @agent-native/core)
 - **UI components**: Radix UI + Lucide icons
 - **Google Integration**: googleapis npm package
-- **State**: File-based JSON in `data/`
+- **Database**: SQLite via Drizzle ORM + @libsql/client (local by default, cloud upgrade via `DATABASE_URL`)
+- **State**: Config/settings as JSON in `data/`, structured data in SQLite
 - **Path aliases**: `@/*` → client/, `@shared/*` → shared/
 
 ## Development
@@ -329,7 +337,7 @@ All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`,
 
 ## Key Conventions
 
-1. **Files are the only source of truth** — all calendar state lives in JSON files in `data/`. UI edits save to these files via API. Agent edits the files directly. SSE pushes file changes to the UI in real-time.
+1. **Hybrid data model** — events come from Google Calendar API, bookings live in SQLite, settings/config live in JSON files in `data/`. SSE pushes file changes to the UI in real-time.
 2. **Scripts for backend logic** — anything the agent needs to execute goes through `pnpm script`. Create reusable scripts for common operations, generate throwaway scripts for one-offs.
 3. **Agent chat for complex flows** — use `agentChat.submit()` from scripts and `agentChat.submit()` / `agentChat.prefill()` from the client to delegate multi-step operations, especially when follow-up conversation is valuable.
 4. **Keep the UI thin** — the UI should be for direct manipulation. Anything that benefits from AI reasoning or iteration should route through the agent chat.
