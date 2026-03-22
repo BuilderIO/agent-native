@@ -1,5 +1,5 @@
 {
-  "name": "{{APP_NAME}}",
+  "name": "starter",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "script": "agent-native script"
   },
   "dependencies": {
-    "@agent-native/core": "^0.4.1",
+    "@agent-native/core": "workspace:*",
     "h3": "^1.13.0",
     "isbot": "^5"
   },

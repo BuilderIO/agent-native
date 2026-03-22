@@ -1,4 +1,5 @@
 import { redirect } from "react-router";
+import { MailSkeleton } from "@/components/layout/MailSkeleton";
 
 export function meta() {
   return [{ title: "Mail" }];
@@ -9,11 +10,7 @@ export function clientLoader() {
 }
 
 export function HydrateFallback() {
-  return (
-    <div className="flex items-center justify-center h-screen">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
-    </div>
-  );
+  return <MailSkeleton />;
 }
 
 export default function IndexRoute() {

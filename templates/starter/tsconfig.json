@@ -1,0 +1,11 @@
+{
+  "extends": "@agent-native/core/tsconfig.base.json",
+  "include": [
+    "client/**/*",
+    "server/**/*",
+    "shared/**/*",
+    "vite.config.ts",
+    "react-router.config.ts",
+    ".react-router/types/**/*"
+  ]
+}

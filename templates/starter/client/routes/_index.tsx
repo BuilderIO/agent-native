@@ -1,7 +1,7 @@
 import { useTheme } from "next-themes";
 
 export function meta() {
-  return [{ title: "{{APP_TITLE}}" }];
+  return [{ title: "Agent Native App" }];
 }
 
 export function HydrateFallback() {
