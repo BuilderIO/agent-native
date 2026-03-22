@@ -24,6 +24,9 @@ export const IPC = {
   APPS_REMOVE: "apps:remove",
   APPS_UPDATE: "apps:update",
   APPS_RESET: "apps:reset",
+
+  /** Active webview tracking (renderer → main) */
+  SET_ACTIVE_APP: "webview:set-active-app",
 } as const;
 
 export interface InterAppMessage {

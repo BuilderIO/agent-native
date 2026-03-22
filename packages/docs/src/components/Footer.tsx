@@ -22,6 +22,14 @@ export default function Footer() {
           >
             npm
           </a>
+          <a
+            href="https://discord.gg/qm82StQ2NC"
+            target="_blank"
+            rel="noreferrer"
+            className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+          >
+            Discord
+          </a>
         </div>
       </div>
     </footer>

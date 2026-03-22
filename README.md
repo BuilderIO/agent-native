@@ -144,6 +144,10 @@ ACCESS_TOKEN=your-secret pnpm start
 
 See [docs/auth.md](docs/auth.md) for the full auth guide, including multi-token team access and bring-your-own-auth.
 
+## Community
+
+Join the **[Discord](https://discord.gg/qm82StQ2NC)** to ask questions, share what you're building, and get help.
+
 ## Docs
 
 Full documentation at **[agent-native.com](https://agent-native.com)**.
