@@ -62,6 +62,18 @@ Forms support these field types:
 
 Each field has: `id`, `type`, `label`, `placeholder`, `description`, `required`, `options` (for select/radio/multiselect), `validation` (min/max/pattern), `conditional` (show/hide based on another field), `width` (full/half).
 
+## Core Database Scripts
+
+In addition to the template-specific scripts below, these **core scripts** are available automatically for inspecting and manipulating the SQLite database:
+
+| Script      | Purpose                         | Example                                            |
+| ----------- | ------------------------------- | -------------------------------------------------- |
+| `db-schema` | Show all tables, columns, types | `pnpm script db-schema`                            |
+| `db-query`  | Run a SELECT query              | `pnpm script db-query --sql "SELECT * FROM forms"` |
+| `db-exec`   | Run INSERT/UPDATE/DELETE        | `pnpm script db-exec --sql "UPDATE forms SET ..."` |
+
+Use `db-schema` first to understand the data model, then `db-query` and `db-exec` for ad-hoc reads and writes. The template-specific scripts below provide higher-level domain operations.
+
 ## Running Scripts
 
 The agent executes operations via `pnpm script <name> [--args]`:

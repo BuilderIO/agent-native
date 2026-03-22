@@ -108,6 +108,20 @@ export default async function (args: string[]) {
 
 Run with: `pnpm script my-script --name foo`
 
+## Database Scripts (Core)
+
+If your app uses SQLite via Drizzle ORM (DB at `data/app.db`), these scripts are available automatically — no local script files needed:
+
+| Script      | Purpose                         | Example                                            |
+| ----------- | ------------------------------- | -------------------------------------------------- |
+| `db-schema` | Show all tables, columns, types | `pnpm script db-schema`                            |
+| `db-query`  | Run a SELECT query              | `pnpm script db-query --sql "SELECT * FROM forms"` |
+| `db-exec`   | Run INSERT/UPDATE/DELETE        | `pnpm script db-exec --sql "UPDATE forms SET ..."` |
+
+Use `db-schema` first to understand the data model, then `db-query` and `db-exec` to read and write data. All scripts support `--db <path>` to override the default DB location and `--format json` for structured output.
+
+Local scripts in `scripts/` always take priority over core scripts. Run `pnpm script --help` to see all available scripts.
+
 ## TypeScript Everywhere
 
 All code in this project — including standalone scripts in `scripts/` — must be TypeScript (`.ts`). Never use `.js` or `.mjs` files. Node 22+ runs `.ts` files natively via type stripping (`node scripts/foo.ts`), so no compilation step or `tsx` is needed for scripts.
