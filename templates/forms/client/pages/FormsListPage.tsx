@@ -28,10 +28,10 @@ import { cn } from "@/lib/utils";
 
 const statusColors: Record<string, string> = {
   draft:
-    "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20",
+    "bg-amber-600/10 text-amber-600 dark:text-amber-400 border-amber-600/20",
   published:
-    "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20",
-  closed: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20",
+    "bg-emerald-600/10 text-emerald-600 dark:text-emerald-400 border-emerald-600/20",
+  closed: "bg-destructive/10 text-destructive border-destructive/20",
 };
 
 export function FormsListPage() {

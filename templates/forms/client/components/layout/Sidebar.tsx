@@ -8,9 +8,9 @@ import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 const statusColors: Record<string, string> = {
-  draft: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400",
-  published: "bg-green-500/10 text-green-600 dark:text-green-400",
-  closed: "bg-red-500/10 text-red-600 dark:text-red-400",
+  draft: "bg-amber-600/10 text-amber-600 dark:text-amber-400",
+  published: "bg-emerald-600/10 text-emerald-600 dark:text-emerald-400",
+  closed: "bg-destructive/10 text-destructive",
 };
 
 export function Sidebar() {

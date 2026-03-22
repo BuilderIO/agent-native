@@ -129,7 +129,7 @@ export function CommandPalette({
                     event.color
                       ? ""
                       : event.source === "google"
-                        ? "bg-blue-500"
+                        ? "bg-primary"
                         : "bg-primary",
                   )}
                   style={event.color ? { background: event.color } : undefined}

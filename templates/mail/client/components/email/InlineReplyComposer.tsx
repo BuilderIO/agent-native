@@ -273,7 +273,7 @@ export const InlineReplyComposer = forwardRef<
   return (
     <div
       ref={composerRef}
-      className="rounded-lg bg-[hsl(220,5%,10%)] overflow-hidden"
+      className="rounded-lg bg-card dark:bg-[hsl(220,5%,10%)] overflow-hidden"
       onKeyDown={handleKeyDown}
     >
       {/* Header */}

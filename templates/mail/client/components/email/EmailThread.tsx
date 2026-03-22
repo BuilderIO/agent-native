@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { cn, formatEmailDate, formatFileSize } from "@/lib/utils";
+import { useTheme } from "next-themes";
 import { useComposeState } from "@/hooks/use-compose-state";
 import { useAccountFilter } from "@/components/layout/AppLayout";
 import {
@@ -600,7 +601,7 @@ export function EmailThread({
   const threadSubject = email.subject.replace(/^(Re|Fwd|Fw):\s*/i, "");
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden panel-slide-in">
+    <div className="flex flex-1 flex-col overflow-hidden">
       {/* Thread header */}
       <div className="shrink-0 px-5 pt-5 pb-3">
         <div className="flex items-start gap-3">
@@ -664,7 +665,7 @@ export function EmailThread({
               {displayLabels.map((labelId) => (
                 <span
                   key={labelId}
-                  className="label-badge shrink-0 bg-pink-500/20 text-pink-300 mt-1"
+                  className="label-badge shrink-0 bg-pink-500/20 text-pink-700 dark:text-pink-300 mt-1"
                 >
                   {labelId}
                 </span>
@@ -956,7 +957,7 @@ const ExpandedMessageCard = forwardRef<
     <div
       ref={ref}
       className={cn(
-        "rounded-lg bg-[hsl(220,5%,10%)] overflow-hidden",
+        "rounded-lg bg-card dark:bg-[hsl(220,5%,10%)] overflow-hidden",
         isFocused && "ring-1 ring-primary/30",
       )}
     >
@@ -1455,8 +1456,11 @@ function HtmlEmailBody({
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
   const isCustomStyled = useMemo(() => emailHasCustomStyling(html), [html]);
-  const IFRAME_BG = isCustomStyled ? IFRAME_BG_LIGHT : IFRAME_BG_DARK;
+  const IFRAME_BG =
+    isCustomStyled || !isDark ? IFRAME_BG_LIGHT : IFRAME_BG_DARK;
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
 
@@ -1493,6 +1497,8 @@ function HtmlEmailBody({
     setShowImagesForThread(true);
   };
 
+  const useDarkIframeCss = !isCustomStyled && isDark;
+
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -1501,33 +1507,8 @@ function HtmlEmailBody({
     if (!doc) return;
 
     doc.open();
-    const iframeCss = isCustomStyled
+    const iframeCss = useDarkIframeCss
       ? `
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: ${IFRAME_BG};
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      font-size: 14px;
-      line-height: 1.6;
-      overflow: hidden;
-    }
-    img { max-width: 100%; height: auto; }
-    .quoted-hidden { display: none; }
-    .quote-toggle {
-      display: inline-block;
-      cursor: pointer;
-      color: rgba(0,0,0,0.4);
-      font-size: 13px;
-      letter-spacing: 0.15em;
-      padding: 2px 0;
-      border: none;
-      background: none;
-      margin-top: 4px;
-    }
-    .quote-toggle:hover { color: rgba(0,0,0,0.7); }
-`
-      : `
     html, body {
       margin: 0;
       padding: 0;
@@ -1554,6 +1535,31 @@ function HtmlEmailBody({
       margin-top: 4px;
     }
     .quote-toggle:hover { color: rgba(161,161,170,0.8); }
+`
+      : `
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: ${IFRAME_BG};
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      overflow: hidden;
+    }
+    img { max-width: 100%; height: auto; }
+    .quoted-hidden { display: none; }
+    .quote-toggle {
+      display: inline-block;
+      cursor: pointer;
+      color: rgba(0,0,0,0.4);
+      font-size: 13px;
+      letter-spacing: 0.15em;
+      padding: 2px 0;
+      border: none;
+      background: none;
+      margin-top: 4px;
+    }
+    .quote-toggle:hover { color: rgba(0,0,0,0.7); }
 `;
 
     doc.write(`<!DOCTYPE html>
@@ -1767,7 +1773,7 @@ function HtmlEmailBody({
       clearTimeout(timer2);
       images.forEach((img) => img.removeEventListener("load", resize));
     };
-  }, [processedHtml, isCustomStyled]);
+  }, [processedHtml, isCustomStyled, isDark, useDarkIframeCss, IFRAME_BG]);
 
   // Inject / clear search highlights in the iframe whenever searchTerm or content changes
   useEffect(() => {
@@ -1895,7 +1901,7 @@ function HtmlEmailBody({
           height: `${height}px`,
           border: "none",
           background: IFRAME_BG,
-          colorScheme: isCustomStyled ? "light" : "dark",
+          colorScheme: useDarkIframeCss ? "dark" : "light",
           borderRadius: isCustomStyled ? "6px" : undefined,
         }}
         title="Email content"

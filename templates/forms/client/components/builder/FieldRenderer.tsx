@@ -178,7 +178,7 @@ export function FieldRenderer({
                 className={cn(
                   "h-6 w-6 transition-colors",
                   (value as number) >= star
-                    ? "fill-yellow-400 text-yellow-400"
+                    ? "fill-amber-400 text-amber-400"
                     : "text-muted-foreground/30",
                 )}
               />

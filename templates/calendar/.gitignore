@@ -39,5 +39,10 @@ data/google-accounts/
 data/events/
 data/bookings/
 
+# SQLite database files (generated at runtime)
+data/app.db
+data/app.db-wal
+data/app.db-shm
+
 # Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
 learnings.md

@@ -81,7 +81,7 @@ function ThreadListSidebar({
   const threads = useMemo(() => groupIntoThreads(emails), [emails]);
 
   return (
-    <div className="w-[220px] shrink-0 flex flex-col border-r border-border/30 bg-[hsl(220,6%,5%)] overflow-hidden">
+    <div className="w-[220px] shrink-0 flex flex-col border-r border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)] overflow-hidden">
       <div className="flex-1 overflow-y-auto">
         {threads.map((thread) => {
           const email = thread.latestMessage;
@@ -98,7 +98,9 @@ function ThreadListSidebar({
               }}
               className={cn(
                 "w-full text-left px-3 h-[38px] flex items-center border-b border-border/10 transition-colors",
-                isActive ? "bg-primary/10" : "hover:bg-[hsl(220,5%,13%)]",
+                isActive
+                  ? "bg-primary/10"
+                  : "hover:bg-accent dark:hover:bg-[hsl(220,5%,13%)]",
               )}
             >
               <div className="flex items-center gap-2 min-w-0 w-full">
@@ -453,7 +455,7 @@ export function InboxPage() {
       </div>
 
       {/* Right contact panel */}
-      <div className="hidden lg:flex w-[260px] shrink-0 flex-col border-l border-border/30 bg-[hsl(220,6%,5%)]">
+      <div className="hidden lg:flex w-[260px] shrink-0 flex-col border-l border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)]">
         <ContactPanel
           emailId={contactEmailId}
           contactEmail={sidebarContactEmail}

@@ -130,7 +130,7 @@ export function GoogleSetupWizard() {
               isActive
                 ? "border-primary/40 bg-primary/5"
                 : isCompleted
-                  ? "border-green-500/20 bg-green-500/5"
+                  ? "border-border bg-accent"
                   : "border-border/50 opacity-50"
             }`}
             onClick={() => !saved && setCurrentStep(i)}
@@ -144,7 +144,7 @@ export function GoogleSetupWizard() {
             <div className="flex items-start gap-3">
               <div className="mt-0.5 shrink-0">
                 {isCompleted ? (
-                  <Check className="h-4 w-4 text-green-500" />
+                  <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 ) : isActive ? (
                   <Circle className="h-4 w-4 text-primary fill-primary" />
                 ) : (
@@ -259,7 +259,7 @@ export function GoogleSetupWizard() {
                     )}
 
                     {step.showInputs && allConfigured && (
-                      <div className="flex items-center gap-2 text-xs text-green-500">
+                      <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400">
                         <Check className="h-3.5 w-3.5" />
                         Credentials configured. You can now connect your Google
                         Calendar above.

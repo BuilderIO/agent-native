@@ -139,8 +139,8 @@ export function FormFillPage() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="text-center max-w-md">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-green-500/10">
-            <CheckCircle2 className="h-7 w-7 text-green-600" />
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600/10">
+            <CheckCircle2 className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
           </div>
           <h1 className="text-2xl font-semibold mb-2">Response submitted</h1>
           <p className="text-muted-foreground">
@@ -153,7 +153,7 @@ export function FormFillPage() {
     );
   }
 
-  const primaryColor = settings.primaryColor || "#2563eb";
+  const primaryColor = settings.primaryColor || "#334155";
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4 py-12 relative">

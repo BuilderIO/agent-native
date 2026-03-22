@@ -142,11 +142,6 @@
   background: hsl(var(--secondary));
 }
 
-/* Smooth panel transitions */
-.panel-slide-in {
-  animation: slide-in-right 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
 /* Compose modal animations */
 .compose-window {
   box-shadow:

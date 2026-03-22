@@ -211,8 +211,8 @@ export function FormBuilderPage() {
             className={cn(
               "text-[10px]",
               form.status === "published"
-                ? "bg-green-500/10 text-green-600 border-green-500/20"
-                : "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
+                ? "bg-emerald-600/10 text-emerald-600 border-emerald-600/20"
+                : "bg-amber-600/10 text-amber-600 border-amber-600/20",
             )}
           >
             {form.status}
@@ -448,12 +448,12 @@ function FormSettingsEditor({
         <div className="flex items-center gap-2">
           <input
             type="color"
-            value={settings.primaryColor || "#2563eb"}
+            value={settings.primaryColor || "#334155"}
             onChange={(e) => update({ primaryColor: e.target.value })}
             className="h-8 w-8 rounded border border-border cursor-pointer"
           />
           <Input
-            value={settings.primaryColor || "#2563eb"}
+            value={settings.primaryColor || "#334155"}
             onChange={(e) => update({ primaryColor: e.target.value })}
             className="h-8 text-sm flex-1"
           />

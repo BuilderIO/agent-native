@@ -164,7 +164,7 @@ export function InboxZero() {
         alt=""
         onLoad={() => setLoaded(true)}
         className={cn(
-          "absolute inset-0 h-full w-full object-cover transition-opacity duration-700",
+          "absolute inset-0 h-full w-full object-cover",
           loaded ? "opacity-100" : "opacity-0",
         )}
       />
@@ -176,7 +176,7 @@ export function InboxZero() {
       <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/60 to-transparent" />
 
       {/* Fallback bg while image loads */}
-      <div className="absolute inset-0 bg-[hsl(220,6%,8%)] -z-10" />
+      <div className="absolute inset-0 bg-muted dark:bg-[hsl(220,6%,8%)] -z-10" />
 
       {/* Bottom text */}
       <div className="relative mt-auto px-6 pb-6">

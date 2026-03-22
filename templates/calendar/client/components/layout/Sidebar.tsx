@@ -257,7 +257,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           <div className="border-t border-border px-3 py-3">
             {googleStatus.data.accounts.map((account) => (
               <div key={account.email} className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-blue-500" />
+                <div className="h-2 w-2 rounded-full bg-foreground/40" />
                 <p className="truncate text-xs text-muted-foreground">
                   {account.email}
                 </p>

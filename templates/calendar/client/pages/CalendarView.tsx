@@ -291,7 +291,7 @@ export default function CalendarView() {
 
         {/* Error detail */}
         {eventsError && (
-          <div className="shrink-0 border-b border-red-500/20 bg-red-500/[0.06] px-4 py-1.5 text-xs text-red-400/70">
+          <div className="shrink-0 border-b border-destructive/20 bg-destructive/[0.06] px-4 py-1.5 text-xs text-destructive/70">
             {eventsError.message}
           </div>
         )}

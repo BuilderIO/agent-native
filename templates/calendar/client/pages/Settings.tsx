@@ -110,7 +110,7 @@ export default function Settings() {
             <div className="flex items-center gap-3">
               {googleStatus.data?.connected ? (
                 <>
-                  <CheckCircle2 className="h-5 w-5 text-green-500" />
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                   <div>
                     <p className="text-sm font-medium">Connected</p>
                     {googleStatus.data.accounts?.length > 0 && (

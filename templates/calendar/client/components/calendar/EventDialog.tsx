@@ -239,7 +239,7 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
 
             {/* Google Calendar badge */}
             {isGoogle && (
-              <div className="flex items-center gap-2 rounded-md bg-blue-500/10 px-3 py-2 text-xs text-blue-400">
+              <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
                 <ExternalLink className="h-3.5 w-3.5" />
                 <span>Synced from Google Calendar</span>
               </div>

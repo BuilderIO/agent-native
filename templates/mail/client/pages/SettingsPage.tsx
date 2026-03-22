@@ -303,7 +303,7 @@ export function SettingsPage() {
   return (
     <div className="flex flex-1 overflow-hidden">
       {/* Left sidebar nav */}
-      <div className="w-[200px] shrink-0 border-r border-border/30 bg-[hsl(220,6%,5%)] p-3 flex flex-col gap-0.5">
+      <div className="w-[200px] shrink-0 border-r border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)] p-3 flex flex-col gap-0.5">
         <p className="px-2 py-1.5 text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-1">
           Settings
         </p>

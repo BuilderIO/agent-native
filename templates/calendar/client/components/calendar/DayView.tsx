@@ -159,8 +159,8 @@ export function DayView({ events, date, onEventClick }: DayViewProps) {
               className="pointer-events-none absolute left-0 right-0 z-20 flex items-center"
               style={{ top: `${nowTop}px` }}
             >
-              <div className="h-3 w-3 shrink-0 rounded-full bg-red-500 -ml-1.5 shadow-sm shadow-red-500/50" />
-              <div className="h-px flex-1 bg-red-500" />
+              <div className="h-3 w-3 shrink-0 rounded-full bg-foreground -ml-1.5" />
+              <div className="h-px flex-1 bg-foreground" />
             </div>
           )}
 

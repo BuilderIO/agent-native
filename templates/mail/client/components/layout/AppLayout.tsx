@@ -705,10 +705,10 @@ export function AppLayout({ children }: AppLayoutProps) {
                 className="fixed inset-0 z-30 bg-black/20"
                 onClick={() => setSidebarOpen(false)}
               />
-              <div className="fixed left-0 top-0 bottom-0 z-40 w-64 bg-background/70 backdrop-blur-2xl border-r border-white/8 shadow-2xl overflow-y-auto">
+              <div className="fixed left-0 top-0 bottom-0 z-40 w-64 bg-background/70 backdrop-blur-2xl border-r border-border/30 shadow-2xl overflow-y-auto">
                 {/* Accounts */}
                 {hasAccounts && (
-                  <div className="px-4 pt-5 pb-4 border-b border-white/8">
+                  <div className="px-4 pt-5 pb-4 border-b border-border/20">
                     <div className="space-y-2">
                       {accounts.map((account) => {
                         const isActive =
@@ -798,7 +798,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                         )}
                       </Link>
                     ))}
-                    <div className="mt-2 pt-2 border-t border-white/8">
+                    <div className="mt-2 pt-2 border-t border-border/20">
                       <Link
                         to="/settings"
                         onClick={() => setSidebarOpen(false)}

@@ -346,7 +346,9 @@ export function WeekView({
               <span
                 className={cn(
                   "flex h-7 w-7 items-center justify-center rounded-full text-sm font-semibold",
-                  isToday(day) ? "bg-red-500 text-white" : "text-foreground",
+                  isToday(day)
+                    ? "bg-foreground text-background"
+                    : "text-foreground",
                 )}
               >
                 {format(day, "d")}
@@ -467,8 +469,8 @@ export function WeekView({
                     className="pointer-events-none absolute left-0 right-0 z-20 flex items-center"
                     style={{ top: `${nowTop}px` }}
                   >
-                    <div className="-ml-[5px] h-2.5 w-2.5 shrink-0 rounded-full bg-red-500" />
-                    <div className="h-[2px] flex-1 bg-red-500" />
+                    <div className="-ml-[5px] h-2.5 w-2.5 shrink-0 rounded-full bg-foreground" />
+                    <div className="h-[2px] flex-1 bg-foreground" />
                   </div>
                 )}
 
