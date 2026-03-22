@@ -35,7 +35,10 @@ Options:
   }
 
   // Allowlist: only permit DML statements the agent should run
-  const stripped = sql.replace(/^\s*--[^\n]*\n/gm, "").trim();
+  const stripped = sql
+    .replace(/^\s*--[^\n]*\n/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .trim();
   const upper = stripped.toUpperCase();
   const allowed = ["INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "ALTER"];
   const blocked = ["SELECT", "WITH", "EXPLAIN", "PRAGMA"];

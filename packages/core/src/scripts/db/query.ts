@@ -34,7 +34,10 @@ Options:
 
   // Safety: only allow read-only statements.
   // Strip leading SQL comments before checking the prefix.
-  const stripped = sql.replace(/^\s*--[^\n]*\n/gm, "").trim();
+  const stripped = sql
+    .replace(/^\s*--[^\n]*\n/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .trim();
   const upper = stripped.toUpperCase();
   if (
     !upper.startsWith("SELECT") &&
