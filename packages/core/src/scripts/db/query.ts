@@ -60,7 +60,11 @@ Options:
 
   try {
     let finalSql = sql;
-    if (parsed.limit && !/\bLIMIT\b/i.test(sql)) {
+    if (
+      parsed.limit &&
+      (upper.startsWith("SELECT") || upper.startsWith("WITH")) &&
+      !/\bLIMIT\b/i.test(stripped)
+    ) {
       finalSql = `${sql} LIMIT ${parseInt(parsed.limit, 10)}`;
     }
 

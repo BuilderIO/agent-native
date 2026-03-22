@@ -64,27 +64,41 @@ Options:
   const db = new Database(dbPath);
 
   try {
-    const result = db.prepare(sql).run();
+    const stmt = db.prepare(sql);
 
-    if (parsed.format === "json") {
-      console.log(
-        JSON.stringify(
-          {
-            sql,
-            changes: result.changes,
-            lastInsertRowid: Number(result.lastInsertRowid),
-          },
-          null,
-          2,
-        ),
-      );
-      return;
-    }
-
-    console.log(`Executed: ${sql}`);
-    console.log(`Changes: ${result.changes}`);
-    if (result.lastInsertRowid && result.changes > 0) {
-      console.log(`Last Insert Row ID: ${result.lastInsertRowid}`);
+    // Statements with RETURNING clauses produce rows — use .all() instead of .run()
+    if (stmt.reader) {
+      const rows = stmt.all() as Record<string, any>[];
+      if (parsed.format === "json") {
+        console.log(JSON.stringify({ sql, rows, count: rows.length }, null, 2));
+        return;
+      }
+      console.log(`Executed: ${sql}`);
+      console.log(`Returned ${rows.length} row(s):`);
+      if (rows.length > 0) {
+        console.log(JSON.stringify(rows, null, 2));
+      }
+    } else {
+      const result = stmt.run();
+      if (parsed.format === "json") {
+        console.log(
+          JSON.stringify(
+            {
+              sql,
+              changes: result.changes,
+              lastInsertRowid: Number(result.lastInsertRowid),
+            },
+            null,
+            2,
+          ),
+        );
+        return;
+      }
+      console.log(`Executed: ${sql}`);
+      console.log(`Changes: ${result.changes}`);
+      if (result.lastInsertRowid && result.changes > 0) {
+        console.log(`Last Insert Row ID: ${result.lastInsertRowid}`);
+      }
     }
   } finally {
     db.close();
