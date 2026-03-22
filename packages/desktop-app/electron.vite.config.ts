@@ -4,7 +4,11 @@ import react from "@vitejs/plugin-react-swc";
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [
+      externalizeDepsPlugin({
+        exclude: ["@agent-native/shared-app-config"],
+      }),
+    ],
     resolve: {
       alias: {
         "@shared": resolve("shared"),
@@ -12,7 +16,11 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [
+      externalizeDepsPlugin({
+        exclude: ["@agent-native/shared-app-config"],
+      }),
+    ],
     resolve: {
       alias: {
         "@shared": resolve("shared"),
