@@ -60,14 +60,32 @@ function createWindow(): BrowserWindow {
 
 // ---------- DevTools: target the active app webview ----------
 
+let activeAppId = "";
+
+ipcMain.on(IPC.SET_ACTIVE_APP, (_event: IpcMainEvent, appId: string) => {
+  activeAppId = appId;
+});
+
 function toggleWebviewDevTools() {
   const allContents = webContents.getAllWebContents();
   const webviewContents = allContents.filter(
     (wc) => wc.getType() === "webview",
   );
-  // Prefer the focused webview, fall back to the first one
+
+  // Find the webview matching the active app by URL (e.g. ?app=mail)
   const target =
-    webviewContents.find((wc) => wc.isFocused()) || webviewContents[0];
+    webviewContents.find((wc) => wc.isFocused()) ||
+    (activeAppId &&
+      webviewContents.find((wc) => {
+        try {
+          const url = new URL(wc.getURL());
+          return url.searchParams.get("app") === activeAppId;
+        } catch {
+          return false;
+        }
+      })) ||
+    webviewContents[0];
+
   if (target) {
     if (target.isDevToolsOpened()) {
       target.closeDevTools();

@@ -12,26 +12,17 @@ interface AppWebviewProps {
 
 /**
  * Determine the URL to load for this app.
- * - In dev (IS_DEV): use harness URL (getAppUrl) so terminal+iframe works
- * - In production: use the app's configured production URL
+ * Always connects to the harness (localhost:3334) which proxies to individual
+ * app dev servers. If a user has configured a custom production URL in settings,
+ * that takes priority.
  */
 function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
-  const isDev =
-    typeof window !== "undefined" &&
-    window.location.protocol === "http:" &&
-    window.location.hostname === "localhost";
-
-  if (isDev) {
-    // In dev mode, use the harness URL
-    return getAppUrl(app);
-  }
-
-  // In production, use the configured URL
-  if (appConfig?.url) {
+  // If the user configured a custom URL (not the default placeholder), use it
+  if (appConfig?.url && !appConfig.url.endsWith(".agentnative.app")) {
     return appConfig.url;
   }
 
-  // Fallback to harness
+  // Default: connect to the harness which serves all apps
   return getAppUrl(app);
 }
 

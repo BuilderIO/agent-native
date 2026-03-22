@@ -1,6 +1,7 @@
 import path from "path";
 import { createRequire } from "module";
 import type { Plugin, UserConfig } from "vite";
+import { devApiServer } from "./dev-api-server.js";
 
 const require = createRequire(import.meta.url);
 
@@ -138,6 +139,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     },
     plugins: [
       baseRedirectGuard(),
+      devApiServer(),
       reactPluginInstance,
       nitroPlugin?.(),
       ...(options.plugins ?? []),

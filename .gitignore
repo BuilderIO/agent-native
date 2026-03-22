@@ -2,6 +2,7 @@ node_modules
 dist
 .superpowers
 docs/superpowers
+.DS_Store
 
 /*.png
 
@@ -16,4 +17,8 @@ packages/core/README.md
 
 # Internal notes
 RAMBLINGS.md
-FUSION-APPS.mdnode-compile-cache/
+FUSION-APPS.md
+node-compile-cache/
+
+# Ralph Loop runtime state
+ralph-loop.local.md

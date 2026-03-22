@@ -56,6 +56,9 @@ const electronAPI = {
     reset: (): Promise<any[]> => ipcRenderer.invoke(IPC.APPS_RESET),
   },
 
+  /** Tell main process which app webview is currently active (for DevTools targeting) */
+  setActiveApp: (appId: string) => ipcRenderer.send(IPC.SET_ACTIVE_APP, appId),
+
   /** Inter-app communication — relay messages between loaded apps */
   interApp: {
     /** Send a message to a specific app (or broadcast with targetAppId = "*") */
