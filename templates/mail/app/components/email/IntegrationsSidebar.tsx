@@ -166,11 +166,13 @@ export function IntegrationsSidebar({
       {/* Generic profile if nothing connected */}
       {!anyConnected && (
         <div className="px-4 pt-4 pb-3">
-          <h3 className="text-[14px] font-semibold text-foreground mb-1">
+          <h3 className="text-[14px] font-semibold text-foreground mb-1 truncate">
             {displayName}
           </h3>
           {displayName !== email && (
-            <p className="text-[12px] text-muted-foreground">{email}</p>
+            <p className="text-[12px] text-muted-foreground truncate">
+              {email}
+            </p>
           )}
           <p className="text-[11px] text-muted-foreground/50">
             {email.split("@")[1]}
@@ -554,8 +556,10 @@ function ApolloSection({ email }: { email: string }) {
           />
         )}
         <div className="min-w-0">
-          <h3 className="text-[14px] font-semibold text-foreground">{name}</h3>
-          <p className="text-[12px] text-muted-foreground">{email}</p>
+          <h3 className="text-[14px] font-semibold text-foreground truncate">
+            {name}
+          </h3>
+          <p className="text-[12px] text-muted-foreground truncate">{email}</p>
           {person.title && (
             <p className="text-[11px] text-muted-foreground/60 mt-0.5">
               {person.title}
