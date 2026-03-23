@@ -55,8 +55,8 @@ Press **Enter** (or click the ↑ arrow button).
 1. A new composition is created at `/c/new`
 2. Loading spinner appears: "Generating..."
 3. The agent analyzes your prompt and attachments
-4. Creates a new React component in `client/remotion/compositions/`
-5. Registers it in `client/remotion/registry.ts`
+4. Creates a new React component in `app/remotion/compositions/`
+5. Registers it in `app/remotion/registry.ts`
 6. Sets up camera, cursor, and animation tracks
 7. New composition appears in sidebar when complete
 
@@ -76,7 +76,7 @@ Once generated:
 
 ### Step 1: Create the Component
 
-Create a new file: `client/remotion/compositions/MyVideo.tsx`
+Create a new file: `app/remotion/compositions/MyVideo.tsx`
 
 ```typescript
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
@@ -155,7 +155,7 @@ export const MyVideo: React.FC<MyVideoProps> = ({
 
 ### Step 2: Register the Composition
 
-Add to `client/remotion/registry.ts`:
+Add to `app/remotion/registry.ts`:
 
 ```typescript
 import { MyVideo, type MyVideoProps } from "./compositions/MyVideo";
@@ -245,7 +245,7 @@ export const compositions: CompositionEntry[] = [
 
 ### Step 3: Export the Component
 
-Add to `client/remotion/compositions/index.ts`:
+Add to `app/remotion/compositions/index.ts`:
 
 ```typescript
 export { MyVideo, type MyVideoProps } from "./MyVideo";

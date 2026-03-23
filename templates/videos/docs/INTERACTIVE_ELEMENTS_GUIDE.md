@@ -491,7 +491,7 @@ export const FormComposition: React.FC<Props> = ({ tracks }) => {
 
 See:
 
-- `client/remotion/utils/interactiveElements.ts` - Core utilities
-- `client/remotion/components/InteractiveElement.tsx` - React component
-- `client/remotion/hooks/useHoverAnimationSmooth.ts` - Hover detection hook
-- `client/remotion/hooks/useCursorTypeFromHover.ts` - Cursor type aggregation
+- `app/remotion/utils/interactiveElements.ts` - Core utilities
+- `app/remotion/components/InteractiveElement.tsx` - React component
+- `app/remotion/hooks/useHoverAnimationSmooth.ts` - Hover detection hook
+- `app/remotion/hooks/useCursorTypeFromHover.ts` - Cursor type aggregation

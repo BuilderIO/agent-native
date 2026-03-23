@@ -116,7 +116,7 @@ When investigating production issues (spikes, outages, errors, performance degra
 | Sam Patel  | @sampateldev   |
 | Taylor Kim | @taylorkimdev  |
 
-Defined in `client/pages/adhoc/devrel-leaderboard/TwitterSection.tsx` as `DEVREL_TWITTER_USERS`.
+Defined in `app/pages/adhoc/devrel-leaderboard/TwitterSection.tsx` as `DEVREL_TWITTER_USERS`.
 
 ## User Preferences
 
@@ -137,7 +137,7 @@ Defined in `client/pages/adhoc/devrel-leaderboard/TwitterSection.tsx` as `DEVREL
 - For customer lookups, use CTEs with JOINs to `dim_hs_contacts`
 - **Scripts are for CLI/agent use only**
 
-See `client/pages/adhoc/acme/queries.ts` and `client/pages/adhoc/globex/queries.ts` as reference implementations.
+See `app/pages/adhoc/acme/queries.ts` and `app/pages/adhoc/globex/queries.ts` as reference implementations.
 
 ## UI Patterns
 

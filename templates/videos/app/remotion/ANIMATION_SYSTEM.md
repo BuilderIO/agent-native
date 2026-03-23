@@ -101,7 +101,7 @@ When animating colors (backgroundColor, borderColor, etc.):
 
 ## Reference Implementation
 
-See `client/remotion/hooks/useInteractiveComponent.ts` for the complete, correct implementation of:
+See `app/remotion/hooks/useInteractiveComponent.ts` for the complete, correct implementation of:
 
 - Duration-based progress calculation
 - Frame tracking with refs

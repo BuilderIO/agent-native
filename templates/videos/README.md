@@ -209,7 +209,7 @@ All compositions run at:
 
 - **Remotion Docs**: https://remotion.dev/docs
 - **Builder.io Docs**: https://www.builder.io/c/docs/projects
-- **Example Compositions**: Check `client/remotion/compositions/` folder
+- **Example Compositions**: Check `app/remotion/compositions/` folder
 
 ## 📝 License
 

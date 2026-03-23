@@ -685,6 +685,6 @@ export const MyInteractiveElement = ({
 
 **See Examples:**
 
-- `client/remotion/ui-components/InteractiveButton.tsx` - Updated example
-- `client/remotion/ui-components/InteractiveCard.tsx` - Updated example
+- `app/remotion/ui-components/InteractiveButton.tsx` - Updated example
+- `app/remotion/ui-components/InteractiveCard.tsx` - Updated example
 - `.builder/ANIMATED_PROPERTIES.md` - Full property documentation

@@ -187,12 +187,12 @@ const autoCursorType = useCursorTypeFromHover([
 
 ## Complete Example: FusionInputBox
 
-See `client/remotion/compositions/FusionInputBox.tsx` for reference.
+See `app/remotion/compositions/FusionInputBox.tsx` for reference.
 
 ### Step 1: Define Cursor Track (Registry)
 
 ```typescript
-// In client/remotion/registry.ts
+// In app/remotion/registry.ts
 {
   id: "cursor",
   animatedProps: [

@@ -11,7 +11,7 @@ description: How to connect to and query the Stripe API for analytics data.
 - **Auth**: Bearer token via `STRIPE_SECRET_KEY` env var
 - **Server lib**: `server/lib/stripe.ts`
 - **Routes**: `server/routes/stripe.ts`
-- **Dashboard**: `client/pages/adhoc/stripe/` (tool page, not metrics dashboard)
+- **Dashboard**: `app/pages/adhoc/stripe/` (tool page, not metrics dashboard)
 
 ## Environment Variable
 

@@ -8,7 +8,7 @@ When a composition is first loaded, it saves track data (including `keyframes: [
 
 ### 1. **Smart Merge Logic** ✅
 
-`client/contexts/TimelineContext.tsx` now intelligently merges keyframes:
+`app/contexts/TimelineContext.tsx` now intelligently merges keyframes:
 
 ```typescript
 // If localStorage has empty keyframes but registry has keyframes, use registry
@@ -59,8 +59,8 @@ This confirms the merge is working correctly.
 
 ### 5. **Comprehensive Documentation** ✅
 
-- Registry file (`client/remotion/registry.ts`) has detailed header docs
-- Reset utility (`client/utils/resetComposition.ts`) explains usage
+- Registry file (`app/remotion/registry.ts`) has detailed header docs
+- Reset utility (`app/utils/resetComposition.ts`) explains usage
 - This guide! 📖
 
 ## Best Practices
@@ -161,6 +161,6 @@ Potential enhancements to consider:
 **Last Updated**: March 2, 2026  
 **Related Files**:
 
-- `client/contexts/TimelineContext.tsx` (merge logic)
-- `client/utils/resetComposition.ts` (reset utilities)
-- `client/remotion/registry.ts` (composition definitions)
+- `app/contexts/TimelineContext.tsx` (merge logic)
+- `app/utils/resetComposition.ts` (reset utilities)
+- `app/remotion/registry.ts` (composition definitions)

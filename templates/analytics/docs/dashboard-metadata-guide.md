@@ -19,7 +19,7 @@ The AI will automatically set `author` and `lastUpdated` in the registry based o
 
 ### For All Dashboards
 
-Every dashboard in `client/pages/adhoc/registry.ts` requires:
+Every dashboard in `app/pages/adhoc/registry.ts` requires:
 
 - **`id`**: Unique kebab-case identifier
 - **`name`**: Display name shown in UI

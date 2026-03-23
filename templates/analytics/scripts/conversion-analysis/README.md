@@ -297,8 +297,8 @@ bq query --use_legacy_sql=false < 01-overall-trend.sql
 After identifying the root cause, you can create a permanent dashboard:
 
 - Use queries as a starting point
-- Build dashboard in `client/pages/adhoc/conversion-analysis/`
-- Register in `client/pages/adhoc/registry.ts`
+- Build dashboard in `app/pages/adhoc/conversion-analysis/`
+- Register in `app/pages/adhoc/registry.ts`
 
 ---
 

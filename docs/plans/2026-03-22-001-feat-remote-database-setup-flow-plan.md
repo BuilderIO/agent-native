@@ -196,7 +196,7 @@ When a user tries to share a form link or create a public booking page, they nee
 1. Deploy the app somewhere (Fly.io, Railway, Vercel, etc.)
 2. Upgrade SQLite to a cloud database
 
-#### `client/components/CloudUpgrade.tsx` (new, both templates)
+#### `app/components/CloudUpgrade.tsx` (new, both templates)
 
 Shown when user clicks "Publish" / "Share" / "Create booking link" and the app is running locally:
 

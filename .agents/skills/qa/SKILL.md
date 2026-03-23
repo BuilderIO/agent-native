@@ -77,7 +77,7 @@ If a server fails to start within 30 seconds, skip that app and note it in the r
 
 For each app, read these files to understand what to test:
 
-1. `templates/<app>/client/routes/` or `templates/<app>/client/routes.ts` — discover all pages
+1. `templates/<app>/app/routes/` or `templates/<app>/app/routes.ts` — discover all pages
 2. `templates/<app>/CLAUDE.md` — features, API routes, data model
 3. `templates/<app>/server/routes/api/` — API endpoints
 

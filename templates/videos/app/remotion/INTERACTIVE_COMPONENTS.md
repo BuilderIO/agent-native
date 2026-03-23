@@ -307,10 +307,10 @@ zone: { x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight }
 
 See these files for complete working examples:
 
-- `client/remotion/ui-components/InteractiveButton.tsx` - Button template
-- `client/remotion/ui-components/InteractiveCard.tsx` - Card template
-- `client/remotion/compositions/BlankComposition.tsx` - Composition setup
-- `client/remotion/compositions/InteractiveShowcase.tsx` - Full showcase
+- `app/remotion/ui-components/InteractiveButton.tsx` - Button template
+- `app/remotion/ui-components/InteractiveCard.tsx` - Card template
+- `app/remotion/compositions/BlankComposition.tsx` - Composition setup
+- `app/remotion/compositions/InteractiveShowcase.tsx` - Full showcase
 
 ## Summary
 

@@ -81,7 +81,7 @@ import preset from "@agent-native/core/tailwind";
 
 export default {
   presets: [preset],
-  content: ["./client/**/*.{ts,tsx}"],
+  content: ["./app/**/*.{ts,tsx}"],
 } satisfies Config;`}
       />
 

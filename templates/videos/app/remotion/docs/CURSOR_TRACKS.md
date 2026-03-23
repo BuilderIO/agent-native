@@ -229,7 +229,7 @@ const FALLBACK_TRACKS = (() => {
 
 ### Interactive Components Demo Pattern
 
-See `client/remotion/compositions/ComponentsDemo.tsx` for a complete example with:
+See `app/remotion/compositions/ComponentsDemo.tsx` for a complete example with:
 
 - Multiple interactive components
 - Cursor movement between components
@@ -279,7 +279,7 @@ React.useEffect(() => {
 
 ## 📖 See Also
 
-- `client/remotion/registry.ts` - Helper function implementations
-- `client/remotion/compositions/ComponentsDemo.tsx` - Complete example
-- `client/remotion/compositions/UIShowcase.tsx` - Another working example
-- `client/remotion/hooks/createInteractiveComposition.tsx` - How autoCursorType works
+- `app/remotion/registry.ts` - Helper function implementations
+- `app/remotion/compositions/ComponentsDemo.tsx` - Complete example
+- `app/remotion/compositions/UIShowcase.tsx` - Another working example
+- `app/remotion/hooks/createInteractiveComposition.tsx` - How autoCursorType works
