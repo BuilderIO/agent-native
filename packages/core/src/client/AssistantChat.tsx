@@ -277,6 +277,27 @@ function ThinkingIndicator() {
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 
+// ─── Terminal Icon ──────────────────────────────────────────────────────────
+
+function TerminalIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <polyline points="4 17 10 11 4 5" />
+      <line x1="12" y1="19" x2="20" y2="19" />
+    </svg>
+  );
+}
+
+// ─── Main Component ─────────────────────────────────────────────────────────
+
 export interface AssistantChatProps {
   /** API endpoint URL. Default: "/api/agent-chat" */
   apiUrl?: string;
@@ -288,12 +309,18 @@ export interface AssistantChatProps {
   showHeader?: boolean;
   /** CSS class for the outer container */
   className?: string;
+  /** Whether to show the "Use CLI" hint in dev mode. Default: true */
+  showDevHint?: boolean;
+  /** Callback when user clicks "Use CLI" button */
+  onSwitchToCli?: () => void;
 }
 
 function AssistantChatInner({
   emptyStateText,
   suggestions,
   showHeader = true,
+  showDevHint = true,
+  onSwitchToCli,
   className,
 }: Omit<AssistantChatProps, "apiUrl">) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -322,14 +349,26 @@ function AssistantChatInner({
           <span className="text-[13px] font-medium text-muted-foreground">
             Agent
           </span>
-          {messages.length > 0 && (
-            <button
-              onClick={() => window.location.reload()}
-              className="text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
-            >
-              Clear
-            </button>
-          )}
+          <div className="flex items-center gap-1">
+            {onSwitchToCli && (
+              <button
+                onClick={onSwitchToCli}
+                className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
+                title="Switch to CLI"
+              >
+                <TerminalIcon className="h-3.5 w-3.5" />
+                CLI
+              </button>
+            )}
+            {messages.length > 0 && (
+              <button
+                onClick={() => window.location.reload()}
+                className="text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -360,6 +399,18 @@ function AssistantChatInner({
                   </button>
                 ))}
               </div>
+            )}
+            {showDevHint && onSwitchToCli && (
+              <p className="text-xs text-muted-foreground/60 text-center max-w-[260px] mt-2">
+                In dev mode you can also use the{" "}
+                <button
+                  onClick={onSwitchToCli}
+                  className="underline hover:text-muted-foreground"
+                >
+                  CLI terminal
+                </button>{" "}
+                for full Claude Code capabilities.
+              </p>
             )}
           </div>
         ) : (

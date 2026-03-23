@@ -72,8 +72,30 @@ export function createAgentChatAdapter(options?: {
           signal: abortSignal,
         });
 
-        if (!res.ok || !res.body) {
-          throw new Error(`Server error: ${res.status}`);
+        if (!res.ok) {
+          // Try to read error body for better messages
+          let errorText = `Server error: ${res.status}`;
+          try {
+            const body = await res.text();
+            if (
+              body.includes("apiKey") ||
+              body.includes("authToken") ||
+              body.includes("ANTHROPIC_API_KEY") ||
+              body.includes("authentication")
+            ) {
+              errorText =
+                "No API key configured. Add ANTHROPIC_API_KEY to your .env file and restart the dev server.";
+            } else if (body.includes("Cannot find any path")) {
+              errorText =
+                "Agent chat endpoint not found. Make sure the agent-chat plugin is loaded in server/plugins/.";
+            } else if (body) {
+              errorText = body.length > 200 ? body.slice(0, 200) + "..." : body;
+            }
+          } catch {}
+          throw new Error(errorText);
+        }
+        if (!res.body) {
+          throw new Error("No response body");
         }
 
         const reader = res.body.getReader();
