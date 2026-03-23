@@ -12,7 +12,7 @@ export function useDbStatus() {
     queryKey: ["env-status"],
     queryFn: async () => {
       const res = await fetch("/api/env-status");
-      if (!res.ok) throw new Error("Failed to fetch env status");
+      if (!res.ok) return [];
       return res.json();
     },
     staleTime: 30_000,
