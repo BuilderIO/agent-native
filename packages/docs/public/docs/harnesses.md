@@ -27,6 +27,7 @@ pnpm dev:harness
 | Codex       | `codex`    | `--full-auto`, `--quiet`                                  |
 | Gemini CLI  | `gemini`   | `--sandbox`                                               |
 | OpenCode    | `opencode` | —                                                         |
+| Builder.io  | `fusion`   | —                                                         |
 
 Switch between CLIs at any time from the settings panel. The harness restarts the terminal with the selected CLI and loads its saved launch options.
 

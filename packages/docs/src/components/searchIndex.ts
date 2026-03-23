@@ -161,14 +161,14 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/harnesses",
     section: "CLI Harness",
     sectionId: "cli-harness",
-    text: "Open source ships with @agent-native/harness-cli. Runs locally xterm.js terminal on the left your app iframe on the right. Supports multiple AI coding CLIs Claude Code Codex Gemini CLI OpenCode. Switch between them from the settings panel. Auto-installs missing CLIs on first use. Per-CLI launch flags and settings persisted to localStorage. Best for solo development local testing open-source projects. Quick start pnpm dev:harness",
+    text: "Open source ships with @agent-native/harness-cli. Runs locally xterm.js terminal on the left your app iframe on the right. Supports multiple AI coding CLIs Claude Code Codex Gemini CLI OpenCode Builder.io. Switch between them from the settings panel. Auto-installs missing CLIs on first use. Per-CLI launch flags and settings persisted to localStorage. Best for solo development local testing open-source projects. Quick start pnpm dev:harness",
   },
   {
     page: "Harnesses",
     path: "/docs/harnesses",
     section: "Supported CLIs",
     sectionId: "supported-clis",
-    text: "Claude Code claude --dangerously-skip-permissions --resume --verbose. Codex codex --full-auto --quiet. Gemini CLI gemini --sandbox. OpenCode opencode. Switch between CLIs at any time from the settings panel.",
+    text: "Claude Code claude --dangerously-skip-permissions --resume --verbose. Codex codex --full-auto --quiet. Gemini CLI gemini --sandbox. OpenCode opencode. Builder.io fusion. Switch between CLIs at any time from the settings panel.",
   },
   {
     page: "Harnesses",
@@ -182,7 +182,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/harnesses",
     section: "Feature Comparison",
     sectionId: "feature-comparison",
-    text: "Local development both yes. Cloud/remote CLI no Builder yes. Multi-CLI support CLI yes 4 CLIs Builder yes. Real-time collaboration CLI no Builder yes. Visual editing CLI no Builder yes. Parallel agents CLI no Builder yes. Agent chat bridge both yes. File watcher SSE both yes. Script system both yes. Open source CLI yes Builder no.",
+    text: "Local development both yes. Cloud/remote CLI no Builder yes. Multi-CLI support CLI yes 5 CLIs Builder yes. Real-time collaboration CLI no Builder yes. Visual editing CLI no Builder yes. Parallel agents CLI no Builder yes. Agent chat bridge both yes. File watcher SSE both yes. Script system both yes. Open source CLI yes Builder no.",
   },
   {
     page: "Harnesses",
