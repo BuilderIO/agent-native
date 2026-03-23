@@ -5,7 +5,7 @@ import {
   setResponseStatus,
 } from "h3";
 import { google } from "googleapis";
-import { isConnected, getClients } from "../../../../lib/google-auth.js";
+import { isConnected, getClients } from "../../../../../lib/google-auth.js";
 
 export default defineEventHandler(async (event) => {
   if (!isConnected()) {
@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
     getRouterParam(event, "attachmentId") as string,
   );
 
-  const clients = getClients();
+  const clients = await getClients();
   for (const { client } of clients) {
     try {
       const gmail = google.gmail({ version: "v1", auth: client });
@@ -36,7 +36,7 @@ export default defineEventHandler(async (event) => {
       const buffer = Buffer.from(data, "base64url");
 
       setResponseHeader(event, "Cache-Control", "public, max-age=31536000");
-      setResponseHeader(event, "Content-Length", String(buffer.length));
+      setResponseHeader(event, "Content-Length", buffer.length);
 
       return buffer;
     } catch {
