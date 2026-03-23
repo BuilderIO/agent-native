@@ -32,10 +32,14 @@ export async function processJobs(): Promise<{ result: string }> {
       .where(eq(schema.scheduledJobs.id, job.id));
 
     try {
+      const acctEmail = job.accountEmail ?? undefined;
       if (job.type === "snooze" && job.emailId) {
-        await resurfaceEmail(job.emailId);
+        await resurfaceEmail(job.emailId, acctEmail);
       } else if (job.type === "send_later") {
-        await sendScheduledEmail(JSON.parse(job.payload) as SendLaterPayload);
+        await sendScheduledEmail(
+          JSON.parse(job.payload) as SendLaterPayload,
+          acctEmail,
+        );
       }
       await db
         .update(schema.scheduledJobs)

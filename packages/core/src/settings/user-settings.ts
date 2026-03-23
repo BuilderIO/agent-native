@@ -4,10 +4,8 @@
  * Wraps the global settings store with per-user key prefixing.
  * Keys are stored as `u:<email>:<key>` in the settings table.
  *
- * Includes a migration fallback: if a user-scoped key is not found,
- * falls back to the global (unprefixed) key. This allows existing
- * single-user data to be read by the first user who accesses it.
- * Writes always go to the user-scoped key.
+ * No global fallback — each user starts with a clean slate. This
+ * prevents one user's private data from leaking to other users.
  */
 
 import { getSetting, putSetting, deleteSetting } from "./store.js";
@@ -16,18 +14,12 @@ function userKey(email: string, key: string): string {
   return `u:${email}:${key}`;
 }
 
-/**
- * Read a user-scoped setting. Falls back to the global key if the
- * user-scoped key doesn't exist (migration path from single-user).
- */
+/** Read a user-scoped setting. Returns null if not set for this user. */
 export async function getUserSetting(
   email: string,
   key: string,
 ): Promise<Record<string, unknown> | null> {
-  const scoped = await getSetting(userKey(email, key));
-  if (scoped !== null) return scoped;
-  // Fallback to unscoped key for migration from single-user
-  return getSetting(key);
+  return getSetting(userKey(email, key));
 }
 
 /** Write a user-scoped setting. Always writes to the prefixed key. */

@@ -545,7 +545,12 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
     );
     app.use(
       "/api/auth/logout",
-      defineEventHandler(() => ({ ok: true })),
+      defineEventHandler(async (event) => {
+        const cookie = getCookie(event, COOKIE_NAME);
+        if (cookie) await removeSession(cookie);
+        deleteCookie(event, COOKIE_NAME, { path: "/" });
+        return { ok: true };
+      }),
     );
 
     // Mount auth guard that delegates to custom getSession

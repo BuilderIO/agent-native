@@ -3,11 +3,6 @@ name: Publish @agent-native/core
 on:
   release:
     types: [published]
-  push:
-    branches:
-      - main
-    paths:
-      - "packages/core/**"
   workflow_dispatch:
     inputs:
       version_bump:
