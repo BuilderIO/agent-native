@@ -52,8 +52,6 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
-    "@assistant-ui/react": "^0.12.19",
-    "@assistant-ui/react-markdown": "^0.12.6",
     "@libsql/client": "^0.15.0",
     "@react-router/dev": "^7.13.1",
     "@react-router/fs-routes": "^7.13.1",
@@ -74,6 +72,8 @@
     "tailwind-merge": "^2.6.0"
   },
   "peerDependencies": {
+    "@assistant-ui/react": ">=0.12",
+    "@assistant-ui/react-markdown": ">=0.12",
     "@supabase/supabase-js": ">=2",
     "@tanstack/react-query": ">=5",
     "@vitejs/plugin-react-swc": ">=4",
@@ -94,6 +94,12 @@
     "ws": ">=8"
   },
   "peerDependenciesMeta": {
+    "@assistant-ui/react": {
+      "optional": true
+    },
+    "@assistant-ui/react-markdown": {
+      "optional": true
+    },
     "@tanstack/react-query": {
       "optional": true
     },
@@ -141,6 +147,8 @@
     }
   },
   "devDependencies": {
+    "@assistant-ui/react": "^0.12.19",
+    "@assistant-ui/react-markdown": "^0.12.6",
     "@react-router/dev": "^7.13.1",
     "@react-router/fs-routes": "^7.13.1",
     "@supabase/supabase-js": "^2.49.0",

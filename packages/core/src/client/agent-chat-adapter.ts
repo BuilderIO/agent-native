@@ -54,7 +54,7 @@ export function createAgentChatAdapter(options?: {
       if (typeof window !== "undefined") {
         window.dispatchEvent(
           new CustomEvent("builder.fusion.chatRunning", {
-            detail: { running: true },
+            detail: { isRunning: true },
           }),
         );
       }
@@ -186,7 +186,7 @@ export function createAgentChatAdapter(options?: {
         if (typeof window !== "undefined") {
           window.dispatchEvent(
             new CustomEvent("builder.fusion.chatRunning", {
-              detail: { running: false },
+              detail: { isRunning: false },
             }),
           );
         }
