@@ -6,6 +6,8 @@ import {
   setResponseStatus,
   getHeader,
   setCookie,
+  getCookie,
+  deleteCookie,
   sendRedirect,
   type H3Event,
 } from "h3";
@@ -23,9 +25,6 @@ function getOrigin(event: H3Event): string {
   return `${proto}://${host}`;
 }
 
-// Track redirect URIs by OAuth state parameter for multi-user safety
-const pendingRedirects = new Map<string, string>();
-
 export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
     setResponseStatus(event, 422);
@@ -39,14 +38,16 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
     const redirectUri =
       (getQuery(event).redirect_uri as string) ||
       `${getOrigin(event)}/api/google/callback`;
-    // Generate a state token to track the redirect URI
+    // Generate a state token for CSRF protection and store redirect URI
+    // in a short-lived httpOnly cookie (serverless-safe, no in-memory Map)
     const state = crypto.randomBytes(16).toString("hex");
-    pendingRedirects.set(state, redirectUri);
-    // Clean up old entries (keep last 100)
-    if (pendingRedirects.size > 100) {
-      const first = pendingRedirects.keys().next().value;
-      if (first) pendingRedirects.delete(first);
-    }
+    setCookie(event, `oauth_state_${state}`, redirectUri, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/api/google/callback",
+      maxAge: 600, // 10 minutes
+    });
     const url = getAuthUrl(undefined, redirectUri, state);
     return { url };
   } catch (error: any) {
@@ -65,14 +66,25 @@ export const handleGoogleCallback = defineEventHandler(
         setResponseStatus(event, 400);
         return { error: "Missing authorization code" };
       }
-      // Look up the redirect URI from the state parameter
-      let redirectUri: string;
-      if (state && pendingRedirects.has(state)) {
-        redirectUri = pendingRedirects.get(state)!;
-        pendingRedirects.delete(state);
-      } else {
-        redirectUri = `${getOrigin(event)}/api/google/callback`;
+
+      // Enforce state parameter for CSRF protection
+      if (!state) {
+        setResponseStatus(event, 400);
+        return errorPage(
+          "Missing OAuth state parameter. Please try signing in again.",
+        );
       }
+      const cookieName = `oauth_state_${state}`;
+      const redirectUri = getCookie(event, cookieName);
+      if (!redirectUri) {
+        setResponseStatus(event, 400);
+        return errorPage(
+          "Invalid or expired OAuth state. Please try signing in again.",
+        );
+      }
+      // Clean up the state cookie
+      deleteCookie(event, cookieName, { path: "/api/google/callback" });
+
       const email = await exchangeCode(code, undefined, redirectUri);
 
       // Create a session tied to this Google email
@@ -96,15 +108,19 @@ export const handleGoogleCallback = defineEventHandler(
       const userMessage = isPermission
         ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
         : `Connection failed: ${msg}`;
-      return `<!DOCTYPE html><html><body>
-      <div style="font-family:system-ui;max-width:420px;margin:30vh auto;text-align:center">
-        <p style="font-size:15px;color:#e55">${userMessage}</p>
-        <p style="margin-top:16px;font-size:13px;color:#888"><a href="/" style="color:#888">Back to login</a></p>
-      </div>
-    </body></html>`;
+      return errorPage(userMessage);
     }
   },
 );
+
+function errorPage(message: string): string {
+  return `<!DOCTYPE html><html><body>
+    <div style="font-family:system-ui;max-width:420px;margin:30vh auto;text-align:center">
+      <p style="font-size:15px;color:#e55">${message}</p>
+      <p style="margin-top:16px;font-size:13px;color:#888"><a href="/" style="color:#888">Back to login</a></p>
+    </div>
+  </body></html>`;
+}
 
 export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
   try {
