@@ -78,29 +78,33 @@ export function useMarkThreadRead() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (threadId: string) => {
-      // Find all unread messages in this thread from cache
-      const allEmails =
-        qc
-          .getQueriesData<EmailMessage[]>({ queryKey: ["emails"] })
-          .flatMap(([, data]) => data ?? []) ?? [];
-      const unread = allEmails.filter(
-        (e) => (e.threadId || e.id) === threadId && !e.isRead,
-      );
-      // Mark each one as read via API
-      await Promise.all(
-        unread.map((e) =>
-          apiFetch(`/api/emails/${e.id}/read`, {
-            method: "PATCH",
-            body: JSON.stringify({ isRead: true }),
-          }),
-        ),
-      );
+      // Actual API calls happen in onMutate (before optimistic update)
+      // This is intentionally empty — the work is done in onMutate
     },
     onMutate: async (threadId) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],
       });
+      // Capture unread IDs BEFORE optimistic update
+      const allEmails = previous.flatMap(([, data]) => data ?? []) ?? [];
+      const unreadIds = allEmails
+        .filter((e) => (e.threadId || e.id) === threadId && !e.isRead)
+        .map((e) => e.id);
+      // Fire API calls for the unread emails
+      if (unreadIds.length > 0) {
+        Promise.all(
+          unreadIds.map((id) =>
+            apiFetch(`/api/emails/${id}/read`, {
+              method: "PATCH",
+              body: JSON.stringify({ isRead: true }),
+            }),
+          ),
+        ).catch(() => {
+          /* errors handled by onError rollback */
+        });
+      }
+      // Optimistic update
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.map((e) =>
           (e.threadId || e.id) === threadId ? { ...e, isRead: true } : e,

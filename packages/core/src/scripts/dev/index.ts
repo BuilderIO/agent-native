@@ -58,14 +58,18 @@ function wrapCliScript(
  * and database tools. Call this and merge with your app's registry
  * when NODE_ENV !== "production".
  */
-export function createDevScriptRegistry(): Record<string, ScriptEntry> {
+export async function createDevScriptRegistry(): Promise<
+  Record<string, ScriptEntry>
+> {
   // Lazy-import DB scripts to avoid requiring libsql in non-DB apps
   let dbEntries: Record<string, ScriptEntry> = {};
   try {
-    // These will be resolved at runtime — they're part of @agent-native/core
-    const dbSchema = require("../db/schema.js");
-    const dbQuery = require("../db/query.js");
-    const dbExec = require("../db/exec.js");
+    // Dynamic imports — these are part of @agent-native/core
+    const [dbSchema, dbQuery, dbExec] = await Promise.all([
+      import("../db/schema.js"),
+      import("../db/query.js"),
+      import("../db/exec.js"),
+    ]);
 
     dbEntries = {
       "db-schema": wrapCliScript(

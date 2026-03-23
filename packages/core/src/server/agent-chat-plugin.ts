@@ -78,7 +78,7 @@ export function createAgentChatPlugin(
         ? await rawScripts()
         : (rawScripts ?? {});
     const scripts = isDev
-      ? { ...templateScripts, ...createDevScriptRegistry() }
+      ? { ...templateScripts, ...(await createDevScriptRegistry()) }
       : templateScripts;
 
     // Build system prompt

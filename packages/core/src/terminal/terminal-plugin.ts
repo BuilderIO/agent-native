@@ -62,6 +62,23 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
       return;
     }
 
+    // Skip if a PTY server is already running (prevents leak on HMR rebuild)
+    if (process.env.__AGENT_TERMINAL_RUNNING === "true") {
+      const existingPort = process.env.AGENT_TERMINAL_PORT;
+      console.log(
+        `[terminal] PTY server already running on port ${existingPort}, skipping`,
+      );
+      nitroApp.h3App.use(
+        "/api/agent-terminal-info",
+        defineEventHandler(() => ({
+          available: true,
+          wsPort: existingPort ? parseInt(existingPort, 10) : 0,
+          command: options.command || process.env.AGENT_CLI_COMMAND || "claude",
+        })),
+      );
+      return;
+    }
+
     const command =
       options.command || process.env.AGENT_CLI_COMMAND || "claude";
     const port =
@@ -81,8 +98,9 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
         logPrefix: "[terminal]",
       });
 
-      // Store port for other consumers
+      // Store port for other consumers and mark as running to prevent HMR duplication
       process.env.AGENT_TERMINAL_PORT = String(result.port);
+      process.env.__AGENT_TERMINAL_RUNNING = "true";
 
       // Mount discovery endpoint
       nitroApp.h3App.use(
