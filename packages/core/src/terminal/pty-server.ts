@@ -247,8 +247,13 @@ export async function createPtyWebSocketServer(
           for (const { key, value } of sanitizedVars) {
             // Strip newlines/null bytes to prevent line injection
             const safeValue = value.replace(/[\r\n\0]/g, "");
+            // Quote values containing #, spaces, or quotes so dotenv parses correctly
+            const needsQuoting = /[# "']/.test(safeValue);
+            const quotedValue = needsQuoting
+              ? `"${safeValue.replace(/"/g, '\\"')}"`
+              : safeValue;
             const idx = lines.findIndex((l) => l.startsWith(`${key}=`));
-            const entry = `${key}=${safeValue}`;
+            const entry = `${key}=${quotedValue}`;
             if (idx !== -1) {
               lines[idx] = entry;
             } else {
