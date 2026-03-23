@@ -1,12 +1,17 @@
+import crypto from "node:crypto";
 import {
   defineEventHandler,
   getQuery,
   readBody,
   setResponseStatus,
   getHeader,
+  setCookie,
+  getCookie,
+  deleteCookie,
   sendRedirect,
   type H3Event,
 } from "h3";
+import { addSession, getSession } from "@agent-native/core/server";
 import {
   getAuthUrl,
   exchangeCode,
@@ -20,7 +25,14 @@ function getOrigin(event: H3Event): string {
   return `${proto}://${host}`;
 }
 
-let lastRedirectUri: string | undefined;
+function errorPage(message: string): string {
+  return `<!DOCTYPE html><html><body>
+    <div style="font-family:system-ui;max-width:420px;margin:30vh auto;text-align:center">
+      <p style="font-size:15px;color:#e55">${message}</p>
+      <p style="margin-top:16px;font-size:13px;color:#888"><a href="/" style="color:#888">Back to login</a></p>
+    </div>
+  </body></html>`;
+}
 
 export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -28,7 +40,7 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
     return {
       error: "missing_credentials",
       message:
-        "Google OAuth credentials are not configured. Add your Client ID and Secret in Settings.",
+        "Google OAuth credentials are not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
     };
   }
   try {
@@ -36,8 +48,16 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
     const redirectUri =
       (query.redirect_uri as string) ||
       `${getOrigin(event)}/api/google/callback`;
-    lastRedirectUri = redirectUri;
-    const url = getAuthUrl(undefined, redirectUri);
+    // CSRF state token stored in httpOnly cookie (serverless-safe)
+    const state = crypto.randomBytes(16).toString("hex");
+    setCookie(event, `oauth_state_${state}`, redirectUri, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/api/google/callback",
+      maxAge: 600, // 10 minutes
+    });
+    const url = getAuthUrl(undefined, redirectUri, state);
     return { url };
   } catch (error: any) {
     setResponseStatus(event, 500);
@@ -50,43 +70,77 @@ export const handleGoogleCallback = defineEventHandler(
     try {
       const query = getQuery(event);
       const code = query.code as string;
+      const state = query.state as string | undefined;
       if (!code) {
         setResponseStatus(event, 400);
         return { error: "Missing authorization code" };
       }
-      const redirectUri =
-        lastRedirectUri || `${getOrigin(event)}/api/google/callback`;
+
+      // Enforce state parameter for CSRF protection
+      if (!state) {
+        setResponseStatus(event, 400);
+        return errorPage(
+          "Missing OAuth state parameter. Please try signing in again.",
+        );
+      }
+      const cookieName = `oauth_state_${state}`;
+      const redirectUri = getCookie(event, cookieName);
+      if (!redirectUri) {
+        setResponseStatus(event, 400);
+        return errorPage(
+          "Invalid or expired OAuth state. Please try signing in again.",
+        );
+      }
+      deleteCookie(event, cookieName, { path: "/api/google/callback" });
+
       const email = await exchangeCode(code, undefined, redirectUri);
-      const safeEmail = JSON.stringify(email);
-      return `<!DOCTYPE html><html><body><script>
-      window.close();
-      var p = document.createElement('p');
-      p.style.cssText = 'font-family:system-ui;text-align:center;margin-top:40vh';
-      p.textContent = 'Connected ' + ${safeEmail} + '! You can close this tab.';
-      document.body.appendChild(p);
-    </script></body></html>`;
+
+      // Create a session tied to this Google email
+      const sessionToken = crypto.randomBytes(32).toString("hex");
+      await addSession(sessionToken, email);
+      setCookie(event, "an_session", sessionToken, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 60 * 24 * 30, // 30 days
+      });
+
+      return sendRedirect(event, "/");
     } catch (error: any) {
-      setResponseStatus(event, 500);
-      return { error: error.message };
+      const msg = error.message || "Unknown error";
+      const isPermission =
+        msg.includes("Insufficient Permission") ||
+        msg.includes("insufficient_scope");
+      const userMessage = isPermission
+        ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen."
+        : `Connection failed: ${msg}`;
+      return errorPage(userMessage);
     }
   },
 );
 
-export const getGoogleStatus = defineEventHandler(async (_event: H3Event) => {
+export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
   try {
-    const status = await getAuthStatus();
+    const session = await getSession(event);
+    const status = await getAuthStatus(session?.email);
     return status;
   } catch (error: any) {
-    setResponseStatus(_event, 500);
+    setResponseStatus(event, 500);
     return { error: error.message };
   }
 });
 
 export const disconnectGoogle = defineEventHandler(async (event: H3Event) => {
   try {
+    const session = await getSession(event);
     const body = await readBody(event);
     const email = body?.email as string | undefined;
-    await disconnect(email);
+    if (email && session?.email && email !== session.email) {
+      setResponseStatus(event, 403);
+      return { error: "Cannot disconnect another user's account" };
+    }
+    await disconnect(email || session?.email);
     return { success: true };
   } catch (error: any) {
     setResponseStatus(event, 500);

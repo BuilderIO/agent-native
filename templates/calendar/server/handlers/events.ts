@@ -8,17 +8,23 @@ import {
   type H3Event,
 } from "h3";
 import type { CalendarEvent } from "../../shared/api.js";
+import { getSession } from "@agent-native/core/server";
 import * as googleCalendar from "../lib/google-calendar.js";
+
+async function uEmail(event: H3Event): Promise<string> {
+  const session = await getSession(event);
+  return session?.email ?? "local@localhost";
+}
 
 export const listEvents = defineEventHandler(async (event: H3Event) => {
   try {
+    const email = await uEmail(event);
     const query = getQuery(event);
     const from = query.from as string | undefined;
     const to = query.to as string | undefined;
-    const connected = await googleCalendar.isConnected();
+    const connected = await googleCalendar.isConnected(email);
 
     if (!connected) {
-      // Not connected — return empty list (no more local event files)
       return [];
     }
 
@@ -29,6 +35,7 @@ export const listEvents = defineEventHandler(async (event: H3Event) => {
     const { events: googleEvents, errors } = await googleCalendar.listEvents(
       from,
       to,
+      email,
     );
 
     if (googleEvents.length === 0 && errors.length > 0) {
@@ -64,9 +71,9 @@ export const listEvents = defineEventHandler(async (event: H3Event) => {
 
 export const getEvent = defineEventHandler(async (event: H3Event) => {
   try {
+    const email = await uEmail(event);
     const id = getRouterParam(event, "id") as string;
 
-    // Google events have IDs prefixed with "google-"
     if (!id.startsWith("google-")) {
       setResponseStatus(event, 404);
       return { error: "Event not found" };
@@ -74,9 +81,8 @@ export const getEvent = defineEventHandler(async (event: H3Event) => {
 
     const googleEventId = id.replace(/^google-/, "");
 
-    // We need to find which account owns this event, try all connected accounts
-    const clients = await googleCalendar.getClients();
-    for (const { email, client } of clients) {
+    const clients = await googleCalendar.getClients(email);
+    for (const { email: acctEmail, client } of clients) {
       try {
         const { google } = await import("googleapis");
         const calendar = google.calendar({ version: "v3", auth: client });
@@ -96,13 +102,12 @@ export const getEvent = defineEventHandler(async (event: H3Event) => {
           allDay: !evt.start?.dateTime,
           source: "google",
           googleEventId: evt.id || undefined,
-          accountEmail: email,
+          accountEmail: acctEmail,
           createdAt: evt.created || new Date().toISOString(),
           updatedAt: evt.updated || new Date().toISOString(),
         };
         return calEvent;
       } catch {
-        // Try next account
         continue;
       }
     }
@@ -117,9 +122,10 @@ export const getEvent = defineEventHandler(async (event: H3Event) => {
 
 export const createEvent = defineEventHandler(async (event: H3Event) => {
   try {
+    const email = await uEmail(event);
     const body = await readBody(event);
 
-    if (!(await googleCalendar.isConnected())) {
+    if (!(await googleCalendar.isConnected(email))) {
       setResponseStatus(event, 400);
       return {
         error: "Google Calendar not connected. Connect via Settings first.",
@@ -130,6 +136,7 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
       ...body,
       id: "",
       source: "google",
+      accountEmail: body.accountEmail || email,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -150,6 +157,7 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
 
 export const updateEvent = defineEventHandler(async (event: H3Event) => {
   try {
+    const email = await uEmail(event);
     const id = getRouterParam(event, "id") as string;
     const body = await readBody(event);
 
@@ -160,7 +168,7 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
 
     const googleEventId = id.replace(/^google-/, "");
 
-    if (!(await googleCalendar.isConnected())) {
+    if (!(await googleCalendar.isConnected(email))) {
       setResponseStatus(event, 400);
       return { error: "Google Calendar not connected" };
     }
@@ -168,7 +176,7 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
     try {
       await googleCalendar.updateEvent(googleEventId, {
         ...body,
-        accountEmail: body.accountEmail,
+        accountEmail: body.accountEmail || email,
       });
     } catch (error: any) {
       setResponseStatus(event, 500);
@@ -189,6 +197,7 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
 
 export const deleteEvent = defineEventHandler(async (event: H3Event) => {
   try {
+    const email = await uEmail(event);
     const id = getRouterParam(event, "id") as string;
 
     if (!id.startsWith("google-")) {
@@ -198,14 +207,13 @@ export const deleteEvent = defineEventHandler(async (event: H3Event) => {
 
     const googleEventId = id.replace(/^google-/, "");
 
-    if (!(await googleCalendar.isConnected())) {
+    if (!(await googleCalendar.isConnected(email))) {
       setResponseStatus(event, 400);
       return { error: "Google Calendar not connected" };
     }
 
-    // Try to determine account email from query params
     const query = getQuery(event);
-    const accountEmail = query.accountEmail as string | undefined;
+    const accountEmail = (query.accountEmail as string | undefined) || email;
 
     try {
       await googleCalendar.deleteEvent(googleEventId, accountEmail);

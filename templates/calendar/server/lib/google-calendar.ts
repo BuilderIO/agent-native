@@ -37,7 +37,11 @@ function createOAuth2Client(redirectUri?: string) {
   );
 }
 
-export function getAuthUrl(origin?: string, redirectUri?: string): string {
+export function getAuthUrl(
+  origin?: string,
+  redirectUri?: string,
+  state?: string,
+): string {
   const uri =
     redirectUri || (origin ? `${origin}/api/google/callback` : undefined);
   const client = createOAuth2Client(uri);
@@ -45,6 +49,7 @@ export function getAuthUrl(origin?: string, redirectUri?: string): string {
     access_type: "offline",
     scope: SCOPES,
     prompt: "consent",
+    state,
   });
 }
 
@@ -105,9 +110,15 @@ export async function getClient(
   return client;
 }
 
-export async function getClients(): Promise<
-  Array<{ email: string; client: Auth.OAuth2Client }>
-> {
+export async function getClients(
+  forEmail?: string,
+): Promise<Array<{ email: string; client: Auth.OAuth2Client }>> {
+  if (forEmail) {
+    const client = await getClient(forEmail);
+    if (!client) return [];
+    return [{ email: forEmail, client }];
+  }
+
   const accounts = await listOAuthAccounts("google");
   const results: Array<{ email: string; client: Auth.OAuth2Client }> = [];
 
@@ -136,7 +147,11 @@ export async function getClients(): Promise<
   return results;
 }
 
-export async function isConnected(): Promise<boolean> {
+export async function isConnected(forEmail?: string): Promise<boolean> {
+  if (forEmail) {
+    const tokens = await getOAuthTokens("google", forEmail);
+    return tokens !== null;
+  }
   return hasOAuthTokens("google");
 }
 
@@ -145,14 +160,26 @@ export async function getConnectedAccounts(): Promise<string[]> {
   return accounts.map((a) => a.accountId);
 }
 
-export async function getAuthStatus(): Promise<GoogleAuthStatus> {
-  const accounts = await listOAuthAccounts("google");
-  if (accounts.length === 0) {
+export async function getAuthStatus(
+  forEmail?: string,
+): Promise<GoogleAuthStatus> {
+  let oauthAccounts: Array<{
+    accountId: string;
+    tokens: Record<string, unknown>;
+  }>;
+  if (forEmail) {
+    const tokens = await getOAuthTokens("google", forEmail);
+    oauthAccounts = tokens ? [{ accountId: forEmail, tokens }] : [];
+  } else {
+    oauthAccounts = await listOAuthAccounts("google");
+  }
+
+  if (oauthAccounts.length === 0) {
     return { connected: false, accounts: [] };
   }
 
   const result: Array<{ email: string; expiresAt?: string }> = [];
-  for (const account of accounts) {
+  for (const account of oauthAccounts) {
     const tokens = account.tokens as unknown as GoogleTokens;
     result.push({
       email: account.accountId,
@@ -175,11 +202,12 @@ export async function disconnect(email?: string): Promise<void> {
 export async function listEvents(
   timeMin: string,
   timeMax: string,
+  forEmail?: string,
 ): Promise<{
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
 }> {
-  const clients = await getClients();
+  const clients = await getClients(forEmail);
   if (clients.length === 0) return { events: [], errors: [] };
 
   const errors: Array<{ email: string; error: string }> = [];
