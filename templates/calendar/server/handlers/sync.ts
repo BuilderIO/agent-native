@@ -8,7 +8,7 @@ import * as googleCalendar from "../lib/google-calendar.js";
 
 export const syncGoogleCalendar = defineEventHandler(async (event: H3Event) => {
   try {
-    if (!googleCalendar.isConnected()) {
+    if (!(await googleCalendar.isConnected())) {
       setResponseStatus(event, 400);
       return { error: "Google Calendar not connected" };
     }

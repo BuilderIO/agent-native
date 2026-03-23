@@ -7,11 +7,16 @@
  * Reports whether the database is local or remote, and whether it's reachable.
  */
 
-import { config } from "dotenv";
+const config = async () => {
+  try {
+    const m = await import("dotenv");
+    m.config();
+  } catch {}
+};
 import { agentChat } from "@agent-native/core";
 
 export default async function main(_args: string[]) {
-  config();
+  await config();
 
   const url = process.env.DATABASE_URL || "file:./data/app.db";
   const isLocal = url.startsWith("file:");

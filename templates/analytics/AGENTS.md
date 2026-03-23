@@ -2,10 +2,10 @@
 
 This is an **agent-native** app built with `@agent-native/core`. See `.agents/skills/` for the framework rules:
 
-- **files-as-database** — All state is files. No databases, no localStorage.
+- **storing-data** — All state is SQL-backed. Settings via `getSetting`/`putSetting`, structured data via Drizzle ORM.
 - **delegate-to-agent** — UI never calls an LLM directly. All AI goes through the agent chat.
 - **scripts** — Complex operations are scripts in `scripts/`, run via `pnpm script <name>`.
-- **sse-file-watcher** — UI stays in sync with agent changes via SSE.
+- **real-time-sync** — UI stays in sync with agent changes via SSE (streams DB change events).
 - **frontend-design** — Build distinctive, production-grade UI. Read this skill before creating or restyling any component, page, or layout.
 
 ---
@@ -33,8 +33,8 @@ This app uses **Nitro** (via `@agent-native/core`) for the server. All server co
 server/
   routes/     # File-based API routes (auto-discovered by Nitro)
   handlers/   # Route handler logic modules
-  plugins/    # Server plugins — run at startup (file watcher, file sync, auth)
-  lib/        # Shared server modules (watcher instance, helpers)
+  plugins/    # Server plugins — run at startup (SSE, auth)
+  lib/        # Shared server modules (helpers)
 ```
 
 ### Adding an API Route
@@ -59,7 +59,7 @@ export default defineEventHandler(async (event) => {
 
 ### Server Plugins
 
-Startup logic (file watcher, file sync, auth) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
+Startup logic (SSE, auth) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
 
 ```ts
 import { defineNitroPlugin } from "@agent-native/core";
@@ -74,11 +74,15 @@ export default defineNitroPlugin(async (nitroApp) => {
 | Import                                       | Purpose                                           |
 | -------------------------------------------- | ------------------------------------------------- |
 | `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)   |
-| `createFileWatcher`                          | Watch data directory for changes                  |
 | `createSSEHandler`                           | Create SSE endpoint for real-time updates         |
 | `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)          |
 | `sendToAgentChat`                            | Send messages to agent from UI (client-side)      |
 | `agentChat`                                  | Send messages to agent from scripts (server-side) |
+
+| Import (settings)             | Purpose                              |
+| ----------------------------- | ------------------------------------ |
+| `getSetting` / `putSetting`   | Read/write app settings in SQL       |
+| `getAppState` / `putAppState` | Read/write ephemeral UI state in SQL |
 
 ### Build & Dev Commands
 
@@ -130,15 +134,15 @@ Skills should be **continuously improved** based on learnings and feedback. When
 ┌─────────────────────┐       ┌─────────────────────┐
 │  Frontend (React/   │◄─────►│   Agent Chat        │
 │  Vite)              │       │                     │
-│                     │       │  reads/writes files  │
-│  reads/writes files │       │  runs scripts        │
+│                     │       │  reads/writes data   │
+│  reads/writes data  │       │  runs scripts        │
 │  via backend        │       │  generates code      │
 └────────┬────────────┘       └──────────┬──────────┘
          │                               │
          │  fetch /api/*                 │  pnpm script <name>
          │                               │
 ┌────────▼────────────┐       ┌──────────▼──────────┐
-│  Backend (Nitro)  │◄─────►│    scripts/          │
+│  Backend (Nitro)    │◄─────►│    scripts/          │
 │                     │       │                     │
 │  API routes         │       │  standalone TS files │
 │  BigQuery, HubSpot, │       │  import server libs  │
@@ -148,53 +152,33 @@ Skills should be **continuously improved** based on learnings and feedback. When
 
 ### Core Principles
 
-1. **Everything is files.** All stateful data lives in the filesystem — markdown, JSON, YAML, React code. The UI reads and writes files. The AI agent reads and writes files. This is the shared state mechanism. No special APIs needed for the agent to interact with app state.
+1. **Everything is SQL-backed.** All stateful data lives in the SQL database — settings, application state, configurations. The UI reads and writes data via API routes. The AI agent reads and writes data via scripts and SQL helpers. This is the shared state mechanism. Using `DATABASE_URL`, the same database can be accessed locally or from a cloud provider.
 
 2. **Scripts are the backend escape hatch.** Any backend logic the AI needs (BigQuery queries, image generation, API calls) lives as standalone scripts in `scripts/`. The agent runs them via `pnpm script <name> --arg=value`. Scripts can be generated on the fly or committed for reuse.
 
 3. **The UI can delegate to the AI agent.** Use `sendToAgentChat()` from `@agent-native/core` to programmatically submit prompts to the agent chat. This lets UI buttons trigger agentic workflows — the button provides the structured prompt, and the agent does the work. This is vastly more flexible than building custom backend endpoints for every feature.
 
-### File Sync (Multi-User Collaboration)
+### Data Storage
 
-File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.env`.
+Dashboard configs, explorer configs, and theme settings are stored in SQL via the settings API:
 
-**Environment variables:**
+| Key Pattern       | Contents                           |
+| ----------------- | ---------------------------------- |
+| `dashboard-{id}`  | Dashboard configuration and layout |
+| `config-{id}`     | Explorer/tool configuration        |
+| `analytics-theme` | Theme settings (colors, dark mode) |
 
-| Variable                         | Required      | Description                                          |
-| -------------------------------- | ------------- | ---------------------------------------------------- |
-| `FILE_SYNC_ENABLED`              | No            | Set to `"true"` to enable sync                       |
-| `FILE_SYNC_BACKEND`              | When enabled  | `"firestore"`, `"supabase"`, or `"convex"`           |
-| `SUPABASE_URL`                   | For Supabase  | Project URL                                          |
-| `SUPABASE_PUBLISHABLE_KEY`       | For Supabase  | Publishable key (or legacy `SUPABASE_ANON_KEY`)      |
-| `GOOGLE_APPLICATION_CREDENTIALS` | For Firestore | Path to service account JSON                         |
-| `CONVEX_URL`                     | For Convex    | Deployment URL from `npx convex dev` (must be HTTPS) |
+Use `getSetting(key)` / `putSetting(key, value)` from `@agent-native/core/settings` to read/write these.
 
-**How sync works:**
+### Multi-User Collaboration
 
-- `createFileSync()` factory reads env vars and initializes sync
-- Files matching `sync-config.json` patterns are synced to/from the database
-- Sync events flow through SSE (`source: "sync"`) alongside file change events
-- Conflicts produce `.conflict` sidecar files and notify the agent
-
-**Checking sync status:**
-
-- Read `data/.sync-status.json` for current sync state
-- Read `data/.sync-failures.json` for permanently failed sync operations
-
-**Handling conflicts:**
-
-- When `application-state/sync-conflict.json` appears, resolve the conflict
-- Read the `.conflict` file alongside the original to understand both versions
-- Edit the original file to resolve, then delete the `.conflict` file
-
-**Scratch files (not synced):**
-
-- Prefix temporary files with `_tmp-` to exclude from sync
+For multi-user access, set `DATABASE_URL` to a cloud database provider (Turso, Neon, etc.). The SQL database handles remote access natively — no separate file sync system needed.
 
 ## Tech Stack
 
 - **Frontend**: React 18 + React Router 6 (SPA) + TypeScript + Vite + TailwindCSS 3
 - **Backend**: Nitro (via @agent-native/core) — file-based API routing
+- **Database**: SQLite via Drizzle ORM + @libsql/client (local by default, cloud upgrade via `DATABASE_URL`)
 - **Testing**: Vitest
 - **UI Components**: Radix UI + TailwindCSS 3 + Lucide React icons
 - **Package Manager**: pnpm
@@ -213,6 +197,7 @@ server/                   # Nitro API server
 ├── routes/               # File-based API routes (auto-discovered by Nitro)
 ├── handlers/             # Route handler modules (BigQuery, HubSpot, etc.)
 ├── plugins/              # Server plugins (startup logic)
+├── db/                   # Drizzle schema + DB connection
 └── lib/                  # Shared server libraries
 
 scripts/                  # CLI scripts for backend automation
@@ -276,7 +261,7 @@ Use `sendToAgentChat()` when:
 
 Do NOT use it for:
 
-- Simple CRUD that the UI can handle directly via file read/write
+- Simple CRUD that the UI can handle directly via API calls
 - Deterministic operations with no AI judgment needed
 
 ## Scripts System

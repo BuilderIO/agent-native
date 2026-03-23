@@ -37,7 +37,8 @@ import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   getCallbackOrigin,
-  ProductionAgentPanel,
+  AgentSidebar,
+  AgentToggleButton,
 } from "@agent-native/core/client";
 import type { Label } from "@shared/types";
 import { toast } from "sonner";
@@ -654,6 +655,9 @@ export function AppLayout({ children }: AppLayoutProps) {
             {/* Theme toggle */}
             <ThemeToggle />
 
+            {/* Agent sidebar toggle */}
+            <AgentToggleButton />
+
             {/* Compose (pen) icon */}
             <button
               onClick={handleCompose}
@@ -922,13 +926,20 @@ export function AppLayout({ children }: AppLayoutProps) {
           )}
 
           {/* Show full-page takeover when no accounts connected, otherwise content */}
-          <ProductionAgentPanel>
+          <AgentSidebar
+            emptyStateText="Ask me anything about your emails"
+            suggestions={[
+              "What's in my inbox?",
+              "Summarize my unread emails",
+              "Show me the database schema",
+            ]}
+          >
             {!googleStatus.isLoading && !hasAccounts ? (
               <GoogleConnectBanner variant="hero" />
             ) : (
               <main className="flex flex-1 overflow-hidden">{children}</main>
             )}
-          </ProductionAgentPanel>
+          </AgentSidebar>
         </div>
 
         {(() => {

@@ -37,4 +37,4 @@ Open http://localhost:5173
 - Event CRUD (local + Google)
 - Configurable availability schedule
 - Public booking page at `/book/meeting`
-- Real-time updates via SSE when agent modifies data files
+- Real-time updates via SSE when agent modifies data

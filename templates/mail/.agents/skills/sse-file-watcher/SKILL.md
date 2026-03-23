@@ -1,95 +1,80 @@
 ---
-name: sse-file-watcher
+name: real-time-sync
 description: >-
-  How to keep the UI in sync with agent changes via Server-Sent Events. Use
-  when setting up real-time file sync, adding SSE to a new data directory,
-  wiring query invalidation for new data models, or debugging UI not updating.
+  How the UI stays in sync when the agent writes data. Use when wiring up
+  query invalidation, debugging UI not updating, or understanding how SSE
+  connects the agent to the browser.
 ---
 
-# SSE File Watcher
-
-## Rule
-
-The UI stays in sync with agent changes through Server-Sent Events. When the agent writes a file, the UI updates automatically — no polling, no manual refresh.
-
-## Why
-
-The agent modifies files on disk, but the UI runs in the browser. SSE bridges this gap: a file watcher on the server detects changes, streams them to the browser, and React Query invalidates the relevant caches. This is what makes the "files as database" pattern feel real-time.
+# Real-Time Sync
 
 ## How It Works
 
-1. **Server** watches the data directory with chokidar:
+When the agent writes data (via scripts or server handlers), the UI updates instantly. No polling, no manual refresh.
 
-   ```ts
-   import { createFileWatcher, createSSEHandler } from "@agent-native/core";
-   const watcher = createFileWatcher("./data");
-   app.get("/api/events", createSSEHandler(watcher));
-   ```
+The flow:
 
-2. **Client** listens for changes and invalidates React Query caches:
+1. **Agent writes** → `writeAppState("navigate", { view: "starred" })`
+2. **Store emits SSE event** → `{ source: "app-state", type: "change", key: "navigate" }`
+3. **Browser receives** → `useFileWatcher()` hook gets the event
+4. **React Query invalidates** → relevant queries refetch, UI re-renders
 
-   ```ts
-   import { useFileWatcher } from "@agent-native/core";
-   useFileWatcher({ queryClient, queryKeys: ["files", "projects"] });
-   ```
+This happens automatically for all writes through `@agent-native/core/application-state` and `@agent-native/core/settings`.
 
-3. When the agent writes to `data/`, chokidar detects it, SSE pushes the event, and React Query refetches the affected queries.
+## SSE Events
 
-## Don't
+| Source | Emitted by | Example |
+|--------|-----------|---------|
+| `"app-state"` | `writeAppState`, `deleteAppState` | `{ source: "app-state", type: "change", key: "navigation" }` |
+| `"settings"` | `putSetting`, `deleteSetting` | `{ source: "settings", type: "change", key: "mail-settings" }` |
 
-- Don't poll for changes — SSE handles it
-- Don't create per-model `fs.watch()` instances — `createFileWatcher("./data")` watches recursively. One watcher is enough.
-- Don't create your own EventSource connections alongside `useFileWatcher` — use the `onEvent` callback for custom handling
+## Client Setup
 
-## Query Key Mapping
-
-By default, `useFileWatcher` invalidates all listed query keys on every file change. For apps with multiple data models, this causes unnecessary refetches. Use path-based filtering via the `onEvent` callback:
+Every template has an SSE endpoint and a `useFileWatcher` hook in `root.tsx`:
 
 ```ts
+// server/routes/api/events.get.ts
+import { createDefaultSSEHandler } from "@agent-native/core/server";
+export default createDefaultSSEHandler();
+```
+
+```ts
+// In root.tsx
 useFileWatcher({
-  queryClient,
-  queryKeys: [], // don't auto-invalidate everything
+  queryClient: qc,
+  queryKeys: [],
   onEvent: (data) => {
-    if (data.path?.includes("projects")) {
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-    } else if (data.path?.includes("settings")) {
-      queryClient.invalidateQueries({ queryKey: ["settings"] });
+    if (data.source === "app-state") {
+      // Invalidate queries affected by app state changes
+      qc.invalidateQueries({ queryKey: ["compose-drafts"] });
+    } else if (data.source === "settings") {
+      qc.invalidateQueries({ queryKey: ["settings"] });
     }
   },
 });
 ```
 
-To prevent cache thrashing during rapid agent writes, set `staleTime` on your queries:
+Use the `key` field to selectively invalidate — don't invalidate everything on every event.
+
+## For Custom Domain Data
+
+If your template has Drizzle tables and you want SSE notifications after writes, emit from your handler:
 
 ```ts
-useQuery({
-  queryKey: ["projects"],
-  queryFn: fetchProjects,
-  staleTime: 2000, // don't refetch within 2 seconds
+import { getAppStateEmitter } from "@agent-native/core/application-state";
+
+// After inserting a booking:
+getAppStateEmitter().emit("app-state", {
+  source: "app-state",
+  type: "change",
+  key: "bookings-updated",
 });
 ```
 
-## Performance
-
-When the agent writes many files rapidly (e.g., during self-modification), each write fires a chokidar event → SSE broadcast → React Query invalidation. This can cause excessive refetching.
-
-Mitigations:
-
-- Use `staleTime: 2000` on React Query to debounce refetches
-- Use path-based filtering (see Query Key Mapping) to limit which queries invalidate
-
 ## Troubleshooting
 
-| Symptom                            | Check                                                                                                           |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| UI not updating after agent writes | Is `useFileWatcher` called with the correct `queryClient`? Are the `queryKeys` matching your `useQuery` keys?   |
-| SSE not firing                     | Open browser devtools → Network tab → filter by EventStream. Is `/api/events` connected? Is the server running? |
-| Watcher not detecting changes      | Is the path correct? `createFileWatcher("./data")` is relative to CWD. Check the server's working directory.    |
-| Constant reconnections             | Check for server crashes in terminal output.                                                                    |
-| High CPU / event storms            | The agent is writing many files rapidly. Add `staleTime` to queries and use path-based filtering.               |
-
-## Related Skills
-
-- **files-as-database** — SSE watches the data files that store application state
-- **scripts** — Script outputs written to `data/` trigger SSE events
-- **self-modifying-code** — Agent code edits trigger SSE events; rapid edits can cause event storms
+| Symptom | Check |
+|---------|-------|
+| UI not updating after script writes | Is the script using `writeAppState`/`writeSetting`? Direct SQL writes don't emit SSE. |
+| SSE not connected | Browser devtools → Network → EventStream. Is `/api/events` connected? |
+| Wrong queries invalidating | Check the `onEvent` callback — filter by `data.source` and `data.key` |

@@ -27,8 +27,8 @@ This app uses **Nitro** (via `@agent-native/core`) for the server. All server co
 server/
   routes/     # File-based API routes (auto-discovered by Nitro)
   handlers/   # Route handler logic modules
-  plugins/    # Server plugins — run at startup (file watcher, file sync, auth)
-  lib/        # Shared server modules (watcher instance, helpers)
+  plugins/    # Server plugins — run at startup (DB migrations, auth)
+  lib/        # Shared server modules
 ```
 
 ### Adding an API Route
@@ -53,7 +53,7 @@ export default defineEventHandler(async (event) => {
 
 ### Server Plugins
 
-Startup logic (file watcher, file sync, auth) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
+Startup logic (DB migrations, auth) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
 
 ```ts
 import { defineNitroPlugin } from "@agent-native/core";
@@ -68,11 +68,22 @@ export default defineNitroPlugin(async (nitroApp) => {
 | Import                                       | Purpose                                           |
 | -------------------------------------------- | ------------------------------------------------- |
 | `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)   |
-| `createFileWatcher`                          | Watch data directory for changes                  |
 | `createSSEHandler`                           | Create SSE endpoint for real-time updates         |
 | `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)          |
 | `sendToAgentChat`                            | Send messages to agent from UI (client-side)      |
 | `agentChat`                                  | Send messages to agent from scripts (server-side) |
+
+### Key Imports from `@agent-native/core/settings`
+
+| Import                                   | Purpose                                     |
+| ---------------------------------------- | ------------------------------------------- |
+| `getSetting(key)` / `setSetting(key, v)` | Read/write settings from SQL settings store |
+
+### Key Imports from `@agent-native/core/application-state`
+
+| Import                                        | Purpose                               |
+| --------------------------------------------- | ------------------------------------- |
+| `readAppState(key)` / `writeAppState(key, v)` | Read/write ephemeral app state in SQL |
 
 ### Build & Dev Commands
 
@@ -87,22 +98,22 @@ pnpm typecheck  # TypeScript validation
 
 ## Data Sources
 
-**When a Google account is connected**, emails come from the Gmail API — the app works with real emails. **When no account is connected**, `data/emails.json` is used as a local store (starts empty).
+**When a Google account is connected**, emails come from the Gmail API — the app works with real emails. **When no account is connected**, the SQL settings store (`getSetting("local-emails")`) is used as a local store (starts empty).
 
 To check the current state:
 
-- Read `application-state/email-list.json` to see the emails currently displayed on the user's screen (compact summaries with id, threadId, from, subject, snippet, date, isRead, isStarred)
-- Read `application-state/navigation.json` to see what view/thread the user is looking at
+- Use `readAppState("email-list")` to see the emails currently displayed on the user's screen (compact summaries with id, threadId, from, subject, snippet, date, isRead, isStarred)
+- Use `readAppState("navigation")` to see what view/thread the user is looking at
 - Use `pnpm script list-emails --view=inbox` to list emails (automatically uses Gmail when connected, falls back to local data)
 - Use `pnpm script search-emails --q=term` to search across all emails
 - Check Google connection status via `GET /api/google/status`
 
 **IMPORTANT — Drafts vs Emails:**
 
-- The **compose window** the user sees is `application-state/compose.json` — NOT `data/emails.json`
-- To see/edit the user's current draft: read/write `application-state/compose.json`
-- To see stored email messages: use `pnpm script list-emails` or read `data/emails.json`
-- NEVER edit `data/emails.json` to modify a draft the user is currently composing
+- The **compose window** the user sees is stored via `readAppState("compose-{id}")` — NOT the email store
+- To see/edit the user's current draft: use `readAppState("compose-{id}")` / `writeAppState("compose-{id}", draft)`
+- To see stored email messages: use `pnpm script list-emails` or query the settings store
+- NEVER edit the email store to modify a draft the user is currently composing
 
 ## Architecture
 
@@ -112,7 +123,7 @@ To check the current state:
 │  (React + Vite)    │◄───►│  (AI agent)        │
 │                    │     │                    │
 │  - reads emails    │     │  - reads/writes    │
-│    via API         │     │    data/*.json     │
+│    via API         │     │    SQL via scripts │
 │  - sends actions   │     │  - runs scripts    │
 │    via API PATCH   │     │    via pnpm script │
 └────────┬───────────┘     └──────────┬─────────┘
@@ -121,66 +132,38 @@ To check the current state:
                     ▼
             ┌───────────────┐
             │  Backend      │
-            │  (Nitro)    │
+            │  (Nitro)      │
             │               │
             │  /api/emails  │
             │  /api/labels  │
             │  /api/settings│
+            └───────┬───────┘
+                    │
+                    ▼
+            ┌───────────────┐
+            │  SQLite DB    │
+            │  (data/app.db)│
             └───────────────┘
 ```
 
-### File Sync (Multi-User Collaboration)
-
-File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.env`.
-
-**Environment variables:**
-
-| Variable                         | Required      | Description                                          |
-| -------------------------------- | ------------- | ---------------------------------------------------- |
-| `FILE_SYNC_ENABLED`              | No            | Set to `"true"` to enable sync                       |
-| `FILE_SYNC_BACKEND`              | When enabled  | `"firestore"`, `"supabase"`, or `"convex"`           |
-| `SUPABASE_URL`                   | For Supabase  | Project URL                                          |
-| `SUPABASE_PUBLISHABLE_KEY`       | For Supabase  | Publishable key (or legacy `SUPABASE_ANON_KEY`)      |
-| `GOOGLE_APPLICATION_CREDENTIALS` | For Firestore | Path to service account JSON                         |
-| `CONVEX_URL`                     | For Convex    | Deployment URL from `npx convex dev` (must be HTTPS) |
-
-**How sync works:**
-
-- `createFileSync()` factory reads env vars and initializes sync
-- Files matching `sync-config.json` patterns are synced to/from the database
-- Sync events flow through SSE (`source: "sync"`) alongside file change events
-- Conflicts produce `.conflict` sidecar files and notify the agent
-
-**Checking sync status:**
-
-- Read `data/.sync-status.json` for current sync state
-- Read `data/.sync-failures.json` for permanently failed sync operations
-
-**Handling conflicts:**
-
-- When `application-state/sync-conflict.json` appears, resolve the conflict
-- Read the `.conflict` file alongside the original to understand both versions
-- Edit the original file to resolve, then delete the `.conflict` file
-
-**Scratch files (not synced):**
-
-- Prefix temporary files with `_tmp-` to exclude from sync
-
 ## Data Model
 
-Local state is in JSON files in `data/`. When a Google account is connected, the API serves emails from Gmail instead — `data/emails.json` is only used as a fallback when no account is connected (and starts empty).
+All data is stored in SQL (SQLite via Drizzle ORM, upgradeable to Turso/Neon/Supabase via `DATABASE_URL`). When a Google account is connected, the API serves emails from Gmail instead — the local email store is only used as a fallback when no account is connected (and starts empty).
 
-| File                 | Contents                                                       |
-| -------------------- | -------------------------------------------------------------- |
-| `data/emails.json`   | Local email store (empty by default, used only without Google) |
-| `data/labels.json`   | System and user labels with unread counts                      |
-| `data/settings.json` | User profile and app settings                                  |
+| SQL Store                     | Contents                                                       |
+| ----------------------------- | -------------------------------------------------------------- |
+| `getSetting("local-emails")`  | Local email store (empty by default, used only without Google) |
+| `getSetting("labels")`        | System and user labels with unread counts                      |
+| `getSetting("mail-settings")` | User profile and app settings                                  |
+| `getSetting("aliases")`       | Email aliases                                                  |
+
+Google OAuth tokens are stored via `@agent-native/core/oauth-tokens` (provider: "google").
 
 ### Compose Drafts (Application State)
 
-Each draft is a separate file: `application-state/compose-{id}.json`. Multiple drafts can exist simultaneously — they appear as tabs in the compose panel. Write a file to open a new draft tab; edit it to update a draft in progress; delete it to close that tab. See `.agents/skills/email-drafts/SKILL.md` for full details.
+Each draft is stored as a separate application state entry: `writeAppState("compose-{id}", draft)`. Multiple drafts can exist simultaneously — they appear as tabs in the compose panel. Write an entry to open a new draft tab; update it to edit a draft in progress; delete it to close that tab.
 
-When the user asks you to **draft**, **compose**, or **write** an email, write `application-state/compose-{id}.json` (pick any unique id) — the UI will open the compose panel automatically with your content as a new tab.
+When the user asks you to **draft**, **compose**, or **write** an email, use `writeAppState("compose-{id}", draft)` (pick any unique id) — the UI will open the compose panel automatically with your content as a new tab.
 
 ### Email object shape
 
@@ -212,7 +195,7 @@ When the user asks you to **draft**, **compose**, or **write** an email, write `
 
 **Always use `pnpm script <name>` for mail actions** — scripts call Gmail directly and do NOT require `pnpm dev` to be running. Never use `curl` or raw HTTP requests. When no script exists, use `node -e` inline JavaScript.
 
-**After any backend change** (archive, trash, star, mark-read, send, etc.) always run `pnpm script refresh-list` to update `application-state/email-list.json` and trigger the UI to refetch.
+**After any backend change** (archive, trash, star, mark-read, send, etc.) always run `pnpm script refresh-list` to update the email list application state and trigger the UI to refetch.
 
 Common operations:
 
@@ -231,19 +214,21 @@ See the full Scripts section below for all available scripts and arguments.
 
 ## Application State
 
-Ephemeral UI state lives in `application-state/` as JSON files. These files are gitignored but visible to agent tools (via `.ignore`). Write to these files to trigger UI actions. The UI syncs its state here so you can always see what the user is looking at.
+Ephemeral UI state is stored in the SQL `application_state` table, accessed via `readAppState(key)` and `writeAppState(key, value)` from `@agent-native/core/application-state`. Scripts use these functions instead of filesystem reads/writes. The UI syncs its state here so you can always see what the user is looking at.
 
-| File                                  | Purpose                                     | Direction                                   |
-| ------------------------------------- | ------------------------------------------- | ------------------------------------------- |
-| `application-state/navigation.json`   | Current view, open thread, focused email    | UI → Agent (read-only for agent)            |
-| `application-state/email-list.json`   | Emails currently displayed on user's screen | UI → Agent (read-only for agent)            |
-| `application-state/thread.json`       | Full messages of the open thread            | UI → Agent (read-only for agent)            |
-| `application-state/navigate.json`     | Navigate the user to a view/thread          | Agent → UI (one-shot command, auto-deleted) |
-| `application-state/compose-{id}.json` | Email draft (one file per draft tab)        | Bidirectional                               |
+| State Key      | Purpose                                     | Direction                                    |
+| -------------- | ------------------------------------------- | -------------------------------------------- |
+| `navigation`   | Current view, open thread, focused email    | UI -> Agent (read-only for agent)            |
+| `email-list`   | Emails currently displayed on user's screen | UI -> Agent (read-only for agent)            |
+| `thread`       | Full messages of the open thread            | UI -> Agent (read-only for agent)            |
+| `navigate`     | Navigate the user to a view/thread          | Agent -> UI (one-shot command, auto-deleted) |
+| `compose-{id}` | Email draft (one entry per draft tab)       | Bidirectional                                |
+
+SSE streams DB change events (source: `"app-state"`, `"settings"`) so the UI updates in real time when any state changes.
 
 ### Navigation state (read what the user sees)
 
-The UI automatically writes `application-state/navigation.json` whenever the user navigates. Read this file to see what the user is looking at:
+The UI automatically writes `writeAppState("navigation", ...)` whenever the user navigates. Read this state to see what the user is looking at:
 
 ```json
 {
@@ -253,11 +238,11 @@ The UI automatically writes `application-state/navigation.json` whenever the use
 }
 ```
 
-**Do NOT write to `navigation.json`** — it is overwritten by the UI. To navigate the user, use `navigate.json` instead.
+**Do NOT write to `navigation`** — it is overwritten by the UI. To navigate the user, use the `navigate` key instead.
 
 ### Email list (see what's on the user's screen)
 
-The UI automatically syncs `application-state/email-list.json` with a compact summary of the emails currently displayed. **This is the fastest way to see the user's inbox** — no script or API call needed:
+The UI automatically syncs `writeAppState("email-list", ...)` with a compact summary of the emails currently displayed. **This is the fastest way to see the user's inbox** — no script or API call needed:
 
 ```json
 {
@@ -279,11 +264,11 @@ The UI automatically syncs `application-state/email-list.json` with a compact su
 }
 ```
 
-**Do NOT write to `email-list.json`** — it is synced by the UI. To get more details about an email, use `GET /api/emails/:id` or `GET /api/threads/:threadId/messages`.
+**Do NOT write to `email-list`** — it is synced by the UI. To get more details about an email, use `GET /api/emails/:id` or `GET /api/threads/:threadId/messages`.
 
 ### Open thread (full conversation context)
 
-When the user is viewing an email thread, the UI syncs the full messages to `application-state/thread.json`. **This is the fastest way to read the conversation** the user is looking at — including all message bodies:
+When the user is viewing an email thread, the UI syncs the full messages to `writeAppState("thread", ...)`. **This is the fastest way to read the conversation** the user is looking at — including all message bodies:
 
 ```json
 {
@@ -311,13 +296,13 @@ When the user is viewing an email thread, the UI syncs the full messages to `app
 }
 ```
 
-**Do NOT write to `thread.json`** — it is synced by the UI and deleted when the user navigates away from the thread.
+**Do NOT write to `thread`** — it is synced by the UI and deleted when the user navigates away from the thread.
 
-When the user is composing a reply and asks for help, read the compose draft (`compose-*.json`) to find `replyToThreadId`, then read `thread.json` (or fetch via API) to get the full conversation for context.
+When the user is composing a reply and asks for help, read the compose draft (`readAppState("compose-{id}")`) to find `replyToThreadId`, then read `readAppState("thread")` (or fetch via API) to get the full conversation for context.
 
 ### Navigate command (control the UI)
 
-Write `application-state/navigate.json` to navigate the user to a specific email or view. The UI reads it, navigates, and deletes the file automatically:
+Use `writeAppState("navigate", ...)` to navigate the user to a specific email or view. The UI reads it, navigates, and deletes the entry automatically:
 
 ```json
 {
@@ -326,20 +311,20 @@ Write `application-state/navigate.json` to navigate the user to a specific email
 }
 ```
 
-This is a one-shot command — the file is deleted after the UI processes it.
+This is a one-shot command — the entry is deleted after the UI processes it.
 
 #### Common navigation tasks
 
-| User request                                  | What to do                                                                                                                     |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| "What email am I looking at?"                 | Read `application-state/navigation.json` to get the threadId, then fetch that thread via `GET /api/threads/:threadId/messages` |
-| "Reply to this email"                         | Read navigation.json for threadId → fetch thread via API → write compose-{id}.json with mode=reply                             |
-| "Find the email from Alice about the project" | `pnpm script list-emails --q=alice`, then write `application-state/navigate.json` with the matching threadId to open it        |
-| "Open my starred emails"                      | Write `application-state/navigate.json` with `{"view": "starred"}`                                                             |
+| User request                                  | What to do                                                                                                         |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| "What email am I looking at?"                 | `readAppState("navigation")` to get the threadId, then fetch that thread via `GET /api/threads/:threadId/messages` |
+| "Reply to this email"                         | Read navigation state for threadId -> fetch thread via API -> `writeAppState("compose-{id}", ...)` with mode=reply |
+| "Find the email from Alice about the project" | `pnpm script list-emails --q=alice`, then `writeAppState("navigate", { threadId: "..." })` to open it              |
+| "Open my starred emails"                      | `writeAppState("navigate", { view: "starred" })`                                                                   |
 
 ### Compose emails
 
-Write `application-state/compose-{id}.json` to open a new draft tab with pre-filled content:
+Use `writeAppState("compose-{id}", draft)` to open a new draft tab with pre-filled content:
 
 ```json
 {
@@ -351,22 +336,22 @@ Write `application-state/compose-{id}.json` to open a new draft tab with pre-fil
 }
 ```
 
-The compose panel opens automatically when any draft file exists. Multiple drafts appear as tabs. The `id` field must match the `{id}` in the filename.
+The compose panel opens automatically when any compose draft exists. Multiple drafts appear as tabs. The `id` field must match the `{id}` in the key name.
 
 To update an in-progress draft (e.g., user asks "make this more formal"):
 
-1. List drafts: `ls application-state/compose-*.json`
-2. Read the relevant draft file
+1. List drafts via `pnpm script view-composer`
+2. Read the relevant draft
 3. Modify the fields you want to change
-4. Write the file back
+4. Write the updated draft back via `writeAppState("compose-{id}", updatedDraft)`
 
-The UI will pick up the changes automatically (via SSE).
+The UI will pick up the changes automatically (via SSE on `"app-state"` events).
 
 #### Compose state shape
 
 | Field             | Type   | Required | Description                         |
 | ----------------- | ------ | -------- | ----------------------------------- |
-| `id`              | string | yes      | Unique draft ID (matches filename)  |
+| `id`              | string | yes      | Unique draft ID (matches key name)  |
 | `to`              | string | yes      | Comma-separated recipient emails    |
 | `cc`              | string | no       | Comma-separated CC emails           |
 | `bcc`             | string | no       | Comma-separated BCC emails          |
@@ -378,21 +363,23 @@ The UI will pick up the changes automatically (via SSE).
 
 #### Common tasks
 
-| User request                      | What to do                                                                                                                                                                                |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "Summarize my inbox"              | Read `application-state/email-list.json` — the emails on screen are already there                                                                                                         |
-| "Draft an email to Alice about X" | Write `application-state/compose-{id}.json` with id, to, subject, body, mode=compose                                                                                                      |
-| "Make this draft more formal"     | List compose-\*.json, read the draft, rewrite body, write back                                                                                                                            |
-| "Change the subject to Y"         | List compose-\*.json, read the draft, update subject, write back                                                                                                                          |
-| "Reply to this email saying Z"    | Read navigation.json for threadId, fetch thread via API, write compose-{id}.json with mode=reply                                                                                          |
-| "Help me write this reply"        | Read the open compose draft (compose-\*.json) → get replyToThreadId → fetch full thread via `GET /api/threads/:threadId/messages` → use the conversation context to update the draft body |
-| "What am I looking at?"           | Read navigation.json + email-list.json, then fetch thread via `GET /api/threads/:threadId/messages`                                                                                       |
-| "Find the email about X"          | `pnpm script search-emails --q=X`, write `application-state/navigate.json` with matching threadId                                                                                         |
-| "Open my starred emails"          | Write `application-state/navigate.json` with `{"view": "starred"}`                                                                                                                        |
+| User request                      | What to do                                                                                                                                                                 |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Summarize my inbox"              | `readAppState("email-list")` — the emails on screen are already there                                                                                                      |
+| "Draft an email to Alice about X" | `writeAppState("compose-{id}", { id, to, subject, body, mode: "compose" })`                                                                                                |
+| "Make this draft more formal"     | View composer, read the draft, rewrite body, write back                                                                                                                    |
+| "Change the subject to Y"         | View composer, read the draft, update subject, write back                                                                                                                  |
+| "Reply to this email saying Z"    | Read navigation state for threadId, fetch thread via API, `writeAppState("compose-{id}", ...)` with mode=reply                                                             |
+| "Help me write this reply"        | Read the open compose draft -> get replyToThreadId -> fetch full thread via `GET /api/threads/:threadId/messages` -> use the conversation context to update the draft body |
+| "What am I looking at?"           | `readAppState("navigation")` + `readAppState("email-list")`, then fetch thread via `GET /api/threads/:threadId/messages`                                                   |
+| "Find the email about X"          | `pnpm script search-emails --q=X`, `writeAppState("navigate", { threadId: "..." })`                                                                                        |
+| "Open my starred emails"          | `writeAppState("navigate", { view: "starred" })`                                                                                                                           |
 
 ## Scripts
 
 **IMPORTANT: Always use `pnpm script <name> [--args]` for all mail operations.** Do NOT use `curl`, `fetch`, or raw API calls — scripts handle API communication, error handling, and fallbacks automatically. Scripts work with Gmail when connected and fall back to local data when not.
+
+Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/application-state` and `readSetting()` / `writeSetting()` from `@agent-native/core/settings` instead of filesystem reads/writes.
 
 ### Reading & Searching
 
@@ -459,7 +446,7 @@ The UI will pick up the changes automatically (via SSE).
 
 ```typescript
 export default async function main(args: string[]): Promise<void> {
-  // parse args, call API or read/write data/ files
+  // parse args, use readAppState/writeAppState or readSetting/writeSetting
 }
 ```
 
@@ -525,9 +512,7 @@ shared/
 scripts/
   run.ts          # Script dispatcher
 data/
-  emails.json     # Local email store (empty by default, used only without Google)
-  labels.json     # Labels with unread counts
-  settings.json   # User settings
+  app.db          # SQLite database (all app data)
 ```
 
 ## Tech Stack
@@ -539,7 +524,8 @@ data/
 - **UI**: Radix UI + shadcn/ui
 - **Icons**: `@tabler/icons-react` — use Tabler icons for all icons. Do not use Lucide or inline SVGs.
 - **Themes**: next-themes (dark/light/system)
-- **State**: File-based JSON in `data/`
+- **State**: SQL-backed via `@agent-native/core/settings` and `@agent-native/core/application-state`
+- **Database**: SQLite (via Drizzle ORM), upgradeable to Turso/Neon/Supabase via `DATABASE_URL`
 
 ## Development
 

@@ -1,4 +1,9 @@
-import "dotenv/config";
+// Load .env in CLI mode (not needed when running via Vite dev server)
+try {
+  await import("dotenv/config");
+} catch {
+  // dotenv not available in Vite SSR context — env is already loaded
+}
 
 /** Parse CLI args like --key=value or --flag into a Record */
 export function parseArgs(

@@ -13,12 +13,17 @@
  *   --location     Event location
  */
 
-import { config } from "dotenv";
+const config = async () => {
+  try {
+    const m = await import("dotenv");
+    m.config();
+  } catch {}
+};
 import { agentChat } from "@agent-native/core";
 import { parseArgs } from "./helpers.js";
 
 export default async function main(args: string[]) {
-  config();
+  await config();
 
   const opts = parseArgs(args);
 
@@ -38,7 +43,7 @@ export default async function main(args: string[]) {
   // Import the Google Calendar client
   const googleCalendar = await import("../server/lib/google-calendar.js");
 
-  if (!googleCalendar.isConnected()) {
+  if (!(await googleCalendar.isConnected())) {
     console.error(
       "Error: Google Calendar is not connected. Connect via the Settings page first.",
     );

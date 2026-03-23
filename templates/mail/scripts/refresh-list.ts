@@ -2,7 +2,7 @@
  * Refresh the email list in the UI.
  *
  * Fetches fresh emails from Gmail, writes them to application-state/email-list.json,
- * and touches data/refresh-trigger.json to trigger the UI's file watcher to refetch.
+ * and triggers the UI's file watcher to refetch.
  *
  * Run this after making backend changes (archive, trash, mark-read, star, etc.)
  * to ensure the UI reflects the latest state.
@@ -13,8 +13,6 @@
  *   pnpm script refresh-list --view=starred
  */
 
-import fs from "fs";
-import path from "path";
 import { parseArgs, output } from "./helpers.js";
 import {
   getClients,
@@ -23,6 +21,10 @@ import {
   fetchGmailLabelMap,
   isConnected,
 } from "../server/lib/google-auth.js";
+import {
+  readAppState,
+  writeAppState,
+} from "@agent-native/core/application-state";
 import type { ScriptTool } from "@agent-native/core";
 
 export const tool: ScriptTool = {
@@ -43,15 +45,11 @@ export const tool: ScriptTool = {
 export async function run(args: Record<string, string>): Promise<string> {
   let view = args.view;
   if (!view) {
-    try {
-      const nav = JSON.parse(fs.readFileSync(NAVIGATION_FILE, "utf-8"));
-      view = nav.view ?? "inbox";
-    } catch {
-      view = "inbox";
-    }
+    const nav = await readAppState("navigation");
+    view = (nav as any)?.view ?? "inbox";
   }
 
-  if (!isConnected()) {
+  if (!(await isConnected())) {
     return "No Google account connected — skipping Gmail refresh.";
   }
 
@@ -97,29 +95,15 @@ export async function run(args: Record<string, string>): Promise<string> {
     isStarred: e.isStarred,
   }));
 
-  fs.mkdirSync(STATE_DIR, { recursive: true });
-  fs.writeFileSync(
-    EMAIL_LIST_FILE,
-    JSON.stringify(
-      { view, label: null, count: emails.length, emails: compact },
-      null,
-      2,
-    ),
-  );
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(
-    TRIGGER_FILE,
-    JSON.stringify({ refreshedAt: new Date().toISOString(), view }),
-  );
+  await writeAppState("email-list", {
+    view,
+    label: null,
+    count: emails.length,
+    emails: compact,
+  });
 
   return `Refreshed ${emails.length} email(s) in "${view}"`;
 }
-
-const STATE_DIR = path.join(process.cwd(), "application-state");
-const DATA_DIR = path.join(process.cwd(), "data");
-const EMAIL_LIST_FILE = path.join(STATE_DIR, "email-list.json");
-const NAVIGATION_FILE = path.join(STATE_DIR, "navigation.json");
-const TRIGGER_FILE = path.join(DATA_DIR, "refresh-trigger.json");
 
 const VIEW_QUERIES: Record<string, string> = {
   inbox: "in:inbox",
@@ -138,15 +122,11 @@ export default async function main(): Promise<void> {
   // Detect current view from navigation state if not specified
   let view = args.view;
   if (!view) {
-    try {
-      const nav = JSON.parse(fs.readFileSync(NAVIGATION_FILE, "utf-8"));
-      view = nav.view ?? "inbox";
-    } catch {
-      view = "inbox";
-    }
+    const nav = await readAppState("navigation");
+    view = (nav as any)?.view ?? "inbox";
   }
 
-  if (!isConnected()) {
+  if (!(await isConnected())) {
     console.error("No Google account connected — skipping Gmail refresh.");
     return;
   }
@@ -196,23 +176,13 @@ export default async function main(): Promise<void> {
     isStarred: e.isStarred,
   }));
 
-  // Update application-state/email-list.json (agent reads this via view-screen)
-  fs.mkdirSync(STATE_DIR, { recursive: true });
-  fs.writeFileSync(
-    EMAIL_LIST_FILE,
-    JSON.stringify(
-      { view, label: null, count: emails.length, emails: compact },
-      null,
-      2,
-    ),
-  );
-
-  // Touch data/refresh-trigger.json to trigger the UI's file watcher to refetch
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(
-    TRIGGER_FILE,
-    JSON.stringify({ refreshedAt: new Date().toISOString(), view }),
-  );
+  // Update application state (triggers SSE for UI refresh)
+  await writeAppState("email-list", {
+    view,
+    label: null,
+    count: emails.length,
+    emails: compact,
+  });
 
   console.error(`Refreshed ${emails.length} email(s) in "${view}"`);
   output({ refreshed: true, view, count: emails.length });

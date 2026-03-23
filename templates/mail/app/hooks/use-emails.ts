@@ -54,7 +54,71 @@ export function useMarkRead() {
         method: "PATCH",
         body: JSON.stringify({ isRead }),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    onMutate: async ({ id, isRead }) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["emails"],
+      });
+      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
+        old?.map((e) => (e.id === id ? { ...e, isRead } : e)),
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["emails"] });
+      qc.invalidateQueries({ queryKey: ["labels"] });
+    },
+  });
+}
+
+export function useMarkThreadRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (threadId: string) => {
+      // Actual API calls happen in onMutate (before optimistic update)
+      // This is intentionally empty — the work is done in onMutate
+    },
+    onMutate: async (threadId) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["emails"],
+      });
+      // Capture unread IDs BEFORE optimistic update
+      const allEmails = previous.flatMap(([, data]) => data ?? []) ?? [];
+      const unreadIds = allEmails
+        .filter((e) => (e.threadId || e.id) === threadId && !e.isRead)
+        .map((e) => e.id);
+      // Fire API calls for the unread emails
+      if (unreadIds.length > 0) {
+        Promise.all(
+          unreadIds.map((id) =>
+            apiFetch(`/api/emails/${id}/read`, {
+              method: "PATCH",
+              body: JSON.stringify({ isRead: true }),
+            }),
+          ),
+        ).catch(() => {
+          /* errors handled by onError rollback */
+        });
+      }
+      // Optimistic update
+      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
+        old?.map((e) =>
+          (e.threadId || e.id) === threadId ? { ...e, isRead: true } : e,
+        ),
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["emails"] });
+      qc.invalidateQueries({ queryKey: ["labels"] });
+    },
   });
 }
 

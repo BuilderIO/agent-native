@@ -12,6 +12,11 @@ export interface ProductionAgentMessage {
   }>;
 }
 
+export interface UseProductionAgentOptions {
+  /** API endpoint URL. Default: "/api/agent-chat" */
+  apiUrl?: string;
+}
+
 export interface UseProductionAgentResult {
   messages: ProductionAgentMessage[];
   isGenerating: boolean;
@@ -19,7 +24,11 @@ export interface UseProductionAgentResult {
   clearHistory: () => void;
 }
 
-export function useProductionAgent(): UseProductionAgentResult {
+/** @deprecated Use `AssistantChat` component instead */
+export function useProductionAgent(
+  options?: UseProductionAgentOptions,
+): UseProductionAgentResult {
+  const apiUrl = options?.apiUrl ?? "/api/agent-chat";
   const [messages, setMessages] = useState<ProductionAgentMessage[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -66,7 +75,7 @@ export function useProductionAgent(): UseProductionAgentResult {
       abortRef.current = abort;
 
       try {
-        const res = await fetch("/api/agent-chat", {
+        const res = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: text.trim(), history }),

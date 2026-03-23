@@ -59,7 +59,7 @@ function parseEnvFile(content: string): Map<string, string> {
 /**
  * Upsert vars into a .env file, preserving existing structure.
  */
-function upsertEnvFile(
+export function upsertEnvFile(
   envPath: string,
   vars: Array<{ key: string; value: string }>,
 ): void {

@@ -12,6 +12,7 @@ import {
   deleteCookie,
 } from "h3";
 import type { App as H3App, H3Event } from "h3";
+import { createClient, type Client } from "@libsql/client";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,8 +27,6 @@ export interface AuthSession {
 export interface AuthOptions {
   /** Session max age in seconds. Default: 30 days */
   maxAge?: number;
-  /** Path to the sessions file. Default: data/.sessions.json */
-  sessionsPath?: string;
   /**
    * Custom getSession implementation (for BYOA — Auth.js, Clerk, etc.).
    * When provided, the built-in token auth is bypassed entirely.
@@ -47,70 +46,83 @@ export interface AuthOptions {
 
 const COOKIE_NAME = "an_session";
 const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
-const DEFAULT_SESSIONS_PATH = "data/.sessions.json";
 
 // ---------------------------------------------------------------------------
-// Session store — file-backed
+// Session store — SQL-backed
 // ---------------------------------------------------------------------------
 
-interface StoredSession {
-  token: string;
-  createdAt: number;
-}
-
-let sessions: Map<string, StoredSession> = new Map();
-let sessionsFilePath = DEFAULT_SESSIONS_PATH;
+let _sessionClient: Client | undefined;
+let _sessionTableReady = false;
 let sessionMaxAge = DEFAULT_MAX_AGE;
 
-function resolveSessionsPath(customPath?: string): string {
-  return path.resolve(process.cwd(), customPath ?? DEFAULT_SESSIONS_PATH);
-}
-
-function loadSessions(): void {
-  try {
-    const raw = fs.readFileSync(sessionsFilePath, "utf-8");
-    const entries: StoredSession[] = JSON.parse(raw);
-    sessions = new Map(entries.map((s) => [s.token, s]));
-  } catch {
-    sessions = new Map();
-  }
-}
-
-function saveSessions(): void {
-  const dir = path.dirname(sessionsFilePath);
-  fs.mkdirSync(dir, { recursive: true });
-  const entries = Array.from(sessions.values());
-  fs.writeFileSync(sessionsFilePath, JSON.stringify(entries, null, 2));
-}
-
-function pruneExpiredSessions(): void {
-  const now = Date.now();
-  let pruned = false;
-  for (const [token, session] of sessions) {
-    if (now - session.createdAt > sessionMaxAge * 1000) {
-      sessions.delete(token);
-      pruned = true;
+function getSessionClient(): Client {
+  if (!_sessionClient) {
+    const url = process.env.DATABASE_URL || "file:./data/app.db";
+    if (url.startsWith("file:")) {
+      fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
     }
+    _sessionClient = createClient({
+      url,
+      authToken: process.env.DATABASE_AUTH_TOKEN,
+    });
   }
-  if (pruned) saveSessions();
+  return _sessionClient;
 }
 
-function addSession(token: string): void {
-  sessions.set(token, { token, createdAt: Date.now() });
-  saveSessions();
+async function ensureSessionTable(): Promise<void> {
+  if (_sessionTableReady) return;
+  const client = getSessionClient();
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL
+    )
+  `);
+  _sessionTableReady = true;
 }
 
-function removeSession(token: string): void {
-  sessions.delete(token);
-  saveSessions();
+async function pruneExpiredSessions(): Promise<void> {
+  await ensureSessionTable();
+  const client = getSessionClient();
+  const cutoff = Date.now() - sessionMaxAge * 1000;
+  await client.execute({
+    sql: `DELETE FROM sessions WHERE created_at < ?`,
+    args: [cutoff],
+  });
 }
 
-function hasSession(token: string): boolean {
-  const session = sessions.get(token);
-  if (!session) return false;
-  if (Date.now() - session.createdAt > sessionMaxAge * 1000) {
-    sessions.delete(token);
-    saveSessions();
+async function addSession(token: string): Promise<void> {
+  await ensureSessionTable();
+  const client = getSessionClient();
+  await client.execute({
+    sql: `INSERT OR REPLACE INTO sessions (token, created_at) VALUES (?, ?)`,
+    args: [token, Date.now()],
+  });
+}
+
+async function removeSession(token: string): Promise<void> {
+  await ensureSessionTable();
+  const client = getSessionClient();
+  await client.execute({
+    sql: `DELETE FROM sessions WHERE token = ?`,
+    args: [token],
+  });
+}
+
+async function hasSession(token: string): Promise<boolean> {
+  await ensureSessionTable();
+  const client = getSessionClient();
+  const { rows } = await client.execute({
+    sql: `SELECT created_at FROM sessions WHERE token = ?`,
+    args: [token],
+  });
+  if (rows.length === 0) return false;
+  const createdAt = rows[0].created_at as number;
+  if (Date.now() - createdAt > sessionMaxAge * 1000) {
+    await client.execute({
+      sql: `DELETE FROM sessions WHERE token = ?`,
+      args: [token],
+    });
     return false;
   }
   return true;
@@ -166,7 +178,7 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   if (customGetSession) return customGetSession(event);
 
   const cookie = getCookie(event, COOKIE_NAME);
-  if (cookie && hasSession(cookie)) {
+  if (cookie && (await hasSession(cookie))) {
     return { email: "user", token: cookie };
   }
   return null;
@@ -323,7 +335,7 @@ function mountAuthRoutes(
         return { error: "Invalid token" };
       }
       const sessionToken = crypto.randomBytes(32).toString("hex");
-      addSession(sessionToken);
+      await addSession(sessionToken);
       setCookie(event, COOKIE_NAME, sessionToken, {
         httpOnly: true,
         secure: true,
@@ -338,9 +350,9 @@ function mountAuthRoutes(
   // POST /api/auth/logout
   app.use(
     "/api/auth/logout",
-    defineEventHandler((event) => {
+    defineEventHandler(async (event) => {
       const cookie = getCookie(event, COOKIE_NAME);
-      if (cookie) removeSession(cookie);
+      if (cookie) await removeSession(cookie);
       deleteCookie(event, COOKIE_NAME, { path: "/" });
       return { ok: true };
     }),
@@ -439,7 +451,6 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
   customGetSession = null;
   authDisabledMode = false;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
-  sessionsFilePath = resolveSessionsPath(options.sessionsPath);
   const publicPaths = options.publicPaths ?? [];
 
   if (options.getSession) {
@@ -580,8 +591,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
   }
 
   // Production with tokens — mount auth
-  loadSessions();
-  pruneExpiredSessions();
+  pruneExpiredSessions().catch(() => {});
   mountAuthRoutes(app, tokens, publicPaths);
 
   console.log(

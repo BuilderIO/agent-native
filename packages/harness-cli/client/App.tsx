@@ -26,6 +26,7 @@ import {
   type LaunchSettings,
 } from "./lib/settings";
 import { useHarnessConfig, useHarnessConfigs } from "./lib/config";
+import { AssistantChat } from "@agent-native/core/client";
 
 function Tooltip({ children, label }: { children: ReactNode; label: string }) {
   return (
@@ -87,6 +88,9 @@ export function App() {
   const [mobileTab, setMobileTab] = useState<"agent" | "interact">("interact");
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Agent UI mode: when "agent-ui" harness is selected, show chat instead of terminal
+  const isAgentUi = config.command === "agent-ui";
 
   // Tab management
   const [tabs, setTabs] = useState<Tab[]>(() => [createTab()]);
@@ -294,14 +298,16 @@ export function App() {
         feedback
       </a>
 
-      <Tooltip label="New tab">
-        <button
-          onClick={addTab}
-          className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors shrink-0"
-        >
-          <IconPlus size={14} stroke={1.5} />
-        </button>
-      </Tooltip>
+      {!isAgentUi && (
+        <Tooltip label="New tab">
+          <button
+            onClick={addTab}
+            className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors shrink-0"
+          >
+            <IconPlus size={14} stroke={1.5} />
+          </button>
+        </Tooltip>
+      )}
 
       <div className="relative shrink-0">
         <Tooltip label="Settings">
@@ -414,32 +420,41 @@ export function App() {
       >
         {terminalHeader}
 
-        {/* Terminal tabs */}
+        {/* Terminal tabs or Chat view */}
         <div className="flex-1 min-h-0 relative">
-          {tabs.map((tab) => (
-            <TerminalTab
-              key={tab.id}
-              ref={(handle) => {
-                if (handle) {
-                  tabRefs.current.set(tab.id, handle);
-                } else {
-                  tabRefs.current.delete(tab.id);
-                }
-              }}
-              active={tab.id === activeTabId}
-              config={config}
-              settings={settings}
-              appName={activeApp}
-              iframeRef={iframeRef}
-              onConnectedChange={
-                tab.id === activeTabId ? setActiveConnected : undefined
-              }
-              onSetupStatusChange={
-                tab.id === activeTabId ? setActiveSetupStatus : undefined
-              }
+          {!isAgentUi ? (
+            <>
+              {tabs.map((tab) => (
+                <TerminalTab
+                  key={tab.id}
+                  ref={(handle) => {
+                    if (handle) {
+                      tabRefs.current.set(tab.id, handle);
+                    } else {
+                      tabRefs.current.delete(tab.id);
+                    }
+                  }}
+                  active={tab.id === activeTabId}
+                  config={config}
+                  settings={settings}
+                  appName={activeApp}
+                  iframeRef={iframeRef}
+                  onConnectedChange={
+                    tab.id === activeTabId ? setActiveConnected : undefined
+                  }
+                  onSetupStatusChange={
+                    tab.id === activeTabId ? setActiveSetupStatus : undefined
+                  }
+                />
+              ))}
+              {setupOverlay}
+            </>
+          ) : (
+            <AssistantChat
+              showHeader={false}
+              emptyStateText="Chat with the agent"
             />
-          ))}
-          {setupOverlay}
+          )}
         </div>
 
         {/* Sidebar collapse button */}

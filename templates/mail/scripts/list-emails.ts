@@ -1,7 +1,7 @@
 /**
  * List emails with filtering and search.
  *
- * Fetches directly from Gmail API. Falls back to data/emails.json if no account is connected.
+ * Fetches directly from Gmail API. Falls back to local store if no account is connected.
  *
  * Usage:
  *   pnpm script list-emails
@@ -20,9 +20,8 @@
  *   --grep     Filter output by keyword (built-in helper)
  */
 
-import fs from "fs";
-import path from "path";
 import { parseArgs, output } from "./helpers.js";
+import { getSetting } from "@agent-native/core/settings";
 import {
   getClients,
   listGmailMessages,
@@ -66,13 +65,21 @@ export const tool: ScriptTool = {
   },
 };
 
+async function readLocalEmails(): Promise<any[]> {
+  const data = await getSetting("local-emails");
+  if (data && Array.isArray((data as any).emails)) {
+    return (data as any).emails;
+  }
+  return [];
+}
+
 export async function run(args: Record<string, string>): Promise<string> {
   const view = args.view ?? "inbox";
   const query = args.q;
   const limit = args.limit ? parseInt(args.limit, 10) : 50;
   const compact = args.compact !== "false";
 
-  if (isConnected()) {
+  if (await isConnected()) {
     const clients = await getClients();
     const labelMap = new Map<string, string>();
     await Promise.all(
@@ -106,13 +113,8 @@ export async function run(args: Record<string, string>): Promise<string> {
     return JSON.stringify(compact ? toCompact(emails) : emails, null, 2);
   }
 
-  // Fallback: local data/emails.json
-  let emails: any[] = [];
-  try {
-    emails = JSON.parse(fs.readFileSync(EMAILS_FILE, "utf-8"));
-  } catch {
-    return "No emails found. Connect a Google account in the app to see real emails.";
-  }
+  // Fallback: local store
+  let emails = await readLocalEmails();
 
   switch (view) {
     case "inbox":
@@ -162,8 +164,6 @@ export async function run(args: Record<string, string>): Promise<string> {
   );
 }
 
-const EMAILS_FILE = path.join(process.cwd(), "data", "emails.json");
-
 const VIEW_QUERIES: Record<string, string> = {
   inbox: "in:inbox",
   unread: "is:unread in:inbox",
@@ -197,7 +197,7 @@ export default async function main(): Promise<void> {
   const limit = args.limit ? parseInt(args.limit, 10) : 50;
   const compact = args.compact === "true";
 
-  if (isConnected()) {
+  if (await isConnected()) {
     const clients = await getClients();
     const labelMap = new Map<string, string>();
     await Promise.all(
@@ -239,16 +239,8 @@ export default async function main(): Promise<void> {
     return;
   }
 
-  // Fallback: local data/emails.json
-  let emails: any[] = [];
-  try {
-    emails = JSON.parse(fs.readFileSync(EMAILS_FILE, "utf-8"));
-  } catch {
-    console.error(
-      "No emails found. Connect a Google account in the app to see real emails.",
-    );
-    return;
-  }
+  // Fallback: local store
+  let emails = await readLocalEmails();
 
   switch (view) {
     case "inbox":

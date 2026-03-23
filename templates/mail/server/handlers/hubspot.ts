@@ -4,19 +4,11 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import fs from "fs";
-import path from "path";
+import { appStateGet } from "@agent-native/core/application-state";
 
-const STATE_DIR = path.join(process.cwd(), "application-state");
-const HUBSPOT_FILE = path.join(STATE_DIR, "hubspot.json");
-
-function getHubSpotKey(): string | undefined {
-  try {
-    const data = JSON.parse(fs.readFileSync(HUBSPOT_FILE, "utf-8"));
-    return data.apiKey || undefined;
-  } catch {
-    return undefined;
-  }
+async function getHubSpotKey(): Promise<string | undefined> {
+  const data = await appStateGet("local", "hubspot");
+  return (data as any)?.apiKey || undefined;
 }
 
 // GET /api/hubspot/contact?email=...
@@ -28,7 +20,7 @@ export const hubspotContactLookup = defineEventHandler(
       return { error: "email query param required" };
     }
 
-    const apiKey = getHubSpotKey();
+    const apiKey = await getHubSpotKey();
     if (!apiKey) {
       setResponseStatus(event, 401);
       return { error: "HubSpot API key not configured" };

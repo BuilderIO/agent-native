@@ -16,11 +16,10 @@
  *   --account     Specific account to send from (optional)
  */
 
-import fs from "fs";
-import path from "path";
 import { google } from "googleapis";
 import { parseArgs, output, fatal } from "./helpers.js";
 import { getClients, getClient } from "../server/lib/google-auth.js";
+import { getSetting } from "@agent-native/core/settings";
 import type { ScriptTool } from "@agent-native/core";
 
 export const tool: ScriptTool = {
@@ -78,17 +77,12 @@ function buildRawEmail(opts: {
     .replace(/=+$/, "");
 }
 
-function readSettings(): { name: string; email: string } {
-  try {
-    return JSON.parse(
-      fs.readFileSync(
-        path.join(process.cwd(), "data", "settings.json"),
-        "utf-8",
-      ),
-    );
-  } catch {
-    return { name: "", email: "" };
+async function readSettings(): Promise<{ name: string; email: string }> {
+  const data = await getSetting("mail-settings");
+  if (data && typeof (data as any).name === "string") {
+    return { name: (data as any).name ?? "", email: (data as any).email ?? "" };
   }
+  return { name: "", email: "" };
 }
 
 export async function run(args: Record<string, string>): Promise<string> {
@@ -96,7 +90,7 @@ export async function run(args: Record<string, string>): Promise<string> {
   if (!args.subject) return "Error: --subject is required";
   if (!args.body) return "Error: --body is required";
 
-  const settings = readSettings();
+  const settings = await readSettings();
   const clients = await getClients();
   if (clients.length === 0) return "Error: No Google account connected.";
 

@@ -1,14 +1,10 @@
 # Email Drafts
 
-Create, edit, and manage email drafts. Each draft is a separate file in `application-state/` named `compose-{id}.json`. The UI watches these files via SSE and updates the compose panel in real time.
+Create, edit, and manage email drafts. Each draft is stored as an application state entry keyed `compose-{id}`. The UI watches for changes via SSE and updates the compose panel in real time.
 
-## File Location
+## Storage
 
-```
-application-state/compose-{id}.json
-```
-
-Each file is one draft. Multiple drafts can exist simultaneously — they appear as tabs in the compose panel.
+Drafts are stored in the `application_state` SQL table via `writeAppState("compose-{id}", draft)` from `@agent-native/core/application-state`. Each entry is one draft. Multiple drafts can exist simultaneously — they appear as tabs in the compose panel.
 
 ## Schema
 
@@ -30,7 +26,7 @@ Each file is one draft. Multiple drafts can exist simultaneously — they appear
 
 | Field             | Type   | Required | Description                                     |
 | ----------------- | ------ | -------- | ----------------------------------------------- |
-| `id`              | string | yes      | Unique draft ID (must match filename)           |
+| `id`              | string | yes      | Unique draft ID (must match key suffix)         |
 | `to`              | string | yes      | Comma-separated recipient email addresses       |
 | `cc`              | string | no       | Comma-separated CC addresses                    |
 | `bcc`             | string | no       | Comma-separated BCC addresses                   |
@@ -42,71 +38,69 @@ Each file is one draft. Multiple drafts can exist simultaneously — they appear
 
 ## How It Works
 
-1. **Write** `application-state/compose-{id}.json` — the file watcher detects the change and pushes an SSE event
+1. **Write** `writeAppState("compose-{id}", draft)` — the store emits an SSE event
 2. **UI receives the event** — invalidates the `compose-drafts` React Query cache
 3. **Compose panel re-renders** — shows the updated draft as a tab, switches to it if new
 
-The compose panel opens automatically when any draft file exists. When the last draft is deleted, the panel closes.
+The compose panel opens automatically when any compose draft exists. When the last draft is deleted, the panel closes.
 
 ## Creating a New Draft
 
-Generate a unique ID and write the file:
+Use the manage-draft script or write directly:
 
 ```bash
-cat > application-state/compose-draft1.json << 'EOF'
-{
-  "id": "draft1",
-  "to": "jane@example.com",
-  "subject": "Quick question",
-  "body": "Hi Jane,\n\nJust wanted to follow up on...",
-  "mode": "compose"
-}
-EOF
+pnpm script manage-draft --action=create --to=jane@example.com --subject="Quick question" --body="Hi Jane,\n\nJust wanted to follow up on..."
+```
+
+Or from code:
+```ts
+import { writeAppState } from "@agent-native/core/application-state";
+await writeAppState("compose-draft1", {
+  id: "draft1",
+  to: "jane@example.com",
+  subject: "Quick question",
+  body: "Hi Jane,\n\nJust wanted to follow up on...",
+  mode: "compose",
+});
 ```
 
 ## Editing an Existing Draft
 
 Read the current draft, modify it, write it back:
 
-```bash
-# Read current draft
-cat application-state/compose-draft1.json
-
-# Write updated draft
-cat > application-state/compose-draft1.json << 'EOF'
-{
-  "id": "draft1",
-  "to": "jane@example.com",
-  "subject": "Quick question",
-  "body": "Hi Jane,\n\nI refined the draft as requested...",
-  "mode": "compose"
-}
-EOF
+```ts
+import { readAppState, writeAppState } from "@agent-native/core/application-state";
+const draft = await readAppState("compose-draft1");
+draft.body = "Hi Jane,\n\nI refined the draft as requested...";
+await writeAppState("compose-draft1", draft);
 ```
 
 ## Listing All Drafts
 
 ```bash
-ls application-state/compose-*.json
-# Or via API:
-curl http://localhost:3000/api/application-state/compose
+pnpm script view-composer
+```
+
+Or from code:
+```ts
+import { listAppState } from "@agent-native/core/application-state";
+const drafts = await listAppState("compose-");
 ```
 
 ## Closing a Draft
 
-Delete the file:
-
-```bash
-rm application-state/compose-draft1.json
+```ts
+import { deleteAppState } from "@agent-native/core/application-state";
+await deleteAppState("compose-draft1");
 ```
 
 ## Important Notes
 
-- The `id` field in the JSON MUST match the `{id}` in the filename (`compose-{id}.json`)
+- The `id` field in the JSON MUST match the `{id}` in the key name (`compose-{id}`)
 - The UI debounces writes by 300ms — if the user is actively typing, your write will be visible after a brief moment
 - Always use valid JSON with proper escaping (especially newlines in body: use `\n`)
 - Multiple drafts can exist simultaneously — each appears as a tab in the compose panel
-- When the user asks you to "draft" or "compose" an email, write a compose file — don't use the send API directly
+- When the user asks you to "draft" or "compose" an email, write a compose entry — don't use the send API directly
 - When the user asks you to "edit" or "improve" a draft, list drafts first, then read and update the relevant one
-- **When called from the compose Generate button:** the context tells you which file to update (e.g. `compose-abc123.json`). Always update THAT file — do NOT create a new file with a different ID. Read the existing file, modify it, and write it back to the same path.
-- **When drafting from scratch (no compose window open):** create a new file with any unique ID
+- **When called from the compose Generate button:** the context tells you which draft to update (e.g. `compose-abc123`). Always update THAT entry — do NOT create a new one with a different ID. Read, modify, and write back to the same key.
+- **When drafting from scratch (no compose window open):** create a new entry with any unique ID

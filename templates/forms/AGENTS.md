@@ -6,7 +6,7 @@ This is an **agent-native** app built with `@agent-native/core`. See `.agents/sk
 
 - **delegate-to-agent** — UI never calls an LLM directly. All AI goes through the agent chat.
 - **scripts** — Complex operations are scripts in `scripts/`, run via `pnpm script <name>`.
-- **sse-file-watcher** — UI stays in sync with agent changes via SSE.
+- **real-time-sync** — UI stays in sync with agent changes via SSE (streams DB change events).
 - **frontend-design** — Build distinctive, production-grade UI. Read this skill before creating or restyling any component, page, or layout.
 
 ---
@@ -36,12 +36,7 @@ Form data lives in SQLite (`data/app.db`) via Drizzle ORM:
 | `forms`     | Form definitions (title, fields JSON, settings JSON, status, slug) |
 | `responses` | Form submissions (data JSON, submittedAt, formId)                  |
 
-Configuration files in `data/`:
-
-| File                    | Contents                      |
-| ----------------------- | ----------------------------- |
-| `data/settings.json`    | App settings (theme defaults) |
-| `data/sync-config.json` | File sync patterns            |
+App settings are stored in SQL via the settings API (`getSetting`/`putSetting` from `@agent-native/core/settings`).
 
 ### Form Field Types
 
@@ -144,6 +139,10 @@ Works out of the box with local SQLite via `@libsql/client`. Just set `ACCESS_TO
 
 Set `DATABASE_URL` to a Turso database URL (e.g. `libsql://your-db.turso.io`) and `DATABASE_AUTH_TOKEN` to your Turso auth token. The same `@libsql/client` driver handles both local and remote seamlessly.
 
+### Multi-User Collaboration
+
+For multi-user access, set `DATABASE_URL` to a cloud database provider (Turso, Neon, etc.). The SQL database handles remote access natively — no separate file sync system needed.
+
 ### Cloudflare Pages + D1
 
 1. Set `NITRO_PRESET=cloudflare_pages` in env
@@ -166,12 +165,12 @@ app/
 server/
   routes/api/    # API route handlers
   handlers/      # forms.ts, submissions.ts
-  plugins/       # auth, file-sync
+  plugins/       # auth, SSE
   db/            # Drizzle schema + init
 shared/
   types.ts       # Form, FormField, FormResponse types
 scripts/         # Agent-callable scripts
-data/            # Settings + DB file
+data/            # SQLite database file (app.db)
 ```
 
 ## Tech Stack
