@@ -4,6 +4,8 @@ import React, {
   useEffect,
   useCallback,
   useMemo,
+  forwardRef,
+  useImperativeHandle,
 } from "react";
 import {
   AssistantRuntimeProvider,
@@ -401,9 +403,18 @@ function TerminalIcon({ className }: { className?: string }) {
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 
+export interface AssistantChatHandle {
+  /** Programmatically send a message into this chat */
+  sendMessage(text: string): void;
+  /** Whether the chat is currently running */
+  isRunning(): boolean;
+}
+
 export interface AssistantChatProps {
   /** API endpoint URL. Default: "/api/agent-chat" */
   apiUrl?: string;
+  /** Stable tab identifier passed to the adapter for event correlation */
+  tabId?: string;
   /** Placeholder text for empty state */
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
@@ -418,15 +429,21 @@ export interface AssistantChatProps {
   onSwitchToCli?: () => void;
 }
 
-function AssistantChatInner({
-  emptyStateText,
-  suggestions,
-  showHeader = true,
-  showDevHint = true,
-  onSwitchToCli,
-  className,
-  apiUrl = "/api/agent-chat",
-}: Omit<AssistantChatProps, never>) {
+const AssistantChatInner = forwardRef<
+  AssistantChatHandle,
+  Omit<AssistantChatProps, "tabId">
+>(function AssistantChatInner(
+  {
+    emptyStateText,
+    suggestions,
+    showHeader = true,
+    showDevHint = true,
+    onSwitchToCli,
+    className,
+    apiUrl = "/api/agent-chat",
+  },
+  ref,
+) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const thread = useThread();
   const threadRuntime = useThreadRuntime();
@@ -441,6 +458,23 @@ function AssistantChatInner({
     return () =>
       window.removeEventListener("agent-chat:missing-api-key", handler);
   }, []);
+
+  // Expose imperative handle
+  useImperativeHandle(
+    ref,
+    () => ({
+      sendMessage(text: string) {
+        threadRuntime.append({
+          role: "user",
+          content: [{ type: "text", text }],
+        });
+      },
+      isRunning() {
+        return thread.isRunning;
+      },
+    }),
+    [threadRuntime, thread.isRunning],
+  );
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -570,17 +604,23 @@ function AssistantChatInner({
       </div>
     </div>
   );
-}
+});
 
-export function AssistantChat({ apiUrl, ...props }: AssistantChatProps) {
-  const adapter = useMemo(() => createAgentChatAdapter({ apiUrl }), [apiUrl]);
+export const AssistantChat = forwardRef<
+  AssistantChatHandle,
+  AssistantChatProps
+>(function AssistantChat({ apiUrl, tabId, ...props }, ref) {
+  const adapter = useMemo(
+    () => createAgentChatAdapter({ apiUrl, tabId }),
+    [apiUrl, tabId],
+  );
   const runtime = useLocalRuntime(adapter);
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="flex flex-1 flex-col h-full min-h-0">
-        <AssistantChatInner {...props} apiUrl={apiUrl} />
+        <AssistantChatInner ref={ref} {...props} apiUrl={apiUrl} />
       </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>
   );
-}
+});
