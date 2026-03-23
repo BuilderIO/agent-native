@@ -299,7 +299,7 @@ npm test animationTestUtils        # Run animation tests
 ## 📁 File Structure
 
 ```
-client/
+app/
 ├── remotion/
 │   ├── components/
 │   │   └── AnimatedElement.tsx          # Wrapper component

@@ -154,7 +154,7 @@ validateComposition(tracks); // Ensure it has required tracks
 ## 📁 Project Structure
 
 ```
-client/
+app/
 ├── remotion/
 │   ├── compositions/        # Video components
 │   ├── ui-components/       # Reusable elements (Cursor, etc.)

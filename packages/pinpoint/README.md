@@ -24,7 +24,7 @@ This copies agent scripts to `scripts/` and the Pinpoint skill to `.agents/skill
 
 ### Step 3: Mount the client overlay
 
-Find the root React component (typically `client/App.tsx` or `src/App.tsx`). Add the `<Pinpoint />` component:
+Find the root React component (typically `app/App.tsx` or `src/App.tsx`). Add the `<Pinpoint />` component:
 
 ```tsx
 import { Pinpoint } from "@agent-native/pinpoint/react";
@@ -182,7 +182,7 @@ Copies agent scripts to `scripts/` and the Pinpoint skill to `.agents/skills/pin
 ### 3. Client — Mount the overlay
 
 ```tsx
-// client/App.tsx
+// app/App.tsx
 import { Pinpoint } from "@agent-native/pinpoint/react";
 
 function App() {

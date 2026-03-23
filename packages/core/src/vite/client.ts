@@ -144,6 +144,9 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       nitroPlugin?.(),
       ...(options.plugins ?? []),
     ].filter(Boolean),
+    optimizeDeps: {
+      include: ["@agent-native/pinpoint/react"],
+    },
     resolve: {
       alias: {
         "@": path.resolve(cwd, "./app"),

@@ -45,7 +45,7 @@ All routes resolve email → Stripe customer ID(s) internally.
 - Cache TTL is 5 minutes (shorter than other integrations since billing data changes more frequently).
 - The `expand` parameter is used for invoices (line items) and subscriptions (price details).
 
-## Client Hooks (client/lib/api-hooks.ts)
+## Client Hooks (app/lib/api-hooks.ts)
 
 - `useStripeBilling(email, months, enabled)`
 - `useStripePaymentStatus(email, enabled)`
