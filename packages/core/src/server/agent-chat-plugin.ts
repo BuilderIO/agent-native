@@ -93,10 +93,7 @@ export function createAgentChatPlugin(
       apiKey: options?.apiKey,
     });
 
-    // Mount the handler directly — it already handles method checks and SSE streaming
-    nitroApp.h3App.use(routePath, handler);
-
-    // Mount save-key endpoint for inline API key setup
+    // Mount save-key BEFORE the prefix handler so it isn't shadowed
     nitroApp.h3App.use(
       `${routePath}/save-key`,
       defineEventHandler(async (event) => {
@@ -125,6 +122,9 @@ export function createAgentChatPlugin(
         return { ok: true };
       }),
     );
+
+    // Mount the main chat handler — must come AFTER save-key to avoid prefix shadowing
+    nitroApp.h3App.use(routePath, handler);
   };
 }
 
