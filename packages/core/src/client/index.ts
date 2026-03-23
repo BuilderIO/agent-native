@@ -26,6 +26,7 @@ export {
 } from "./useProductionAgent.js";
 export {
   ProductionAgentPanel,
+  AgentToggleButton,
   type ProductionAgentPanelProps,
 } from "./ProductionAgentPanel.js";
 export { Turnstile, type TurnstileProps } from "./Turnstile.js";

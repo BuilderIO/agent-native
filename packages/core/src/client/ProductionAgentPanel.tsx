@@ -4,23 +4,6 @@ import { cn } from "./utils.js";
 
 // ─── Icons ─────────────────────────────────────────────────────────────────
 
-function MailIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <rect x="2" y="4" width="20" height="16" rx="2" />
-      <path d="m2 7 10 7 10-7" />
-    </svg>
-  );
-}
-
 function AgentIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -39,50 +22,6 @@ function AgentIcon({ className }: { className?: string }) {
   );
 }
 
-// ─── Bottom tab bar ─────────────────────────────────────────────────────────
-
-function BottomTabBar({
-  activeTab,
-  onChange,
-  hasUnread,
-}: {
-  activeTab: "mail" | "agent";
-  onChange: (tab: "mail" | "agent") => void;
-  hasUnread?: boolean;
-}) {
-  return (
-    <div className="flex h-14 shrink-0 items-stretch border-t border-border/50 bg-card">
-      <button
-        onClick={() => onChange("mail")}
-        className={cn(
-          "flex flex-1 flex-col items-center justify-center gap-0.5",
-          activeTab === "mail"
-            ? "text-foreground"
-            : "text-muted-foreground/50 hover:text-muted-foreground",
-        )}
-      >
-        <MailIcon className="h-5 w-5" />
-        <span className="text-[10px] font-medium tracking-wide">Mail</span>
-      </button>
-      <button
-        onClick={() => onChange("agent")}
-        className={cn(
-          "relative flex flex-1 flex-col items-center justify-center gap-0.5",
-          activeTab === "agent"
-            ? "text-foreground"
-            : "text-muted-foreground/50 hover:text-muted-foreground",
-        )}
-      >
-        <AgentIcon className="h-5 w-5" />
-        <span className="text-[10px] font-medium tracking-wide">Agent</span>
-        {hasUnread && activeTab !== "agent" && (
-          <span className="absolute top-2 right-[calc(50%-10px)] h-1.5 w-1.5 rounded-full bg-blue-400" />
-        )}
-      </button>
-    </div>
-  );
-}
-
 // ─── Main export ─────────────────────────────────────────────────────────────
 
 export interface ProductionAgentPanelProps {
@@ -91,18 +30,22 @@ export interface ProductionAgentPanelProps {
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
   suggestions?: string[];
+  /** Width of the agent sidebar. Default: 380 */
+  sidebarWidth?: number;
 }
 
 /**
- * Wraps app content with a bottom tab bar (Mail / Agent).
- * The agent chat is available in both dev and production mode.
+ * Wraps app content with an agent chat sidebar.
+ * Toggle the sidebar via the agent icon button (rendered separately via AgentToggleButton),
+ * or use the provided context.
  */
 export function ProductionAgentPanel({
   children,
   emptyStateText = "How can I help you?",
   suggestions,
+  sidebarWidth = 380,
 }: ProductionAgentPanelProps) {
-  const [activeTab, setActiveTab] = useState<"mail" | "agent">("mail");
+  const [open, setOpen] = useState(false);
   const [hasAgentActivity, setHasAgentActivity] = useState(false);
 
   useEffect(() => {
@@ -115,39 +58,57 @@ export function ProductionAgentPanel({
       window.removeEventListener("builder.fusion.chatRunning", handler);
   }, []);
 
+  // Listen for toggle events from AgentToggleButton
+  useEffect(() => {
+    const handler = () => {
+      setOpen((prev) => {
+        if (!prev) setHasAgentActivity(false);
+        return !prev;
+      });
+    };
+    window.addEventListener("agent-panel:toggle", handler);
+    return () => window.removeEventListener("agent-panel:toggle", handler);
+  }, []);
+
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
-      {/* Content area — always mounted, hidden when agent tab is active */}
-      <div
-        className={cn(
-          "flex flex-1 overflow-hidden",
-          activeTab !== "mail" && "hidden",
-        )}
-      >
+    <div className="flex flex-1 overflow-hidden">
+      {/* Main content */}
+      <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         {children}
       </div>
-      {/* Agent view — always mounted to preserve conversation across tab switches */}
-      <div
-        className={cn(
-          "flex flex-1 overflow-hidden flex-col",
-          activeTab !== "agent" && "hidden",
-        )}
-      >
-        <AssistantChat
-          showHeader
-          emptyStateText={emptyStateText}
-          suggestions={suggestions}
-        />
-      </div>
 
-      <BottomTabBar
-        activeTab={activeTab}
-        onChange={(tab) => {
-          setActiveTab(tab);
-          if (tab === "agent") setHasAgentActivity(false);
-        }}
-        hasUnread={hasAgentActivity}
-      />
+      {/* Agent sidebar */}
+      {open && (
+        <div
+          className="flex flex-col border-l border-border shrink-0 overflow-hidden"
+          style={{ width: sidebarWidth }}
+        >
+          <AssistantChat
+            showHeader
+            emptyStateText={emptyStateText}
+            suggestions={suggestions}
+          />
+        </div>
+      )}
     </div>
+  );
+}
+
+/**
+ * Button to toggle the agent sidebar. Place this in your app's header/toolbar.
+ * Dispatches a custom event that ProductionAgentPanel listens for.
+ */
+export function AgentToggleButton({ className }: { className?: string }) {
+  return (
+    <button
+      onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
+      className={cn(
+        "flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+        className,
+      )}
+      title="Toggle agent"
+    >
+      <AgentIcon className="h-4 w-4" />
+    </button>
   );
 }

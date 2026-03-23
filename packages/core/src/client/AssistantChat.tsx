@@ -313,7 +313,7 @@ function AssistantChatInner({
   return (
     <div
       className={cn(
-        "flex flex-1 flex-col h-full min-h-0 bg-background text-foreground",
+        "flex flex-1 flex-col h-full min-h-0 text-foreground",
         className,
       )}
     >

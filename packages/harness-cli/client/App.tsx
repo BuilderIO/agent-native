@@ -452,7 +452,7 @@ export function App() {
           ) : (
             <AssistantChat
               showHeader={false}
-              emptyStateText="Chat with the production agent"
+              emptyStateText="Chat with the agent"
             />
           )}
         </div>

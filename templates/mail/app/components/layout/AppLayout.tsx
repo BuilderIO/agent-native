@@ -38,6 +38,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   getCallbackOrigin,
   ProductionAgentPanel,
+  AgentToggleButton,
 } from "@agent-native/core/client";
 import type { Label } from "@shared/types";
 import { toast } from "sonner";
@@ -653,6 +654,9 @@ export function AppLayout({ children }: AppLayoutProps) {
 
             {/* Theme toggle */}
             <ThemeToggle />
+
+            {/* Agent sidebar toggle */}
+            <AgentToggleButton />
 
             {/* Compose (pen) icon */}
             <button
