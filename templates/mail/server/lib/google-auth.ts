@@ -4,6 +4,7 @@ import {
   saveOAuthTokens,
   deleteOAuthTokens,
   listOAuthAccounts,
+  listOAuthAccountsByOwner,
   hasOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 
@@ -60,6 +61,7 @@ export async function exchangeCode(
   code: string,
   origin?: string,
   redirectUri?: string,
+  owner?: string,
 ): Promise<string> {
   const uri =
     redirectUri || (origin ? `${origin}/api/google/callback` : undefined);
@@ -77,6 +79,7 @@ export async function exchangeCode(
     "google",
     email,
     tokens as unknown as Record<string, unknown>,
+    owner ?? email,
   );
 
   return email;
@@ -124,14 +127,12 @@ export async function getClient(
 export async function getClients(
   forEmail?: string,
 ): Promise<Array<{ email: string; client: Auth.OAuth2Client }>> {
-  if (forEmail) {
-    // Multi-user: return only this user's account
-    const client = await getClient(forEmail);
-    if (!client) return [];
-    return [{ email: forEmail, client }];
-  }
+  // When forEmail is provided, get all accounts owned by that user
+  // Otherwise return all accounts globally (legacy)
+  const accounts = forEmail
+    ? await listOAuthAccountsByOwner("google", forEmail)
+    : await listOAuthAccounts("google");
 
-  const accounts = await listOAuthAccounts("google");
   const results: Array<{ email: string; client: Auth.OAuth2Client }> = [];
 
   for (const account of accounts) {
@@ -165,8 +166,8 @@ export async function getClients(
  */
 export async function isConnected(forEmail?: string): Promise<boolean> {
   if (forEmail) {
-    const tokens = await getOAuthTokens("google", forEmail);
-    return tokens !== null;
+    const accounts = await listOAuthAccountsByOwner("google", forEmail);
+    return accounts.length > 0;
   }
   return hasOAuthTokens("google");
 }
@@ -193,8 +194,7 @@ export async function getAuthStatus(
     tokens: Record<string, unknown>;
   }>;
   if (forEmail) {
-    const tokens = await getOAuthTokens("google", forEmail);
-    oauthAccounts = tokens ? [{ accountId: forEmail, tokens }] : [];
+    oauthAccounts = await listOAuthAccountsByOwner("google", forEmail);
   } else {
     oauthAccounts = await listOAuthAccounts("google");
   }

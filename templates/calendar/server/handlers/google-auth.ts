@@ -131,6 +131,93 @@ export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
   }
 });
 
+export const getGoogleAddAccountUrl = defineEventHandler(
+  async (event: H3Event) => {
+    const session = await getSession(event);
+    if (!session?.email) {
+      setResponseStatus(event, 401);
+      return { error: "Must be logged in to add an account" };
+    }
+    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+      setResponseStatus(event, 422);
+      return {
+        error: "missing_credentials",
+        message:
+          "Google OAuth credentials are not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
+      };
+    }
+    try {
+      const query = getQuery(event);
+      const redirectUri =
+        (query.redirect_uri as string) ||
+        `${getOrigin(event)}/api/google/add-account/callback`;
+      const state = crypto.randomBytes(16).toString("hex");
+      setCookie(event, `oauth_state_${state}`, redirectUri, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        path: "/api/google/add-account/callback",
+        maxAge: 600,
+      });
+      const url = getAuthUrl(undefined, redirectUri, state);
+      return { url };
+    } catch (error: any) {
+      setResponseStatus(event, 500);
+      return { error: error.message };
+    }
+  },
+);
+
+export const handleGoogleAddAccountCallback = defineEventHandler(
+  async (event: H3Event) => {
+    try {
+      const session = await getSession(event);
+      if (!session?.email) {
+        return errorPage("Session expired. Please log in again.");
+      }
+
+      const query = getQuery(event);
+      const code = query.code as string;
+      const state = query.state as string | undefined;
+      if (!code) {
+        setResponseStatus(event, 400);
+        return errorPage("Missing authorization code.");
+      }
+
+      if (!state) {
+        setResponseStatus(event, 400);
+        return errorPage(
+          "Missing OAuth state parameter. Please try adding the account again.",
+        );
+      }
+      const cookieName = `oauth_state_${state}`;
+      const redirectUri = getCookie(event, cookieName);
+      if (!redirectUri) {
+        setResponseStatus(event, 400);
+        return errorPage(
+          "Invalid or expired OAuth state. Please try adding the account again.",
+        );
+      }
+      deleteCookie(event, cookieName, {
+        path: "/api/google/add-account/callback",
+      });
+
+      await exchangeCode(code, undefined, redirectUri, session.email);
+
+      return sendRedirect(event, "/");
+    } catch (error: any) {
+      const msg = error.message || "Unknown error";
+      const isPermission =
+        msg.includes("Insufficient Permission") ||
+        msg.includes("insufficient_scope");
+      const userMessage = isPermission
+        ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen."
+        : `Connection failed: ${msg}`;
+      return errorPage(userMessage);
+    }
+  },
+);
+
 export const disconnectGoogle = defineEventHandler(async (event: H3Event) => {
   try {
     const session = await getSession(event);
