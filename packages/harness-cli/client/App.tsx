@@ -96,6 +96,8 @@ export function App() {
   // Tab management
   const [tabs, setTabs] = useState<Tab[]>(() => [createTab()]);
   const [activeTabId, setActiveTabId] = useState(() => tabs[0].id);
+  const activeTabIdRef = useRef(activeTabId);
+  activeTabIdRef.current = activeTabId;
   const tabRefs = useRef<Map<string, TerminalTabHandle>>(new Map());
 
   // Track active tab's connection state
@@ -166,11 +168,14 @@ export function App() {
   useEffect(() => {
     if (isAgentUi) return; // MultiTabAssistantChat handles its own messages
     const handler = (event: MessageEvent) => {
+      // Only accept messages from the iframe (same origin)
+      if (event.origin !== window.location.origin) return;
       if (event.data?.type !== "builder.submitChat") return;
       const message = event.data.data?.message as string;
       if (!message) return;
 
-      const activeHandle = tabRefs.current.get(activeTabId);
+      const currentTabId = activeTabIdRef.current;
+      const activeHandle = tabRefs.current.get(currentTabId);
       const isRunning = activeHandle?.isAgentRunning() ?? false;
 
       if (!isRunning && activeHandle?.getConnected()) {
@@ -185,7 +190,7 @@ export function App() {
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [activeTabId, isAgentUi]);
+  }, [isAgentUi]); // stable — uses refs instead of state
 
   // Tab actions
   const addTab = useCallback(() => {

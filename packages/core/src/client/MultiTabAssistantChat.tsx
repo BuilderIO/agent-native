@@ -5,6 +5,7 @@ import {
   type AssistantChatHandle,
 } from "./AssistantChat.js";
 import { generateTabId } from "./agent-chat.js";
+import { getHarnessOrigin } from "./harness.js";
 
 // ─── Inline Icons ───────────────────────────────────────────────────────────
 
@@ -49,17 +50,27 @@ export type MultiTabAssistantChatProps = Omit<AssistantChatProps, "tabId">;
 export function MultiTabAssistantChat(props: MultiTabAssistantChatProps) {
   const [tabs, setTabs] = useState<ChatTab[]>(() => [createChatTab()]);
   const [activeTabId, setActiveTabId] = useState(() => tabs[0].id);
+  const activeTabIdRef = useRef(activeTabId);
+  activeTabIdRef.current = activeTabId;
   const chatRefs = useRef<Map<string, AssistantChatHandle>>(new Map());
   const pendingSends = useRef<Map<string, string>>(new Map());
 
   // Listen for builder.submitChat postMessages
   useEffect(() => {
     const handler = (event: MessageEvent) => {
+      // Only accept messages from same origin or known harness
+      if (
+        event.origin !== window.location.origin &&
+        event.origin !== getHarnessOrigin()
+      ) {
+        return;
+      }
       if (event.data?.type !== "builder.submitChat") return;
       const message = event.data.data?.message as string;
       if (!message) return;
 
-      const activeRef = chatRefs.current.get(activeTabId);
+      const currentTabId = activeTabIdRef.current;
+      const activeRef = chatRefs.current.get(currentTabId);
       const running = activeRef?.isRunning() ?? false;
 
       if (!running) {
@@ -68,7 +79,7 @@ export function MultiTabAssistantChat(props: MultiTabAssistantChatProps) {
           activeRef.sendMessage(message);
         } else {
           // Ref not yet mounted — queue it
-          pendingSends.current.set(activeTabId, message);
+          pendingSends.current.set(currentTabId, message);
         }
       } else {
         // Active tab is busy — create a new tab
@@ -80,7 +91,7 @@ export function MultiTabAssistantChat(props: MultiTabAssistantChatProps) {
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [activeTabId]);
+  }, []); // stable — uses refs instead of state
 
   // Process pending sends when refs mount
   useEffect(() => {
