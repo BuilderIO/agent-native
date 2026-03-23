@@ -17,8 +17,10 @@ type ContentPart =
  */
 export function createAgentChatAdapter(options?: {
   apiUrl?: string;
+  tabId?: string;
 }): ChatModelAdapter {
   const apiUrl = options?.apiUrl ?? "/api/agent-chat";
+  const tabId = options?.tabId;
 
   return {
     async *run({ messages, abortSignal }) {
@@ -54,7 +56,7 @@ export function createAgentChatAdapter(options?: {
       if (typeof window !== "undefined") {
         window.dispatchEvent(
           new CustomEvent("builder.fusion.chatRunning", {
-            detail: { isRunning: true },
+            detail: { isRunning: true, tabId },
           }),
         );
       }
@@ -257,7 +259,7 @@ export function createAgentChatAdapter(options?: {
         if (typeof window !== "undefined") {
           window.dispatchEvent(
             new CustomEvent("builder.fusion.chatRunning", {
-              detail: { isRunning: false },
+              detail: { isRunning: false, tabId },
             }),
           );
         }

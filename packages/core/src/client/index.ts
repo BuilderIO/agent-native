@@ -1,4 +1,8 @@
-export { sendToAgentChat, type AgentChatMessage } from "./agent-chat.js";
+export {
+  sendToAgentChat,
+  generateTabId,
+  type AgentChatMessage,
+} from "./agent-chat.js";
 export { useAgentChatGenerating } from "./use-agent-chat.js";
 export { useFileWatcher } from "./use-file-watcher.js";
 export { useFileSyncStatus } from "./use-file-sync-status.js";
@@ -16,7 +20,15 @@ export {
   exitSelectionMode,
   type UserInfo,
 } from "./harness.js";
-export { AssistantChat, type AssistantChatProps } from "./AssistantChat.js";
+export {
+  AssistantChat,
+  type AssistantChatProps,
+  type AssistantChatHandle,
+} from "./AssistantChat.js";
+export {
+  MultiTabAssistantChat,
+  type MultiTabAssistantChatProps,
+} from "./MultiTabAssistantChat.js";
 export { createAgentChatAdapter } from "./agent-chat-adapter.js";
 export {
   AgentPanel,

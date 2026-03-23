@@ -26,7 +26,10 @@ import {
   type LaunchSettings,
 } from "./lib/settings";
 import { useHarnessConfig, useHarnessConfigs } from "./lib/config";
-import { AssistantChat } from "@agent-native/core/client";
+import {
+  AssistantChat,
+  type AssistantChatHandle,
+} from "@agent-native/core/client";
 
 function Tooltip({ children, label }: { children: ReactNode; label: string }) {
   return (
@@ -59,12 +62,13 @@ function getInitialApp(configFallback: string): string {
 interface Tab {
   id: string;
   label: string;
+  completed: boolean;
 }
 
 let nextTabId = 0;
 function createTab(): Tab {
   const id = String(nextTabId++);
-  return { id, label: id };
+  return { id, label: id, completed: false };
 }
 
 export function App() {
@@ -95,7 +99,10 @@ export function App() {
   // Tab management
   const [tabs, setTabs] = useState<Tab[]>(() => [createTab()]);
   const [activeTabId, setActiveTabId] = useState(() => tabs[0].id);
+  const activeTabIdRef = useRef(activeTabId);
+  activeTabIdRef.current = activeTabId;
   const tabRefs = useRef<Map<string, TerminalTabHandle>>(new Map());
+  const chatRefs = useRef<Map<string, AssistantChatHandle>>(new Map());
 
   // Track active tab's connection state
   const [activeConnected, setActiveConnected] = useState(false);
@@ -155,9 +162,87 @@ export function App() {
     [activeApp, settings, updateSettings, activeTabId],
   );
 
+  const pendingTabMessages = useRef<Map<string, string>>(new Map());
+
   const dismissPopovers = useCallback(() => {
     setShowSettings(false);
   }, []);
+
+  // Listen for builder.submitChat at App level — route to active tab or create new tab
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      // Only accept messages from the iframe (same origin)
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== "builder.submitChat") return;
+      const message = event.data.data?.message as string;
+      if (!message) return;
+
+      const currentTabId = activeTabIdRef.current;
+
+      if (isAgentUi) {
+        // Agent-UI mode: route through AssistantChat refs
+        const chatRef = chatRefs.current.get(currentTabId);
+        const running = chatRef?.isRunning() ?? false;
+        if (!running && chatRef) {
+          chatRef.sendMessage(message);
+        } else {
+          const tab = createTab();
+          pendingTabMessages.current.set(tab.id, message);
+          setTabs((prev) => [...prev, tab]);
+          setActiveTabId(tab.id);
+        }
+      } else {
+        // Terminal mode: route through TerminalTab refs
+        const activeHandle = tabRefs.current.get(currentTabId);
+        const isRunning = activeHandle?.isAgentRunning() ?? false;
+        if (!isRunning && activeHandle?.getConnected()) {
+          activeHandle.sendChatMessage(message);
+        } else {
+          const tab = createTab();
+          pendingTabMessages.current.set(tab.id, message);
+          setTabs((prev) => [...prev, tab]);
+          setActiveTabId(tab.id);
+        }
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [isAgentUi]); // stable — uses refs instead of state
+
+  // Agent-UI: listen for chatRunning completion events to mark tabs completed
+  useEffect(() => {
+    if (!isAgentUi) return;
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail) return;
+      // Match tabId to our tab ids
+      const { isRunning, tabId } = detail;
+      if (!tabId) return;
+      setTabs((prev) =>
+        prev.map((t) => {
+          if (t.id !== tabId) return t;
+          if (isRunning === false) return { ...t, completed: true };
+          if (isRunning === true) return { ...t, completed: false };
+          return t;
+        }),
+      );
+    };
+    window.addEventListener("builder.fusion.chatRunning", handler);
+    return () =>
+      window.removeEventListener("builder.fusion.chatRunning", handler);
+  }, [isAgentUi]);
+
+  // Process pending messages for agent-ui tabs when refs mount
+  useEffect(() => {
+    if (!isAgentUi) return;
+    for (const [tabId, message] of pendingTabMessages.current) {
+      const ref = chatRefs.current.get(tabId);
+      if (ref) {
+        pendingTabMessages.current.delete(tabId);
+        setTimeout(() => ref.sendMessage(message), 50);
+      }
+    }
+  }, [tabs, isAgentUi]);
 
   // Tab actions
   const addTab = useCallback(() => {
@@ -269,6 +354,9 @@ export function App() {
               }`}
             >
               <span>{tab.label}</span>
+              {tab.completed && (
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+              )}
               <span
                 onClick={(e) => {
                   e.stopPropagation();
@@ -298,16 +386,14 @@ export function App() {
         feedback
       </a>
 
-      {!isAgentUi && (
-        <Tooltip label="New tab">
-          <button
-            onClick={addTab}
-            className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors shrink-0"
-          >
-            <IconPlus size={14} stroke={1.5} />
-          </button>
-        </Tooltip>
-      )}
+      <Tooltip label="New tab">
+        <button
+          onClick={addTab}
+          className="p-1 rounded text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors shrink-0"
+        >
+          <IconPlus size={14} stroke={1.5} />
+        </button>
+      </Tooltip>
 
       <div className="relative shrink-0">
         <Tooltip label="Settings">
@@ -439,21 +525,67 @@ export function App() {
                   settings={settings}
                   appName={activeApp}
                   iframeRef={iframeRef}
-                  onConnectedChange={
-                    tab.id === activeTabId ? setActiveConnected : undefined
-                  }
+                  onConnectedChange={(connected) => {
+                    if (tab.id === activeTabId) setActiveConnected(connected);
+                    // Process pending messages when a new tab connects
+                    if (connected) {
+                      const pending = pendingTabMessages.current.get(tab.id);
+                      if (pending) {
+                        pendingTabMessages.current.delete(tab.id);
+                        // Small delay to let the PTY initialise
+                        setTimeout(() => {
+                          tabRefs.current.get(tab.id)?.sendChatMessage(pending);
+                        }, 300);
+                      }
+                    }
+                  }}
                   onSetupStatusChange={
                     tab.id === activeTabId ? setActiveSetupStatus : undefined
                   }
+                  onAgentRunningChange={(running) => {
+                    if (!running) {
+                      setTabs((prev) =>
+                        prev.map((t) =>
+                          t.id === tab.id ? { ...t, completed: true } : t,
+                        ),
+                      );
+                    } else {
+                      setTabs((prev) =>
+                        prev.map((t) =>
+                          t.id === tab.id ? { ...t, completed: false } : t,
+                        ),
+                      );
+                    }
+                  }}
                 />
               ))}
               {setupOverlay}
             </>
           ) : (
-            <AssistantChat
-              showHeader={false}
-              emptyStateText="Chat with the agent"
-            />
+            <>
+              {tabs.map((tab) => (
+                <div
+                  key={tab.id}
+                  className="absolute inset-0 flex flex-col"
+                  style={{
+                    display: tab.id === activeTabId ? "flex" : "none",
+                  }}
+                >
+                  <AssistantChat
+                    ref={(handle) => {
+                      if (handle) {
+                        chatRefs.current.set(tab.id, handle);
+                      } else {
+                        chatRefs.current.delete(tab.id);
+                      }
+                    }}
+                    tabId={tab.id}
+                    showHeader={false}
+                    emptyStateText="Chat with the agent"
+                  />
+                </div>
+              ))}
+            </>
           )}
         </div>
 

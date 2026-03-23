@@ -20,6 +20,8 @@ export interface AgentChatMessage {
   referenceImagePaths?: string[];
   /** Optional uploaded reference images */
   uploadedReferenceImages?: string[];
+  /** Stable tab identifier — auto-generated if omitted */
+  tabId?: string;
 }
 
 const AGENT_CHAT_MESSAGE_TYPE = "builder.submitChat";
@@ -40,15 +42,26 @@ if (typeof window !== "undefined") {
   });
 }
 
+/** Generate a unique tab ID */
+export function generateTabId(): string {
+  return `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 /**
  * Send a message to the agent chat via postMessage.
  */
-export function sendToAgentChat(opts: AgentChatMessage): void {
+/**
+ * Send a message to the agent chat via postMessage.
+ * Returns the stable tabId for tracking this chat run.
+ */
+export function sendToAgentChat(opts: AgentChatMessage): string {
+  const tabId = opts.tabId ?? generateTabId();
   const payload = {
     type: AGENT_CHAT_MESSAGE_TYPE,
-    data: opts,
+    data: { ...opts, tabId },
   };
 
   const target = window.parent !== window ? window.parent : window;
   target.postMessage(payload, "*");
+  return tabId;
 }
