@@ -40,10 +40,11 @@ export default defineEventHandler(async (event) => {
 
       const buffer = Buffer.from(data, "base64url");
 
-      setResponseHeader(event, "Cache-Control", "public, max-age=31536000");
+      setResponseHeader(event, "Cache-Control", "private, max-age=31536000");
       setResponseHeader(event, "Content-Length", buffer.length);
+      // X-Content-Type-Options prevents MIME sniffing of HTML for XSS
+      setResponseHeader(event, "X-Content-Type-Options", "nosniff");
       setResponseHeader(event, "Content-Type", "application/octet-stream");
-      setResponseHeader(event, "Content-Disposition", "attachment");
 
       return buffer;
     } catch {

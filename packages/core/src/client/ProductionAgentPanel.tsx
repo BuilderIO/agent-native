@@ -49,7 +49,7 @@ export function ProductionAgentPanel({
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
-      if (detail?.running) setHasAgentActivity(true);
+      if (detail?.isRunning) setHasAgentActivity(true);
     };
     window.addEventListener("builder.fusion.chatRunning", handler);
     return () =>
