@@ -1,8 +1,6 @@
-import { defineEventHandler, getMethod, setResponseStatus } from "h3";
 import {
   createProductionAgentHandler,
   type ScriptEntry,
-  type ProductionAgentOptions,
 } from "../agent/production-agent.js";
 import { createDevScriptRegistry } from "../scripts/dev/index.js";
 
@@ -83,17 +81,8 @@ export function createAgentChatPlugin(
       apiKey: options?.apiKey,
     });
 
-    // Mount as a POST handler
-    nitroApp.h3App.use(
-      routePath,
-      defineEventHandler(async (event) => {
-        if (getMethod(event) !== "POST") {
-          setResponseStatus(event, 405);
-          return { error: "Method not allowed" };
-        }
-        return handler(event);
-      }),
-    );
+    // Mount the handler directly — it already handles method checks and SSE streaming
+    nitroApp.h3App.use(routePath, handler);
   };
 }
 

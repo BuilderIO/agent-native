@@ -4,7 +4,7 @@ import { cn } from "./utils.js";
 
 // ─── Icons ─────────────────────────────────────────────────────────────────
 
-function AgentIcon({ className }: { className?: string }) {
+function ChatIcon({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -15,9 +15,7 @@ function AgentIcon({ className }: { className?: string }) {
       strokeLinejoin="round"
       className={className}
     >
-      <path d="M12 2a6 6 0 0 1 6 6v2a6 6 0 0 1-12 0V8a6 6 0 0 1 6-6z" />
-      <path d="M9 22v-2a3 3 0 0 1 6 0v2" />
-      <path d="M2 18a10 10 0 0 1 20 0" />
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
     </svg>
   );
 }
@@ -108,7 +106,7 @@ export function AgentToggleButton({ className }: { className?: string }) {
       )}
       title="Toggle agent"
     >
-      <AgentIcon className="h-4 w-4" />
+      <ChatIcon className="h-4 w-4" />
     </button>
   );
 }
