@@ -916,30 +916,12 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@agent-native/pinpoint':
-        specifier: workspace:*
-        version: link:../../packages/pinpoint
-      '@google/genai':
-        specifier: ^1.41.0
-        version: 1.44.0(@modelcontextprotocol/sdk@1.27.1(zod@3.25.76))
       '@libsql/client':
         specifier: ^0.15.0
         version: 0.15.15
-      '@monaco-editor/react':
-        specifier: ^4.7.0
-        version: 4.7.0(monaco-editor@0.55.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@notionhq/client':
-        specifier: ^5.11.1
-        version: 5.12.0
       '@tiptap/extension-bubble-menu':
         specifier: ^3.19.0
         version: 3.20.1(@tiptap/core@3.20.1(@tiptap/pm@3.20.1))(@tiptap/pm@3.20.1)
-      '@tiptap/extension-code-block-lowlight':
-        specifier: ^3.19.0
-        version: 3.20.1(@tiptap/core@3.20.1(@tiptap/pm@3.20.1))(@tiptap/extension-code-block@3.20.1(@tiptap/core@3.20.1(@tiptap/pm@3.20.1))(@tiptap/pm@3.20.1))(@tiptap/pm@3.20.1)(highlight.js@11.11.1)(lowlight@3.3.0)
-      '@tiptap/extension-floating-menu':
-        specifier: ^3.19.0
-        version: 3.20.1(@floating-ui/dom@1.7.6)(@tiptap/core@3.20.1(@tiptap/pm@3.20.1))(@tiptap/pm@3.20.1)
       '@tiptap/extension-horizontal-rule':
         specifier: ^3.19.0
         version: 3.20.1(@tiptap/core@3.20.1(@tiptap/pm@3.20.1))(@tiptap/pm@3.20.1)
@@ -979,15 +961,6 @@ importers:
       '@tiptap/starter-kit':
         specifier: ^3.19.0
         version: 3.20.1
-      chokidar:
-        specifier: ^5.0.0
-        version: 5.0.0
-      diff:
-        specifier: ^8.0.3
-        version: 8.0.3
-      dotenv:
-        specifier: ^17.2.1
-        version: 17.3.1
       drizzle-orm:
         specifier: ^0.44.0
         version: 0.44.7(@electric-sql/pglite@0.3.16)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.8.0)
@@ -997,130 +970,37 @@ importers:
       isbot:
         specifier: ^5
         version: 5.1.36
-      lowlight:
-        specifier: ^3.3.0
-        version: 3.3.0
-      mdast-util-from-markdown:
-        specifier: ^2.0.2
-        version: 2.0.3
-      mdast-util-gfm:
-        specifier: ^3.1.0
-        version: 3.1.0
-      mdast-util-to-string:
-        specifier: ^4.0.0
-        version: 4.0.0
-      micromark-extension-gfm:
-        specifier: ^3.0.0
-        version: 3.0.0
-      minimatch:
-        specifier: ^10.2.4
-        version: 10.2.4
-      openai:
-        specifier: ^6.22.0
-        version: 6.29.0(ws@8.19.0)(zod@3.25.76)
-      react-markdown:
-        specifier: ^10.1.0
-        version: 10.1.0(@types/react@18.3.28)(react@18.3.1)
-      remark-gfm:
-        specifier: ^4.0.1
-        version: 4.0.1
-      sharp:
-        specifier: ^0.34.5
-        version: 0.34.5
       tiptap-markdown:
         specifier: ^0.9.0
         version: 0.9.0(@tiptap/core@3.20.1(@tiptap/pm@3.20.1))
-      turndown:
-        specifier: ^7.2.2
-        version: 7.2.2
-      yaml:
-        specifier: ^2.8.2
-        version: 2.8.2
       zod:
         specifier: ^3.25.76
         version: 3.25.76
     devDependencies:
-      '@hookform/resolvers':
-        specifier: ^5.2.1
-        version: 5.2.2(react-hook-form@7.71.2(react@18.3.1))
-      '@radix-ui/react-accordion':
-        specifier: ^1.2.11
-        version: 1.2.12(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-alert-dialog':
-        specifier: ^1.1.14
-        version: 1.1.15(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-aspect-ratio':
-        specifier: ^1.1.7
-        version: 1.1.8(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-avatar':
-        specifier: ^1.1.10
-        version: 1.1.11(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-checkbox':
-        specifier: ^1.3.2
-        version: 1.3.3(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-collapsible':
-        specifier: ^1.1.11
-        version: 1.1.12(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-context-menu':
-        specifier: ^2.2.15
-        version: 2.2.16(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-dialog':
         specifier: ^1.1.14
         version: 1.1.15(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-dropdown-menu':
         specifier: ^2.1.15
         version: 2.1.16(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-hover-card':
-        specifier: ^1.1.14
-        version: 1.1.15(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-label':
         specifier: ^2.1.7
         version: 2.1.8(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-menubar':
-        specifier: ^1.1.15
-        version: 1.1.16(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-navigation-menu':
-        specifier: ^1.2.13
-        version: 1.2.14(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-popover':
-        specifier: ^1.1.14
-        version: 1.1.15(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-progress':
-        specifier: ^1.1.7
-        version: 1.1.8(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-radio-group':
-        specifier: ^1.3.7
-        version: 1.3.8(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-scroll-area':
         specifier: ^1.2.9
         version: 1.2.10(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-select':
-        specifier: ^2.2.5
-        version: 2.2.6(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-separator':
         specifier: ^1.1.7
         version: 1.1.8(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-slider':
-        specifier: ^1.3.5
-        version: 1.3.6(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-slot':
         specifier: ^1.2.3
         version: 1.2.4(@types/react@18.3.28)(react@18.3.1)
-      '@radix-ui/react-switch':
-        specifier: ^1.2.5
-        version: 1.2.6(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-tabs':
-        specifier: ^1.1.12
-        version: 1.1.13(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-toast':
         specifier: ^1.2.14
         version: 1.2.15(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-toggle':
         specifier: ^1.1.9
         version: 1.1.10(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@radix-ui/react-toggle-group':
-        specifier: ^1.1.10
-        version: 1.1.11(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-tooltip':
         specifier: ^1.2.7
         version: 1.2.8(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -1130,12 +1010,6 @@ importers:
       '@react-router/fs-routes':
         specifier: ^7.13.1
         version: 7.13.1(@react-router/dev@7.13.1(@types/node@24.12.0)(jiti@2.6.1)(lightningcss@1.32.0)(react-router@7.13.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(terser@5.46.1)(tsx@4.21.0)(typescript@5.9.3)(vite@7.3.1(@types/node@24.12.0)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.2))(yaml@2.8.2))(typescript@5.9.3)
-      '@react-three/drei':
-        specifier: ^9.122.0
-        version: 9.122.0(@react-three/fiber@8.18.0(a4f87a1c9cd5afeda248b1850f15afe1))(@types/react@18.3.28)(@types/three@0.176.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(three@0.176.0)(use-sync-external-store@1.6.0(react@18.3.1))
-      '@react-three/fiber':
-        specifier: ^8.18.0
-        version: 8.18.0(a4f87a1c9cd5afeda248b1850f15afe1)
       '@swc/core':
         specifier: ^1.13.3
         version: 1.15.18
@@ -1145,12 +1019,6 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.84.2
         version: 5.90.21(react@18.3.1)
-      '@types/diff':
-        specifier: ^8.0.0
-        version: 8.0.0
-      '@types/mdast':
-        specifier: ^4.0.4
-        version: 4.0.4
       '@types/node':
         specifier: ^24.2.1
         version: 24.12.0
@@ -1160,15 +1028,6 @@ importers:
       '@types/react-dom':
         specifier: ^18.3.7
         version: 18.3.7(@types/react@18.3.28)
-      '@types/sharp':
-        specifier: ^0.32.0
-        version: 0.32.0
-      '@types/three':
-        specifier: ^0.176.0
-        version: 0.176.0
-      '@types/turndown':
-        specifier: ^5.0.6
-        version: 5.0.6
       '@vitejs/plugin-react-swc':
         specifier: ^4.0.0
         version: 4.3.0(vite@7.3.1(@types/node@24.12.0)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.2))
@@ -1181,24 +1040,6 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
-      cmdk:
-        specifier: ^1.1.1
-        version: 1.1.1(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      date-fns:
-        specifier: ^4.1.0
-        version: 4.1.0
-      embla-carousel-react:
-        specifier: ^8.6.0
-        version: 8.6.0(react@18.3.1)
-      framer-motion:
-        specifier: ^12.23.12
-        version: 12.36.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      globals:
-        specifier: ^16.3.0
-        version: 16.5.0
-      input-otp:
-        specifier: ^1.4.2
-        version: 1.4.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       lucide-react:
         specifier: ^0.539.0
         version: 0.539.0(react@18.3.1)
@@ -1214,24 +1055,12 @@ importers:
       react:
         specifier: ^18.3.1
         version: 18.3.1
-      react-day-picker:
-        specifier: ^9.8.1
-        version: 9.14.0(react@18.3.1)
       react-dom:
         specifier: ^18.3.1
         version: 18.3.1(react@18.3.1)
-      react-hook-form:
-        specifier: ^7.62.0
-        version: 7.71.2(react@18.3.1)
-      react-resizable-panels:
-        specifier: ^3.0.4
-        version: 3.0.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-router:
         specifier: ^7.13.1
         version: 7.13.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      recharts:
-        specifier: ^2.12.7
-        version: 2.15.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       sonner:
         specifier: ^1.7.4
         version: 1.7.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -1244,18 +1073,9 @@ importers:
       tailwindcss-animate:
         specifier: ^1.0.7
         version: 1.0.7(tailwindcss@3.4.19(tsx@4.21.0)(yaml@2.8.2))
-      three:
-        specifier: ^0.176.0
-        version: 0.176.0
-      tsx:
-        specifier: ^4.20.3
-        version: 4.21.0
       typescript:
         specifier: ^5.9.2
         version: 5.9.3
-      vaul:
-        specifier: ^1.1.2
-        version: 1.1.2(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       vite:
         specifier: ^7.1.2
         version: 7.3.1(@types/node@24.12.0)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.2)
@@ -4675,9 +4495,6 @@ packages:
   '@medv/finder@4.0.2':
     resolution: {integrity: sha512-RraNY9SCcx4KZV0Dh6BEW6XEW2swkqYca74pkFFRw6hHItSHiy+O/xMnpbofjYbzXj0tSpBGthUF1hHTsr3vIQ==}
 
-  '@mixmark-io/domino@2.2.0':
-    resolution: {integrity: sha512-Y28PR25bHXUg88kCV7nivXrP2Nj2RueZ3/l/jdx6J9f8J4nsEGcgX0Qe6lt7Pa+J79+kPiJU3LguR6O/6zrLOw==}
-
   '@mjackson/node-fetch-server@0.2.0':
     resolution: {integrity: sha512-EMlH1e30yzmTpGLQjlFmaDAjyOeZhng1/XCd7DExR8PNAnG/G1tyruZxEoUe11ClnwGhGrtsdnyyUx1frSzjng==}
 
@@ -4690,16 +4507,6 @@ packages:
     peerDependenciesMeta:
       '@cfworker/json-schema':
         optional: true
-
-  '@monaco-editor/loader@1.7.0':
-    resolution: {integrity: sha512-gIwR1HrJrrx+vfyOhYmCZ0/JcWqG5kbfG7+d3f/C1LXk2EvzAbHSg3MQ5lO2sMlo9izoAZ04shohfKLVT6crVA==}
-
-  '@monaco-editor/react@4.7.0':
-    resolution: {integrity: sha512-cyzXQCtO47ydzxpQtCGSQGOC8Gk3ZUeBXFAxD+CWXYFo5OqZyZUonFl0DwUlTyAfRHntBfw2p3w4s9R6oe1eCA==}
-    peerDependencies:
-      monaco-editor: '>= 0.25.0 < 1'
-      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   '@monogrid/gainmap-js@3.4.0':
     resolution: {integrity: sha512-2Z0FATFHaoYJ8b+Y4y4Hgfn3FRFwuU5zRrk+9dFWp4uGAdHGqVEdP7HP+gLA3X469KXHmfupJaUbKo1b/aDKIg==}
@@ -4923,10 +4730,6 @@ packages:
   '@nodelib/fs.walk@1.2.8':
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
-
-  '@notionhq/client@5.12.0':
-    resolution: {integrity: sha512-yLdw1saMUx4lmwMXOk72QK/N0wuw9x0JuOAuAX+q2Z8IEZzB5di6SEKL6a8eNh5cy3RLKdeXaXJFF4NF2LwXDg==}
-    engines: {node: '>=18'}
 
   '@npmcli/agent@3.0.0':
     resolution: {integrity: sha512-S79NdEgDQd/NGCay6TCoVzXSj74skRZIKJcpJjC5lOq34SZzyI6MqtiiWoiVWoVrTcGjNeC4ipbh1VIHlpfF5Q==}
@@ -7116,10 +6919,6 @@ packages:
   '@types/deep-eql@4.0.2':
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
 
-  '@types/diff@8.0.0':
-    resolution: {integrity: sha512-o7jqJM04gfaYrdCecCVMbZhNdG6T1MHg/oQoRFdERLV+4d+V7FijhiEAbFu0Usww84Yijk9yH58U4Jk4HbtzZw==}
-    deprecated: This is a stub types definition. diff provides its own type definitions, so you do not need this installed.
-
   '@types/draco3d@1.4.10':
     resolution: {integrity: sha512-AX22jp8Y7wwaBgAixaSvkoG4M/+PlAcm3Qs4OW8yT9DM4xUpWKeFhLueTAyZF39pviAdcDdeJoACapiAceqNcw==}
 
@@ -7256,10 +7055,6 @@ packages:
   '@types/serve-static@2.2.0':
     resolution: {integrity: sha512-8mam4H1NHLtu7nmtalF7eyBH14QyOASmcxHhSfEoRyr0nP/YdoesEtU+uSRvMe96TW/HPTtkoKqQLl53N7UXMQ==}
 
-  '@types/sharp@0.32.0':
-    resolution: {integrity: sha512-OOi3kL+FZDnPhVzsfD37J88FNeZh6gQsGcLc95NbeURRGvmSjeXiDcyWzF2o3yh/gQAUn2uhh/e+CPCa5nwAxw==}
-    deprecated: This is a stub types definition. sharp provides its own type definitions, so you do not need this installed.
-
   '@types/stack-utils@2.0.3':
     resolution: {integrity: sha512-9aEbYZ3TbYMznPdcdr3SmIrLXwC/AKZXQeCf9Pgao5CKb8CyHuEX5jzWPTkvregvhRJHcpRO6BFoGW9ycaOkYw==}
 
@@ -7274,12 +7069,6 @@ packages:
 
   '@types/triple-beam@1.3.5':
     resolution: {integrity: sha512-6WaYesThRMCl19iryMYP7/x2OVgCtbIVflDGFpWnb9irXI3UjYE4AzmYuiUKY1AJstGijoY+MgUszMgRxIYTYw==}
-
-  '@types/trusted-types@2.0.7':
-    resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
-
-  '@types/turndown@5.0.6':
-    resolution: {integrity: sha512-ru00MoyeeouE5BX4gRL+6m/BsDfbRayOskWqUvh7CLGW+UXxHQItqALa38kKnOiZPqJrtzJUgAC2+F0rL1S4Pg==}
 
   '@types/unist@2.0.11':
     resolution: {integrity: sha512-CmBKiL6NNo/OqgmMn95Fk9Whlp2mtvIv+KNpQKN2F4SjvrEesubTRWGYSg+BnWZOnlCaSTU1sMpsBOzgbYhnsA==}
@@ -8770,9 +8559,6 @@ packages:
   domhandler@5.0.3:
     resolution: {integrity: sha512-cgwlv/1iFQiFnU96XXgROh8xTeetsnJiDsTc7TYCLFd9+/WNkIqPTxiM/8pSd8VIrhXGTf1Ny1q1hquVqDJB5w==}
     engines: {node: '>= 4'}
-
-  dompurify@3.2.7:
-    resolution: {integrity: sha512-WhL/YuveyGXJaerVlMYGWhvQswa7myDG17P7Vu65EWC05o8vfeNbvNf4d/BOvH99+ZW+LlQsc1GDKMa1vNK6dw==}
 
   domutils@3.2.2:
     resolution: {integrity: sha512-6kZKyUajlDuqlHKVX1w7gyslj9MPIXzIFiz/rGu35uC1wMi+kMhQwGhl4lt9unC9Vb9INnY9Z3/ZA3+FhASLaw==}
@@ -10945,14 +10731,6 @@ packages:
     resolution: {integrity: sha512-BuU2qnTti9YKgK5N+IeMubp14ZUKUUw7yeJbkjtosvHiP0AZ5c8IAgEMk79D0eC8F23r4Ac/q8cAIFdm2FtyoA==}
     hasBin: true
 
-  markdown-table@3.0.4:
-    resolution: {integrity: sha512-wiYz4+JrLyb/DqW2hkFJxP7Vd7JuTDm77fvbM8VfEQdmSMqcImWeeRbHwZjBjIFki/VaMK2BhFi7oUUZeM5bqw==}
-
-  marked@14.0.0:
-    resolution: {integrity: sha512-uIj4+faQ+MgHgwUW1l2PsPglZLOLOT1uErt06dAPtx2kjteLAkbsd/0FiYg/MGS+i7ZKLb7w2WClxHkzOOuryQ==}
-    engines: {node: '>= 18'}
-    hasBin: true
-
   marky@1.3.0:
     resolution: {integrity: sha512-ocnPZQLNpvbedwTy9kNrQEsknEfgvcLMvOtz3sFeWApDq1MXH1TqkCIx58xlpESsfwQOnuBO9beyQuNGzVvuhQ==}
 
@@ -10964,29 +10742,8 @@ packages:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
 
-  mdast-util-find-and-replace@3.0.2:
-    resolution: {integrity: sha512-Tmd1Vg/m3Xz43afeNxDIhWRtFZgM2VLyaf4vSTYwudTyeuTneoL3qtWMA5jeLyz/O1vDJmmV4QuScFCA2tBPwg==}
-
   mdast-util-from-markdown@2.0.3:
     resolution: {integrity: sha512-W4mAWTvSlKvf8L6J+VN9yLSqQ9AOAAvHuoDAmPkz4dHf553m5gVj2ejadHJhoJmcmxEnOv6Pa8XJhpxE93kb8Q==}
-
-  mdast-util-gfm-autolink-literal@2.0.1:
-    resolution: {integrity: sha512-5HVP2MKaP6L+G6YaxPNjuL0BPrq9orG3TsrZ9YXbA3vDw/ACI4MEsnoDpn6ZNm7GnZgtAcONJyPhOP8tNJQavQ==}
-
-  mdast-util-gfm-footnote@2.1.0:
-    resolution: {integrity: sha512-sqpDWlsHn7Ac9GNZQMeUzPQSMzR6Wv0WKRNvQRg0KqHh02fpTz69Qc1QSseNX29bhz1ROIyNyxExfawVKTm1GQ==}
-
-  mdast-util-gfm-strikethrough@2.0.0:
-    resolution: {integrity: sha512-mKKb915TF+OC5ptj5bJ7WFRPdYtuHv0yTRxK2tJvi+BDqbkiG7h7u/9SI89nRAYcmap2xHQL9D+QG/6wSrTtXg==}
-
-  mdast-util-gfm-table@2.0.0:
-    resolution: {integrity: sha512-78UEvebzz/rJIxLvE7ZtDd/vIQ0RHv+3Mh5DR96p7cS7HsBhYIICDBCu8csTNWNO6tBWfqXPWekRuj2FNOGOZg==}
-
-  mdast-util-gfm-task-list-item@2.0.0:
-    resolution: {integrity: sha512-IrtvNvjxC1o06taBAVJznEnkiHxLFTzgonUdy8hzFVeDun0uTjxxrRGVaNFqkU1wJR3RBPEfsxmU6jDWPofrTQ==}
-
-  mdast-util-gfm@3.1.0:
-    resolution: {integrity: sha512-0ulfdQOM3ysHhCJ1p06l0b0VKlhU0wuQs3thxZQagjcjPrlFRqY215uZGHHJan9GEAXd9MbfPjFJz+qMkVR6zQ==}
 
   mdast-util-mdx-expression@2.0.1:
     resolution: {integrity: sha512-J6f+9hUp+ldTZqKRSg7Vw5V6MqjATc+3E4gf3CFNcuZNWD8XdyI6zQ8GqH7f8169MM6P7hMBRDVGnn7oHB9kXQ==}
@@ -11112,27 +10869,6 @@ packages:
 
   micromark-core-commonmark@2.0.3:
     resolution: {integrity: sha512-RDBrHEMSxVFLg6xvnXmb1Ayr2WzLAWjeSATAoxwKYJV94TeNavgoIdA0a9ytzDSVzBy2YKFK+emCPOEibLeCrg==}
-
-  micromark-extension-gfm-autolink-literal@2.1.0:
-    resolution: {integrity: sha512-oOg7knzhicgQ3t4QCjCWgTmfNhvQbDDnJeVu9v81r7NltNCVmhPy1fJRX27pISafdjL+SVc4d3l48Gb6pbRypw==}
-
-  micromark-extension-gfm-footnote@2.1.0:
-    resolution: {integrity: sha512-/yPhxI1ntnDNsiHtzLKYnE3vf9JZ6cAisqVDauhp4CEHxlb4uoOTxOCJ+9s51bIB8U1N1FJ1RXOKTIlD5B/gqw==}
-
-  micromark-extension-gfm-strikethrough@2.1.0:
-    resolution: {integrity: sha512-ADVjpOOkjz1hhkZLlBiYA9cR2Anf8F4HqZUO6e5eDcPQd0Txw5fxLzzxnEkSkfnD0wziSGiv7sYhk/ktvbf1uw==}
-
-  micromark-extension-gfm-table@2.1.1:
-    resolution: {integrity: sha512-t2OU/dXXioARrC6yWfJ4hqB7rct14e8f7m0cbI5hUmDyyIlwv5vEtooptH8INkbLzOatzKuVbQmAYcbWoyz6Dg==}
-
-  micromark-extension-gfm-tagfilter@2.0.0:
-    resolution: {integrity: sha512-xHlTOmuCSotIA8TW1mDIM6X2O1SiX5P9IuDtqGonFhEK0qgRI4yeC6vMxEV2dgyr2TiD+2PQ10o+cOhdVAcwfg==}
-
-  micromark-extension-gfm-task-list-item@2.1.0:
-    resolution: {integrity: sha512-qIBZhqxqI6fjLDYFTBIa4eivDMnP+OZqsNwmQ3xNLE4Cxwc+zfQEfbs6tzAo2Hjq+bh6q5F+Z8/cksrLFYWQQw==}
-
-  micromark-extension-gfm@3.0.0:
-    resolution: {integrity: sha512-vsKArQsicm7t0z2GugkCKtZehqUm31oeGBV/KVSorWSy8ZlNAv7ytjFhvaryUiCUJYqs+NoE6AFhpQvBTM6Q4w==}
 
   micromark-factory-destination@2.0.1:
     resolution: {integrity: sha512-Xe6rDdJlkmbFRExpTOmRj9N3MaWmbAgdpSrBQvCFqhezUn4AHqJHbaEnfbVYYiexVSs//tqOdY/DxhjdCiJnIA==}
@@ -11321,9 +11057,6 @@ packages:
 
   module-details-from-path@1.0.4:
     resolution: {integrity: sha512-EGWKgxALGMgzvxYF1UyGTy0HXX/2vHLkw6+NvDKW2jypWbHpjQuj4UMcqQWXHERJhVGKikolT06G3bcKe4fi7w==}
-
-  monaco-editor@0.55.1:
-    resolution: {integrity: sha512-jz4x+TJNFHwHtwuV9vA9rMujcZRb0CEilTEwG2rRSpe/A7Jdkuj8xPKttCgOh+v/lkHy7HsZ64oj+q3xoAFl9A==}
 
   motion-dom@12.36.0:
     resolution: {integrity: sha512-Ep1pq8P88rGJ75om8lTCA13zqd7ywPGwCqwuWwin6BKc0hMLkVfcS6qKlRqEo2+t0DwoUcgGJfXwaiFn4AOcQA==}
@@ -11590,18 +11323,6 @@ packages:
   open@8.4.2:
     resolution: {integrity: sha512-7x81NCL719oNbsq/3mh+hVrAWmFuEYUqrq/Iw3kUzH8ReypT9QQ0BLoJS7/G9k6N81XjW4qHWtjWwe/9eLy1EQ==}
     engines: {node: '>=12'}
-
-  openai@6.29.0:
-    resolution: {integrity: sha512-YxoArl2BItucdO89/sN6edksV0x47WUTgkgVfCgX7EuEMhbirENsgYe5oO4LTjBL9PtdKtk2WqND1gSLcTd2yw==}
-    hasBin: true
-    peerDependencies:
-      ws: ^8.18.0
-      zod: ^3.25 || ^4.0
-    peerDependenciesMeta:
-      ws:
-        optional: true
-      zod:
-        optional: true
 
   ora@3.4.0:
     resolution: {integrity: sha512-eNwHudNbO1folBP3JsZ19v9azXWtQZjICdr3Q0TDPIaeBQ3mXLrh54wM+er0+hSp+dWKf+Z8KM58CYzEyIYxYg==}
@@ -12381,17 +12102,11 @@ packages:
   rehype-raw@7.0.0:
     resolution: {integrity: sha512-/aE8hCfKlQeA8LmyeyQvQF3eBiLRGNlfBJEvWH7ivp9sBqs7TNqBL5X3v157rM4IFETqDnIOO+z5M/biZbo9Ww==}
 
-  remark-gfm@4.0.1:
-    resolution: {integrity: sha512-1quofZ2RQ9EWdeN34S79+KExV1764+wCUGop5CPL1WGdD0ocPpu91lzPGbwWMECpEpd42kJGQwzRfyov9j4yNg==}
-
   remark-parse@11.0.0:
     resolution: {integrity: sha512-FCxlKLNGknS5ba/1lmpYijMUzX2esxW5xQqjWxw2eHFfS2MSdaHVINFmhjo+qN1WhZhNimq0dZATN9pH0IDrpA==}
 
   remark-rehype@11.1.2:
     resolution: {integrity: sha512-Dh7l57ianaEoIpzbp0PC9UKAdCSVklD8E5Rpw7ETfbTl3FqcOOgq5q2LVDhgGCkaBv7p24JXikPdvhhmHvKMsw==}
-
-  remark-stringify@11.0.0:
-    resolution: {integrity: sha512-1OSmLd3awB/t8qdoEOMazZkNsfVTeY4fTsgzcQFdXNq8ToTN4ZGwrMnlda4K6smTFKD+GRV6O48i6Z4iKgPPpw==}
 
   remotion@4.0.435:
     resolution: {integrity: sha512-WOzJ8BbOlwhU9xdjjmQhvoOIREF2y7H+JmKDlZkkp5LQtvRO7VsV3jljPP3wAgnM+YQDlW23lMG2pN/b+sOdSw==}
@@ -12857,9 +12572,6 @@ packages:
     resolution: {integrity: sha512-jH9EhtKIjuXZ2cWxmXS8ZP80XyC3iasQxMDV8jzhNJpfDb7VbQLVW4Wvsxz9QZvzV+G4YoSfBUVKDOyxLzi/sg==}
     engines: {node: '>= 6'}
 
-  state-local@1.0.7:
-    resolution: {integrity: sha512-HTEHMNieakEnoe33shBYcZ7NX83ACUjCu8c40iOGEZsngj9zRnkqS9j1pqQPXwobB0ZcVTk27REb7COQ0UR59w==}
-
   stats-gl@2.4.2:
     resolution: {integrity: sha512-g5O9B0hm9CvnM36+v7SFl39T7hmAlv541tU81ME8YeSb3i1CIP5/QdDeSB3A0la0bKNHpxpwxOVRo2wFTYEosQ==}
     peerDependencies:
@@ -13281,9 +12993,6 @@ packages:
 
   tunnel-rat@0.1.2:
     resolution: {integrity: sha512-lR5VHmkPhzdhrM092lI2nACsLO4QubF0/yoOhzX7c+wIpbN1GjHNzCc91QlpxBi+cnx8vVJ+Ur6vL5cEoQPFpQ==}
-
-  turndown@7.2.2:
-    resolution: {integrity: sha512-1F7db8BiExOKxjSMU2b7if62D/XOyQyZbPKq/nUwopfgnHlqXHqQ0lvfUTeUIr1lZJzOPFn43dODyMSIfvWRKQ==}
 
   type-detect@4.0.8:
     resolution: {integrity: sha512-0fr/mIH1dlO+x7TlcMy+bIDqKPsw/70tVyeHW787goQjhmqaZe10uwLujubK9q9Lg6Fiho1KUKDYz0Z7k7g5/g==}
@@ -16345,8 +16054,6 @@ snapshots:
 
   '@medv/finder@4.0.2': {}
 
-  '@mixmark-io/domino@2.2.0': {}
-
   '@mjackson/node-fetch-server@0.2.0': {}
 
   '@modelcontextprotocol/sdk@1.27.1(zod@3.25.76)':
@@ -16370,17 +16077,6 @@ snapshots:
       zod-to-json-schema: 3.25.1(zod@3.25.76)
     transitivePeerDependencies:
       - supports-color
-
-  '@monaco-editor/loader@1.7.0':
-    dependencies:
-      state-local: 1.0.7
-
-  '@monaco-editor/react@4.7.0(monaco-editor@0.55.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
-    dependencies:
-      '@monaco-editor/loader': 1.7.0
-      monaco-editor: 0.55.1
-      react: 18.3.1
-      react-dom: 18.3.1(react@18.3.1)
 
   '@monogrid/gainmap-js@3.4.0(three@0.176.0)':
     dependencies:
@@ -16825,8 +16521,6 @@ snapshots:
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.1
-
-  '@notionhq/client@5.12.0': {}
 
   '@npmcli/agent@3.0.0':
     dependencies:
@@ -18976,6 +18670,7 @@ snapshots:
       '@floating-ui/dom': 1.7.6
       '@tiptap/core': 3.20.1(@tiptap/pm@3.20.1)
       '@tiptap/pm': 3.20.1
+    optional: true
 
   '@tiptap/extension-gapcursor@3.20.1(@tiptap/extensions@3.20.1(@tiptap/core@3.20.1(@tiptap/pm@3.20.1))(@tiptap/pm@3.20.1))':
     dependencies:
@@ -19230,10 +18925,6 @@ snapshots:
 
   '@types/deep-eql@4.0.2': {}
 
-  '@types/diff@8.0.0':
-    dependencies:
-      diff: 8.0.3
-
   '@types/draco3d@1.4.10': {}
 
   '@types/estree-jsx@1.0.5':
@@ -19389,10 +19080,6 @@ snapshots:
       '@types/http-errors': 2.0.5
       '@types/node': 24.12.0
 
-  '@types/sharp@0.32.0':
-    dependencies:
-      sharp: 0.34.5
-
   '@types/stack-utils@2.0.3': {}
 
   '@types/stats.js@0.17.4': {}
@@ -19411,11 +19098,6 @@ snapshots:
     optional: true
 
   '@types/triple-beam@1.3.5': {}
-
-  '@types/trusted-types@2.0.7':
-    optional: true
-
-  '@types/turndown@5.0.6': {}
 
   '@types/unist@2.0.11': {}
 
@@ -21117,10 +20799,6 @@ snapshots:
   domhandler@5.0.3:
     dependencies:
       domelementtype: 2.3.0
-
-  dompurify@3.2.7:
-    optionalDependencies:
-      '@types/trusted-types': 2.0.7
 
   domutils@3.2.2:
     dependencies:
@@ -23585,10 +23263,6 @@ snapshots:
       punycode.js: 2.3.1
       uc.micro: 2.1.0
 
-  markdown-table@3.0.4: {}
-
-  marked@14.0.0: {}
-
   marky@1.3.0: {}
 
   matcher@3.0.0:
@@ -23597,13 +23271,6 @@ snapshots:
     optional: true
 
   math-intrinsics@1.1.0: {}
-
-  mdast-util-find-and-replace@3.0.2:
-    dependencies:
-      '@types/mdast': 4.0.4
-      escape-string-regexp: 5.0.0
-      unist-util-is: 6.0.1
-      unist-util-visit-parents: 6.0.2
 
   mdast-util-from-markdown@2.0.3:
     dependencies:
@@ -23619,63 +23286,6 @@ snapshots:
       micromark-util-symbol: 2.0.1
       micromark-util-types: 2.0.2
       unist-util-stringify-position: 4.0.0
-    transitivePeerDependencies:
-      - supports-color
-
-  mdast-util-gfm-autolink-literal@2.0.1:
-    dependencies:
-      '@types/mdast': 4.0.4
-      ccount: 2.0.1
-      devlop: 1.1.0
-      mdast-util-find-and-replace: 3.0.2
-      micromark-util-character: 2.1.1
-
-  mdast-util-gfm-footnote@2.1.0:
-    dependencies:
-      '@types/mdast': 4.0.4
-      devlop: 1.1.0
-      mdast-util-from-markdown: 2.0.3
-      mdast-util-to-markdown: 2.1.2
-      micromark-util-normalize-identifier: 2.0.1
-    transitivePeerDependencies:
-      - supports-color
-
-  mdast-util-gfm-strikethrough@2.0.0:
-    dependencies:
-      '@types/mdast': 4.0.4
-      mdast-util-from-markdown: 2.0.3
-      mdast-util-to-markdown: 2.1.2
-    transitivePeerDependencies:
-      - supports-color
-
-  mdast-util-gfm-table@2.0.0:
-    dependencies:
-      '@types/mdast': 4.0.4
-      devlop: 1.1.0
-      markdown-table: 3.0.4
-      mdast-util-from-markdown: 2.0.3
-      mdast-util-to-markdown: 2.1.2
-    transitivePeerDependencies:
-      - supports-color
-
-  mdast-util-gfm-task-list-item@2.0.0:
-    dependencies:
-      '@types/mdast': 4.0.4
-      devlop: 1.1.0
-      mdast-util-from-markdown: 2.0.3
-      mdast-util-to-markdown: 2.1.2
-    transitivePeerDependencies:
-      - supports-color
-
-  mdast-util-gfm@3.1.0:
-    dependencies:
-      mdast-util-from-markdown: 2.0.3
-      mdast-util-gfm-autolink-literal: 2.0.1
-      mdast-util-gfm-footnote: 2.1.0
-      mdast-util-gfm-strikethrough: 2.0.0
-      mdast-util-gfm-table: 2.0.0
-      mdast-util-gfm-task-list-item: 2.0.0
-      mdast-util-to-markdown: 2.1.2
     transitivePeerDependencies:
       - supports-color
 
@@ -23975,64 +23585,6 @@ snapshots:
       micromark-util-symbol: 2.0.1
       micromark-util-types: 2.0.2
 
-  micromark-extension-gfm-autolink-literal@2.1.0:
-    dependencies:
-      micromark-util-character: 2.1.1
-      micromark-util-sanitize-uri: 2.0.1
-      micromark-util-symbol: 2.0.1
-      micromark-util-types: 2.0.2
-
-  micromark-extension-gfm-footnote@2.1.0:
-    dependencies:
-      devlop: 1.1.0
-      micromark-core-commonmark: 2.0.3
-      micromark-factory-space: 2.0.1
-      micromark-util-character: 2.1.1
-      micromark-util-normalize-identifier: 2.0.1
-      micromark-util-sanitize-uri: 2.0.1
-      micromark-util-symbol: 2.0.1
-      micromark-util-types: 2.0.2
-
-  micromark-extension-gfm-strikethrough@2.1.0:
-    dependencies:
-      devlop: 1.1.0
-      micromark-util-chunked: 2.0.1
-      micromark-util-classify-character: 2.0.1
-      micromark-util-resolve-all: 2.0.1
-      micromark-util-symbol: 2.0.1
-      micromark-util-types: 2.0.2
-
-  micromark-extension-gfm-table@2.1.1:
-    dependencies:
-      devlop: 1.1.0
-      micromark-factory-space: 2.0.1
-      micromark-util-character: 2.1.1
-      micromark-util-symbol: 2.0.1
-      micromark-util-types: 2.0.2
-
-  micromark-extension-gfm-tagfilter@2.0.0:
-    dependencies:
-      micromark-util-types: 2.0.2
-
-  micromark-extension-gfm-task-list-item@2.1.0:
-    dependencies:
-      devlop: 1.1.0
-      micromark-factory-space: 2.0.1
-      micromark-util-character: 2.1.1
-      micromark-util-symbol: 2.0.1
-      micromark-util-types: 2.0.2
-
-  micromark-extension-gfm@3.0.0:
-    dependencies:
-      micromark-extension-gfm-autolink-literal: 2.1.0
-      micromark-extension-gfm-footnote: 2.1.0
-      micromark-extension-gfm-strikethrough: 2.1.0
-      micromark-extension-gfm-table: 2.1.1
-      micromark-extension-gfm-tagfilter: 2.0.0
-      micromark-extension-gfm-task-list-item: 2.1.0
-      micromark-util-combine-extensions: 2.0.1
-      micromark-util-types: 2.0.2
-
   micromark-factory-destination@2.0.1:
     dependencies:
       micromark-util-character: 2.1.1
@@ -24254,11 +23806,6 @@ snapshots:
       node-source-walk: 7.0.1
 
   module-details-from-path@1.0.4: {}
-
-  monaco-editor@0.55.1:
-    dependencies:
-      dompurify: 3.2.7
-      marked: 14.0.0
 
   motion-dom@12.36.0:
     dependencies:
@@ -24547,11 +24094,6 @@ snapshots:
       define-lazy-prop: 2.0.0
       is-docker: 2.2.1
       is-wsl: 2.2.0
-
-  openai@6.29.0(ws@8.19.0)(zod@3.25.76):
-    optionalDependencies:
-      ws: 8.19.0
-      zod: 3.25.76
 
   ora@3.4.0:
     dependencies:
@@ -25501,17 +25043,6 @@ snapshots:
       hast-util-raw: 9.1.0
       vfile: 6.0.3
 
-  remark-gfm@4.0.1:
-    dependencies:
-      '@types/mdast': 4.0.4
-      mdast-util-gfm: 3.1.0
-      micromark-extension-gfm: 3.0.0
-      remark-parse: 11.0.0
-      remark-stringify: 11.0.0
-      unified: 11.0.5
-    transitivePeerDependencies:
-      - supports-color
-
   remark-parse@11.0.0:
     dependencies:
       '@types/mdast': 4.0.4
@@ -25528,12 +25059,6 @@ snapshots:
       mdast-util-to-hast: 13.2.1
       unified: 11.0.5
       vfile: 6.0.3
-
-  remark-stringify@11.0.0:
-    dependencies:
-      '@types/mdast': 4.0.4
-      mdast-util-to-markdown: 2.1.2
-      unified: 11.0.5
 
   remotion@4.0.435(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -26110,8 +25635,6 @@ snapshots:
 
   stat-mode@1.0.0: {}
 
-  state-local@1.0.7: {}
-
   stats-gl@2.4.2(@types/three@0.176.0)(three@0.176.0):
     dependencies:
       '@types/three': 0.176.0
@@ -26613,10 +26136,6 @@ snapshots:
       - '@types/react'
       - immer
       - react
-
-  turndown@7.2.2:
-    dependencies:
-      '@mixmark-io/domino': 2.2.0
 
   type-detect@4.0.8: {}
 

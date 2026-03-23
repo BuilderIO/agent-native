@@ -12,14 +12,11 @@ import {
   Quote,
   Minus,
   Table as TableIcon,
-  ImageIcon,
-  Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SlashCommandMenuProps {
   editor: Editor;
-  onUpload?: (file: File) => Promise<{ url: string; type: string } | null>;
 }
 
 interface CommandItem {
@@ -27,152 +24,86 @@ interface CommandItem {
   description: string;
   icon: React.ElementType;
   action: (editor: Editor) => void;
-  category?: string;
 }
 
-function createCommands(
-  onUpload?: (file: File) => Promise<{ url: string; type: string } | null>,
-): CommandItem[] {
-  return [
-    {
-      title: "Text",
-      description: "Plain text block",
-      icon: Type,
-      category: "basic",
-      action: (editor) => editor.chain().focus().setParagraph().run(),
-    },
-    {
-      title: "Heading 1",
-      description: "Large heading",
-      icon: Heading1,
-      category: "basic",
-      action: (editor) =>
-        editor.chain().focus().toggleHeading({ level: 1 }).run(),
-    },
-    {
-      title: "Heading 2",
-      description: "Medium heading",
-      icon: Heading2,
-      category: "basic",
-      action: (editor) =>
-        editor.chain().focus().toggleHeading({ level: 2 }).run(),
-    },
-    {
-      title: "Heading 3",
-      description: "Small heading",
-      icon: Heading3,
-      category: "basic",
-      action: (editor) =>
-        editor.chain().focus().toggleHeading({ level: 3 }).run(),
-    },
-    {
-      title: "Bullet List",
-      description: "Unordered list",
-      icon: List,
-      category: "basic",
-      action: (editor) => editor.chain().focus().toggleBulletList().run(),
-    },
-    {
-      title: "Numbered List",
-      description: "Ordered list",
-      icon: ListOrdered,
-      category: "basic",
-      action: (editor) => editor.chain().focus().toggleOrderedList().run(),
-    },
-    {
-      title: "To-do List",
-      description: "Checklist items",
-      icon: CheckSquare,
-      category: "basic",
-      action: (editor) => editor.chain().focus().toggleTaskList().run(),
-    },
-    {
-      title: "Code Block",
-      description: "Code snippet",
-      icon: Code2,
-      category: "basic",
-      action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
-    },
-    {
-      title: "Quote",
-      description: "Block quote",
-      icon: Quote,
-      category: "basic",
-      action: (editor) => editor.chain().focus().toggleBlockquote().run(),
-    },
-    {
-      title: "Divider",
-      description: "Horizontal rule",
-      icon: Minus,
-      category: "basic",
-      action: (editor) => editor.chain().focus().setHorizontalRule().run(),
-    },
-    {
-      title: "Table",
-      description: "Add a table",
-      icon: TableIcon,
-      category: "basic",
-      action: (editor) =>
-        editor
-          .chain()
-          .focus()
-          .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
-          .run(),
-    },
-    {
-      title: "Image",
-      description: "Upload or embed an image",
-      icon: ImageIcon,
-      category: "media",
-      action: (editor) => {
-        if (onUpload) {
-          // Open file picker
-          const input = document.createElement("input");
-          input.type = "file";
-          input.accept = "image/*";
-          input.onchange = async () => {
-            const file = input.files?.[0];
-            if (!file) return;
-            const result = await onUpload(file);
-            if (result) {
-              editor.chain().focus().setImage({ src: result.url }).run();
-            }
-          };
-          input.click();
-        } else {
-          // Fallback: insert empty image placeholder
-          editor.chain().focus().setImage({ src: "" }).run();
-        }
-      },
-    },
-    {
-      title: "Video",
-      description: "Upload or embed a video",
-      icon: Video,
-      category: "media",
-      action: (editor) => {
-        if (onUpload) {
-          const input = document.createElement("input");
-          input.type = "file";
-          input.accept = "video/*";
-          input.onchange = async () => {
-            const file = input.files?.[0];
-            if (!file) return;
-            const result = await onUpload(file);
-            if (result) {
-              editor.chain().focus().setVideo({ src: result.url }).run();
-            }
-          };
-          input.click();
-        } else {
-          editor.chain().focus().setVideo({ src: "" }).run();
-        }
-      },
-    },
-  ];
-}
+const commands: CommandItem[] = [
+  {
+    title: "Text",
+    description: "Plain text block",
+    icon: Type,
+    action: (editor) => editor.chain().focus().setParagraph().run(),
+  },
+  {
+    title: "Heading 1",
+    description: "Large heading",
+    icon: Heading1,
+    action: (editor) =>
+      editor.chain().focus().toggleHeading({ level: 1 }).run(),
+  },
+  {
+    title: "Heading 2",
+    description: "Medium heading",
+    icon: Heading2,
+    action: (editor) =>
+      editor.chain().focus().toggleHeading({ level: 2 }).run(),
+  },
+  {
+    title: "Heading 3",
+    description: "Small heading",
+    icon: Heading3,
+    action: (editor) =>
+      editor.chain().focus().toggleHeading({ level: 3 }).run(),
+  },
+  {
+    title: "Bullet List",
+    description: "Unordered list",
+    icon: List,
+    action: (editor) => editor.chain().focus().toggleBulletList().run(),
+  },
+  {
+    title: "Numbered List",
+    description: "Ordered list",
+    icon: ListOrdered,
+    action: (editor) => editor.chain().focus().toggleOrderedList().run(),
+  },
+  {
+    title: "To-do List",
+    description: "Checklist items",
+    icon: CheckSquare,
+    action: (editor) => editor.chain().focus().toggleTaskList().run(),
+  },
+  {
+    title: "Code Block",
+    description: "Code snippet",
+    icon: Code2,
+    action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
+  },
+  {
+    title: "Quote",
+    description: "Block quote",
+    icon: Quote,
+    action: (editor) => editor.chain().focus().toggleBlockquote().run(),
+  },
+  {
+    title: "Divider",
+    description: "Horizontal rule",
+    icon: Minus,
+    action: (editor) => editor.chain().focus().setHorizontalRule().run(),
+  },
+  {
+    title: "Table",
+    description: "Add a table",
+    icon: TableIcon,
+    action: (editor) =>
+      editor
+        .chain()
+        .focus()
+        .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+        .run(),
+  },
+];
 
-export function SlashCommandMenu({ editor, onUpload }: SlashCommandMenuProps) {
+export function SlashCommandMenu({ editor }: SlashCommandMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -182,8 +113,6 @@ export function SlashCommandMenu({ editor, onUpload }: SlashCommandMenuProps) {
   } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const slashPosRef = useRef<number | null>(null);
-
-  const commands = createCommands(onUpload);
 
   const filteredCommands = commands.filter(
     (cmd) =>
@@ -287,10 +216,6 @@ export function SlashCommandMenu({ editor, onUpload }: SlashCommandMenuProps) {
 
   if (!isOpen || !position || filteredCommands.length === 0) return null;
 
-  // Group commands by category
-  const basicCommands = filteredCommands.filter((c) => c.category !== "media");
-  const mediaCommands = filteredCommands.filter((c) => c.category === "media");
-
   return (
     <div
       ref={menuRef}
@@ -303,44 +228,21 @@ export function SlashCommandMenu({ editor, onUpload }: SlashCommandMenuProps) {
       }}
     >
       <div className="py-1.5">
-        {basicCommands.length > 0 && (
-          <>
-            <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Blocks
-            </div>
-            {basicCommands.map((cmd, i) => {
-              const globalIndex = filteredCommands.indexOf(cmd);
-              return (
-                <CommandButton
-                  key={cmd.title}
-                  cmd={cmd}
-                  isSelected={globalIndex === selectedIndex}
-                  onExecute={() => executeCommand(cmd)}
-                  onHover={() => setSelectedIndex(globalIndex)}
-                />
-              );
-            })}
-          </>
-        )}
-        {mediaCommands.length > 0 && (
-          <>
-            <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Media
-            </div>
-            {mediaCommands.map((cmd) => {
-              const globalIndex = filteredCommands.indexOf(cmd);
-              return (
-                <CommandButton
-                  key={cmd.title}
-                  cmd={cmd}
-                  isSelected={globalIndex === selectedIndex}
-                  onExecute={() => executeCommand(cmd)}
-                  onHover={() => setSelectedIndex(globalIndex)}
-                />
-              );
-            })}
-          </>
-        )}
+        <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Blocks
+        </div>
+        {filteredCommands.map((cmd) => {
+          const globalIndex = filteredCommands.indexOf(cmd);
+          return (
+            <CommandButton
+              key={cmd.title}
+              cmd={cmd}
+              isSelected={globalIndex === selectedIndex}
+              onExecute={() => executeCommand(cmd)}
+              onHover={() => setSelectedIndex(globalIndex)}
+            />
+          );
+        })}
       </div>
     </div>
   );

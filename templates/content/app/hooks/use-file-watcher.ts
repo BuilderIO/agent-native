@@ -7,21 +7,9 @@ export function useFileWatcher() {
   useEffect(() => {
     const eventSource = new EventSource("/api/events");
 
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log("[FileWatcher] event received:", data);
-
-        // Invalidate relevant react-query caches
-        queryClient.invalidateQueries({ queryKey: ["file"] });
-        queryClient.invalidateQueries({ queryKey: ["fileTree"] });
-        queryClient.invalidateQueries({ queryKey: ["projects"] });
-        queryClient.invalidateQueries({ queryKey: ["pageTree"] });
-        queryClient.invalidateQueries({ queryKey: ["versionHistory"] });
-        queryClient.invalidateQueries({ queryKey: ["versionContent"] });
-      } catch (err) {
-        console.error("[FileWatcher] error parsing event data", err);
-      }
+    eventSource.onmessage = () => {
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["document"] });
     };
 
     eventSource.onerror = (err) => {

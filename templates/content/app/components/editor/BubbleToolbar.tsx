@@ -9,17 +9,15 @@ import {
   Heading1,
   Heading2,
   Heading3,
-  ImageIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 
 interface BubbleToolbarProps {
   editor: Editor;
-  onGenerateImage?: (selectedText: string) => void;
 }
 
-export function BubbleToolbar({ editor, onGenerateImage }: BubbleToolbarProps) {
+export function BubbleToolbar({ editor }: BubbleToolbarProps) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
 
@@ -101,15 +99,6 @@ export function BubbleToolbar({ editor, onGenerateImage }: BubbleToolbarProps) {
     },
   ];
 
-  const handleGenerateImage = () => {
-    if (!onGenerateImage) return;
-    const { from, to } = editor.state.selection;
-    const text = editor.state.doc.textBetween(from, to, " ");
-    if (text.trim()) {
-      onGenerateImage(text.trim());
-    }
-  };
-
   return (
     <BubbleMenu
       editor={editor}
@@ -185,22 +174,6 @@ export function BubbleToolbar({ editor, onGenerateImage }: BubbleToolbarProps) {
               </button>
             );
           })}
-          {onGenerateImage && (
-            <>
-              <div className="w-px h-5 bg-gray-600 mx-0.5" />
-              <button
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  handleGenerateImage();
-                }}
-                title="Generate Image"
-                className="p-1.5 rounded transition-colors text-gray-300 hover:bg-gray-700 hover:text-white"
-              >
-                <ImageIcon size={14} strokeWidth={2.5} />
-              </button>
-            </>
-          )}
         </div>
       )}
     </BubbleMenu>

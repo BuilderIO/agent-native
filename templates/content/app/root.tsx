@@ -5,9 +5,7 @@ import { ThemeProvider } from "next-themes";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
-import { BuilderAuthProvider } from "@/components/builder/BuilderAuthContext";
 import { useFileWatcher } from "./hooks/use-file-watcher";
-import { Pinpoint } from "@agent-native/pinpoint/react";
 import "./global.css";
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -39,19 +37,11 @@ export default function Root() {
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
       <QueryClientProvider client={queryClient}>
         <FileWatcherSetup />
-        <Pinpoint
-          author="Vishwas"
-          colorScheme="auto"
-          endpoint="/api/pins"
-          autoSubmit
-        />
-        <BuilderAuthProvider>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <Outlet />
-          </TooltipProvider>
-        </BuilderAuthProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <Outlet />
+        </TooltipProvider>
       </QueryClientProvider>
     </ThemeProvider>
   );

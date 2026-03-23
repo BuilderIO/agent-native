@@ -1,8 +1,3 @@
-import { createSSEHandler } from "@agent-native/core";
-import { getDefaultSSEEmitters } from "@agent-native/core/server";
-import { watcher } from "../../lib/watcher.js";
+import { createDefaultSSEHandler } from "@agent-native/core/server";
 
-export default createSSEHandler(watcher, {
-  extraEmitters: getDefaultSSEEmitters(),
-  contentRoot: "./content",
-});
+export default createDefaultSSEHandler();

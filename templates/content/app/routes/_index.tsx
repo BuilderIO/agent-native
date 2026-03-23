@@ -1,7 +1,8 @@
-import Index from "@/pages/Index";
+import { AppLayout } from "@/components/layout/AppLayout";
+import { EmptyState } from "@/components/EmptyState";
 
 export function meta() {
-  return [{ title: "Content Workspace" }];
+  return [{ title: "Documents" }];
 }
 
 export function HydrateFallback() {
@@ -13,5 +14,9 @@ export function HydrateFallback() {
 }
 
 export default function IndexRoute() {
-  return <Index />;
+  return (
+    <AppLayout activeDocumentId={null}>
+      <EmptyState />
+    </AppLayout>
+  );
 }
