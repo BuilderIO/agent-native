@@ -52,7 +52,7 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
     const state = crypto.randomBytes(16).toString("hex");
     setCookie(event, `oauth_state_${state}`, redirectUri, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/api/google/callback",
       maxAge: 600, // 10 minutes
@@ -100,7 +100,7 @@ export const handleGoogleCallback = defineEventHandler(
       await addSession(sessionToken, email);
       setCookie(event, "an_session", sessionToken, {
         httpOnly: true,
-        secure: true,
+        secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
         path: "/",
         maxAge: 60 * 60 * 24 * 30, // 30 days
@@ -154,7 +154,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       const state = crypto.randomBytes(16).toString("hex");
       setCookie(event, `oauth_state_${state}`, redirectUri, {
         httpOnly: true,
-        secure: true,
+        secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
         path: "/api/google/add-account/callback",
         maxAge: 600,
