@@ -21,12 +21,13 @@ pnpm dev:harness
 
 ### Supported CLIs
 
-| CLI         | Command    | Key Flags                                                 |
-| ----------- | ---------- | --------------------------------------------------------- |
-| Claude Code | `claude`   | `--dangerously-skip-permissions`, `--resume`, `--verbose` |
-| Codex       | `codex`    | `--full-auto`, `--quiet`                                  |
-| Gemini CLI  | `gemini`   | `--sandbox`                                               |
-| OpenCode    | `opencode` | —                                                         |
+| CLI                 | Command    | Key Flags                                                 |
+| ------------------- | ---------- | --------------------------------------------------------- |
+| Claude Code         | `claude`   | `--dangerously-skip-permissions`, `--resume`, `--verbose` |
+| Codex               | `codex`    | `--full-auto`, `--quiet`                                  |
+| Gemini CLI          | `gemini`   | `--sandbox`                                               |
+| OpenCode            | `opencode` | —                                                         |
+| Builder.io / Fusion | `fusion`   | —                                                         |
 
 Switch between CLIs at any time from the settings panel. The harness restarts the terminal with the selected CLI and loads its saved launch options.
 

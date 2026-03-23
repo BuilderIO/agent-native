@@ -77,6 +77,14 @@ export const opencodeConfig: HarnessConfig = {
   customPlaceholder: "e.g. --provider anthropic",
 };
 
+export const fusionConfig: HarnessConfig = {
+  name: "Builder.io / Fusion",
+  command: "fusion",
+  installPackage: "@builder.io/fusion",
+  options: [],
+  customPlaceholder: "e.g. --project my-project",
+};
+
 export const agentUiConfig: HarnessConfig = {
   name: "Agent UI",
   command: "agent-ui",
@@ -90,5 +98,6 @@ export const allHarnesses: HarnessConfig[] = [
   codexConfig,
   geminiConfig,
   opencodeConfig,
+  fusionConfig,
   agentUiConfig,
 ];

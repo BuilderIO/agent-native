@@ -70,6 +70,7 @@ pnpm dev:harness`}
             ["Codex", "codex", "--full-auto, --quiet"],
             ["Gemini CLI", "gemini", "--sandbox"],
             ["OpenCode", "opencode", "—"],
+            ["Builder.io / Fusion", "fusion", "—"],
           ].map(([name, cmd, flags]) => (
             <tr key={cmd}>
               <td>{name}</td>
@@ -120,7 +121,7 @@ pnpm dev:harness`}
           {[
             ["Local development", "Yes", "Yes"],
             ["Cloud/remote", "No", "Yes"],
-            ["Multi-CLI support", "Yes (4 CLIs)", "Yes"],
+            ["Multi-CLI support", "Yes (5 CLIs)", "Yes"],
             ["Real-time collaboration", "No", "Yes"],
             ["Visual editing", "No", "Yes"],
             ["Parallel agents", "No", "Yes"],
