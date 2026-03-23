@@ -1,6 +1,9 @@
 import type { Config } from "tailwindcss";
+import preset from "@agent-native/core/tailwind";
 
 export default {
+  darkMode: ["class"],
+  presets: [preset],
   content: [
     "./client/**/*.{ts,tsx}",
     "./index.html",
@@ -12,10 +15,7 @@ export default {
         panel: "#111",
         "panel-border": "#222",
         "panel-header": "#0d0d0d",
-        muted: "#666",
-        "muted-foreground": "#999",
       },
     },
   },
-  plugins: [],
 } satisfies Config;
