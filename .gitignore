@@ -20,5 +20,8 @@ RAMBLINGS.md
 FUSION-APPS.md
 node-compile-cache/
 
+# Application state data files (ephemeral, may contain secrets)
+**/application-state/*.json
+
 # Ralph Loop runtime state
 ralph-loop.local.md
