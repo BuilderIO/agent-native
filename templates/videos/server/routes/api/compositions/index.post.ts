@@ -12,14 +12,25 @@ export default defineEventHandler(async (event) => {
   const now = new Date().toISOString();
   const db = getDb();
 
-  await db.insert(schema.compositions).values({
-    id: body.id,
-    title: body.title,
-    type: body.type,
-    data: JSON.stringify(body.data || {}),
-    createdAt: now,
-    updatedAt: now,
-  });
+  await db
+    .insert(schema.compositions)
+    .values({
+      id: body.id,
+      title: body.title,
+      type: body.type,
+      data: JSON.stringify(body.data || {}),
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: schema.compositions.id,
+      set: {
+        title: body.title,
+        type: body.type,
+        data: JSON.stringify(body.data || {}),
+        updatedAt: now,
+      },
+    });
 
   setResponseStatus(event, 201);
   return {
