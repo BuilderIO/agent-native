@@ -137,10 +137,12 @@ export async function getClients(
             "google",
             accountId,
           )) as unknown as GoogleTokens | null) ?? {};
-        await saveOAuthTokens("google", accountId, {
-          ...current,
-          ...newTokens,
-        });
+        await saveOAuthTokens(
+          "google",
+          accountId,
+          { ...current, ...newTokens },
+          forEmail,
+        );
       });
 
       results.push({ email: accountId, client });

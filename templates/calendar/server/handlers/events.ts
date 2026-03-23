@@ -16,6 +16,23 @@ async function uEmail(event: H3Event): Promise<string> {
   return session?.email ?? "local@localhost";
 }
 
+/** Resolve and validate an accountEmail from the request against the user's owned accounts. */
+async function resolveAccountEmail(
+  requestAccountEmail: string | undefined,
+  ownerEmail: string,
+): Promise<string> {
+  if (!requestAccountEmail || requestAccountEmail === ownerEmail) {
+    return ownerEmail;
+  }
+  // Verify the requested account is owned by this user
+  const status = await googleCalendar.getAuthStatus(ownerEmail);
+  const isOwned = status.accounts.some((a) => a.email === requestAccountEmail);
+  if (!isOwned) {
+    throw new Error("Account not owned by current user");
+  }
+  return requestAccountEmail;
+}
+
 export const listEvents = defineEventHandler(async (event: H3Event) => {
   try {
     const email = await uEmail(event);
@@ -132,11 +149,13 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
       };
     }
 
+    const acctEmail = await resolveAccountEmail(body.accountEmail, email);
+
     const calEvent: CalendarEvent = {
       ...body,
       id: "",
       source: "google",
-      accountEmail: body.accountEmail || email,
+      accountEmail: acctEmail,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -173,10 +192,12 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
       return { error: "Google Calendar not connected" };
     }
 
+    const acctEmail = await resolveAccountEmail(body.accountEmail, email);
+
     try {
       await googleCalendar.updateEvent(googleEventId, {
         ...body,
-        accountEmail: body.accountEmail || email,
+        accountEmail: acctEmail,
       });
     } catch (error: any) {
       setResponseStatus(event, 500);
@@ -213,7 +234,10 @@ export const deleteEvent = defineEventHandler(async (event: H3Event) => {
     }
 
     const query = getQuery(event);
-    const accountEmail = (query.accountEmail as string | undefined) || email;
+    const accountEmail = await resolveAccountEmail(
+      query.accountEmail as string | undefined,
+      email,
+    );
 
     try {
       await googleCalendar.deleteEvent(googleEventId, accountEmail);

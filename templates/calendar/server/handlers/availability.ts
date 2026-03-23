@@ -5,7 +5,11 @@ import {
   type H3Event,
 } from "h3";
 import type { AvailabilityConfig } from "../../shared/api.js";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import {
+  getUserSetting,
+  putUserSetting,
+  putSetting,
+} from "@agent-native/core/settings";
 import { getSession } from "@agent-native/core/server";
 
 const DEFAULT_AVAILABILITY: AvailabilityConfig = {
@@ -48,11 +52,10 @@ export const updateAvailability = defineEventHandler(async (event: H3Event) => {
   try {
     const email = await uEmail(event);
     const config: AvailabilityConfig = await readBody(event);
-    await putUserSetting(
-      email,
-      "calendar-availability",
-      config as unknown as Record<string, unknown>,
-    );
+    const configRecord = config as unknown as Record<string, unknown>;
+    await putUserSetting(email, "calendar-availability", configRecord);
+    // Also write to global key so the public booking page can read it
+    await putSetting("calendar-availability", configRecord);
     return config;
   } catch (error: any) {
     setResponseStatus(event, 500);

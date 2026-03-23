@@ -63,6 +63,9 @@ export async function getOAuthTokens(
  * Save OAuth tokens. The `owner` parameter specifies which user owns this
  * account — defaults to `accountId` (the account itself is the owner).
  * For multi-account support, pass the logged-in user's email as owner.
+ *
+ * If the account already exists and is owned by a different user, throws
+ * an error to prevent silently stealing another user's linked account.
  */
 export async function saveOAuthTokens(
   provider: string,
@@ -72,12 +75,27 @@ export async function saveOAuthTokens(
 ): Promise<void> {
   await ensureTable();
   const client = getClient();
+  const resolvedOwner = owner ?? accountId;
+
+  // Check if this account is already owned by a different user
+  const { rows: existing } = await client.execute({
+    sql: `SELECT owner FROM oauth_tokens WHERE provider = ? AND account_id = ?`,
+    args: [provider, accountId],
+  });
+  if (
+    existing.length > 0 &&
+    existing[0].owner &&
+    existing[0].owner !== resolvedOwner
+  ) {
+    throw new Error(`This Google account is already linked to another user.`);
+  }
+
   await client.execute({
     sql: `INSERT OR REPLACE INTO oauth_tokens (provider, account_id, owner, tokens, updated_at) VALUES (?, ?, ?, ?, ?)`,
     args: [
       provider,
       accountId,
-      owner ?? accountId,
+      resolvedOwner,
       JSON.stringify(tokens),
       Date.now(),
     ],

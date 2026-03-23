@@ -233,14 +233,24 @@ export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
 export const disconnectGoogle = defineEventHandler(async (event: H3Event) => {
   try {
     const session = await getSession(event);
-    const body = await readBody(event);
-    // Only allow disconnecting the logged-in user's own account
-    const email = body?.email as string | undefined;
-    if (email && session?.email && email !== session.email) {
-      setResponseStatus(event, 403);
-      return { error: "Cannot disconnect another user's account" };
+    if (!session?.email) {
+      setResponseStatus(event, 401);
+      return { error: "Not authenticated" };
     }
-    await disconnect(email || session?.email);
+    const body = await readBody(event);
+    const targetEmail = body?.email as string | undefined;
+    if (!targetEmail) {
+      setResponseStatus(event, 400);
+      return { error: "email is required" };
+    }
+    // Verify the target account is owned by the logged-in user
+    const owned = await getAuthStatus(session.email);
+    const isOwned = owned.accounts.some((a) => a.email === targetEmail);
+    if (!isOwned) {
+      setResponseStatus(event, 403);
+      return { error: "Cannot disconnect an account you don't own" };
+    }
+    await disconnect(targetEmail);
     return { success: true };
   } catch (error: any) {
     setResponseStatus(event, 500);

@@ -148,10 +148,12 @@ export async function getClients(
         ((await getOAuthTokens("google", accountId)) as unknown as
           | GoogleTokens
           | undefined) ?? {};
-      await saveOAuthTokens("google", accountId, {
-        ...current,
-        ...newTokens,
-      } as unknown as Record<string, unknown>);
+      await saveOAuthTokens(
+        "google",
+        accountId,
+        { ...current, ...newTokens } as unknown as Record<string, unknown>,
+        forEmail,
+      );
     });
 
     results.push({ email: accountId, client });

@@ -5,7 +5,11 @@ import {
   type H3Event,
 } from "h3";
 import type { Settings } from "../../shared/api.js";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import {
+  getUserSetting,
+  putUserSetting,
+  putSetting,
+} from "@agent-native/core/settings";
 import { getSession } from "@agent-native/core/server";
 
 const DEFAULT_SETTINGS: Settings = {
@@ -36,11 +40,10 @@ export const updateSettings = defineEventHandler(async (event: H3Event) => {
   try {
     const email = await uEmail(event);
     const settings: Settings = await readBody(event);
-    await putUserSetting(
-      email,
-      "calendar-settings",
-      settings as unknown as Record<string, unknown>,
-    );
+    const settingsRecord = settings as unknown as Record<string, unknown>;
+    await putUserSetting(email, "calendar-settings", settingsRecord);
+    // Also write to global key so the public booking/settings page can read it
+    await putSetting("calendar-settings", settingsRecord);
     return settings;
   } catch (error: any) {
     setResponseStatus(event, 500);
