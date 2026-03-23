@@ -351,6 +351,13 @@ export function AgentTerminal({
 
       // Chat bridge integration — listen for sendToAgentChat messages
       const messageHandler = (event: MessageEvent) => {
+        // Only accept messages from same origin or known harness
+        if (
+          event.origin !== window.location.origin &&
+          event.origin !== getHarnessOrigin()
+        ) {
+          return;
+        }
         if (event.data?.type === "builder.submitChat") {
           const message = event.data.data?.message;
           if (message && ws && ws.readyState === WebSocket.OPEN) {
