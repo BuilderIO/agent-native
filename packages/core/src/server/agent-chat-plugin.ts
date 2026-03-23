@@ -122,9 +122,6 @@ export function createAgentChatPlugin(
         // Update process.env so the agent works immediately
         process.env.ANTHROPIC_API_KEY = trimmedKey;
 
-        // Notify parent (Builder harness) via postMessage
-        agentEnv.setVars([{ key: "ANTHROPIC_API_KEY", value: trimmedKey }]);
-
         return { ok: true };
       }),
     );

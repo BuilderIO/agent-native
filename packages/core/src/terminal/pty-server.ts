@@ -296,7 +296,7 @@ export async function createPtyWebSocketServer(
   });
 
   return new Promise((resolve) => {
-    server.listen(port, () => {
+    server.listen(port, "127.0.0.1", () => {
       const addr = server.address();
       const actualPort = typeof addr === "object" && addr ? addr.port : port;
       console.log(
