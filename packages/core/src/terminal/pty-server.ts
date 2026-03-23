@@ -291,7 +291,11 @@ export async function createPtyWebSocketServer(
     ws.on("close", () => {
       console.log(`${logPrefix} WebSocket closed, killing PTY`);
       activePtys.delete(ptyProcess);
-      ptyProcess.kill();
+      try {
+        ptyProcess.kill();
+      } catch {
+        // Process may have already exited
+      }
     });
   });
 

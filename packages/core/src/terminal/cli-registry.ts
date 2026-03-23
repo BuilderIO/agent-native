@@ -33,7 +33,7 @@ export const CLI_REGISTRY: Record<string, CliEntry> = {
 
 /** Check if a command name is in the CLI_REGISTRY allowlist */
 export function isAllowedCommand(cmd: string): boolean {
-  return cmd in CLI_REGISTRY;
+  return Object.hasOwn(CLI_REGISTRY, cmd);
 }
 
 /** Check if a CLI command exists on PATH (safe — no shell interpolation) */
