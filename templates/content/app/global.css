@@ -49,45 +49,45 @@
     --sidebar-muted: 0 0% 55%;
   }
 
-  /* ===== Dark Mode (Notion dark) ===== */
+  /* ===== Dark Mode ===== */
   .dark {
-    --background: 0 0% 8%;
-    --foreground: 0 0% 88%;
+    --background: 220 6% 6%;
+    --foreground: 0 0% 90%;
 
-    --card: 0 0% 8%;
-    --card-foreground: 0 0% 88%;
+    --card: 220 5% 6%;
+    --card-foreground: 0 0% 90%;
 
-    --popover: 0 0% 13%;
-    --popover-foreground: 0 0% 88%;
+    --popover: 220 5% 10%;
+    --popover-foreground: 0 0% 90%;
 
-    --primary: 0 0% 88%;
-    --primary-foreground: 0 0% 8%;
+    --primary: 0 0% 90%;
+    --primary-foreground: 220 6% 6%;
 
-    --secondary: 0 0% 14%;
-    --secondary-foreground: 0 0% 88%;
+    --secondary: 220 4% 12%;
+    --secondary-foreground: 0 0% 90%;
 
-    --muted: 0 0% 14%;
-    --muted-foreground: 0 0% 50%;
+    --muted: 220 4% 10%;
+    --muted-foreground: 220 4% 50%;
 
-    --accent: 0 0% 14%;
-    --accent-foreground: 0 0% 88%;
+    --accent: 220 4% 13%;
+    --accent-foreground: 0 0% 90%;
 
     --destructive: 0 62% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 16%;
-    --input: 0 0% 16%;
+    --border: 220 4% 14%;
+    --input: 220 4% 14%;
     --ring: 0 0% 50%;
 
-    /* Sidebar dark — distinct from main area but still dark */
-    --sidebar-background: 0 0% 10%;
-    --sidebar-foreground: 0 0% 68%;
-    --sidebar-primary: 0 0% 80%;
-    --sidebar-primary-foreground: 0 0% 8%;
-    --sidebar-accent: 0 0% 16%;
-    --sidebar-accent-foreground: 0 0% 92%;
-    --sidebar-border: 0 0% 15%;
-    --sidebar-ring: 0 0% 50%;
+    /* Sidebar dark */
+    --sidebar-background: 220 6% 4%;
+    --sidebar-foreground: 220 4% 50%;
+    --sidebar-primary: 0 0% 75%;
+    --sidebar-primary-foreground: 220 6% 6%;
+    --sidebar-accent: 220 4% 10%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 220 4% 10%;
+    --sidebar-ring: 0 0% 60%;
     --sidebar-muted: 0 0% 50%;
   }
 }

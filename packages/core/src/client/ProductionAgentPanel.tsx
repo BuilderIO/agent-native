@@ -252,7 +252,7 @@ function AgentChatView({
   }, [input]);
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden bg-black">
+    <div className="flex flex-1 flex-col overflow-hidden bg-[#0e0f14] border-r border-white/[0.06]">
       {/* Header */}
       <div className="flex h-11 shrink-0 items-center justify-between border-b border-white/8 px-4">
         <span className="text-[13px] font-medium text-white/60">Agent</span>
