@@ -15,7 +15,7 @@ export const listEvents = defineEventHandler(async (event: H3Event) => {
     const query = getQuery(event);
     const from = query.from as string | undefined;
     const to = query.to as string | undefined;
-    const connected = googleCalendar.isConnected();
+    const connected = await googleCalendar.isConnected();
 
     if (!connected) {
       // Not connected — return empty list (no more local event files)
@@ -119,7 +119,7 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
   try {
     const body = await readBody(event);
 
-    if (!googleCalendar.isConnected()) {
+    if (!(await googleCalendar.isConnected())) {
       setResponseStatus(event, 400);
       return {
         error: "Google Calendar not connected. Connect via Settings first.",
@@ -160,7 +160,7 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
 
     const googleEventId = id.replace(/^google-/, "");
 
-    if (!googleCalendar.isConnected()) {
+    if (!(await googleCalendar.isConnected())) {
       setResponseStatus(event, 400);
       return { error: "Google Calendar not connected" };
     }
@@ -198,7 +198,7 @@ export const deleteEvent = defineEventHandler(async (event: H3Event) => {
 
     const googleEventId = id.replace(/^google-/, "");
 
-    if (!googleCalendar.isConnected()) {
+    if (!(await googleCalendar.isConnected())) {
       setResponseStatus(event, 400);
       return { error: "Google Calendar not connected" };
     }

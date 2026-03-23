@@ -32,9 +32,6 @@ const MAX_ITERATIONS = 20;
 export function createProductionAgentHandler(
   options: ProductionAgentOptions,
 ): H3EventHandler {
-  const client = new Anthropic({
-    apiKey: options.apiKey ?? process.env.ANTHROPIC_API_KEY,
-  });
   const model = options.model ?? "claude-sonnet-4-6";
 
   // Build Anthropic tool definitions from script registry
@@ -82,6 +79,16 @@ export function createProductionAgentHandler(
     const send = (ev: AgentChatEvent) => {
       if (!nodeRes.destroyed) nodeRes.write(sseEvent(ev));
     };
+
+    // Check for API key before attempting any API calls
+    const apiKey = options.apiKey ?? process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      send({ type: "missing_api_key" });
+      if (!nodeRes.destroyed) nodeRes.end();
+      return;
+    }
+
+    const client = new Anthropic({ apiKey });
 
     // Build messages for Anthropic API — skip empty-content history entries
     // (assistant turns with only tool calls have content="" in the client history)

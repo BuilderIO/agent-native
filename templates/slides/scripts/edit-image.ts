@@ -6,7 +6,12 @@
  *   pnpm script edit-image --input public/generated/slide5-v3.png --prompt "Remove the background and make it transparent. Remove any logos." --output public/assets/generated/slide5-edited
  */
 
-import { config } from "dotenv";
+const config = async () => {
+  try {
+    const m = await import("dotenv");
+    m.config();
+  } catch {}
+};
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname } from "path";
 
@@ -29,7 +34,7 @@ function parseArgs(args: string[]): Record<string, string> {
 }
 
 export default async function main(args: string[]) {
-  config();
+  await config();
 
   const opts = parseArgs(args);
   const inputPath = opts["input"];

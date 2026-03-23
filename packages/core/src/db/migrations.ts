@@ -10,14 +10,16 @@ export function runMigrations(
   return async () => {
     try {
       const url = process.env.DATABASE_URL || "file:./data/app.db";
+
+      // Ensure data directory exists before opening the database
+      if (url.startsWith("file:")) {
+        fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
+      }
+
       const client = createClient({
         url,
         authToken: process.env.DATABASE_AUTH_TOKEN,
       });
-
-      if (url.startsWith("file:")) {
-        fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
-      }
 
       await client.execute(
         `CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY)`,

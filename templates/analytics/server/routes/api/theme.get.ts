@@ -1,15 +1,10 @@
-import path from "path";
-import fs from "fs";
 import { defineEventHandler } from "h3";
+import { getSetting } from "@agent-native/core/settings";
 
-const mediaDir = path.resolve(import.meta.dirname, "../../../media");
-const themeFile = path.join(mediaDir, "theme.json");
-
-export default defineEventHandler(() => {
+export default defineEventHandler(async () => {
   try {
-    if (fs.existsSync(themeFile)) {
-      return JSON.parse(fs.readFileSync(themeFile, "utf8"));
-    }
+    const data = await getSetting("analytics-theme");
+    if (data) return data;
     return { theme: "dark" };
   } catch {
     return { theme: "dark" };

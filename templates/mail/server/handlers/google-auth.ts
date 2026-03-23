@@ -96,7 +96,7 @@ export const disconnectGoogle = defineEventHandler(async (event: H3Event) => {
   try {
     const body = await readBody(event);
     const email = body?.email as string | undefined;
-    disconnect(email);
+    await disconnect(email);
     return { success: true };
   } catch (error: any) {
     setResponseStatus(event, 500);

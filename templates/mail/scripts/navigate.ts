@@ -1,7 +1,7 @@
 /**
  * Navigate the UI to a view or thread.
  *
- * Writes application-state/navigate.json which the UI reads and auto-deletes.
+ * Writes a navigate command to application state which the UI reads and auto-deletes.
  *
  * Usage:
  *   pnpm script navigate --view=inbox
@@ -14,16 +14,13 @@
  *   --threadId   Thread to open
  */
 
-import fs from "fs";
-import path from "path";
 import { parseArgs, output, fatal } from "./helpers.js";
+import { writeAppState } from "@agent-native/core/application-state";
 import type { ScriptTool } from "@agent-native/core";
-
-const STATE_DIR = path.join(process.cwd(), "application-state");
 
 export const tool: ScriptTool = {
   description:
-    "Navigate the UI to a specific view or email thread. Writes application-state/navigate.json which the UI reads and auto-deletes.",
+    "Navigate the UI to a specific view or email thread. Writes a navigate command to application state which the UI reads and auto-deletes.",
   parameters: {
     type: "object",
     properties: {
@@ -44,10 +41,7 @@ export async function run(args: Record<string, string>): Promise<string> {
   const nav: Record<string, string> = {};
   if (args.view) nav.view = args.view;
   if (args.threadId) nav.threadId = args.threadId;
-  fs.writeFileSync(
-    path.join(STATE_DIR, "navigate.json"),
-    JSON.stringify(nav, null, 2),
-  );
+  await writeAppState("navigate", nav);
   return `Navigating to ${args.view || ""}${args.threadId ? ` thread:${args.threadId}` : ""}`;
 }
 

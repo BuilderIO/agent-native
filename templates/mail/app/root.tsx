@@ -59,15 +59,26 @@ function FileWatcherSetup() {
   useFileWatcher({
     queryClient: qc,
     queryKeys: [],
-    onEvent: (data: { type: string; path: string }) => {
-      if (data.path?.includes("application-state")) {
-        if (data.path?.includes("compose-")) {
+    onEvent: (data: {
+      source?: string;
+      type: string;
+      path?: string;
+      key?: string;
+    }) => {
+      if (data.source === "app-state") {
+        if (data.key?.startsWith("compose-")) {
           qc.invalidateQueries({
             queryKey: ["compose-drafts"],
             refetchType: "all",
           });
         }
         qc.invalidateQueries({ queryKey: ["navigate-command"] });
+      } else if (data.source === "settings") {
+        qc.invalidateQueries({ queryKey: ["settings"] });
+        qc.invalidateQueries({ queryKey: ["aliases"] });
+        qc.invalidateQueries({ queryKey: ["labels"] });
+        qc.invalidateQueries({ queryKey: ["emails"] });
+        qc.invalidateQueries({ queryKey: ["email"] });
       } else {
         qc.invalidateQueries({ queryKey: ["emails"] });
         qc.invalidateQueries({ queryKey: ["email"] });

@@ -1,30 +1,26 @@
 import { google } from "googleapis";
-import fs from "fs";
-import path from "path";
+import { getSetting, putSetting } from "@agent-native/core/settings";
 import { isConnected, getClient } from "./google-auth.js";
+import type { EmailMessage } from "@shared/types.js";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const EMAILS_FILE = path.join(DATA_DIR, "emails.json");
-
-function readEmails(): any[] {
-  try {
-    return JSON.parse(fs.readFileSync(EMAILS_FILE, "utf-8"));
-  } catch {
-    return [];
+async function readEmails(): Promise<any[]> {
+  const data = await getSetting("local-emails");
+  if (data && Array.isArray((data as any).emails)) {
+    return (data as any).emails;
   }
+  return [];
 }
 
-function writeEmails(emails: any[]): void {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(EMAILS_FILE, JSON.stringify(emails, null, 2));
+async function writeEmails(emails: any[]): Promise<void> {
+  await putSetting("local-emails", { emails });
 }
 
 /**
  * Resurface a snoozed email: remove ARCHIVE label, add UNREAD.
- * The SSE watcher picks up the data/emails.json change and notifies the UI.
+ * The SSE watcher picks up the data change and notifies the UI.
  */
 export async function resurfaceEmail(emailId: string): Promise<void> {
-  if (isConnected()) {
+  if (await isConnected()) {
     const client = await getClient();
     if (client) {
       const gmail = google.gmail({ version: "v1", auth: client });
@@ -41,7 +37,7 @@ export async function resurfaceEmail(emailId: string): Promise<void> {
   }
 
   // Local fallback
-  const emails = readEmails();
+  const emails = await readEmails();
   const idx = emails.findIndex((e: any) => e.id === emailId);
   if (idx !== -1) {
     emails[idx] = {
@@ -53,7 +49,7 @@ export async function resurfaceEmail(emailId: string): Promise<void> {
         ...(emails[idx].labelIds || []).filter((l: string) => l !== "inbox"),
       ],
     };
-    writeEmails(emails);
+    await writeEmails(emails);
   }
 }
 
@@ -76,7 +72,7 @@ export async function sendScheduledEmail(
 ): Promise<void> {
   const { to, cc, bcc, subject, body, from, replyToId, threadId } = payload;
 
-  if (isConnected()) {
+  if (await isConnected()) {
     const client = await getClient(from);
     if (client) {
       const gmail = google.gmail({ version: "v1", auth: client });
@@ -107,8 +103,8 @@ export async function sendScheduledEmail(
     }
   }
 
-  // Local fallback: write to emails.json as sent
-  const emails = readEmails();
+  // Local fallback: write to emails as sent
+  const emails = await readEmails();
   const { nanoid } = await import("nanoid");
   emails.push({
     id: `msg-${nanoid(8)}`,
@@ -126,5 +122,5 @@ export async function sendScheduledEmail(
     isTrashed: false,
     labelIds: ["sent"],
   });
-  writeEmails(emails);
+  await writeEmails(emails);
 }

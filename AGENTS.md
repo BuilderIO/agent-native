@@ -8,56 +8,62 @@ Agent-native is a framework for building apps where an AI agent is a first-class
 
 Every agent-native app follows these rules. Violating them breaks the architecture.
 
-### 1. Data lives in `data/`
+### 1. Data lives in SQL
 
-All app state lives in `data/` — either as SQLite (via Drizzle ORM) or as files (JSON/markdown). Most templates use SQLite (`data/app.db`) as the default data layer. SQLite works locally out of the box and can be upgraded to a cloud database (Turso, Neon, Supabase, D1) for public sharing and deployment.
+All app state lives in SQLite (`data/app.db`) via Drizzle ORM or the core SQL stores. SQLite works locally out of the box and can be upgraded to a cloud database (Turso, Neon, Supabase, D1) by setting `DATABASE_URL`. Local and production behave identically — no filesystem dependency for data.
 
-**Do:** Use SQLite via Drizzle for structured data (forms, bookings, compositions). Use files for content that benefits from being human-readable (markdown, settings JSON). Use `application-state/` for ephemeral UI state.
-**Don't:** Use localStorage for app state, store state only in memory, or call external databases directly without going through the Drizzle layer.
+**Core SQL stores** (auto-created, available in all templates):
+
+- `application_state` — ephemeral UI state (via `@agent-native/core/application-state`)
+- `settings` — persistent KV config (via `@agent-native/core/settings`)
+- `oauth_tokens` — OAuth credentials (via `@agent-native/core/oauth-tokens`)
+- `sessions` — auth sessions
+
+**Do:** Use Drizzle for structured domain data (forms, bookings, compositions). Use the `settings` store for app config. Use `application-state` for ephemeral UI state. Use `oauth-tokens` for credentials.
+**Don't:** Use JSON files for data storage. Don't use localStorage for app state. Don't store state only in memory.
 
 ### 2. All AI goes through the agent chat
 
-The UI never calls an LLM directly. When the user wants AI to do something, the UI sends a message to the agent via the chat bridge (`sendToAgentChat()`). The agent does the work and writes results to files.
+The UI never calls an LLM directly. When the user wants AI to do something, the UI sends a message to the agent via the chat bridge (`sendToAgentChat()`). The agent does the work and writes results to the database.
 
 **Do:** Use `sendToAgentChat()` from the client, `agentChat.submit()` from scripts.
 **Don't:** Import an AI SDK in client or server code. No `openai.chat()`, no `anthropic.messages()`, no inline LLM calls anywhere.
 
 ### 3. Scripts for agent operations
 
-When the agent needs to do something — query data, call APIs, process information — it runs a script via `pnpm script <name>`. Scripts live in `scripts/` and export a default async function. **Everything the UI can do, the agent can do via scripts and data files.**
+When the agent needs to do something — query data, call APIs, process information — it runs a script via `pnpm script <name>`. Scripts live in `scripts/` and export a default async function. **Everything the UI can do, the agent can do via scripts and the shared database.**
 
 **Do:** Create focused scripts for discrete operations. Parse args with `parseArgs()`. Use scripts to list, search, create, and manage data — not just for background tasks.
-**Don't:** Put complex logic inline in agent chat. Keep scripts small and composable. Don't say "I don't have access" — check the scripts and data files first.
+**Don't:** Put complex logic inline in agent chat. Keep scripts small and composable. Don't say "I don't have access" — check the scripts and database first.
 
 ### 4. SSE keeps the UI in sync
 
-A file watcher (`createFileWatcher`) streams changes to the UI via Server-Sent Events. When the agent writes a file, the UI updates automatically. Use `useFileWatcher()` to invalidate React Query caches on changes.
+Server-Sent Events stream database changes to the UI in real-time. When the agent writes to the database (application state, settings, or domain data), the SSE handler broadcasts the change. The client `useFileWatcher()` hook invalidates React Query caches on changes. SSE events have a `source` field: `"app-state"` or `"settings"`.
 
 ### 5. The agent can modify code
 
 The agent can edit the app's own source code — components, routes, styles, scripts. This is a feature. Design your app expecting this.
 
-### 6. Application state as files
+### 6. Application state in SQL
 
-Ephemeral UI state lives in `application-state/` as JSON files. Both the agent and the UI can read and write these files. When the agent writes a file (e.g., `application-state/compose.json`), the UI reacts via SSE and updates accordingly. When the user interacts with the UI, changes are written back to the same file so the agent can read them.
+Ephemeral UI state lives in the `application_state` SQL table, keyed by session ID and key. Both the agent and the UI can read and write application state. When the agent writes state (e.g., a compose draft), the UI reacts via SSE and updates accordingly. When the user interacts with the UI, changes are written back so the agent can read them.
 
-**Do:** Use `application-state/` for UI state the agent needs to trigger or modify (compose windows, search state, wizard steps).
-**Don't:** Use `application-state/` for persistent data — that belongs in `data/`. Don't store secrets or credentials here.
+**Do:** Use `writeAppState(key, value)` from scripts, `appStatePut(sessionId, key, value)` from server code. Use `readAppState(key)` to read state.
+**Don't:** Use application-state for persistent data — use the `settings` store instead. Don't store secrets here.
 
-**Rules:**
+**Script helpers** (from `@agent-native/core/application-state`):
 
-- Always gitignored — this is per-instance runtime state, not persisted across clones
-- Always in `.ignore` with negation (`!application-state/`) so agent tools (ripgrep, glob) can see the files
-- JSON files, one per state concern (e.g., `compose.json`, `search.json`)
-- File existence = state is active. Deleting the file = clearing the state.
-- The SSE file watcher watches `application-state/` alongside `data/`
+- `readAppState(key)` — read state for current session
+- `writeAppState(key, value)` — write state (triggers SSE)
+- `deleteAppState(key)` — delete state (triggers SSE)
+- `listAppState(prefix)` — list state by key prefix
 
 ## Authentication
 
 Auth is automatic and environment-driven. Templates include a `server/plugins/auth.ts` Nitro plugin that calls `autoMountAuth(app)` at startup.
 
 - **Dev mode** (`NODE_ENV !== "production"`): Auth is bypassed. `getSession()` returns `{ email: "local@localhost" }`. No login page.
-- **Production** (`ACCESS_TOKEN` set): Auth middleware mounts automatically. Login page for unauthenticated visitors. Cookie-based sessions stored in `data/.sessions.json`.
+- **Production** (`ACCESS_TOKEN` set): Auth middleware mounts automatically. Login page for unauthenticated visitors. Cookie-based sessions stored in SQL.
 - **Production** (no token, no `AUTH_DISABLED=true`): Server refuses to start with a clear error.
 
 **Key APIs:**
@@ -91,7 +97,7 @@ server/                # Nitro API server
   handlers/            # Route handler modules (for larger apps)
 shared/                # Isomorphic code (client + server)
 scripts/               # Agent-callable scripts
-data/                  # App data (SQLite DB + config files, watched by SSE)
+data/                  # App data (SQLite DB at data/app.db)
 react-router.config.ts # React Router framework config
 ```
 
@@ -103,7 +109,7 @@ Create `scripts/my-script.ts`:
 import { parseArgs } from "@agent-native/core";
 export default async function (args: string[]) {
   const { name } = parseArgs(args);
-  // do work — query DB, write files, call APIs
+  // do work — query DB, call APIs
 }
 ```
 
@@ -147,10 +153,10 @@ Agent skills in `.agents/skills/` provide detailed guidance for architectural ru
 
 | Skill                 | When to use                                          |
 | --------------------- | ---------------------------------------------------- |
+| `storing-data`        | Adding data models, reading/writing config or state  |
+| `real-time-sync`      | Wiring SSE, debugging UI not updating                |
 | `delegate-to-agent`   | Delegating AI work from UI or scripts to the agent   |
-| `files-as-database`   | Storing app state as files (for content, settings)   |
 | `scripts`             | Creating or running agent scripts                    |
-| `sse-file-watcher`    | Wiring up real-time UI sync                          |
 | `self-modifying-code` | Editing app source, components, or styles            |
 | `create-skill`        | Adding new skills for the agent                      |
 | `capture-learnings`   | Recording corrections and patterns                   |

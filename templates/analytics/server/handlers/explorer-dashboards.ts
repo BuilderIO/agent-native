@@ -4,31 +4,24 @@ import {
   readBody,
   setResponseStatus,
 } from "h3";
-import fs from "fs";
-import path from "path";
+import {
+  getSetting,
+  putSetting,
+  deleteSetting,
+  getAllSettings,
+} from "@agent-native/core/settings";
 
-const DASHBOARD_DIR = path.join(
-  import.meta.dirname,
-  "../../data/explorer-dashboards",
-);
+const KEY_PREFIX = "dashboard-";
 
-function ensureDir() {
-  if (!fs.existsSync(DASHBOARD_DIR)) {
-    fs.mkdirSync(DASHBOARD_DIR, { recursive: true });
-  }
-}
-
-export const listExplorerDashboards = defineEventHandler((_event) => {
-  ensureDir();
+export const listExplorerDashboards = defineEventHandler(async (_event) => {
   try {
-    const files = fs
-      .readdirSync(DASHBOARD_DIR)
-      .filter((f) => f.endsWith(".json"));
-    const dashboards = files.map((f) => {
-      const raw = fs.readFileSync(path.join(DASHBOARD_DIR, f), "utf8");
-      const data = JSON.parse(raw);
-      return { id: f.replace(".json", ""), ...data };
-    });
+    const all = await getAllSettings();
+    const dashboards = Object.entries(all)
+      .filter(([key]) => key.startsWith(KEY_PREFIX))
+      .map(([key, data]) => ({
+        id: key.slice(KEY_PREFIX.length),
+        ...data,
+      }));
     return { dashboards };
   } catch (err: any) {
     setResponseStatus(_event, 500);
@@ -36,17 +29,15 @@ export const listExplorerDashboards = defineEventHandler((_event) => {
   }
 });
 
-export const getExplorerDashboard = defineEventHandler((event) => {
-  ensureDir();
+export const getExplorerDashboard = defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
-  const filePath = path.join(DASHBOARD_DIR, `${id}.json`);
-  if (!fs.existsSync(filePath)) {
-    setResponseStatus(event, 404);
-    return { error: "Dashboard not found" };
-  }
   try {
-    const raw = fs.readFileSync(filePath, "utf8");
-    return { id, ...JSON.parse(raw) };
+    const data = await getSetting(`${KEY_PREFIX}${id}`);
+    if (!data) {
+      setResponseStatus(event, 404);
+      return { error: "Dashboard not found" };
+    }
+    return { id, ...data };
   } catch (err: any) {
     setResponseStatus(event, 500);
     return { error: err.message };
@@ -54,12 +45,10 @@ export const getExplorerDashboard = defineEventHandler((event) => {
 });
 
 export const saveExplorerDashboard = defineEventHandler(async (event) => {
-  ensureDir();
   const id = getRouterParam(event, "id");
-  const filePath = path.join(DASHBOARD_DIR, `${id}.json`);
   try {
     const body = await readBody(event);
-    fs.writeFileSync(filePath, JSON.stringify(body, null, 2));
+    await putSetting(`${KEY_PREFIX}${id}`, body);
     return { id, success: true };
   } catch (err: any) {
     setResponseStatus(event, 500);
@@ -67,12 +56,8 @@ export const saveExplorerDashboard = defineEventHandler(async (event) => {
   }
 });
 
-export const deleteExplorerDashboard = defineEventHandler((event) => {
-  ensureDir();
+export const deleteExplorerDashboard = defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
-  const filePath = path.join(DASHBOARD_DIR, `${id}.json`);
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
-  }
+  await deleteSetting(`${KEY_PREFIX}${id}`);
   return { id, success: true };
 });

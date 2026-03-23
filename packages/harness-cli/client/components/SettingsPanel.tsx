@@ -103,55 +103,67 @@ export function SettingsPanel({
           </span>
         </div>
       )}
-      <div className="flex items-center gap-2 mt-1">
-        <span
-          className={`flex items-center gap-1 text-[10px] ${connected ? "text-green-400" : "text-red-400"}`}
-        >
-          <span
-            className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`}
+      {config.command !== "agent-ui" && (
+        <>
+          <div className="flex items-center gap-2 mt-1">
+            <span
+              className={`flex items-center gap-1 text-[10px] ${connected ? "text-green-400" : "text-red-400"}`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`}
+              />
+              {connected ? "Connected" : "Disconnected"}
+            </span>
+          </div>
+          <p className="text-[11px] text-white/30 mt-1 mb-1 leading-relaxed">
+            Local CLI-powered. For teams, cloud, and collaboration use{" "}
+            <a
+              href="https://www.builder.io"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400/60 hover:text-blue-300"
+            >
+              Builder.io
+            </a>
+            .
+          </p>
+
+          <div className="border-t border-white/10 my-2" />
+
+          <label className="text-xs text-white/60">Launch flags</label>
+          <input
+            type="text"
+            value={settings.custom}
+            onChange={(e) => update({ custom: e.target.value })}
+            placeholder={config.customPlaceholder}
+            className="w-full mt-1 bg-[#1e1e1e] border border-white/10 rounded px-2 py-1 text-xs text-white/80 font-mono focus:outline-none focus:border-blue-500"
           />
-          {connected ? "Connected" : "Disconnected"}
-        </span>
-      </div>
-      <p className="text-[11px] text-white/30 mt-1 mb-1 leading-relaxed">
-        Local CLI-powered. For teams, cloud, and collaboration use{" "}
-        <a
-          href="https://www.builder.io"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-blue-400/60 hover:text-blue-300"
-        >
-          Builder.io
-        </a>
-        .
-      </p>
+          <p className="text-[11px] text-white/30 mt-1">
+            Space-separated flags appended to the command
+          </p>
 
-      <div className="border-t border-white/10 my-2" />
+          <div className="border-t border-white/10 my-2" />
 
-      <label className="text-xs text-white/60">Launch flags</label>
-      <input
-        type="text"
-        value={settings.custom}
-        onChange={(e) => update({ custom: e.target.value })}
-        placeholder={config.customPlaceholder}
-        className="w-full mt-1 bg-[#1e1e1e] border border-white/10 rounded px-2 py-1 text-xs text-white/80 font-mono focus:outline-none focus:border-blue-500"
-      />
-      <p className="text-[11px] text-white/30 mt-1">
-        Space-separated flags appended to the command
-      </p>
-
-      <div className="border-t border-white/10 my-2" />
-
-      <button
-        onClick={onRestart}
-        className="flex items-center gap-2 w-full px-2 py-1.5 rounded text-xs text-red-400 hover:bg-red-500/10 transition-colors"
-      >
-        <IconRefresh size={13} stroke={1.5} />
-        Restart {config.name}
-      </button>
-      <p className="text-[11px] text-white/30 ml-7">
-        Ends the current session and relaunches with these settings
-      </p>
+          <button
+            onClick={onRestart}
+            className="flex items-center gap-2 w-full px-2 py-1.5 rounded text-xs text-red-400 hover:bg-red-500/10 transition-colors"
+          >
+            <IconRefresh size={13} stroke={1.5} />
+            Restart {config.name}
+          </button>
+          <p className="text-[11px] text-white/30 ml-7">
+            Ends the current session and relaunches with these settings
+          </p>
+        </>
+      )}
+      {config.command === "agent-ui" && (
+        <p className="text-[11px] text-white/30 mt-1 leading-relaxed">
+          Chat UI powered by the Anthropic API with script-based tools. Requires
+          the app to have{" "}
+          <code className="text-white/50">createProductionAgentHandler</code>{" "}
+          mounted at <code className="text-white/50">/api/agent-chat</code>.
+        </p>
+      )}
     </div>
   );
 }

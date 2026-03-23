@@ -23,6 +23,9 @@
     "./client": "./dist/client/index.js",
     "./shared": "./dist/shared/index.js",
     "./scripts": "./dist/scripts/index.js",
+    "./application-state": "./dist/application-state/index.js",
+    "./settings": "./dist/settings/index.js",
+    "./oauth-tokens": "./dist/oauth-tokens/index.js",
     "./adapters/sync": "./dist/adapters/sync/index.js",
     "./adapters/drizzle": "./dist/adapters/drizzle/index.js",
     "./adapters/firestore": "./dist/adapters/firestore/index.js",
@@ -31,6 +34,8 @@
     "./adapters/cli": "./dist/adapters/cli/index.js",
     "./router": "./dist/router/index.js",
     "./a2a": "./dist/a2a/index.js",
+    "./terminal": "./dist/client/terminal/index.js",
+    "./terminal/server": "./dist/terminal/index.js",
     "./tailwind": "./dist/tailwind.preset.js",
     "./tsconfig.base.json": "./tsconfig.base.json"
   },
@@ -53,6 +58,7 @@
     "@libsql/client": "^0.15.0",
     "@react-router/dev": "^7.13.1",
     "@react-router/fs-routes": "^7.13.1",
+    "@tailwindcss/typography": "^0.5.19",
     "better-sqlite3": "^12.8.0",
     "chokidar": "^4.0.0",
     "clsx": "^2.1.1",
@@ -63,15 +69,23 @@
     "minimatch": "^10.0.0",
     "nitro": "^3.0.0",
     "p-limit": "^7.3.0",
+    "react-markdown": "^10.1.0",
     "react-router": "^7.13.1",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^2.6.0"
   },
   "peerDependencies": {
+    "@assistant-ui/react": ">=0.12",
+    "@assistant-ui/react-markdown": ">=0.12",
     "@supabase/supabase-js": ">=2",
     "@tanstack/react-query": ">=5",
     "@vitejs/plugin-react-swc": ">=4",
+    "@xterm/addon-fit": ">=0.10",
+    "@xterm/addon-web-links": ">=0.11",
+    "@xterm/xterm": ">=5",
     "autoprefixer": ">=10",
     "convex": ">=1",
+    "node-pty": ">=1",
     "postcss": ">=8",
     "react": ">=18",
     "react-dom": ">=18",
@@ -79,9 +93,16 @@
     "tailwindcss": ">=3",
     "tailwindcss-animate": ">=1",
     "typescript": ">=5",
-    "vite": ">=7"
+    "vite": ">=7",
+    "ws": ">=8"
   },
   "peerDependenciesMeta": {
+    "@assistant-ui/react": {
+      "optional": true
+    },
+    "@assistant-ui/react-markdown": {
+      "optional": true
+    },
     "@tanstack/react-query": {
       "optional": true
     },
@@ -111,9 +132,26 @@
     },
     "convex": {
       "optional": true
+    },
+    "@xterm/xterm": {
+      "optional": true
+    },
+    "@xterm/addon-fit": {
+      "optional": true
+    },
+    "@xterm/addon-web-links": {
+      "optional": true
+    },
+    "node-pty": {
+      "optional": true
+    },
+    "ws": {
+      "optional": true
     }
   },
   "devDependencies": {
+    "@assistant-ui/react": "^0.12.19",
+    "@assistant-ui/react-markdown": "^0.12.6",
     "@react-router/dev": "^7.13.1",
     "@react-router/fs-routes": "^7.13.1",
     "@supabase/supabase-js": "^2.49.0",
@@ -122,10 +160,15 @@
     "@types/express": "^5.0.6",
     "@types/node": "^24.2.1",
     "@types/react": "^18.3.23",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react-swc": "^4.0.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
     "autoprefixer": "^10.4.21",
     "express": "^5.2.1",
     "firebase-admin": "^13.0.0",
+    "node-pty": "^1.1.0",
     "postcss": "^8.5.6",
     "react": "^18.3.1",
     "react-router": "^7.13.1",
@@ -133,6 +176,7 @@
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.9.2",
     "vite": "^8.0.0",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "ws": "^8.18.0"
   }
 }

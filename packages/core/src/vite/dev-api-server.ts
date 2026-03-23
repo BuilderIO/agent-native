@@ -146,6 +146,7 @@ export function devApiServer(): Plugin {
     configureServer(server) {
       const cwd = server.config.root || process.cwd();
       const apiDir = path.join(cwd, "server/routes/api");
+      const serverDir = path.join(cwd, "server");
 
       // Skip if no API routes directory exists
       if (!fs.existsSync(apiDir)) return;
@@ -154,6 +155,24 @@ export function devApiServer(): Plugin {
       // This avoids blocking server startup and ensures ssrLoadModule is ready.
       let listenerPromise: Promise<ReturnType<typeof toNodeListener>> | null =
         null;
+
+      // Watch server/ directory for changes and invalidate the listener
+      // so it rebuilds on the next API request (no full restart needed).
+      if (fs.existsSync(serverDir)) {
+        const watcher = fs.watch(
+          serverDir,
+          { recursive: true },
+          (_, filename) => {
+            if (filename && filename.endsWith(".ts")) {
+              listenerPromise = null;
+              console.log(
+                `[dev-api-server] Server file changed: ${filename} — will reload on next request`,
+              );
+            }
+          },
+        );
+        server.httpServer?.on("close", () => watcher.close());
+      }
 
       // Add middleware DIRECTLY (not via return) so it runs BEFORE
       // Vite's internal middleware and React Router's SSR handler.

@@ -17,6 +17,7 @@ import {
   useTrashEmail,
   useToggleStar,
   useMarkRead,
+  useMarkThreadRead,
   useUnarchiveEmail,
   useSettings,
   useUpdateSettings,
@@ -236,6 +237,17 @@ export function EmailThread({
   const trashEmail = useTrashEmail();
   const toggleStar = useToggleStar();
   const markRead = useMarkRead();
+  const markThreadRead = useMarkThreadRead();
+
+  // Auto-mark all unread messages in this thread as read when viewed
+  const hasUnread = messages.some((m) => !m.isRead);
+  useEffect(() => {
+    if (threadId && hasUnread) {
+      markThreadRead.mutate(threadId);
+    }
+    // Only trigger when threadId changes or messages load with unread
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId, hasUnread]);
 
   const goBack = useCallback(
     () => navigate(`/${view}${labelSuffix}`),

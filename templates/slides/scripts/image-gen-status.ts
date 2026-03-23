@@ -2,10 +2,15 @@
  * Check which image generation providers are configured.
  */
 
-import { config } from "dotenv";
+const config = async () => {
+  try {
+    const m = await import("dotenv");
+    m.config();
+  } catch {}
+};
 
 export default async function main(_args: string[]) {
-  config();
+  await config();
 
   console.log("Image Generation Status:");
   console.log("========================");

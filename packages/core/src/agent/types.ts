@@ -29,4 +29,5 @@ export type AgentChatEvent =
   | { type: "tool_start"; tool: string; input: Record<string, string> }
   | { type: "tool_done"; tool: string; result: string }
   | { type: "done" }
-  | { type: "error"; error: string };
+  | { type: "error"; error: string }
+  | { type: "missing_api_key" };

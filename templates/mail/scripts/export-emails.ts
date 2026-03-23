@@ -5,17 +5,17 @@
  */
 
 import fs from "fs";
-import path from "path";
 import { parseArgs, output, fatal } from "./helpers.js";
-
-const EMAILS_FILE = path.join(process.cwd(), "data", "emails.json");
+import { getSetting } from "@agent-native/core/settings";
 
 export default async function main(): Promise<void> {
   const args = parseArgs();
   const view = args.view ?? "inbox";
   const outputPath = args.output;
 
-  const emails: any[] = JSON.parse(fs.readFileSync(EMAILS_FILE, "utf-8"));
+  const data = await getSetting("local-emails");
+  const emails: any[] =
+    data && Array.isArray((data as any).emails) ? (data as any).emails : [];
 
   let filtered = emails;
   switch (view) {
@@ -50,7 +50,7 @@ export default async function main(): Promise<void> {
   if (outputPath) {
     fs.writeFileSync(outputPath, JSON.stringify(filtered, null, 2));
     console.error(
-      `✓ Exported ${filtered.length} email(s) from "${view}" to ${outputPath}`,
+      `Exported ${filtered.length} email(s) from "${view}" to ${outputPath}`,
     );
   } else {
     output(filtered);

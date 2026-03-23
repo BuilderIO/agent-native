@@ -1,27 +1,16 @@
 /**
  * See what the user is currently looking at on screen.
  *
- * Reads application-state files to show the current view, email list,
+ * Reads application state to show the current view, email list,
  * and open thread (if any).
  *
  * Usage:
  *   pnpm script view-screen
  */
 
-import fs from "fs";
-import path from "path";
 import { parseArgs, output } from "./helpers.js";
+import { readAppState } from "@agent-native/core/application-state";
 import type { ScriptTool } from "@agent-native/core";
-
-const STATE_DIR = path.join(process.cwd(), "application-state");
-
-function readJson(filename: string): unknown | null {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(STATE_DIR, filename), "utf-8"));
-  } catch {
-    return null;
-  }
-}
 
 export const tool: ScriptTool = {
   description:
@@ -40,9 +29,9 @@ export const tool: ScriptTool = {
 };
 
 export async function run(args: Record<string, string>): Promise<string> {
-  const navigation = readJson("navigation.json");
-  const emailList = readJson("email-list.json");
-  const thread = readJson("thread.json");
+  const navigation = await readAppState("navigation");
+  const emailList = await readAppState("email-list");
+  const thread = await readAppState("thread");
 
   const screen: Record<string, unknown> = {};
   if (navigation) screen.navigation = navigation;
@@ -57,9 +46,9 @@ export async function run(args: Record<string, string>): Promise<string> {
 
 export default async function main(): Promise<void> {
   const args = parseArgs() as Record<string, string>;
-  const navigation = readJson("navigation.json");
-  const emailList = readJson("email-list.json");
-  const thread = readJson("thread.json");
+  const navigation = await readAppState("navigation");
+  const emailList = await readAppState("email-list");
+  const thread = await readAppState("thread");
 
   const screen: Record<string, unknown> = {};
   if (navigation) screen.navigation = navigation;

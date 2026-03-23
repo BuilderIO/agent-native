@@ -1,5 +1,6 @@
 export {
   createServer,
+  upsertEnvFile,
   type CreateServerOptions,
   type EnvKeyConfig,
 } from "./create-server.js";
@@ -27,20 +28,29 @@ export {
   type AgentChatRequest,
   type AgentChatEvent,
 } from "../agent/index.js";
+export { createDevScriptRegistry } from "../scripts/dev/index.js";
 
 export {
-  getDefaultWatcher,
   getDefaultSSEEmitters,
-  getDefaultSyncResult,
   setDefaultSyncResult,
   createDefaultSSEHandler,
   defaultSyncStatusHandler,
 } from "./default-watcher.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
 export {
+  createAgentChatPlugin,
+  defaultAgentChatPlugin,
+  type AgentChatPluginOptions,
+} from "./agent-chat-plugin.js";
+export {
   createFileSyncPlugin,
   defaultFileSyncPlugin,
 } from "./file-sync-plugin.js";
+export {
+  createTerminalPlugin,
+  defaultTerminalPlugin,
+  type TerminalPluginOptions,
+} from "../terminal/terminal-plugin.js";
 
 // Nitro plugin helper — re-exported so templates don't need nitro as a direct dependency.
 // defineNitroPlugin is an identity function; this typed wrapper lets templates use it

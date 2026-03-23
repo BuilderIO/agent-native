@@ -4,19 +4,11 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import fs from "fs";
-import path from "path";
+import { appStateGet } from "@agent-native/core/application-state";
 
-const STATE_DIR = path.join(process.cwd(), "application-state");
-const PYLON_FILE = path.join(STATE_DIR, "pylon.json");
-
-function getPylonKey(): string | undefined {
-  try {
-    const data = JSON.parse(fs.readFileSync(PYLON_FILE, "utf-8"));
-    return data.apiKey || undefined;
-  } catch {
-    return undefined;
-  }
+async function getPylonKey(): Promise<string | undefined> {
+  const data = await appStateGet("local", "pylon");
+  return (data as any)?.apiKey || undefined;
 }
 
 // GET /api/pylon/contact?email=...
@@ -27,7 +19,7 @@ export const pylonContactLookup = defineEventHandler(async (event: H3Event) => {
     return { error: "email query param required" };
   }
 
-  const apiKey = getPylonKey();
+  const apiKey = await getPylonKey();
   if (!apiKey) {
     setResponseStatus(event, 401);
     return { error: "Pylon API key not configured" };

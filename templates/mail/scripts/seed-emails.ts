@@ -1,15 +1,12 @@
 /**
- * DEV TOOL: Generates fake test emails and appends them to data/emails.json.
+ * DEV TOOL: Generates fake test emails and stores them in the local emails store.
  * These are NOT real emails — they are synthetic data for testing the UI without a Google account.
  * Usage: pnpm script seed-emails --count=10
  */
 
-import fs from "fs";
-import path from "path";
 import { nanoid } from "nanoid";
 import { parseArgs, output, fatal } from "./helpers.js";
-
-const EMAILS_FILE = path.join(process.cwd(), "data", "emails.json");
+import { getSetting, putSetting } from "@agent-native/core/settings";
 
 const SENDERS = [
   { name: "Sarah Chen", email: "sarah.chen@acme.com" },
@@ -66,12 +63,9 @@ export default async function main(): Promise<void> {
 
   if (isNaN(count) || count < 1) fatal("--count must be a positive integer");
 
-  let emails: unknown[] = [];
-  try {
-    emails = JSON.parse(fs.readFileSync(EMAILS_FILE, "utf-8"));
-  } catch {
-    emails = [];
-  }
+  const data = await getSetting("local-emails");
+  let emails: unknown[] =
+    data && Array.isArray((data as any).emails) ? (data as any).emails : [];
 
   const newEmails = Array.from({ length: count }, () => {
     const sender = randomFrom(SENDERS);
@@ -97,11 +91,11 @@ export default async function main(): Promise<void> {
   });
 
   emails.push(...newEmails);
-  fs.writeFileSync(EMAILS_FILE, JSON.stringify(emails, null, 2));
+  await putSetting("local-emails", { emails });
 
   output({
     added: count,
     total: (emails as unknown[]).length,
-    message: `Added ${count} demo email(s) to data/emails.json`,
+    message: `Added ${count} demo email(s) to local store`,
   });
 }

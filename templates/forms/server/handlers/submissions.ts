@@ -9,8 +9,7 @@ import {
 } from "h3";
 import { eq, desc, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import fs from "fs";
-import path from "path";
+
 import { verifyCaptcha } from "@agent-native/core/server";
 import { getDb, schema } from "../db/index.js";
 import type { FormField, FormResponse } from "../../shared/types.js";
@@ -147,14 +146,15 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     })
     .run();
 
-  // Write submission notification to application-state
+  // Write submission notification to application state (SQL-backed)
   try {
-    const stateDir = path.join(process.cwd(), "application-state");
-    fs.mkdirSync(stateDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(stateDir, "new-submission.json"),
-      JSON.stringify({ formId: id, responseId, timestamp: now }, null, 2),
-    );
+    const { appStatePut } =
+      await import("@agent-native/core/application-state");
+    await appStatePut("local", "new-submission", {
+      formId: id,
+      responseId,
+      timestamp: now,
+    });
   } catch {
     // Non-critical — don't fail the submission
   }

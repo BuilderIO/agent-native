@@ -11,7 +11,12 @@
  *   --help    Show this help
  */
 
-import { config } from "dotenv";
+const config = async () => {
+  try {
+    const m = await import("dotenv");
+    m.config();
+  } catch {}
+};
 
 function parseArgs(args: string[]): Record<string, string> {
   const result: Record<string, string> = {};
@@ -32,7 +37,7 @@ function parseArgs(args: string[]): Record<string, string> {
 }
 
 export default async function main(args: string[]) {
-  config();
+  await config();
 
   const parsed = parseArgs(args);
 

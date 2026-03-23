@@ -12,14 +12,14 @@
  *   --id    Email ID(s) to archive, comma-separated (required)
  */
 
-import fs from "fs";
-import path from "path";
 import { google } from "googleapis";
 import { parseArgs, output, fatal } from "./helpers.js";
 import { getClients } from "../server/lib/google-auth.js";
+import {
+  readAppState,
+  writeAppState,
+} from "@agent-native/core/application-state";
 import type { ScriptTool } from "@agent-native/core";
-
-const STATE_DIR = path.join(process.cwd(), "application-state");
 
 export const tool: ScriptTool = {
   description:
@@ -36,12 +36,8 @@ export const tool: ScriptTool = {
   },
 };
 
-function readJson(filename: string): any | null {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(STATE_DIR, filename), "utf-8"));
-  } catch {
-    return null;
-  }
+async function readJson(key: string): Promise<any | null> {
+  return readAppState(key);
 }
 
 export async function run(args: Record<string, string>): Promise<string> {
@@ -59,9 +55,9 @@ export async function run(args: Record<string, string>): Promise<string> {
     return "Error: No Google account connected. Connect an account in the app first.";
   }
 
-  const navigation = readJson("navigation.json");
-  const emailList = readJson("email-list.json");
-  const thread = readJson("thread.json");
+  const navigation = await readJson("navigation");
+  const emailList = await readJson("email-list");
+  const thread = await readJson("thread");
 
   const results: { id: string; success: boolean; error?: string }[] = [];
 
@@ -119,10 +115,7 @@ export async function run(args: Record<string, string>): Promise<string> {
         view: emailList.view ?? navigation?.view ?? "inbox",
       };
       if (nextEmail?.threadId) nav.threadId = nextEmail.threadId;
-      fs.writeFileSync(
-        path.join(STATE_DIR, "navigate.json"),
-        JSON.stringify(nav, null, 2),
-      );
+      await writeAppState("navigate", nav);
     }
   }
 

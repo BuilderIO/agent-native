@@ -7,6 +7,12 @@ import path from "path";
 import fs from "fs";
 
 import {
+  CLI_REGISTRY,
+  commandExists,
+  isAllowedCommand,
+} from "@agent-native/core/terminal/server";
+
+import {
   withChatLock,
   snapshotDataDir,
   diffSnapshots,
@@ -14,29 +20,6 @@ import {
   ASYNC_SYSTEM_PROMPT,
   type DataSnapshot,
 } from "./utils.js";
-
-// Known CLI tools and their install packages + env vars to strip
-const CLI_REGISTRY: Record<
-  string,
-  { installPackage: string; stripEnv: string[] }
-> = {
-  claude: {
-    installPackage: "@anthropic-ai/claude-code",
-    stripEnv: ["CLAUDECODE", "CLAUDE_CODE_SESSION"],
-  },
-  codex: {
-    installPackage: "@openai/codex",
-    stripEnv: [],
-  },
-  gemini: {
-    installPackage: "@google/gemini-cli",
-    stripEnv: [],
-  },
-  opencode: {
-    installPackage: "opencode-ai",
-    stripEnv: [],
-  },
-};
 
 // Parse CLI args
 function parseArgs(args: string[]): {
@@ -247,21 +230,42 @@ const server = createServer(
 );
 const wss = new WebSocketServer({ server });
 
-function commandExists(cmd: string): boolean {
-  try {
-    execSync(`command -v ${cmd}`, { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 // WebSocket handling — each connection gets a PTY
 wss.on("connection", async (ws: WebSocket, req) => {
   const url = new URL(req.url || "", `http://${req.headers.host}`);
   const command = url.searchParams.get("command") || config.command;
   const extraFlags = url.searchParams.get("flags") || "";
   console.log("[harness] WebSocket connected for command:", command);
+
+  // Validate command against allowlist
+  if (!isAllowedCommand(command)) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "setup-status",
+          status: "not-found",
+          message: `"${command}" is not a recognized CLI. Allowed: ${Object.keys(CLI_REGISTRY).join(", ")}`,
+        }),
+      );
+      ws.close();
+    }
+    return;
+  }
+
+  // Reject flags containing shell metacharacters
+  if (extraFlags && /[;&|`$(){}\n\r<>]/.test(extraFlags)) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "setup-status",
+          status: "failed",
+          message: "Invalid flags: shell metacharacters not allowed",
+        }),
+      );
+      ws.close();
+    }
+    return;
+  }
 
   // Check if CLI is installed; if not, use npx to run it
   let useNpx = false;

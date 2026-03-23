@@ -6,6 +6,7 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
   useEmails,
   useMarkRead,
+  useMarkThreadRead,
   useToggleStar,
   useArchiveEmail,
   useTrashEmail,
@@ -128,7 +129,6 @@ const INBOX_ZERO_PHOTOS = [
   "photo-1476610182048-b716b8518aae", // Lightning storm
   "photo-1490730141103-6cac27aaab94", // Sunrise mountains
   "photo-1527489377706-5bf97e608852", // Blue ice cave
-  "photo-1504701954957-2010ec3bcec1", // Starry night sky
   "photo-1542224566-6e85f2e6772f", // Autumn forest path
   "photo-1501785888041-af3ef285b470", // Italian coast
   "photo-1523712999610-f77fbcfc3843", // Foggy forest
@@ -157,23 +157,23 @@ export function InboxZero() {
   const imageUrl = `https://images.unsplash.com/${photoId}?w=1920&q=80&fit=crop`;
 
   return (
-    <div className="absolute inset-0 z-10 flex flex-col overflow-hidden">
-      {/* Background image */}
+    <div className="relative flex-1 flex flex-col overflow-hidden">
+      {/* Background image — fixed so it extends behind header + agent sidebar for blur */}
       <img
         src={imageUrl}
         alt=""
         onLoad={() => setLoaded(true)}
         className={cn(
-          "absolute inset-0 h-full w-full object-cover",
+          "fixed inset-0 h-full w-full object-cover",
           loaded ? "opacity-100" : "opacity-0",
         )}
       />
 
       {/* Top gradient — darken behind the tab bar */}
-      <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/50 to-transparent" />
+      <div className="fixed inset-x-0 top-0 h-24 bg-gradient-to-b from-black/50 to-transparent" />
 
       {/* Bottom gradient — text legibility */}
-      <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/60 to-transparent" />
+      <div className="fixed inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/60 to-transparent" />
 
       {/* Fallback bg while image loads */}
       <div className="absolute inset-0 bg-muted dark:bg-[hsl(220,6%,8%)] -z-10" />
@@ -223,6 +223,7 @@ export function EmailList({
 
   const emails = emailsProp ?? fetchedEmails;
   const markRead = useMarkRead();
+  const markThreadRead = useMarkThreadRead();
   const toggleStar = useToggleStar();
   const archiveEmail = useArchiveEmail();
   const trashEmail = useTrashEmail();
@@ -258,12 +259,13 @@ export function EmailList({
     if (!focusedId) return;
     const thread = threads.find((t) => t.latestMessage.id === focusedId);
     if (!thread) return;
-    if (!thread.latestMessage.isRead)
-      markRead.mutate({ id: focusedId, isRead: true });
+    if (thread.hasUnread) {
+      markThreadRead.mutate(thread.latestMessage.threadId || focusedId);
+    }
     navigate(
       `/${view}/${thread.latestMessage.threadId || focusedId}${labelSuffix}`,
     );
-  }, [focusedId, threads, view, navigate, markRead, labelSuffix]);
+  }, [focusedId, threads, view, navigate, markThreadRead, labelSuffix]);
 
   const archiveFocused = useCallback(() => {
     if (!focusedId) return;
@@ -401,7 +403,9 @@ export function EmailList({
       onDraftOpen(email);
       return;
     }
-    if (!email.isRead) markRead.mutate({ id: email.id, isRead: true });
+    if (thread.hasUnread) {
+      markThreadRead.mutate(email.threadId || email.id);
+    }
     navigate(`/${view}/${email.threadId || email.id}${labelSuffix}`);
   };
 

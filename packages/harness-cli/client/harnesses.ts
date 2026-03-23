@@ -77,9 +77,18 @@ export const opencodeConfig: HarnessConfig = {
   customPlaceholder: "e.g. --provider anthropic",
 };
 
+export const agentUiConfig: HarnessConfig = {
+  name: "Agent UI",
+  command: "agent-ui",
+  installPackage: "",
+  options: [],
+  customPlaceholder: "",
+};
+
 export const allHarnesses: HarnessConfig[] = [
   claudeCodeConfig,
   codexConfig,
   geminiConfig,
   opencodeConfig,
+  agentUiConfig,
 ];

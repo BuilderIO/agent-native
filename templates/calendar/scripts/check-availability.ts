@@ -10,10 +10,14 @@
  *   --duration  Minimum slot duration in minutes (default: 30)
  */
 
-import { config } from "dotenv";
-import { readFileSync } from "fs";
-import { join } from "path";
+const config = async () => {
+  try {
+    const m = await import("dotenv");
+    m.config();
+  } catch {}
+};
 import { agentChat } from "@agent-native/core";
+import { readSetting } from "@agent-native/core/settings";
 import { parseArgs, formatMinutes } from "./helpers.js";
 
 interface AvailabilitySchedule {
@@ -27,7 +31,7 @@ function timeToMinutes(timeStr: string): number {
 }
 
 export default async function main(args: string[]) {
-  config();
+  await config();
 
   const opts = parseArgs(args);
 
@@ -42,11 +46,14 @@ export default async function main(args: string[]) {
   // Load availability schedule
   let availability: AvailabilitySchedule;
   try {
-    availability = JSON.parse(
-      readFileSync(join("data", "availability.json"), "utf-8"),
-    );
+    const stored = await readSetting("calendar-availability");
+    if (!stored) {
+      console.error("Error: No availability configuration found");
+      process.exit(1);
+    }
+    availability = stored as unknown as AvailabilitySchedule;
   } catch {
-    console.error("Error: Could not read data/availability.json");
+    console.error("Error: Could not read availability settings");
     process.exit(1);
   }
 
@@ -84,7 +91,7 @@ export default async function main(args: string[]) {
   try {
     const googleCalendar = await import("../server/lib/google-calendar.js");
 
-    if (googleCalendar.isConnected()) {
+    if (await googleCalendar.isConnected()) {
       const { events } = await googleCalendar.listEvents(dayStart, dayEnd);
       for (const event of events) {
         dayEvents.push({

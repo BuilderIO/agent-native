@@ -1,9 +1,26 @@
 import path from "path";
+import fs from "fs";
 import { createRequire } from "module";
 import type { Plugin, UserConfig } from "vite";
 import { devApiServer } from "./dev-api-server.js";
 
 const require = createRequire(import.meta.url);
+
+/** Check if a package is installed in the project */
+function hasDep(pkg: string, cwd: string): boolean {
+  try {
+    const pkgJson = JSON.parse(
+      fs.readFileSync(path.join(cwd, "package.json"), "utf-8"),
+    );
+    return !!(
+      pkgJson.dependencies?.[pkg] ||
+      pkgJson.devDependencies?.[pkg] ||
+      pkgJson.peerDependencies?.[pkg]
+    );
+  } catch {
+    return false;
+  }
+}
 
 export interface NitroOptions {
   /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "cloudflare_pages"). Default: "node" */
@@ -145,7 +162,9 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       ...(options.plugins ?? []),
     ].filter(Boolean),
     optimizeDeps: {
-      include: ["@agent-native/pinpoint/react"],
+      include: hasDep("@agent-native/pinpoint", cwd)
+        ? ["@agent-native/pinpoint/react"]
+        : [],
     },
     resolve: {
       alias: {

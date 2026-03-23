@@ -4,33 +4,27 @@ import {
   readBody,
   setResponseStatus,
 } from "h3";
-import fs from "fs";
-import path from "path";
+import {
+  getSetting,
+  putSetting,
+  deleteSetting,
+  getAllSettings,
+} from "@agent-native/core/settings";
 
-const CONFIG_DIR = path.join(
-  import.meta.dirname,
-  "../../data/explorer-configs",
-);
+const KEY_PREFIX = "config-";
 
-function ensureDir() {
-  if (!fs.existsSync(CONFIG_DIR)) {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  }
-}
-
-export const listExplorerConfigs = defineEventHandler((_event) => {
-  ensureDir();
+export const listExplorerConfigs = defineEventHandler(async (_event) => {
   try {
-    const files = fs.readdirSync(CONFIG_DIR).filter((f) => f.endsWith(".json"));
-    const configs = files.map((f) => {
-      const raw = fs.readFileSync(path.join(CONFIG_DIR, f), "utf8");
-      const data = JSON.parse(raw);
-      return {
-        id: f.replace(".json", ""),
-        name: data.name ?? f.replace(".json", ""),
+    const all = await getAllSettings();
+    const configs = Object.entries(all)
+      .filter(([key]) => key.startsWith(KEY_PREFIX))
+      .map(([key, data]) => ({
+        id: key.slice(KEY_PREFIX.length),
+        name:
+          (data as Record<string, unknown>).name ??
+          key.slice(KEY_PREFIX.length),
         ...data,
-      };
-    });
+      }));
     return { configs };
   } catch (err: any) {
     setResponseStatus(_event, 500);
@@ -38,17 +32,15 @@ export const listExplorerConfigs = defineEventHandler((_event) => {
   }
 });
 
-export const getExplorerConfig = defineEventHandler((event) => {
-  ensureDir();
+export const getExplorerConfig = defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
-  const filePath = path.join(CONFIG_DIR, `${id}.json`);
-  if (!fs.existsSync(filePath)) {
-    setResponseStatus(event, 404);
-    return { error: "Config not found" };
-  }
   try {
-    const raw = fs.readFileSync(filePath, "utf8");
-    return { id, ...JSON.parse(raw) };
+    const data = await getSetting(`${KEY_PREFIX}${id}`);
+    if (!data) {
+      setResponseStatus(event, 404);
+      return { error: "Config not found" };
+    }
+    return { id, ...data };
   } catch (err: any) {
     setResponseStatus(event, 500);
     return { error: err.message };
@@ -56,12 +48,10 @@ export const getExplorerConfig = defineEventHandler((event) => {
 });
 
 export const saveExplorerConfig = defineEventHandler(async (event) => {
-  ensureDir();
   const id = getRouterParam(event, "id");
-  const filePath = path.join(CONFIG_DIR, `${id}.json`);
   try {
     const body = await readBody(event);
-    fs.writeFileSync(filePath, JSON.stringify(body, null, 2));
+    await putSetting(`${KEY_PREFIX}${id}`, body);
     return { id, success: true };
   } catch (err: any) {
     setResponseStatus(event, 500);
@@ -69,12 +59,8 @@ export const saveExplorerConfig = defineEventHandler(async (event) => {
   }
 });
 
-export const deleteExplorerConfig = defineEventHandler((event) => {
-  ensureDir();
+export const deleteExplorerConfig = defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
-  const filePath = path.join(CONFIG_DIR, `${id}.json`);
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
-  }
+  await deleteSetting(`${KEY_PREFIX}${id}`);
   return { id, success: true };
 });

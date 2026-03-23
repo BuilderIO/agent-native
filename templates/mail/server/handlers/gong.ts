@@ -4,19 +4,11 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import fs from "fs";
-import path from "path";
+import { appStateGet } from "@agent-native/core/application-state";
 
-const STATE_DIR = path.join(process.cwd(), "application-state");
-const GONG_FILE = path.join(STATE_DIR, "gong.json");
-
-function getGongKey(): string | undefined {
-  try {
-    const data = JSON.parse(fs.readFileSync(GONG_FILE, "utf-8"));
-    return data.apiKey || undefined;
-  } catch {
-    return undefined;
-  }
+async function getGongKey(): Promise<string | undefined> {
+  const data = await appStateGet("local", "gong");
+  return (data as any)?.apiKey || undefined;
 }
 
 // GET /api/gong/calls?email=...
@@ -27,7 +19,7 @@ export const gongCallsLookup = defineEventHandler(async (event: H3Event) => {
     return { error: "email query param required" };
   }
 
-  const apiKey = getGongKey();
+  const apiKey = await getGongKey();
   if (!apiKey) {
     setResponseStatus(event, 401);
     return { error: "Gong API key not configured" };
