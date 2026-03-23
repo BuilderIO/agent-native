@@ -1,10 +1,4 @@
-import {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-  useLayoutEffect,
-} from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Loader2, Paperclip, X, ArrowUp } from "lucide-react";
 
@@ -62,7 +56,7 @@ export default function PromptPopover({
   }, [open]);
 
   // Position the popover after render so we can measure its actual size
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!open || !panelRef.current) return;
     const panel = panelRef.current;
     const MARGIN = 12;
