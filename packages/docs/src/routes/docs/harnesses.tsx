@@ -70,7 +70,7 @@ pnpm dev:harness`}
             ["Codex", "codex", "--full-auto, --quiet"],
             ["Gemini CLI", "gemini", "--sandbox"],
             ["OpenCode", "opencode", "—"],
-            ["Builder.io / Fusion", "fusion", "—"],
+            ["Builder.io", "fusion", "—"],
           ].map(([name, cmd, flags]) => (
             <tr key={cmd}>
               <td>{name}</td>

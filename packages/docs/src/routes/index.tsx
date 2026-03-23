@@ -495,8 +495,7 @@ function Home() {
               <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
                 <li>Runs locally on your machine</li>
                 <li>
-                  Use Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io /
-                  Fusion
+                  Use Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io
                 </li>
                 <li>Full permissions, full control</li>
                 <li>Free and open source</li>

@@ -78,7 +78,7 @@ export const opencodeConfig: HarnessConfig = {
 };
 
 export const fusionConfig: HarnessConfig = {
-  name: "Builder.io / Fusion",
+  name: "Builder.io",
   command: "fusion",
   installPackage: "@builder.io/fusion",
   options: [],
