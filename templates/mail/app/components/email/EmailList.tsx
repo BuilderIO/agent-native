@@ -6,6 +6,7 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
   useEmails,
   useMarkRead,
+  useMarkThreadRead,
   useToggleStar,
   useArchiveEmail,
   useTrashEmail,
@@ -222,6 +223,7 @@ export function EmailList({
 
   const emails = emailsProp ?? fetchedEmails;
   const markRead = useMarkRead();
+  const markThreadRead = useMarkThreadRead();
   const toggleStar = useToggleStar();
   const archiveEmail = useArchiveEmail();
   const trashEmail = useTrashEmail();
@@ -257,12 +259,13 @@ export function EmailList({
     if (!focusedId) return;
     const thread = threads.find((t) => t.latestMessage.id === focusedId);
     if (!thread) return;
-    if (!thread.latestMessage.isRead)
-      markRead.mutate({ id: focusedId, isRead: true });
+    if (thread.hasUnread) {
+      markThreadRead.mutate(thread.latestMessage.threadId || focusedId);
+    }
     navigate(
       `/${view}/${thread.latestMessage.threadId || focusedId}${labelSuffix}`,
     );
-  }, [focusedId, threads, view, navigate, markRead, labelSuffix]);
+  }, [focusedId, threads, view, navigate, markThreadRead, labelSuffix]);
 
   const archiveFocused = useCallback(() => {
     if (!focusedId) return;
@@ -400,7 +403,9 @@ export function EmailList({
       onDraftOpen(email);
       return;
     }
-    if (!email.isRead) markRead.mutate({ id: email.id, isRead: true });
+    if (thread.hasUnread) {
+      markThreadRead.mutate(email.threadId || email.id);
+    }
     navigate(`/${view}/${email.threadId || email.id}${labelSuffix}`);
   };
 

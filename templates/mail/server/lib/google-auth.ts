@@ -377,6 +377,46 @@ function getBodyHtml(payload: any): string | undefined {
   return undefined;
 }
 
+/** Build a map of Content-ID → attachmentId from inline parts */
+function getInlineAttachments(
+  payload: any,
+): Map<string, { attachmentId: string; mimeType: string }> {
+  const map = new Map<string, { attachmentId: string; mimeType: string }>();
+  function walk(part: any) {
+    const headers = part.headers || [];
+    const contentId = headers.find(
+      (h: any) => h.name.toLowerCase() === "content-id",
+    )?.value;
+    const attachmentId = part.body?.attachmentId;
+    if (contentId && attachmentId) {
+      // Strip angle brackets: <image001> → image001
+      const cid = contentId.replace(/^<|>$/g, "");
+      map.set(cid, { attachmentId, mimeType: part.mimeType || "image/png" });
+    }
+    if (part.parts) {
+      for (const p of part.parts) walk(p);
+    }
+  }
+  walk(payload);
+  return map;
+}
+
+/** Replace cid: URLs in HTML with proxy API URLs */
+function replaceCidUrls(
+  html: string,
+  messageId: string,
+  inlineAttachments: Map<string, { attachmentId: string; mimeType: string }>,
+): string {
+  if (inlineAttachments.size === 0) return html;
+  return html.replace(/\bcid:([^\s"'<>]+)/g, (_match, cid) => {
+    const att = inlineAttachments.get(cid);
+    if (att) {
+      return `/api/emails/${messageId}/attachment/${encodeURIComponent(att.attachmentId)}`;
+    }
+    return _match;
+  });
+}
+
 export async function fetchGmailLabelMap(
   client: Auth.OAuth2Client,
 ): Promise<Map<string, string>> {
@@ -404,6 +444,13 @@ export function gmailToEmailMessage(
   const date = getHeader(headers, "Date");
   const labels: string[] = msg.labelIds || [];
 
+  const payload = msg.payload || {};
+  const inlineAttachments = getInlineAttachments(payload);
+  let bodyHtml = getBodyHtml(payload);
+  if (bodyHtml && inlineAttachments.size > 0) {
+    bodyHtml = replaceCidUrls(bodyHtml, msg.id, inlineAttachments);
+  }
+
   return {
     id: msg.id,
     threadId: msg.threadId,
@@ -412,8 +459,8 @@ export function gmailToEmailMessage(
     cc: cc.length > 0 ? cc : undefined,
     subject,
     snippet: msg.snippet || "",
-    body: getBody(msg.payload || {}),
-    bodyHtml: getBodyHtml(msg.payload || {}),
+    body: getBody(payload),
+    bodyHtml,
     date: new Date(date).toISOString(),
     isRead: !labels.includes("UNREAD"),
     isStarred: labels.includes("STARRED"),

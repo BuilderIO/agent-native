@@ -54,7 +54,67 @@ export function useMarkRead() {
         method: "PATCH",
         body: JSON.stringify({ isRead }),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    onMutate: async ({ id, isRead }) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["emails"],
+      });
+      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
+        old?.map((e) => (e.id === id ? { ...e, isRead } : e)),
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["emails"] });
+      qc.invalidateQueries({ queryKey: ["labels"] });
+    },
+  });
+}
+
+export function useMarkThreadRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (threadId: string) => {
+      // Find all unread messages in this thread from cache
+      const allEmails =
+        qc
+          .getQueriesData<EmailMessage[]>({ queryKey: ["emails"] })
+          .flatMap(([, data]) => data ?? []) ?? [];
+      const unread = allEmails.filter(
+        (e) => (e.threadId || e.id) === threadId && !e.isRead,
+      );
+      // Mark each one as read via API
+      await Promise.all(
+        unread.map((e) =>
+          apiFetch(`/api/emails/${e.id}/read`, {
+            method: "PATCH",
+            body: JSON.stringify({ isRead: true }),
+          }),
+        ),
+      );
+    },
+    onMutate: async (threadId) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["emails"],
+      });
+      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
+        old?.map((e) =>
+          (e.threadId || e.id) === threadId ? { ...e, isRead: true } : e,
+        ),
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["emails"] });
+      qc.invalidateQueries({ queryKey: ["labels"] });
+    },
   });
 }
 
