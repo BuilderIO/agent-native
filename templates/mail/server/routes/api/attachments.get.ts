@@ -8,7 +8,7 @@ import { google } from "googleapis";
 import { isConnected, getClients } from "../../lib/google-auth.js";
 
 export default defineEventHandler(async (event) => {
-  if (!isConnected()) {
+  if (!(await isConnected())) {
     setResponseStatus(event, 404);
     return { error: "No Google account connected" };
   }

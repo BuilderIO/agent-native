@@ -605,8 +605,9 @@
   font-weight: 700;
 }
 
-/* Inbox Zero — make header transparent so the photo gradient shows through */
+/* Inbox Zero — negative margin pulls content up behind the header (keeps header in flow so it doesn't overlap the agent sidebar) */
 .inbox-zero .inbox-zero-header {
+  margin-bottom: -2.75rem;
   background: transparent !important;
   border-color: transparent !important;
 }
@@ -621,4 +622,20 @@
 .inbox-zero .inbox-zero-header a[aria-current],
 .inbox-zero .inbox-zero-header a.font-semibold {
   color: rgba(255, 255, 255, 1) !important;
+}
+
+/* Inbox Zero — frosted glass effect on the agent chat sidebar */
+.inbox-zero .agent-sidebar-panel {
+  background: rgba(0, 0, 0, 0.4) !important;
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.inbox-zero .agent-sidebar-panel,
+.inbox-zero .agent-sidebar-panel * {
+  --foreground: 0 0% 95%;
+  --muted-foreground: 0 0% 70%;
+  --border: 0 0% 100% / 0.1;
+  --accent: 0 0% 100% / 0.08;
 }

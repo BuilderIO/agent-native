@@ -4,11 +4,8 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import path from "path";
 import type { Settings } from "../../shared/api.js";
-import { readJsonFile, writeJsonFile } from "../lib/data-helpers.js";
-
-const SETTINGS_PATH = path.join(process.cwd(), "data", "settings.json");
+import { getSetting, putSetting } from "@agent-native/core/settings";
 
 const DEFAULT_SETTINGS: Settings = {
   timezone: "America/New_York",
@@ -17,9 +14,10 @@ const DEFAULT_SETTINGS: Settings = {
   defaultEventDuration: 30,
 };
 
-export const getSettings = defineEventHandler((_event: H3Event) => {
+export const getSettings = defineEventHandler(async (_event: H3Event) => {
   try {
-    const settings = readJsonFile<Settings>(SETTINGS_PATH) || DEFAULT_SETTINGS;
+    const settings =
+      (await getSetting("calendar-settings")) || DEFAULT_SETTINGS;
     return settings;
   } catch (error: any) {
     setResponseStatus(_event, 500);
@@ -30,7 +28,10 @@ export const getSettings = defineEventHandler((_event: H3Event) => {
 export const updateSettings = defineEventHandler(async (event: H3Event) => {
   try {
     const settings: Settings = await readBody(event);
-    writeJsonFile(SETTINGS_PATH, settings);
+    await putSetting(
+      "calendar-settings",
+      settings as unknown as Record<string, unknown>,
+    );
     return settings;
   } catch (error: any) {
     setResponseStatus(event, 500);

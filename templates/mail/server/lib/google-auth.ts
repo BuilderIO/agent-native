@@ -1,7 +1,11 @@
 import { google, type Auth } from "googleapis";
-import fs from "fs";
-import path from "path";
-import { readJsonFile, writeJsonFile, deleteJsonFile } from "./data-helpers.js";
+import {
+  getOAuthTokens,
+  saveOAuthTokens,
+  deleteOAuthTokens,
+  listOAuthAccounts,
+  hasOAuthTokens,
+} from "@agent-native/core/oauth-tokens";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -13,74 +17,12 @@ const SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
 ];
 
-const ACCOUNTS_DIR = path.join(process.cwd(), "data", "google-accounts");
-const LEGACY_TOKENS_PATH = path.join(process.cwd(), "data", "google-auth.json");
-
 interface GoogleTokens {
   access_token: string;
   refresh_token?: string;
   expiry_date?: number;
   token_type?: string;
   scope?: string;
-}
-
-function ensureAccountsDir(): void {
-  fs.mkdirSync(ACCOUNTS_DIR, { recursive: true });
-}
-
-function getAccountFiles(): string[] {
-  ensureAccountsDir();
-  try {
-    return fs
-      .readdirSync(ACCOUNTS_DIR)
-      .filter((f) => f.endsWith(".json"))
-      .map((f) => path.join(ACCOUNTS_DIR, f));
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Migrate legacy single-token file to multi-account format.
- * Uses a module-level promise to ensure only one migration runs at a time.
- */
-let migrationPromise: Promise<void> | null = null;
-
-async function migrateLegacyTokens(): Promise<void> {
-  if (!fs.existsSync(LEGACY_TOKENS_PATH)) return;
-  if (!migrationPromise) {
-    migrationPromise = doMigrateLegacyTokens().finally(() => {
-      migrationPromise = null;
-    });
-  }
-  return migrationPromise;
-}
-
-async function doMigrateLegacyTokens(): Promise<void> {
-  const tokens = readJsonFile<GoogleTokens>(LEGACY_TOKENS_PATH);
-  if (!tokens) {
-    // Corrupt/empty file — delete so we don't retry on every request
-    deleteJsonFile(LEGACY_TOKENS_PATH);
-    return;
-  }
-
-  ensureAccountsDir();
-
-  try {
-    const client = createOAuth2Client();
-    client.setCredentials(tokens);
-    const gmail = google.gmail({ version: "v1", auth: client });
-    const profile = await gmail.users.getProfile({ userId: "me" });
-    const email = profile.data.emailAddress;
-    if (email) {
-      writeJsonFile(path.join(ACCOUNTS_DIR, `${email}.json`), tokens);
-    }
-    // If no email returned, don't write a phantom file — user will need to re-auth
-  } catch {
-    // Can't reach Gmail (offline, expired) — don't write phantom files
-  }
-
-  deleteJsonFile(LEGACY_TOKENS_PATH);
 }
 
 function createOAuth2Client(redirectUri?: string) {
@@ -126,8 +68,11 @@ export async function exchangeCode(
   const email = profile.data.emailAddress;
   if (!email) throw new Error("Google returned no email address");
 
-  ensureAccountsDir();
-  writeJsonFile(path.join(ACCOUNTS_DIR, `${email}.json`), tokens);
+  await saveOAuthTokens(
+    "google",
+    email,
+    tokens as unknown as Record<string, unknown>,
+  );
 
   return email;
 }
@@ -135,28 +80,33 @@ export async function exchangeCode(
 export async function getClient(
   email?: string,
 ): Promise<Auth.OAuth2Client | null> {
-  await migrateLegacyTokens();
+  const accounts = await listOAuthAccounts("google");
+  if (accounts.length === 0) return null;
 
-  const files = getAccountFiles();
-  if (files.length === 0) return null;
-
-  let tokenFile: string | undefined;
+  let account: (typeof accounts)[0] | undefined;
   if (email) {
-    tokenFile = files.find((f) => path.basename(f, ".json") === email);
-    if (!tokenFile) return null;
+    account = accounts.find((a) => a.accountId === email);
+    if (!account) return null;
   } else {
-    tokenFile = files[0];
+    account = accounts[0];
   }
 
-  const tokens = readJsonFile<GoogleTokens>(tokenFile);
+  const tokens = account.tokens as unknown as GoogleTokens;
   if (!tokens) return null;
 
+  const accountId = account.accountId;
   const client = createOAuth2Client();
   client.setCredentials(tokens);
 
-  client.on("tokens", (newTokens) => {
-    const current = readJsonFile<GoogleTokens>(tokenFile) ?? {};
-    writeJsonFile(tokenFile, { ...current, ...newTokens });
+  client.on("tokens", async (newTokens) => {
+    const current =
+      ((await getOAuthTokens("google", accountId)) as unknown as
+        | GoogleTokens
+        | undefined) ?? {};
+    await saveOAuthTokens("google", accountId, {
+      ...current,
+      ...newTokens,
+    } as unknown as Record<string, unknown>);
   });
 
   return client;
@@ -165,41 +115,41 @@ export async function getClient(
 export async function getClients(): Promise<
   Array<{ email: string; client: Auth.OAuth2Client }>
 > {
-  await migrateLegacyTokens();
-
-  const files = getAccountFiles();
+  const accounts = await listOAuthAccounts("google");
   const results: Array<{ email: string; client: Auth.OAuth2Client }> = [];
 
-  for (const file of files) {
-    const tokens = readJsonFile<GoogleTokens>(file);
+  for (const account of accounts) {
+    const tokens = account.tokens as unknown as GoogleTokens;
     if (!tokens) continue;
 
-    const email = path.basename(file, ".json");
+    const accountId = account.accountId;
     const client = createOAuth2Client();
     client.setCredentials(tokens);
 
-    client.on("tokens", (newTokens) => {
-      const current = readJsonFile<GoogleTokens>(file) ?? {};
-      writeJsonFile(file, { ...current, ...newTokens });
+    client.on("tokens", async (newTokens) => {
+      const current =
+        ((await getOAuthTokens("google", accountId)) as unknown as
+          | GoogleTokens
+          | undefined) ?? {};
+      await saveOAuthTokens("google", accountId, {
+        ...current,
+        ...newTokens,
+      } as unknown as Record<string, unknown>);
     });
 
-    results.push({ email, client });
+    results.push({ email: accountId, client });
   }
 
   return results;
 }
 
-export function isConnected(): boolean {
-  // Check for legacy file first (will be migrated on next getClient/getClients call)
-  if (fs.existsSync(LEGACY_TOKENS_PATH)) return true;
-
-  const files = getAccountFiles();
-  return files.length > 0;
+export async function isConnected(): Promise<boolean> {
+  return hasOAuthTokens("google");
 }
 
-export function getConnectedAccounts(): string[] {
-  const files = getAccountFiles();
-  return files.map((f) => path.basename(f, ".json"));
+export async function getConnectedAccounts(): Promise<string[]> {
+  const accounts = await listOAuthAccounts("google");
+  return accounts.map((a) => a.accountId);
 }
 
 export interface GoogleAuthStatus {
@@ -208,10 +158,8 @@ export interface GoogleAuthStatus {
 }
 
 export async function getAuthStatus(): Promise<GoogleAuthStatus> {
-  await migrateLegacyTokens();
-
-  const files = getAccountFiles();
-  if (files.length === 0) {
+  const oauthAccounts = await listOAuthAccounts("google");
+  if (oauthAccounts.length === 0) {
     return { connected: false, accounts: [] };
   }
 
@@ -220,10 +168,10 @@ export async function getAuthStatus(): Promise<GoogleAuthStatus> {
     expiresAt?: string;
     photoUrl?: string;
   }> = [];
-  for (const file of files) {
-    const tokens = readJsonFile<GoogleTokens>(file);
+  for (const account of oauthAccounts) {
+    const tokens = account.tokens as unknown as GoogleTokens;
     if (!tokens) continue;
-    const email = path.basename(file, ".json");
+    const email = account.accountId;
     let photoUrl: string | undefined;
     try {
       const client = createOAuth2Client();
@@ -250,17 +198,11 @@ export async function getAuthStatus(): Promise<GoogleAuthStatus> {
   };
 }
 
-export function disconnect(email?: string): void {
+export async function disconnect(email?: string): Promise<void> {
   if (email) {
-    // Validate against known account files to prevent path traversal
-    const files = getAccountFiles();
-    const match = files.find((f) => path.basename(f, ".json") === email);
-    if (match) deleteJsonFile(match);
+    await deleteOAuthTokens("google", email);
   } else {
-    const files = getAccountFiles();
-    for (const file of files) {
-      deleteJsonFile(file);
-    }
+    await deleteOAuthTokens("google");
   }
 }
 
@@ -377,7 +319,7 @@ function getBodyHtml(payload: any): string | undefined {
   return undefined;
 }
 
-/** Build a map of Content-ID → attachmentId from inline parts */
+/** Build a map of Content-ID -> attachmentId from inline parts */
 function getInlineAttachments(
   payload: any,
 ): Map<string, { attachmentId: string; mimeType: string }> {
@@ -389,7 +331,7 @@ function getInlineAttachments(
     )?.value;
     const attachmentId = part.body?.attachmentId;
     if (contentId && attachmentId) {
-      // Strip angle brackets: <image001> → image001
+      // Strip angle brackets: <image001> -> image001
       const cid = contentId.replace(/^<|>$/g, "");
       map.set(cid, { attachmentId, mimeType: part.mimeType || "image/png" });
     }
@@ -488,7 +430,7 @@ export function gmailToEmailMessage(
       )
       .map((l: string) => {
         let name = labelMap?.get(l) || l;
-        // Use last segment of nested labels (e.g. "[Superhuman]/AI/Respond" → "Respond")
+        // Use last segment of nested labels (e.g. "[Superhuman]/AI/Respond" -> "Respond")
         const lastSlash = name.lastIndexOf("/");
         if (lastSlash >= 0) name = name.slice(lastSlash + 1);
         return name.replace(/_/g, " ").toLowerCase();

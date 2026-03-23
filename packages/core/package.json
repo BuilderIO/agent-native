@@ -24,6 +24,8 @@
     "./shared": "./dist/shared/index.js",
     "./scripts": "./dist/scripts/index.js",
     "./application-state": "./dist/application-state/index.js",
+    "./settings": "./dist/settings/index.js",
+    "./oauth-tokens": "./dist/oauth-tokens/index.js",
     "./adapters/sync": "./dist/adapters/sync/index.js",
     "./adapters/drizzle": "./dist/adapters/drizzle/index.js",
     "./adapters/firestore": "./dist/adapters/firestore/index.js",

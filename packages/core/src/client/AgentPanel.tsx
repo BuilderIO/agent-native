@@ -216,7 +216,7 @@ export function AgentSidebar({
       {/* Agent sidebar */}
       {open && (
         <div
-          className="flex flex-col border-l border-border shrink-0 overflow-hidden"
+          className="flex flex-col border-l border-border shrink-0 overflow-hidden agent-sidebar-panel"
           style={{ width: sidebarWidth }}
         >
           <AgentPanel

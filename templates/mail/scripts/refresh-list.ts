@@ -2,7 +2,7 @@
  * Refresh the email list in the UI.
  *
  * Fetches fresh emails from Gmail, writes them to application-state/email-list.json,
- * and touches data/refresh-trigger.json to trigger the UI's file watcher to refetch.
+ * and triggers the UI's file watcher to refetch.
  *
  * Run this after making backend changes (archive, trash, mark-read, star, etc.)
  * to ensure the UI reflects the latest state.
@@ -49,7 +49,7 @@ export async function run(args: Record<string, string>): Promise<string> {
     view = (nav as any)?.view ?? "inbox";
   }
 
-  if (!isConnected()) {
+  if (!(await isConnected())) {
     return "No Google account connected — skipping Gmail refresh.";
   }
 
@@ -126,7 +126,7 @@ export default async function main(): Promise<void> {
     view = (nav as any)?.view ?? "inbox";
   }
 
-  if (!isConnected()) {
+  if (!(await isConnected())) {
     console.error("No Google account connected — skipping Gmail refresh.");
     return;
   }

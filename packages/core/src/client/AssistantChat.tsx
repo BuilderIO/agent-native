@@ -275,6 +275,109 @@ function ThinkingIndicator() {
   );
 }
 
+// ─── API Key Setup Card ─────────────────────────────────────────────────────
+
+function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
+  const [apiKey, setApiKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    if (!apiKey.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/save-key`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: apiKey.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to save");
+      }
+      setSaved(true);
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (saved) {
+    return (
+      <div className="mx-4 my-6 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
+        <div className="flex items-center gap-2 text-sm text-emerald-400">
+          <CheckIcon className="h-4 w-4" />
+          API key saved. Reloading...
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-4 my-6 rounded-lg border border-border bg-card p-5">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
+          <SparklesIcon className="h-4.5 w-4.5 text-muted-foreground" />
+        </div>
+        <div>
+          <h3 className="text-sm font-medium text-foreground">
+            Connect your AI
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Add an Anthropic API key to enable the agent
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="rounded-md bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground leading-relaxed">
+          <p>
+            1. Go to{" "}
+            <a
+              href="https://console.anthropic.com/settings/keys"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline text-foreground/80 hover:text-foreground"
+            >
+              console.anthropic.com/settings/keys
+            </a>
+          </p>
+          <p className="mt-1">2. Create a new API key and paste it below</p>
+        </div>
+
+        <input
+          type="password"
+          value={apiKey}
+          onChange={(e) => {
+            setApiKey(e.target.value);
+            setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSave();
+          }}
+          placeholder="sk-ant-..."
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none focus:ring-1 focus:ring-ring"
+          autoComplete="off"
+        />
+
+        {error && <p className="text-xs text-destructive">{error}</p>}
+
+        <button
+          onClick={handleSave}
+          disabled={saving || !apiKey.trim()}
+          className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {saving ? "Saving..." : "Save API key"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 // ─── Terminal Icon ──────────────────────────────────────────────────────────
@@ -322,12 +425,22 @@ function AssistantChatInner({
   showDevHint = true,
   onSwitchToCli,
   className,
-}: Omit<AssistantChatProps, "apiUrl">) {
+  apiUrl = "/api/agent-chat",
+}: Omit<AssistantChatProps, never>) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const thread = useThread();
   const threadRuntime = useThreadRuntime();
   const isRunning = thread.isRunning;
   const messages = thread.messages;
+  const [missingApiKey, setMissingApiKey] = useState(false);
+
+  // Listen for missing API key events from the adapter
+  useEffect(() => {
+    const handler = () => setMissingApiKey(true);
+    window.addEventListener("agent-chat:missing-api-key", handler);
+    return () =>
+      window.removeEventListener("agent-chat:missing-api-key", handler);
+  }, []);
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -374,7 +487,11 @@ function AssistantChatInner({
 
       {/* Messages area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0">
-        {messages.length === 0 ? (
+        {missingApiKey ? (
+          <div className="flex flex-col items-center justify-center h-full px-2">
+            <ApiKeySetupCard apiUrl={apiUrl} />
+          </div>
+        ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-4 py-16 px-4 h-full">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
               <SparklesIcon className="h-5 w-5 text-muted-foreground" />
@@ -462,7 +579,7 @@ export function AssistantChat({ apiUrl, ...props }: AssistantChatProps) {
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="flex flex-1 flex-col h-full min-h-0">
-        <AssistantChatInner {...props} />
+        <AssistantChatInner {...props} apiUrl={apiUrl} />
       </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>
   );

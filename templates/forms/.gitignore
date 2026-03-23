@@ -35,7 +35,4 @@ data/app.db-shm
 # Learnings
 learnings.md
 
-# Application state
-/application-state/
-
 build

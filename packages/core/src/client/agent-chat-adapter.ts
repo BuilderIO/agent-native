@@ -83,8 +83,19 @@ export function createAgentChatAdapter(options?: {
               body.includes("ANTHROPIC_API_KEY") ||
               body.includes("authentication")
             ) {
-              errorText =
-                "No API key configured. Add ANTHROPIC_API_KEY to your .env file and restart the dev server.";
+              // Show inline setup UI instead of raw error
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+              }
+              content.push({ type: "text", text: "" });
+              yield {
+                content: [...content],
+                status: {
+                  type: "incomplete" as const,
+                  reason: "error" as const,
+                },
+              } as ChatModelRunResult;
+              return;
             } else if (body.includes("Cannot find any path")) {
               errorText =
                 "Agent chat endpoint not found. Make sure the agent-chat plugin is loaded in server/plugins/.";
@@ -163,11 +174,49 @@ export function createAgentChatAdapter(options?: {
                 }
               }
               yield { content: [...content] } as ChatModelRunResult;
+            } else if (ev.type === "missing_api_key") {
+              // Dispatch event for the UI to show inline setup
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+              }
+              content.push({
+                type: "text",
+                text: "",
+              });
+              yield {
+                content: [...content],
+                status: {
+                  type: "incomplete" as const,
+                  reason: "error" as const,
+                },
+              } as ChatModelRunResult;
+              return;
             } else if (ev.type === "error") {
+              // Check if this is an auth-related error from the SDK
+              const errMsg = ev.error ?? "Unknown error";
+              if (
+                errMsg.includes("apiKey") ||
+                errMsg.includes("authToken") ||
+                errMsg.includes("ANTHROPIC_API_KEY") ||
+                errMsg.includes("authentication")
+              ) {
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+                }
+                content.push({ type: "text", text: "" });
+                yield {
+                  content: [...content],
+                  status: {
+                    type: "incomplete" as const,
+                    reason: "error" as const,
+                  },
+                } as ChatModelRunResult;
+                return;
+              }
               // Add error as text content
               content.push({
                 type: "text",
-                text: `Error: ${ev.error ?? "Unknown error"}`,
+                text: `Error: ${errMsg}`,
               });
               yield {
                 content: [...content],

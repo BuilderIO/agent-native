@@ -73,6 +73,12 @@ function FileWatcherSetup() {
           });
         }
         qc.invalidateQueries({ queryKey: ["navigate-command"] });
+      } else if (data.source === "settings") {
+        qc.invalidateQueries({ queryKey: ["settings"] });
+        qc.invalidateQueries({ queryKey: ["aliases"] });
+        qc.invalidateQueries({ queryKey: ["labels"] });
+        qc.invalidateQueries({ queryKey: ["emails"] });
+        qc.invalidateQueries({ queryKey: ["email"] });
       } else {
         qc.invalidateQueries({ queryKey: ["emails"] });
         qc.invalidateQueries({ queryKey: ["email"] });

@@ -1,6 +1,7 @@
 import { createFileWatcher, createSSEHandler } from "./sse.js";
 import type { SSEHandlerOptions } from "./sse.js";
 import { getAppStateEmitter } from "../application-state/emitter.js";
+import { getSettingsEmitter } from "../settings/store.js";
 
 const _emitters: NonNullable<SSEHandlerOptions["extraEmitters"]> = [];
 let _syncResult: any = { status: "disabled" };
@@ -19,6 +20,7 @@ function ensureAppStateEmitter() {
   if (_appStateEmitterRegistered) return;
   _appStateEmitterRegistered = true;
   _emitters.push({ emitter: getAppStateEmitter(), event: "app-state" });
+  _emitters.push({ emitter: getSettingsEmitter(), event: "settings" });
 }
 
 export function getDefaultSSEEmitters(): NonNullable<

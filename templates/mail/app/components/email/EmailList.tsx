@@ -158,22 +158,22 @@ export function InboxZero() {
 
   return (
     <div className="relative flex-1 flex flex-col overflow-hidden">
-      {/* Background image */}
+      {/* Background image — fixed so it extends behind header + agent sidebar for blur */}
       <img
         src={imageUrl}
         alt=""
         onLoad={() => setLoaded(true)}
         className={cn(
-          "absolute inset-0 h-full w-full object-cover",
+          "fixed inset-0 h-full w-full object-cover",
           loaded ? "opacity-100" : "opacity-0",
         )}
       />
 
       {/* Top gradient — darken behind the tab bar */}
-      <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/50 to-transparent" />
+      <div className="fixed inset-x-0 top-0 h-24 bg-gradient-to-b from-black/50 to-transparent" />
 
       {/* Bottom gradient — text legibility */}
-      <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/60 to-transparent" />
+      <div className="fixed inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/60 to-transparent" />
 
       {/* Fallback bg while image loads */}
       <div className="absolute inset-0 bg-muted dark:bg-[hsl(220,6%,8%)] -z-10" />

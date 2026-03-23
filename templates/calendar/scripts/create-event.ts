@@ -43,7 +43,7 @@ export default async function main(args: string[]) {
   // Import the Google Calendar client
   const googleCalendar = await import("../server/lib/google-calendar.js");
 
-  if (!googleCalendar.isConnected()) {
+  if (!(await googleCalendar.isConnected())) {
     console.error(
       "Error: Google Calendar is not connected. Connect via the Settings page first.",
     );

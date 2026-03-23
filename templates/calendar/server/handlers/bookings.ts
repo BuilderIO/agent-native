@@ -15,12 +15,9 @@ import type {
   AvailabilityConfig,
   TimeSlot,
 } from "../../shared/api.js";
-import { readJsonFile } from "../lib/data-helpers.js";
+import { getSetting } from "@agent-native/core/settings";
 import { getDb, schema } from "../db/index.js";
 import * as googleCalendar from "../lib/google-calendar.js";
-import path from "path";
-
-const AVAILABILITY_PATH = path.join(process.cwd(), "data", "availability.json");
 
 export const listBookings = defineEventHandler(async (_event: H3Event) => {
   try {
@@ -95,7 +92,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
 
     // Create a corresponding Google Calendar event if connected
-    if (googleCalendar.isConnected()) {
+    if (await googleCalendar.isConnected()) {
       try {
         const calEvent: CalendarEvent = {
           id: nanoid(),
@@ -147,7 +144,9 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
       return { error: "date query parameter is required" };
     }
 
-    const config = readJsonFile<AvailabilityConfig>(AVAILABILITY_PATH);
+    const config = (await getSetting(
+      "calendar-availability",
+    )) as unknown as AvailabilityConfig | null;
     if (!config) {
       return { slots: [] };
     }
@@ -181,7 +180,7 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
 
     // Fetch Google Calendar events for the day if connected
     let dayEvents: Array<{ start: string; end: string }> = [];
-    if (googleCalendar.isConnected()) {
+    if (await googleCalendar.isConnected()) {
       try {
         const { events: googleEvents } = await googleCalendar.listEvents(
           dayStart,

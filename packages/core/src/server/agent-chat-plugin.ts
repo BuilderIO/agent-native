@@ -3,6 +3,10 @@ import {
   type ScriptEntry,
 } from "../agent/production-agent.js";
 import { createDevScriptRegistry } from "../scripts/dev/index.js";
+import { defineEventHandler, readBody, setResponseStatus, getMethod } from "h3";
+import { upsertEnvFile } from "./create-server.js";
+import path from "path";
+import { agentEnv } from "../shared/agent-env.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -91,6 +95,39 @@ export function createAgentChatPlugin(
 
     // Mount the handler directly — it already handles method checks and SSE streaming
     nitroApp.h3App.use(routePath, handler);
+
+    // Mount save-key endpoint for inline API key setup
+    nitroApp.h3App.use(
+      `${routePath}/save-key`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+
+        const body = await readBody(event);
+        const { key } = body as { key?: string };
+
+        if (!key || typeof key !== "string" || !key.trim()) {
+          setResponseStatus(event, 400);
+          return { error: "API key is required" };
+        }
+
+        const trimmedKey = key.trim();
+        const envPath = path.join(process.cwd(), ".env");
+        upsertEnvFile(envPath, [
+          { key: "ANTHROPIC_API_KEY", value: trimmedKey },
+        ]);
+
+        // Update process.env so the agent works immediately
+        process.env.ANTHROPIC_API_KEY = trimmedKey;
+
+        // Notify parent (Builder harness) via postMessage
+        agentEnv.setVars([{ key: "ANTHROPIC_API_KEY", value: trimmedKey }]);
+
+        return { ok: true };
+      }),
+    );
   };
 }
 

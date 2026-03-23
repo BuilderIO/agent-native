@@ -1,0 +1,27 @@
+{
+  "view": "inbox",
+  "label": null,
+  "count": 2,
+  "emails": [
+    {
+      "id": "19d1b14406888970",
+      "threadId": "19d015d14d8a703d",
+      "from": "Navaneeth Mohanan <nmohanan@g2.com>",
+      "subject": "Re: Potential win-win collaboration",
+      "snippet": "Hi Steve , Just following up on my previous email regarding our resource on AI Agent Builders. It could be a valuable addition to your AI, automation, or digital transformation content, offering",
+      "date": "2026-03-23T14:23:24.000Z",
+      "isRead": false,
+      "isStarred": false
+    },
+    {
+      "id": "19d1b1213baa2467",
+      "threadId": "19d0d1ca96220009",
+      "from": "\"de Bruyn, Quentin\" <bruyq@amazon.com>",
+      "subject": "Re: Builder / Amazon Intro",
+      "snippet": "Hey Steve, It&#39;s good to cross paths again. Will you be at the entire conference? I&#39;m going to be attempting to get to as many sessions as possible, so networking breaks and meal times would be",
+      "date": "2026-03-23T14:20:56.000Z",
+      "isRead": false,
+      "isStarred": false
+    }
+  ]
+}
