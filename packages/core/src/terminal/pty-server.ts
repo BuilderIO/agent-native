@@ -15,7 +15,11 @@ import {
 import os from "os";
 import path from "path";
 import fs from "fs";
-import { CLI_REGISTRY, commandExists } from "./cli-registry.js";
+import {
+  CLI_REGISTRY,
+  commandExists,
+  isAllowedCommand,
+} from "./cli-registry.js";
 
 export interface PtyServerOptions {
   /** Working directory for PTY processes. Defaults to process.cwd() */
@@ -113,6 +117,23 @@ export async function createPtyWebSocketServer(
       }
     };
 
+    // Validate command against allowlist to prevent injection
+    if (!isAllowedCommand(command)) {
+      sendStatus(
+        "not-found",
+        `"${command}" is not a recognized CLI. Allowed: ${Object.keys(CLI_REGISTRY).join(", ")}`,
+      );
+      if (ws.readyState === WebSocket.OPEN) ws.close();
+      return;
+    }
+
+    // Reject flags containing shell metacharacters
+    if (extraFlags && /[;&|`$(){}]/.test(extraFlags)) {
+      sendStatus("failed", "Invalid flags: shell metacharacters not allowed");
+      if (ws.readyState === WebSocket.OPEN) ws.close();
+      return;
+    }
+
     // Check if CLI is installed; if not, use npx to run it
     let useNpx = false;
     if (!commandExists(command)) {
@@ -208,14 +229,26 @@ export async function createPtyWebSocketServer(
           const envPath = path.join(resolvedAppDir, ".env");
           const vars: Array<{ key: string; value: string }> = msg.data.vars;
 
+          // Validate env var names and sanitize values
+          const validKeyPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
+          const sanitizedVars = vars.filter(({ key }) => {
+            if (!validKeyPattern.test(key)) {
+              console.warn(`${logPrefix} Rejected invalid env var key: ${key}`);
+              return false;
+            }
+            return true;
+          });
+
           let lines: string[] = [];
           try {
             lines = fs.readFileSync(envPath, "utf-8").split("\n");
           } catch {}
 
-          for (const { key, value } of vars) {
+          for (const { key, value } of sanitizedVars) {
+            // Strip newlines/null bytes to prevent line injection
+            const safeValue = value.replace(/[\r\n\0]/g, "");
             const idx = lines.findIndex((l) => l.startsWith(`${key}=`));
-            const entry = `${key}=${value}`;
+            const entry = `${key}=${safeValue}`;
             if (idx !== -1) {
               lines[idx] = entry;
             } else {
@@ -232,7 +265,7 @@ export async function createPtyWebSocketServer(
             ws.send(
               JSON.stringify({
                 type: "env-vars-saved",
-                keys: vars.map((v) => v.key),
+                keys: sanitizedVars.map((v) => v.key),
               }),
             );
           }

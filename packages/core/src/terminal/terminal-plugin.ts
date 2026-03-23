@@ -46,6 +46,22 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
       return;
     }
 
+    // Require authCheck in production to prevent unauthenticated shell access
+    if (isProd && !options.authCheck) {
+      console.error(
+        "[terminal] FATAL: authCheck is required when enabling the terminal in production. " +
+          "Pass an authCheck function to createTerminalPlugin().",
+      );
+      nitroApp.h3App.use(
+        "/api/agent-terminal-info",
+        defineEventHandler(() => ({
+          available: false,
+          error: "Terminal requires authCheck in production",
+        })),
+      );
+      return;
+    }
+
     const command =
       options.command || process.env.AGENT_CLI_COMMAND || "claude";
     const port =
@@ -78,10 +94,10 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
         })),
       );
 
-      // Cleanup on shutdown
+      // Cleanup on shutdown (use once to avoid listener leak on hot-reload)
       const cleanup = () => result.close();
-      process.on("SIGTERM", cleanup);
-      process.on("SIGINT", cleanup);
+      process.once("SIGTERM", cleanup);
+      process.once("SIGINT", cleanup);
 
       console.log(
         `[terminal] Agent terminal ready (command: ${command}, port: ${result.port})`,

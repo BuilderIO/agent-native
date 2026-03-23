@@ -26,7 +26,7 @@ import {
   type LaunchSettings,
 } from "./lib/settings";
 import { useHarnessConfig, useHarnessConfigs } from "./lib/config";
-import { AgentChatView, useProductionAgent } from "@agent-native/core/client";
+import { AssistantChat } from "@agent-native/core/client";
 
 function Tooltip({ children, label }: { children: ReactNode; label: string }) {
   return (
@@ -91,7 +91,6 @@ export function App() {
 
   // Agent UI mode: when "agent-ui" harness is selected, show chat instead of terminal
   const isAgentUi = config.command === "agent-ui";
-  const agent = useProductionAgent();
 
   // Tab management
   const [tabs, setTabs] = useState<Tab[]>(() => [createTab()]);
@@ -451,8 +450,7 @@ export function App() {
               {setupOverlay}
             </>
           ) : (
-            <AgentChatView
-              {...agent}
+            <AssistantChat
               showHeader={false}
               emptyStateText="Chat with the production agent"
             />

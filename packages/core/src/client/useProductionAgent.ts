@@ -24,6 +24,7 @@ export interface UseProductionAgentResult {
   clearHistory: () => void;
 }
 
+/** @deprecated Use `AssistantChat` component instead */
 export function useProductionAgent(
   options?: UseProductionAgentOptions,
 ): UseProductionAgentResult {

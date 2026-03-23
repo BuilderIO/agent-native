@@ -128,7 +128,6 @@ const INBOX_ZERO_PHOTOS = [
   "photo-1476610182048-b716b8518aae", // Lightning storm
   "photo-1490730141103-6cac27aaab94", // Sunrise mountains
   "photo-1527489377706-5bf97e608852", // Blue ice cave
-  "photo-1504701954957-2010ec3bcec1", // Starry night sky
   "photo-1542224566-6e85f2e6772f", // Autumn forest path
   "photo-1501785888041-af3ef285b470", // Italian coast
   "photo-1523712999610-f77fbcfc3843", // Foggy forest

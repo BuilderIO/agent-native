@@ -16,13 +16,14 @@ export {
   exitSelectionMode,
   type UserInfo,
 } from "./harness.js";
+export { AssistantChat, type AssistantChatProps } from "./AssistantChat.js";
+export { createAgentChatAdapter } from "./agent-chat-adapter.js";
 export {
   useProductionAgent,
   type ProductionAgentMessage,
   type UseProductionAgentOptions,
   type UseProductionAgentResult,
 } from "./useProductionAgent.js";
-export { AgentChatView, type AgentChatViewProps } from "./AgentChatView.js";
 export {
   ProductionAgentPanel,
   type ProductionAgentPanelProps,

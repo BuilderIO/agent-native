@@ -220,7 +220,7 @@ export function AgentTerminal({
             return;
           }
           const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-          wsUrl = `${protocol}//localhost:${info.wsPort}/ws`;
+          wsUrl = `${protocol}//${location.hostname}:${info.wsPort}/ws`;
           if (!command && info.command) {
             command = info.command;
           }
@@ -299,6 +299,8 @@ export function AgentTerminal({
             if (msg.type === "setup-status") {
               if (msg.status === "not-found" || msg.status === "failed") {
                 setError(msg.message);
+                // Bump connectionId to suppress reconnect on close
+                connectionId++;
               }
               return;
             }

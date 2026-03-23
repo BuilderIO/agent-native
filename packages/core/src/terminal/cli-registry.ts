@@ -3,7 +3,7 @@
  * Shared between the embedded terminal and the harness-cli.
  */
 
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 
 export interface CliEntry {
   /** npm package name for npx fallback */
@@ -31,11 +31,16 @@ export const CLI_REGISTRY: Record<string, CliEntry> = {
   },
 };
 
-/** Check if a CLI command exists on PATH */
+/** Check if a command name is in the CLI_REGISTRY allowlist */
+export function isAllowedCommand(cmd: string): boolean {
+  return cmd in CLI_REGISTRY;
+}
+
+/** Check if a CLI command exists on PATH (safe — no shell interpolation) */
 export function commandExists(cmd: string): boolean {
   try {
-    execSync(`command -v ${cmd}`, { stdio: "ignore" });
-    return true;
+    const result = spawnSync("which", [cmd], { stdio: "ignore" });
+    return result.status === 0;
   } catch {
     return false;
   }
