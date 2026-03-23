@@ -1,91 +1,97 @@
 ---
-name: files-as-database
+name: sql-as-database
 description: >-
-  How to store and manage application state as JSON/markdown files in data/.
-  Use when adding data models, creating file-based state, deciding where to
-  store data, or reading/writing application data files.
+  How to store and manage application data in SQL. Use when adding data models,
+  deciding where to store data, using core stores (settings, application-state,
+  oauth-tokens), or creating Drizzle schemas.
 ---
 
-# Files as Database
+# SQL as Database
 
 ## Rule
 
-All application state must be stored as files. There is no traditional database in an agent-native app.
+All application state lives in SQL — the same SQLite database locally and in production (via Turso, Neon, Supabase, D1). No JSON files for data storage.
 
 ## Why
 
-Files are the shared interface between the AI agent and the UI. The agent reads and writes files directly on the filesystem. The UI reads files via API routes. SSE streams file changes back to the UI in real-time. This only works if files are the single source of truth.
+SQL is the shared interface between the AI agent and the UI. The agent reads and writes data via scripts and core store helpers. The UI reads data via API routes. SSE streams database changes to the UI in real-time. This works identically in local dev and cloud production — no filesystem dependency.
 
-## How
+## Core SQL Stores
 
-- Store data as JSON or markdown files in `data/` (or a project-specific subdirectory).
-- API routes in `server/index.ts` read files with `fs.readFile` and return them.
-- The agent modifies files directly — no API calls needed from the agent side.
-- `createFileWatcher("./data")` watches for changes and streams them via SSE.
-- `useFileWatcher()` on the client invalidates React Query caches when files change.
+These tables are auto-created and available in all templates via `@agent-native/core`:
 
-## Don't
+| Store | Import | Table | Use for |
+|-------|--------|-------|---------|
+| Application State | `@agent-native/core/application-state` | `application_state` | Ephemeral UI state (compose drafts, navigation, screen sync) |
+| Settings | `@agent-native/core/settings` | `settings` | Persistent app config (user prefs, availability, theme) |
+| OAuth Tokens | `@agent-native/core/oauth-tokens` | `oauth_tokens` | OAuth credentials (Google, etc.) |
+| Sessions | (internal) | `sessions` | Auth sessions |
 
-- Don't add a database (SQLite, Postgres, MongoDB, etc.)
-- Don't store app state in localStorage, sessionStorage, or cookies
-- Don't keep state only in memory (server variables, global stores)
-- Don't use Redis or any external state store
-- Don't interpolate user input directly into file paths (see Security below)
-
-## Example
+### Application State (ephemeral)
 
 ```ts
-import fs from "fs";
+// From scripts
+import { readAppState, writeAppState, deleteAppState, listAppState } from "@agent-native/core/application-state";
 
-// Writing state (agent or script)
-fs.writeFileSync(
-  "data/projects/my-project.json",
-  JSON.stringify(project, null, 2),
-);
+await writeAppState("navigate", { view: "inbox", threadId: "t-123" });
+const nav = await readAppState("navigation");
+const drafts = await listAppState("compose-");
 
-// Reading state (server route) — note the path sanitization
-app.get("/api/projects/:id", (req, res) => {
-  const id = req.params.id.replace(/[^a-zA-Z0-9_-]/g, "");
-  const data = fs.readFileSync(`data/projects/${id}.json`, "utf-8");
-  res.json(JSON.parse(data));
+// From server handlers
+import { appStateGet, appStatePut, appStateDelete } from "@agent-native/core/application-state";
+```
+
+### Settings (persistent config)
+
+```ts
+// From scripts
+import { readSetting, writeSetting } from "@agent-native/core/settings";
+
+await writeSetting("mail-settings", { theme: "dark", density: "comfortable" });
+const settings = await readSetting("mail-settings");
+
+// From server handlers
+import { getSetting, putSetting } from "@agent-native/core/settings";
+```
+
+### OAuth Tokens
+
+```ts
+import { saveOAuthTokens, getOAuthTokens, listOAuthAccounts } from "@agent-native/core/oauth-tokens";
+
+await saveOAuthTokens("google", "user@gmail.com", { access_token: "...", refresh_token: "..." });
+const tokens = await getOAuthTokens("google", "user@gmail.com");
+const accounts = await listOAuthAccounts("google");
+```
+
+## Domain Data (Drizzle ORM)
+
+For structured domain data (emails, forms, bookings, compositions), use Drizzle ORM tables in `server/db/schema.ts`:
+
+```ts
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+
+export const forms = sqliteTable("forms", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  fields: text("fields").notNull(), // JSON
+  status: text("status", { enum: ["draft", "published"] }).notNull(),
 });
 ```
 
-## Creating a New Data Model
+## Don't
 
-When adding a new data entity (e.g., projects, tasks, settings):
+- Don't store data as JSON files in `data/`
+- Don't use `fs.readFileSync`/`fs.writeFileSync` for data (code modification is fine)
+- Don't store app state in localStorage, sessionStorage, or cookies
+- Don't keep state only in memory
 
-1. **Define the type** in `shared/` so both client and server import it
-2. **Create the data directory** — `data/<model>/<id>.json` (one file per item) or `data/<model>.json` (single collection)
-3. **Add API routes** in `server/` that read/write the files (sanitize IDs from params)
-4. **Wire SSE invalidation** — Add the query key to `useFileWatcher()` so the UI refreshes on changes
+## Environment Variables
 
-## Judgment Criteria
+Infrastructure config stays in `.env`:
+- `DATABASE_URL` — database connection (defaults to `file:./data/app.db`)
+- `DATABASE_AUTH_TOKEN` — for remote databases (Turso, etc.)
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — OAuth app credentials
+- `ACCESS_TOKEN` — production auth
 
-| Question                             | Single file       | Directory of files           |
-| ------------------------------------ | ----------------- | ---------------------------- |
-| Are items independently addressable? | No — use one file | Yes — one file per item      |
-| Will there be >50 items?             | Probably fine     | Definitely split             |
-| Do items need individual URLs?       | No                | Yes                          |
-| Do items change independently?       | No                | Yes — avoids write conflicts |
-
-## Scaling Guidance
-
-| File Count | Recommendation                                                        |
-| ---------- | --------------------------------------------------------------------- |
-| Under 50   | Read-all with `readdirSync` + `readFileSync` is fine                  |
-| 50–200     | Add an index file (`data/<model>/_index.json`) with IDs and summaries |
-| 200+       | Partition into subdirectories                                         |
-
-For list endpoints serving many files, use `fs.promises.readFile` instead of `readFileSync` to avoid blocking the event loop.
-
-## Security
-
-- **Path sanitization** — Always sanitize IDs from request params before constructing file paths. Use `id.replace(/[^a-zA-Z0-9_-]/g, "")` or the core utility `isValidPath()`. Without this, `../../.env` as an ID reads your environment file.
-- **Validate before writing** — Check data shape before writing files, especially for user-submitted data. A malformed write can break all subsequent reads.
-
-## Related Skills
-
-- **sse-file-watcher** — Set up real-time sync so the UI updates when data files change
-- **scripts** — Create scripts that read/write data files for complex operations
-- **self-modifying-code** — The agent writes data files as Tier 1 (auto-apply) modifications
+Runtime data (user settings, OAuth tokens, app state) goes in SQL.

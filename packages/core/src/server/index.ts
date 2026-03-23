@@ -31,9 +31,7 @@ export {
 export { createDevScriptRegistry } from "../scripts/dev/index.js";
 
 export {
-  getDefaultWatcher,
   getDefaultSSEEmitters,
-  getDefaultSyncResult,
   setDefaultSyncResult,
   createDefaultSSEHandler,
   defaultSyncStatusHandler,

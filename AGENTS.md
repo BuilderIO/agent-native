@@ -24,21 +24,21 @@ All app state lives in SQLite (`data/app.db`) via Drizzle ORM or the core SQL st
 
 ### 2. All AI goes through the agent chat
 
-The UI never calls an LLM directly. When the user wants AI to do something, the UI sends a message to the agent via the chat bridge (`sendToAgentChat()`). The agent does the work and writes results to files.
+The UI never calls an LLM directly. When the user wants AI to do something, the UI sends a message to the agent via the chat bridge (`sendToAgentChat()`). The agent does the work and writes results to the database.
 
 **Do:** Use `sendToAgentChat()` from the client, `agentChat.submit()` from scripts.
 **Don't:** Import an AI SDK in client or server code. No `openai.chat()`, no `anthropic.messages()`, no inline LLM calls anywhere.
 
 ### 3. Scripts for agent operations
 
-When the agent needs to do something — query data, call APIs, process information — it runs a script via `pnpm script <name>`. Scripts live in `scripts/` and export a default async function. **Everything the UI can do, the agent can do via scripts and data files.**
+When the agent needs to do something — query data, call APIs, process information — it runs a script via `pnpm script <name>`. Scripts live in `scripts/` and export a default async function. **Everything the UI can do, the agent can do via scripts and the shared database.**
 
 **Do:** Create focused scripts for discrete operations. Parse args with `parseArgs()`. Use scripts to list, search, create, and manage data — not just for background tasks.
-**Don't:** Put complex logic inline in agent chat. Keep scripts small and composable. Don't say "I don't have access" — check the scripts and data files first.
+**Don't:** Put complex logic inline in agent chat. Keep scripts small and composable. Don't say "I don't have access" — check the scripts and database first.
 
 ### 4. SSE keeps the UI in sync
 
-Server-Sent Events stream data changes to the UI in real-time. When the agent writes to the database (application state, settings, or domain data), the SSE handler broadcasts the change. Use `useFileWatcher()` to invalidate React Query caches on changes. SSE events have a `source` field: `"app-state"`, `"settings"`, or `"file"` (for actual file changes like code modifications).
+Server-Sent Events stream database changes to the UI in real-time. When the agent writes to the database (application state, settings, or domain data), the SSE handler broadcasts the change. The client `useFileWatcher()` hook invalidates React Query caches on changes. SSE events have a `source` field: `"app-state"` or `"settings"`.
 
 ### 5. The agent can modify code
 
@@ -154,9 +154,7 @@ Agent skills in `.agents/skills/` provide detailed guidance for architectural ru
 | Skill                 | When to use                                          |
 | --------------------- | ---------------------------------------------------- |
 | `delegate-to-agent`   | Delegating AI work from UI or scripts to the agent   |
-| `files-as-database`   | Storing app state as files (for content, settings)   |
 | `scripts`             | Creating or running agent scripts                    |
-| `sse-file-watcher`    | Wiring up real-time UI sync                          |
 | `self-modifying-code` | Editing app source, components, or styles            |
 | `create-skill`        | Adding new skills for the agent                      |
 | `capture-learnings`   | Recording corrections and patterns                   |

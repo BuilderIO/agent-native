@@ -35,22 +35,24 @@ interface EventLike {
 }
 
 export interface SSEHandlerOptions {
-  /** Additional EventEmitters to stream events from (e.g. sync events). */
+  /** Additional EventEmitters to stream events from (e.g. DB change events). */
   extraEmitters?: Array<{ emitter: EventLike; event: string }>;
+  /** Optional file watcher for streaming file change events (e.g. code modifications). */
+  watcher?: FSWatcher;
   /** Content root for computing relative paths. If provided, absolute paths are stripped. */
   contentRoot?: string;
 }
 
 /**
- * Create an H3 event handler that streams Server-Sent Events for file changes.
+ * Create an H3 event handler that streams Server-Sent Events.
+ *
+ * Streams events from DB change emitters (application state, settings)
+ * and optionally from a file watcher.
  *
  * Usage:
- *   router.get("/api/events", createSSEHandler(watcher));
+ *   router.get("/api/events", createSSEHandler({ extraEmitters }));
  */
-export function createSSEHandler(
-  watcher: FSWatcher,
-  options: SSEHandlerOptions = {},
-) {
+export function createSSEHandler(options: SSEHandlerOptions = {}) {
   const projectRoot = options.contentRoot
     ? path.resolve(options.contentRoot, "..")
     : null;
@@ -91,17 +93,22 @@ export function createSSEHandler(
       }
     };
 
-    const onChange = (eventName: string, filePath: string) => {
-      const relPath = projectRoot
-        ? path.relative(projectRoot, filePath)
-        : filePath;
-      send({ source: "file", type: eventName, path: relPath });
-    };
-
-    watcher.on("all", onChange);
-
-    // Subscribe to extra emitters (sync events already have source field)
+    // Subscribe to file watcher if provided
     const cleanups: Array<() => void> = [];
+
+    if (options.watcher) {
+      const watcher = options.watcher;
+      const onChange = (eventName: string, filePath: string) => {
+        const relPath = projectRoot
+          ? path.relative(projectRoot, filePath)
+          : filePath;
+        send({ source: "file", type: eventName, path: relPath });
+      };
+      watcher.on("all", onChange);
+      cleanups.push(() => watcher.off("all", onChange));
+    }
+
+    // Subscribe to extra emitters (DB change events)
     for (const { emitter, event: evtName } of options.extraEmitters ?? []) {
       const handler = (data: unknown) => {
         send(data);
@@ -135,7 +142,6 @@ export function createSSEHandler(
       closed = true;
       if (flushTimer) clearTimeout(flushTimer);
       pending.length = 0;
-      watcher.off("all", onChange);
       for (const cleanup of cleanups) cleanup();
     });
 
