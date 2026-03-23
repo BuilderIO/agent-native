@@ -14,7 +14,7 @@ export async function processJobs(): Promise<{ result: string }> {
   const now = Date.now();
 
   // Fetch all pending due jobs
-  const due = db
+  const due = await db
     .select()
     .from(schema.scheduledJobs)
     .where(
@@ -22,15 +22,14 @@ export async function processJobs(): Promise<{ result: string }> {
         eq(schema.scheduledJobs.status, "pending"),
         lte(schema.scheduledJobs.runAt, now),
       ),
-    )
-    .all();
+    );
 
   for (const job of due) {
-    // Mark as processing immediately (synchronous SQLite — no race risk in single process)
-    db.update(schema.scheduledJobs)
+    // Mark as processing immediately
+    await db
+      .update(schema.scheduledJobs)
       .set({ status: "processing" } as any)
-      .where(eq(schema.scheduledJobs.id, job.id))
-      .run();
+      .where(eq(schema.scheduledJobs.id, job.id));
 
     try {
       if (job.type === "snooze" && job.emailId) {
@@ -38,16 +37,16 @@ export async function processJobs(): Promise<{ result: string }> {
       } else if (job.type === "send_later") {
         await sendScheduledEmail(JSON.parse(job.payload) as SendLaterPayload);
       }
-      db.update(schema.scheduledJobs)
+      await db
+        .update(schema.scheduledJobs)
         .set({ status: "done" } as any)
-        .where(eq(schema.scheduledJobs.id, job.id))
-        .run();
+        .where(eq(schema.scheduledJobs.id, job.id));
     } catch (err) {
       console.error(`[jobs:process] Job ${job.id} failed:`, err);
-      db.update(schema.scheduledJobs)
+      await db
+        .update(schema.scheduledJobs)
         .set({ status: "cancelled" } as any)
-        .where(eq(schema.scheduledJobs.id, job.id))
-        .run();
+        .where(eq(schema.scheduledJobs.id, job.id));
     }
   }
 

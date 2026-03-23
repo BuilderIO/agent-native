@@ -16,3 +16,10 @@ export {
 
 // Script helpers
 export { readSetting, writeSetting, removeSetting } from "./script-helpers.js";
+
+// User-scoped helpers
+export {
+  getUserSetting,
+  putUserSetting,
+  deleteUserSetting,
+} from "./user-settings.js";
