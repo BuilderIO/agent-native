@@ -96,7 +96,7 @@ pnpm typecheck  # TypeScript validation
 > **Provider-specific knowledge** (BigQuery tables, API quirks, auth, script usage) lives in `.builder/skills/<provider>/SKILL.md`.
 > Read the relevant skill before querying any provider. After completing work, **update the relevant skill or learnings.md** with new discoveries.
 
-Internal analytics dashboard. Built with React + Nitro + TypeScript.
+Analytics dashboard template. Built with React + Nitro + TypeScript.
 
 ## Skills
 
@@ -297,7 +297,7 @@ All scripts that use `output()` automatically support:
 - **`--fields=<a,b,c>`** — pluck specific fields from results
 
 ```bash
-pnpm script hubspot-deals --grep="Acme" --fields=dealname,amount,stageLabel
+pnpm script hubspot-deals --grep="enterprise" --fields=dealname,amount,stageLabel
 pnpm script seo-top-keywords --grep=remix --fields=keyword,rank_absolute,etv
 ```
 
@@ -473,10 +473,10 @@ pnpm script github-prs --org=YourOrg --query="is:open label:bug"
 pnpm script jira-search --jql="summary ~ SSO ORDER BY created DESC" --fields=key,summary,status,assignee
 
 # Support: open tickets for a customer
-pnpm script pylon-issues --account="Acme Corp" --state=open
+pnpm script pylon-issues --account="Example Corp" --state=open
 
 # Sales: recent calls
-pnpm script gong-calls --company="Globex Inc" --days=30
+pnpm script gong-calls --company="Example Inc" --days=30
 
 # CRM: deals
 pnpm script hubspot-deals --fields=dealname,amount,stageLabel

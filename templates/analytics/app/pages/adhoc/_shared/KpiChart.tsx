@@ -17,7 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Code } from "lucide-react";
-import { formatDate } from "./types";
+import { formatDate } from "./format";
 
 interface KpiChartProps {
   title: string;

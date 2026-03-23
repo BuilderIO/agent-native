@@ -39,7 +39,7 @@ description: >
 
 ```bash
 # Recent calls with a customer
-pnpm script gong-calls --company="Globex Inc" --days=30
+pnpm script gong-calls --company="Example Inc" --days=30
 
 # Get call transcript
 pnpm script gong-calls --transcript=<callId>

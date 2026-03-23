@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useMetricsQuery } from "@/lib/query-metrics";
-import { KpiChart } from "../product-kpis/KpiChart";
+import { KpiChart } from "../_shared/KpiChart";
 import { agentChatMessagesByDayQuery } from "./queries";
 
 interface AgentChatActivityChartProps {

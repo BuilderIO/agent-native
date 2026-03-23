@@ -35,7 +35,7 @@ description: >
 pnpm script hubspot-deals --fields=dealname,amount,stageLabel
 
 # Search for a specific customer
-pnpm script hubspot-deals --grep="Acme" --fields=dealname,amount,stageLabel
+pnpm script hubspot-deals --grep="Example Corp" --fields=dealname,amount,stageLabel
 ```
 
 ## Key Patterns & Gotchas

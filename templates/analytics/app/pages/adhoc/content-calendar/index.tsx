@@ -5,8 +5,8 @@ import {
   useBlogSeoData,
   useTopBlogKeywords,
 } from "@/lib/api-hooks";
-import { useUrlFilterState } from "../top-funnel/useUrlFilterState";
-import { DateRangeInput } from "../top-funnel/components/DateRangeInput";
+import { useUrlFilterState } from "../_shared/useUrlFilterState";
+import { DateRangeInput } from "../_shared/components/DateRangeInput";
 import { CalendarTable } from "./CalendarTable";
 import { SeoRankingsTab } from "./SeoRankingsTab";
 import { StrikingDistanceTab } from "./StrikingDistanceTab";

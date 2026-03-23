@@ -10,7 +10,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatNumber, formatPercent } from "../top-funnel/types";
+import { formatNumber, formatPercent } from "../_shared/chart-types";
 import type { ContentCalendarEntry, BlogPageSeo } from "@/lib/api-hooks";
 import { useBlogKeywords } from "@/lib/api-hooks";
 import type { RankedKeyword } from "@/lib/api-hooks";

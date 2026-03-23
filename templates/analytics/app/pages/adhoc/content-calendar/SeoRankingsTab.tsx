@@ -13,7 +13,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatNumber } from "../top-funnel/types";
+import { formatNumber } from "../_shared/chart-types";
 import type { BlogKeywordRanking } from "@/lib/api-hooks";
 
 // -- Types --

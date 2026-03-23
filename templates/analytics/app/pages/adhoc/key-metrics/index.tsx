@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMetricsQuery } from "@/lib/query-metrics";
-import { KpiChart } from "../product-kpis/KpiChart";
+import { KpiChart } from "../_shared/KpiChart";
 import { SiteTrafficChart } from "./SiteTrafficChart";
 import { NewVsCancelledChart } from "./NewVsCancelledChart";
 import { SqlEditorModal } from "./SqlEditorModal";

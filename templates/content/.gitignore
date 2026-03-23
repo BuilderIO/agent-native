@@ -50,3 +50,5 @@ content/.builder-auth.json
 
 # Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
 learnings.md
+
+build

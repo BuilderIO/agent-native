@@ -28,7 +28,7 @@ function validateDashboard(dashboard: DashboardMeta): void {
       `❌ Dashboard '${dashboard.id}' (${dashboard.name}) is missing required metadata:\n` +
         errors.map((e) => `  - ${e}`).join("\n") +
         "\n\n⚠️  REQUIRED: Provide author name manually when creating dashboards." +
-        "\n   Update the dashboard entry in client/pages/adhoc/registry.ts",
+        "\n   Update the dashboard entry in app/pages/adhoc/registry.ts",
     );
   }
 }
@@ -67,116 +67,55 @@ export const dashboards: DashboardMeta[] = [
   {
     id: "key-metrics",
     name: "Key Metrics",
-    author: "Builder Team",
+    author: "Template",
     lastUpdated: "2025-01-15",
-  },
-  {
-    id: "top-funnel",
-    name: "Top Funnel Acquisition",
-    author: "Builder Team",
-    lastUpdated: "2025-02-01",
-    subviews: [
-      {
-        id: "blog-signups",
-        name: "Blog by Signups",
-        params: {
-          "t1.blogOnly": "true",
-          "t1.sortCol": "signups",
-          "t1.sortDir": "desc",
-        },
-      },
-      {
-        id: "blog-visitors",
-        name: "Blog by Visitors",
-        params: {
-          "t1.blogOnly": "true",
-          "t1.sortCol": "new_visitors",
-          "t1.sortDir": "desc",
-        },
-      },
-    ],
-  },
-  {
-    id: "signup-growth",
-    name: "Signup Growth vs 2x Goal",
-    author: "Builder Team",
-    lastUpdated: "2025-01-20",
-  },
-  {
-    id: "self-serve-revenue",
-    name: "Self-Serve Revenue",
-    author: "Builder Team",
-    lastUpdated: "2025-01-25",
-  },
-  {
-    id: "devrel-leaderboard",
-    name: "DevRel Leaderboard",
-    author: "Builder Team",
-    lastUpdated: "2025-02-10",
-    subviews: [
-      {
-        id: "recent",
-        name: "Recent Articles Only",
-        params: {
-          "dr.pubDateStart": new Date(Date.now() - 30 * 86400000)
-            .toISOString()
-            .slice(0, 10),
-        },
-      },
-    ],
   },
   {
     id: "content-calendar",
     name: "Content SEO",
-    author: "Builder Team",
+    author: "Template",
     lastUpdated: "2025-02-15",
   },
   {
     id: "hubspot",
     name: "HubSpot Sales",
-    author: "Builder Team",
+    author: "Template",
     lastUpdated: "2025-01-30",
-  },
-  {
-    id: "macys",
-    name: "Example Customer Account",
-    author: "Builder Team",
-    lastUpdated: "2025-02-20",
   },
   {
     id: "sentry",
     name: "Sentry Error Health",
-    author: "Builder Team",
+    author: "Template",
     lastUpdated: "2025-02-25",
   },
   {
     id: "gcloud",
     name: "Google Cloud Health",
-    author: "Builder Team",
+    author: "Template",
     lastUpdated: "2025-02-28",
   },
   {
     id: "jira",
     name: "Jira Tickets",
-    author: "Builder Team",
+    author: "Template",
     lastUpdated: "2025-03-02",
   },
   {
     id: "stripe",
     name: "Stripe Billing",
-    author: "Builder Team",
+    author: "Template",
     lastUpdated: "2025-03-04",
   },
   {
     id: "onboarding-funnel",
     name: "Onboarding Funnel Analysis",
-    author: "Builder Team",
+    author: "Template",
     lastUpdated: "2025-03-06",
   },
   {
     id: "pr-review-bot",
     name: "PR Review Bot",
-    author: "Builder Team",
+    author: "Template",
     lastUpdated: "2025-03-10",
   },
 ];
@@ -258,13 +197,8 @@ export const dashboardComponents: Record<
   React.LazyExoticComponent<ComponentType>
 > = {
   "key-metrics": lazy(() => import("./key-metrics")),
-  "top-funnel": lazy(() => import("./top-funnel")),
-  "signup-growth": lazy(() => import("./signup-growth")),
-  "self-serve-revenue": lazy(() => import("./self-serve-revenue")),
-  "devrel-leaderboard": lazy(() => import("./devrel-leaderboard")),
   "content-calendar": lazy(() => import("./content-calendar")),
   hubspot: lazy(() => import("./hubspot")),
-  macys: lazy(() => import("./macys")),
   "customer-health": lazy(() => import("./customer-health")),
   sentry: lazy(() => import("./sentry")),
   gcloud: lazy(() => import("./gcloud")),

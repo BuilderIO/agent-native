@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Code } from "lucide-react";
-import { formatDate } from "../product-kpis/types";
+import { formatDate } from "../_shared/format";
 
 interface NewVsCancelledChartProps {
   rows: Record<string, unknown>[];
