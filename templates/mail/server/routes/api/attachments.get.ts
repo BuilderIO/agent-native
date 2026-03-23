@@ -1,11 +1,11 @@
 import {
   defineEventHandler,
-  getRouterParam,
+  getQuery,
   setResponseHeader,
   setResponseStatus,
 } from "h3";
 import { google } from "googleapis";
-import { isConnected, getClients } from "../../../../../lib/google-auth.js";
+import { isConnected, getClients } from "../../lib/google-auth.js";
 
 export default defineEventHandler(async (event) => {
   if (!isConnected()) {
@@ -13,10 +13,15 @@ export default defineEventHandler(async (event) => {
     return { error: "No Google account connected" };
   }
 
-  const messageId = getRouterParam(event, "id") as string;
-  const attachmentId = decodeURIComponent(
-    getRouterParam(event, "attachmentId") as string,
-  );
+  const { messageId, id } = getQuery(event) as {
+    messageId?: string;
+    id?: string;
+  };
+
+  if (!messageId || !id) {
+    setResponseStatus(event, 400);
+    return { error: "messageId and id are required" };
+  }
 
   const clients = await getClients();
   for (const { client } of clients) {
@@ -25,7 +30,7 @@ export default defineEventHandler(async (event) => {
       const res = await gmail.users.messages.attachments.get({
         userId: "me",
         messageId,
-        id: attachmentId,
+        id,
       });
 
       const data = res.data.data;
@@ -37,6 +42,8 @@ export default defineEventHandler(async (event) => {
 
       setResponseHeader(event, "Cache-Control", "public, max-age=31536000");
       setResponseHeader(event, "Content-Length", buffer.length);
+      setResponseHeader(event, "Content-Type", "application/octet-stream");
+      setResponseHeader(event, "Content-Disposition", "attachment");
 
       return buffer;
     } catch {

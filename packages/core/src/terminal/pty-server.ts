@@ -128,7 +128,7 @@ export async function createPtyWebSocketServer(
     }
 
     // Reject flags containing shell metacharacters
-    if (extraFlags && /[;&|`$(){}]/.test(extraFlags)) {
+    if (extraFlags && /[;&|`$(){}\n\r<>]/.test(extraFlags)) {
       sendStatus("failed", "Invalid flags: shell metacharacters not allowed");
       if (ws.readyState === WebSocket.OPEN) ws.close();
       return;

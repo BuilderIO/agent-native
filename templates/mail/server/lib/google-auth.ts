@@ -411,7 +411,7 @@ function replaceCidUrls(
   return html.replace(/\bcid:([^\s"'<>]+)/g, (_match, cid) => {
     const att = inlineAttachments.get(cid);
     if (att) {
-      return `/api/emails/${messageId}/attachment/${encodeURIComponent(att.attachmentId)}`;
+      return `/api/attachments?messageId=${messageId}&id=${encodeURIComponent(att.attachmentId)}`;
     }
     return _match;
   });
