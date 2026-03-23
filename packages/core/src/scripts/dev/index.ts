@@ -1,0 +1,141 @@
+/**
+ * Dev-mode script registry.
+ *
+ * Provides file system, shell, and database tools for the agent
+ * when running in development mode. These tools should NEVER be
+ * registered in production.
+ */
+
+import type { ScriptTool } from "../../agent/types.js";
+import type { ScriptEntry } from "../../agent/production-agent.js";
+import { tool as readFileTool, run as readFileRun } from "./read-file.js";
+import { tool as writeFileTool, run as writeFileRun } from "./write-file.js";
+import { tool as listFilesTool, run as listFilesRun } from "./list-files.js";
+import {
+  tool as searchFilesTool,
+  run as searchFilesRun,
+} from "./search-files.js";
+import { tool as shellTool, run as shellRun } from "./shell.js";
+
+/**
+ * Wraps a core CLI script (that writes to console.log) as a ScriptEntry
+ * by capturing stdout.
+ */
+function wrapCliScript(
+  tool: ScriptTool,
+  cliDefault: (args: string[]) => Promise<void>,
+): ScriptEntry {
+  return {
+    tool,
+    run: async (args: Record<string, string>): Promise<string> => {
+      const cliArgs: string[] = [];
+      for (const [k, v] of Object.entries(args)) {
+        cliArgs.push(`--${k}`, v);
+      }
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const origLog = console.log;
+      console.log = (...a: unknown[]) => {
+        logs.push(a.map(String).join(" "));
+      };
+
+      try {
+        await cliDefault(cliArgs);
+      } catch (err: any) {
+        logs.push(`Error: ${err?.message ?? String(err)}`);
+      } finally {
+        console.log = origLog;
+      }
+
+      return logs.join("\n") || "(no output)";
+    },
+  };
+}
+
+/**
+ * Creates the dev-mode script registry with file system, shell,
+ * and database tools. Call this and merge with your app's registry
+ * when NODE_ENV !== "production".
+ */
+export function createDevScriptRegistry(): Record<string, ScriptEntry> {
+  // Lazy-import DB scripts to avoid requiring libsql in non-DB apps
+  let dbEntries: Record<string, ScriptEntry> = {};
+  try {
+    // These will be resolved at runtime — they're part of @agent-native/core
+    const dbSchema = require("../db/schema.js");
+    const dbQuery = require("../db/query.js");
+    const dbExec = require("../db/exec.js");
+
+    dbEntries = {
+      "db-schema": wrapCliScript(
+        {
+          description:
+            "Show all database tables, columns, types, and foreign keys",
+          parameters: {
+            type: "object",
+            properties: {
+              format: {
+                type: "string",
+                description: 'Output format: "json" or "text" (default: text)',
+                enum: ["json", "text"],
+              },
+            },
+          },
+        },
+        dbSchema.default,
+      ),
+      "db-query": wrapCliScript(
+        {
+          description:
+            "Run a read-only SQL query (SELECT, WITH, EXPLAIN, PRAGMA) against the app database",
+          parameters: {
+            type: "object",
+            properties: {
+              sql: {
+                type: "string",
+                description: "The SQL SELECT query to execute",
+              },
+              format: {
+                type: "string",
+                description:
+                  'Output format: "json" or "table" (default: table)',
+                enum: ["json", "table"],
+              },
+            },
+            required: ["sql"],
+          },
+        },
+        dbQuery.default,
+      ),
+      "db-exec": wrapCliScript(
+        {
+          description:
+            "Execute a write SQL statement (INSERT, UPDATE, DELETE) against the app database",
+          parameters: {
+            type: "object",
+            properties: {
+              sql: {
+                type: "string",
+                description: "The SQL statement to execute",
+              },
+            },
+            required: ["sql"],
+          },
+        },
+        dbExec.default,
+      ),
+    };
+  } catch {
+    // DB scripts not available (no libsql) — skip silently
+  }
+
+  return {
+    "read-file": { tool: readFileTool, run: readFileRun },
+    "write-file": { tool: writeFileTool, run: writeFileRun },
+    "list-files": { tool: listFilesTool, run: listFilesRun },
+    "search-files": { tool: searchFilesTool, run: searchFilesRun },
+    shell: { tool: shellTool, run: shellRun },
+    ...dbEntries,
+  };
+}

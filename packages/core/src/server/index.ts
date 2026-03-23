@@ -27,6 +27,7 @@ export {
   type AgentChatRequest,
   type AgentChatEvent,
 } from "../agent/index.js";
+export { createDevScriptRegistry } from "../scripts/dev/index.js";
 
 export {
   getDefaultWatcher,
@@ -37,6 +38,11 @@ export {
   defaultSyncStatusHandler,
 } from "./default-watcher.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
+export {
+  createAgentChatPlugin,
+  defaultAgentChatPlugin,
+  type AgentChatPluginOptions,
+} from "./agent-chat-plugin.js";
 export {
   createFileSyncPlugin,
   defaultFileSyncPlugin,

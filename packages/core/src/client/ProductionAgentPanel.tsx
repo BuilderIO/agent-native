@@ -2,13 +2,6 @@ import React, { useState, useEffect } from "react";
 import { AssistantChat } from "./AssistantChat.js";
 import { cn } from "./utils.js";
 
-// Only show the agent panel in production builds
-// Vite replaces import.meta.env.PROD at build time; in SSR/Node contexts it defaults to false
-const IS_PROD: boolean =
-  typeof import.meta !== "undefined" &&
-  typeof (import.meta as any).env !== "undefined" &&
-  (import.meta as any).env.PROD === true;
-
 // ─── Icons ─────────────────────────────────────────────────────────────────
 
 function MailIcon({ className }: { className?: string }) {
@@ -94,18 +87,25 @@ function BottomTabBar({
 
 export interface ProductionAgentPanelProps {
   children: React.ReactNode;
+  /** Placeholder text for the empty chat state */
+  emptyStateText?: string;
+  /** Suggestion prompts shown when no messages */
+  suggestions?: string[];
 }
 
 /**
- * Wraps app content with a mobile-style bottom tab bar (Mail / Agent).
- * In development (`!import.meta.env.PROD`), renders children unchanged.
+ * Wraps app content with a bottom tab bar (Mail / Agent).
+ * The agent chat is available in both dev and production mode.
  */
-export function ProductionAgentPanel({ children }: ProductionAgentPanelProps) {
+export function ProductionAgentPanel({
+  children,
+  emptyStateText = "How can I help you?",
+  suggestions,
+}: ProductionAgentPanelProps) {
   const [activeTab, setActiveTab] = useState<"mail" | "agent">("mail");
   const [hasAgentActivity, setHasAgentActivity] = useState(false);
 
   useEffect(() => {
-    if (!IS_PROD) return;
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail?.running) setHasAgentActivity(true);
@@ -114,10 +114,6 @@ export function ProductionAgentPanel({ children }: ProductionAgentPanelProps) {
     return () =>
       window.removeEventListener("builder.fusion.chatRunning", handler);
   }, []);
-
-  if (!IS_PROD) {
-    return <>{children}</>;
-  }
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -139,12 +135,8 @@ export function ProductionAgentPanel({ children }: ProductionAgentPanelProps) {
       >
         <AssistantChat
           showHeader
-          emptyStateText="Ask me anything about your emails"
-          suggestions={[
-            "What's in my inbox?",
-            "Summarize my unread emails",
-            "Archive emails from last week",
-          ]}
+          emptyStateText={emptyStateText}
+          suggestions={suggestions}
         />
       </div>
 

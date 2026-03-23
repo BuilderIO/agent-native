@@ -11,6 +11,12 @@ export {
   type AgentChatRequest,
   type AgentChatEvent,
 } from "./agent/index.js";
+export { createDevScriptRegistry } from "./scripts/dev/index.js";
+export {
+  createAgentChatPlugin,
+  defaultAgentChatPlugin,
+  type AgentChatPluginOptions,
+} from "./server/agent-chat-plugin.js";
 
 // Server
 export {

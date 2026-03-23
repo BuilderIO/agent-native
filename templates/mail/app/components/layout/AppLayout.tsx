@@ -922,7 +922,14 @@ export function AppLayout({ children }: AppLayoutProps) {
           )}
 
           {/* Show full-page takeover when no accounts connected, otherwise content */}
-          <ProductionAgentPanel>
+          <ProductionAgentPanel
+            emptyStateText="Ask me anything about your emails"
+            suggestions={[
+              "What's in my inbox?",
+              "Summarize my unread emails",
+              "Show me the database schema",
+            ]}
+          >
             {!googleStatus.isLoading && !hasAccounts ? (
               <GoogleConnectBanner variant="hero" />
             ) : (
