@@ -19,9 +19,12 @@ async function writeEmails(emails: any[]): Promise<void> {
  * Resurface a snoozed email: remove ARCHIVE label, add UNREAD.
  * The SSE watcher picks up the data change and notifies the UI.
  */
-export async function resurfaceEmail(emailId: string): Promise<void> {
-  if (await isConnected()) {
-    const client = await getClient();
+export async function resurfaceEmail(
+  emailId: string,
+  accountEmail?: string,
+): Promise<void> {
+  if (await isConnected(accountEmail)) {
+    const client = await getClient(accountEmail);
     if (client) {
       const gmail = google.gmail({ version: "v1", auth: client });
       await gmail.users.messages.modify({
@@ -69,11 +72,12 @@ export interface SendLaterPayload {
  */
 export async function sendScheduledEmail(
   payload: SendLaterPayload,
+  accountEmail?: string,
 ): Promise<void> {
   const { to, cc, bcc, subject, body, from, replyToId, threadId } = payload;
 
-  if (await isConnected()) {
-    const client = await getClient(from);
+  if (await isConnected(accountEmail || from)) {
+    const client = await getClient(accountEmail || from);
     if (client) {
       const gmail = google.gmail({ version: "v1", auth: client });
       const lines = [

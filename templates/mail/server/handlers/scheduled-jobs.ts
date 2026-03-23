@@ -8,6 +8,7 @@ import {
 import { eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db, schema } from "../db/index.js";
+import { getSession } from "@agent-native/core/server";
 import * as chrono from "chrono-node";
 
 // ─── NL Date Parsing ──────────────────────────────────────────────────────────
@@ -47,17 +48,24 @@ export function parseNlDate(input: string, timezone: string): Date | null {
 // ─── Route Handlers ───────────────────────────────────────────────────────────
 
 /** GET /api/scheduled-jobs — list pending/processing jobs */
-export const listScheduledJobs = defineEventHandler((_event: H3Event) => {
-  const jobs = db
+export const listScheduledJobs = defineEventHandler(async (event: H3Event) => {
+  const session = await getSession(event);
+  const jobs = await db
     .select()
     .from(schema.scheduledJobs)
-    .where(inArray(schema.scheduledJobs.status, ["pending", "processing"]))
-    .all();
+    .where(inArray(schema.scheduledJobs.status, ["pending", "processing"]));
+  // Filter to the current user's jobs
+  if (session?.email && session.email !== "local@localhost") {
+    return jobs.filter(
+      (j) => !j.accountEmail || j.accountEmail === session.email,
+    );
+  }
   return jobs;
 });
 
 /** POST /api/scheduled-jobs — create a new job */
 export const createScheduledJob = defineEventHandler(async (event: H3Event) => {
+  const session = await getSession(event);
   const body = await readBody(event);
   const { type, emailId, payload, runAt } = body as {
     type: "snooze" | "send_later";
@@ -85,13 +93,14 @@ export const createScheduledJob = defineEventHandler(async (event: H3Event) => {
     id: nanoid(12),
     type,
     emailId: emailId ?? null,
+    accountEmail: session?.email ?? null,
     payload: JSON.stringify(payload ?? {}),
     runAt,
     status: "pending" as const,
     createdAt: Date.now(),
   };
 
-  db.insert(schema.scheduledJobs).values(job).run();
+  await db.insert(schema.scheduledJobs).values(job);
   setResponseStatus(event, 201);
   return job;
 });
@@ -112,37 +121,36 @@ export const updateScheduledJob = defineEventHandler(async (event: H3Event) => {
     return { error: "runAt must be a future timestamp" };
   }
 
-  const existing = db
+  const [existing] = await db
     .select()
     .from(schema.scheduledJobs)
-    .where(eq(schema.scheduledJobs.id, id))
-    .get();
+    .where(eq(schema.scheduledJobs.id, id));
 
   if (!existing) {
     setResponseStatus(event, 404);
     return { error: "Job not found" };
   }
 
-  db.update(schema.scheduledJobs)
+  await db
+    .update(schema.scheduledJobs)
     .set({ runAt, status: "pending" } as any)
-    .where(eq(schema.scheduledJobs.id, id))
-    .run();
+    .where(eq(schema.scheduledJobs.id, id));
 
   return { ...existing, runAt, status: "pending" };
 });
 
 /** DELETE /api/scheduled-jobs/:id — cancel (set status = cancelled) */
-export const deleteScheduledJob = defineEventHandler((event: H3Event) => {
+export const deleteScheduledJob = defineEventHandler(async (event: H3Event) => {
   const id = getRouterParam(event, "id");
   if (!id) {
     setResponseStatus(event, 400);
     return { error: "id required" };
   }
 
-  db.update(schema.scheduledJobs)
+  await db
+    .update(schema.scheduledJobs)
     .set({ status: "cancelled" } as any)
-    .where(eq(schema.scheduledJobs.id, id))
-    .run();
+    .where(eq(schema.scheduledJobs.id, id));
 
   return { ok: true };
 });

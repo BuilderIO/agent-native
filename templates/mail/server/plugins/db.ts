@@ -13,4 +13,8 @@ export default runMigrations([
     created_at INTEGER NOT NULL
   )`,
   },
+  {
+    version: 2,
+    sql: `ALTER TABLE scheduled_jobs ADD COLUMN account_email TEXT`,
+  },
 ]);
