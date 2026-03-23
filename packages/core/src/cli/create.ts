@@ -1,6 +1,5 @@
 import fs from "fs";
 import path from "path";
-import { execSync } from "child_process";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -48,35 +47,16 @@ export function createApp(name?: string): void {
   // Copy template
   copyDir(templateDir, targetDir);
 
-  // Replace placeholders in package.json
-  const pkgPath = path.join(targetDir, "package.json");
-  if (fs.existsSync(pkgPath)) {
-    let content = fs.readFileSync(pkgPath, "utf-8");
-    content = content.replace(/\{\{APP_NAME\}\}/g, name);
-    fs.writeFileSync(pkgPath, content);
-  }
-
-  // Replace placeholders in index.html
-  const htmlPath = path.join(targetDir, "index.html");
-  if (fs.existsSync(htmlPath)) {
-    let content = fs.readFileSync(htmlPath, "utf-8");
-    content = content.replace(
-      /\{\{APP_TITLE\}\}/g,
-      name
-        .split("-")
-        .map((w) => w[0].toUpperCase() + w.slice(1))
-        .join(" "),
-    );
-    fs.writeFileSync(htmlPath, content);
-  }
-
-  // Replace placeholders in AGENTS.md
-  const agentsPath = path.join(targetDir, "AGENTS.md");
-  if (fs.existsSync(agentsPath)) {
-    let content = fs.readFileSync(agentsPath, "utf-8");
-    content = content.replace(/\{\{APP_NAME\}\}/g, name);
-    fs.writeFileSync(agentsPath, content);
-  }
+  // Replace {{APP_NAME}} and {{APP_TITLE}} placeholders in all text files.
+  // Previously this was done per-file (package.json, index.html, AGENTS.md),
+  // but index.html no longer exists in the React Router framework template and
+  // route files like app/routes/_index.tsx also contain {{APP_TITLE}}.
+  // A single recursive pass is simpler and future-proof.
+  const appTitle = name
+    .split("-")
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(" ");
+  replacePlaceholders(targetDir, name, appTitle);
 
   // Copy defaults files (gitignored files that get seeded from .defaults on first create)
   for (const base of ["learnings"]) {
@@ -129,6 +109,42 @@ export function createApp(name?: string): void {
   console.log(
     `Need multi-user collaboration? See: https://agent-native.dev/docs/file-sync`,
   );
+}
+
+/**
+ * Recursively replace {{APP_NAME}} and {{APP_TITLE}} placeholders in all
+ * text files under `dir`. Binary files are skipped silently.
+ */
+function replacePlaceholders(
+  dir: string,
+  appName: string,
+  appTitle: string,
+): void {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, entry.name);
+    if (entry.isSymbolicLink() || entry.isDirectory()) {
+      if (!entry.isSymbolicLink()) replacePlaceholders(p, appName, appTitle);
+      continue;
+    }
+    let content: string;
+    try {
+      content = fs.readFileSync(p, "utf-8");
+    } catch {
+      continue; // skip unreadable / binary files
+    }
+    if (
+      !content.includes("{{APP_NAME}}") &&
+      !content.includes("{{APP_TITLE}}")
+    ) {
+      continue;
+    }
+    fs.writeFileSync(
+      p,
+      content
+        .replace(/\{\{APP_NAME\}\}/g, appName)
+        .replace(/\{\{APP_TITLE\}\}/g, appTitle),
+    );
+  }
 }
 
 function copyDir(src: string, dest: string, root?: string): void {
