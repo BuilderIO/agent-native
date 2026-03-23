@@ -10,7 +10,7 @@
     "outDir": "dist",
     "declaration": true,
     "paths": {
-      "@/*": ["./client/*"]
+      "@/*": ["./app/*"]
     }
   },
   "include": ["client", "src"]

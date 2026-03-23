@@ -9,7 +9,7 @@ description: >
 
 ## Connection
 
-- **Base URL**: `https://builderio.grafana.net`
+- **Base URL**: `$GRAFANA_URL` (e.g. `https://your-org.grafana.net`)
 - **Auth**: `Authorization: Bearer $GRAFANA_API_TOKEN` (service account token)
 - **Env vars**: `GRAFANA_API_TOKEN`
 - **Caching**: 10-minute cache for metadata; query results are NOT cached (time-sensitive)

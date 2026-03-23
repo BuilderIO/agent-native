@@ -38,7 +38,7 @@ This creates:
 ### Add to Registry
 
 ```typescript
-// client/remotion/registry.ts
+// app/remotion/registry.ts
 import { MyDashboard } from "@/remotion/compositions/MyDashboard/MyDashboard";
 import { FALLBACK_TRACKS } from "@/remotion/compositions/MyDashboard/MyDashboardConfig";
 
@@ -342,7 +342,7 @@ npm run generate:component <Name> [options]
 
 Options:
   --elements <E1,E2>    Element types (comma-separated)
-  --output <dir>        Output directory (default: client/remotion/compositions)
+  --output <dir>        Output directory (default: app/remotion/compositions)
 
 Examples:
   npm run generate:component Landing --elements Hero,Features,CTA

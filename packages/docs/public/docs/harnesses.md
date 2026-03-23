@@ -67,7 +67,7 @@ export default defineNitroPlugin((nitroApp) => {
 });
 ```
 
-In `client/root.tsx` (the app shell):
+In `app/root.tsx` (the app shell):
 
 ```tsx
 import { ProductionAgentPanel } from "@agent-native/core";

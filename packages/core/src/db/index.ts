@@ -22,3 +22,6 @@ export function createDb(config: DbConfig) {
 }
 
 export type DrizzleDb = ReturnType<typeof createDb>;
+
+export { createGetDb } from "./create-get-db.js";
+export { runMigrations } from "./migrations.js";

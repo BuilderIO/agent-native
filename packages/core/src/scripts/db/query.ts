@@ -8,8 +8,7 @@
  */
 
 import path from "path";
-import fs from "fs";
-import Database from "better-sqlite3";
+import { createClient } from "@libsql/client";
 import { parseArgs, fail } from "../utils.js";
 
 export default async function dbQuery(args: string[]): Promise<void> {
@@ -50,13 +49,20 @@ Options:
     );
   }
 
-  const dbPath = parsed.db || path.join(process.cwd(), "data", "app.db");
-
-  if (!fs.existsSync(dbPath)) {
-    fail(`Database not found at ${dbPath}`);
+  // Resolve database URL: --db flag → DATABASE_URL env → default file path
+  let url: string;
+  if (parsed.db) {
+    url = "file:" + path.resolve(parsed.db);
+  } else if (process.env.DATABASE_URL) {
+    url = process.env.DATABASE_URL;
+  } else {
+    url = "file:" + path.resolve(process.cwd(), "data", "app.db");
   }
 
-  const db = new Database(dbPath, { readonly: true });
+  const client = createClient({
+    url,
+    authToken: process.env.DATABASE_AUTH_TOKEN,
+  });
 
   try {
     let finalSql = sql;
@@ -71,7 +77,14 @@ Options:
       finalSql = `${sql} LIMIT ${limitVal}`;
     }
 
-    const rows: Record<string, any>[] = db.prepare(finalSql).all() as any;
+    const result = await client.execute(finalSql);
+    const rows: Record<string, unknown>[] = result.rows.map((row) => {
+      const obj: Record<string, unknown> = {};
+      for (let i = 0; i < result.columns.length; i++) {
+        obj[result.columns[i]] = row[i];
+      }
+      return obj;
+    });
 
     if (parsed.format === "json") {
       console.log(
@@ -115,6 +128,6 @@ Options:
       console.log(line);
     }
   } finally {
-    db.close();
+    client.close();
   }
 }

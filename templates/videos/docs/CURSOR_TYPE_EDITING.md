@@ -180,4 +180,4 @@ const {
 
 - [Cursor Integration Quick Reference](./CURSOR_INTEGRATION_QUICK_REF.md)
 - [Interactive Component Helper Guide](./INTERACTIVE_COMPONENT_HELPER.md)
-- [CurrentElementPanel.tsx](../client/components/CurrentElementPanel.tsx)
+- [CurrentElementPanel.tsx](../app/components/CurrentElementPanel.tsx)

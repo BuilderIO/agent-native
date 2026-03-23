@@ -14,8 +14,8 @@
 **Effort**: 3-4 days → **Completed in 2 hours**
 **Files**:
 
-- ✅ Created `client/remotion/animations/useElementAnimations.ts`
-- ✅ Refactored `client/remotion/compositions/InteractiveCardGrid.tsx`
+- ✅ Created `app/remotion/animations/useElementAnimations.ts`
+- ✅ Refactored `app/remotion/compositions/InteractiveCardGrid.tsx`
 
 **Acceptance Criteria**:
 
@@ -40,7 +40,7 @@
 **Effort**: 1 day → **Completed in 30 minutes**
 **Files**:
 
-- ✅ Created `client/config/constants.ts` (204 lines)
+- ✅ Created `app/config/constants.ts` (204 lines)
 - ✅ Updated InteractiveCardGrid to use constants
 
 **Examples Fixed**:
@@ -70,7 +70,7 @@ width: 285,                   // → CARD_CONFIG.WIDTH
 
 **Files**:
 
-- Refactor `client/types/elementAnimations.ts`
+- Refactor `app/types/elementAnimations.ts`
 - Update all animation consumers
 
 **Design**:
@@ -110,15 +110,15 @@ type AnimationKeyframe = NumericKeyframe | ColorKeyframe;
 
 **Files Created**:
 
-- ✅ Created `client/contexts/CompositionContext.tsx` - composition metadata, props, settings
-- ✅ Created `client/contexts/TimelineContext.tsx` - tracks, selected track, FPS scaling
-- ✅ Created `client/contexts/PlaybackContext.tsx` - current frame, fps, seek function
+- ✅ Created `app/contexts/CompositionContext.tsx` - composition metadata, props, settings
+- ✅ Created `app/contexts/TimelineContext.tsx` - tracks, selected track, FPS scaling
+- ✅ Created `app/contexts/PlaybackContext.tsx` - current frame, fps, seek function
 
 **Files Refactored**:
 
-- ✅ Updated `client/pages/Index.tsx` - simplified from 575 lines to 147 lines
-- ✅ Updated `client/components/Sidebar.tsx` - reduced from 19 props to 4 props
-- ✅ Updated `client/pages/CompositionView.tsx` - reduced from 13 props to 3 props
+- ✅ Updated `app/pages/Index.tsx` - simplified from 575 lines to 147 lines
+- ✅ Updated `app/components/Sidebar.tsx` - reduced from 19 props to 4 props
+- ✅ Updated `app/pages/CompositionView.tsx` - reduced from 13 props to 3 props
 
 **Acceptance Criteria**:
 
@@ -141,9 +141,9 @@ type AnimationKeyframe = NumericKeyframe | ColorKeyframe;
 
 ## 🔴 P0 - Critical (Do Before Next Major Feature)
 
-- Create `client/contexts/PlaybackContext.tsx`
-- Refactor `client/components/Sidebar.tsx`
-- Refactor `client/pages/Index.tsx`
+- Create `app/contexts/PlaybackContext.tsx`
+- Refactor `app/components/Sidebar.tsx`
+- Refactor `app/pages/Index.tsx`
 
 **Acceptance Criteria**:
 
@@ -163,8 +163,8 @@ type AnimationKeyframe = NumericKeyframe | ColorKeyframe;
 **Effort**: 1 day  
 **Files**:
 
-- Create `client/components/ErrorBoundary.tsx`
-- Add to `client/pages/CompositionView.tsx`
+- Create `app/components/ErrorBoundary.tsx`
+- Add to `app/pages/CompositionView.tsx`
 
 **Acceptance Criteria**:
 
@@ -182,7 +182,7 @@ type AnimationKeyframe = NumericKeyframe | ColorKeyframe;
 **Effort**: 1 day  
 **Files**:
 
-- Create `client/config/constants.ts`
+- Create `app/config/constants.ts`
 - Update all files with magic numbers
 
 **Examples to Fix**:
@@ -212,8 +212,8 @@ const FPS = 30;              // → ANIMATION_CONFIG.DEFAULT_FPS
 
 **Files Updated**:
 
-- ✅ Updated `client/remotion/animations/useElementAnimations.ts`
-- ✅ Updated `client/types/elementAnimations.ts`
+- ✅ Updated `app/remotion/animations/useElementAnimations.ts`
+- ✅ Updated `app/types/elementAnimations.ts`
 
 **Implementation**:
 
@@ -244,8 +244,8 @@ const FPS = 30;              // → ANIMATION_CONFIG.DEFAULT_FPS
 **Effort**: 2 days  
 **Files**:
 
-- Create `client/types/__tests__/elementAnimations.test.ts`
-- Create `client/remotion/animations/__tests__/interpolation.test.ts`
+- Create `app/types/__tests__/elementAnimations.test.ts`
+- Create `app/remotion/animations/__tests__/interpolation.test.ts`
 
 **Coverage Targets**:
 
@@ -311,13 +311,13 @@ const FPS = 30;              // → ANIMATION_CONFIG.DEFAULT_FPS
 
 **Files to update**:
 
-- `client/pages/Index.tsx` (8 instances)
-- `client/utils/resetComposition.ts` (3 instances)
-- `client/components/NewCompositionPopover.tsx` (1 instance)
-- `client/components/CameraControls.tsx` (1 instance)
-- `client/components/VideoPlayer.tsx` (2 instances)
+- `app/pages/Index.tsx` (8 instances)
+- `app/utils/resetComposition.ts` (3 instances)
+- `app/components/NewCompositionPopover.tsx` (1 instance)
+- `app/components/CameraControls.tsx` (1 instance)
+- `app/components/VideoPlayer.tsx` (2 instances)
 
-**Use**: Import from `client/utils/debug.ts`
+**Use**: Import from `app/utils/debug.ts`
 
 ---
 
@@ -325,9 +325,9 @@ const FPS = 30;              // → ANIMATION_CONFIG.DEFAULT_FPS
 
 **Priority**: All exported functions in:
 
-- `client/types/elementAnimations.ts`
-- `client/utils/compositionHelpers.ts`
-- `client/remotion/trackAnimation.ts`
+- `app/types/elementAnimations.ts`
+- `app/utils/compositionHelpers.ts`
+- `app/remotion/trackAnimation.ts`
 
 ---
 

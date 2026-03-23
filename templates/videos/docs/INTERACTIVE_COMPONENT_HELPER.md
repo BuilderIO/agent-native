@@ -481,7 +481,7 @@ const element = useInteractiveComponent({
 - [Interactive Elements Guide](./INTERACTIVE_ELEMENTS_GUIDE.md) - Detailed interactive elements documentation
 - [Animation System Overview](./ANIMATION_SYSTEM_OVERVIEW.md) - How the animation system works
 - [Cursor Animation Best Practices](./CURSOR_ANIMATION_BEST_PRACTICES.md) - Cursor system guidelines
-- [SimplifiedPlayground.tsx](../client/remotion/compositions/SimplifiedPlayground.tsx) - Full working example
+- [SimplifiedPlayground.tsx](../app/remotion/compositions/SimplifiedPlayground.tsx) - Full working example
 
 ---
 
@@ -685,6 +685,6 @@ export const MyInteractiveElement = ({
 
 **See Examples:**
 
-- `client/remotion/ui-components/InteractiveButton.tsx` - Updated example
-- `client/remotion/ui-components/InteractiveCard.tsx` - Updated example
+- `app/remotion/ui-components/InteractiveButton.tsx` - Updated example
+- `app/remotion/ui-components/InteractiveCard.tsx` - Updated example
 - `.builder/ANIMATED_PROPERTIES.md` - Full property documentation

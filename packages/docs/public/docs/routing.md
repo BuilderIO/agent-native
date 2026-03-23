@@ -1,6 +1,6 @@
 # Routing
 
-Agent-native apps use **React Router v7 framework mode** with file-based routing. Pages are auto-discovered from `client/routes/` via `flatRoutes()`.
+Agent-native apps use **React Router v7 framework mode** with file-based routing. Pages are auto-discovered from `app/routes/` via `flatRoutes()`.
 
 ## Architecture: SSR Shell + Client Rendering
 
@@ -22,7 +22,7 @@ This gives you:
 
 ```
 react-router.config.ts    # Framework config (ssr: true, appDirectory)
-client/
+app/
   routes.ts               # Route discovery — flatRoutes()
   root.tsx                # HTML shell + global providers
   entry.client.tsx        # Client hydration entry
@@ -38,10 +38,10 @@ server/
 
 ## Adding a Page
 
-Create a file in `client/routes/`. The filename determines the URL path:
+Create a file in `app/routes/`. The filename determines the URL path:
 
 ```
-client/routes/
+app/routes/
   _index.tsx              → /
   about.tsx               → /about
   settings.tsx            → /settings
@@ -69,7 +69,7 @@ client/routes/
 This is the standard for virtually every route. No server data fetching:
 
 ```tsx
-// client/routes/settings.tsx
+// app/routes/settings.tsx
 import Settings from "@/pages/Settings";
 
 export function meta() {
@@ -103,7 +103,7 @@ What happens:
 Only use when a page genuinely needs server-side data for SEO or og tags:
 
 ```tsx
-// client/routes/book.$slug.tsx — public page needing og tags
+// app/routes/book.$slug.tsx — public page needing og tags
 import type { Route } from "./+types/book.$slug";
 
 export async function loader({ params }: Route.LoaderArgs) {
@@ -144,7 +144,7 @@ export default function BookingPage({ loaderData }: Route.ComponentProps) {
 | `action()`          | Server-side form handling                             |
 | `ErrorBoundary`     | Route-level error UI                                  |
 
-## Root Module (`client/root.tsx`)
+## Root Module (`app/root.tsx`)
 
 The root module replaces `index.html`. It contains the HTML shell and global providers:
 
@@ -200,7 +200,7 @@ Both React Router and Nitro run in the same Vite config:
 
 | Concern     | React Router               | Nitro                               |
 | ----------- | -------------------------- | ----------------------------------- |
-| Page routes | `client/routes/`           | N/A                                 |
+| Page routes | `app/routes/`              | N/A                                 |
 | API routes  | N/A                        | `server/routes/api/`                |
 | SSR         | HTML shell + hydration     | Catch-all delegates to React Router |
 | Build       | Client bundles + SSR entry | API routes + plugins                |

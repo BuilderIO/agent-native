@@ -1,8 +1,0 @@
-{
-  "syncFilePatterns": [
-    "data/brand/config.json",
-    "data/brand/style-profile.json",
-    "data/generations/**/*.json",
-    "!data/sync-config.json"
-  ]
-}

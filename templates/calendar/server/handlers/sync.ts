@@ -4,12 +4,7 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import path from "path";
-import type { CalendarEvent } from "../../shared/api.js";
-import { listJsonFiles, writeJsonFile } from "../lib/data-helpers.js";
 import * as googleCalendar from "../lib/google-calendar.js";
-
-const EVENTS_DIR = path.join(process.cwd(), "data", "events");
 
 export const syncGoogleCalendar = defineEventHandler(async (event: H3Event) => {
   try {
@@ -28,26 +23,20 @@ export const syncGoogleCalendar = defineEventHandler(async (event: H3Event) => {
     const from = (body?.from as string) || defaultFrom.toISOString();
     const to = (body?.to as string) || defaultTo.toISOString();
 
-    const { events: googleEvents } = await googleCalendar.listEvents(from, to);
-
-    // Get existing events to check for duplicates
-    const existingEvents = listJsonFiles<CalendarEvent>(EVENTS_DIR);
-    const existingGoogleIds = new Set(
-      existingEvents.filter((e) => e.googleEventId).map((e) => e.googleEventId),
+    // Events are now read directly from Google Calendar API — no local sync needed.
+    // This endpoint just verifies the connection and returns a count.
+    const { events: googleEvents, errors } = await googleCalendar.listEvents(
+      from,
+      to,
     );
 
-    let synced = 0;
-    for (const event of googleEvents) {
-      if (event.googleEventId && existingGoogleIds.has(event.googleEventId)) {
-        continue;
-      }
-
-      const filePath = path.join(EVENTS_DIR, `${event.id}.json`);
-      writeJsonFile(filePath, event);
-      synced++;
-    }
-
-    return { synced, total: googleEvents.length };
+    return {
+      synced: 0,
+      total: googleEvents.length,
+      message:
+        "Events are now read directly from Google Calendar. No local sync needed.",
+      errors: errors.length > 0 ? errors : undefined,
+    };
   } catch (error: any) {
     setResponseStatus(event, 500);
     return { error: error.message };

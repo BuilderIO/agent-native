@@ -1,7 +1,7 @@
 // Grafana Cloud API helper
 // Fetches dashboards, datasources, alerts, and proxies queries
 
-const API_BASE = "https://builderio.grafana.net";
+const API_BASE = process.env.GRAFANA_URL || "https://your-org.grafana.net";
 
 // In-memory cache
 const cache = new Map<string, { data: unknown; ts: number }>();

@@ -389,7 +389,9 @@ export function App() {
   );
 
   return (
-    <div className={`h-screen bg-black ${isMobile ? "flex flex-col" : "flex"}`}>
+    <div
+      className={`h-screen bg-[#111] ${isMobile ? "flex flex-col" : "flex"}`}
+    >
       {/* Backdrop — dismisses popovers when clicking anywhere, including over iframe */}
       {showPopoverBackdrop && (
         <div className="fixed inset-0 z-40" onClick={dismissPopovers} />
@@ -402,7 +404,7 @@ export function App() {
             ? "hidden"
             : isMobile
               ? `flex flex-col ${mobileTab === "agent" ? "flex-1 min-h-0" : "absolute inset-0 invisible"}`
-              : "flex flex-col min-h-0"
+              : "flex flex-col min-h-0 border-r border-white/[0.06]"
         }
         style={
           isMobile || (isFullscreen && !isMobile)
@@ -469,13 +471,13 @@ export function App() {
       <div
         className={
           isFullscreen && !isMobile
-            ? "fixed inset-0 z-50 bg-black flex flex-col"
+            ? "fixed inset-0 z-50 bg-[#111] flex flex-col"
             : isMobile
               ? `flex flex-col ${mobileTab === "interact" ? "flex-1 min-h-0" : "absolute inset-0 invisible"}`
               : "flex-1 flex flex-col min-h-0"
         }
       >
-        <div className="flex-1 overflow-hidden bg-black">
+        <div className="flex-1 overflow-hidden bg-[#111]">
           <iframe
             ref={iframeRef}
             src={appUrl}

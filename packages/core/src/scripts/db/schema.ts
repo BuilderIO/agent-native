@@ -10,8 +10,7 @@
  */
 
 import path from "path";
-import fs from "fs";
-import Database from "better-sqlite3";
+import { createClient, type Client } from "@libsql/client";
 import { parseArgs, fail } from "../utils.js";
 
 interface ColumnInfo {
@@ -35,6 +34,23 @@ interface TableInfo {
   indexes: { name: string; unique: boolean; columns: string[] }[];
 }
 
+/**
+ * Execute a PRAGMA query and return the rows as plain objects.
+ */
+async function pragma(
+  client: Client,
+  pragmaQuery: string,
+): Promise<Record<string, unknown>[]> {
+  const result = await client.execute(pragmaQuery);
+  return result.rows.map((row) => {
+    const obj: Record<string, unknown> = {};
+    for (let i = 0; i < result.columns.length; i++) {
+      obj[result.columns[i]] = row[i];
+    }
+    return obj;
+  });
+}
+
 export default async function dbSchema(args: string[]): Promise<void> {
   const parsed = parseArgs(args);
 
@@ -48,67 +64,83 @@ Options:
     return;
   }
 
-  const dbPath = parsed.db || path.join(process.cwd(), "data", "app.db");
-
-  if (!fs.existsSync(dbPath)) {
-    fail(`Database not found at ${dbPath}`);
+  // Resolve database URL: --db flag → DATABASE_URL env → default file path
+  let url: string;
+  if (parsed.db) {
+    url = "file:" + path.resolve(parsed.db);
+  } else if (process.env.DATABASE_URL) {
+    url = process.env.DATABASE_URL;
+  } else {
+    url = "file:" + path.resolve(process.cwd(), "data", "app.db");
   }
 
-  const db = new Database(dbPath, { readonly: true });
+  const client = createClient({
+    url,
+    authToken: process.env.DATABASE_AUTH_TOKEN,
+  });
 
   try {
-    const tables: { name: string }[] = db
-      .prepare(
-        `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`,
-      )
-      .all() as any;
+    const tablesResult = await client.execute(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`,
+    );
+    const tables = tablesResult.rows.map((row) => ({
+      name: row[0] as string,
+    }));
 
-    const tableInfos: TableInfo[] = tables.map((t) => {
+    const tableInfos: TableInfo[] = [];
+
+    for (const t of tables) {
       const escaped = t.name.replace(/"/g, '""');
-      const columns = db.pragma(`table_info("${escaped}")`) as any[];
-      const fks = db.pragma(`foreign_key_list("${escaped}")`) as any[];
-      const idxList = db.pragma(`index_list("${escaped}")`) as any[];
 
-      const indexes = idxList
-        .filter((idx) => !idx.name.startsWith("sqlite_"))
-        .map((idx) => {
-          const idxInfo = db.pragma(
-            `index_info("${idx.name.replace(/"/g, '""')}")`,
-          ) as any[];
-          return {
-            name: idx.name,
-            unique: idx.unique === 1,
-            columns: idxInfo.map((c) => c.name),
-          };
+      const columns = await pragma(client, `PRAGMA table_info("${escaped}")`);
+      const fks = await pragma(client, `PRAGMA foreign_key_list("${escaped}")`);
+      const idxList = await pragma(client, `PRAGMA index_list("${escaped}")`);
+
+      const indexes: { name: string; unique: boolean; columns: string[] }[] =
+        [];
+      for (const idx of idxList) {
+        const idxName = idx.name as string;
+        if (idxName.startsWith("sqlite_")) continue;
+        const idxInfo = await pragma(
+          client,
+          `PRAGMA index_info("${idxName.replace(/"/g, '""')}")`,
+        );
+        indexes.push({
+          name: idxName,
+          unique: idx.unique === 1,
+          columns: idxInfo.map((c) => c.name as string),
         });
+      }
 
-      return {
+      tableInfos.push({
         name: t.name,
         columns: columns.map((c) => ({
-          name: c.name,
-          type: c.type || "ANY",
+          name: c.name as string,
+          type: (c.type as string) || "ANY",
           notnull: c.notnull === 1,
           pk: c.pk === 1,
-          dflt_value: c.dflt_value,
+          dflt_value: c.dflt_value as string | null,
         })),
         foreignKeys: fks.map((fk) => ({
-          from: fk.from,
-          table: fk.table,
-          to: fk.to,
+          from: fk.from as string,
+          table: fk.table as string,
+          to: fk.to as string,
         })),
         indexes,
-      };
-    });
+      });
+    }
 
     if (parsed.format === "json") {
+      const dbLabel = url.startsWith("file:") ? url.slice(5) : url;
       console.log(
-        JSON.stringify({ database: dbPath, tables: tableInfos }, null, 2),
+        JSON.stringify({ database: dbLabel, tables: tableInfos }, null, 2),
       );
       return;
     }
 
     // Human-readable output
-    console.log(`Database: ${dbPath}`);
+    const dbLabel = url.startsWith("file:") ? url.slice(5) : url;
+    console.log(`Database: ${dbLabel}`);
     console.log(`Tables: ${tableInfos.length}\n`);
 
     for (const table of tableInfos) {
@@ -149,6 +181,6 @@ Options:
       console.log();
     }
   } finally {
-    db.close();
+    client.close();
   }
 }

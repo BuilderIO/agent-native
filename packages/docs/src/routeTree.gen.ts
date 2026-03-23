@@ -16,7 +16,6 @@ import { Route as DocsIndexRouteImport } from './routes/docs/index'
 import { Route as TemplatesVideoRouteImport } from './routes/templates/video'
 import { Route as TemplatesSlidesRouteImport } from './routes/templates/slides'
 import { Route as TemplatesMailRouteImport } from './routes/templates/mail'
-import { Route as TemplatesImagegenRouteImport } from './routes/templates/imagegen'
 import { Route as TemplatesContentRouteImport } from './routes/templates/content'
 import { Route as TemplatesCalendarRouteImport } from './routes/templates/calendar'
 import { Route as TemplatesAnalyticsRouteImport } from './routes/templates/analytics'
@@ -64,11 +63,6 @@ const TemplatesSlidesRoute = TemplatesSlidesRouteImport.update({
 const TemplatesMailRoute = TemplatesMailRouteImport.update({
   id: '/mail',
   path: '/mail',
-  getParentRoute: () => TemplatesRoute,
-} as any)
-const TemplatesImagegenRoute = TemplatesImagegenRouteImport.update({
-  id: '/imagegen',
-  path: '/imagegen',
   getParentRoute: () => TemplatesRoute,
 } as any)
 const TemplatesContentRoute = TemplatesContentRouteImport.update({
@@ -153,7 +147,6 @@ export interface FileRoutesByFullPath {
   '/templates/analytics': typeof TemplatesAnalyticsRoute
   '/templates/calendar': typeof TemplatesCalendarRoute
   '/templates/content': typeof TemplatesContentRoute
-  '/templates/imagegen': typeof TemplatesImagegenRoute
   '/templates/mail': typeof TemplatesMailRoute
   '/templates/slides': typeof TemplatesSlidesRoute
   '/templates/video': typeof TemplatesVideoRoute
@@ -175,7 +168,6 @@ export interface FileRoutesByTo {
   '/templates/analytics': typeof TemplatesAnalyticsRoute
   '/templates/calendar': typeof TemplatesCalendarRoute
   '/templates/content': typeof TemplatesContentRoute
-  '/templates/imagegen': typeof TemplatesImagegenRoute
   '/templates/mail': typeof TemplatesMailRoute
   '/templates/slides': typeof TemplatesSlidesRoute
   '/templates/video': typeof TemplatesVideoRoute
@@ -199,7 +191,6 @@ export interface FileRoutesById {
   '/templates/analytics': typeof TemplatesAnalyticsRoute
   '/templates/calendar': typeof TemplatesCalendarRoute
   '/templates/content': typeof TemplatesContentRoute
-  '/templates/imagegen': typeof TemplatesImagegenRoute
   '/templates/mail': typeof TemplatesMailRoute
   '/templates/slides': typeof TemplatesSlidesRoute
   '/templates/video': typeof TemplatesVideoRoute
@@ -224,7 +215,6 @@ export interface FileRouteTypes {
     | '/templates/analytics'
     | '/templates/calendar'
     | '/templates/content'
-    | '/templates/imagegen'
     | '/templates/mail'
     | '/templates/slides'
     | '/templates/video'
@@ -246,7 +236,6 @@ export interface FileRouteTypes {
     | '/templates/analytics'
     | '/templates/calendar'
     | '/templates/content'
-    | '/templates/imagegen'
     | '/templates/mail'
     | '/templates/slides'
     | '/templates/video'
@@ -269,7 +258,6 @@ export interface FileRouteTypes {
     | '/templates/analytics'
     | '/templates/calendar'
     | '/templates/content'
-    | '/templates/imagegen'
     | '/templates/mail'
     | '/templates/slides'
     | '/templates/video'
@@ -342,13 +330,6 @@ declare module '@tanstack/react-router' {
       path: '/mail'
       fullPath: '/templates/mail'
       preLoaderRoute: typeof TemplatesMailRouteImport
-      parentRoute: typeof TemplatesRoute
-    }
-    '/templates/imagegen': {
-      id: '/templates/imagegen'
-      path: '/imagegen'
-      fullPath: '/templates/imagegen'
-      preLoaderRoute: typeof TemplatesImagegenRouteImport
       parentRoute: typeof TemplatesRoute
     }
     '/templates/content': {
@@ -449,7 +430,6 @@ interface TemplatesRouteChildren {
   TemplatesAnalyticsRoute: typeof TemplatesAnalyticsRoute
   TemplatesCalendarRoute: typeof TemplatesCalendarRoute
   TemplatesContentRoute: typeof TemplatesContentRoute
-  TemplatesImagegenRoute: typeof TemplatesImagegenRoute
   TemplatesMailRoute: typeof TemplatesMailRoute
   TemplatesSlidesRoute: typeof TemplatesSlidesRoute
   TemplatesVideoRoute: typeof TemplatesVideoRoute
@@ -460,7 +440,6 @@ const TemplatesRouteChildren: TemplatesRouteChildren = {
   TemplatesAnalyticsRoute: TemplatesAnalyticsRoute,
   TemplatesCalendarRoute: TemplatesCalendarRoute,
   TemplatesContentRoute: TemplatesContentRoute,
-  TemplatesImagegenRoute: TemplatesImagegenRoute,
   TemplatesMailRoute: TemplatesMailRoute,
   TemplatesSlidesRoute: TemplatesSlidesRoute,
   TemplatesVideoRoute: TemplatesVideoRoute,

@@ -25,8 +25,8 @@ export function parseArgs(
  *   --fields=<a,b,c>    Comma-separated list of fields to pluck from each result object.
  *
  * Examples:
- *   pnpm script hubspot-deals --grep=macy
- *   pnpm script hubspot-deals --grep=macy --fields=dealname,amount,stageLabel
+ *   pnpm script hubspot-deals --grep=enterprise
+ *   pnpm script hubspot-deals --grep=enterprise --fields=dealname,amount,stageLabel
  */
 export function output(data: unknown): void {
   const args = parseArgs();

@@ -78,7 +78,7 @@ function CreatingTemplatesDocs() {
       <p>Every template follows the same convention:</p>
       <CodeBlock
         code={`my-template/
-  client/             # React frontend
+  app/                # React frontend
     routes/           # File-based page routes (auto-discovered)
       _index.tsx      # / (home page)
       settings.tsx    # /settings
@@ -119,11 +119,11 @@ function CreatingTemplatesDocs() {
       <h2 id="build-your-client">Build your client</h2>
       <p>
         The client uses React Router v7 framework mode with file-based routing.
-        Pages go in <code>client/routes/</code>, global providers live in{" "}
-        <code>client/root.tsx</code>, and React Query handles data fetching.
+        Pages go in <code>app/routes/</code>, global providers live in{" "}
+        <code>app/root.tsx</code>, and React Query handles data fetching.
       </p>
       <CodeBlock
-        code={`// client/root.tsx — App shell with providers
+        code={`// app/root.tsx — App shell with providers
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useFileWatcher } from "@agent-native/core";
@@ -158,16 +158,16 @@ export default function Root() {
 }`}
       />
       <p>
-        Routes are auto-discovered from <code>client/routes/</code> via{" "}
+        Routes are auto-discovered from <code>app/routes/</code> via{" "}
         <code>flatRoutes()</code>. Create a file to add a page:
       </p>
       <CodeBlock
-        code={`// client/routes/_index.tsx → /
+        code={`// app/routes/_index.tsx → /
 export default function Dashboard() {
   return <div>Home page</div>;
 }
 
-// client/routes/settings.tsx → /settings
+// app/routes/settings.tsx → /settings
 export default function Settings() {
   return <div>Settings page</div>;
 }`}
@@ -290,7 +290,7 @@ This is an **@agent-native/core** application.
 ### Directory Structure
 
 \\\`\\\`\\\`
-client/          # React frontend (file-based routing in client/routes/)
+app/             # React frontend (file-based routing in app/routes/)
 server/          # Nitro API server
 scripts/         # Agent-callable scripts
 data/            # File-based state

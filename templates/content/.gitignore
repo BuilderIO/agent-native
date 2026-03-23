@@ -31,6 +31,11 @@ dist-ssr
 # Auth sessions (sensitive, never commit)
 data/.sessions.json
 
+# Local SQLite database
+data/app.db
+data/app.db-shm
+data/app.db-wal
+
 # Ephemeral editor state
 .editor-selection.json
 
@@ -45,3 +50,5 @@ content/.builder-auth.json
 
 # Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
 learnings.md
+
+build

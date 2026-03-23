@@ -5,7 +5,7 @@
 ### Architecture Improvements ✨
 
 - **Extracted Animation Logic to Reusable Pure Function**
-  - Created `client/remotion/animations/useElementAnimations.ts` (202 lines)
+  - Created `app/remotion/animations/useElementAnimations.ts` (202 lines)
   - Exported `calculateElementAnimations()` - pure function (not hook)
   - Removed 130 lines of animation logic from InteractiveCardGrid
   - Centralized all animation calculations in testable function
@@ -15,7 +15,7 @@
   - Simpler and faster than hook-based approach
 
 - **Centralized Configuration Constants**
-  - Created `client/config/constants.ts` (204 lines)
+  - Created `app/config/constants.ts` (204 lines)
   - Eliminated all magic numbers across codebase
   - Organized by domain: ANIMATION_CONFIG, CURSOR_CONFIG, CARD_CONFIG, UI_CONFIG, etc.
   - Type-safe with `as const`
@@ -120,22 +120,22 @@ clickProgress = rawProgress <= 1 ? rawProgress : 2 - rawProgress; // 0→1→0
 
 #### Files Modified
 
-- `client/components/VideoPlayer.tsx` - Simplified playback rate
-- `client/components/Timeline.tsx` - Removed playback UI, changed dot color
-- `client/pages/CompositionView.tsx` - Playback rate state management
-- `client/components/NewCompositionPopover.tsx` - Complete rewrite for agent chat integration
-- `client/components/Sidebar.tsx` - Updated props, removed name input
-- `client/components/PropsEditor.tsx` - Removed composition name field
-- `client/components/CurrentElementPanel.tsx` - Color properties, UI improvements
-- `client/types/elementAnimations.ts` - Color support, interpolation
-- `client/remotion/compositions/InteractiveCardGrid.tsx` - Color animation logic
+- `app/components/VideoPlayer.tsx` - Simplified playback rate
+- `app/components/Timeline.tsx` - Removed playback UI, changed dot color
+- `app/pages/CompositionView.tsx` - Playback rate state management
+- `app/components/NewCompositionPopover.tsx` - Complete rewrite for agent chat integration
+- `app/components/Sidebar.tsx` - Updated props, removed name input
+- `app/components/PropsEditor.tsx` - Removed composition name field
+- `app/components/CurrentElementPanel.tsx` - Color properties, UI improvements
+- `app/types/elementAnimations.ts` - Color support, interpolation
+- `app/remotion/compositions/InteractiveCardGrid.tsx` - Color animation logic
 
 #### Files Created
 
-- `client/remotion/animations/useElementAnimations.ts` (209 lines) - **Reusable animation hook**
-- `client/config/constants.ts` (204 lines) - **Centralized configuration**
-- `client/utils/compositionHelpers.ts` (378 lines) - Helper functions library
-- `client/utils/debug.ts` (104 lines) - Production-safe logging utility
+- `app/remotion/animations/useElementAnimations.ts` (209 lines) - **Reusable animation hook**
+- `app/config/constants.ts` (204 lines) - **Centralized configuration**
+- `app/utils/compositionHelpers.ts` (378 lines) - Helper functions library
+- `app/utils/debug.ts` (104 lines) - Production-safe logging utility
 - `scripts/create-composition.ts` (127 lines) - Example composition script
 - `COMPOSITION_GUIDE.md` (787 lines) - Comprehensive API reference
 - `QUICK_START.md` (498 lines) - Beginner-friendly guide

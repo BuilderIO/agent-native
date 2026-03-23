@@ -1,11 +1,4 @@
 import { defineEventHandler } from "h3";
-import { syncResult } from "../../../lib/watcher.js";
+import { defaultSyncStatusHandler } from "@agent-native/core/server";
 
-export default defineEventHandler(() => {
-  if (syncResult.status !== "ready") return { enabled: false, conflicts: 0 };
-  return {
-    enabled: true,
-    connected: true,
-    conflicts: syncResult.fileSync.conflictCount,
-  };
-});
+export default defineEventHandler(() => defaultSyncStatusHandler());

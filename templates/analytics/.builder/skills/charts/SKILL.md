@@ -38,16 +38,16 @@ pnpm script generate-chart --type=bar --title="Title" --labels='["A","B","C"]' -
 
 ## Color Palette
 
-| Color        | Hex       | Use                                |
-| ------------ | --------- | ---------------------------------- |
-| Blue         | `#18B4F4` | **Default/primary for all charts** |
-| Purple       | `#8b5cf6` | Secondary                          |
-| Green        | `#22c55e` | Tertiary                           |
-| Amber        | `#f59e0b` |                                    |
-| Indigo       | `#6366f1` |                                    |
-| Red          | `#ef4444` |                                    |
-| Teal         | `#14b8a6` |                                    |
-| Orange       | `#f97316` |                                    |
+| Color  | Hex       | Use                                |
+| ------ | --------- | ---------------------------------- |
+| Blue   | `#18B4F4` | **Default/primary for all charts** |
+| Purple | `#8b5cf6` | Secondary                          |
+| Green  | `#22c55e` | Tertiary                           |
+| Amber  | `#f59e0b` |                                    |
+| Indigo | `#6366f1` |                                    |
+| Red    | `#ef4444` |                                    |
+| Teal   | `#14b8a6` |                                    |
+| Orange | `#f97316` |                                    |
 
 ## Style Preferences (from Steve)
 
@@ -60,7 +60,7 @@ pnpm script generate-chart --type=bar --title="Title" --labels='["A","B","C"]' -
 ### Good pattern:
 
 ```markdown
-**Acme Corp Product Usage — Last 30 Days**
+**Example Corp Product Usage — Last 30 Days**
 ![chart](https://...your-app.example.com/api/media/chart.png?v=123)
 **528 messages** over 18 active days | Peak: **89** (Feb 14)
 ```

@@ -1,5 +1,5 @@
-import { db, schema } from "../server/db/index.js";
 import { sql } from "drizzle-orm";
+import { getDb, schema } from "../server/db/index.js";
 
 function parseArgs(args: string[]): Record<string, string> {
   const result: Record<string, string> = {};
@@ -29,13 +29,12 @@ export default async function main(args: string[]) {
     return;
   }
 
-  let query = db.select().from(schema.forms);
-
-  const rows = query.all();
+  const db = getDb();
+  const rows = await db.select().from(schema.forms).all();
   const filtered = status ? rows.filter((r) => r.status === status) : rows;
 
   // Get response counts
-  const counts = db
+  const counts = await db
     .select({
       formId: schema.responses.formId,
       count: sql<number>`count(*)`,

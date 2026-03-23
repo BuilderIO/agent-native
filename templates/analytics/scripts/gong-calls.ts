@@ -4,7 +4,7 @@
  *
  * Usage:
  *   pnpm script gong-calls
- *   pnpm script gong-calls --company=Acme
+ *   pnpm script gong-calls --company="Example Corp"
  *   pnpm script gong-calls --days=30
  *   pnpm script gong-calls --transcript=123456
  *   pnpm script gong-calls --users  (list Gong users)

@@ -16,7 +16,7 @@ Every agent-native app follows the same convention:
 
 ```
 my-app/
-  client/                # React frontend
+  app/                   # React frontend
     root.tsx             # HTML shell + global providers
     entry.client.tsx     # Client hydration entry
     routes.ts            # Route config — flatRoutes()
@@ -51,7 +51,7 @@ export default defineConfig({
 });
 ```
 
-`defineConfig()` sets up React Router framework mode (SSR + file-based routing), path aliases (`@/` → `client/`, `@shared/` → `shared/`), fs restrictions, and the Nitro server plugin (file-based API routing, server plugins, deploy-anywhere presets). See the [Routing docs](./routing.md) for full details on adding pages.
+`defineConfig()` sets up React Router framework mode (SSR + file-based routing), path aliases (`@/` → `app/`, `@shared/` → `shared/`), fs restrictions, and the Nitro server plugin (file-based API routing, server plugins, deploy-anywhere presets). See the [Routing docs](./routing.md) for full details on adding pages.
 
 ### Nitro options
 
@@ -79,7 +79,7 @@ import preset from "@agent-native/core/tailwind";
 
 export default {
   presets: [preset],
-  content: ["./client/**/*.{ts,tsx}"],
+  content: ["./app/**/*.{ts,tsx}"],
 } satisfies Config;
 ```
 
@@ -91,7 +91,7 @@ export default {
 | `@agent-native/core/router`             | React Router re-exports: `Link`, `NavLink`, `Outlet`, `useNavigate`, `useParams`, `useLoaderData`, `redirect`, `Form`, `Links`, `Meta`, `Scripts`, `ScrollRestoration`                                                                                                                                                 |
 | `@agent-native/core/vite`               | `defineConfig()`                                                                                                                                                                                                                                                                                                       |
 | `@agent-native/core/tailwind`           | Tailwind preset (HSL colors, shadcn/ui tokens, animations)                                                                                                                                                                                                                                                             |
-| `@agent-native/core/db`                 | `createDb()` — Drizzle ORM factory (SQLite via better-sqlite3)                                                                                                                                                                                                                                                         |
+| `@agent-native/core/db`                 | `getDb()` — Drizzle ORM factory (SQLite via @libsql/client, local or cloud via `DATABASE_URL`)                                                                                                                                                                                                                         |
 | `@agent-native/core/adapters/sync`      | `createFileSync`, `FileSync`, `FileSyncAdapter` interface, `FileRecord`, `FileChange` types                                                                                                                                                                                                                            |
 | `@agent-native/core/adapters/firestore` | `FirestoreFileSyncAdapter`, `threeWayMerge`, `loadSyncConfig`                                                                                                                                                                                                                                                          |
 | `@agent-native/core/adapters/supabase`  | `SupabaseFileSyncAdapter`, `threeWayMerge`, `loadSyncConfig`                                                                                                                                                                                                                                                           |

@@ -9,8 +9,7 @@
  */
 
 import path from "path";
-import fs from "fs";
-import Database from "better-sqlite3";
+import { createClient } from "@libsql/client";
 import { parseArgs, fail } from "../utils.js";
 
 export default async function dbExec(args: string[]): Promise<void> {
@@ -55,20 +54,36 @@ Options:
     );
   }
 
-  const dbPath = parsed.db || path.join(process.cwd(), "data", "app.db");
-
-  if (!fs.existsSync(dbPath)) {
-    fail(`Database not found at ${dbPath}`);
+  // Resolve database URL: --db flag → DATABASE_URL env → default file path
+  let url: string;
+  if (parsed.db) {
+    url = "file:" + path.resolve(parsed.db);
+  } else if (process.env.DATABASE_URL) {
+    url = process.env.DATABASE_URL;
+  } else {
+    url = "file:" + path.resolve(process.cwd(), "data", "app.db");
   }
 
-  const db = new Database(dbPath);
+  const client = createClient({
+    url,
+    authToken: process.env.DATABASE_AUTH_TOKEN,
+  });
 
   try {
-    const stmt = db.prepare(sql);
+    // Detect if the SQL has a RETURNING clause — those produce rows
+    const hasReturning = /\bRETURNING\b/i.test(stripped);
 
-    // Statements with RETURNING clauses produce rows — use .all() instead of .run()
-    if (stmt.reader) {
-      const rows = stmt.all() as Record<string, any>[];
+    const result = await client.execute(sql);
+
+    if (hasReturning && result.rows.length > 0) {
+      const rows: Record<string, unknown>[] = result.rows.map((row) => {
+        const obj: Record<string, unknown> = {};
+        for (let i = 0; i < result.columns.length; i++) {
+          obj[result.columns[i]] = row[i];
+        }
+        return obj;
+      });
+
       if (parsed.format === "json") {
         console.log(JSON.stringify({ sql, rows, count: rows.length }, null, 2));
         return;
@@ -79,14 +94,13 @@ Options:
         console.log(JSON.stringify(rows, null, 2));
       }
     } else {
-      const result = stmt.run();
       if (parsed.format === "json") {
         console.log(
           JSON.stringify(
             {
               sql,
-              changes: result.changes,
-              lastInsertRowid: Number(result.lastInsertRowid),
+              changes: result.rowsAffected,
+              lastInsertRowid: Number(result.lastInsertRowid ?? 0),
             },
             null,
             2,
@@ -95,12 +109,12 @@ Options:
         return;
       }
       console.log(`Executed: ${sql}`);
-      console.log(`Changes: ${result.changes}`);
-      if (result.lastInsertRowid && result.changes > 0) {
+      console.log(`Changes: ${result.rowsAffected}`);
+      if (result.lastInsertRowid && result.rowsAffected > 0) {
         console.log(`Last Insert Row ID: ${result.lastInsertRowid}`);
       }
     }
   } finally {
-    db.close();
+    client.close();
   }
 }

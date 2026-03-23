@@ -11,6 +11,7 @@ lerna-debug.log*
 
 node_modules
 dist
+build
 dist-ssr
 *.local
 
@@ -38,6 +39,11 @@ data/google-accounts/
 # Firestore-synced data (synced at runtime, not checked in)
 data/events/
 data/bookings/
+
+# SQLite database files (generated at runtime)
+data/app.db
+data/app.db-wal
+data/app.db-shm
 
 # Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
 learnings.md

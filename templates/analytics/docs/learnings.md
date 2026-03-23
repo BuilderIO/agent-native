@@ -2,7 +2,7 @@
 
 Accumulated knowledge from building and debugging this project. Reference this to avoid repeating past mistakes.
 
-<!-- last updated: 2026-03-06 -->
+<!-- last updated: 2026-03-22 -->
 
 > **Provider-specific knowledge** (BigQuery tables, API quirks, auth patterns, script usage) lives in `.builder/skills/<provider>/SKILL.md`.
 > This file contains **generic patterns and cross-cutting learnings** that span multiple providers or aren't provider-specific.
@@ -33,91 +33,6 @@ When investigating production issues (spikes, outages, errors, performance degra
 5. **Check Grafana dashboards** — the engineering dashboard has LLM latency by model, request rates, error rates, and instance metrics.
 6. **Only analyze code/config after you have data** — deployment templates, autoscaling settings, and concurrency config are useful context but should not be the primary investigation method.
 
-### Cloud Run spike incident (example)
-
-**Root cause**: An upstream LLM provider had a latency degradation at ~14:39 UTC. A webhook handler that calls the LLM to generate content saw latency spike from ~4s to 50s+. Webhook requests held connections open, Cloud Run scaled to ~100 instances to handle the backlog, and the webhook source's retry logic amplified the load to ~20 req/s (195x baseline), causing 500s.
-
-**Cascade**: LLM slowdown → connection pileup → Cloud Run autoscaling → webhook retry flood → outage.
-
-**Mitigation**: Add timeout + fallback model for webhook tasks so they return quickly rather than holding open connections.
-
-**Lesson**: The initial investigation incorrectly focused on infrastructure config instead of querying actual Prometheus metrics, which would have immediately shown the LLM latency spike as the trigger.
-
-## Customer Data
-
-### Globex Inc
-
-**HubSpot presence:**
-
-- 3 companies: Globex Inc, Globex Services, Globex Digital
-- 517 contacts across all companies
-- 439 user accounts (via dim_hs_contacts mapping)
-- 138 distinct root_organization_id values
-
-**Product adoption (last 90 days):**
-
-- 1 active user: jsmith@globex.com
-- 3 total messages, all on 2025-12-10
-- 0.2% adoption rate (1 of 439 users)
-
-**Sales opportunity:**
-
-- Massive expansion potential: 438 users who haven't tried the product
-- Low engagement suggests lack of awareness or onboarding gaps
-
-**Reusable script:** `globex-product-users.ts`
-
-### Acme Corp
-
-**IDs:**
-
-- HubSpot deal ID: `12345678901`
-- Company ID: `9876543210`
-- Org IDs: `aaaabbbb11112222`, `ccccdddd33334444`, `eeeeffff55556666`, `gggghhhh77778888`
-
-**Deal:**
-
-- Deal name: "Acme Corp - New Deal - Enterprise"
-- Amount: $100K
-- Stage: S2 - POV Scoping (entered Jan 23, 2026)
-- Target close: March 31, 2026
-- Pipeline: Enterprise New Business
-
-**Use case: Design-to-Code (Figma → Vue.js)**
-
-- Core pain: long feedback loops between design and engineering
-- Tech stack: Figma for design, **Vue.js** for frontend, **brownfield** applications
-- Goal: shorten sprint cycles with clean, production-ready code output from Figma designs
-
-**Key stakeholders:**
-
-- **Dana** — VP/head of the group, executive sponsor
-- **Priya** — reports to Dana, involved in POC oversight
-- **Omar Khan** (omar.khan@acmecorp.com) — engineer running point on the POC
-- **Miguel** — gave Omar initial briefing
-- SE: **Nathan Novak** (nnovak@example.com)
-
-**Product usage (as of Mar 6, 2026):**
-
-- 700 messages in last 90 days
-- ~27 active days, peak day Feb 14 (89 messages)
-- Ramped from 1–2 msgs/day (Dec) to 40–89 msgs/day (Jan–Feb)
-- 5 engineers have started using it
-- Last activity: Feb 23 — ~11 day gap as of Mar 6
-
-**Reusable scripts:** `acme-product-messages.ts`, `acme-users-daily.ts`
-
-## DevRel Team
-
-| Name       | Twitter Handle |
-| ---------- | -------------- |
-| Jane Doe   | @janedoe       |
-| Alex Chen  | @alexchen_dev  |
-| Sam Patel  | @sampateldev   |
-| Taylor Kim | @taylorkimdev  |
-
-Defined in `client/pages/adhoc/devrel-leaderboard/TwitterSection.tsx` as `DEVREL_TWITTER_USERS`.
-
 ## User Preferences
 
 - **Filter out internal team emails** when showing customer-specific activity. Internal SEs are not the customer's users.
@@ -134,10 +49,8 @@ Defined in `client/pages/adhoc/devrel-leaderboard/TwitterSection.tsx` as `DEVREL
 
 - Define SQL in `queries.ts` alongside the dashboard
 - Queries go through authenticated `/api/query` endpoint
-- For customer lookups, use CTEs with JOINs to `dim_hs_contacts`
+- For customer lookups, use CTEs with JOINs to contact tables
 - **Scripts are for CLI/agent use only**
-
-See `client/pages/adhoc/acme/queries.ts` and `client/pages/adhoc/globex/queries.ts` as reference implementations.
 
 ## UI Patterns
 
@@ -167,23 +80,11 @@ When "View By" selects a dimension with many distinct values, the Recharts Legen
 
 ### Joining Contacts and Users (CRITICAL)
 
-**Always match on BOTH user_id AND email** when joining HubSpot contacts (`dim_hs_contacts`) with user data (`signups`, `product_signups`, etc.):
+**Always match on BOTH user_id AND email** when joining contact tables with user data:
 
 ```sql
-ON signups.user_id = dim_hs_contacts.builder_user_id
-AND signups.email = dim_hs_contacts.email
+ON signups.user_id = contacts.user_id
+AND signups.email = contacts.email
 ```
 
-**Why both?** User IDs can be reassigned or have sync issues between HubSpot and BigQuery. Matching on both user_id and email ensures accurate contact-to-user mapping and prevents false matches.
-
-## Reusable Scripts
-
-| Script                      | Description                                                        |
-| --------------------------- | ------------------------------------------------------------------ |
-| `acme-product-messages.ts`  | HubSpot → BigQuery → Amplitude pipeline for Acme Corp (`--days=N`) |
-| `acme-users-daily.ts`       | Daily per-user breakdown for Acme Corp orgs                        |
-| `initech-users-daily.ts`    | HubSpot → BigQuery → Amplitude pipeline for Initech (`--days=N`)   |
-| `initech-chart.ts`          | Stacked bar chart of Initech product messages by user              |
-| `product-users-by-tier.ts`  | Daily unique product users by plan tier                            |
-| `product-users-by-email.ts` | Top product users by message count                                 |
-| `globex-product-users.ts`   | HubSpot → BigQuery → Amplitude for Globex Inc                      |
+**Why both?** User IDs can be reassigned or have sync issues between CRM and BigQuery. Matching on both user_id and email ensures accurate contact-to-user mapping and prevents false matches.

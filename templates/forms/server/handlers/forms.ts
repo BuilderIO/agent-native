@@ -7,7 +7,7 @@ import {
 } from "h3";
 import { eq, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { db, schema } from "../db/index.js";
+import { getDb, schema } from "../db/index.js";
 import type { Form, FormField, FormSettings } from "../../shared/types.js";
 
 function slugify(text: string): string {
@@ -36,15 +36,58 @@ function rowToForm(
   };
 }
 
-export const listForms = defineEventHandler((_event: H3Event) => {
-  const rows = db
+// ---------------------------------------------------------------------------
+// Public form cache (60s TTL)
+// ---------------------------------------------------------------------------
+
+interface CacheEntry {
+  data: unknown;
+  expiresAt: number;
+}
+
+const publicFormCache = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 60_000;
+
+function getCachedPublicForm(slug: string): unknown | undefined {
+  const entry = publicFormCache.get(slug);
+  if (!entry) return undefined;
+  if (Date.now() > entry.expiresAt) {
+    publicFormCache.delete(slug);
+    return undefined;
+  }
+  return entry.data;
+}
+
+function setCachedPublicForm(slug: string, data: unknown): void {
+  publicFormCache.set(slug, {
+    data,
+    expiresAt: Date.now() + CACHE_TTL_MS,
+  });
+}
+
+// Invalidate cache for a slug (called on form updates/deletes)
+function invalidatePublicFormCache(slug?: string): void {
+  if (slug) {
+    publicFormCache.delete(slug);
+  } else {
+    publicFormCache.clear();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
+
+export const listForms = defineEventHandler(async (_event: H3Event) => {
+  const db = getDb();
+  const rows = await db
     .select()
     .from(schema.forms)
     .orderBy(schema.forms.updatedAt)
     .all();
 
   // Get response counts per form
-  const counts = db
+  const counts = await db
     .select({
       formId: schema.responses.formId,
       count: sql<number>`count(*)`,
@@ -57,9 +100,10 @@ export const listForms = defineEventHandler((_event: H3Event) => {
   return rows.map((r) => rowToForm(r, countMap.get(r.id) ?? 0)).reverse();
 });
 
-export const getForm = defineEventHandler((event: H3Event) => {
+export const getForm = defineEventHandler(async (event: H3Event) => {
+  const db = getDb();
   const id = getRouterParam(event, "id") as string;
-  const row = db
+  const row = await db
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.id, id))
@@ -70,7 +114,7 @@ export const getForm = defineEventHandler((event: H3Event) => {
     return { error: "Form not found" };
   }
 
-  const count = db
+  const count = await db
     .select({ count: sql<number>`count(*)` })
     .from(schema.responses)
     .where(eq(schema.responses.formId, id))
@@ -80,6 +124,7 @@ export const getForm = defineEventHandler((event: H3Event) => {
 });
 
 export const createForm = defineEventHandler(async (event: H3Event) => {
+  const db = getDb();
   const body = await readBody(event);
   const now = new Date().toISOString();
   const id = nanoid();
@@ -96,7 +141,8 @@ export const createForm = defineEventHandler(async (event: H3Event) => {
   };
 
   try {
-    db.insert(schema.forms)
+    await db
+      .insert(schema.forms)
       .values({
         id,
         title: body.title || "Untitled Form",
@@ -117,7 +163,7 @@ export const createForm = defineEventHandler(async (event: H3Event) => {
     throw err;
   }
 
-  const row = db
+  const row = await db
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.id, id))
@@ -126,11 +172,12 @@ export const createForm = defineEventHandler(async (event: H3Event) => {
 });
 
 export const updateForm = defineEventHandler(async (event: H3Event) => {
+  const db = getDb();
   const id = getRouterParam(event, "id") as string;
   const body = await readBody(event);
   const now = new Date().toISOString();
 
-  const existing = db
+  const existing = await db
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.id, id))
@@ -151,7 +198,11 @@ export const updateForm = defineEventHandler(async (event: H3Event) => {
   if (body.status !== undefined) updates.status = body.status;
 
   try {
-    db.update(schema.forms).set(updates).where(eq(schema.forms.id, id)).run();
+    await db
+      .update(schema.forms)
+      .set(updates)
+      .where(eq(schema.forms.id, id))
+      .run();
   } catch (err: any) {
     if (err?.message?.includes("UNIQUE constraint")) {
       setResponseStatus(event, 409);
@@ -160,7 +211,13 @@ export const updateForm = defineEventHandler(async (event: H3Event) => {
     throw err;
   }
 
-  const row = db
+  // Invalidate cache for old and new slugs
+  invalidatePublicFormCache(existing.slug);
+  if (body.slug && body.slug !== existing.slug) {
+    invalidatePublicFormCache(body.slug);
+  }
+
+  const row = await db
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.id, id))
@@ -168,10 +225,11 @@ export const updateForm = defineEventHandler(async (event: H3Event) => {
   return rowToForm(row!);
 });
 
-export const deleteForm = defineEventHandler((event: H3Event) => {
+export const deleteForm = defineEventHandler(async (event: H3Event) => {
+  const db = getDb();
   const id = getRouterParam(event, "id") as string;
 
-  const existing = db
+  const existing = await db
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.id, id))
@@ -183,14 +241,27 @@ export const deleteForm = defineEventHandler((event: H3Event) => {
   }
 
   // Delete responses first, then form
-  db.delete(schema.responses).where(eq(schema.responses.formId, id)).run();
-  db.delete(schema.forms).where(eq(schema.forms.id, id)).run();
+  await db
+    .delete(schema.responses)
+    .where(eq(schema.responses.formId, id))
+    .run();
+  await db.delete(schema.forms).where(eq(schema.forms.id, id)).run();
+
+  // Invalidate cache
+  invalidatePublicFormCache(existing.slug);
+
   return { success: true };
 });
 
-export const getPublicForm = defineEventHandler((event: H3Event) => {
+export const getPublicForm = defineEventHandler(async (event: H3Event) => {
   const slug = getRouterParam(event, "slug") as string;
-  const row = db
+
+  // Check cache first
+  const cached = getCachedPublicForm(slug);
+  if (cached) return cached;
+
+  const db = getDb();
+  const row = await db
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.slug, slug))
@@ -202,11 +273,14 @@ export const getPublicForm = defineEventHandler((event: H3Event) => {
   }
 
   // Return only what public users need
-  return {
+  const result = {
     id: row.id,
     title: row.title,
     description: row.description,
     fields: JSON.parse(row.fields),
     settings: JSON.parse(row.settings),
   };
+
+  setCachedPublicForm(slug, result);
+  return result;
 });

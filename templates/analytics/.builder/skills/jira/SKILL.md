@@ -9,7 +9,7 @@ description: >
 
 ## Connection
 
-- **Base URL**: `$JIRA_BASE_URL` (e.g. `https://builderio.atlassian.net`)
+- **Base URL**: `$JIRA_BASE_URL` (e.g. `https://yourorg.atlassian.net`)
 - **Auth**: Basic auth — `Base64($JIRA_USER_EMAIL:$JIRA_API_TOKEN)`
 - **Env vars**: `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, `JIRA_API_TOKEN`
 - **Caching**: 10-minute in-memory cache, max 100 entries
@@ -62,6 +62,6 @@ pnpm script jira-analytics --projects=ENG,PROD --days=30
 
 - **IMPORTANT**: The old `/rest/api/3/search` endpoint was removed by Atlassian (returns 410). Must use `/rest/api/3/search/jql` instead.
 - JQL for duplicate detection: `project = X AND summary ~ "keyword" ORDER BY created DESC`
-- Always use markdown links for tickets: `[ENG-1234](https://builderio.atlassian.net/browse/ENG-1234)`
+- Always use markdown links for tickets: `[ENG-1234](https://yourorg.atlassian.net/browse/ENG-1234)`
 - `getStatuses` with a projectKey returns an array of issue type entries; the code flattens nested statuses
 - `getAnalytics` runs multiple search queries and aggregates client-side

@@ -117,7 +117,10 @@ export const handleTwitterTweets = defineEventHandler(async (event) => {
   const missing = requireEnvKey(event, "TWITTER_BEARER_TOKEN", "Twitter");
   if (missing) return missing;
   const { userName: userNameParam, pages: pagesParam } = getQuery(event);
-  const userName = (userNameParam as string) || "steve8708";
+  const userName = userNameParam as string;
+  if (!userName) {
+    return { error: "userName query parameter is required" };
+  }
   const maxPages = Math.min(Number(pagesParam) || 5, 10);
 
   const apiKey = process.env.TWITTER_API_KEY;

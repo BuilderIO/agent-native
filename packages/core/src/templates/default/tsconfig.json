@@ -1,7 +1,7 @@
 {
   "extends": "@agent-native/core/tsconfig.base.json",
   "include": [
-    "client/**/*",
+    "app/**/*",
     "server/**/*",
     "shared/**/*",
     "vite.config.ts",

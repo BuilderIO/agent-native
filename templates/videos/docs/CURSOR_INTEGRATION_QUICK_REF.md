@@ -153,5 +153,5 @@ Default: "pointer"
 ## See Also
 
 - [Interactive Component Helper Guide](./INTERACTIVE_COMPONENT_HELPER.md) - Full documentation
-- [SimplifiedPlayground.tsx](../client/remotion/compositions/SimplifiedPlayground.tsx) - Working example
+- [SimplifiedPlayground.tsx](../app/remotion/compositions/SimplifiedPlayground.tsx) - Working example
 - [Cursor Animation Best Practices](./CURSOR_ANIMATION_BEST_PRACTICES.md) - Cursor system guide

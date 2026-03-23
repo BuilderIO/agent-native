@@ -3,15 +3,15 @@
  * Get recent tweets for a Twitter/X user.
  *
  * Usage:
- *   npx tsx scripts/run.ts twitter-tweets --userName=builderio
- *   npx tsx scripts/run.ts twitter-tweets --userName=builderio --pages=3
+ *   npx tsx scripts/run.ts twitter-tweets --userName=your-handle
+ *   npx tsx scripts/run.ts twitter-tweets --userName=your-handle --pages=3
  */
 import { parseArgs, output, fatal } from "./helpers";
 import { fetchAllTweetsForUser } from "../server/handlers/twitter";
 
 const args = parseArgs();
 if (!args.userName)
-  fatal("--userName is required. Example: --userName=builderio");
+  fatal("--userName is required. Example: --userName=your-handle");
 
 const pages = Math.min(Number(args.pages) || 5, 10);
 const apiKey = process.env.TWITTER_API_KEY;

@@ -27,3 +27,4 @@ export {
 } from "./ProductionAgentPanel.js";
 export { Turnstile, type TurnstileProps } from "./Turnstile.js";
 export { PoweredByBadge, type PoweredByBadgeProps } from "./PoweredByBadge.js";
+export { ErrorBoundary } from "./ErrorBoundary.js";

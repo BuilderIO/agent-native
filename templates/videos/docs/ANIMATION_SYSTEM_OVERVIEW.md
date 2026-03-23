@@ -55,7 +55,7 @@ Every visual state change must be visible in:
 
 ### 1. **AnimatedElement Wrapper Component**
 
-`client/remotion/components/AnimatedElement.tsx`
+`app/remotion/components/AnimatedElement.tsx`
 
 Reusable wrapper that handles all animation boilerplate:
 
@@ -86,7 +86,7 @@ Reusable wrapper that handles all animation boilerplate:
 
 ### 2. **Type-Safe Animation Helpers**
 
-`client/remotion/utils/animationHelpers.ts`
+`app/remotion/utils/animationHelpers.ts`
 
 Fluent API for creating animations:
 
@@ -145,7 +145,7 @@ npm run validate:compositions
 **Output:**
 
 ```
-🔍 Validating compositions in client/remotion/compositions
+🔍 Validating compositions in app/remotion/compositions
 
 Files scanned:         12
 Compositions found:    8
@@ -157,7 +157,7 @@ Animations initialized: 8
 
 ### 5. **Testing Utilities**
 
-`client/remotion/testing/animationTestUtils.ts`
+`app/remotion/testing/animationTestUtils.ts`
 
 Comprehensive test helpers:
 
@@ -195,7 +195,7 @@ npm run generate:component ProductShowcase --elements Hero,Feature,CTA
 ### Add to Registry
 
 ```typescript
-// client/remotion/registry.ts
+// app/remotion/registry.ts
 import { MyDashboard } from "@/remotion/compositions/MyDashboard/MyDashboard";
 import { FALLBACK_TRACKS } from "@/remotion/compositions/MyDashboard/MyDashboardConfig";
 
@@ -299,7 +299,7 @@ npm test animationTestUtils        # Run animation tests
 ## 📁 File Structure
 
 ```
-client/
+app/
 ├── remotion/
 │   ├── components/
 │   │   └── AnimatedElement.tsx          # Wrapper component
@@ -488,8 +488,8 @@ private checkMyCustomRule(sourceFile: ts.SourceFile, content: string, filePath: 
 
 - **Remotion Docs**: https://www.remotion.dev/docs
 - **TypeScript Handbook**: https://www.typescriptlang.org/docs/
-- **Component Examples**: See `client/remotion/compositions/`
-- **Test Examples**: See `client/remotion/testing/`
+- **Component Examples**: See `app/remotion/compositions/`
+- **Test Examples**: See `app/remotion/testing/`
 
 ---
 

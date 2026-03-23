@@ -334,7 +334,7 @@ The agent can read this from the browser console or via injected scripts to unde
 ## Project Structure
 
 ```
-client/                        # React SPA frontend
+app/                           # React SPA frontend
 ├── pages/                     # Route components
 │   ├── DeckEditor.tsx         # Main editor page
 │   ├── DeckList.tsx           # Deck listing / home
@@ -391,7 +391,7 @@ scripts/                       # Runnable via `pnpm script <name>`
 - **Image generation**: Google Gemini via `@google/genai`
 - **State**: File-based via `/api/decks` (JSON files in `data/decks/`), in-memory undo/redo, share tokens
 - **Logo lookup**: Logo.dev API (free tier with token) or Google Image Search fallback
-- **Path aliases**: `@/*` → client/, `@shared/*` → shared/
+- **Path aliases**: `@/*` → app/, `@shared/*` → shared/
 
 ## Development
 

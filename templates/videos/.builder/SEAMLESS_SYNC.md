@@ -113,13 +113,13 @@ Developer adds keyframes to registry:
 
 ### Files Modified:
 
-**`client/hooks/useUnsavedChanges.ts`** (NEW)
+**`app/hooks/useUnsavedChanges.ts`** (NEW)
 
 - Hook that detects localStorage presence
 - Returns `true` if unsaved changes exist
 - Reactively updates when storage changes
 
-**`client/pages/CompositionView.tsx`**
+**`app/pages/CompositionView.tsx`**
 
 - Uses `useUnsavedChanges()` hook
 - Save button styling: `hasUnsavedChanges ? green : grey`
@@ -127,20 +127,20 @@ Developer adds keyframes to registry:
 - Listens for `videos.auto-save` event
 - Auto-saves silently after AI generation
 
-**`client/components/NewCompositionPopover.tsx`**
+**`app/components/NewCompositionPopover.tsx`**
 
 - Listens for `builder.agentChat.chatRunning` event
 - Dispatches `videos.auto-save` when AI finishes
 - Waits 1 second for localStorage to settle
 
-**`client/contexts/TimelineContext.tsx`**
+**`app/contexts/TimelineContext.tsx`**
 
 - Version tracking system
 - Smart keyframe merge (registry wins when localStorage empty)
 - Auto-clear stale data on version mismatch
 - Comprehensive logging
 
-**`client/remotion/registry.ts`**
+**`app/remotion/registry.ts`**
 
 - Added `version?` field to `CompositionEntry`
 - Documented keyframe sync patterns

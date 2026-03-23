@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { db, schema } from "../server/db/index.js";
+import { getDb, schema } from "../server/db/index.js";
 
 function parseArgs(args: string[]): Record<string, string> {
   const result: Record<string, string> = {};
@@ -41,7 +41,8 @@ export default async function main(args: string[]) {
     process.exit(1);
   }
 
-  const existing = db
+  const db = getDb();
+  const existing = await db
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.id, id))
@@ -68,7 +69,11 @@ export default async function main(args: string[]) {
     }
   }
 
-  db.update(schema.forms).set(updates).where(eq(schema.forms.id, id)).run();
+  await db
+    .update(schema.forms)
+    .set(updates)
+    .where(eq(schema.forms.id, id))
+    .run();
 
   console.log(`\nForm updated successfully!`);
   console.log(`  ID: ${id}`);

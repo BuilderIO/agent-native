@@ -507,7 +507,7 @@ export default async function main(args: string[]): Promise<void> {
 ## Project Structure
 
 ```
-client/
+app/
   components/
     layout/       # AppLayout, Sidebar, CommandPalette
     email/        # EmailList, EmailListItem, EmailThread, ComposeModal

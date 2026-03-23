@@ -66,7 +66,7 @@ In the agent-native framework context:
 - For complex visual effects, use a `<style>` tag in the component or a dedicated CSS file
 - Fonts can be loaded from Google Fonts via `@import` in a CSS file or `<link>` in `index.html`
 - Animation libraries: prefer CSS transitions and keyframes; use Framer Motion for complex sequences
-- All new UI components should be placed in `client/components/`
+- All new UI components should be placed in `app/components/`
 
 ## Related Skills
 

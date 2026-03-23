@@ -5,100 +5,25 @@ import {
   setResponseStatus,
   createEventStream,
 } from "h3";
-import fs from "fs";
-import path from "path";
+import { eq, desc } from "drizzle-orm";
+import { getDb, schema } from "../db";
 
-const DECKS_DIR = path.join(process.cwd(), "data", "decks");
-
-// Ensure the directory exists
-function ensureDecksDir() {
-  if (!fs.existsSync(DECKS_DIR)) {
-    fs.mkdirSync(DECKS_DIR, { recursive: true });
-  }
-}
-
-ensureDecksDir();
-
-function getDeckFilePath(id: string): string {
-  const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "");
-  return path.join(DECKS_DIR, `${safeId}.json`);
-}
-
-function readDeckFile(id: string): any | null {
-  const filePath = getDeckFilePath(id);
-  if (!fs.existsSync(filePath)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(filePath, "utf-8"));
-  } catch {
-    return null;
-  }
-}
-
-function writeDeckFile(id: string, deck: any): void {
-  ensureDecksDir();
-  const filePath = getDeckFilePath(id);
-  fs.writeFileSync(filePath, JSON.stringify(deck, null, 2), "utf-8");
-}
-
-function deleteDeckFile(id: string): boolean {
-  const filePath = getDeckFilePath(id);
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
-    return true;
-  }
-  return false;
-}
-
-function listAllDecks(): any[] {
-  ensureDecksDir();
-  const files = fs.readdirSync(DECKS_DIR).filter((f) => f.endsWith(".json"));
-  const decks: any[] = [];
-  for (const file of files) {
-    try {
-      const content = fs.readFileSync(path.join(DECKS_DIR, file), "utf-8");
-      decks.push(JSON.parse(content));
-    } catch {
-      // Skip malformed files
-    }
-  }
-  return decks;
-}
-
-// --- SSE for file change notifications ---
-// When the agent edits a JSON file directly, the frontend gets notified
+// --- SSE for change notifications ---
 type SSEPush = (data: string) => void;
 const sseClients = new Set<SSEPush>();
 
-// Watch the decks directory for changes
-let fsWatcher: fs.FSWatcher | null = null;
-function startWatching() {
-  ensureDecksDir();
-  try {
-    fsWatcher = fs.watch(DECKS_DIR, (eventType, filename) => {
-      if (!filename || !filename.endsWith(".json")) return;
-      const deckId = filename.replace(".json", "");
-      // Skip SSE notification if this write came from the API (frontend save)
-      if (recentAPISaves.has(deckId)) return;
-      // Notify all SSE clients (external/agent file edits only)
-      const message = JSON.stringify({ type: "deck-changed", deckId });
-      for (const push of sseClients) {
-        try {
-          push(message);
-        } catch {
-          sseClients.delete(push);
-        }
-      }
-    });
-  } catch (err) {
-    console.error("[decks] Failed to watch directory:", err);
+function notifyClients(deckId: string) {
+  const message = JSON.stringify({ type: "deck-changed", deckId });
+  for (const push of sseClients) {
+    try {
+      push(message);
+    } catch {
+      sseClients.delete(push);
+    }
   }
 }
-startWatching();
 
-// Track which saves came from the API (to avoid notifying the client that just saved)
-const recentAPISaves = new Map<string, number>();
-
-// SSE endpoint — client subscribes for real-time file change notifications
+// SSE endpoint — client subscribes for real-time change notifications
 export const deckEvents = defineEventHandler((event) => {
   const eventStream = createEventStream(event);
 
@@ -119,26 +44,39 @@ export const deckEvents = defineEventHandler((event) => {
 });
 
 // GET /api/decks — list all decks
-export const listDecks = defineEventHandler((_event) => {
-  const decks = listAllDecks();
-  // Sort by updatedAt desc
-  decks.sort((a, b) => {
-    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+export const listDecks = defineEventHandler(async (_event) => {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(schema.decks)
+    .orderBy(desc(schema.decks.updatedAt));
+
+  return rows.map((row) => {
+    const deck = JSON.parse(row.data);
+    return { ...deck, id: row.id, title: row.title };
   });
-  return decks;
 });
 
 // GET /api/decks/:id — get a specific deck
-export const getDeck = defineEventHandler((event) => {
+export const getDeck = defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
   if (!id) {
     setResponseStatus(event, 400);
     return { error: "Deck id is required" };
   }
-  const deck = readDeckFile(id);
-  if (deck) {
-    return deck;
+
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(schema.decks)
+    .where(eq(schema.decks.id, id))
+    .limit(1);
+
+  if (rows.length > 0) {
+    const deck = JSON.parse(rows[0].data);
+    return { ...deck, id: rows[0].id, title: rows[0].title };
   }
+
   setResponseStatus(event, 404);
   return { error: "Deck not found" };
 });
@@ -160,11 +98,27 @@ export const updateDeck = defineEventHandler(async (event) => {
   deck.id = id;
   deck.updatedAt = new Date().toISOString();
 
-  // Mark this as an API save so the file watcher doesn't echo it back
-  recentAPISaves.set(id, Date.now());
-  setTimeout(() => recentAPISaves.delete(id), 2000);
+  const db = getDb();
+  const title = deck.title || "Untitled";
+  const now = new Date().toISOString();
 
-  writeDeckFile(id, deck);
+  await db
+    .insert(schema.decks)
+    .values({
+      id,
+      title,
+      data: JSON.stringify(deck),
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: schema.decks.id,
+      set: {
+        title,
+        data: JSON.stringify(deck),
+        updatedAt: now,
+      },
+    });
+
   return deck;
 });
 
@@ -180,21 +134,36 @@ export const createDeck = defineEventHandler(async (event) => {
   deck.createdAt = deck.createdAt || new Date().toISOString();
   deck.updatedAt = new Date().toISOString();
 
-  writeDeckFile(deck.id, deck);
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  await db.insert(schema.decks).values({
+    id: deck.id,
+    title: deck.title || "Untitled",
+    data: JSON.stringify(deck),
+    createdAt: now,
+    updatedAt: now,
+  });
+
   setResponseStatus(event, 201);
   return deck;
 });
 
 // DELETE /api/decks/:id — delete a deck
-export const deleteDeck = defineEventHandler((event) => {
+export const deleteDeck = defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
   if (!id) {
     setResponseStatus(event, 400);
     return { error: "Deck id is required" };
   }
 
-  const deleted = deleteDeckFile(id);
-  if (deleted) {
+  const db = getDb();
+  const result = await db
+    .delete(schema.decks)
+    .where(eq(schema.decks.id, id))
+    .returning();
+
+  if (result.length > 0) {
     return { success: true };
   } else {
     setResponseStatus(event, 404);

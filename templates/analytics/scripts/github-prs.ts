@@ -1,13 +1,13 @@
 #!/usr/bin/env tsx
 /**
- * Query GitHub PRs and issues across the BuilderIO org.
+ * Query GitHub PRs and issues across your org.
  *
  * Usage:
  *   pnpm script github-prs
- *   pnpm script github-prs --org=BuilderIO --query="is:open label:bug"
- *   pnpm script github-prs --repo=BuilderIO/qwik --state=open
- *   pnpm script github-prs --pr=BuilderIO/qwik/1234          (PR detail)
- *   pnpm script github-prs --issue=BuilderIO/qwik/567        (issue detail)
+ *   pnpm script github-prs --org=YourOrg --query="is:open label:bug"
+ *   pnpm script github-prs --repo=YourOrg/my-repo --state=open
+ *   pnpm script github-prs --pr=YourOrg/my-repo/1234          (PR detail)
+ *   pnpm script github-prs --issue=YourOrg/my-repo/567        (issue detail)
  *   pnpm script github-prs --search="fix authentication is:pr is:merged"
  *   pnpm script github-prs --search="memory leak" --type=issue
  *   pnpm script github-prs --graphql='{ viewer { login } }'  (raw GraphQL)
@@ -77,9 +77,9 @@ else if (args.graphql) {
   output({ data });
 }
 
-// default: search across BuilderIO org
+// default: search across configured org
 else {
-  const org = (args.org as string) ?? "BuilderIO";
+  const org = (args.org as string) ?? (process.env.GITHUB_ORG || "your-org");
   const query = (args.query as string) ?? "";
   const state = args.state as "OPEN" | "CLOSED" | "MERGED" | undefined;
   const limit = args.limit ? parseInt(args.limit as string) : 30;
