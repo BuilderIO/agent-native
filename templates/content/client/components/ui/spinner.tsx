@@ -8,7 +8,7 @@ export function Spinner({
 }: React.ComponentProps<typeof Loader2>) {
   return (
     <Loader2
-      className={cn("h-6 w-6 animate-spin text-muted-foreground", className)}
+      className={cn("h-6 w-6 animate-spin text-muted-foreground/50", className)}
       {...props}
     />
   );

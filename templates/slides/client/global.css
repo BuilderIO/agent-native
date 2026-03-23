@@ -16,8 +16,8 @@
     --popover: 240 5% 10%;
     --popover-foreground: 240 6% 93%;
 
-    --primary: 211 100% 64%;
-    --primary-foreground: 0 0% 0%;
+    --primary: 0 0% 75%;
+    --primary-foreground: 240 6% 4%;
 
     --secondary: 240 4% 14%;
     --secondary-foreground: 240 6% 93%;
@@ -33,7 +33,7 @@
 
     --border: 240 4% 16%;
     --input: 240 4% 16%;
-    --ring: 211 100% 64%;
+    --ring: 0 0% 50%;
 
     --radius: 0.5rem;
 

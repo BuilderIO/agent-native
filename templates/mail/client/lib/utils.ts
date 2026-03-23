@@ -1,5 +1,4 @@
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+export { cn } from "@agent-native/core";
 import {
   formatDistanceToNow,
   format,
@@ -7,10 +6,6 @@ import {
   isYesterday,
   isThisYear,
 } from "date-fns";
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 export function formatEmailDate(dateStr: string): string {
   const date = new Date(dateStr);
