@@ -15,6 +15,7 @@ import { getCallbackOrigin } from "@agent-native/core/client";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
+  useGoogleAddAccountUrl,
   useDisconnectGoogle,
 } from "@/hooks/use-google-auth";
 
@@ -71,10 +72,12 @@ export function GoogleConnectBanner({
   variant = "banner",
 }: GoogleConnectBannerProps) {
   const [wantAuthUrl, setWantAuthUrl] = useState(false);
+  const [wantAddAccount, setWantAddAccount] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const googleStatus = useGoogleAuthStatus();
   const authUrl = useGoogleAuthUrl(wantAuthUrl);
+  const addAccountUrl = useGoogleAddAccountUrl(wantAddAccount);
   const disconnectGoogle = useDisconnectGoogle();
 
   const accounts = googleStatus.data?.accounts ?? [];
@@ -147,14 +150,38 @@ export function GoogleConnectBanner({
   const allConfigured =
     envStatus.length > 0 && envStatus.every((k) => k.configured);
 
+  // When add-account URL is ready, open it and poll for new account
+  useEffect(() => {
+    if (addAccountUrl.data?.url) {
+      window.open(addAccountUrl.data.url, "_blank");
+      setWantAddAccount(false);
+
+      const prevCount = accounts.length;
+      const interval = setInterval(async () => {
+        const res = await fetch("/api/google/status").catch(() => null);
+        if (res?.ok) {
+          const data = await res.json();
+          if (data.accounts?.length > prevCount) {
+            clearInterval(interval);
+            window.location.reload();
+          }
+        }
+      }, 2000);
+
+      return () => clearInterval(interval);
+    }
+  }, [addAccountUrl.data, accounts.length]);
+
   function handleConnect() {
     if (showWizard && allConfigured) {
-      // Credentials are set, try connecting
       setWantAuthUrl(true);
     } else {
-      // Try to connect — if it fails, wizard will open
       setWantAuthUrl(true);
     }
+  }
+
+  function handleAddAccount() {
+    setWantAddAccount(true);
   }
 
   async function handleJsonUpload(file: File) {
@@ -424,8 +451,8 @@ export function GoogleConnectBanner({
               </div>
             ))}
             <button
-              onClick={handleConnect}
-              disabled={authUrl.isLoading || authUrl.isFetching}
+              onClick={handleAddAccount}
+              disabled={addAccountUrl.isLoading || addAccountUrl.isFetching}
               className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors whitespace-nowrap"
             >
               + Add account

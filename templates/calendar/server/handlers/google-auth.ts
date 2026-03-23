@@ -202,9 +202,22 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         path: "/api/google/add-account/callback",
       });
 
-      await exchangeCode(code, undefined, redirectUri, session.email);
+      const addedEmail = await exchangeCode(
+        code,
+        undefined,
+        redirectUri,
+        session.email,
+      );
 
-      return sendRedirect(event, "/");
+      // Return a close-tab page (UI opens this in a new tab and polls for status)
+      const safeEmail = JSON.stringify(addedEmail);
+      return `<!DOCTYPE html><html><body><script>
+        window.close();
+        var p = document.createElement('p');
+        p.style.cssText = 'font-family:system-ui;text-align:center;margin-top:40vh';
+        p.textContent = 'Connected ' + ${safeEmail} + '! You can close this tab.';
+        document.body.appendChild(p);
+      </script></body></html>`;
     } catch (error: any) {
       const msg = error.message || "Unknown error";
       const isPermission =
@@ -212,7 +225,7 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         msg.includes("insufficient_scope");
       const userMessage = isPermission
         ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen."
-        : `Connection failed: ${msg}`;
+        : `Failed to add account: ${msg}`;
       return errorPage(userMessage);
     }
   },

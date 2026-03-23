@@ -189,10 +189,23 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
       });
 
       // Exchange code, passing the logged-in user as the owner
-      await exchangeCode(code, undefined, redirectUri, session.email);
+      const addedEmail = await exchangeCode(
+        code,
+        undefined,
+        redirectUri,
+        session.email,
+      );
 
       // Do NOT create a new session — user stays logged in
-      return sendRedirect(event, "/");
+      // Return a close-tab page (UI opens this in a new tab and polls for status)
+      const safeEmail = JSON.stringify(addedEmail);
+      return `<!DOCTYPE html><html><body><script>
+        window.close();
+        var p = document.createElement('p');
+        p.style.cssText = 'font-family:system-ui;text-align:center;margin-top:40vh';
+        p.textContent = 'Connected ' + ${safeEmail} + '! You can close this tab.';
+        document.body.appendChild(p);
+      </script></body></html>`;
     } catch (error: any) {
       const msg = error.message || "Unknown error";
       const isPermission =
