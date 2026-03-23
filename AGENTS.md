@@ -153,6 +153,8 @@ Agent skills in `.agents/skills/` provide detailed guidance for architectural ru
 
 | Skill                 | When to use                                          |
 | --------------------- | ---------------------------------------------------- |
+| `storing-data`        | Adding data models, reading/writing config or state  |
+| `real-time-sync`      | Wiring SSE, debugging UI not updating                |
 | `delegate-to-agent`   | Delegating AI work from UI or scripts to the agent   |
 | `scripts`             | Creating or running agent scripts                    |
 | `self-modifying-code` | Editing app source, components, or styles            |

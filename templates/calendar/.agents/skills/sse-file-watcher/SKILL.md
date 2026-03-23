@@ -1,93 +1,80 @@
 ---
-name: sse-file-watcher
+name: real-time-sync
 description: >-
-  How to keep the UI in sync with agent changes via Server-Sent Events. Use
-  when setting up real-time data sync, wiring query invalidation for new data
-  models, or debugging UI not updating.
+  How the UI stays in sync when the agent writes data. Use when wiring up
+  query invalidation, debugging UI not updating, or understanding how SSE
+  connects the agent to the browser.
 ---
 
-# SSE Database Watcher
-
-## Rule
-
-The UI stays in sync with agent changes through Server-Sent Events. When the agent writes data (via settings API, Drizzle, or application-state), the UI updates automatically — no polling, no manual refresh.
-
-## Why
-
-The agent modifies data in the SQL database, but the UI runs in the browser. SSE bridges this gap: the server detects DB changes, streams events to the browser, and React Query invalidates the relevant caches. This is what makes SQL-backed data feel real-time.
+# Real-Time Sync
 
 ## How It Works
 
-1. **Server** streams DB change events via SSE:
+When the agent writes data (via scripts or server handlers), the UI updates instantly. No polling, no manual refresh.
 
-   ```ts
-   import { createSSEHandler } from "@agent-native/core";
-   app.get("/api/events", createSSEHandler());
-   ```
+The flow:
 
-2. **Client** listens for changes and invalidates React Query caches:
+1. **Agent writes** → `writeAppState("navigate", { view: "starred" })`
+2. **Store emits SSE event** → `{ source: "app-state", type: "change", key: "navigate" }`
+3. **Browser receives** → `useFileWatcher()` hook gets the event
+4. **React Query invalidates** → relevant queries refetch, UI re-renders
 
-   ```ts
-   import { useSSE } from "@agent-native/core";
-   useSSE({ queryClient, queryKeys: ["settings", "bookings"] });
-   ```
+This happens automatically for all writes through `@agent-native/core/application-state` and `@agent-native/core/settings`.
 
-3. When the agent writes data (e.g., `putSetting("calendar-settings", ...)`), the server detects the change, SSE pushes the event, and React Query refetches the affected queries.
+## SSE Events
 
-## Don't
+| Source | Emitted by | Example |
+|--------|-----------|---------|
+| `"app-state"` | `writeAppState`, `deleteAppState` | `{ source: "app-state", type: "change", key: "navigation" }` |
+| `"settings"` | `putSetting`, `deleteSetting` | `{ source: "settings", type: "change", key: "mail-settings" }` |
 
-- Don't poll for changes — SSE handles it
-- Don't create your own EventSource connections alongside `useSSE` — use the `onEvent` callback for custom handling
-- Don't use `createFileWatcher` for data watching — DB change events replace file watching
+## Client Setup
 
-## Query Key Mapping
-
-By default, `useSSE` invalidates all listed query keys on every change event. For apps with multiple data models, this causes unnecessary refetches. Use the `onEvent` callback for targeted invalidation:
+Every template has an SSE endpoint and a `useFileWatcher` hook in `root.tsx`:
 
 ```ts
-useSSE({
-  queryClient,
-  queryKeys: [], // don't auto-invalidate everything
+// server/routes/api/events.get.ts
+import { createDefaultSSEHandler } from "@agent-native/core/server";
+export default createDefaultSSEHandler();
+```
+
+```ts
+// In root.tsx
+useFileWatcher({
+  queryClient: qc,
+  queryKeys: [],
   onEvent: (data) => {
-    if (data.key?.includes("settings")) {
-      queryClient.invalidateQueries({ queryKey: ["settings"] });
-    } else if (data.table === "bookings") {
-      queryClient.invalidateQueries({ queryKey: ["bookings"] });
+    if (data.source === "app-state") {
+      // Invalidate queries affected by app state changes
+      qc.invalidateQueries({ queryKey: ["compose-drafts"] });
+    } else if (data.source === "settings") {
+      qc.invalidateQueries({ queryKey: ["settings"] });
     }
   },
 });
 ```
 
-To prevent cache thrashing during rapid agent writes, set `staleTime` on your queries:
+Use the `key` field to selectively invalidate — don't invalidate everything on every event.
+
+## For Custom Domain Data
+
+If your template has Drizzle tables and you want SSE notifications after writes, emit from your handler:
 
 ```ts
-useQuery({
-  queryKey: ["settings"],
-  queryFn: fetchSettings,
-  staleTime: 2000, // don't refetch within 2 seconds
+import { getAppStateEmitter } from "@agent-native/core/application-state";
+
+// After inserting a booking:
+getAppStateEmitter().emit("app-state", {
+  source: "app-state",
+  type: "change",
+  key: "bookings-updated",
 });
 ```
 
-## Performance
-
-When the agent writes rapidly (e.g., during batch operations), each write fires an SSE event and React Query invalidation. This can cause excessive refetching.
-
-Mitigations:
-
-- Use `staleTime: 2000` on React Query to debounce refetches
-- Use targeted invalidation (see Query Key Mapping) to limit which queries invalidate
-
 ## Troubleshooting
 
-| Symptom                            | Check                                                                                                     |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| UI not updating after agent writes | Is `useSSE` called with the correct `queryClient`? Are the `queryKeys` matching your `useQuery` keys?     |
-| SSE not firing                     | Open browser devtools -> Network tab -> filter by EventStream. Is `/api/events` connected?                |
-| Constant reconnections             | Check for server crashes in terminal output.                                                              |
-| High CPU / event storms            | The agent is writing data rapidly. Add `staleTime` to queries and use targeted invalidation.              |
-
-## Related Skills
-
-- **files-as-database** — SSE watches the SQL database that stores application state
-- **scripts** — Script writes to the database trigger SSE events
-- **self-modifying-code** — Agent code edits trigger SSE events; rapid edits can cause event storms
+| Symptom | Check |
+|---------|-------|
+| UI not updating after script writes | Is the script using `writeAppState`/`writeSetting`? Direct SQL writes don't emit SSE. |
+| SSE not connected | Browser devtools → Network → EventStream. Is `/api/events` connected? |
+| Wrong queries invalidating | Check the `onEvent` callback — filter by `data.source` and `data.key` |

@@ -22,7 +22,8 @@ Create `scripts/my-script.ts`:
 
 ```ts
 import { parseArgs, loadEnv, fail, agentChat } from "@agent-native/core";
-import { getSetting, putSetting } from "@agent-native/core/settings";
+import { readSetting, writeSetting } from "@agent-native/core/settings";
+import { readAppState, writeAppState } from "@agent-native/core/application-state";
 
 export default async function myScript(args: string[]) {
   loadEnv();
@@ -31,13 +32,14 @@ export default async function myScript(args: string[]) {
   const input = parsed.input;
   if (!input) fail("--input is required");
 
-  // Read settings from SQL
-  const settings = await getSetting("my-settings");
+  // Read/write settings (persistent config)
+  const settings = await readSetting("my-settings");
+  await writeSetting("my-settings", { ...settings, lastRun: new Date().toISOString() });
 
-  // Write results to SQL
-  await putSetting("my-results", { processed: true, input });
+  // Read/write app state (ephemeral UI state)
+  await writeAppState("processing-status", { status: "done", input });
 
-  agentChat.submit(`Processed ${input}, result saved to settings`);
+  agentChat.submit(`Processed ${input}`);
 }
 ```
 
@@ -64,42 +66,45 @@ This is the canonical approach for new apps. Script names must be lowercase with
 - **Use `parseArgs()`** for structured argument parsing. It converts `--key value` pairs to a `Record<string, string>`.
 - **Use `loadEnv()`** if the script needs environment variables (API keys, etc.).
 - **Use `fail()`** for user-friendly error messages (exits with message, no stack trace).
-- **Write results to SQL.** Use `putSetting()`, `putAppState()`, or Drizzle queries. The UI will pick up changes via SSE.
+- **Write results to the database.** Use `writeSetting()` or `writeAppState()` for structured data. The UI will pick up changes via SSE.
 - **Use `agentChat.submit()`** to report results or errors back to the agent chat.
 - **Import from `@agent-native/core`** — Don't redefine `parseArgs()` or other utilities locally.
 
 ## Common Patterns
 
-**Reading/writing settings:**
+**API integration script** (e.g., image generation):
 
 ```ts
+import fs from "fs";
 import { parseArgs, loadEnv, fail } from "@agent-native/core";
-import { getSetting, putSetting } from "@agent-native/core/settings";
 
-export default async function updateSettings(args: string[]) {
+export default async function generateImage(args: string[]) {
   loadEnv();
   const parsed = parseArgs(args);
-  const timezone = parsed.timezone;
-  if (!timezone) fail("--timezone is required");
+  const prompt = parsed.prompt;
+  if (!prompt) fail("--prompt is required");
 
-  const current = await getSetting("calendar-settings") ?? {};
-  await putSetting("calendar-settings", { ...current, timezone });
+  const outputPath = parsed.output ?? "data/generated-image.png";
+  const imageUrl = await callImageAPI(prompt);
+  const buffer = await fetch(imageUrl).then((r) => r.arrayBuffer());
+  fs.writeFileSync(outputPath, Buffer.from(buffer));
 }
 ```
 
-**Database operations:**
+**Data processing script:**
 
 ```ts
 import { parseArgs, fail } from "@agent-native/core";
-import { getDb } from "../server/db/index.ts";
-import { bookings } from "../server/db/schema.ts";
-import { eq } from "drizzle-orm";
+import { readSetting, writeSetting } from "@agent-native/core/settings";
 
-export default async function listBookings(args: string[]) {
+export default async function transform(args: string[]) {
   const parsed = parseArgs(args);
-  const db = getDb();
-  const results = await db.select().from(bookings);
-  console.log(JSON.stringify(results, null, 2));
+  const key = parsed.key;
+  if (!key) fail("--key is required");
+
+  const data = await readSetting(key);
+  const result = processData(data);
+  await writeSetting(key, result);
 }
 ```
 
@@ -107,10 +112,10 @@ export default async function listBookings(args: string[]) {
 
 - **Script not found** — Check that the filename matches the command name exactly. `pnpm script foo-bar` looks for `scripts/foo-bar.ts`.
 - **Args not parsing** — Ensure args use `--key value` or `--key=value` format. Boolean flags use `--flag` (sets value to `"true"`).
-- **Script runs but UI doesn't update** — Make sure results are written via the settings API or Drizzle, which trigger SSE events.
+- **Script runs but UI doesn't update** — Make sure you're using core store helpers (`writeSetting`, `writeAppState`) which emit SSE events automatically. Direct SQL writes don't emit events.
 
 ## Related Skills
 
-- **files-as-database** — Scripts read/write data via SQL helpers
+- **storing-data** — Scripts read/write data via core SQL stores and Drizzle ORM
 - **delegate-to-agent** — The agent invokes scripts via `pnpm script <name>`
-- **sse-file-watcher** — Database writes from scripts trigger SSE events to update the UI
+- **real-time-sync** — Database writes from scripts trigger SSE events to update the UI

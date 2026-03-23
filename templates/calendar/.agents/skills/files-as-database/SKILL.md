@@ -1,98 +1,110 @@
 ---
-name: files-as-database
+name: storing-data
 description: >-
-  How to store and manage application state in SQL via settings API and Drizzle ORM.
-  Use when adding data models, deciding where to store data, or reading/writing
-  application data.
+  How and where to store application data. Use when adding new data models,
+  deciding between settings vs Drizzle tables, reading/writing app config,
+  or working with application state.
 ---
 
-# SQL-Backed Data
+# Storing Data
 
-## Rule
+## Where Data Goes
 
-All application state must be stored in the SQL database — either as Drizzle ORM tables for structured data, or via the settings API (`getSetting`/`putSetting`) for configuration. The database file lives at `data/app.db` (SQLite via @libsql/client).
+All data lives in one SQLite database (`data/app.db`). In production, set `DATABASE_URL` to point to Turso, Neon, Supabase, or D1 — same code, no changes needed.
 
-## Why
+There are three storage layers, each for a different kind of data:
 
-SQL is the shared interface between the AI agent, the UI, and remote deployments. The agent reads and writes data via scripts and SQL helpers. The UI reads data via API routes. SSE streams DB change events to the UI in real-time. Using `DATABASE_URL`, the same database can be accessed locally or from a cloud provider (Turso, Neon, etc.) without any code changes.
+### 1. Settings — app configuration
 
-## How
-
-- **Structured data** (forms, bookings, events): Define Drizzle ORM tables in `server/db/schema.ts`. Use `getDb()` for queries.
-- **Settings/config** (app preferences, feature flags): Use `getSetting(key)` / `putSetting(key, value)` from `@agent-native/core/settings`.
-- **Application state** (ephemeral UI state): Use `getAppState(key)` / `putAppState(key, value)` from `@agent-native/core/application-state`. Stored in the `application_state` SQL table.
-- **OAuth tokens**: Use `@agent-native/core/oauth-tokens` for storing/retrieving OAuth credentials.
-- **Sessions**: Stored in the `sessions` SQL table automatically by the auth system.
-- API routes use `getDb()` or the settings/app-state helpers to read and return data.
-- The agent uses scripts with SQL helpers (`readSetting()`, `writeSetting()`, `db-query`, `db-exec`) to read/write data.
-- SSE streams DB change events to the client, which invalidates React Query caches.
-
-## Don't
-
-- Don't store app state as JSON files in `data/` (use the settings API or Drizzle tables instead)
-- Don't store app state in localStorage, sessionStorage, or cookies
-- Don't keep state only in memory (server variables, global stores)
-- Don't use `fs.readFileSync`/`fs.writeFileSync` for application data
-- Don't store OAuth tokens or sessions as JSON files
-
-## Example
+Key-value store for persistent config that the user or agent can change. Theme, preferences, integration API keys, availability schedules.
 
 ```ts
 import { getSetting, putSetting } from "@agent-native/core/settings";
 
-// Writing a setting (agent, script, or API route)
-await putSetting("calendar-settings", {
-  timezone: "America/Los_Angeles",
-  bookingDuration: 30,
-});
+// Read (returns null if not set)
+const prefs = await getSetting("user-preferences");
 
-// Reading a setting
-const settings = await getSetting("calendar-settings");
+// Write (creates or replaces)
+await putSetting("user-preferences", { theme: "dark", density: "comfortable" });
 ```
+
+From scripts:
+```ts
+import { readSetting, writeSetting } from "@agent-native/core/settings";
+const prefs = await readSetting("user-preferences");
+```
+
+SSE: writes automatically notify the UI via `{ source: "settings", type: "change", key }`.
+
+### 2. Application State — ephemeral UI state
+
+For state the agent and UI share in real-time: what the user is looking at, compose drafts, navigation commands. Scoped by session — cleared between sessions.
 
 ```ts
-import { getDb } from "../server/db/index.ts";
-import { bookings } from "../server/db/schema.ts";
+import { readAppState, writeAppState, deleteAppState, listAppState } from "@agent-native/core/application-state";
 
-// Querying structured data via Drizzle
-const db = getDb();
-const allBookings = await db.select().from(bookings);
+// Write state (UI updates instantly via SSE)
+await writeAppState("navigate", { view: "inbox", threadId: "t-123" });
+
+// Read state
+const nav = await readAppState("navigation");
+
+// List by prefix (e.g., all compose drafts)
+const drafts = await listAppState("compose-");
+
+// Delete (one-shot commands: UI reads, then agent or UI deletes)
+await deleteAppState("navigate");
 ```
 
-## Creating a New Data Model
+SSE: writes automatically notify the UI via `{ source: "app-state", type: "change", key }`.
 
-When adding a new data entity:
+### 3. Drizzle Tables — structured domain data
 
-1. **For structured/queryable data** (e.g., bookings, events, items):
-   - Define the table in `server/db/schema.ts`
-   - Add a migration or let auto-migration handle it
-   - Use `getDb()` + Drizzle queries in API routes and scripts
+For data with schemas, relationships, and queries: forms, bookings, emails, compositions. Define tables in `server/db/schema.ts` using Drizzle ORM.
 
-2. **For configuration/settings** (e.g., app preferences, theme):
-   - Use `getSetting(key)` / `putSetting(key, value)`
-   - Define the type in `shared/` so both client and server can import it
+```ts
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 
-3. **For ephemeral UI state** (e.g., compose windows, wizard steps):
-   - Use `getAppState(key)` / `putAppState(key, value)` from `@agent-native/core/application-state`
+export const bookings = sqliteTable("bookings", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  startTime: integer("start_time").notNull(),
+  endTime: integer("end_time").notNull(),
+});
+```
 
-4. **Wire SSE invalidation** — Add the query key to `useSSE()` so the UI refreshes on changes
+Query via `getDb()` singleton from `server/db/index.ts`.
 
-## Judgment Criteria
+### 4. OAuth Tokens — credentials
 
-| Question                             | Settings API              | Drizzle table                   |
-| ------------------------------------ | ------------------------- | ------------------------------- |
-| Is it a single config/preference?    | Yes — use settings        | No                              |
-| Are items independently queryable?   | No                        | Yes — use a table               |
-| Will there be >50 items?             | No — settings for singles | Yes — use a table               |
-| Do items need filtering/sorting?     | No                        | Yes — SQL is ideal              |
+For OAuth tokens acquired at runtime (Google, etc.). Never store these in settings — use the dedicated encrypted store.
 
-## Security
+```ts
+import { saveOAuthTokens, getOAuthTokens, listOAuthAccounts } from "@agent-native/core/oauth-tokens";
 
-- **Validate before writing** — Check data shape before writing, especially for user-submitted data.
-- **Parameterize queries** — Always use Drizzle's query builder or parameterized SQL. Never interpolate user input into raw SQL strings.
+await saveOAuthTokens("google", "user@gmail.com", { access_token: "...", refresh_token: "..." });
+const tokens = await getOAuthTokens("google", "user@gmail.com");
+const accounts = await listOAuthAccounts("google");
+```
 
-## Related Skills
+## Which Layer to Use
 
-- **sse-db-watcher** — Set up real-time sync so the UI updates when data changes
-- **scripts** — Create scripts that read/write data via SQL helpers
-- **self-modifying-code** — The agent writes data as Tier 1 (auto-apply) modifications
+| Data | Layer | Why |
+|------|-------|-----|
+| User preferences, theme, config | Settings | Persistent KV, SSE notifications, simple read/write |
+| What the user sees on screen | Application State | Ephemeral, real-time sync, agent ↔ UI bridge |
+| Compose drafts, wizard steps | Application State | Temporary, deleted when done |
+| Domain records (forms, bookings) | Drizzle table | Needs schema, queries, relationships |
+| OAuth refresh tokens | OAuth Tokens | Secure, per-provider, per-account |
+
+## Environment Variables
+
+Infrastructure config stays in `.env` — these differ per deployment:
+
+- `DATABASE_URL` — database connection (default: `file:./data/app.db`)
+- `DATABASE_AUTH_TOKEN` — for remote databases
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — OAuth app credentials
+- `ACCESS_TOKEN` — production auth token
+
+Everything else (user settings, tokens, app state) goes in SQL.

@@ -2,10 +2,10 @@
 
 This is an **agent-native** app built with `@agent-native/core`. See `.agents/skills/` for the framework rules that apply to all agent-native apps:
 
-- **sql-as-database** — All state is in SQL. No JSON files for data, no localStorage.
+- **storing-data** — All state is in SQL. No JSON files for data, no localStorage.
 - **delegate-to-agent** — UI never calls an LLM directly. All AI goes through the agent chat.
 - **scripts** — Complex operations are scripts in `scripts/`, run via `pnpm script <name>`.
-- **sse-db-sync** — UI stays in sync with agent changes via SSE (DB change events).
+- **real-time-sync** — UI stays in sync with agent changes via SSE (DB change events).
 - **frontend-design** — Build distinctive, production-grade UI. Read this skill before creating or restyling any component, page, or layout.
 
 ---

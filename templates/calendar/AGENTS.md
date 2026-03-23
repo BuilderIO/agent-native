@@ -4,10 +4,10 @@ You are the AI assistant for this calendar app. You can view, create, update, an
 
 This is an **agent-native** app built with `@agent-native/core`. See `.agents/skills/` for the framework rules that apply to all agent-native apps:
 
-- **files-as-database** — Settings and configuration in SQL via `@agent-native/core/settings`. Structured data (bookings) in SQLite via Drizzle ORM + @libsql/client.
+- **storing-data** — Settings and configuration in SQL via `@agent-native/core/settings`. Structured data (bookings) in SQLite via Drizzle ORM + @libsql/client.
 - **delegate-to-agent** — UI never calls an LLM directly. All AI goes through the agent chat.
 - **scripts** — Complex operations are scripts in `scripts/`, run via `pnpm script <name>`.
-- **sse-file-watcher** — UI stays in sync with agent changes via SSE (streams DB change events).
+- **real-time-sync** — UI stays in sync with agent changes via SSE (streams DB change events).
 - **frontend-design** — Build distinctive, production-grade UI. Read this skill before creating or restyling any component, page, or layout.
 
 ---
@@ -176,10 +176,10 @@ Use `getDb()` from `server/db/index.ts` to get a Drizzle database instance. All 
 
 Read the skill files in `.agents/skills/` for detailed patterns:
 
-- **files-as-database** — Settings and config in SQL via settings API
+- **storing-data** — Settings and config in SQL via settings API
 - **delegate-to-agent** — UI never calls LLMs directly
 - **scripts** — Complex operations as `pnpm script <name>`
-- **sse-file-watcher** — Real-time UI sync via SSE (DB change events)
+- **real-time-sync** — Real-time UI sync via SSE (DB change events)
 
 ## Running Scripts
 

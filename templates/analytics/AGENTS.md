@@ -2,10 +2,10 @@
 
 This is an **agent-native** app built with `@agent-native/core`. See `.agents/skills/` for the framework rules:
 
-- **files-as-database** — All state is SQL-backed. Settings via `getSetting`/`putSetting`, structured data via Drizzle ORM.
+- **storing-data** — All state is SQL-backed. Settings via `getSetting`/`putSetting`, structured data via Drizzle ORM.
 - **delegate-to-agent** — UI never calls an LLM directly. All AI goes through the agent chat.
 - **scripts** — Complex operations are scripts in `scripts/`, run via `pnpm script <name>`.
-- **sse-file-watcher** — UI stays in sync with agent changes via SSE (streams DB change events).
+- **real-time-sync** — UI stays in sync with agent changes via SSE (streams DB change events).
 - **frontend-design** — Build distinctive, production-grade UI. Read this skill before creating or restyling any component, page, or layout.
 
 ---

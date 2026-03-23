@@ -135,7 +135,7 @@ description: >-
 ## Naming Conventions
 
 - Hyphen-case only: `[a-z0-9-]`, max 64 characters
-- Pattern skills: descriptive names (`files-as-database`, `delegate-to-agent`)
+- Pattern skills: descriptive names (`storing-data`, `delegate-to-agent`)
 - Workflow/generator skills: verb-noun (`create-script`, `capture-learnings`)
 
 ## Tips
@@ -147,8 +147,8 @@ description: >-
 ## Anti-Patterns
 
 - **Inline LLM calls** — Skills must not call LLMs directly (violates Rule 2)
-- **File-based storage** — Skills must not store app state as files (use SQL via settings API or Drizzle)
-- **Ignoring SSE** — If a skill writes data, mention wiring up SSE invalidation
+- **Database patterns** — Skills must not introduce databases (violates Rule 1)
+- **Ignoring SSE** — If a skill creates data files, mention wiring up `useFileWatcher`
 - **Vague descriptions** — "Helps with development" won't trigger. Be specific about _when_.
 - **Pure documentation** — Skills should guide action, not just explain concepts
 

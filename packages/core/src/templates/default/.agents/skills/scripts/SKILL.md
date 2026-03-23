@@ -116,6 +116,6 @@ export default async function transform(args: string[]) {
 
 ## Related Skills
 
-- **sql-as-database** — Scripts read/write data via core SQL stores and Drizzle ORM
+- **storing-data** — Scripts read/write data via core SQL stores and Drizzle ORM
 - **delegate-to-agent** — The agent invokes scripts via `pnpm script <name>`
-- **sse-db-sync** — Database writes from scripts trigger SSE events to update the UI
+- **real-time-sync** — Database writes from scripts trigger SSE events to update the UI
