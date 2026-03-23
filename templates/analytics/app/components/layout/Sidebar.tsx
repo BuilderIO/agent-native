@@ -471,17 +471,24 @@ export function Sidebar() {
   }, []);
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
+    if (typeof window === "undefined") return 256;
     const saved = localStorage.getItem("sidebar-width");
     return saved ? Math.max(180, Math.min(480, Number(saved))) : 256;
   });
   const isResizing = useRef(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [hiddenIds, setHiddenIds] = useState(() => getHiddenDashboards());
-  const [favoriteIds, setFavoriteIds] = useState(() => getFavoriteDashboards());
-  const [dashboardOrderState, setDashboardOrderState] = useState(() =>
-    getDashboardOrder(),
+  const [hiddenIds, setHiddenIds] = useState(() =>
+    typeof window === "undefined" ? new Set<string>() : getHiddenDashboards(),
   );
-  const [toolsOrderState, setToolsOrderState] = useState(() => getToolsOrder());
+  const [favoriteIds, setFavoriteIds] = useState(() =>
+    typeof window === "undefined" ? new Set<string>() : getFavoriteDashboards(),
+  );
+  const [dashboardOrderState, setDashboardOrderState] = useState(() =>
+    typeof window === "undefined" ? [] : getDashboardOrder(),
+  );
+  const [toolsOrderState, setToolsOrderState] = useState(() =>
+    typeof window === "undefined" ? [] : getToolsOrder(),
+  );
 
   const { data: savedCharts = [] } = useQuery({
     queryKey: ["explorer-configs-sidebar"],

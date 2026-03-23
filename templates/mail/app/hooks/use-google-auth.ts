@@ -59,6 +59,8 @@ export function useDisconnectGoogle() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["google-status"] });
+      queryClient.invalidateQueries({ queryKey: ["emails"] });
+      queryClient.invalidateQueries({ queryKey: ["labels"] });
     },
   });
 }

@@ -232,7 +232,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
         fontSize: 12,
         fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
         theme: {
-          background: "#000000",
+          background: "#0e0f14",
           foreground: "#e0e0e0",
           cursor: "#58a6ff",
           selectionBackground: "#264f78",

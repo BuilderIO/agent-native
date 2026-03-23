@@ -5,9 +5,9 @@ export default {
   theme: {
     extend: {
       colors: {
-        panel: "#111",
-        "panel-border": "#222",
-        "panel-header": "#0a0a0a",
+        panel: "#141519",
+        "panel-border": "#1e2028",
+        "panel-header": "#0e0f14",
         muted: "#666",
         "muted-foreground": "#999",
       },
