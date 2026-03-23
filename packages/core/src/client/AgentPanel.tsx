@@ -1,10 +1,24 @@
 /**
- * AgentPanel — unified agent sidebar with chat and CLI terminal modes.
+ * AgentPanel — unified agent component with chat and CLI terminal modes.
  *
- * Drop this anywhere to get a full agent experience:
+ * A self-contained panel with no layout opinions — drop it into a sidebar,
+ * popover, dialog, full page, or any container. It fills its parent via
+ * flex and min-h-0.
+ *
+ * Features:
  * - Chat mode: assistant-ui powered chat with tool calls
  * - CLI mode: embedded xterm.js terminal (dev mode only)
  * - Toggle between modes via header buttons
+ *
+ * Usage:
+ *   // In a sidebar
+ *   <div style={{ width: 380 }}><AgentPanel /></div>
+ *
+ *   // In a popover
+ *   <Popover><AgentPanel suggestions={[...]} /></Popover>
+ *
+ *   // Full page
+ *   <AgentPanel className="h-screen" />
  */
 
 import React, { useState, useEffect, lazy, Suspense } from "react";
