@@ -37,7 +37,7 @@ import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   getCallbackOrigin,
-  ProductionAgentPanel,
+  AgentSidebar,
   AgentToggleButton,
 } from "@agent-native/core/client";
 import type { Label } from "@shared/types";
@@ -926,7 +926,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           )}
 
           {/* Show full-page takeover when no accounts connected, otherwise content */}
-          <ProductionAgentPanel
+          <AgentSidebar
             emptyStateText="Ask me anything about your emails"
             suggestions={[
               "What's in my inbox?",
@@ -939,7 +939,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             ) : (
               <main className="flex flex-1 overflow-hidden">{children}</main>
             )}
-          </ProductionAgentPanel>
+          </AgentSidebar>
         </div>
 
         {(() => {

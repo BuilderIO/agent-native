@@ -19,16 +19,23 @@ export {
 export { AssistantChat, type AssistantChatProps } from "./AssistantChat.js";
 export { createAgentChatAdapter } from "./agent-chat-adapter.js";
 export {
+  AgentPanel,
+  AgentSidebar,
+  AgentToggleButton,
+  type AgentPanelProps,
+  type AgentSidebarProps,
+} from "./AgentPanel.js";
+// Deprecated — use AgentSidebar + AgentToggleButton instead
+export {
+  ProductionAgentPanel,
+  type ProductionAgentPanelProps,
+} from "./ProductionAgentPanel.js";
+export {
   useProductionAgent,
   type ProductionAgentMessage,
   type UseProductionAgentOptions,
   type UseProductionAgentResult,
 } from "./useProductionAgent.js";
-export {
-  ProductionAgentPanel,
-  AgentToggleButton,
-  type ProductionAgentPanelProps,
-} from "./ProductionAgentPanel.js";
 export { Turnstile, type TurnstileProps } from "./Turnstile.js";
 export { PoweredByBadge, type PoweredByBadgeProps } from "./PoweredByBadge.js";
 export { ErrorBoundary } from "./ErrorBoundary.js";
