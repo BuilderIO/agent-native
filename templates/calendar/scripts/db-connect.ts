@@ -11,7 +11,12 @@
  * Writes the values to .env and verifies the connection.
  */
 
-import { config } from "dotenv";
+const config = async () => {
+  try {
+    const m = await import("dotenv");
+    m.config();
+  } catch {}
+};
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { agentChat } from "@agent-native/core";
 import { parseArgs } from "./helpers.js";
@@ -31,7 +36,7 @@ function upsertEnvLine(content: string, key: string, value: string): string {
 }
 
 export default async function main(args: string[]) {
-  config();
+  await config();
 
   const opts = parseArgs(args);
 

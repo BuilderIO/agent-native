@@ -10,7 +10,12 @@
  *   --duration  Minimum slot duration in minutes (default: 30)
  */
 
-import { config } from "dotenv";
+const config = async () => {
+  try {
+    const m = await import("dotenv");
+    m.config();
+  } catch {}
+};
 import { readFileSync } from "fs";
 import { join } from "path";
 import { agentChat } from "@agent-native/core";
@@ -27,7 +32,7 @@ function timeToMinutes(timeStr: string): number {
 }
 
 export default async function main(args: string[]) {
-  config();
+  await config();
 
   const opts = parseArgs(args);
 

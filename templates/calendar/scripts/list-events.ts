@@ -10,7 +10,12 @@
  *   --to      End date filter (ISO date, default: 30 days forward)
  */
 
-import { config } from "dotenv";
+const config = async () => {
+  try {
+    const m = await import("dotenv");
+    m.config();
+  } catch {}
+};
 import { agentChat } from "@agent-native/core";
 import { parseArgs, formatDateRange } from "./helpers.js";
 
@@ -26,7 +31,7 @@ interface CalendarEvent {
 }
 
 export default async function main(args: string[]) {
-  config();
+  await config();
 
   const opts = parseArgs(args);
 

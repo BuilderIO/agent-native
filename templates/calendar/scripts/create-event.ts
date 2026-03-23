@@ -13,12 +13,17 @@
  *   --location     Event location
  */
 
-import { config } from "dotenv";
+const config = async () => {
+  try {
+    const m = await import("dotenv");
+    m.config();
+  } catch {}
+};
 import { agentChat } from "@agent-native/core";
 import { parseArgs } from "./helpers.js";
 
 export default async function main(args: string[]) {
-  config();
+  await config();
 
   const opts = parseArgs(args);
 
