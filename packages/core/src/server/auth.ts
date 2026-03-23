@@ -38,6 +38,12 @@ export interface AuthOptions {
    * Both page routes and API routes can be made public.
    */
   publicPaths?: string[];
+  /**
+   * Custom login page HTML. When provided, this HTML is served to
+   * unauthenticated page requests instead of the built-in token login form.
+   * Use this for custom login flows (e.g., "Sign in with Google" button).
+   */
+  loginHtml?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,9 +81,16 @@ async function ensureSessionTable(): Promise<void> {
   await client.execute(`
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
+      email TEXT,
       created_at INTEGER NOT NULL
     )
   `);
+  // Migration: add email column to existing tables that lack it
+  try {
+    await client.execute(`ALTER TABLE sessions ADD COLUMN email TEXT`);
+  } catch {
+    // Column already exists — ignore
+  }
   _sessionTableReady = true;
 }
 
@@ -91,22 +104,50 @@ async function pruneExpiredSessions(): Promise<void> {
   });
 }
 
-async function addSession(token: string): Promise<void> {
+/**
+ * Create a new session. Optionally associate it with an email address
+ * (used by Google OAuth and other identity-aware auth providers).
+ */
+export async function addSession(token: string, email?: string): Promise<void> {
   await ensureSessionTable();
   const client = getSessionClient();
   await client.execute({
-    sql: `INSERT OR REPLACE INTO sessions (token, created_at) VALUES (?, ?)`,
-    args: [token, Date.now()],
+    sql: `INSERT OR REPLACE INTO sessions (token, email, created_at) VALUES (?, ?, ?)`,
+    args: [token, email ?? null, Date.now()],
   });
 }
 
-async function removeSession(token: string): Promise<void> {
+/** Remove a session by token. */
+export async function removeSession(token: string): Promise<void> {
   await ensureSessionTable();
   const client = getSessionClient();
   await client.execute({
     sql: `DELETE FROM sessions WHERE token = ?`,
     args: [token],
   });
+}
+
+/**
+ * Look up the email associated with a session token.
+ * Returns null if the session doesn't exist, is expired, or has no email.
+ */
+export async function getSessionEmail(token: string): Promise<string | null> {
+  await ensureSessionTable();
+  const client = getSessionClient();
+  const { rows } = await client.execute({
+    sql: `SELECT email, created_at FROM sessions WHERE token = ?`,
+    args: [token],
+  });
+  if (rows.length === 0) return null;
+  const createdAt = rows[0].created_at as number;
+  if (Date.now() - createdAt > sessionMaxAge * 1000) {
+    await client.execute({
+      sql: `DELETE FROM sessions WHERE token = ?`,
+      args: [token],
+    });
+    return null;
+  }
+  return (rows[0].email as string) ?? null;
 }
 
 async function hasSession(token: string): Promise<boolean> {
@@ -508,6 +549,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
     );
 
     // Mount auth guard that delegates to custom getSession
+    const byoaLoginHtml = options.loginHtml ?? LOGIN_HTML;
     app.use(
       defineEventHandler(async (event) => {
         const url = event.node.req.url ?? "/";
@@ -532,7 +574,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
           return;
         }
         setResponseHeader(event, "Content-Type", "text/html");
-        event.node.res.end(LOGIN_HTML);
+        event.node.res.end(byoaLoginHtml);
       }),
     );
 

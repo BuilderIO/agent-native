@@ -1,0 +1,8 @@
+name = "agent-native-calendar"
+pages_build_output_dir = "templates/calendar/.output/public"
+compatibility_date = "2024-12-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "agent-native-calendar"
+database_id = "26d5afaf-e324-40dc-b963-9417e26ee70c"

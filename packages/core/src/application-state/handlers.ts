@@ -12,8 +12,21 @@ import {
   appStateList,
   appStateDeleteByPrefix,
 } from "./store.js";
+import { getSession } from "../server/auth.js";
 
-const SESSION_ID = "local";
+/**
+ * Resolve the session ID for app state scoping.
+ * - Dev mode: returns "local" (backward-compatible with existing dev databases)
+ * - Production with Google OAuth: returns the user's email
+ * - Production with token auth: returns "user" (single-user, same as before)
+ */
+async function getSessionId(event: H3Event): Promise<string> {
+  const session = await getSession(event);
+  if (!session) return "local";
+  // Dev mode returns "local@localhost" — keep using "local" for compat
+  if (session.email === "local@localhost") return "local";
+  return session.email;
+}
 
 function safeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9_-]/g, "");
@@ -22,8 +35,9 @@ function safeKey(key: string): string {
 // --- Generic state handlers ---
 
 export const getState = defineEventHandler(async (event: H3Event) => {
+  const sessionId = await getSessionId(event);
   const key = safeKey(String(getRouterParam(event, "key")));
-  const value = await appStateGet(SESSION_ID, key);
+  const value = await appStateGet(sessionId, key);
   if (!value) {
     setResponseStatus(event, 404);
     return { error: `No state for ${key}` };
@@ -32,15 +46,17 @@ export const getState = defineEventHandler(async (event: H3Event) => {
 });
 
 export const putState = defineEventHandler(async (event: H3Event) => {
+  const sessionId = await getSessionId(event);
   const key = safeKey(String(getRouterParam(event, "key")));
   const body = await readBody(event);
-  await appStatePut(SESSION_ID, key, body);
+  await appStatePut(sessionId, key, body);
   return body;
 });
 
 export const deleteState = defineEventHandler(async (event: H3Event) => {
+  const sessionId = await getSessionId(event);
   const key = safeKey(String(getRouterParam(event, "key")));
-  await appStateDelete(SESSION_ID, key);
+  await appStateDelete(sessionId, key);
   return { ok: true };
 });
 
@@ -51,15 +67,17 @@ function composeDraftKey(id: string): string {
 }
 
 /** List all compose drafts */
-export const listComposeDrafts = defineEventHandler(async () => {
-  const items = await appStateList(SESSION_ID, "compose-");
+export const listComposeDrafts = defineEventHandler(async (event: H3Event) => {
+  const sessionId = await getSessionId(event);
+  const items = await appStateList(sessionId, "compose-");
   return items.map((item) => item.value);
 });
 
 /** Get a single compose draft */
 export const getComposeDraft = defineEventHandler(async (event: H3Event) => {
+  const sessionId = await getSessionId(event);
   const id = getRouterParam(event, "id") as string;
-  const value = await appStateGet(SESSION_ID, composeDraftKey(id));
+  const value = await appStateGet(sessionId, composeDraftKey(id));
   if (!value) {
     setResponseStatus(event, 404);
     return { error: "Draft not found" };
@@ -69,6 +87,7 @@ export const getComposeDraft = defineEventHandler(async (event: H3Event) => {
 
 /** Create or update a compose draft */
 export const putComposeDraft = defineEventHandler(async (event: H3Event) => {
+  const sessionId = await getSessionId(event);
   const id = getRouterParam(event, "id") as string;
   const body = await readBody(event);
   const { subject, body: bodyText } = body;
@@ -79,19 +98,23 @@ export const putComposeDraft = defineEventHandler(async (event: H3Event) => {
   }
 
   const state = { ...body, id };
-  await appStatePut(SESSION_ID, composeDraftKey(id), state);
+  await appStatePut(sessionId, composeDraftKey(id), state);
   return state;
 });
 
 /** Delete a single compose draft */
 export const deleteComposeDraft = defineEventHandler(async (event: H3Event) => {
+  const sessionId = await getSessionId(event);
   const id = getRouterParam(event, "id") as string;
-  await appStateDelete(SESSION_ID, composeDraftKey(id));
+  await appStateDelete(sessionId, composeDraftKey(id));
   return { ok: true };
 });
 
 /** Delete all compose drafts */
-export const deleteAllComposeDrafts = defineEventHandler(async () => {
-  await appStateDeleteByPrefix(SESSION_ID, "compose-");
-  return { ok: true };
-});
+export const deleteAllComposeDrafts = defineEventHandler(
+  async (event: H3Event) => {
+    const sessionId = await getSessionId(event);
+    await appStateDeleteByPrefix(sessionId, "compose-");
+    return { ok: true };
+  },
+);

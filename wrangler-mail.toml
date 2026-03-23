@@ -1,0 +1,8 @@
+name = "agent-native-mail"
+pages_build_output_dir = "templates/mail/.output/public"
+compatibility_date = "2024-12-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "agent-native-mail"
+database_id = "5cbb9720-f664-40f7-b38c-a24bfdba4fb8"

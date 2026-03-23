@@ -14,6 +14,9 @@ export {
   mountAuthMiddleware,
   autoMountAuth,
   getSession,
+  addSession,
+  removeSession,
+  getSessionEmail,
   type AuthSession,
   type AuthOptions,
 } from "./auth.js";
@@ -37,6 +40,10 @@ export {
   defaultSyncStatusHandler,
 } from "./default-watcher.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
+export {
+  createGoogleAuthPlugin,
+  type GoogleAuthPluginOptions,
+} from "./google-auth-plugin.js";
 export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,

@@ -25,7 +25,7 @@ export default function IndexPage() {
           <p className="text-[14px] text-muted-foreground leading-relaxed">
             Start building by editing{" "}
             <code className="text-[13px] bg-muted px-1.5 py-0.5 rounded font-mono">
-              client/routes/_index.tsx
+              app/routes/_index.tsx
             </code>
           </p>
         </div>
