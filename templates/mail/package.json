@@ -15,8 +15,8 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@libsql/client": "^0.15.0",
     "@tabler/icons-react": "^3.40.0",
-    "better-sqlite3": "^12.8.0",
     "chrono-node": "^2.7.6",
     "drizzle-orm": "^0.36.4",
     "embla-carousel-react": "^8.6.0",
@@ -70,7 +70,6 @@
     "@tiptap/pm": "^3.19.0",
     "@tiptap/react": "^3.19.0",
     "@tiptap/starter-kit": "^3.19.0",
-    "@types/better-sqlite3": "^7.6.8",
     "@types/node": "^24.2.1",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",

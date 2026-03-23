@@ -40,7 +40,11 @@ function createOAuth2Client(redirectUri?: string) {
   );
 }
 
-export function getAuthUrl(origin?: string, redirectUri?: string): string {
+export function getAuthUrl(
+  origin?: string,
+  redirectUri?: string,
+  state?: string,
+): string {
   const uri =
     redirectUri || (origin ? `${origin}/api/google/callback` : undefined);
   const client = createOAuth2Client(uri);
@@ -48,6 +52,7 @@ export function getAuthUrl(origin?: string, redirectUri?: string): string {
     access_type: "offline",
     scope: SCOPES,
     prompt: "consent",
+    state,
   });
 }
 
@@ -112,9 +117,20 @@ export async function getClient(
   return client;
 }
 
-export async function getClients(): Promise<
-  Array<{ email: string; client: Auth.OAuth2Client }>
-> {
+/**
+ * Get OAuth clients. When `forEmail` is provided, returns only that
+ * user's client (multi-user mode). Otherwise returns all (legacy).
+ */
+export async function getClients(
+  forEmail?: string,
+): Promise<Array<{ email: string; client: Auth.OAuth2Client }>> {
+  if (forEmail) {
+    // Multi-user: return only this user's account
+    const client = await getClient(forEmail);
+    if (!client) return [];
+    return [{ email: forEmail, client }];
+  }
+
   const accounts = await listOAuthAccounts("google");
   const results: Array<{ email: string; client: Auth.OAuth2Client }> = [];
 
@@ -143,7 +159,15 @@ export async function getClients(): Promise<
   return results;
 }
 
-export async function isConnected(): Promise<boolean> {
+/**
+ * Check if a Google account is connected. When `forEmail` is provided,
+ * checks only that specific account.
+ */
+export async function isConnected(forEmail?: string): Promise<boolean> {
+  if (forEmail) {
+    const tokens = await getOAuthTokens("google", forEmail);
+    return tokens !== null;
+  }
   return hasOAuthTokens("google");
 }
 
@@ -157,8 +181,24 @@ export interface GoogleAuthStatus {
   accounts: Array<{ email: string; expiresAt?: string; photoUrl?: string }>;
 }
 
-export async function getAuthStatus(): Promise<GoogleAuthStatus> {
-  const oauthAccounts = await listOAuthAccounts("google");
+/**
+ * Get the OAuth status. When `forEmail` is provided, only returns
+ * status for that specific account (multi-user mode).
+ */
+export async function getAuthStatus(
+  forEmail?: string,
+): Promise<GoogleAuthStatus> {
+  let oauthAccounts: Array<{
+    accountId: string;
+    tokens: Record<string, unknown>;
+  }>;
+  if (forEmail) {
+    const tokens = await getOAuthTokens("google", forEmail);
+    oauthAccounts = tokens ? [{ accountId: forEmail, tokens }] : [];
+  } else {
+    oauthAccounts = await listOAuthAccounts("google");
+  }
+
   if (oauthAccounts.length === 0) {
     return { connected: false, accounts: [] };
   }
@@ -209,11 +249,12 @@ export async function disconnect(email?: string): Promise<void> {
 export async function listGmailMessages(
   query?: string,
   maxResults = 50,
+  forEmail?: string,
 ): Promise<{
   messages: any[];
   errors: Array<{ email: string; error: string }>;
 }> {
-  const clients = await getClients();
+  const clients = await getClients(forEmail);
   if (clients.length === 0) return { messages: [], errors: [] };
 
   const errors: Array<{ email: string; error: string }> = [];

@@ -1,11 +1,15 @@
+import crypto from "node:crypto";
 import {
   defineEventHandler,
   getQuery,
   readBody,
   setResponseStatus,
   getHeader,
+  setCookie,
+  sendRedirect,
   type H3Event,
 } from "h3";
+import { addSession, getSession } from "@agent-native/core/server";
 import {
   getAuthUrl,
   exchangeCode,
@@ -19,8 +23,8 @@ function getOrigin(event: H3Event): string {
   return `${proto}://${host}`;
 }
 
-// Track the redirect URI used for auth so the callback can match it
-let lastRedirectUri: string | undefined;
+// Track redirect URIs by OAuth state parameter for multi-user safety
+const pendingRedirects = new Map<string, string>();
 
 export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -28,15 +32,22 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
     return {
       error: "missing_credentials",
       message:
-        "Google OAuth credentials are not configured. Add your Client ID and Secret in Settings.",
+        "Google OAuth credentials are not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
     };
   }
   try {
     const redirectUri =
       (getQuery(event).redirect_uri as string) ||
       `${getOrigin(event)}/api/google/callback`;
-    lastRedirectUri = redirectUri;
-    const url = getAuthUrl(undefined, redirectUri);
+    // Generate a state token to track the redirect URI
+    const state = crypto.randomBytes(16).toString("hex");
+    pendingRedirects.set(state, redirectUri);
+    // Clean up old entries (keep last 100)
+    if (pendingRedirects.size > 100) {
+      const first = pendingRedirects.keys().next().value;
+      if (first) pendingRedirects.delete(first);
+    }
+    const url = getAuthUrl(undefined, redirectUri, state);
     return { url };
   } catch (error: any) {
     setResponseStatus(event, 500);
@@ -47,23 +58,36 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
 export const handleGoogleCallback = defineEventHandler(
   async (event: H3Event) => {
     try {
-      const code = getQuery(event).code as string;
+      const query = getQuery(event);
+      const code = query.code as string;
+      const state = query.state as string | undefined;
       if (!code) {
         setResponseStatus(event, 400);
         return { error: "Missing authorization code" };
       }
-      // Use the same redirect URI that was used to generate the auth URL
-      const redirectUri =
-        lastRedirectUri || `${getOrigin(event)}/api/google/callback`;
+      // Look up the redirect URI from the state parameter
+      let redirectUri: string;
+      if (state && pendingRedirects.has(state)) {
+        redirectUri = pendingRedirects.get(state)!;
+        pendingRedirects.delete(state);
+      } else {
+        redirectUri = `${getOrigin(event)}/api/google/callback`;
+      }
       const email = await exchangeCode(code, undefined, redirectUri);
-      const safeEmail = JSON.stringify(email);
-      return `<!DOCTYPE html><html><body><script>
-      window.close();
-      var p = document.createElement('p');
-      p.style.cssText = 'font-family:system-ui;text-align:center;margin-top:40vh';
-      p.textContent = 'Connected ' + ${safeEmail} + '! You can close this tab.';
-      document.body.appendChild(p);
-    </script></body></html>`;
+
+      // Create a session tied to this Google email
+      const sessionToken = crypto.randomBytes(32).toString("hex");
+      await addSession(sessionToken, email);
+      setCookie(event, "an_session", sessionToken, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 60 * 24 * 30, // 30 days
+      });
+
+      // Redirect to app home
+      return sendRedirect(event, "/");
     } catch (error: any) {
       const msg = error.message || "Unknown error";
       const isPermission =
@@ -75,7 +99,7 @@ export const handleGoogleCallback = defineEventHandler(
       return `<!DOCTYPE html><html><body>
       <div style="font-family:system-ui;max-width:420px;margin:30vh auto;text-align:center">
         <p style="font-size:15px;color:#e55">${userMessage}</p>
-        <p style="margin-top:16px;font-size:13px;color:#888">You can close this tab and try again.</p>
+        <p style="margin-top:16px;font-size:13px;color:#888"><a href="/" style="color:#888">Back to login</a></p>
       </div>
     </body></html>`;
     }
@@ -84,7 +108,8 @@ export const handleGoogleCallback = defineEventHandler(
 
 export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
   try {
-    const status = await getAuthStatus();
+    const session = await getSession(event);
+    const status = await getAuthStatus(session?.email);
     return status;
   } catch (error: any) {
     setResponseStatus(event, 500);
@@ -94,9 +119,15 @@ export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
 
 export const disconnectGoogle = defineEventHandler(async (event: H3Event) => {
   try {
+    const session = await getSession(event);
     const body = await readBody(event);
+    // Only allow disconnecting the logged-in user's own account
     const email = body?.email as string | undefined;
-    await disconnect(email);
+    if (email && session?.email && email !== session.email) {
+      setResponseStatus(event, 403);
+      return { error: "Cannot disconnect another user's account" };
+    }
+    await disconnect(email || session?.email);
     return { success: true };
   } catch (error: any) {
     setResponseStatus(event, 500);
