@@ -325,8 +325,8 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`}
           </div>
           <p className="m-0 text-sm text-[var(--fg-secondary)]">
             Terminal on the left running your choice of AI CLI (Claude Code,
-            Codex, Gemini, OpenCode), your app iframe on the right. Runs
-            locally. Free. Best for solo development.
+            Codex, Gemini, OpenCode, Builder.io), your app iframe on the right.
+            Runs locally. Free. Best for solo development.
           </p>
         </div>
         <div className="rounded-xl border border-[var(--border)] p-5">

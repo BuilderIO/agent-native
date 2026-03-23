@@ -77,6 +77,8 @@ export function buildCliArgs(
       return ["--quiet", "--full-stdout", message];
     case "gemini":
       return ["--prompt", message];
+    case "fusion":
+      return [message];
     default:
       return [message];
   }

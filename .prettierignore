@@ -5,3 +5,4 @@ out
 pnpm-lock.yaml
 **/SKILL.md
 **/routeTree.gen.ts
+**/.react-router
