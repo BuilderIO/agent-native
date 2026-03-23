@@ -59,9 +59,14 @@ function FileWatcherSetup() {
   useFileWatcher({
     queryClient: qc,
     queryKeys: [],
-    onEvent: (data: { type: string; path: string }) => {
-      if (data.path?.includes("application-state")) {
-        if (data.path?.includes("compose-")) {
+    onEvent: (data: {
+      source?: string;
+      type: string;
+      path?: string;
+      key?: string;
+    }) => {
+      if (data.source === "app-state") {
+        if (data.key?.startsWith("compose-")) {
           qc.invalidateQueries({
             queryKey: ["compose-drafts"],
             refetchType: "all",

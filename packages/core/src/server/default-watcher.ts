@@ -1,15 +1,24 @@
 import { createFileWatcher, createSSEHandler } from "./sse.js";
 import type { SSEHandlerOptions } from "./sse.js";
+import { getAppStateEmitter } from "../application-state/emitter.js";
 
 const _emitters: NonNullable<SSEHandlerOptions["extraEmitters"]> = [];
 let _syncResult: any = { status: "disabled" };
 let _watcher: ReturnType<typeof createFileWatcher> | undefined;
+let _appStateEmitterRegistered = false;
 
 export function getDefaultWatcher() {
   if (!_watcher) {
-    _watcher = createFileWatcher(["./data", "./application-state"]);
+    _watcher = createFileWatcher("./data");
   }
   return _watcher;
+}
+
+/** Ensure the application-state DB emitter is wired into SSE. */
+function ensureAppStateEmitter() {
+  if (_appStateEmitterRegistered) return;
+  _appStateEmitterRegistered = true;
+  _emitters.push({ emitter: getAppStateEmitter(), event: "app-state" });
 }
 
 export function getDefaultSSEEmitters(): NonNullable<
@@ -43,6 +52,7 @@ export function defaultSyncStatusHandler() {
 }
 
 export function createDefaultSSEHandler() {
+  ensureAppStateEmitter();
   return createSSEHandler(getDefaultWatcher(), {
     extraEmitters: _emitters,
     contentRoot: "./data",

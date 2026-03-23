@@ -20,14 +20,17 @@
  *   --replyToThreadId Thread ID for grouping
  */
 
-import fs from "fs";
-import path from "path";
 import { parseArgs, output, fatal } from "./helpers.js";
+import {
+  readAppState,
+  writeAppState,
+  deleteAppState,
+  listAppState,
+  deleteAppStateByPrefix,
+} from "@agent-native/core/application-state";
 import type { ScriptTool } from "@agent-native/core";
 
-const STATE_DIR = path.join(process.cwd(), "application-state");
-
-/** Reject IDs that could escape STATE_DIR via path traversal. */
+/** Reject IDs that could escape via path traversal. */
 function sanitizeDraftId(id: string): string | null {
   return /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
 }
@@ -74,23 +77,18 @@ export async function run(args: Record<string, string>): Promise<string> {
     return "Error: --action is required (create, update, delete, delete-all)";
 
   if (action === "delete-all") {
-    const files = fs
-      .readdirSync(STATE_DIR)
-      .filter((f) => f.startsWith("compose-") && f.endsWith(".json"));
-    for (const f of files) fs.unlinkSync(path.join(STATE_DIR, f));
-    return `Deleted ${files.length} draft(s)`;
+    const count = await deleteAppStateByPrefix("compose-");
+    return `Deleted ${count} draft(s)`;
   }
 
   if (action === "delete") {
     if (!args.id) return "Error: --id is required for delete";
     const safeId = sanitizeDraftId(args.id);
     if (!safeId) return `Error: Invalid draft ID "${args.id}"`;
-    try {
-      fs.unlinkSync(path.join(STATE_DIR, `compose-${safeId}.json`));
-      return `Deleted draft ${safeId}`;
-    } catch {
-      return `Error: Draft "${safeId}" not found`;
-    }
+    const deleted = await deleteAppState(`compose-${safeId}`);
+    return deleted
+      ? `Deleted draft ${safeId}`
+      : `Error: Draft "${safeId}" not found`;
   }
 
   if (action === "create") {
@@ -107,10 +105,7 @@ export async function run(args: Record<string, string>): Promise<string> {
     if (args.bcc) draft.bcc = args.bcc;
     if (args.replyToId) draft.replyToId = args.replyToId;
     if (args.replyToThreadId) draft.replyToThreadId = args.replyToThreadId;
-    fs.writeFileSync(
-      path.join(STATE_DIR, `compose-${id}.json`),
-      JSON.stringify(draft, null, 2),
-    );
+    await writeAppState(`compose-${id}`, draft);
     return `Created draft ${id}`;
   }
 
@@ -118,17 +113,8 @@ export async function run(args: Record<string, string>): Promise<string> {
     if (!args.id) return "Error: --id is required for update";
     const safeId = sanitizeDraftId(args.id);
     if (!safeId) return `Error: Invalid draft ID "${args.id}"`;
-    let draft: Record<string, string>;
-    try {
-      draft = JSON.parse(
-        fs.readFileSync(
-          path.join(STATE_DIR, `compose-${safeId}.json`),
-          "utf-8",
-        ),
-      );
-    } catch {
-      return `Error: Draft "${safeId}" not found`;
-    }
+    const draft = await readAppState(`compose-${safeId}`);
+    if (!draft) return `Error: Draft "${safeId}" not found`;
     for (const key of [
       "to",
       "cc",
@@ -139,12 +125,9 @@ export async function run(args: Record<string, string>): Promise<string> {
       "replyToId",
       "replyToThreadId",
     ]) {
-      if (args[key] !== undefined) draft[key] = args[key];
+      if (args[key] !== undefined) (draft as any)[key] = args[key];
     }
-    fs.writeFileSync(
-      path.join(STATE_DIR, `compose-${safeId}.json`),
-      JSON.stringify(draft, null, 2),
-    );
+    await writeAppState(`compose-${safeId}`, draft);
     return `Updated draft ${safeId}`;
   }
 
