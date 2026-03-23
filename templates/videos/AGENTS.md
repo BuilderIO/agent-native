@@ -2,10 +2,10 @@
 
 This is an **agent-native** app built with `@agent-native/core`. See `.agents/skills/` for the framework rules:
 
-- **files-as-database** — All state is files. No databases, no localStorage.
+- **sql-as-database** — All state is in SQL. No JSON files for data, no localStorage.
 - **delegate-to-agent** — UI never calls an LLM directly. All AI goes through the agent chat.
 - **scripts** — Complex operations are scripts in `scripts/`, run via `pnpm script <name>`.
-- **sse-file-watcher** — UI stays in sync with agent changes via SSE.
+- **sse-db-sync** — UI stays in sync with agent changes via SSE (DB change events).
 - **frontend-design** — Build distinctive, production-grade UI. Read this skill before creating or restyling any component, page, or layout.
 
 ---
@@ -33,7 +33,7 @@ This app uses **Nitro** (via `@agent-native/core`) for the server. All server co
 server/
   routes/     # File-based API routes (auto-discovered by Nitro)
   handlers/   # Route handler logic modules
-  plugins/    # Server plugins — run at startup (file watcher, file sync, auth)
+  plugins/    # Server plugins — run at startup (auth, SSE, etc.)
   lib/        # Shared server modules (watcher instance, helpers)
 ```
 
@@ -59,7 +59,7 @@ export default defineEventHandler(async (event) => {
 
 ### Server Plugins
 
-Startup logic (file watcher, file sync, auth) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
+Startup logic (auth, SSE, etc.) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
 
 ```ts
 import { defineNitroPlugin } from "@agent-native/core";
@@ -71,14 +71,15 @@ export default defineNitroPlugin(async (nitroApp) => {
 
 ### Key Imports from `@agent-native/core`
 
-| Import                                       | Purpose                                           |
-| -------------------------------------------- | ------------------------------------------------- |
-| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)   |
-| `createFileWatcher`                          | Watch data directory for changes                  |
-| `createSSEHandler`                           | Create SSE endpoint for real-time updates         |
-| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)          |
-| `sendToAgentChat`                            | Send messages to agent from UI (client-side)      |
-| `agentChat`                                  | Send messages to agent from scripts (server-side) |
+| Import                                       | Purpose                                                                    |
+| -------------------------------------------- | -------------------------------------------------------------------------- |
+| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)                            |
+| `createDefaultSSEHandler`                    | Create SSE endpoint for DB change events (server)                          |
+| `readAppState`, `writeAppState`              | Read/write application state (from `@agent-native/core/application-state`) |
+| `readSetting`, `writeSetting`                | Read/write settings (from `@agent-native/core/settings`)                   |
+| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)                                   |
+| `sendToAgentChat`                            | Send messages to agent from UI (client-side)                               |
+| `agentChat`                                  | Send messages to agent from scripts (server-side)                          |
 
 ### Build & Dev Commands
 
@@ -156,42 +157,16 @@ pnpm test       # Run Vitest tests
 
 ---
 
-### File Sync (Multi-User Collaboration)
+### Database (Cloud Deployment)
 
-File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.env`.
+By default, data is stored in SQLite at `data/app.db`. For production/cloud deployment, set `DATABASE_URL` to point to a remote database (Turso, Neon, Supabase, D1).
 
 **Environment variables:**
 
-| Variable                         | Required      | Description                                          |
-| -------------------------------- | ------------- | ---------------------------------------------------- |
-| `FILE_SYNC_ENABLED`              | No            | Set to `"true"` to enable sync                       |
-| `FILE_SYNC_BACKEND`              | When enabled  | `"firestore"`, `"supabase"`, or `"convex"`           |
-| `SUPABASE_URL`                   | For Supabase  | Project URL                                          |
-| `SUPABASE_PUBLISHABLE_KEY`       | For Supabase  | Publishable key (or legacy `SUPABASE_ANON_KEY`)      |
-| `GOOGLE_APPLICATION_CREDENTIALS` | For Firestore | Path to service account JSON                         |
-| `CONVEX_URL`                     | For Convex    | Deployment URL from `npx convex dev` (must be HTTPS) |
-
-**How sync works:**
-
-- `createFileSync()` factory reads env vars and initializes sync
-- Files matching `sync-config.json` patterns are synced to/from the database
-- Sync events flow through SSE (`source: "sync"`) alongside file change events
-- Conflicts produce `.conflict` sidecar files and notify the agent
-
-**Checking sync status:**
-
-- Read `data/.sync-status.json` for current sync state
-- Read `data/.sync-failures.json` for permanently failed sync operations
-
-**Handling conflicts:**
-
-- When `application-state/sync-conflict.json` appears, resolve the conflict
-- Read the `.conflict` file alongside the original to understand both versions
-- Edit the original file to resolve, then delete the `.conflict` file
-
-**Scratch files (not synced):**
-
-- Prefix temporary files with `_tmp-` to exclude from sync
+| Variable              | Required         | Description                                                |
+| --------------------- | ---------------- | ---------------------------------------------------------- |
+| `DATABASE_URL`        | No (has default) | Database connection string (default: `file:./data/app.db`) |
+| `DATABASE_AUTH_TOKEN` | For remote DBs   | Auth token for Turso or other remote databases             |
 
 ---
 

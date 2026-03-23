@@ -2,14 +2,14 @@
 
 ## Architecture
 
-This is an **@agent-native/core** application — the AI agent and UI share state through files, not a traditional database.
+This is an **@agent-native/core** application — the AI agent and UI share state through a SQL database, with SSE for real-time sync.
 
 ### Core Principles
 
-1. **Files as database** — All app state lives in files. Both UI and agent read/write the same files.
+1. **Shared SQL database** — All app state lives in SQL (SQLite locally, cloud DB via `DATABASE_URL` in production). Core stores: `application_state`, `settings`, `oauth_tokens`, `sessions`.
 2. **All AI through agent chat** — No inline LLM calls. UI delegates to the AI via `sendToAgentChat()` / `agentChat.submit()`.
 3. **Scripts for agent operations** — `pnpm script <name>` dispatches to callable script files in `scripts/`.
-4. **Bidirectional SSE events** — The file watcher keeps the UI in sync when the agent modifies files.
+4. **SSE for real-time sync** — Database writes emit events that keep the UI in sync automatically.
 5. **Agent can update code** — The agent can modify this app's source code directly.
 
 ### Authentication
@@ -48,7 +48,7 @@ scripts/               # Agent-callable scripts
   run.ts               # Script dispatcher
   *.ts                 # Individual scripts (pnpm script <name>)
 
-data/                  # App data files (watched by SSE)
+data/                  # App data (SQLite DB file)
 
 react-router.config.ts # React Router framework config
 .agents/skills/        # Agent skills — detailed guidance for each rule
@@ -73,10 +73,10 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 
 | Skill                 | When to read                                                   |
 | --------------------- | -------------------------------------------------------------- |
-| `files-as-database`   | Before storing or reading any app state                        |
+| `sql-as-database`     | Before storing or reading any app state                        |
 | `delegate-to-agent`   | Before adding LLM calls or AI delegation                       |
 | `scripts`             | Before creating or modifying scripts                           |
-| `sse-file-watcher`    | Before wiring up real-time UI sync                             |
+| `sse-db-sync`         | Before wiring up real-time UI sync                             |
 | `self-modifying-code` | Before editing source, components, or styles                   |
 | `frontend-design`     | Before building or restyling any UI component, page, or layout |
 
@@ -135,7 +135,7 @@ server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
 Each file exports a default `defineEventHandler`.
 
 **Adding a server plugin:**
-Startup logic (file watcher, file sync, auth) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
+Startup logic (auth, SSE, etc.) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
 
 ```ts
 import { defineNitroPlugin } from "@agent-native/core";
@@ -147,14 +147,15 @@ export default defineNitroPlugin(async (nitroApp) => {
 
 **Key imports from `@agent-native/core`:**
 
-| Import                                       | Purpose                                           |
-| -------------------------------------------- | ------------------------------------------------- |
-| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)   |
-| `createFileWatcher`                          | Watch data directory for changes                  |
-| `createSSEHandler`                           | Create SSE endpoint for real-time updates         |
-| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)          |
-| `sendToAgentChat`                            | Send messages to agent from UI (client-side)      |
-| `agentChat`                                  | Send messages to agent from scripts (server-side) |
+| Import                                       | Purpose                                                                    |
+| -------------------------------------------- | -------------------------------------------------------------------------- |
+| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)                            |
+| `createDefaultSSEHandler`                    | Create SSE endpoint for DB change events (server)                          |
+| `readAppState`, `writeAppState`              | Read/write application state (from `@agent-native/core/application-state`) |
+| `readSetting`, `writeSetting`                | Read/write settings (from `@agent-native/core/settings`)                   |
+| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)                                   |
+| `sendToAgentChat`                            | Send messages to agent from UI (client-side)                               |
+| `agentChat`                                  | Send messages to agent from scripts (server-side)                          |
 
 **Adding a script:**
 Create `scripts/my-script.ts` exporting `default async function(args: string[])`.
@@ -178,42 +179,16 @@ import { agentChat } from "@agent-native/core";
 agentChat.submit("Generate something");
 ```
 
-### File Sync (Multi-User Collaboration)
+### Database (Cloud Deployment)
 
-File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.env`.
+By default, data is stored in SQLite at `data/app.db`. For production/cloud deployment, set `DATABASE_URL` to point to a remote database (Turso, Neon, Supabase, D1).
 
 **Environment variables:**
 
-| Variable                         | Required      | Description                                          |
-| -------------------------------- | ------------- | ---------------------------------------------------- |
-| `FILE_SYNC_ENABLED`              | No            | Set to `"true"` to enable sync                       |
-| `FILE_SYNC_BACKEND`              | When enabled  | `"firestore"`, `"supabase"`, or `"convex"`           |
-| `SUPABASE_URL`                   | For Supabase  | Project URL                                          |
-| `SUPABASE_PUBLISHABLE_KEY`       | For Supabase  | Publishable key (or legacy `SUPABASE_ANON_KEY`)      |
-| `GOOGLE_APPLICATION_CREDENTIALS` | For Firestore | Path to service account JSON                         |
-| `CONVEX_URL`                     | For Convex    | Deployment URL from `npx convex dev` (must be HTTPS) |
-
-**How sync works:**
-
-- `createFileSync()` factory in `server/plugins/file-sync.ts` reads env vars and initializes sync
-- Files matching `sync-config.json` patterns are synced to/from the remote database
-- Sync events flow through SSE (`source: "sync"`) alongside file change events
-- Conflicts produce `.conflict` sidecar files and notify the agent
-
-**Checking sync status:**
-
-- Read `data/.sync-status.json` for current sync state (connected, conflicts, retry queue)
-- Read `data/.sync-failures.json` for permanently failed sync operations
-
-**Handling conflicts:**
-
-- When `application-state/sync-conflict.json` appears, a sync conflict needs resolution
-- Read the `.conflict` file alongside the original to understand both versions
-- Edit the original file to resolve, then delete the `.conflict` file
-
-**Scratch files (not synced):**
-
-- Prefix temporary files with `_tmp-` (e.g., `data/_tmp-scratch.json`) to exclude from sync
+| Variable              | Required         | Description                                                |
+| --------------------- | ---------------- | ---------------------------------------------------------- |
+| `DATABASE_URL`        | No (has default) | Database connection string (default: `file:./data/app.db`) |
+| `DATABASE_AUTH_TOKEN` | For remote DBs   | Auth token for Turso or other remote databases             |
 
 ### Tech Stack
 
@@ -221,7 +196,7 @@ File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.en
 - **Frontend:** React 18, Vite, TailwindCSS, shadcn/ui
 - **Routing:** File-based via `flatRoutes()` — SSR shell + client rendering
 - **Backend:** Nitro (via @agent-native/core) — file-based API routing, server plugins, deploy-anywhere presets
-- **State:** File-based (SSE for real-time updates)
+- **State:** SQL-backed (SSE for real-time updates)
 - **Build:** `pnpm build` (React Router build — client + SSR + Nitro server)
 - **Dev:** `pnpm dev` (Vite dev server with both React Router + Nitro plugins)
 - **Start:** `node .output/server/index.mjs` (production)

@@ -86,5 +86,5 @@ Scripts may call external APIs (image generation, search, etc.) — but the AI r
 
 - **scripts** — The agent invokes scripts via `pnpm script <name>` to perform complex operations
 - **self-modifying-code** — The agent operates through the chat bridge to make code changes
-- **files-as-database** — The agent writes results to data files after processing requests
-- **sse-file-watcher** — The UI updates automatically when the agent writes files
+- **files-as-database** — The agent writes results to the database after processing requests
+- **sse-file-watcher** — The UI updates automatically when the agent writes data

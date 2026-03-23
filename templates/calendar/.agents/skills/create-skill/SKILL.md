@@ -147,8 +147,8 @@ description: >-
 ## Anti-Patterns
 
 - **Inline LLM calls** — Skills must not call LLMs directly (violates Rule 2)
-- **Database patterns** — Skills must not introduce databases (violates Rule 1)
-- **Ignoring SSE** — If a skill creates data files, mention wiring up `useFileWatcher`
+- **File-based storage** — Skills must not store app state as files (use SQL via settings API or Drizzle)
+- **Ignoring SSE** — If a skill writes data, mention wiring up SSE invalidation
 - **Vague descriptions** — "Helps with development" won't trigger. Be specific about _when_.
 - **Pure documentation** — Skills should guide action, not just explain concepts
 

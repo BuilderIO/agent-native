@@ -2,10 +2,10 @@
 
 This is an **agent-native** app built with `@agent-native/core`. See `.agents/skills/` for the framework rules that apply to all agent-native apps:
 
-- **files-as-database** — All state is files. No databases, no localStorage.
+- **sql-as-database** — All state is in SQL. No JSON files for data, no localStorage.
 - **delegate-to-agent** — UI never calls an LLM directly. All AI goes through the agent chat.
 - **scripts** — Complex operations are scripts in `scripts/`, run via `pnpm script <name>`.
-- **sse-file-watcher** — UI stays in sync with agent changes via SSE.
+- **sse-db-sync** — UI stays in sync with agent changes via SSE (DB change events).
 - **frontend-design** — Build distinctive, production-grade UI. Read this skill before creating or restyling any component, page, or layout.
 
 ---
@@ -20,7 +20,7 @@ This app uses **Nitro** (via `@agent-native/core`) for the server. All server co
 server/
   routes/     # File-based API routes (auto-discovered by Nitro)
   handlers/   # Route handler logic modules
-  plugins/    # Server plugins — run at startup (file watcher, file sync, auth)
+  plugins/    # Server plugins — run at startup (auth, SSE, etc.)
   lib/        # Shared server modules (watcher instance, helpers)
 ```
 
@@ -46,7 +46,7 @@ export default defineEventHandler(async (event) => {
 
 ### Server Plugins
 
-Startup logic (file watcher, file sync, auth) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
+Startup logic (auth, SSE, etc.) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
 
 ```ts
 import { defineNitroPlugin } from "@agent-native/core";
@@ -58,14 +58,15 @@ export default defineNitroPlugin(async (nitroApp) => {
 
 ### Key Imports from `@agent-native/core`
 
-| Import                                       | Purpose                                           |
-| -------------------------------------------- | ------------------------------------------------- |
-| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)   |
-| `createFileWatcher`                          | Watch data directory for changes                  |
-| `createSSEHandler`                           | Create SSE endpoint for real-time updates         |
-| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)          |
-| `sendToAgentChat`                            | Send messages to agent from UI (client-side)      |
-| `agentChat`                                  | Send messages to agent from scripts (server-side) |
+| Import                                       | Purpose                                                                    |
+| -------------------------------------------- | -------------------------------------------------------------------------- |
+| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)                            |
+| `createDefaultSSEHandler`                    | Create SSE endpoint for DB change events (server)                          |
+| `readAppState`, `writeAppState`              | Read/write application state (from `@agent-native/core/application-state`) |
+| `readSetting`, `writeSetting`                | Read/write settings (from `@agent-native/core/settings`)                   |
+| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)                                   |
+| `sendToAgentChat`                            | Send messages to agent from UI (client-side)                               |
+| `agentChat`                                  | Send messages to agent from scripts (server-side)                          |
 
 ### Build & Dev Commands
 
@@ -78,25 +79,25 @@ pnpm typecheck  # TypeScript validation
 
 ---
 
-## Core Principle: Everything is Files
+## Core Principle: Everything is in SQL
 
-All stateful data in this app is stored in **files**. The frontend (React/Vite) reads and writes files. The agent chat reads and writes files. Scripts read and write files. Files are the shared state mechanism between all three.
+All stateful data in this app is stored in **SQL** (SQLite locally, cloud DB via `DATABASE_URL`). The frontend reads/writes via API routes. The agent reads/writes via scripts and core store helpers. SSE streams DB change events to keep the UI in sync.
 
 This means:
 
-- When the UI updates something, it writes to files via the backend API (`/api/decks`)
-- When the agent needs to do something, it reads/writes the same JSON files directly (in `data/decks/`)
-- **All decks are JSON files** in `data/decks/`
-- **No localStorage** — JSON files are the only source of truth
-- The frontend subscribes to file changes via SSE (`/api/decks/events`), so agent edits to JSON files appear in the UI in real-time
+- When the UI updates something, it writes to the database via the backend API (`/api/decks`)
+- When the agent needs to do something, it reads/writes the same database via scripts
+- **All decks are stored in the database**
+- **No localStorage for data** — the database is the only source of truth
+- The frontend subscribes to DB change events via SSE (`/api/events`), so agent writes appear in the UI in real-time
 
 ```
 ┌─────────────────────┐         ┌─────────────────────┐
 │  Frontend           │         │  Agent Chat         │
 │  (React + Vite)     │◄───────►│  (AI agent)         │
-│                     │  files  │                     │
+│                     │   SQL   │                     │
 │  - reads/writes     │         │  - reads/writes     │
-│    files via API    │         │    files + code     │
+│    DB via API       │         │    DB + code        │
 │  - sends prompts    │         │  - runs scripts     │
 │    via agentChat    │         │    via pnpm script  │
 │                     │         │  - generates code   │
@@ -104,7 +105,7 @@ This means:
          │                                 │
          │         ┌───────────────┐       │
          └────────►│  Backend      │◄──────┘
-                   │  (Nitro)    │
+                   │  (Nitro)      │
                    │               │
                    │  - API routes │
                    │  - image gen  │
@@ -121,42 +122,16 @@ This means:
                    └───────────────┘
 ```
 
-### File Sync (Multi-User Collaboration)
+### Database (Cloud Deployment)
 
-File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.env`.
+By default, data is stored in SQLite at `data/app.db`. For production/cloud deployment, set `DATABASE_URL` to point to a remote database (Turso, Neon, Supabase, D1).
 
 **Environment variables:**
 
-| Variable                         | Required      | Description                                          |
-| -------------------------------- | ------------- | ---------------------------------------------------- |
-| `FILE_SYNC_ENABLED`              | No            | Set to `"true"` to enable sync                       |
-| `FILE_SYNC_BACKEND`              | When enabled  | `"firestore"`, `"supabase"`, or `"convex"`           |
-| `SUPABASE_URL`                   | For Supabase  | Project URL                                          |
-| `SUPABASE_PUBLISHABLE_KEY`       | For Supabase  | Publishable key (or legacy `SUPABASE_ANON_KEY`)      |
-| `GOOGLE_APPLICATION_CREDENTIALS` | For Firestore | Path to service account JSON                         |
-| `CONVEX_URL`                     | For Convex    | Deployment URL from `npx convex dev` (must be HTTPS) |
-
-**How sync works:**
-
-- `createFileSync()` factory reads env vars and initializes sync
-- Files matching `sync-config.json` patterns are synced to/from the database
-- Sync events flow through SSE (`source: "sync"`) alongside file change events
-- Conflicts produce `.conflict` sidecar files and notify the agent
-
-**Checking sync status:**
-
-- Read `data/.sync-status.json` for current sync state
-- Read `data/.sync-failures.json` for permanently failed sync operations
-
-**Handling conflicts:**
-
-- When `application-state/sync-conflict.json` appears, resolve the conflict
-- Read the `.conflict` file alongside the original to understand both versions
-- Edit the original file to resolve, then delete the `.conflict` file
-
-**Scratch files (not synced):**
-
-- Prefix temporary files with `_tmp-` to exclude from sync
+| Variable              | Required         | Description                                                |
+| --------------------- | ---------------- | ---------------------------------------------------------- |
+| `DATABASE_URL`        | No (has default) | Database connection string (default: `file:./data/app.db`) |
+| `DATABASE_AUTH_TOKEN` | For remote DBs   | Auth token for Turso or other remote databases             |
 
 ## Running Scripts
 
@@ -367,8 +342,7 @@ server/                        # Nitro API server
 ├── plugins/                   # Server plugins (startup logic)
 └── lib/                       # Shared server modules
 
-data/                          # File-based data storage
-└── decks/                     # User-created deck JSON files
+data/                          # App data (SQLite DB file)
 
 shared/                        # Shared between client + server + scripts
 └── api.ts                     # Types, interfaces, DEFAULT_STYLE_REFERENCE_URLS
@@ -389,7 +363,7 @@ scripts/                       # Runnable via `pnpm script <name>`
 - **Backend**: Nitro (via @agent-native/core) — file-based API routing
 - **UI components**: Radix UI primitives + Lucide icons
 - **Image generation**: Google Gemini via `@google/genai`
-- **State**: File-based via `/api/decks` (JSON files in `data/decks/`), in-memory undo/redo, share tokens
+- **State**: SQL-backed via `/api/decks`, in-memory undo/redo, share tokens
 - **Logo lookup**: Logo.dev API (free tier with token) or Google Image Search fallback
 - **Path aliases**: `@/*` → app/, `@shared/*` → shared/
 
@@ -437,7 +411,7 @@ All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`,
 
 ## Key Conventions
 
-1. **Files are the only source of truth** — all deck state lives in JSON files in `data/decks/`. UI edits save to these files via API. Agent edits the files directly. SSE pushes file changes to the UI in real-time. Undo/redo is client-side but each state change writes to the file.
+1. **The database is the only source of truth** — all deck state lives in SQL. UI edits save to the database via API. Agent edits the database via scripts. SSE pushes DB change events to the UI in real-time. Undo/redo is client-side but each state change writes to the database.
 2. **Scripts for backend logic** — anything the agent needs to execute goes through `pnpm script`. Create reusable scripts for common operations, generate throwaway scripts for one-offs
 3. **Agent chat for complex flows** — use `sendToAgentChat()` from the client or `agentChat.submit()` from scripts to delegate multi-step operations, especially when follow-up conversation is valuable (image generation, content refinement, etc.)
 4. **Keep the UI thin** — the UI should be for direct manipulation. Anything that benefits from AI reasoning or iteration should route through the agent chat

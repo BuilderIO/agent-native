@@ -545,7 +545,7 @@ function AssistantChatInner({
 
       {/* Input area */}
       <div className="shrink-0 border-t border-border px-3 py-3">
-        <ComposerPrimitive.Root className="flex items-end gap-2 rounded-lg border border-input bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring">
+        <ComposerPrimitive.Root className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring">
           <ComposerPrimitive.Input
             placeholder="Message agent..."
             submitMode="enter"

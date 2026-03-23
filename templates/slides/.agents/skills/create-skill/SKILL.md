@@ -135,7 +135,7 @@ description: >-
 ## Naming Conventions
 
 - Hyphen-case only: `[a-z0-9-]`, max 64 characters
-- Pattern skills: descriptive names (`files-as-database`, `delegate-to-agent`)
+- Pattern skills: descriptive names (`sql-as-database`, `delegate-to-agent`)
 - Workflow/generator skills: verb-noun (`create-script`, `capture-learnings`)
 
 ## Tips

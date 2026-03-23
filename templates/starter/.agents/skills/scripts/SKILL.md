@@ -21,8 +21,9 @@ Scripts give the agent callable tools with structured input/output. They keep th
 Create `scripts/my-script.ts`:
 
 ```ts
-import fs from "fs";
 import { parseArgs, loadEnv, fail, agentChat } from "@agent-native/core";
+import { readSetting, writeSetting } from "@agent-native/core/settings";
+import { readAppState, writeAppState } from "@agent-native/core/application-state";
 
 export default async function myScript(args: string[]) {
   loadEnv();
@@ -31,19 +32,21 @@ export default async function myScript(args: string[]) {
   const input = parsed.input;
   if (!input) fail("--input is required");
 
-  const outputPath = parsed.output ?? "data/result.json";
-  const raw = fs.readFileSync(input, "utf-8");
-  const data = JSON.parse(raw) as unknown;
+  // Read/write settings (persistent config)
+  const settings = await readSetting("my-settings");
+  await writeSetting("my-settings", { ...settings, lastRun: new Date().toISOString() });
 
-  fs.writeFileSync(outputPath, JSON.stringify(data, null, 2));
-  agentChat.submit(`Processed ${input}, result saved to ${outputPath}`);
+  // Read/write app state (ephemeral UI state)
+  await writeAppState("processing-status", { status: "done", input });
+
+  agentChat.submit(`Processed ${input}`);
 }
 ```
 
 ## How to Run
 
 ```bash
-pnpm script my-script --input data/source.json --output data/result.json
+pnpm script my-script --input some-value
 ```
 
 ## Script Dispatcher
@@ -63,7 +66,7 @@ This is the canonical approach for new apps. Script names must be lowercase with
 - **Use `parseArgs()`** for structured argument parsing. It converts `--key value` pairs to a `Record<string, string>`.
 - **Use `loadEnv()`** if the script needs environment variables (API keys, etc.).
 - **Use `fail()`** for user-friendly error messages (exits with message, no stack trace).
-- **Write results to files.** The agent and UI will pick them up via the file watcher.
+- **Write results to the database.** Use `writeSetting()` or `writeAppState()` for structured data. The UI will pick up changes via SSE.
 - **Use `agentChat.submit()`** to report results or errors back to the agent chat.
 - **Import from `@agent-native/core`** — Don't redefine `parseArgs()` or other utilities locally.
 
@@ -91,17 +94,17 @@ export default async function generateImage(args: string[]) {
 **Data processing script:**
 
 ```ts
-import fs from "fs";
 import { parseArgs, fail } from "@agent-native/core";
+import { readSetting, writeSetting } from "@agent-native/core/settings";
 
 export default async function transform(args: string[]) {
   const parsed = parseArgs(args);
-  const source = parsed.source;
-  if (!source) fail("--source is required");
+  const key = parsed.key;
+  if (!key) fail("--key is required");
 
-  const data = JSON.parse(fs.readFileSync(source, "utf-8")) as unknown[];
-  const result = data.map(transformItem);
-  fs.writeFileSync(source, JSON.stringify(result, null, 2));
+  const data = await readSetting(key);
+  const result = processData(data);
+  await writeSetting(key, result);
 }
 ```
 
@@ -109,10 +112,10 @@ export default async function transform(args: string[]) {
 
 - **Script not found** — Check that the filename matches the command name exactly. `pnpm script foo-bar` looks for `scripts/foo-bar.ts`.
 - **Args not parsing** — Ensure args use `--key value` or `--key=value` format. Boolean flags use `--flag` (sets value to `"true"`).
-- **Script runs but UI doesn't update** — Make sure results are written to a path under `data/` that the file watcher monitors.
+- **Script runs but UI doesn't update** — Make sure you're using core store helpers (`writeSetting`, `writeAppState`) which emit SSE events automatically. Direct SQL writes don't emit events.
 
 ## Related Skills
 
-- **files-as-database** — Scripts read/write data files in `data/`
+- **sql-as-database** — Scripts read/write data via core SQL stores and Drizzle ORM
 - **delegate-to-agent** — The agent invokes scripts via `pnpm script <name>`
-- **sse-file-watcher** — File writes from scripts trigger SSE events to update the UI
+- **sse-db-sync** — Database writes from scripts trigger SSE events to update the UI

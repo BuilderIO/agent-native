@@ -66,4 +66,4 @@ In the agent-native framework context:
 ## Related Skills
 
 - **self-modifying-code** — The agent can edit source code to apply design changes
-- **files-as-database** — Design configuration can be stored as JSON in `data/` for agent-editable theming
+- **sql-as-database** — Design configuration can be stored in the settings table for agent-editable theming

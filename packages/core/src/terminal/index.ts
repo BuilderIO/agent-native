@@ -14,4 +14,9 @@ export {
   defaultTerminalPlugin,
   type TerminalPluginOptions,
 } from "./terminal-plugin.js";
-export { CLI_REGISTRY, commandExists, type CliEntry } from "./cli-registry.js";
+export {
+  CLI_REGISTRY,
+  commandExists,
+  isAllowedCommand,
+  type CliEntry,
+} from "./cli-registry.js";

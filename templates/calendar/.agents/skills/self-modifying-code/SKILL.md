@@ -22,7 +22,7 @@ Not all modifications are equal. Use this to decide what level of care is needed
 
 | Tier          | What                  | Examples                                         | After modifying                   |
 | ------------- | --------------------- | ------------------------------------------------ | --------------------------------- |
-| 1: Data       | Files in `data/`      | JSON state, generated content, markdown          | Nothing — these are routine       |
+| 1: Data       | SQL database          | Settings, app state, DB records                  | Nothing — these are routine       |
 | 2: Source     | App code              | Components, routes, styles, scripts              | Run `pnpm typecheck && pnpm lint` |
 | 3: Config     | Project config        | `package.json`, `tsconfig.json`, `vite.config.*` | Ask for explicit approval first   |
 | 4: Off limits | Secrets and framework | `.env`, `@agent-native/core` internals           | Never modify these                |
@@ -61,7 +61,7 @@ el.dataset.selectedId = selectedItem?.id || "";
 };
 ```
 
-**Use configuration-driven rendering** — Extract visual decisions (colors, layouts, sizes) into JSON config files in `data/`. The agent can modify the config (Tier 1) instead of the component source (Tier 2).
+**Use configuration-driven rendering** — Extract visual decisions (colors, layouts, sizes) into SQL settings via `putSetting()`. The agent can modify the config (Tier 1) instead of the component source (Tier 2).
 
 ## Don't
 
@@ -73,7 +73,7 @@ el.dataset.selectedId = selectedItem?.id || "";
 
 ## Related Skills
 
-- **files-as-database** — Tier 1 modifications (data files) are the safest and most common
+- **files-as-database** — Tier 1 modifications (database writes) are the safest and most common
 - **scripts** — The agent can create or modify scripts to add new capabilities
 - **delegate-to-agent** — Self-modification requests come through the agent chat
-- **sse-file-watcher** — Source and data file edits trigger SSE events to update the UI
+- **sse-file-watcher** — Source edits and data writes trigger SSE events to update the UI

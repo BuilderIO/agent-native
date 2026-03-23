@@ -14,7 +14,7 @@ The UI and server never call an LLM directly. All AI work is delegated to the ag
 
 ## Why
 
-The agent is the single AI interface. It has context about the full project, can read/write any file, and can run scripts. Inline LLM calls bypass this — they create a shadow AI that doesn't know what the agent knows and can't coordinate with it.
+The agent is the single AI interface. It has context about the full project, can read/write the database, and can run scripts. Inline LLM calls bypass this — they create a shadow AI that doesn't know what the agent knows and can't coordinate with it.
 
 ## How
 
@@ -86,5 +86,5 @@ Scripts may call external APIs (image generation, search, etc.) — but the AI r
 
 - **scripts** — The agent invokes scripts via `pnpm script <name>` to perform complex operations
 - **self-modifying-code** — The agent operates through the chat bridge to make code changes
-- **files-as-database** — The agent writes results to data files after processing requests
-- **sse-file-watcher** — The UI updates automatically when the agent writes files
+- **sql-as-database** — The agent writes results to the database after processing requests
+- **sse-db-sync** — The UI updates automatically when the agent writes to the database
