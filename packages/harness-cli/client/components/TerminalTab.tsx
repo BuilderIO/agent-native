@@ -111,6 +111,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
         if (!term) return;
 
         const thisConnectionId = ++connectionId.current;
+        agentRunningRef.current = false;
 
         if (wsRef.current) {
           wsRef.current.close();
