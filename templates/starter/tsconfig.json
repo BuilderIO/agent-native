@@ -1,5 +1,13 @@
 {
   "extends": "@agent-native/core/tsconfig.base.json",
+  "compilerOptions": {
+    "rootDirs": [".", "./.react-router/types"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./app/*"],
+      "@shared/*": ["./shared/*"]
+    }
+  },
   "include": [
     "app/**/*",
     "server/**/*",

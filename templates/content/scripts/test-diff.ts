@@ -2,8 +2,8 @@ import { loadEnv } from "./_utils.js";
 import { Client } from "@notionhq/client";
 import { computeBlockDiff } from "../server/handlers/notion-diff.js";
 import { readFileSync } from "fs";
-import { parseFrontmatter } from "../client/lib/frontmatter.js";
-import { markdownToNotionBlocks } from "../client/lib/markdown-to-notion.js";
+import { parseFrontmatter } from "../app/lib/frontmatter.js";
+import { markdownToNotionBlocks } from "../app/lib/markdown-to-notion.js";
 
 export default async function main() {
   loadEnv();

@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "dotenv": "^17.2.1",
     "@agent-native/pinpoint": "workspace:*",
     "@google/genai": "^1.41.0",
     "@monaco-editor/react": "^4.7.0",

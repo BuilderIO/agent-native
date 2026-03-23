@@ -34,9 +34,9 @@ export default async function main(args: string[]) {
   }
 
   const { markdownToBuilder } =
-    await import("../client/lib/markdown-to-builder.js");
+    await import("../app/lib/markdown-to-builder.js");
   const { builderToMarkdown } =
-    await import("../client/lib/builder-to-markdown.js");
+    await import("../app/lib/builder-to-markdown.js");
 
   console.log(`Analyzing sync discrepancies for: ${projectSlug}`);
   console.log("--------------------------------------------------\n");

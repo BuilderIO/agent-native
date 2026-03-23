@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { stringify as stringifyYaml } from "yaml";
-import { builderToMarkdown } from "../client/lib/builder-to-markdown.js";
+import { builderToMarkdown } from "../app/lib/builder-to-markdown.js";
 import {
   getBuilderBlogProjectSlug,
   normalizeBuilderBlogHandle,
