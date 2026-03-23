@@ -25,6 +25,7 @@ export function getDefaultSyncResult(): any {
 export function setDefaultSyncResult(result: any) {
   _syncResult = result;
   if (result.status === "ready" && result.sseEmitter) {
+    _emitters.length = 0;
     _emitters.push(result.sseEmitter);
   }
 }

@@ -102,7 +102,29 @@ export function AppLayout({ children }: AppLayoutProps) {
   const hasAccounts = accounts.length > 0;
   const [accountPopoverOpen, setAccountPopoverOpen] = useState(false);
   // Account filter: which accounts' emails to show. Empty set = all accounts.
-  const [activeAccounts, setActiveAccounts] = useState<Set<string>>(new Set());
+  // Persisted to localStorage so it survives page refreshes.
+  const [activeAccounts, setActiveAccounts] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set<string>();
+    try {
+      const saved = localStorage.getItem("active-accounts");
+      if (saved) {
+        const arr = JSON.parse(saved);
+        if (Array.isArray(arr) && arr.length > 0) return new Set<string>(arr);
+      }
+    } catch {}
+    return new Set<string>();
+  });
+  // Persist active accounts to localStorage
+  useEffect(() => {
+    if (activeAccounts.size === 0) {
+      localStorage.removeItem("active-accounts");
+    } else {
+      localStorage.setItem(
+        "active-accounts",
+        JSON.stringify([...activeAccounts]),
+      );
+    }
+  }, [activeAccounts]);
   const [tabSettingsOpen, setTabSettingsOpen] = useState(false);
   const [labelSearch, setLabelSearch] = useState("");
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -114,7 +136,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const tabsLoading = labelsLoading || settingsLoading || emailsLoading;
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Compute thread counts per label from inbox emails
+  // Compute thread counts per label from inbox emails, filtered by active accounts
   const labelCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     const pinnedShorts = pinnedLabels.map((l) =>
@@ -125,9 +147,16 @@ export function AppLayout({ children }: AppLayoutProps) {
             .toLowerCase()
         : l.toLowerCase(),
     );
+    // Filter emails by active accounts before counting
+    const filtered =
+      activeAccounts.size > 0
+        ? inboxEmails.filter(
+            (e) => e.accountEmail && activeAccounts.has(e.accountEmail),
+          )
+        : inboxEmails;
     // Find the latest message per thread (to mirror Superhuman's thread-level label logic)
-    const latestByThread = new Map<string, (typeof inboxEmails)[0]>();
-    for (const e of inboxEmails) {
+    const latestByThread = new Map<string, (typeof filtered)[0]>();
+    for (const e of filtered) {
       const key = e.threadId || e.id;
       const existing = latestByThread.get(key);
       if (!existing || new Date(e.date) > new Date(existing.date)) {
@@ -148,7 +177,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       ).length;
     }
     return counts;
-  }, [inboxEmails, pinnedLabels]);
+  }, [inboxEmails, pinnedLabels, activeAccounts]);
 
   // Tabs to show in the bar: Inbox + pinned items (system views or labels)
   const visibleTabs = useMemo(() => {
@@ -708,6 +737,13 @@ export function AppLayout({ children }: AppLayoutProps) {
                         return next;
                       });
                     }}
+                    onRemoveAccount={(email) => {
+                      setActiveAccounts((prev) => {
+                        const next = new Set(prev);
+                        next.delete(email);
+                        return next;
+                      });
+                    }}
                     onClose={() => setAccountPopoverOpen(false)}
                   />
                 )}
@@ -1169,11 +1205,13 @@ function AccountPopover({
   accounts,
   activeAccounts,
   onToggleAccount,
+  onRemoveAccount,
   onClose,
 }: {
   accounts: Array<{ email: string; photoUrl?: string }>;
   activeAccounts: Set<string>;
   onToggleAccount: (email: string) => void;
+  onRemoveAccount: (email: string) => void;
   onClose: () => void;
 }) {
   const [wantAuthUrl, setWantAuthUrl] = useState(false);
@@ -1263,7 +1301,10 @@ function AccountPopover({
                 {account.email}
               </span>
               <button
-                onClick={() => disconnectGoogle.mutate(account.email)}
+                onClick={() => {
+                  onRemoveAccount(account.email);
+                  disconnectGoogle.mutate(account.email);
+                }}
                 className="opacity-0 group-hover:opacity-100 text-[11px] text-muted-foreground hover:text-red-400 transition-all"
               >
                 Remove

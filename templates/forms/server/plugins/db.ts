@@ -16,7 +16,7 @@ export default runMigrations([
   )`,
   },
   {
-    version: 1,
+    version: 2,
     sql: `CREATE TABLE IF NOT EXISTS responses (
     id TEXT PRIMARY KEY,
     form_id TEXT NOT NULL REFERENCES forms(id),

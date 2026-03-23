@@ -17,7 +17,7 @@ export default runMigrations([
   )`,
   },
   {
-    version: 1,
+    version: 2,
     sql: `CREATE TABLE IF NOT EXISTS booking_links (
     id TEXT PRIMARY KEY,
     slug TEXT NOT NULL UNIQUE,
