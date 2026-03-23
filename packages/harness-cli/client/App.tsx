@@ -26,7 +26,7 @@ import {
   type LaunchSettings,
 } from "./lib/settings";
 import { useHarnessConfig, useHarnessConfigs } from "./lib/config";
-import { AssistantChat } from "@agent-native/core/client";
+import { MultiTabAssistantChat } from "@agent-native/core/client";
 
 function Tooltip({ children, label }: { children: ReactNode; label: string }) {
   return (
@@ -59,12 +59,13 @@ function getInitialApp(configFallback: string): string {
 interface Tab {
   id: string;
   label: string;
+  completed: boolean;
 }
 
 let nextTabId = 0;
 function createTab(): Tab {
   const id = String(nextTabId++);
-  return { id, label: id };
+  return { id, label: id, completed: false };
 }
 
 export function App() {
@@ -155,9 +156,36 @@ export function App() {
     [activeApp, settings, updateSettings, activeTabId],
   );
 
+  const pendingTabMessages = useRef<Map<string, string>>(new Map());
+
   const dismissPopovers = useCallback(() => {
     setShowSettings(false);
   }, []);
+
+  // Listen for builder.submitChat at App level — route to active tab or create new tab
+  useEffect(() => {
+    if (isAgentUi) return; // MultiTabAssistantChat handles its own messages
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type !== "builder.submitChat") return;
+      const message = event.data.data?.message as string;
+      if (!message) return;
+
+      const activeHandle = tabRefs.current.get(activeTabId);
+      const isRunning = activeHandle?.isAgentRunning() ?? false;
+
+      if (!isRunning && activeHandle?.getConnected()) {
+        activeHandle.sendChatMessage(message);
+      } else {
+        // Create a new tab and queue the message
+        const tab = createTab();
+        pendingTabMessages.current.set(tab.id, message);
+        setTabs((prev) => [...prev, tab]);
+        setActiveTabId(tab.id);
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [activeTabId, isAgentUi]);
 
   // Tab actions
   const addTab = useCallback(() => {
@@ -246,7 +274,7 @@ export function App() {
   }, [fit]);
 
   const showPopoverBackdrop = showSettings;
-  const showTabs = tabs.length > 1;
+  const showTabs = tabs.length > 1 && !isAgentUi;
 
   // Terminal header
   const terminalHeader = (
@@ -269,6 +297,9 @@ export function App() {
               }`}
             >
               <span>{tab.label}</span>
+              {tab.completed && (
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+              )}
               <span
                 onClick={(e) => {
                   e.stopPropagation();
@@ -439,18 +470,44 @@ export function App() {
                   settings={settings}
                   appName={activeApp}
                   iframeRef={iframeRef}
-                  onConnectedChange={
-                    tab.id === activeTabId ? setActiveConnected : undefined
-                  }
+                  onConnectedChange={(connected) => {
+                    if (tab.id === activeTabId) setActiveConnected(connected);
+                    // Process pending messages when a new tab connects
+                    if (connected) {
+                      const pending = pendingTabMessages.current.get(tab.id);
+                      if (pending) {
+                        pendingTabMessages.current.delete(tab.id);
+                        // Small delay to let the PTY initialise
+                        setTimeout(() => {
+                          tabRefs.current.get(tab.id)?.sendChatMessage(pending);
+                        }, 300);
+                      }
+                    }
+                  }}
                   onSetupStatusChange={
                     tab.id === activeTabId ? setActiveSetupStatus : undefined
                   }
+                  onAgentRunningChange={(running) => {
+                    if (!running) {
+                      setTabs((prev) =>
+                        prev.map((t) =>
+                          t.id === tab.id ? { ...t, completed: true } : t,
+                        ),
+                      );
+                    } else {
+                      setTabs((prev) =>
+                        prev.map((t) =>
+                          t.id === tab.id ? { ...t, completed: false } : t,
+                        ),
+                      );
+                    }
+                  }}
                 />
               ))}
               {setupOverlay}
             </>
           ) : (
-            <AssistantChat
+            <MultiTabAssistantChat
               showHeader={false}
               emptyStateText="Chat with the agent"
             />

@@ -11,7 +11,7 @@ import { sendToAgentChat, type AgentChatMessage } from "./agent-chat.js";
  */
 export function useAgentChatGenerating(): [
   boolean,
-  (opts: AgentChatMessage) => void,
+  (opts: AgentChatMessage) => string,
 ] {
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -27,9 +27,9 @@ export function useAgentChatGenerating(): [
       window.removeEventListener("builder.fusion.chatRunning", handler);
   }, []);
 
-  const send = useCallback((opts: AgentChatMessage) => {
+  const send = useCallback((opts: AgentChatMessage): string => {
     setIsGenerating(true);
-    sendToAgentChat(opts);
+    return sendToAgentChat(opts);
   }, []);
 
   return [isGenerating, send];

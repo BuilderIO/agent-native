@@ -22,6 +22,10 @@ export interface TerminalTabHandle {
   restart(settings: LaunchSettings, appName: string): void;
   getConnected(): boolean;
   getSetupStatus(): SetupStatus;
+  /** Send a chat message into the PTY. Returns true if sent. */
+  sendChatMessage(text: string): boolean;
+  /** Whether the agent is currently running in this tab */
+  isAgentRunning(): boolean;
 }
 
 interface TerminalTabProps {
@@ -32,6 +36,8 @@ interface TerminalTabProps {
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
   onConnectedChange?: (connected: boolean) => void;
   onSetupStatusChange?: (status: SetupStatus) => void;
+  /** Callback when the agent running state changes in this tab */
+  onAgentRunningChange?: (running: boolean) => void;
 }
 
 export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
@@ -44,6 +50,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
       iframeRef,
       onConnectedChange,
       onSetupStatusChange,
+      onAgentRunningChange,
     },
     ref,
   ) {
@@ -59,8 +66,11 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
     const connectionId = useRef(0);
     const settingsRef = useRef(settings);
     const appNameRef = useRef(appName);
+    const agentRunningRef = useRef(false);
+    const onAgentRunningChangeRef = useRef(onAgentRunningChange);
     settingsRef.current = settings;
     appNameRef.current = appName;
+    onAgentRunningChangeRef.current = onAgentRunningChange;
 
     // Notify parent of state changes
     useEffect(() => {
@@ -118,7 +128,6 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
         ws.binaryType = "arraybuffer";
         wsRef.current = ws;
 
-        let agentRunning = false;
         let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
         ws.onopen = () => {
@@ -158,12 +167,13 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
           if (data.includes("❯") || data.includes("\x1b[?25h")) {
             if (idleTimer) clearTimeout(idleTimer);
             idleTimer = setTimeout(() => {
-              if (agentRunning) {
-                agentRunning = false;
+              if (agentRunningRef.current) {
+                agentRunningRef.current = false;
                 notifyApp(false);
+                onAgentRunningChangeRef.current?.(false);
               }
             }, 600);
-          } else if (agentRunning) {
+          } else if (agentRunningRef.current) {
             if (idleTimer) clearTimeout(idleTimer);
           }
         };
@@ -189,20 +199,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
 
         ws.onerror = () => ws.close();
 
-        const messageHandler = (event: MessageEvent) => {
-          if (event.data?.type === "builder.submitChat") {
-            const message = event.data.data?.message;
-            if (message && ws.readyState === WebSocket.OPEN) {
-              ws.send(message + "\r");
-              agentRunning = true;
-              notifyApp(true);
-            }
-          }
-        };
-        window.addEventListener("message", messageHandler);
-
         return () => {
-          window.removeEventListener("message", messageHandler);
           if (idleTimer) clearTimeout(idleTimer);
         };
       },
@@ -299,6 +296,20 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
       restart,
       getConnected: () => connected,
       getSetupStatus: () => setupStatus,
+      sendChatMessage(text: string): boolean {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(text + "\r");
+          agentRunningRef.current = true;
+          notifyApp(true);
+          onAgentRunningChangeRef.current?.(true);
+          return true;
+        }
+        return false;
+      },
+      isAgentRunning(): boolean {
+        return agentRunningRef.current;
+      },
     }));
 
     return (
