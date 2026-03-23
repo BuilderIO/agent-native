@@ -8,7 +8,11 @@ type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface AgentChatPluginOptions {
   /** Template-specific scripts (email ops, booking ops, etc.) */
-  scripts?: Record<string, ScriptEntry>;
+  scripts?:
+    | Record<string, ScriptEntry>
+    | (() =>
+        | Record<string, ScriptEntry>
+        | Promise<Record<string, ScriptEntry>>);
   /** System prompt for the agent. A sensible default is provided. */
   systemPrompt?: string;
   /** Additional system prompt prepended in dev mode */
@@ -59,12 +63,16 @@ When editing code, maintain existing patterns and conventions. After writing fil
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
-  return (nitroApp: any) => {
+  return async (nitroApp: any) => {
     const isDev = process.env.NODE_ENV !== "production";
     const routePath = options?.path ?? "/api/agent-chat";
 
-    // Merge template scripts with dev tools when in development
-    const templateScripts = options?.scripts ?? {};
+    // Resolve scripts — supports lazy loading to avoid import issues with Vite SSR
+    const rawScripts = options?.scripts;
+    const templateScripts =
+      typeof rawScripts === "function"
+        ? await rawScripts()
+        : (rawScripts ?? {});
     const scripts = isDev
       ? { ...templateScripts, ...createDevScriptRegistry() }
       : templateScripts;

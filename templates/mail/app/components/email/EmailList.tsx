@@ -157,7 +157,7 @@ export function InboxZero() {
   const imageUrl = `https://images.unsplash.com/${photoId}?w=1920&q=80&fit=crop`;
 
   return (
-    <div className="absolute inset-0 z-10 flex flex-col overflow-hidden">
+    <div className="relative flex-1 flex flex-col overflow-hidden">
       {/* Background image */}
       <img
         src={imageUrl}

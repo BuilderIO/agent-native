@@ -1,8 +1,10 @@
 import { createAgentChatPlugin } from "@agent-native/core/server";
-import { scriptRegistry } from "../../scripts/registry.js";
 
 export default createAgentChatPlugin({
-  scripts: scriptRegistry,
+  scripts: async () => {
+    const { scriptRegistry } = await import("../../scripts/registry.js");
+    return scriptRegistry;
+  },
   systemPrompt: `You are an AI email assistant. You can read, search, organize, compose, and manage the user's emails.
 
 Available operations:
