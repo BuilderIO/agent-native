@@ -7,6 +7,11 @@ import path from "path";
 import fs from "fs";
 
 import {
+  CLI_REGISTRY,
+  commandExists,
+} from "@agent-native/core/terminal/server";
+
+import {
   withChatLock,
   snapshotDataDir,
   diffSnapshots,
@@ -14,29 +19,6 @@ import {
   ASYNC_SYSTEM_PROMPT,
   type DataSnapshot,
 } from "./utils.js";
-
-// Known CLI tools and their install packages + env vars to strip
-const CLI_REGISTRY: Record<
-  string,
-  { installPackage: string; stripEnv: string[] }
-> = {
-  claude: {
-    installPackage: "@anthropic-ai/claude-code",
-    stripEnv: ["CLAUDECODE", "CLAUDE_CODE_SESSION"],
-  },
-  codex: {
-    installPackage: "@openai/codex",
-    stripEnv: [],
-  },
-  gemini: {
-    installPackage: "@google/gemini-cli",
-    stripEnv: [],
-  },
-  opencode: {
-    installPackage: "opencode-ai",
-    stripEnv: [],
-  },
-};
 
 // Parse CLI args
 function parseArgs(args: string[]): {
@@ -246,15 +228,6 @@ const server = createServer(
   },
 );
 const wss = new WebSocketServer({ server });
-
-function commandExists(cmd: string): boolean {
-  try {
-    execSync(`command -v ${cmd}`, { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 // WebSocket handling — each connection gets a PTY
 wss.on("connection", async (ws: WebSocket, req) => {

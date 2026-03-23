@@ -19,8 +19,10 @@ export {
 export {
   useProductionAgent,
   type ProductionAgentMessage,
+  type UseProductionAgentOptions,
   type UseProductionAgentResult,
 } from "./useProductionAgent.js";
+export { AgentChatView, type AgentChatViewProps } from "./AgentChatView.js";
 export {
   ProductionAgentPanel,
   type ProductionAgentPanelProps,
@@ -28,3 +30,4 @@ export {
 export { Turnstile, type TurnstileProps } from "./Turnstile.js";
 export { PoweredByBadge, type PoweredByBadgeProps } from "./PoweredByBadge.js";
 export { ErrorBoundary } from "./ErrorBoundary.js";
+export { AgentTerminal, type AgentTerminalProps } from "./terminal/index.js";

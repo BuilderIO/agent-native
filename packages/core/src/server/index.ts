@@ -41,6 +41,11 @@ export {
   createFileSyncPlugin,
   defaultFileSyncPlugin,
 } from "./file-sync-plugin.js";
+export {
+  createTerminalPlugin,
+  defaultTerminalPlugin,
+  type TerminalPluginOptions,
+} from "../terminal/terminal-plugin.js";
 
 // Nitro plugin helper — re-exported so templates don't need nitro as a direct dependency.
 // defineNitroPlugin is an identity function; this typed wrapper lets templates use it

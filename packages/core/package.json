@@ -31,6 +31,8 @@
     "./adapters/cli": "./dist/adapters/cli/index.js",
     "./router": "./dist/router/index.js",
     "./a2a": "./dist/a2a/index.js",
+    "./terminal": "./dist/client/terminal/index.js",
+    "./terminal/server": "./dist/terminal/index.js",
     "./tailwind": "./dist/tailwind.preset.js",
     "./tsconfig.base.json": "./tsconfig.base.json"
   },
@@ -79,7 +81,12 @@
     "tailwindcss": ">=3",
     "tailwindcss-animate": ">=1",
     "typescript": ">=5",
-    "vite": ">=7"
+    "vite": ">=7",
+    "@xterm/xterm": ">=5",
+    "@xterm/addon-fit": ">=0.10",
+    "@xterm/addon-web-links": ">=0.11",
+    "node-pty": ">=1",
+    "ws": ">=8"
   },
   "peerDependenciesMeta": {
     "@tanstack/react-query": {
@@ -111,6 +118,21 @@
     },
     "convex": {
       "optional": true
+    },
+    "@xterm/xterm": {
+      "optional": true
+    },
+    "@xterm/addon-fit": {
+      "optional": true
+    },
+    "@xterm/addon-web-links": {
+      "optional": true
+    },
+    "node-pty": {
+      "optional": true
+    },
+    "ws": {
+      "optional": true
     }
   },
   "devDependencies": {
@@ -122,6 +144,12 @@
     "@types/express": "^5.0.6",
     "@types/node": "^24.2.1",
     "@types/react": "^18.3.23",
+    "@types/ws": "^8.18.1",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
+    "node-pty": "^1.1.0",
+    "ws": "^8.18.0",
     "@vitejs/plugin-react-swc": "^4.0.0",
     "autoprefixer": "^10.4.21",
     "express": "^5.2.1",
