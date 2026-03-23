@@ -17,6 +17,13 @@ import {
   Maximize2,
   Minimize2,
 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export type VideoPlayerHandle = {
   seekTo: (frame: number) => void;
@@ -404,22 +411,26 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               </span>
 
               {/* Playback speed dropdown */}
-              <select
-                value={playbackRate}
-                onChange={(e) =>
-                  onPlaybackRateChange?.(parseFloat(e.target.value))
-                }
-                className="text-[10px] px-2 py-1 pr-6 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono transition-colors cursor-pointer"
-                title="Playback speed"
+              <Select
+                value={String(playbackRate)}
+                onValueChange={(val) => onPlaybackRateChange?.(parseFloat(val))}
               >
-                <option value="0.25">0.25×</option>
-                <option value="0.5">0.5×</option>
-                <option value="0.75">0.75×</option>
-                <option value="1">1×</option>
-                <option value="1.25">1.25×</option>
-                <option value="1.5">1.5×</option>
-                <option value="2">2×</option>
-              </select>
+                <SelectTrigger
+                  className="h-auto text-[10px] px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono cursor-pointer w-auto gap-1"
+                  title="Playback speed"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0.25">0.25×</SelectItem>
+                  <SelectItem value="0.5">0.5×</SelectItem>
+                  <SelectItem value="0.75">0.75×</SelectItem>
+                  <SelectItem value="1">1×</SelectItem>
+                  <SelectItem value="1.25">1.25×</SelectItem>
+                  <SelectItem value="1.5">1.5×</SelectItem>
+                  <SelectItem value="2">2×</SelectItem>
+                </SelectContent>
+              </Select>
 
               <button
                 onClick={toggleFullscreen}

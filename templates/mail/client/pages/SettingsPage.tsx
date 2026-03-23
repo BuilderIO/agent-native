@@ -8,6 +8,7 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import {
   useAliases,
   useCreateAlias,
@@ -68,20 +69,17 @@ function AliasEditRow({
         />
       </div>
       <div className="flex items-center gap-2 pt-0.5">
-        <button
+        <Button
           onClick={handleSave}
           disabled={!name.trim() || !emailsText.trim() || isPending}
-          className="flex items-center gap-1.5 rounded-md bg-indigo-500 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          size="sm"
         >
           {isPending && <IconLoader2 className="h-3.5 w-3.5 animate-spin" />}
           Save
-        </button>
-        <button
-          onClick={onCancel}
-          className="rounded-md px-3 py-1.5 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-        >
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -158,17 +156,21 @@ function AliasRow({
         </p>
       </div>
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-        <button
+        <Button
+          variant="outline"
+          size="sm"
           onClick={onEdit}
-          className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/60 transition-colors"
+          className="h-7 w-7 p-0"
           title="Edit alias"
         >
           <IconPencil className="h-3.5 w-3.5" />
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="destructive"
+          size="sm"
           onClick={handleDelete}
           disabled={deleteAlias.isPending}
-          className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground/60 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40"
+          className="h-7 w-7 p-0"
           title="Delete alias"
         >
           {deleteAlias.isPending ? (
@@ -176,7 +178,7 @@ function AliasRow({
           ) : (
             <IconTrash className="h-3.5 w-3.5" />
           )}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -227,16 +229,16 @@ function AliasesSection() {
             Address groups you can use when composing emails.
           </p>
         </div>
-        <button
+        <Button
+          size="sm"
           onClick={() => {
             setShowNewForm(true);
             setEditingId(null);
           }}
-          className="flex items-center gap-1.5 rounded-md bg-indigo-500 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-indigo-400 transition-colors"
         >
           <IconPlus className="h-3.5 w-3.5" />
           New alias
-        </button>
+        </Button>
       </div>
 
       {/* Content */}

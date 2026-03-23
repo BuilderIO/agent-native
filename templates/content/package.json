@@ -43,7 +43,6 @@
     "@tiptap/starter-kit": "^3.19.0",
     "chokidar": "^5.0.0",
     "diff": "^8.0.3",
-    "dotenv": "^17.2.1",
     "h3": "^1.14.0",
     "lowlight": "^3.3.0",
     "mdast-util-from-markdown": "^2.0.2",

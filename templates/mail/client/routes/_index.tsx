@@ -1,5 +1,5 @@
 import { redirect } from "react-router";
-import { MailSkeleton } from "@/components/layout/MailSkeleton";
+import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
   return [{ title: "Mail" }];
@@ -10,7 +10,11 @@ export function clientLoader() {
 }
 
 export function HydrateFallback() {
-  return <MailSkeleton />;
+  return (
+    <div className="flex items-center justify-center h-screen w-full">
+      <Spinner />
+    </div>
+  );
 }
 
 export default function IndexRoute() {

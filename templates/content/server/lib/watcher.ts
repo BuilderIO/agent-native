@@ -1,8 +1,6 @@
-import fs from "fs";
 import path from "path";
 import chokidar from "chokidar";
 import type { FSWatcher } from "chokidar";
-import type { SSEHandlerOptions } from "@agent-native/core";
 import {
   persistVersionHistory,
   resolveProjectVersionHistoryTarget,
@@ -26,7 +24,9 @@ const persistHistoryForContentChange = async (changedPath: string) => {
       return;
     }
 
-    const content = await fs.promises.readFile(changedPath, "utf-8");
+    const content = await import("fs").then((fs) =>
+      fs.promises.readFile(changedPath, "utf-8"),
+    );
     await persistVersionHistory({
       filePath: target.historyPath,
       content,
@@ -72,14 +72,3 @@ export function getContentWatcher() {
 }
 
 export const watcher = getContentWatcher();
-export const sseExtraEmitters: NonNullable<SSEHandlerOptions["extraEmitters"]> =
-  [];
-
-export let syncResult: any = { status: "disabled" };
-
-export function setSyncResult(result: any) {
-  syncResult = result;
-  if (result.status === "ready" && result.sseEmitter) {
-    sseExtraEmitters.push(result.sseEmitter);
-  }
-}

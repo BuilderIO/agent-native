@@ -4,6 +4,13 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Plus,
   Trash2,
   MousePointer,
@@ -567,26 +574,21 @@ export const CurrentElementPanel: React.FC = () => {
                 >
                   <Plus className="w-3 h-3" />
                 </Button>
-                <select
-                  value={selectedPropertyToAdd}
-                  onChange={(e) => setSelectedPropertyToAdd(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && selectedPropertyToAdd) {
-                      e.preventDefault();
-                      handleAddProperty(animation.id, selectedPropertyToAdd);
-                    }
-                  }}
-                  className="flex-1 text-xs bg-secondary border border-border rounded-lg pl-2.5 pr-8 py-1.5 text-foreground focus:outline-none focus:ring-2 focus:ring-green-400/40 cursor-pointer"
+                <Select
+                  value={selectedPropertyToAdd || undefined}
+                  onValueChange={(val) => setSelectedPropertyToAdd(val)}
                 >
-                  <option value="" disabled>
-                    Select a property
-                  </option>
-                  {PROPERTY_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="flex-1 h-auto text-xs bg-secondary border border-border rounded-lg pl-2.5 py-1.5 text-foreground focus:outline-none focus:ring-2 focus:ring-green-400/40 cursor-pointer">
+                    <SelectValue placeholder="Select a property" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PROPERTY_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 

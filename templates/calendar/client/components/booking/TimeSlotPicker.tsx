@@ -1,5 +1,5 @@
 import { format, parseISO } from "date-fns";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface TimeSlotPickerProps {
@@ -38,18 +38,13 @@ export function TimeSlotPicker({
       {slots.map((slot) => {
         const isSelected = selectedSlot === slot.start;
         return (
-          <button
+          <Button
             key={slot.start}
+            variant={isSelected ? "default" : "outline"}
             onClick={() => onSelect(slot.start)}
-            className={cn(
-              "rounded-md border px-3 py-2 text-sm transition-colors",
-              isSelected
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-border hover:border-primary/50 hover:bg-accent",
-            )}
           >
             {format(parseISO(slot.start), "h:mm a")}
-          </button>
+          </Button>
         );
       })}
     </div>

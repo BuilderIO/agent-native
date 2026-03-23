@@ -27,7 +27,6 @@
     "@google-cloud/bigquery": "^8.1.1",
     "chart.js": "^4.5.1",
     "chartjs-node-canvas": "^5.0.0",
-    "dotenv": "^17.2.1",
     "google-auth-library": "^10.6.1",
     "h3": "^1.15.3",
     "zod": "^3.25.76",

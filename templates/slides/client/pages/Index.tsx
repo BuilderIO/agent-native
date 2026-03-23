@@ -8,6 +8,7 @@ import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { FeedbackButton } from "@/components/FeedbackButton";
+import { Button } from "@/components/ui/button";
 
 export default function Index() {
   const { decks, createDeck, deleteDeck, loading } = useDecks();
@@ -80,13 +81,10 @@ export default function Index() {
             >
               <Settings className="w-3.5 h-3.5" />
             </a>
-            <button
-              onClick={openNewDeck}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.07] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-white/80 transition-all"
-            >
+            <Button onClick={openNewDeck} size="sm">
               <Plus className="w-3.5 h-3.5" />
               New Deck
-            </button>
+            </Button>
           </div>
         </div>
       </header>
@@ -111,17 +109,16 @@ export default function Index() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {/* New deck card */}
-              <button
+              <Button
+                variant="outline"
                 onClick={openNewDeck}
-                className="aspect-[4/3] rounded-xl border border-dashed border-white/[0.08] hover:border-[#609FF8]/30 hover:bg-white/[0.02] transition-all flex flex-col items-center justify-center gap-3 group"
+                className="aspect-[4/3] rounded-xl border-dashed flex flex-col items-center justify-center gap-3 h-auto"
               >
-                <div className="w-10 h-10 rounded-xl bg-white/[0.04] group-hover:bg-[#609FF8]/10 flex items-center justify-center transition-colors">
-                  <Plus className="w-5 h-5 text-white/30 group-hover:text-[#609FF8] transition-colors" />
+                <div className="w-10 h-10 rounded-xl bg-white/[0.04] flex items-center justify-center">
+                  <Plus className="w-5 h-5 text-white/30" />
                 </div>
-                <span className="text-xs text-white/30 group-hover:text-white/50 transition-colors">
-                  New Deck
-                </span>
-              </button>
+                <span className="text-xs text-white/30">New Deck</span>
+              </Button>
 
               {/* Deck cards */}
               {[...decks].reverse().map((deck) => (
@@ -152,18 +149,12 @@ export default function Index() {
               action cannot be undone.
             </p>
             <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => setDeckToDelete(null)}
-                className="px-4 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-sm text-white/70 transition-colors"
-              >
+              <Button variant="ghost" onClick={() => setDeckToDelete(null)}>
                 Cancel
-              </button>
-              <button
-                onClick={handleConfirmDelete}
-                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-sm text-white font-medium transition-colors"
-              >
+              </Button>
+              <Button variant="destructive" onClick={handleConfirmDelete}>
                 Delete
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -201,13 +192,10 @@ function EmptyState({
         Build beautiful slide presentations with AI-powered generation, image
         creation, and a stunning presentation mode.
       </p>
-      <button
-        onClick={onCreateDeck as any}
-        className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#609FF8] hover:bg-[#7AB2FA] text-black text-sm font-medium transition-colors"
-      >
+      <Button onClick={onCreateDeck as any}>
         <Plus className="w-4 h-4" />
         New Deck
-      </button>
+      </Button>
     </div>
   );
 }

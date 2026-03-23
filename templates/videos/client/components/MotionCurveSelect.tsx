@@ -1,6 +1,13 @@
 import type { EasingKey } from "@/types";
 import { EASING_OPTIONS } from "@/remotion/easingFunctions";
 import { Label } from "./ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 
 interface MotionCurveSelectProps {
   value: EasingKey;
@@ -18,18 +25,21 @@ export const MotionCurveSelect: React.FC<MotionCurveSelectProps> = ({
   return (
     <div className="space-y-1.5 pt-2 border-t border-border/40">
       <Label className="text-xs text-muted-foreground">{label}</Label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as EasingKey)}
-        className={`w-full text-xs bg-secondary border border-border rounded-lg pl-2.5 pr-8 py-1.5 text-foreground focus:outline-none focus:ring-2 focus:ring-${accentColor}/40`}
-        title="Controls how the animation moves TO this keyframe"
-      >
-        {EASING_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+      <Select value={value} onValueChange={(val) => onChange(val as EasingKey)}>
+        <SelectTrigger
+          className={`w-full h-auto text-xs bg-secondary border border-border rounded-lg pl-2.5 py-1.5 text-foreground focus:outline-none focus:ring-2 focus:ring-${accentColor}/40`}
+          title="Controls how the animation moves TO this keyframe"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {EASING_OPTIONS.map((opt) => (
+            <SelectItem key={opt.value} value={opt.value}>
+              {opt.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 };

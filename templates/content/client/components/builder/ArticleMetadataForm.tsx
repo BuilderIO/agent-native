@@ -3,6 +3,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { X, Upload, Loader2, Sparkles } from "lucide-react";
 import { useMediaUpload } from "@/hooks/use-media-upload";
 import type { BuilderAuthor } from "@shared/api";
@@ -226,18 +233,21 @@ export function ArticleMetadataForm({
       {/* Author */}
       <div className="space-y-1.5">
         <Label className="text-xs">Author</Label>
-        <select
-          value={metadata.authorId}
-          onChange={(e) => update({ authorId: e.target.value })}
-          className="w-full h-8 px-3 text-sm rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+        <Select
+          value={metadata.authorId || undefined}
+          onValueChange={(value) => update({ authorId: value })}
         >
-          <option value="">Select author...</option>
-          {authors.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.data?.fullName || a.name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="h-8 text-sm">
+            <SelectValue placeholder="Select author..." />
+          </SelectTrigger>
+          <SelectContent>
+            {authors.map((a) => (
+              <SelectItem key={a.id} value={a.id}>
+                {a.data?.fullName || a.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Hero Image */}

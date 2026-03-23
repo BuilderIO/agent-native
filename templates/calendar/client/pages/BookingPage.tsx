@@ -13,6 +13,7 @@ import {
   usePublicAvailability,
 } from "@/hooks/use-public-data";
 import { useAvailableSlots, useCreateBooking } from "@/hooks/use-bookings";
+import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import type { Booking } from "@shared/api";
 
@@ -150,12 +151,13 @@ export default function BookingPage() {
             <div>
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="text-sm font-medium">Select a Time</h3>
-                <button
+                <Button
+                  variant="link"
+                  size="sm"
                   onClick={() => setStep("date")}
-                  className="text-xs text-primary hover:underline"
                 >
                   Change date
-                </button>
+                </Button>
               </div>
               {selectedDate && (
                 <p className="mb-4 text-sm text-muted-foreground">
@@ -175,12 +177,13 @@ export default function BookingPage() {
             <div>
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="text-sm font-medium">Your Information</h3>
-                <button
+                <Button
+                  variant="link"
+                  size="sm"
                   onClick={() => setStep("time")}
-                  className="text-xs text-primary hover:underline"
                 >
                   Change time
-                </button>
+                </Button>
               </div>
               <BookingForm
                 onSubmit={handleBookingSubmit}

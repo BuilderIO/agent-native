@@ -14,6 +14,13 @@ import type { AnimationTrack, AnimatedProp, EasingKey } from "@/types";
 import { COMMON_PROP_TEMPLATES } from "@/types";
 import { cn } from "@/lib/utils";
 import { EASING_OPTIONS as EASING_OPTIONS_LIB } from "@/remotion/easingFunctions";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -522,20 +529,26 @@ function AnimatedPropRow({
               <label className="text-[8px] text-muted-foreground/50 uppercase tracking-wider">
                 Motion Curve
               </label>
-              <select
+              <Select
                 value={prop.easing ?? "linear"}
-                onChange={(e) =>
-                  onUpdate({ ...prop, easing: e.target.value as EasingKey })
+                onValueChange={(val) =>
+                  onUpdate({ ...prop, easing: val as EasingKey })
                 }
-                className="w-full text-[10px] bg-background border border-border/60 rounded px-1.5 py-1 text-foreground/80 focus:outline-none focus:ring-1 focus:ring-primary/40"
-                title="Applies to all keyframe segments"
               >
-                {EASING_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger
+                  className="w-full h-auto text-[10px] bg-background border border-border/60 rounded px-1.5 py-1 text-foreground/80 focus:outline-none focus:ring-1 focus:ring-primary/40"
+                  title="Applies to all keyframe segments"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {EASING_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           )}
         </div>
@@ -724,23 +737,29 @@ export function TrackPropertiesPanel({
           Timing Function
         </label>
         <div className="relative">
-          <select
+          <Select
             value={track.easing}
-            onChange={(e) =>
-              onUpdateTrack(track.id, { easing: e.target.value as EasingKey })
+            onValueChange={(val) =>
+              onUpdateTrack(track.id, { easing: val as EasingKey })
             }
-            className="w-full text-xs bg-secondary border border-border rounded-lg px-3 py-1.5 text-foreground/80 focus:outline-none focus:ring-1 focus:ring-primary/40 appearance-none pr-7"
           >
-            {EASING_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-          <div
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full pointer-events-none"
-            style={{ backgroundColor: accentColor }}
-          />
+            <SelectTrigger className="w-full h-auto text-xs bg-secondary border border-border rounded-lg px-3 py-1.5 text-foreground/80 focus:outline-none focus:ring-1 focus:ring-primary/40">
+              <div className="flex items-center gap-2">
+                <SelectValue />
+                <div
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: accentColor }}
+                />
+              </div>
+            </SelectTrigger>
+            <SelectContent>
+              {EASING_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 

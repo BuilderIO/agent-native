@@ -1,5 +1,12 @@
 import { useEffect, useState, useRef } from "react";
 import type { Editor } from "@tiptap/react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const LANGUAGES = [
   { value: "", label: "Plain text" },
@@ -99,10 +106,10 @@ export function CodeBlockLangPicker({ editor }: CodeBlockLangPickerProps) {
         zIndex: 10,
       }}
     >
-      <select
-        value={currentLang}
-        onChange={(e) => {
-          const lang = e.target.value;
+      <Select
+        value={currentLang || "__plain"}
+        onValueChange={(value) => {
+          const lang = value === "__plain" ? "" : value;
           editor
             .chain()
             .focus()
@@ -110,15 +117,21 @@ export function CodeBlockLangPicker({ editor }: CodeBlockLangPickerProps) {
             .run();
           setCurrentLang(lang);
         }}
-        onMouseDown={(e) => e.stopPropagation()}
-        className="code-lang-select"
       >
-        {LANGUAGES.map((l) => (
-          <option key={l.value} value={l.value}>
-            {l.label}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger
+          className="code-lang-select h-7 w-auto min-w-[100px] text-xs"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <SelectValue placeholder="Plain text" />
+        </SelectTrigger>
+        <SelectContent>
+          {LANGUAGES.map((l) => (
+            <SelectItem key={l.value || "__plain"} value={l.value || "__plain"}>
+              {l.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }
