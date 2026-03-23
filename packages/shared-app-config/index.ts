@@ -132,6 +132,19 @@ export const DEFAULT_APPS: AppConfig[] = [
     isBuiltIn: true,
     enabled: true,
   },
+  {
+    id: "starter",
+    name: "Starter",
+    icon: "Rocket",
+    description: "Blank starter template",
+    url: "",
+    devPort: 8089,
+    devUrl: "http://localhost:8089",
+    color: "#71717A",
+    colorRgb: "113 113 122",
+    isBuiltIn: true,
+    enabled: true,
+  },
 ];
 
 /**

@@ -6,7 +6,6 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import path from "path";
 import { nanoid } from "nanoid";
 import { eq, and, gte, lte, ne } from "drizzle-orm";
 import { verifyCaptcha } from "@agent-native/core/server";
@@ -16,23 +15,19 @@ import type {
   AvailabilityConfig,
   TimeSlot,
 } from "../../shared/api.js";
-import {
-  readJsonFile,
-  writeJsonFile,
-  listJsonFiles,
-} from "../lib/data-helpers.js";
-import { db, schema } from "../db/index.js";
+import { readJsonFile } from "../lib/data-helpers.js";
+import { getDb, schema } from "../db/index.js";
+import * as googleCalendar from "../lib/google-calendar.js";
+import path from "path";
 
-const EVENTS_DIR = path.join(process.cwd(), "data", "events");
 const AVAILABILITY_PATH = path.join(process.cwd(), "data", "availability.json");
 
-export const listBookings = defineEventHandler((_event: H3Event) => {
+export const listBookings = defineEventHandler(async (_event: H3Event) => {
   try {
-    const rows = db
+    const rows = await getDb()
       .select()
       .from(schema.bookings)
-      .orderBy(schema.bookings.start)
-      .all();
+      .orderBy(schema.bookings.start);
     return rows.map(rowToBooking);
   } catch (error: any) {
     setResponseStatus(_event, 500);
@@ -61,8 +56,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
 
     // Check for conflicts + insert atomically in a transaction
-    const insertResult = db.transaction((tx) => {
-      const conflicting = tx
+    const db = getDb();
+    const insertResult = await db.transaction(async (tx) => {
+      const conflicting = await tx
         .select()
         .from(schema.bookings)
         .where(
@@ -71,27 +67,24 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
             lte(schema.bookings.start, body.end),
             gte(schema.bookings.end, body.start),
           ),
-        )
-        .all();
+        );
 
       if (conflicting.length > 0) {
         return { conflict: true } as const;
       }
 
-      tx.insert(schema.bookings)
-        .values({
-          id,
-          name: body.name,
-          email: body.email,
-          start: body.start,
-          end: body.end,
-          slug: body.slug || "",
-          eventTitle: body.eventTitle || null,
-          notes: body.notes || null,
-          status: "confirmed",
-          createdAt: now,
-        })
-        .run();
+      await tx.insert(schema.bookings).values({
+        id,
+        name: body.name,
+        email: body.email,
+        start: body.start,
+        end: body.end,
+        slug: body.slug || "",
+        eventTitle: body.eventTitle || null,
+        notes: body.notes || null,
+        status: "confirmed",
+        createdAt: now,
+      });
 
       return { conflict: false } as const;
     });
@@ -101,22 +94,26 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       return { error: "This time slot is no longer available" };
     }
 
-    // Create a corresponding calendar event (file-based for Google Calendar sync)
-    const eventId = nanoid();
-    const calEvent: CalendarEvent = {
-      id: eventId,
-      title: body.eventTitle || `Booking with ${body.name}`,
-      description: `Booking by ${body.name} (${body.email})${body.notes ? `\n\nNotes: ${body.notes}` : ""}`,
-      start: body.start,
-      end: body.end,
-      location: "",
-      allDay: false,
-      source: "local",
-      color: "#4f46e5",
-      createdAt: now,
-      updatedAt: now,
-    };
-    writeJsonFile(path.join(EVENTS_DIR, `${eventId}.json`), calEvent);
+    // Create a corresponding Google Calendar event if connected
+    if (googleCalendar.isConnected()) {
+      try {
+        const calEvent: CalendarEvent = {
+          id: nanoid(),
+          title: body.eventTitle || `Booking with ${body.name}`,
+          description: `Booking by ${body.name} (${body.email})${body.notes ? `\n\nNotes: ${body.notes}` : ""}`,
+          start: body.start,
+          end: body.end,
+          location: "",
+          allDay: false,
+          source: "google",
+          createdAt: now,
+          updatedAt: now,
+        };
+        await googleCalendar.createEvent(calEvent);
+      } catch {
+        // Continue even if Google Calendar creation fails
+      }
+    }
 
     const booking: Booking = {
       id,
@@ -139,7 +136,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
   }
 });
 
-export const getAvailableSlots = defineEventHandler((event: H3Event) => {
+export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
   try {
     const query = getQuery(event);
     const date = query.date as string;
@@ -181,15 +178,23 @@ export const getAvailableSlots = defineEventHandler((event: H3Event) => {
     // Get all events for this date to check for conflicts
     const dayStart = new Date(date + "T00:00:00").toISOString();
     const dayEnd = new Date(date + "T23:59:59").toISOString();
-    const allEvents = listJsonFiles<CalendarEvent>(EVENTS_DIR);
-    const dayEvents = allEvents.filter((e) => {
-      const eventStart = new Date(e.start);
-      const eventEnd = new Date(e.end);
-      return eventStart < new Date(dayEnd) && eventEnd > new Date(dayStart);
-    });
+
+    // Fetch Google Calendar events for the day if connected
+    let dayEvents: Array<{ start: string; end: string }> = [];
+    if (googleCalendar.isConnected()) {
+      try {
+        const { events: googleEvents } = await googleCalendar.listEvents(
+          dayStart,
+          dayEnd,
+        );
+        dayEvents = googleEvents.map((e) => ({ start: e.start, end: e.end }));
+      } catch {
+        // Continue without Google events if API fails
+      }
+    }
 
     // Get bookings for this date from DB
-    const dayBookings = db
+    const dayBookings = await getDb()
       .select()
       .from(schema.bookings)
       .where(
@@ -198,8 +203,7 @@ export const getAvailableSlots = defineEventHandler((event: H3Event) => {
           lte(schema.bookings.start, dayEnd),
           gte(schema.bookings.end, dayStart),
         ),
-      )
-      .all();
+      );
 
     // Generate available slots
     const availableSlots: TimeSlot[] = [];
@@ -259,22 +263,23 @@ export const getAvailableSlots = defineEventHandler((event: H3Event) => {
   }
 });
 
-export const deleteBooking = defineEventHandler((event: H3Event) => {
+export const deleteBooking = defineEventHandler(async (event: H3Event) => {
   try {
     const id = getRouterParam(event, "id") as string;
+    const db = getDb();
 
-    const existing = db
+    const existing = await db
       .select()
       .from(schema.bookings)
       .where(eq(schema.bookings.id, id))
-      .get();
+      .then((rows) => rows[0]);
 
     if (!existing) {
       setResponseStatus(event, 404);
       return { error: "Booking not found" };
     }
 
-    db.delete(schema.bookings).where(eq(schema.bookings.id, id)).run();
+    await db.delete(schema.bookings).where(eq(schema.bookings.id, id));
     return { success: true };
   } catch (error: any) {
     setResponseStatus(event, 500);

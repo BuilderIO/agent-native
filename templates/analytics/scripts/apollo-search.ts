@@ -4,10 +4,10 @@
  *
  * Usage:
  *   pnpm script apollo-search --email=user@example.com
- *   pnpm script apollo-search --company=Acme
- *   pnpm script apollo-search --domain=acme.com
- *   pnpm script apollo-search --name="John Smith" --company=Acme
- *   pnpm script apollo-search --title=CTO --company=Acme
+ *   pnpm script apollo-search --company="Example Corp"
+ *   pnpm script apollo-search --domain=example.com
+ *   pnpm script apollo-search --name="John Smith" --company="Example Corp"
+ *   pnpm script apollo-search --title=CTO --company="Example Corp"
  */
 import { parseArgs, output } from "./helpers";
 import {

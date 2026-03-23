@@ -11,7 +11,7 @@ description: How to connect to and query the Stripe API for analytics data.
 - **Auth**: Bearer token via `STRIPE_SECRET_KEY` env var
 - **Server lib**: `server/lib/stripe.ts`
 - **Routes**: `server/routes/stripe.ts`
-- **Dashboard**: `client/pages/adhoc/stripe/` (tool page, not metrics dashboard)
+- **Dashboard**: `app/pages/adhoc/stripe/` (tool page, not metrics dashboard)
 
 ## Environment Variable
 
@@ -45,7 +45,7 @@ All routes resolve email → Stripe customer ID(s) internally.
 - Cache TTL is 5 minutes (shorter than other integrations since billing data changes more frequently).
 - The `expand` parameter is used for invoices (line items) and subscriptions (price details).
 
-## Client Hooks (client/lib/api-hooks.ts)
+## Client Hooks (app/lib/api-hooks.ts)
 
 - `useStripeBilling(email, months, enabled)`
 - `useStripePaymentStatus(email, enabled)`

@@ -1,0 +1,143 @@
+import { useState } from "react";
+import {
+  ChevronRight,
+  FileText,
+  Plus,
+  Star,
+  Trash2,
+  MoreHorizontal,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import type { DocumentTreeNode } from "@shared/api";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+interface DocumentTreeItemProps {
+  node: DocumentTreeNode;
+  depth: number;
+  activeId: string | null;
+  onSelect: (id: string) => void;
+  onCreateChild: (parentId: string) => void;
+  onDelete: (id: string) => void;
+  onToggleFavorite: (id: string, isFavorite: boolean) => void;
+}
+
+export function DocumentTreeItem({
+  node,
+  depth,
+  activeId,
+  onSelect,
+  onCreateChild,
+  onDelete,
+  onToggleFavorite,
+}: DocumentTreeItemProps) {
+  const [expanded, setExpanded] = useState(true);
+  const hasChildren = node.children.length > 0;
+  const isActive = node.id === activeId;
+
+  return (
+    <div>
+      <div
+        className={cn(
+          "group flex items-center gap-1 px-2 py-1 rounded-md cursor-pointer text-sm min-h-[30px]",
+          isActive
+            ? "bg-accent text-accent-foreground"
+            : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+        )}
+        style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        onClick={() => onSelect(node.id)}
+      >
+        <button
+          className={cn(
+            "flex-shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-accent",
+            !hasChildren && "invisible",
+          )}
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded(!expanded);
+          }}
+        >
+          <ChevronRight
+            size={14}
+            className={cn("transition-transform", expanded && "rotate-90")}
+          />
+        </button>
+
+        <span className="flex-shrink-0 w-5 text-center">
+          {node.icon || (
+            <FileText size={14} className="text-muted-foreground" />
+          )}
+        </span>
+
+        <span className="flex-1 truncate">{node.title || "Untitled"}</span>
+
+        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="w-5 h-5 flex items-center justify-center rounded hover:bg-accent"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MoreHorizontal size={14} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48">
+              <DropdownMenuItem onClick={() => onCreateChild(node.id)}>
+                <Plus size={14} className="mr-2" />
+                Add sub-page
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => onToggleFavorite(node.id, !node.isFavorite)}
+              >
+                <Star
+                  size={14}
+                  className={cn("mr-2", node.isFavorite && "fill-current")}
+                />
+                {node.isFavorite ? "Remove from favorites" : "Add to favorites"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-destructive"
+                onClick={() => onDelete(node.id)}
+              >
+                <Trash2 size={14} className="mr-2" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <button
+            className="w-5 h-5 flex items-center justify-center rounded hover:bg-accent"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCreateChild(node.id);
+            }}
+            title="Add sub-page"
+          >
+            <Plus size={14} />
+          </button>
+        </div>
+      </div>
+
+      {hasChildren && expanded && (
+        <div>
+          {node.children.map((child) => (
+            <DocumentTreeItem
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              activeId={activeId}
+              onSelect={onSelect}
+              onCreateChild={onCreateChild}
+              onDelete={onDelete}
+              onToggleFavorite={onToggleFavorite}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

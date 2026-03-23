@@ -136,21 +136,25 @@ If not set, captcha is silently skipped (works fine in dev without it).
 
 ## Deployment
 
+### Local (default)
+
+Works out of the box with local SQLite via `@libsql/client`. Just set `ACCESS_TOKEN` for auth.
+
+### Cloud Database (Turso)
+
+Set `DATABASE_URL` to a Turso database URL (e.g. `libsql://your-db.turso.io`) and `DATABASE_AUTH_TOKEN` to your Turso auth token. The same `@libsql/client` driver handles both local and remote seamlessly.
+
 ### Cloudflare Pages + D1
 
 1. Set `NITRO_PRESET=cloudflare_pages` in env
-2. Swap `server/db/index.ts` to use `drizzle-orm/d1` driver instead of `better-sqlite3`
+2. Swap `server/db/index.ts` to use `drizzle-orm/d1` driver instead of `@libsql/client`
 3. Configure `wrangler.toml` with D1 binding
 4. Set `TURNSTILE_SECRET_KEY` and `VITE_TURNSTILE_SITE_KEY` in Cloudflare dashboard
-
-### Any Node.js Host
-
-Works out of the box with `better-sqlite3`. Just set `ACCESS_TOKEN` for auth.
 
 ## Project Structure
 
 ```
-client/
+app/
   components/
     layout/      # AppLayout, Sidebar
     builder/     # FieldRenderer, FieldPropertiesPanel
@@ -176,10 +180,10 @@ data/            # Settings + DB file
 - **Package manager**: pnpm
 - **Frontend**: React 18, React Router 7, TypeScript, Vite, TailwindCSS
 - **Backend**: Nitro (via @agent-native/core)
-- **Database**: SQLite via Drizzle ORM (swappable to Cloudflare D1)
+- **Database**: SQLite via Drizzle ORM + @libsql/client (local by default, cloud upgrade via `DATABASE_URL`)
 - **UI**: Radix UI + Lucide icons + shadcn/ui
 - **Captcha**: Cloudflare Turnstile (opt-in)
-- **Path aliases**: `@/*` → client/, `@shared/*` → shared/
+- **Path aliases**: `@/*` → app/, `@shared/*` → shared/
 
 ## Key Conventions
 

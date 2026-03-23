@@ -40,7 +40,7 @@ Appends a structured entry to `docs/learnings.md`.
 
 ```json
 {
-  "rawMarkdown": "### Customer Data\n\n**Acme Corp** org ID: `abc123`. Primary contact: jane@acme.com."
+  "rawMarkdown": "### Customer Data\n\n**Example Corp** org ID: `example-org-id`. Primary contact: jane@example.com."
 }
 ```
 
@@ -69,7 +69,7 @@ When reviewing a thread, focus on:
 | Signal                   | Example                                                     |
 | ------------------------ | ----------------------------------------------------------- |
 | **User corrections**     | "No, that metric should use `signup` not `sign_up`"         |
-| **Data source mappings** | "Acme Corp org IDs are X, Y, Z"                             |
+| **Data source mappings** | "Example Corp org IDs are X, Y, Z"                          |
 | **Query patterns**       | "Always join on `dim_hs_contacts` for customer lookups"     |
 | **Preferences**          | "I prefer stacked bar charts for per-user breakdowns"       |
 | **Gotchas**              | "The `data` column is JSON — use `JSON_VALUE()` to extract" |
@@ -85,12 +85,12 @@ User types `/learn`. Agent responds:
 2. For each learning found, call `POST /api/learn`:
    ```
    POST /api/learn
-   { "category": "Customer Data", "insight": "Acme Corp org ID is `abc123`", "source": "Thread with Steve" }
+   { "category": "Customer Data", "insight": "Example Corp org ID is `example-org-id`", "source": "Thread with Steve" }
    ```
 3. Summarize what was saved:
    > Saved 3 learnings to `docs/learnings.md`:
    >
-   > - **Customer Data**: Acme Corp org ID is `abc123`
+   > - **Customer Data**: Example Corp org ID is `example-org-id`
    > - **User Preferences**: Use dark theme for all exported charts
    > - **Agent Behavior Rules**: Always check Sentry before investigating code for error spikes
 

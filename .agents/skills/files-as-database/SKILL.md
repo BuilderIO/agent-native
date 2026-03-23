@@ -1,68 +1,38 @@
 ---
 name: files-as-database
 description: >-
-  How to store and manage application state as JSON/markdown files in data/.
-  Use when adding data models, creating file-based state, deciding where to
-  store data, or reading/writing application data files.
+  How to choose between files and SQLite for storing application state. Use when
+  adding data models, deciding where to store data, or reading/writing
+  application data.
 ---
 
-# Files as Database
+# Files vs SQLite — Choosing the Right Data Layer
 
 ## Rule
 
-All application state must be stored as files. There is no traditional database in an agent-native app.
+Agent-native apps use **two data layers**: files for content and configuration, SQLite for structured application data. Choose the right one based on what you're storing.
 
-## Why
+## When to Use Files
 
-Files are the shared interface between the AI agent and the UI. The agent reads and writes files directly on the filesystem. The UI reads files via API routes. SSE streams file changes back to the UI in real-time. This only works if files are the single source of truth.
+Store data as files in `data/` (JSON, markdown, images) when:
 
-## How
+- **Content** — markdown documents, drafts, articles, slide decks
+- **Settings/Configuration** — app settings, user preferences, sync config
+- **Application state** — ephemeral UI state in `application-state/` (compose windows, search state)
+- **Media** — images, uploads, generated assets
+- **Data the agent edits directly** — the agent can read/write files on the filesystem without going through an API
+
+Files are the shared interface between the AI agent and the UI. The agent reads and writes files directly. The UI reads files via API routes. SSE streams file changes back to the UI in real-time.
+
+### How (Files)
 
 - Store data as JSON or markdown files in `data/` (or a project-specific subdirectory).
-- API routes in `server/routes/` read files with `fs.readFile` and return them (Nitro file-based routing).
+- API routes in `server/routes/` read files with `fs.readFile` and return them.
 - The agent modifies files directly — no API calls needed from the agent side.
 - `createFileWatcher("./data")` watches for changes and streams them via SSE.
 - `useFileWatcher()` on the client invalidates React Query caches when files change.
 
-## Don't
-
-- Don't add a database (SQLite, Postgres, MongoDB, etc.)
-- Don't store app state in localStorage, sessionStorage, or cookies
-- Don't keep state only in memory (server variables, global stores)
-- Don't use Redis or any external state store
-- Don't interpolate user input directly into file paths (see Security below)
-
-## Example
-
-```ts
-import fs from "fs";
-
-// Writing state (agent or script)
-fs.writeFileSync(
-  "data/projects/my-project.json",
-  JSON.stringify(project, null, 2),
-);
-
-// Reading state (server route) — note the path sanitization
-// server/routes/api/projects/[id].get.ts
-import { defineEventHandler, getRouterParam } from "h3";
-export default defineEventHandler((event) => {
-  const id = (getRouterParam(event, "id") || "").replace(/[^a-zA-Z0-9_-]/g, "");
-  const data = fs.readFileSync(`data/projects/${id}.json`, "utf-8");
-  return JSON.parse(data);
-});
-```
-
-## Creating a New Data Model
-
-When adding a new data entity (e.g., projects, tasks, settings):
-
-1. **Define the type** in `shared/` so both client and server import it
-2. **Create the data directory** — `data/<model>/<id>.json` (one file per item) or `data/<model>.json` (single collection)
-3. **Add API routes** in `server/` that read/write the files (sanitize IDs from params)
-4. **Wire SSE invalidation** — Add the query key to `useFileWatcher()` so the UI refreshes on changes
-
-## Judgment Criteria
+### File Organization
 
 | Question                             | Single file       | Directory of files           |
 | ------------------------------------ | ----------------- | ---------------------------- |
@@ -71,20 +41,55 @@ When adding a new data entity (e.g., projects, tasks, settings):
 | Do items need individual URLs?       | No                | Yes                          |
 | Do items change independently?       | No                | Yes — avoids write conflicts |
 
-## Scaling Guidance
+## When to Use SQLite
 
-| File Count | Recommendation                                                        |
-| ---------- | --------------------------------------------------------------------- |
-| Under 50   | Read-all with `readdirSync` + `readFileSync` is fine                  |
-| 50–200     | Add an index file (`data/<model>/_index.json`) with IDs and summaries |
-| 200+       | Partition into subdirectories                                         |
+Store data in SQLite (`data/app.db`) via Drizzle ORM + `@libsql/client` when:
 
-For list endpoints serving many files, use `fs.promises.readFile` instead of `readFileSync` to avoid blocking the event loop.
+- **Structured records** — forms, bookings, submissions, compositions with relationships
+- **Data that needs querying** — filtering, sorting, aggregation, joins
+- **High-volume data** — hundreds or thousands of records
+- **Relational data** — foreign keys, references between entities
+- **Data that benefits from transactions** — atomic multi-table writes
+
+### How (SQLite)
+
+- Define schema with Drizzle ORM in `server/db/schema.ts`.
+- Get a database instance with `const db = getDb()` from `server/db/index.ts`.
+- All queries are **async** (using `@libsql/client`, not `better-sqlite3`).
+- The agent uses DB scripts (`pnpm script db-schema`, `db-query`, `db-exec`) or app-specific scripts to read/write data.
+- Set `DATABASE_URL` env var for cloud database (Turso); defaults to local `file:data/app.db`.
+
+### Cloud Upgrade Path
+
+Local SQLite works out of the box. To upgrade to a cloud database:
+
+1. Set `DATABASE_URL` to a Turso URL (e.g. `libsql://your-db.turso.io`)
+2. Set `DATABASE_AUTH_TOKEN` to your Turso auth token
+3. No code changes needed — `@libsql/client` handles both local and remote
+
+## Don't
+
+- Don't store structured app data (forms, bookings, records) as individual JSON files when you need querying
+- Don't store app state in localStorage, sessionStorage, or cookies
+- Don't keep state only in memory (server variables, global stores)
+- Don't use Redis or any external state store for app data
+- Don't interpolate user input directly into file paths (see Security below)
+
+## Examples by Template
+
+| Template   | Files                                            | SQLite                             |
+| ---------- | ------------------------------------------------ | ---------------------------------- |
+| **Forms**  | `data/settings.json`                             | forms, responses                   |
+| **Calendar** | `data/settings.json`, `data/availability.json` | bookings                           |
+| **Slides** | `data/decks/*.json`                              | (not used — decks are JSON files)  |
+| **Content** | `content/projects/**/*.md`, `*.json`            | (not used — content is files)      |
+| **Videos** | compositions in registry                         | (not used — state in localStorage) |
 
 ## Security
 
 - **Path sanitization** — Always sanitize IDs from request params before constructing file paths. Use `id.replace(/[^a-zA-Z0-9_-]/g, "")` or the core utility `isValidPath()`. Without this, `../../.env` as an ID reads your environment file.
 - **Validate before writing** — Check data shape before writing files, especially for user-submitted data. A malformed write can break all subsequent reads.
+- **SQL injection** — Use Drizzle ORM's query builder, never raw string interpolation for SQL queries.
 
 ## Route Loaders vs API Routes
 
@@ -93,5 +98,5 @@ React Router route `loader` functions can fetch data server-side during SSR. How
 ## Related Skills
 
 - **sse-file-watcher** — Set up real-time sync so the UI updates when data files change
-- **scripts** — Create scripts that read/write data files for complex operations
+- **scripts** — Create scripts that read/write data files or query the database
 - **self-modifying-code** — The agent writes data files as Tier 1 (auto-apply) modifications

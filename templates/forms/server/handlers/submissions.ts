@@ -9,15 +9,38 @@ import {
 } from "h3";
 import { eq, desc, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import fs from "fs";
+import path from "path";
 import { verifyCaptcha } from "@agent-native/core/server";
-import { db, schema } from "../db/index.js";
+import { getDb, schema } from "../db/index.js";
 import type { FormField, FormResponse } from "../../shared/types.js";
 
+// ---------------------------------------------------------------------------
+// Field value size limits by type
+// ---------------------------------------------------------------------------
+
+const MAX_FIELD_LENGTH: Record<string, number> = {
+  text: 1000,
+  email: 1000,
+  number: 1000,
+  date: 1000,
+  select: 1000,
+  checkbox: 1000,
+  radio: 1000,
+  rating: 1000,
+  scale: 1000,
+  textarea: 10000,
+  multiselect: 10000,
+};
+
+const MAX_PAYLOAD_BYTES = 100 * 1024; // 100KB
+
 export const submitForm = defineEventHandler(async (event: H3Event) => {
+  const db = getDb();
   const id = getRouterParam(event, "id") as string;
 
   // Look up the form
-  const form = db
+  const form = await db
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.id, id))
@@ -29,6 +52,13 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
 
   const body = await readBody(event);
 
+  // Check overall payload size
+  const bodyStr = JSON.stringify(body);
+  if (Buffer.byteLength(bodyStr, "utf8") > MAX_PAYLOAD_BYTES) {
+    setResponseStatus(event, 413);
+    return { error: "Payload too large" };
+  }
+
   // Verify captcha
   const captchaResult = await verifyCaptcha(body.captchaToken ?? "");
   if (!captchaResult.success) {
@@ -36,10 +66,40 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     return { error: "Captcha verification failed" };
   }
 
-  // Validate required fields (respecting conditional visibility)
+  // Parse form fields and build whitelist of valid field IDs
   const fields: FormField[] = JSON.parse(form.fields);
-  const data = body.data || {};
+  const fieldMap = new Map(fields.map((f) => [f.id, f]));
+  const rawData = body.data || {};
 
+  // Whitelist: only accept keys matching form field IDs
+  const data: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(rawData)) {
+    const field = fieldMap.get(key);
+    if (!field) continue; // Strip unknown fields
+
+    // Validate string length per field type
+    const maxLen = MAX_FIELD_LENGTH[field.type] ?? 1000;
+    if (typeof value === "string" && value.length > maxLen) {
+      setResponseStatus(event, 400);
+      return {
+        error: `${field.label} exceeds maximum length of ${maxLen} characters`,
+      };
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item === "string" && item.length > maxLen) {
+          setResponseStatus(event, 400);
+          return {
+            error: `${field.label} contains a value exceeding maximum length`,
+          };
+        }
+      }
+    }
+
+    data[key] = value;
+  }
+
+  // Validate required fields (respecting conditional visibility)
   function isFieldVisible(field: FormField): boolean {
     if (!field.conditional) return true;
     const { fieldId, operator, value: condValue } = field.conditional;
@@ -76,7 +136,8 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   const responseId = nanoid();
   const ip = getRequestIP(event) ?? null;
 
-  db.insert(schema.responses)
+  await db
+    .insert(schema.responses)
     .values({
       id: responseId,
       formId: id,
@@ -86,16 +147,29 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     })
     .run();
 
+  // Write submission notification to application-state
+  try {
+    const stateDir = path.join(process.cwd(), "application-state");
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stateDir, "new-submission.json"),
+      JSON.stringify({ formId: id, responseId, timestamp: now }, null, 2),
+    );
+  } catch {
+    // Non-critical — don't fail the submission
+  }
+
   return { success: true, id: responseId };
 });
 
-export const listResponses = defineEventHandler((event: H3Event) => {
+export const listResponses = defineEventHandler(async (event: H3Event) => {
+  const db = getDb();
   const id = getRouterParam(event, "id") as string;
   const query = getQuery(event);
   const limit = parseInt((query.limit as string) || "100", 10);
 
   // Verify form exists
-  const form = db
+  const form = await db
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.id, id))
@@ -105,7 +179,7 @@ export const listResponses = defineEventHandler((event: H3Event) => {
     return { error: "Form not found" };
   }
 
-  const rows = db
+  const rows = await db
     .select()
     .from(schema.responses)
     .where(eq(schema.responses.formId, id))
@@ -113,7 +187,7 @@ export const listResponses = defineEventHandler((event: H3Event) => {
     .limit(limit)
     .all();
 
-  const total = db
+  const total = await db
     .select({ count: sql<number>`count(*)` })
     .from(schema.responses)
     .where(eq(schema.responses.formId, id))

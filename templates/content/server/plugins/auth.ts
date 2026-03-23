@@ -1,5 +1,5 @@
-import { defineNitroPlugin, autoMountAuth } from "@agent-native/core";
+import { createAuthPlugin } from "@agent-native/core/server";
 
-export default defineNitroPlugin((nitroApp: any) => {
-  autoMountAuth(nitroApp.h3App);
+export default createAuthPlugin({
+  publicPaths: ["/api/pages/public"],
 });

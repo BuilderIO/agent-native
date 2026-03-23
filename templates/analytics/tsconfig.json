@@ -26,13 +26,13 @@
     "rootDirs": [".", "./.react-router/types"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./client/*"],
+      "@/*": ["./app/*"],
       "@shared/*": ["./shared/*"]
     },
     "types": ["vite/client"]
   },
   "include": [
-    "client/**/*",
+    "app/**/*",
     "server/**/*",
     "shared/**/*",
     "scripts/**/*",

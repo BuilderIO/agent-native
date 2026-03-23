@@ -681,9 +681,9 @@ const autoCursorType = useCursorTypeFromHover([
 
 ### Real Example: FusionInputBox
 
-See `client/remotion/compositions/FusionInputBox.tsx` for a complete example with:
+See `app/remotion/compositions/FusionInputBox.tsx` for a complete example with:
 
-**Cursor Track** (`client/remotion/registry.ts`):
+**Cursor Track** (`app/remotion/registry.ts`):
 
 - Entry/exit animations (x/y keyframes)
 - Multiple click events (isClicking keyframes)

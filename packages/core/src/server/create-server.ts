@@ -63,6 +63,15 @@ function upsertEnvFile(
   envPath: string,
   vars: Array<{ key: string; value: string }>,
 ): void {
+  // Sanitize: reject values that could inject additional env vars
+  for (const { key, value } of vars) {
+    if (/[\n\r\0]/.test(value)) {
+      throw new Error(
+        `Invalid env var value for ${key}: must not contain newlines or control characters`,
+      );
+    }
+  }
+
   let content = "";
   try {
     content = fs.readFileSync(envPath, "utf-8");
