@@ -73,10 +73,10 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 
 | Skill                 | When to read                                                   |
 | --------------------- | -------------------------------------------------------------- |
-| `storing-data`     | Before storing or reading any app state                        |
+| `storing-data`        | Before storing or reading any app state                        |
 | `delegate-to-agent`   | Before adding LLM calls or AI delegation                       |
 | `scripts`             | Before creating or modifying scripts                           |
-| `real-time-sync`         | Before wiring up real-time UI sync                             |
+| `real-time-sync`      | Before wiring up real-time UI sync                             |
 | `self-modifying-code` | Before editing source, components, or styles                   |
 | `frontend-design`     | Before building or restyling any UI component, page, or layout |
 
