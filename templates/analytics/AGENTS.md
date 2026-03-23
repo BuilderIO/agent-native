@@ -202,7 +202,7 @@ File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.en
 ## Project Structure
 
 ```
-client/                   # React SPA frontend
+app/                      # React SPA frontend
 ├── pages/                # Route components
 ├── components/ui/        # Pre-built UI component library
 ├── lib/                  # Client utilities (auth, query helpers)
@@ -230,7 +230,7 @@ docs/                     # Documentation and accumulated knowledge
 └── <provider>/SKILL.md   # Connection, functions, scripts, gotchas
 ```
 
-Path aliases: `@/*` → `client/`, `@shared/*` → `shared/`
+Path aliases: `@/*` → `app/`, `@shared/*` → `shared/`
 
 ## Agent Chat Bridge
 
@@ -257,7 +257,7 @@ sendToAgentChat({
 sendToAgentChat({
   message: "Fix the chart rendering",
   context:
-    "The TierBreakdownCharts component at client/pages/adhoc/tier-breakdown/TierBreakdownCharts.tsx is throwing a BigQuery byte limit error. Switch from @app_events to the Amplitude table.",
+    "The TierBreakdownCharts component at app/pages/adhoc/tier-breakdown/TierBreakdownCharts.tsx is throwing a BigQuery byte limit error. Switch from @app_events to the Amplitude table.",
   submit: true,
 });
 
@@ -343,18 +343,18 @@ pnpm test       # Run Vitest tests
 
 ## Routing
 
-Routes are file-based in `client/routes/` via `flatRoutes()`. Create a file to add a route (e.g. `client/routes/settings.tsx` → `/settings`).
+Routes are file-based in `app/routes/` via `flatRoutes()`. Create a file to add a route (e.g. `app/routes/settings.tsx` → `/settings`).
 
-- `client/routes/_index.tsx` — home/overview page (`/`)
-- `client/routes/adhoc.$id.tsx` — dashboard router (`/adhoc/:id`)
-- `client/pages/adhoc/` — dashboard page components, registered in `registry.ts`
+- `app/routes/_index.tsx` — home/overview page (`/`)
+- `app/routes/adhoc.$id.tsx` — dashboard router (`/adhoc/:id`)
+- `app/pages/adhoc/` — dashboard page components, registered in `registry.ts`
 
 ### Tools vs Dashboards
 
 The sidebar has two sections: **Dashboards** and **Tools**. Use the right one:
 
 - **Dashboards** — data visualizations, charts, metrics, time-series. Things people look at to understand trends. Add to `dashboards` array in `registry.ts` and `dashboardComponents` map.
-- **Tools** — functional utilities with inputs/actions (e.g. look up a customer, search Stripe, run a query). Things people _use_ to get specific answers. Add to the `defaultTools` array in `client/components/layout/Sidebar.tsx`.
+- **Tools** — functional utilities with inputs/actions (e.g. look up a customer, search Stripe, run a query). Things people _use_ to get specific answers. Add to the `defaultTools` array in `app/components/layout/Sidebar.tsx`.
 
 When a user asks for a **new feature, lookup tool, or interactive utility** → add it to **Tools**.
 When a user asks for a **chart, metrics view, or data breakdown** → add it to **Dashboards**.
@@ -363,9 +363,9 @@ When a user asks for a **chart, metrics view, or data breakdown** → add it to 
 
 **IMPORTANT**: When creating a new dashboard, YOU (the creator) must provide your name or email as the author. Do NOT pull this from git logs or other sources.
 
-1. Create component in `client/pages/adhoc/my-dashboard/index.tsx` (these are regular components, not route files)
+1. Create component in `app/pages/adhoc/my-dashboard/index.tsx` (these are regular components, not route files)
 2. Use `<DashboardHeader />` component at the top to display metadata
-3. Add entry to `dashboards` array in `client/pages/adhoc/registry.ts` with **REQUIRED fields**:
+3. Add entry to `dashboards` array in `app/pages/adhoc/registry.ts` with **REQUIRED fields**:
    - `id`: kebab-case identifier
    - `name`: Display name
    - `author`: **YOUR name or email** - the person creating this dashboard (e.g., "jane@example.com" or "Jane Doe")
@@ -389,18 +389,18 @@ When a user asks for a **chart, metrics view, or data breakdown** → add it to 
 
 **IMPORTANT**: When creating a new tool, YOU (the creator) must provide your name or email as the author.
 
-1. Create component in `client/pages/adhoc/my-tool/index.tsx` (these are regular components, not route files)
+1. Create component in `app/pages/adhoc/my-tool/index.tsx` (these are regular components, not route files)
 2. Use `<DashboardHeader />` component at the top to display metadata
-3. Add entry to `dashboards` array in `client/pages/adhoc/registry.ts` (for routing) with **REQUIRED fields**:
+3. Add entry to `dashboards` array in `app/pages/adhoc/registry.ts` (for routing) with **REQUIRED fields**:
    - `author`: **YOUR name or email** - the person creating this tool
    - `lastUpdated`: Today's date in YYYY-MM-DD format
 4. Add lazy import to `dashboardComponents` in the same file (for routing)
-5. Add entry to `defaultTools` array in `client/components/layout/Sidebar.tsx` (for sidebar placement)
+5. Add entry to `defaultTools` array in `app/components/layout/Sidebar.tsx` (for sidebar placement)
 
 ## Styling
 
 - **TailwindCSS 3** utility classes for all styling
-- **Theme tokens** in `client/global.css`
+- **Theme tokens** in `app/global.css`
 - **`cn()`** utility combines `clsx` + `tailwind-merge` for conditional classes
 
 ## Learnings & Skills (MANDATORY)

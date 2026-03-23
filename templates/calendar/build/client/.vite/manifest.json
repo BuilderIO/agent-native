@@ -1,0 +1,241 @@
+{
+  "../../packages/core/dist/client/index.js": {
+    "file": "assets/index-BclDojxT.js",
+    "name": "index",
+    "src": "../../packages/core/dist/client/index.js",
+    "isDynamicEntry": true,
+    "imports": [
+      "_index-qtsL5YWk.js",
+      "_index-Coy-XKTg.js",
+      "_ErrorBoundary-0h_wKUpp.js",
+      "_ThemeToggle-BdGywd2Y.js",
+      "_PoweredByBadge-CvhtZowu.js"
+    ]
+  },
+  "_AppLayout-Cz7nte3z.js": {
+    "file": "assets/AppLayout-Cz7nte3z.js",
+    "name": "AppLayout",
+    "imports": [
+      "_index-Coy-XKTg.js",
+      "_ThemeToggle-BdGywd2Y.js",
+      "_index-qtsL5YWk.js"
+    ],
+    "dynamicImports": ["../../packages/core/dist/client/index.js"]
+  },
+  "_ErrorBoundary-0h_wKUpp.js": {
+    "file": "assets/ErrorBoundary-0h_wKUpp.js",
+    "name": "ErrorBoundary",
+    "imports": ["_index-Coy-XKTg.js"]
+  },
+  "_PoweredByBadge-CvhtZowu.js": {
+    "file": "assets/PoweredByBadge-CvhtZowu.js",
+    "name": "PoweredByBadge",
+    "imports": ["_index-Coy-XKTg.js"]
+  },
+  "_ThemeToggle-BdGywd2Y.js": {
+    "file": "assets/ThemeToggle-BdGywd2Y.js",
+    "name": "ThemeToggle",
+    "imports": ["_index-qtsL5YWk.js", "_index-Coy-XKTg.js"]
+  },
+  "_card-Cl7QrxUz.js": {
+    "file": "assets/card-Cl7QrxUz.js",
+    "name": "card",
+    "imports": [
+      "_index-Coy-XKTg.js",
+      "_index-qtsL5YWk.js",
+      "_ThemeToggle-BdGywd2Y.js"
+    ]
+  },
+  "_chevron-right-Cmt4MKwM.js": {
+    "file": "assets/chevron-right-Cmt4MKwM.js",
+    "name": "chevron-right",
+    "imports": ["_ThemeToggle-BdGywd2Y.js"]
+  },
+  "_circle-BLBATaDJ.js": {
+    "file": "assets/circle-BLBATaDJ.js",
+    "name": "circle",
+    "imports": ["_ThemeToggle-BdGywd2Y.js"]
+  },
+  "_circle-check-qyZvhjng.js": {
+    "file": "assets/circle-check-qyZvhjng.js",
+    "name": "circle-check",
+    "imports": ["_ThemeToggle-BdGywd2Y.js"]
+  },
+  "_circle-x-DtBsj6Ko.js": {
+    "file": "assets/circle-x-DtBsj6Ko.js",
+    "name": "circle-x",
+    "imports": ["_ThemeToggle-BdGywd2Y.js"]
+  },
+  "_eachDayOfInterval-DejQry_-.js": {
+    "file": "assets/eachDayOfInterval-DejQry_-.js",
+    "name": "eachDayOfInterval",
+    "imports": ["_ThemeToggle-BdGywd2Y.js"]
+  },
+  "_index-CA2Tg6N_.js": {
+    "file": "assets/index-CA2Tg6N_.js",
+    "name": "index",
+    "imports": ["_index-Coy-XKTg.js", "_ThemeToggle-BdGywd2Y.js"]
+  },
+  "_index-Coy-XKTg.js": {
+    "file": "assets/index-Coy-XKTg.js",
+    "name": "index"
+  },
+  "_index-qtsL5YWk.js": {
+    "file": "assets/index-qtsL5YWk.js",
+    "name": "index",
+    "imports": ["_index-Coy-XKTg.js"]
+  },
+  "_label-D00ruOVY.js": {
+    "file": "assets/label-D00ruOVY.js",
+    "name": "label",
+    "imports": [
+      "_index-Coy-XKTg.js",
+      "_index-qtsL5YWk.js",
+      "_ThemeToggle-BdGywd2Y.js"
+    ]
+  },
+  "_loader-circle-D21yW67Y.js": {
+    "file": "assets/loader-circle-D21yW67Y.js",
+    "name": "loader-circle",
+    "imports": ["_ThemeToggle-BdGywd2Y.js"]
+  },
+  "_parseISO-D3GgQGwC.js": {
+    "file": "assets/parseISO-D3GgQGwC.js",
+    "name": "parseISO",
+    "imports": ["_ThemeToggle-BdGywd2Y.js"]
+  },
+  "_textarea-myagfW9V.js": {
+    "file": "assets/textarea-myagfW9V.js",
+    "name": "textarea",
+    "imports": [
+      "_index-Coy-XKTg.js",
+      "_index-qtsL5YWk.js",
+      "_ThemeToggle-BdGywd2Y.js"
+    ]
+  },
+  "_use-bookings-Cb3kpCQ6.js": {
+    "file": "assets/use-bookings-Cb3kpCQ6.js",
+    "name": "use-bookings",
+    "imports": ["_ThemeToggle-BdGywd2Y.js", "_index-qtsL5YWk.js"]
+  },
+  "_x-BNH3awf2.js": {
+    "file": "assets/x-BNH3awf2.js",
+    "name": "x",
+    "imports": [
+      "_index-Coy-XKTg.js",
+      "_ThemeToggle-BdGywd2Y.js",
+      "_index-qtsL5YWk.js"
+    ]
+  },
+  "client/entry.client.tsx": {
+    "file": "assets/entry.client-D4wugHNa.js",
+    "name": "entry.client",
+    "src": "client/entry.client.tsx",
+    "isEntry": true,
+    "imports": ["_index-Coy-XKTg.js"]
+  },
+  "client/root.tsx?__react-router-build-client-route": {
+    "file": "assets/root-nt6WUOuD.js",
+    "name": "root",
+    "src": "client/root.tsx?__react-router-build-client-route",
+    "isEntry": true,
+    "imports": [
+      "_index-Coy-XKTg.js",
+      "_index-qtsL5YWk.js",
+      "_ErrorBoundary-0h_wKUpp.js"
+    ],
+    "css": ["assets/root-DsU7GHUh.css"]
+  },
+  "client/routes/_index.tsx?__react-router-build-client-route": {
+    "file": "assets/_index-DOIluE4w.js",
+    "name": "_index",
+    "src": "client/routes/_index.tsx?__react-router-build-client-route",
+    "isEntry": true,
+    "imports": [
+      "_index-Coy-XKTg.js",
+      "_ThemeToggle-BdGywd2Y.js",
+      "_index-CA2Tg6N_.js",
+      "_index-qtsL5YWk.js",
+      "_chevron-right-Cmt4MKwM.js",
+      "_loader-circle-D21yW67Y.js",
+      "_circle-BLBATaDJ.js",
+      "_eachDayOfInterval-DejQry_-.js",
+      "_parseISO-D3GgQGwC.js",
+      "_x-BNH3awf2.js",
+      "_AppLayout-Cz7nte3z.js",
+      "_label-D00ruOVY.js",
+      "_textarea-myagfW9V.js"
+    ]
+  },
+  "client/routes/availability.tsx?__react-router-build-client-route": {
+    "file": "assets/availability--E6OD0wM.js",
+    "name": "availability",
+    "src": "client/routes/availability.tsx?__react-router-build-client-route",
+    "isEntry": true,
+    "imports": [
+      "_index-Coy-XKTg.js",
+      "_ThemeToggle-BdGywd2Y.js",
+      "_label-D00ruOVY.js",
+      "_x-BNH3awf2.js",
+      "_card-Cl7QrxUz.js",
+      "_index-qtsL5YWk.js",
+      "_chevron-right-Cmt4MKwM.js",
+      "_loader-circle-D21yW67Y.js",
+      "_AppLayout-Cz7nte3z.js"
+    ]
+  },
+  "client/routes/book.$slug.tsx?__react-router-build-client-route": {
+    "file": "assets/book._slug-DjtsM5qj.js",
+    "name": "book._slug",
+    "src": "client/routes/book.$slug.tsx?__react-router-build-client-route",
+    "isEntry": true,
+    "imports": [
+      "_index-Coy-XKTg.js",
+      "_index-qtsL5YWk.js",
+      "_PoweredByBadge-CvhtZowu.js",
+      "_ThemeToggle-BdGywd2Y.js",
+      "_eachDayOfInterval-DejQry_-.js",
+      "_chevron-right-Cmt4MKwM.js",
+      "_parseISO-D3GgQGwC.js",
+      "_label-D00ruOVY.js",
+      "_textarea-myagfW9V.js",
+      "_circle-check-qyZvhjng.js",
+      "_use-bookings-Cb3kpCQ6.js"
+    ]
+  },
+  "client/routes/bookings.tsx?__react-router-build-client-route": {
+    "file": "assets/bookings-BE8mtdFG.js",
+    "name": "bookings",
+    "src": "client/routes/bookings.tsx?__react-router-build-client-route",
+    "isEntry": true,
+    "imports": [
+      "_index-Coy-XKTg.js",
+      "_ThemeToggle-BdGywd2Y.js",
+      "_index-CA2Tg6N_.js",
+      "_index-qtsL5YWk.js",
+      "_use-bookings-Cb3kpCQ6.js",
+      "_circle-x-DtBsj6Ko.js",
+      "_parseISO-D3GgQGwC.js",
+      "_AppLayout-Cz7nte3z.js"
+    ]
+  },
+  "client/routes/settings.tsx?__react-router-build-client-route": {
+    "file": "assets/settings-CnGq-9xo.js",
+    "name": "settings",
+    "src": "client/routes/settings.tsx?__react-router-build-client-route",
+    "isEntry": true,
+    "imports": [
+      "_index-Coy-XKTg.js",
+      "_ThemeToggle-BdGywd2Y.js",
+      "_label-D00ruOVY.js",
+      "_textarea-myagfW9V.js",
+      "_card-Cl7QrxUz.js",
+      "_index-qtsL5YWk.js",
+      "_loader-circle-D21yW67Y.js",
+      "_circle-BLBATaDJ.js",
+      "_AppLayout-Cz7nte3z.js",
+      "_circle-check-qyZvhjng.js",
+      "_circle-x-DtBsj6Ko.js"
+    ]
+  }
+}

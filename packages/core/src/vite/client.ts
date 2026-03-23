@@ -146,7 +146,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     ].filter(Boolean),
     resolve: {
       alias: {
-        "@": path.resolve(cwd, "./client"),
+        "@": path.resolve(cwd, "./app"),
         "@shared": path.resolve(cwd, "./shared"),
         ...options.aliases,
       },

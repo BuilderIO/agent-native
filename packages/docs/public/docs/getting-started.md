@@ -16,7 +16,7 @@ Every agent-native app follows the same convention:
 
 ```
 my-app/
-  client/                # React frontend
+  app/                   # React frontend
     root.tsx             # HTML shell + global providers
     entry.client.tsx     # Client hydration entry
     routes.ts            # Route config — flatRoutes()
@@ -51,7 +51,7 @@ export default defineConfig({
 });
 ```
 
-`defineConfig()` sets up React Router framework mode (SSR + file-based routing), path aliases (`@/` → `client/`, `@shared/` → `shared/`), fs restrictions, and the Nitro server plugin (file-based API routing, server plugins, deploy-anywhere presets). See the [Routing docs](./routing.md) for full details on adding pages.
+`defineConfig()` sets up React Router framework mode (SSR + file-based routing), path aliases (`@/` → `app/`, `@shared/` → `shared/`), fs restrictions, and the Nitro server plugin (file-based API routing, server plugins, deploy-anywhere presets). See the [Routing docs](./routing.md) for full details on adding pages.
 
 ### Nitro options
 
@@ -79,7 +79,7 @@ import preset from "@agent-native/core/tailwind";
 
 export default {
   presets: [preset],
-  content: ["./client/**/*.{ts,tsx}"],
+  content: ["./app/**/*.{ts,tsx}"],
 } satisfies Config;
 ```
 

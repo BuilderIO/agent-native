@@ -4,7 +4,7 @@ import preset from "@agent-native/core/tailwind";
 export default {
   darkMode: ["class"],
   presets: [preset],
-  content: ["./client/**/*.{ts,tsx}"],
+  content: ["./app/**/*.{ts,tsx}"],
   theme: {
     extend: {
       keyframes: {

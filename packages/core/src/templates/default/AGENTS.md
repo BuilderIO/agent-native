@@ -25,7 +25,7 @@ Use `getSession(event)` server-side and `useSession()` client-side. See [docs/au
 ### Directory Structure
 
 ```
-client/                # React frontend
+app/                   # React frontend
   root.tsx             # HTML shell + global providers
   entry.client.tsx     # Client hydration entry
   routes.ts            # Route config — flatRoutes()
@@ -87,14 +87,14 @@ The **`frontend-design`** skill (sourced from [Anthropic's skills library](https
 **SSR-first framework, CSR-by-default content:** This app uses React Router v7 framework mode with `ssr: true`. But virtually every route renders only an SSR shell (loading spinner + meta tags). All real data fetching and rendering happens on the client via React Query hooks. Server-side data fetching is the exception — only used for public pages that need SEO/og tags.
 
 **Adding a page:**
-Create a file in `client/routes/`. The filename determines the URL path:
+Create a file in `app/routes/`. The filename determines the URL path:
 
 ```
-client/routes/_index.tsx              → /
-client/routes/settings.tsx            → /settings
-client/routes/inbox.tsx               → /inbox
-client/routes/inbox.$threadId.tsx     → /inbox/:threadId
-client/routes/$id.tsx                 → /:id (dynamic param)
+app/routes/_index.tsx              → /
+app/routes/settings.tsx            → /settings
+app/routes/inbox.tsx               → /inbox
+app/routes/inbox.$threadId.tsx     → /inbox/:threadId
+app/routes/$id.tsx                 → /:id (dynamic param)
 ```
 
 Each route file exports a default component, optional `meta()`, and optional `HydrateFallback()`:

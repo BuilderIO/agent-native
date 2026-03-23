@@ -31,7 +31,7 @@ function DocsIndex() {
       <p>Every agent-native app follows the same convention:</p>
       <CodeBlock
         code={`my-app/
-  client/          # React frontend (Vite SPA)
+  app/             # React frontend (Vite SPA)
     App.tsx        # Entry point
     components/    # UI components
     lib/utils.ts   # cn() utility
@@ -55,10 +55,9 @@ export default defineConfig();`}
       />
       <p>
         <code>defineConfig()</code> sets up React SWC, path aliases (
-        <code>@/</code> {"->"} <code>client/</code>, <code>@shared/</code>{" "}
-        {"->"} <code>shared/</code>), fs restrictions, and the Nitro server
-        plugin (file-based API routing, server plugins, deploy-anywhere
-        presets).
+        <code>@/</code> {"->"} <code>app/</code>, <code>@shared/</code> {"->"}{" "}
+        <code>shared/</code>), fs restrictions, and the Nitro server plugin
+        (file-based API routing, server plugins, deploy-anywhere presets).
       </p>
 
       <h3>Nitro options</h3>

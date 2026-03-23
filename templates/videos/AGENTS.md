@@ -108,7 +108,7 @@ While the starter comes with a Nitro server, only create endpoint when strictly 
 ## Project Structure
 
 ```
-client/                   # React SPA frontend
+app/                      # React SPA frontend
 ├── pages/                # Route components (Index.tsx = home)
 ├── components/ui/        # Pre-built UI component library
 ├── root.tsx               # HTML shell + global providers setup
@@ -127,16 +127,16 @@ shared/                   # Types used by both client & server
 
 The routing system uses React Router v7 framework mode with file-based routing:
 
-- Routes are auto-discovered from `client/routes/` via `flatRoutes()`.
-- `client/routes/_index.tsx` is the home page (`/`).
-- Create a file to add a route (e.g. `client/routes/settings.tsx` → `/settings`).
-- Dynamic params use `$` prefix (e.g. `client/routes/c.$compositionId.tsx` → `/c/:compositionId`).
+- Routes are auto-discovered from `app/routes/` via `flatRoutes()`.
+- `app/routes/_index.tsx` is the home page (`/`).
+- Create a file to add a route (e.g. `app/routes/settings.tsx` → `/settings`).
+- Dynamic params use `$` prefix (e.g. `app/routes/c.$compositionId.tsx` → `/c/:compositionId`).
 
 ### Styling System
 
 - **Primary**: TailwindCSS 3 utility classes
-- **Theme and design tokens**: Configure in `client/global.css`
-- **UI components**: Pre-built library in `client/components/ui/`
+- **Theme and design tokens**: Configure in `app/global.css`
+- **UI components**: Pre-built library in `app/components/ui/`
 - **Utility**: `cn()` combines `clsx` + `tailwind-merge` for conditional classes
 
 ### Path Aliases
@@ -201,23 +201,23 @@ This project is a **Remotion-based animation studio** — a web UI for composing
 
 ### Key Files
 
-| File                                         | Role                                                                      |
-| -------------------------------------------- | ------------------------------------------------------------------------- |
-| `client/remotion/registry.ts`                | Single source of truth for all compositions and their default track data  |
-| `client/remotion/trackAnimation.ts`          | Pure helpers: `trackProgress()`, `getPropValue()`, `findTrack()`          |
-| `client/remotion/compositions/*.tsx`         | Individual Remotion composition components                                |
-| `client/types.ts`                            | `AnimationTrack`, `AnimatedProp`, `EasingKey`, `COMMON_PROP_TEMPLATES`    |
-| `client/components/Timeline.tsx`             | Timeline UI — controlled by `viewStart`/`viewEnd` from parent             |
-| `client/components/VideoPlayer.tsx`          | Remotion `<Player>` wrapper with range-constrained playback               |
-| `client/components/TrackPropertiesPanel.tsx` | Sidebar panel for editing selected track properties                       |
-| `client/components/CompSettingsEditor.tsx`   | Sidebar panel for duration, fps, and size overrides (Square/Wide presets) |
-| `client/components/PropsEditor.tsx`          | Sidebar panel for composition-level user props                            |
-| `client/pages/CompositionView.tsx`           | Owns `viewStart`/`viewEnd` state; connects Timeline ↔ VideoPlayer         |
-| `client/routes/_index.tsx`                   | Home route — renders Studio shell                                         |
+| File                                      | Role                                                                      |
+| ----------------------------------------- | ------------------------------------------------------------------------- |
+| `app/remotion/registry.ts`                | Single source of truth for all compositions and their default track data  |
+| `app/remotion/trackAnimation.ts`          | Pure helpers: `trackProgress()`, `getPropValue()`, `findTrack()`          |
+| `app/remotion/compositions/*.tsx`         | Individual Remotion composition components                                |
+| `app/types.ts`                            | `AnimationTrack`, `AnimatedProp`, `EasingKey`, `COMMON_PROP_TEMPLATES`    |
+| `app/components/Timeline.tsx`             | Timeline UI — controlled by `viewStart`/`viewEnd` from parent             |
+| `app/components/VideoPlayer.tsx`          | Remotion `<Player>` wrapper with range-constrained playback               |
+| `app/components/TrackPropertiesPanel.tsx` | Sidebar panel for editing selected track properties                       |
+| `app/components/CompSettingsEditor.tsx`   | Sidebar panel for duration, fps, and size overrides (Square/Wide presets) |
+| `app/components/PropsEditor.tsx`          | Sidebar panel for composition-level user props                            |
+| `app/pages/CompositionView.tsx`           | Owns `viewStart`/`viewEnd` state; connects Timeline ↔ VideoPlayer         |
+| `app/routes/_index.tsx`                   | Home route — renders Studio shell                                         |
 
 ---
 
-### Core Data Types (`client/types.ts`)
+### Core Data Types (`app/types.ts`)
 
 #### `AnimationTrack`
 
@@ -266,7 +266,7 @@ interface AnimatedProp {
 
 ---
 
-### The Registry (`client/remotion/registry.ts`)
+### The Registry (`app/remotion/registry.ts`)
 
 `compositions` is the authoritative array of `CompositionEntry` objects. Each entry has:
 
@@ -289,14 +289,14 @@ type CompositionEntry = {
 
 #### Adding a new composition
 
-1. Create `client/remotion/compositions/MyComp.tsx` — the Remotion component
-2. Export it from `client/remotion/compositions/index.ts`
-3. Add a `CompositionEntry` to the `compositions` array in `client/remotion/registry.ts`
+1. Create `app/remotion/compositions/MyComp.tsx` — the Remotion component
+2. Export it from `app/remotion/compositions/index.ts`
+3. Add a `CompositionEntry` to the `compositions` array in `app/remotion/registry.ts`
 4. Define `tracks` with meaningful IDs, labels, frame ranges, and `animatedProps`
 
 ---
 
-### Composition Components (`client/remotion/compositions/*.tsx`)
+### Composition Components (`app/remotion/compositions/*.tsx`)
 
 Each composition:
 
@@ -921,13 +921,13 @@ const distance = myProp?.parameterValues?.distance ?? 100;
 const position = interpolate(progress, [0, 1], [0, distance * speed]);
 ```
 
-**See:** `client/remotion/registry.ts` (kt-title track) and `client/remotion/compositions/KineticText.tsx` for a complete implementation
+**See:** `app/remotion/registry.ts` (kt-title track) and `app/remotion/compositions/KineticText.tsx` for a complete implementation
 
 ---
 
 ### Timeline System
 
-The timeline (`client/components/Timeline.tsx`) is **fully controlled** — it owns no state itself.
+The timeline (`app/components/Timeline.tsx`) is **fully controlled** — it owns no state itself.
 
 #### Props it requires
 
@@ -987,7 +987,7 @@ The timeline (`client/components/Timeline.tsx`) is **fully controlled** — it o
 
 ---
 
-### VideoPlayer Playback (`client/components/VideoPlayer.tsx`)
+### VideoPlayer Playback (`app/components/VideoPlayer.tsx`)
 
 Wraps Remotion `<Player>` with:
 
@@ -1038,7 +1038,7 @@ Users can override duration, fps, dimensions, and render quality per composition
 
 ---
 
-### State & Persistence (`client/pages/Index.tsx` / `client/routes/_index.tsx`)
+### State & Persistence (`app/pages/Index.tsx` / `app/routes/_index.tsx`)
 
 All studio state lives in `Index.tsx` and is persisted to `localStorage`:
 
@@ -1058,7 +1058,7 @@ When a composition changes, tracks are loaded with `loadTracks()` which **deep-m
 
 #### Save Button (`/api/save-composition-defaults`)
 
-The **Save** button in the top-right of `CompositionView` persists current studio state back to the registry file (`client/remotion/registry.ts`):
+The **Save** button in the top-right of `CompositionView` persists current studio state back to the registry file (`app/remotion/registry.ts`):
 
 **What it saves:**
 
@@ -1088,11 +1088,11 @@ The **Save** button in the top-right of `CompositionView` persists current studi
 
 ### Checklist: Creating a New Composition
 
-- [ ] Create `client/remotion/compositions/MyComp.tsx` — Remotion component accepting `tracks?: AnimationTrack[]`
+- [ ] Create `app/remotion/compositions/MyComp.tsx` — Remotion component accepting `tracks?: AnimationTrack[]`
 - [ ] Declare `FALLBACK_TRACKS` inside the component file (mirrors registry defaults)
 - [ ] Use `findTrack` / `trackProgress` / `getPropValue` — never hard-code animated values
-- [ ] Export from `client/remotion/compositions/index.ts`
-- [ ] Add `CompositionEntry` to `client/remotion/registry.ts` with `tracks` array
+- [ ] Export from `app/remotion/compositions/index.ts`
+- [ ] Add `CompositionEntry` to `app/remotion/registry.ts` with `tracks` array
 - [ ] Set `width` and `height` (default: 1920×1080 or 1080×1080)
 - [ ] For each track, populate `animatedProps` with correct `property`, `from`, `to`, `unit`
 - [ ] For any programmatic animation: add `description` + `codeSnippet` + `programmatic: true`
@@ -1118,7 +1118,7 @@ The camera system provides global transform controls (zoom, pan, 3D tilt) that a
 
 ### Architecture
 
-**CameraHost Component** (`client/remotion/CameraHost.tsx`)
+**CameraHost Component** (`app/remotion/CameraHost.tsx`)
 
 - Wraps composition content with CSS 3D transforms
 - Reads camera track using `getPropValueKeyframed()` for smooth interpolation
@@ -1145,7 +1145,7 @@ The camera system provides global transform controls (zoom, pan, 3D tilt) that a
 }
 ```
 
-**Camera Toolbar** (`client/components/CameraToolbar.tsx`)
+**Camera Toolbar** (`app/components/CameraToolbar.tsx`)
 
 - **Primary UI**: Interactive toolbar above video player with click-and-drag tools
 - **Pan Tool** (Move icon): Click and drag to move camera — cursor position directly controls camera X/Y
@@ -1155,7 +1155,7 @@ The camera system provides global transform controls (zoom, pan, 3D tilt) that a
 - **Visual feedback**: Active tool highlights in blue, "Adjusting..." indicator while dragging
 - **Professional workflow**: Similar to After Effects camera tools
 
-**Advanced Camera Controls** (`client/components/CameraControls.tsx`)
+**Advanced Camera Controls** (`app/components/CameraControls.tsx`)
 
 - Located in Properties panel under collapsible "Advanced Camera Controls" section
 - Numeric sliders for precise value input when needed

@@ -73,7 +73,7 @@ See [docs/auth.md](docs/auth.md) for the full guide.
 ## Project Structure
 
 ```
-client/                # React frontend
+app/                   # React frontend
   root.tsx             # HTML shell + global providers
   entry.client.tsx     # Client hydration entry
   routes.ts            # Route config — flatRoutes()

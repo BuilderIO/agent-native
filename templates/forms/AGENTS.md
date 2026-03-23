@@ -154,7 +154,7 @@ Set `DATABASE_URL` to a Turso database URL (e.g. `libsql://your-db.turso.io`) an
 ## Project Structure
 
 ```
-client/
+app/
   components/
     layout/      # AppLayout, Sidebar
     builder/     # FieldRenderer, FieldPropertiesPanel
@@ -183,7 +183,7 @@ data/            # Settings + DB file
 - **Database**: SQLite via Drizzle ORM + @libsql/client (local by default, cloud upgrade via `DATABASE_URL`)
 - **UI**: Radix UI + Lucide icons + shadcn/ui
 - **Captcha**: Cloudflare Turnstile (opt-in)
-- **Path aliases**: `@/*` → client/, `@shared/*` → shared/
+- **Path aliases**: `@/*` → app/, `@shared/*` → shared/
 
 ## Key Conventions
 

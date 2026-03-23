@@ -293,7 +293,7 @@ File sync is **opt-in** — enabled when `FILE_SYNC_ENABLED=true` is set in `.en
 ## Project Structure
 
 ```
-client/          # React SPA
+app/             # React SPA
   components/
     layout/      # AppLayout, Sidebar
     calendar/    # MonthView, WeekView, DayView, EventCard, EventDialog, etc.
@@ -319,7 +319,7 @@ data/            # File-based data storage
 - **Google Integration**: googleapis npm package
 - **Database**: SQLite via Drizzle ORM + @libsql/client (local by default, cloud upgrade via `DATABASE_URL`)
 - **State**: Config/settings as JSON in `data/`, structured data in SQLite
-- **Path aliases**: `@/*` → client/, `@shared/*` → shared/
+- **Path aliases**: `@/*` → app/, `@shared/*` → shared/
 
 ## Development
 

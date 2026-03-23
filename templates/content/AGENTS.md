@@ -312,7 +312,7 @@ These rules are non-negotiable. They exist because of past mistakes.
 ## Project Structure
 
 ```
-client/                   # React SPA frontend
+app/                      # React SPA frontend
 ├── pages/                # Route components (Index.tsx = home)
 ├── components/ui/        # Pre-built UI component library
 ├── lib/                  # Utilities
@@ -359,7 +359,7 @@ Follow this decision tree:
 1. **Persistent state?** → Store as a file (markdown, JSON, image). Both UI and agent get access automatically.
 2. **External API call?** → Add a server route in `server/routes/`, then add a script in `scripts/` so the agent can use it too.
 3. **AI-assisted UI action?** → Wire a button to `sendToAgentChat()` with the right prompt and context.
-4. **New page?** → Create a route file in `client/routes/` (e.g. `client/routes/my-page.tsx` → `/my-page`).
+4. **New page?** → Create a route file in `app/routes/` (e.g. `app/routes/my-page.tsx` → `/my-page`).
 
 ### New Script
 
