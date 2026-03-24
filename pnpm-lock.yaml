@@ -1344,9 +1344,6 @@ importers:
       embla-carousel-react:
         specifier: ^8.6.0
         version: 8.6.0(react@18.3.1)
-      googleapis:
-        specifier: ^148.0.0
-        version: 148.0.0(encoding@0.1.13)
       h3:
         specifier: ^1.13.0
         version: 1.15.6

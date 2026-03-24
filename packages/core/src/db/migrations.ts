@@ -9,14 +9,39 @@ export function runMigrations(
 ): NitroPluginDef {
   return async () => {
     try {
+      // Check for Cloudflare D1 binding
+      const d1 = (globalThis as any).__cf_env?.DB;
+      if (d1) {
+        // Use D1 directly for migrations
+        await d1
+          .prepare(
+            `CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY)`,
+          )
+          .run();
+        const { results } = await d1
+          .prepare(`SELECT MAX(version) as v FROM _migrations`)
+          .first();
+        const current = (results?.v as number) ?? 0;
+
+        for (const m of migrations.filter((m) => m.version > current)) {
+          await d1.batch([
+            d1.prepare(m.sql),
+            d1
+              .prepare(`INSERT OR IGNORE INTO _migrations VALUES (?)`)
+              .bind(m.version),
+          ]);
+        }
+        return;
+      }
+
+      // Fall back to libsql
       const url = process.env.DATABASE_URL || "file:./data/app.db";
 
-      // Ensure data directory exists before opening the database
-      if (url.startsWith("file:") && typeof fs.mkdirSync === "function") {
+      if (url.startsWith("file:")) {
         try {
           fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
         } catch {
-          // Non-Node runtime (e.g. Cloudflare Workers) — skip directory creation
+          // Edge runtime — no filesystem
         }
       }
 
@@ -44,7 +69,13 @@ export function runMigrations(
       }
     } catch (err) {
       console.error("[db] Migration failed:", err);
-      process.exit(1);
+      // Don't exit on edge runtimes — process.exit kills the Worker
+      if (
+        typeof globalThis.process?.exit === "function" &&
+        !globalThis.navigator
+      ) {
+        process.exit(1);
+      }
     }
   };
 }

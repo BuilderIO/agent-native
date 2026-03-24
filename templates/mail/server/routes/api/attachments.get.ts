@@ -4,8 +4,61 @@ import {
   setResponseHeader,
   setResponseStatus,
 } from "h3";
-import { google } from "googleapis";
-import { isConnected, getClients } from "../../lib/google-auth.js";
+import {
+  getOAuthTokens,
+  saveOAuthTokens,
+  listOAuthAccounts,
+} from "@agent-native/core/oauth-tokens";
+import { isConnected } from "../../lib/google-auth.js";
+import {
+  createOAuth2Client,
+  gmailGetAttachment,
+} from "../../lib/google-api.js";
+
+interface StoredTokens {
+  access_token: string;
+  refresh_token?: string;
+  expiry_date?: number;
+}
+
+async function getAccessToken(accountEmail: string): Promise<string | null> {
+  const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
+    | StoredTokens
+    | undefined;
+  if (!tokens?.access_token) return null;
+
+  if (
+    tokens.expiry_date &&
+    tokens.refresh_token &&
+    tokens.expiry_date < Date.now() + 5 * 60 * 1000
+  ) {
+    try {
+      const clientId = process.env.GOOGLE_CLIENT_ID!;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+      const oauth = createOAuth2Client(
+        clientId,
+        clientSecret,
+        "http://localhost:8080/api/google/callback",
+      );
+      const refreshed = await oauth.refreshToken(tokens.refresh_token);
+      const updated = {
+        ...tokens,
+        access_token: refreshed.access_token,
+        expiry_date: Date.now() + refreshed.expires_in * 1000,
+      };
+      await saveOAuthTokens(
+        "google",
+        accountEmail,
+        updated as unknown as Record<string, unknown>,
+      );
+      return refreshed.access_token;
+    } catch {
+      // Use existing token
+    }
+  }
+
+  return tokens.access_token;
+}
 
 export default defineEventHandler(async (event) => {
   if (!(await isConnected())) {
@@ -23,17 +76,14 @@ export default defineEventHandler(async (event) => {
     return { error: "messageId and id are required" };
   }
 
-  const clients = await getClients();
-  for (const { client } of clients) {
+  const accounts = await listOAuthAccounts("google");
+  for (const account of accounts) {
     try {
-      const gmail = google.gmail({ version: "v1", auth: client });
-      const res = await gmail.users.messages.attachments.get({
-        userId: "me",
-        messageId,
-        id,
-      });
+      const accessToken = await getAccessToken(account.accountId);
+      if (!accessToken) continue;
 
-      const data = res.data.data;
+      const res = await gmailGetAttachment(accessToken, messageId, id);
+      const data = res.data;
       if (!data) {
         continue;
       }

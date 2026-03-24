@@ -1,4 +1,11 @@
-import { google, type Auth } from "googleapis";
+import {
+  createOAuth2Client,
+  gmailGetProfile,
+  gmailListMessages,
+  gmailGetMessage,
+  gmailListLabels,
+  peopleGetProfile,
+} from "./google-api.js";
 import {
   getOAuthTokens,
   saveOAuthTokens,
@@ -26,7 +33,10 @@ interface GoogleTokens {
   scope?: string;
 }
 
-function createOAuth2Client(redirectUri?: string) {
+function getOAuth2Credentials(): {
+  clientId: string;
+  clientSecret: string;
+} {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
@@ -34,11 +44,55 @@ function createOAuth2Client(redirectUri?: string) {
       "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in environment",
     );
   }
-  return new google.auth.OAuth2(
-    clientId,
-    clientSecret,
-    redirectUri ?? "http://localhost:8080/api/google/callback",
+  return { clientId, clientSecret };
+}
+
+/**
+ * Get a valid access token for the given stored tokens, refreshing if expired.
+ * Returns the (possibly refreshed) access token and updates stored tokens if refreshed.
+ */
+async function getValidAccessToken(
+  accountId: string,
+  tokens: GoogleTokens,
+  owner?: string,
+): Promise<string> {
+  // If token is not expired (with 5-minute buffer), return it directly
+  if (
+    tokens.expiry_date &&
+    tokens.access_token &&
+    Date.now() < tokens.expiry_date - 5 * 60 * 1000
+  ) {
+    return tokens.access_token;
+  }
+
+  // Token is expired or about to expire — refresh it
+  if (!tokens.refresh_token) {
+    throw new Error(
+      `No refresh token available for ${accountId}, cannot refresh access token`,
+    );
+  }
+
+  const { clientId, clientSecret } = getOAuth2Credentials();
+  const redirectUri = "http://localhost:8080/api/google/callback";
+  const oauth2 = createOAuth2Client(clientId, clientSecret, redirectUri);
+  const refreshed = await oauth2.refreshToken(tokens.refresh_token);
+
+  const updatedTokens: GoogleTokens = {
+    ...tokens,
+    access_token: refreshed.access_token,
+    expiry_date: Date.now() + refreshed.expires_in * 1000,
+    token_type: refreshed.token_type,
+    scope: refreshed.scope,
+  };
+
+  await saveOAuthTokens(
+    "google",
+    accountId,
+    updatedTokens as unknown as Record<string, unknown>,
+    owner,
   );
+
+  return refreshed.access_token;
 }
 
 export function getAuthUrl(
@@ -46,10 +100,14 @@ export function getAuthUrl(
   redirectUri?: string,
   state?: string,
 ): string {
+  const { clientId, clientSecret } = getOAuth2Credentials();
   const uri =
-    redirectUri || (origin ? `${origin}/api/google/callback` : undefined);
-  const client = createOAuth2Client(uri);
-  return client.generateAuthUrl({
+    redirectUri ||
+    (origin
+      ? `${origin}/api/google/callback`
+      : "http://localhost:8080/api/google/callback");
+  const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
+  return oauth2.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
     prompt: "consent",
@@ -63,16 +121,26 @@ export async function exchangeCode(
   redirectUri?: string,
   owner?: string,
 ): Promise<string> {
+  const { clientId, clientSecret } = getOAuth2Credentials();
   const uri =
-    redirectUri || (origin ? `${origin}/api/google/callback` : undefined);
-  const client = createOAuth2Client(uri);
-  const { tokens } = await client.getToken(code);
+    redirectUri ||
+    (origin
+      ? `${origin}/api/google/callback`
+      : "http://localhost:8080/api/google/callback");
+  const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
+  const tokenResponse = await oauth2.getToken(code);
+
+  const tokens: GoogleTokens = {
+    access_token: tokenResponse.access_token,
+    refresh_token: tokenResponse.refresh_token,
+    expiry_date: Date.now() + tokenResponse.expires_in * 1000,
+    token_type: tokenResponse.token_type,
+    scope: tokenResponse.scope,
+  };
 
   // Determine the email address for this account
-  client.setCredentials(tokens);
-  const gmail = google.gmail({ version: "v1", auth: client });
-  const profile = await gmail.users.getProfile({ userId: "me" });
-  const email = profile.data.emailAddress;
+  const profile = await gmailGetProfile(tokens.access_token);
+  const email = profile.emailAddress;
   if (!email) throw new Error("Google returned no email address");
 
   await saveOAuthTokens(
@@ -87,7 +155,7 @@ export async function exchangeCode(
 
 export async function getClient(
   email?: string,
-): Promise<Auth.OAuth2Client | null> {
+): Promise<{ accessToken: string; email: string } | null> {
   const accounts = await listOAuthAccounts("google");
   if (accounts.length === 0) return null;
 
@@ -103,37 +171,31 @@ export async function getClient(
   if (!tokens) return null;
 
   const accountId = account.accountId;
-  const client = createOAuth2Client();
-  client.setCredentials(tokens);
+  const accessToken = await getValidAccessToken(accountId, tokens);
 
-  client.on("tokens", async (newTokens) => {
-    const current =
-      ((await getOAuthTokens("google", accountId)) as unknown as
-        | GoogleTokens
-        | undefined) ?? {};
-    await saveOAuthTokens("google", accountId, {
-      ...current,
-      ...newTokens,
-    } as unknown as Record<string, unknown>);
-  });
-
-  return client;
+  return { accessToken, email: accountId };
 }
 
 /**
- * Get OAuth clients. When `forEmail` is provided, returns only that
- * user's client (multi-user mode). Otherwise returns all (legacy).
+ * Get OAuth credentials. When `forEmail` is provided, returns only that
+ * user's credentials (multi-user mode). Otherwise returns all (legacy).
  */
 export async function getClients(
   forEmail?: string,
-): Promise<Array<{ email: string; client: Auth.OAuth2Client }>> {
+): Promise<
+  Array<{ email: string; accessToken: string; refreshToken: string }>
+> {
   // When forEmail is provided, get all accounts owned by that user
   // Otherwise return all accounts globally (legacy)
   const accounts = forEmail
     ? await listOAuthAccountsByOwner("google", forEmail)
     : await listOAuthAccounts("google");
 
-  const results: Array<{ email: string; client: Auth.OAuth2Client }> = [];
+  const results: Array<{
+    email: string;
+    accessToken: string;
+    refreshToken: string;
+  }> = [];
 
   for (const account of accounts) {
     const tokens = account.tokens as unknown as GoogleTokens;
@@ -147,23 +209,22 @@ export async function getClients(
         ? account.owner
         : undefined) ??
       accountId;
-    const client = createOAuth2Client();
-    client.setCredentials(tokens);
 
-    client.on("tokens", async (newTokens) => {
-      const current =
-        ((await getOAuthTokens("google", accountId)) as unknown as
-          | GoogleTokens
-          | undefined) ?? {};
-      await saveOAuthTokens(
-        "google",
+    try {
+      const accessToken = await getValidAccessToken(
         accountId,
-        { ...current, ...newTokens } as unknown as Record<string, unknown>,
+        tokens,
         ownerForRefresh,
       );
-    });
 
-    results.push({ email: accountId, client });
+      results.push({
+        email: accountId,
+        accessToken,
+        refreshToken: tokens.refresh_token || "",
+      });
+    } catch {
+      // Skip accounts with expired/invalid tokens so other accounts still work
+    }
   }
 
   return results;
@@ -223,14 +284,9 @@ export async function getAuthStatus(
     const email = account.accountId;
     let photoUrl: string | undefined;
     try {
-      const client = createOAuth2Client();
-      client.setCredentials(tokens);
-      const people = google.people({ version: "v1", auth: client });
-      const profile = await people.people.get({
-        resourceName: "people/me",
-        personFields: "photos",
-      });
-      photoUrl = profile.data.photos?.[0]?.url ?? undefined;
+      const accessToken = await getValidAccessToken(email, tokens);
+      const profile = await peopleGetProfile(accessToken, "photos");
+      photoUrl = profile.photos?.[0]?.url ?? undefined;
     } catch {}
     accounts.push({
       email,
@@ -269,26 +325,20 @@ export async function listGmailMessages(
   const errors: Array<{ email: string; error: string }> = [];
 
   const allResults = await Promise.all(
-    clients.map(async ({ email, client }) => {
+    clients.map(async ({ email, accessToken }) => {
       try {
-        const gmail = google.gmail({ version: "v1", auth: client });
-        const listRes = await gmail.users.messages.list({
-          userId: "me",
+        const listRes = await gmailListMessages(accessToken, {
           q: query || "in:inbox",
           maxResults,
         });
 
-        const messageIds = listRes.data.messages || [];
+        const messageIds = listRes.messages || [];
         if (messageIds.length === 0) return [];
 
         const messages = await Promise.all(
-          messageIds.map(async (m) => {
-            const msg = await gmail.users.messages.get({
-              userId: "me",
-              id: m.id!,
-              format: "full",
-            });
-            return { ...msg.data, _accountEmail: email };
+          messageIds.map(async (m: any) => {
+            const msg = await gmailGetMessage(accessToken, m.id, "full");
+            return { ...msg, _accountEmail: email };
           }),
         );
 
@@ -410,12 +460,11 @@ function replaceCidUrls(
 }
 
 export async function fetchGmailLabelMap(
-  client: Auth.OAuth2Client,
+  accessToken: string,
 ): Promise<Map<string, string>> {
-  const gmail = google.gmail({ version: "v1", auth: client });
-  const res = await gmail.users.labels.list({ userId: "me" });
+  const res = await gmailListLabels(accessToken);
   const map = new Map<string, string>();
-  for (const label of res.data.labels || []) {
+  for (const label of res.labels || []) {
     if (label.id && label.name) {
       map.set(label.id, label.name);
     }

@@ -14,9 +14,13 @@ import { nanoid } from "nanoid";
 
 const UPLOADS_DIR = path.resolve("data/uploads");
 
-// Ensure uploads directory exists
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+// Ensure uploads directory exists (guarded for edge runtimes without filesystem)
+try {
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+} catch {
+  // Edge runtime (e.g. Cloudflare Workers) — no local filesystem
 }
 
 const MIME_MAP: Record<string, string> = {

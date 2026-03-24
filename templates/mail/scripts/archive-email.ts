@@ -12,9 +12,8 @@
  *   --id    Email ID(s) to archive, comma-separated (required)
  */
 
-import { google } from "googleapis";
-import { parseArgs, output, fatal } from "./helpers.js";
-import { getClients } from "../server/lib/google-auth.js";
+import { parseArgs, output, fatal, getAccessTokens } from "./helpers.js";
+import { gmailModifyMessage } from "../server/lib/google-api.js";
 import {
   readAppState,
   writeAppState,
@@ -50,8 +49,8 @@ export async function run(args: Record<string, string>): Promise<string> {
     return "Error: --id is required";
   }
 
-  const clients = await getClients();
-  if (clients.length === 0) {
+  const accounts = await getAccessTokens();
+  if (accounts.length === 0) {
     return "Error: No Google account connected. Connect an account in the app first.";
   }
 
@@ -64,14 +63,9 @@ export async function run(args: Record<string, string>): Promise<string> {
   for (const id of ids) {
     let success = false;
     const errors: string[] = [];
-    for (const { client } of clients) {
-      const gmail = google.gmail({ version: "v1", auth: client });
+    for (const { accessToken } of accounts) {
       try {
-        await gmail.users.messages.modify({
-          userId: "me",
-          id,
-          requestBody: { removeLabelIds: ["INBOX"] },
-        });
+        await gmailModifyMessage(accessToken, id, undefined, ["INBOX"]);
         success = true;
         break;
       } catch (err: any) {

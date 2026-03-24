@@ -2,14 +2,48 @@ import { createClient, type Client } from "@libsql/client";
 import fs from "fs";
 import path from "path";
 
-let _client: Client | undefined;
+/** Minimal DB interface used by the oauth-tokens store */
+interface DbExec {
+  execute(
+    sql: string | { sql: string; args: any[] },
+  ): Promise<{ rows: any[]; rowsAffected: number }>;
+}
+
+let _client: DbExec | undefined;
 let _initialized = false;
 
-function getClient(): Client {
+function getClient(): DbExec {
   if (!_client) {
+    // Check for Cloudflare D1 binding
+    const d1 = (globalThis as any).__cf_env?.DB;
+    if (d1) {
+      _client = {
+        async execute(sql) {
+          if (typeof sql === "string") {
+            const r = await d1.prepare(sql).all();
+            return {
+              rows: r.results || [],
+              rowsAffected: r.meta?.changes ?? 0,
+            };
+          }
+          const r = await d1
+            .prepare(sql.sql)
+            .bind(...sql.args)
+            .all();
+          return { rows: r.results || [], rowsAffected: r.meta?.changes ?? 0 };
+        },
+      };
+      return _client;
+    }
+
+    // Fall back to libsql
     const url = process.env.DATABASE_URL || "file:./data/app.db";
     if (url.startsWith("file:")) {
-      fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
+      try {
+        fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
+      } catch {
+        // Edge runtime — no filesystem
+      }
     }
     _client = createClient({
       url,

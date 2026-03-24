@@ -86,3 +86,95 @@ function pickFields(data: unknown, fields: string[]): unknown {
   if (Array.isArray(data)) return data.map(pick);
   return data;
 }
+
+// ---------------------------------------------------------------------------
+// OAuth access-token helpers (fetch-based, no googleapis dependency)
+// ---------------------------------------------------------------------------
+
+import {
+  listOAuthAccounts,
+  saveOAuthTokens,
+} from "@agent-native/core/oauth-tokens";
+import {
+  createOAuth2Client,
+  gmailListLabels,
+} from "../server/lib/google-api.js";
+
+interface TokenRecord {
+  access_token: string;
+  refresh_token?: string;
+  expiry_date?: number;
+}
+
+/**
+ * Get a valid access token for a single account, refreshing if expired.
+ */
+async function resolveAccessToken(
+  accountId: string,
+  tokens: TokenRecord,
+): Promise<string> {
+  const now = Date.now();
+  // Refresh if expiry_date is set and within 60 seconds of expiring
+  if (
+    tokens.refresh_token &&
+    tokens.expiry_date &&
+    tokens.expiry_date < now + 60_000
+  ) {
+    const clientId = process.env.GOOGLE_CLIENT_ID!;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+    const oauth = createOAuth2Client(clientId, clientSecret, "");
+    const refreshed = await oauth.refreshToken(tokens.refresh_token);
+    const updated = {
+      ...tokens,
+      access_token: refreshed.access_token,
+      expiry_date: now + refreshed.expires_in * 1000,
+    };
+    await saveOAuthTokens(
+      "google",
+      accountId,
+      updated as unknown as Record<string, unknown>,
+    );
+    return refreshed.access_token;
+  }
+  return tokens.access_token;
+}
+
+/**
+ * Get access tokens for all connected Google accounts.
+ * Returns an array of { email, accessToken } with refreshed tokens.
+ */
+export async function getAccessTokens(): Promise<
+  Array<{ email: string; accessToken: string }>
+> {
+  const accounts = await listOAuthAccounts("google");
+  const results: Array<{ email: string; accessToken: string }> = [];
+
+  for (const account of accounts) {
+    const tokens = account.tokens as unknown as TokenRecord;
+    if (!tokens?.access_token) continue;
+    try {
+      const accessToken = await resolveAccessToken(account.accountId, tokens);
+      results.push({ email: account.accountId, accessToken });
+    } catch {
+      // Skip accounts that fail to refresh
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Fetch Gmail label map (id -> name) using the fetch-based API.
+ */
+export async function fetchLabelMap(
+  accessToken: string,
+): Promise<Map<string, string>> {
+  const res = await gmailListLabels(accessToken);
+  const map = new Map<string, string>();
+  for (const label of res.labels || []) {
+    if (label.id && label.name) {
+      map.set(label.id, label.name);
+    }
+  }
+  return map;
+}

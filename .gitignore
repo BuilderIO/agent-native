@@ -38,3 +38,9 @@ build/
 # Ralph Loop runtime state
 ralph-loop.local.md
 .builder/plans/
+
+# Local Netlify folder
+.netlify
+
+# Wrangler local state
+.wrangler

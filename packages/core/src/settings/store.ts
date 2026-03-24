@@ -3,7 +3,14 @@ import fs from "fs";
 import path from "path";
 import { EventEmitter } from "events";
 
-let _client: Client | undefined;
+/** Minimal DB interface used by the settings store */
+interface DbExec {
+  execute(
+    sql: string | { sql: string; args: any[] },
+  ): Promise<{ rows: any[]; rowsAffected: number }>;
+}
+
+let _client: DbExec | undefined;
 let _initialized = false;
 
 const _emitter = new EventEmitter();
@@ -12,14 +19,37 @@ export function getSettingsEmitter(): EventEmitter {
   return _emitter;
 }
 
-function getClient(): Client {
+function getClient(): DbExec {
   if (!_client) {
+    // Check for Cloudflare D1 binding
+    const d1 = (globalThis as any).__cf_env?.DB;
+    if (d1) {
+      _client = {
+        async execute(sql) {
+          if (typeof sql === "string") {
+            const r = await d1.prepare(sql).all();
+            return {
+              rows: r.results || [],
+              rowsAffected: r.meta?.changes ?? 0,
+            };
+          }
+          const r = await d1
+            .prepare(sql.sql)
+            .bind(...sql.args)
+            .all();
+          return { rows: r.results || [], rowsAffected: r.meta?.changes ?? 0 };
+        },
+      };
+      return _client;
+    }
+
+    // Fall back to libsql
     const url = process.env.DATABASE_URL || "file:./data/app.db";
-    if (url.startsWith("file:") && typeof fs.mkdirSync === "function") {
+    if (url.startsWith("file:")) {
       try {
         fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
       } catch {
-        // Non-Node runtime (e.g. Cloudflare Workers) — skip directory creation
+        // Edge runtime — no filesystem
       }
     }
     _client = createClient({
