@@ -6,8 +6,6 @@ import {
   setResponseStatus,
   getHeader,
   setCookie,
-  getCookie,
-  deleteCookie,
   sendRedirect,
   type H3Event,
 } from "h3";
@@ -38,16 +36,7 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
     const redirectUri =
       (getQuery(event).redirect_uri as string) ||
       `${getOrigin(event)}/api/google/callback`;
-    // Generate a state token for CSRF protection and store redirect URI
-    // in a short-lived httpOnly cookie (serverless-safe, no in-memory Map)
     const state = crypto.randomBytes(16).toString("hex");
-    setCookie(event, `oauth_state_${state}`, redirectUri, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/api/google/callback",
-      maxAge: 600, // 10 minutes
-    });
     const url = getAuthUrl(undefined, redirectUri, state);
     return { url };
   } catch (error: any) {
@@ -61,29 +50,14 @@ export const handleGoogleCallback = defineEventHandler(
     try {
       const query = getQuery(event);
       const code = query.code as string;
-      const state = query.state as string | undefined;
       if (!code) {
         setResponseStatus(event, 400);
         return { error: "Missing authorization code" };
       }
 
-      // Enforce state parameter for CSRF protection
-      if (!state) {
-        setResponseStatus(event, 400);
-        return errorPage(
-          "Missing OAuth state parameter. Please try signing in again.",
-        );
-      }
-      const cookieName = `oauth_state_${state}`;
-      const redirectUri = getCookie(event, cookieName);
-      if (!redirectUri) {
-        setResponseStatus(event, 400);
-        return errorPage(
-          "Invalid or expired OAuth state. Please try signing in again.",
-        );
-      }
-      // Clean up the state cookie
-      deleteCookie(event, cookieName, { path: "/api/google/callback" });
+      // Compute redirect URI deterministically from request origin
+      // (must match what was sent to Google in getGoogleAuthUrl)
+      const redirectUri = `${getOrigin(event)}/api/google/callback`;
 
       const email = await exchangeCode(code, undefined, redirectUri);
 
@@ -142,13 +116,6 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         (getQuery(event).redirect_uri as string) ||
         `${getOrigin(event)}/api/google/add-account/callback`;
       const state = crypto.randomBytes(16).toString("hex");
-      setCookie(event, `oauth_state_${state}`, redirectUri, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/api/google/add-account/callback",
-        maxAge: 600,
-      });
       const url = getAuthUrl(undefined, redirectUri, state);
       return { url };
     } catch (error: any) {
@@ -168,25 +135,12 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
 
       const query = getQuery(event);
       const code = query.code as string;
-      const state = query.state as string | undefined;
       if (!code) {
         setResponseStatus(event, 400);
         return errorPage("Missing authorization code.");
       }
 
-      if (!state) {
-        setResponseStatus(event, 400);
-        return errorPage("Missing OAuth state parameter. Please try again.");
-      }
-      const cookieName = `oauth_state_${state}`;
-      const redirectUri = getCookie(event, cookieName);
-      if (!redirectUri) {
-        setResponseStatus(event, 400);
-        return errorPage("Invalid or expired OAuth state. Please try again.");
-      }
-      deleteCookie(event, cookieName, {
-        path: "/api/google/add-account/callback",
-      });
+      const redirectUri = `${getOrigin(event)}/api/google/add-account/callback`;
 
       // Exchange code, passing the logged-in user as the owner
       const addedEmail = await exchangeCode(
