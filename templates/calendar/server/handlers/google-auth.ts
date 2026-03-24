@@ -32,6 +32,30 @@ function errorPage(message: string): string {
   </body></html>`;
 }
 
+/** Encode a redirect URI into the OAuth state param so the callback can recover it across proxies. */
+function encodeState(redirectUri: string): string {
+  const nonce = crypto.randomBytes(8).toString("hex");
+  return Buffer.from(JSON.stringify({ n: nonce, r: redirectUri })).toString(
+    "base64url",
+  );
+}
+
+/** Recover the redirect URI from the state param, falling back to origin-based computation. */
+function decodeRedirectUri(
+  stateParam: string | undefined,
+  fallback: string,
+): string {
+  if (stateParam) {
+    try {
+      const parsed = JSON.parse(
+        Buffer.from(stateParam, "base64url").toString(),
+      );
+      if (parsed.r) return parsed.r;
+    } catch {}
+  }
+  return fallback;
+}
+
 export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
     setResponseStatus(event, 422);
@@ -46,7 +70,7 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
     const redirectUri =
       (query.redirect_uri as string) ||
       `${getOrigin(event)}/api/google/callback`;
-    const state = crypto.randomBytes(16).toString("hex");
+    const state = encodeState(redirectUri);
     const url = getAuthUrl(undefined, redirectUri, state);
     return { url };
   } catch (error: any) {
@@ -60,12 +84,16 @@ export const handleGoogleCallback = defineEventHandler(
     try {
       const query = getQuery(event);
       const code = query.code as string;
+      const stateParam = query.state as string | undefined;
       if (!code) {
         setResponseStatus(event, 400);
         return { error: "Missing authorization code" };
       }
 
-      const redirectUri = `${getOrigin(event)}/api/google/callback`;
+      const redirectUri = decodeRedirectUri(
+        stateParam,
+        `${getOrigin(event)}/api/google/callback`,
+      );
       const existingSession = await getSession(event);
       const owner =
         existingSession?.email !== "local@localhost"
@@ -129,7 +157,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       const redirectUri =
         (query.redirect_uri as string) ||
         `${getOrigin(event)}/api/google/add-account/callback`;
-      const state = crypto.randomBytes(16).toString("hex");
+      const state = encodeState(redirectUri);
       const url = getAuthUrl(undefined, redirectUri, state);
       return { url };
     } catch (error: any) {
@@ -149,12 +177,16 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
 
       const query = getQuery(event);
       const code = query.code as string;
+      const stateParam = query.state as string | undefined;
       if (!code) {
         setResponseStatus(event, 400);
         return errorPage("Missing authorization code.");
       }
 
-      const redirectUri = `${getOrigin(event)}/api/google/add-account/callback`;
+      const redirectUri = decodeRedirectUri(
+        stateParam,
+        `${getOrigin(event)}/api/google/add-account/callback`,
+      );
 
       const addedEmail = await exchangeCode(
         code,

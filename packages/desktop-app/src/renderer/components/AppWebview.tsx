@@ -22,6 +22,11 @@ function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
     return appConfig.url;
   }
 
+  // If harness is disabled, load the app directly
+  if (appConfig?.useCliHarness === false) {
+    return appConfig.devUrl || appConfig.url;
+  }
+
   // Default: connect to the harness which serves all apps
   return getAppUrl(app);
 }

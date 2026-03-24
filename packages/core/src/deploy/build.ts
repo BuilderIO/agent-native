@@ -138,6 +138,19 @@ export default {
       }
     }
 
+    // Try serving static assets first (CF Pages advanced mode)
+    if (env?.ASSETS) {
+      try {
+        const assetResponse = await env.ASSETS.fetch(request);
+        if (assetResponse.status !== 404) {
+          return assetResponse;
+        }
+      } catch {
+        // Asset fetch failed — fall through to SSR
+      }
+    }
+
+
     const handler = await getHandler();
     return handler(request);
   }

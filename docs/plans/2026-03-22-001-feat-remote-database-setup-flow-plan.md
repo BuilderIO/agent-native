@@ -1,7 +1,7 @@
 ---
 title: "feat: SQLite-first data layer with cloud upgrade path"
 type: feat
-status: active
+status: done
 date: 2026-03-22
 ---
 
@@ -305,22 +305,22 @@ Keep `better-sqlite3` in the Drizzle file-sync adapter — it's infrastructure, 
 
 ## Acceptance Criteria
 
-- [ ] Forms: `better-sqlite3` → `@libsql/client`, all queries async
-- [ ] Calendar: `better-sqlite3` → `@libsql/client`, all queries async
-- [ ] Calendar: events read from Google API directly, not synced to files
-- [ ] Calendar: `sync-google-calendar` script removed, event scripts use Google API
-- [ ] Core DB scripts work with `@libsql/client` (both `file:` and `libsql://` URLs)
-- [ ] Cloud upgrade UI shown only when user tries to share/publish while on local SQLite
-- [ ] `isLocalDb()` helper detects local vs cloud mode
-- [ ] `db-health` endpoint returns `{ ok, local }` with real query test
-- [ ] Versioned migration system via `_migrations` table
-- [ ] Env var sanitization in `upsertEnvFile` (reject newlines/CR/null)
-- [ ] Form submission field whitelisting + size limits
-- [ ] Public form definition caching (60s TTL)
-- [ ] Submission notifications via `application-state/`
-- [ ] Agent scripts: `db-status`, `db-connect`
-- [ ] `.env.example` updated with `DATABASE_URL`, `DATABASE_AUTH_TOKEN`
-- [ ] Generic env var names (not Turso-specific)
+- [x] Forms: `better-sqlite3` → `@libsql/client`, all queries async
+- [x] Calendar: `better-sqlite3` → `@libsql/client`, all queries async
+- [x] Calendar: events read from Google API directly, not synced to files
+- [x] Calendar: `sync-google-calendar` script removed, event scripts use Google API
+- [x] Core DB scripts work with `@libsql/client` (both `file:` and `libsql://` URLs)
+- [x] Cloud upgrade UI shown only when user tries to share/publish while on local SQLite
+- [x] `isLocalDb()` helper detects local vs cloud mode
+- [x] `db-health` endpoint returns `{ ok, local }` with real query test
+- [x] Versioned migration system via `_migrations` table
+- [x] Env var sanitization in `upsertEnvFile` (reject newlines/CR/null)
+- [x] Form submission field whitelisting + size limits
+- [x] Public form definition caching (60s TTL)
+- [x] Submission notifications via `application-state/`
+- [x] Agent scripts: `db-status`, `db-connect`
+- [x] `.env.example` updated with `DATABASE_URL`, `DATABASE_AUTH_TOKEN`
+- [x] Generic env var names (not Turso-specific)
 
 ### Phase 9: Slides — migrate from JSON files to SQLite
 
@@ -456,26 +456,26 @@ User picks a provider, sees tailored setup instructions, pastes credentials. The
 
 ## Updated Acceptance Criteria
 
-- [ ] Forms: `better-sqlite3` → `@libsql/client`, all queries async
-- [ ] Calendar: `better-sqlite3` → `@libsql/client`, all queries async
-- [ ] Calendar: events read from Google API directly, not synced to files
-- [ ] Calendar: `sync-google-calendar` script removed, event scripts use Google API
-- [ ] Slides: data moved from JSON files to SQLite via Drizzle
-- [ ] Videos: data moved from files to SQLite via Drizzle
-- [ ] Content: cloud sync layer added (on-demand sync + share flow)
-- [ ] Core DB scripts work with `@libsql/client`
-- [ ] Cloud upgrade UI with provider-specific instructions (Turso, Neon, Supabase, D1)
-- [ ] Cloud upgrade shown on publish/share, not on boot
-- [ ] Content: manual "Sync to cloud" trigger available anytime
-- [ ] `isLocalDb()` helper detects local vs cloud mode
-- [ ] `db-health` endpoint with real query test
-- [ ] Versioned migration system via `_migrations` table
-- [ ] Env var sanitization in `upsertEnvFile`
-- [ ] Form submission field whitelisting + size limits
-- [ ] Public form definition caching (60s TTL)
-- [ ] Submission notifications via `application-state/`
-- [ ] Agent scripts: `db-status`, `db-connect`
-- [ ] Generic env var names: `DATABASE_URL`, `DATABASE_AUTH_TOKEN`
+- [x] Forms: `better-sqlite3` → `@libsql/client`, all queries async
+- [x] Calendar: `better-sqlite3` → `@libsql/client`, all queries async
+- [x] Calendar: events read from Google API directly, not synced to files
+- [x] Calendar: `sync-google-calendar` script removed, event scripts use Google API
+- [x] Slides: data moved from JSON files to SQLite via Drizzle
+- [x] Videos: data moved from files to SQLite via Drizzle
+- [x] Content: fully SQLite-backed (exceeded plan — no files at all, all in SQL)
+- [x] Core DB scripts work with `@libsql/client`
+- [x] Cloud upgrade UI with provider-specific instructions (Turso, Neon, Supabase, D1)
+- [x] Cloud upgrade shown on publish/share, not on boot
+- [x] Content: SQL is the only source of truth (no file sync needed)
+- [x] `isLocalDb()` helper detects local vs cloud mode
+- [x] `db-health` endpoint with real query test
+- [x] Versioned migration system via `_migrations` table
+- [x] Env var sanitization in `upsertEnvFile`
+- [x] Form submission field whitelisting + size limits
+- [x] Public form definition caching (60s TTL)
+- [x] Submission notifications via `application-state/`
+- [x] Agent scripts: `db-status`, `db-connect`
+- [x] Generic env var names: `DATABASE_URL`, `DATABASE_AUTH_TOKEN`
 
 ## Out of Scope
 
