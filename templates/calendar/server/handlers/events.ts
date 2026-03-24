@@ -114,16 +114,14 @@ export const getEvent = defineEventHandler(async (event: H3Event) => {
     const googleEventId = id.replace(/^google-/, "");
 
     const clients = await googleCalendar.getClients(email);
-    for (const { email: acctEmail, client } of clients) {
+    for (const { email: acctEmail, accessToken } of clients) {
       try {
-        const { google } = await import("googleapis");
-        const calendar = google.calendar({ version: "v3", auth: client });
-        const response = await calendar.events.get({
-          calendarId: "primary",
-          eventId: googleEventId,
-        });
-
-        const evt = response.data;
+        const { calendarGetEvent } = await import("../lib/google-api.js");
+        const evt = await calendarGetEvent(
+          accessToken,
+          "primary",
+          googleEventId,
+        );
         const calEvent: CalendarEvent = {
           id: `google-${evt.id}`,
           title: evt.summary || "Untitled",
