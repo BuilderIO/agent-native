@@ -74,9 +74,9 @@ export async function run(args: Record<string, string>): Promise<string> {
 
   const labelMap = new Map<string, string>();
   await Promise.all(
-    clients.map(async ({ client }) => {
+    clients.map(async ({ accessToken }) => {
       try {
-        const map = await fetchGmailLabelMap(client);
+        const map = await fetchGmailLabelMap(accessToken);
         for (const [id, name] of map) labelMap.set(id, name);
       } catch {}
     }),
@@ -142,9 +142,9 @@ export default async function main(): Promise<void> {
 
   const labelMap = new Map<string, string>();
   await Promise.all(
-    clients.map(async ({ client }) => {
+    clients.map(async ({ accessToken }) => {
       try {
-        const map = await fetchGmailLabelMap(client);
+        const map = await fetchGmailLabelMap(accessToken);
         for (const [id, name] of map) labelMap.set(id, name);
       } catch {}
     }),

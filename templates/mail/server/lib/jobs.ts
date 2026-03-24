@@ -19,7 +19,7 @@ interface StoredTokens {
 }
 
 async function getAccessToken(accountEmail: string): Promise<string | null> {
-  const tokens = (await getOAuthTokens("google", accountEmail)) as
+  const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
     | StoredTokens
     | undefined;
   if (!tokens?.access_token) return null;
