@@ -1,11 +1,8 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
 import { cn } from "@/lib/utils";
-import {
-  EmailList,
-  InboxZero,
-  groupIntoThreads,
-} from "@/components/email/EmailList";
+import { EmailList, InboxZero } from "@/components/email/EmailList";
+import { groupIntoThreads } from "@/lib/threads";
 import { EmailThread } from "@/components/email/EmailThread";
 import { useComposeState } from "@/hooks/use-compose-state";
 import {
@@ -24,7 +21,7 @@ import {
 
 import { IntegrationsSidebar } from "@/components/email/IntegrationsSidebar";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
-import { useAccountFilter } from "@/components/layout/AppLayout";
+import { useAccountFilter } from "@/hooks/use-account-filter";
 import { toast } from "sonner";
 import type { EmailMessage } from "@shared/types";
 

@@ -1,12 +1,4 @@
-import {
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  useMemo,
-  createContext,
-  useContext,
-} from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation, useSearchParams } from "react-router";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "./CommandPalette";
@@ -43,22 +35,7 @@ import {
 import type { Label } from "@shared/types";
 import { toast } from "sonner";
 
-// ─── Account Filter Context ──────────────────────────────────────────────────
-
-type AccountFilterContextType = {
-  /** Set of active account emails. Empty = show all (no filtering). */
-  activeAccounts: Set<string>;
-  allAccounts: Array<{ email: string; photoUrl?: string }>;
-};
-
-const AccountFilterContext = createContext<AccountFilterContextType>({
-  activeAccounts: new Set(),
-  allAccounts: [],
-});
-
-export function useAccountFilter() {
-  return useContext(AccountFilterContext);
-}
+import { AccountFilterContext } from "@/hooks/use-account-filter";
 
 /** Extract the trailing segment of a nested label name, e.g. "[Superhuman]/AI/Pitch" → "Pitch" */
 function shortLabelName(name: string): string {

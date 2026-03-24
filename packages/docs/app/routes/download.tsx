@@ -157,6 +157,14 @@ export default function DownloadPage() {
         </div>
       </div>
 
+      {/* Mobile teaser */}
+      <div className="mt-16 mx-auto max-w-lg rounded-lg border border-dashed border-[var(--border)] px-6 py-5 text-center">
+        <p className="text-sm text-[var(--fg-secondary)]">
+          <span className="mr-1.5">📱</span>A mobile app for iOS and Android is
+          in the works.
+        </p>
+      </div>
+
       {/* All releases link */}
       <div className="mt-12 text-center">
         <a
