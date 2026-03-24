@@ -12,7 +12,7 @@ export default function CodeBlock({
 }: CodeBlockProps) {
   const [html, setHtml] = useState("");
   const [copied, setCopied] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
