@@ -431,6 +431,62 @@ export interface AssistantChatProps {
   onSwitchToCli?: () => void;
 }
 
+// ─── Queue Composer ──────────────────────────────────────────────────────────
+// Custom composer shown while the agent is running. Uses a plain textarea
+// (not ComposerPrimitive) so we can submit without interrupting the active run.
+
+function QueueComposer({
+  composerRef,
+  addToQueue,
+  queuedCount,
+}: {
+  composerRef: React.RefObject<HTMLTextAreaElement | null>;
+  addToQueue: (text: string) => void;
+  queuedCount: number;
+}) {
+  const [value, setValue] = useState("");
+
+  const handleSubmit = useCallback(() => {
+    const text = value.trim();
+    if (!text) return;
+    addToQueue(text);
+    setValue("");
+    // Re-focus after submit
+    setTimeout(() => composerRef.current?.focus(), 0);
+  }, [value, addToQueue, composerRef]);
+
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring">
+      <textarea
+        ref={composerRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            handleSubmit();
+          }
+        }}
+        placeholder={
+          queuedCount > 0
+            ? `${queuedCount} queued — type another...`
+            : "Queue a message..."
+        }
+        className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-relaxed min-h-[24px] max-h-[120px]"
+        rows={1}
+      />
+      <button
+        onClick={handleSubmit}
+        disabled={!value.trim()}
+        className="shrink-0 flex h-8 w-8 items-center justify-center rounded-md bg-primary/70 text-primary-foreground hover:bg-primary disabled:opacity-30 disabled:cursor-not-allowed"
+        title="Queue message"
+      >
+        <SendIcon className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
 const AssistantChatInner = forwardRef<
   AssistantChatHandle,
   Omit<AssistantChatProps, "tabId">
