@@ -1,7 +1,17 @@
 name = "agent-native-mail"
-pages_build_output_dir = "templates/mail/dist"
-compatibility_date = "2024-12-01"
-compatibility_flags = ["nodejs_compat"]
+main = "templates/mail/dist/_worker.js/index.js"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat_v2"]
+
+[assets]
+directory = "templates/mail/dist"
+
+# Stub native modules that can't run on Workers
+[alias]
+"better-sqlite3" = "./templates/mail/dist/_worker.js/stubs/empty.js"
+"node-pty" = "./templates/mail/dist/_worker.js/stubs/empty.js"
+"chokidar" = "./templates/mail/dist/_worker.js/stubs/empty.js"
+"fsevents" = "./templates/mail/dist/_worker.js/stubs/empty.js"
 
 [[d1_databases]]
 binding = "DB"

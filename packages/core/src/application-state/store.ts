@@ -1,10 +1,38 @@
 import { createClient, type Client } from "@libsql/client";
 import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
 
-let _client: Client | undefined;
+interface DbExec {
+  execute(
+    sql: string | { sql: string; args: any[] },
+  ): Promise<{ rows: any[]; rowsAffected: number }>;
+}
 
-function getClient(): Client {
+let _client: DbExec | undefined;
+
+function getClient(): DbExec {
   if (!_client) {
+    // Check for Cloudflare D1 binding
+    const d1 = (globalThis as any).__cf_env?.DB;
+    if (d1) {
+      _client = {
+        async execute(sql) {
+          if (typeof sql === "string") {
+            const r = await d1.prepare(sql).all();
+            return {
+              rows: r.results || [],
+              rowsAffected: r.meta?.changes ?? 0,
+            };
+          }
+          const r = await d1
+            .prepare(sql.sql)
+            .bind(...sql.args)
+            .all();
+          return { rows: r.results || [], rowsAffected: r.meta?.changes ?? 0 };
+        },
+      };
+      return _client;
+    }
+
     const url = process.env.DATABASE_URL || "file:./data/app.db";
     _client = createClient({
       url,

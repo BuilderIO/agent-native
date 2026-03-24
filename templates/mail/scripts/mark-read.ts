@@ -10,9 +10,8 @@
  *   --unread  Mark as unread instead of read
  */
 
-import { google } from "googleapis";
-import { parseArgs, output, fatal } from "./helpers.js";
-import { getClients } from "../server/lib/google-auth.js";
+import { parseArgs, output, fatal, getAccessTokens } from "./helpers.js";
+import { gmailModifyMessage } from "../server/lib/google-api.js";
 import type { ScriptTool } from "@agent-native/core";
 
 export const tool: ScriptTool = {
@@ -39,23 +38,21 @@ export async function run(args: Record<string, string>): Promise<string> {
   if (!ids || ids.length === 0) return "Error: --id is required";
   const markUnread = args.unread === "true";
 
-  const clients = await getClients();
-  if (clients.length === 0) return "Error: No Google account connected.";
+  const accounts = await getAccessTokens();
+  if (accounts.length === 0) return "Error: No Google account connected.";
 
   const results: { id: string; success: boolean; error?: string }[] = [];
   for (const id of ids) {
     let success = false;
     const errors: string[] = [];
-    for (const { client } of clients) {
-      const gmail = google.gmail({ version: "v1", auth: client });
+    for (const { accessToken } of accounts) {
       try {
-        await gmail.users.messages.modify({
-          userId: "me",
+        await gmailModifyMessage(
+          accessToken,
           id,
-          requestBody: markUnread
-            ? { addLabelIds: ["UNREAD"] }
-            : { removeLabelIds: ["UNREAD"] },
-        });
+          markUnread ? ["UNREAD"] : undefined,
+          markUnread ? undefined : ["UNREAD"],
+        );
         success = true;
         break;
       } catch (err: any) {

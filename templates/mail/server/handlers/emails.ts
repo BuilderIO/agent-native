@@ -9,17 +9,109 @@ import {
 } from "h3";
 import { nanoid } from "nanoid";
 import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
-import { google } from "googleapis";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { getSession } from "@agent-native/core/server";
 import {
+  getOAuthTokens,
+  saveOAuthTokens,
+  listOAuthAccounts,
+  listOAuthAccountsByOwner,
+} from "@agent-native/core/oauth-tokens";
+import {
+  createOAuth2Client,
+  gmailGetMessage,
+  gmailGetThread,
+  gmailListLabels,
+  gmailModifyMessage,
+  gmailTrashMessage,
+  googleFetch,
+  peopleListConnections,
+  peopleListOtherContacts,
+  calendarGetEvent,
+  calendarPatchEvent,
+} from "../lib/google-api.js";
+import {
   isConnected,
-  getClient,
-  getClients,
   listGmailMessages,
   gmailToEmailMessage,
-  fetchGmailLabelMap,
 } from "../lib/google-auth.js";
+
+// ---------------------------------------------------------------------------
+// Token helper — get a valid access token, refreshing if needed
+// ---------------------------------------------------------------------------
+
+interface StoredTokens {
+  access_token: string;
+  refresh_token?: string;
+  expiry_date?: number;
+}
+
+async function getAccessToken(accountEmail: string): Promise<string | null> {
+  const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
+    | StoredTokens
+    | undefined;
+  if (!tokens?.access_token) return null;
+
+  // If token expires within 5 minutes, refresh it
+  if (
+    tokens.expiry_date &&
+    tokens.refresh_token &&
+    tokens.expiry_date < Date.now() + 5 * 60 * 1000
+  ) {
+    try {
+      const clientId = process.env.GOOGLE_CLIENT_ID!;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+      const oauth = createOAuth2Client(
+        clientId,
+        clientSecret,
+        "http://localhost:8080/api/google/callback",
+      );
+      const refreshed = await oauth.refreshToken(tokens.refresh_token);
+      const updated = {
+        ...tokens,
+        access_token: refreshed.access_token,
+        expiry_date: Date.now() + refreshed.expires_in * 1000,
+      };
+      await saveOAuthTokens(
+        "google",
+        accountEmail,
+        updated as unknown as Record<string, unknown>,
+      );
+      return refreshed.access_token;
+    } catch (err: any) {
+      console.error(
+        `[getAccessToken] refresh failed for ${accountEmail}:`,
+        err.message,
+      );
+      // Fall through to use existing token
+    }
+  }
+
+  return tokens.access_token;
+}
+
+/**
+ * Get access tokens for accounts. When `forEmail` is provided, returns only
+ * that user's accounts (multi-user mode). Otherwise returns all (legacy).
+ */
+async function getAccountTokens(
+  forEmail?: string,
+): Promise<Array<{ email: string; accessToken: string }>> {
+  const accounts = forEmail
+    ? await listOAuthAccountsByOwner("google", forEmail)
+    : await listOAuthAccounts("google");
+
+  const results: Array<{ email: string; accessToken: string }> = [];
+
+  for (const account of accounts) {
+    const token = await getAccessToken(account.accountId);
+    if (token) {
+      results.push({ email: account.accountId, accessToken: token });
+    }
+  }
+
+  return results;
+}
 
 /** Extract the logged-in user's email from the request session. */
 async function userEmail(event: H3Event): Promise<string> {
@@ -116,13 +208,17 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       if (q) searchQuery += ` ${q}`;
 
       // Fetch label name mapping from all accounts
-      const clients = await getClients(email);
+      const accountTokens = await getAccountTokens(email);
       const labelMap = new Map<string, string>();
       await Promise.all(
-        clients.map(async ({ client }) => {
+        accountTokens.map(async ({ accessToken }) => {
           try {
-            const map = await fetchGmailLabelMap(client);
-            for (const [id, name] of map) labelMap.set(id, name);
+            const res = await gmailListLabels(accessToken);
+            for (const label of res.labels || []) {
+              if (label.id && label.name) {
+                labelMap.set(label.id, label.name);
+              }
+            }
           } catch (err: any) {
             console.error(
               "[listEmails] Failed to fetch label map:",
@@ -233,33 +329,31 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
 
   if (await isConnected(email)) {
     try {
-      const clients = await getClients(email);
+      const accountTokens = await getAccountTokens(email);
       const labelMap = new Map<string, string>();
       await Promise.all(
-        clients.map(async ({ client }) => {
+        accountTokens.map(async ({ accessToken }) => {
           try {
-            const map = await fetchGmailLabelMap(client);
-            for (const [id, name] of map) labelMap.set(id, name);
+            const res = await gmailListLabels(accessToken);
+            for (const label of res.labels || []) {
+              if (label.id && label.name) {
+                labelMap.set(label.id, label.name);
+              }
+            }
           } catch {}
         }),
       );
 
       // Search across all accounts for messages in this thread
-      for (const { email, client } of clients) {
+      for (const { email: acctEmail, accessToken } of accountTokens) {
         try {
-          const gmail = google.gmail({ version: "v1", auth: client });
-          const threadRes = await (gmail.users.threads.get as any)({
-            userId: "me",
-            id: threadId,
-            format: "full",
-          });
-          const messages = ((threadRes as any).data.messages || []).map(
-            (m: any) =>
-              gmailToEmailMessage(
-                { ...m, _accountEmail: email },
-                email,
-                labelMap,
-              ),
+          const threadRes = await gmailGetThread(accessToken, threadId, "full");
+          const messages = (threadRes.messages || []).map((m: any) =>
+            gmailToEmailMessage(
+              { ...m, _accountEmail: acctEmail },
+              acctEmail,
+              labelMap,
+            ),
           );
           // Sort oldest first
           messages.sort(
@@ -268,14 +362,14 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
           );
           return messages;
         } catch (error: any) {
-          const status = error?.response?.status;
-          if (status === 404) continue;
+          const status = error?.message?.match(/\((\d+)\)/)?.[1];
+          if (status === "404") continue;
           console.error("[getThreadMessages] Gmail error:", error.message);
-          setResponseStatus(event, status || 502);
+          setResponseStatus(event, parseInt(status) || 502);
           return { error: error.message };
         }
       }
-      if (clients.length > 0) {
+      if (accountTokens.length > 0) {
         setResponseStatus(event, 404);
         return { error: "Thread not found in any account" };
       }
@@ -305,29 +399,31 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
 export const getEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   if (await isConnected(email)) {
-    const clients = await getClients(email);
-    for (const { email: acctEmail, client } of clients) {
+    const accountTokens = await getAccountTokens(email);
+    for (const { email: acctEmail, accessToken } of accountTokens) {
       try {
-        const gmail = google.gmail({ version: "v1", auth: client });
-        const labelMap = await fetchGmailLabelMap(client);
-        const msg = await gmail.users.messages.get({
-          userId: "me",
-          id: getRouterParam(event, "id") as string,
-          format: "full",
-        });
-        return gmailToEmailMessage((msg as any).data, acctEmail, labelMap);
+        const labelRes = await gmailListLabels(accessToken);
+        const labelMap = new Map<string, string>();
+        for (const label of labelRes.labels || []) {
+          if (label.id && label.name) {
+            labelMap.set(label.id, label.name);
+          }
+        }
+        const msg = await gmailGetMessage(
+          accessToken,
+          getRouterParam(event, "id") as string,
+          "full",
+        );
+        return gmailToEmailMessage(msg, acctEmail, labelMap);
       } catch (error: any) {
-        const status =
-          typeof error?.response?.status === "number"
-            ? error.response.status
-            : undefined;
-        if (status === 404) continue;
+        const status = error?.message?.match(/\((\d+)\)/)?.[1];
+        if (status === "404") continue;
         console.error("[getEmail] Gmail error:", error.message);
-        setResponseStatus(event, status || 502);
+        setResponseStatus(event, parseInt(status) || 502);
         return { error: error.message };
       }
     }
-    if (clients.length > 0) {
+    if (accountTokens.length > 0) {
       setResponseStatus(event, 404);
       return { error: "Message not found in any account" };
     }
@@ -350,18 +446,16 @@ export const markRead = defineEventHandler(async (event: H3Event) => {
 
   if (await isConnected(email)) {
     try {
-      // Route to specific account if provided, otherwise try first client
-      const client = await getClient(accountEmail);
-      if (client) {
-        const gmail = google.gmail({ version: "v1", auth: client });
+      const acct = accountEmail || email;
+      const accessToken = await getAccessToken(acct);
+      if (accessToken) {
         const id = getRouterParam(event, "id") as string;
-        await gmail.users.messages.modify({
-          userId: "me",
+        await gmailModifyMessage(
+          accessToken,
           id,
-          requestBody: isRead
-            ? { removeLabelIds: ["UNREAD"] }
-            : { addLabelIds: ["UNREAD"] },
-        });
+          isRead ? undefined : ["UNREAD"],
+          isRead ? ["UNREAD"] : undefined,
+        );
         return { id, isRead };
       }
     } catch (error: any) {
@@ -411,15 +505,11 @@ export const archiveEmail = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event);
   if (await isConnected(email)) {
     try {
-      const client = await getClient(body?.accountEmail);
-      if (client) {
-        const gmail = google.gmail({ version: "v1", auth: client });
+      const acct = body?.accountEmail || email;
+      const accessToken = await getAccessToken(acct);
+      if (accessToken) {
         const id = getRouterParam(event, "id") as string;
-        await gmail.users.messages.modify({
-          userId: "me",
-          id,
-          requestBody: { removeLabelIds: ["INBOX"] },
-        });
+        await gmailModifyMessage(accessToken, id, undefined, ["INBOX"]);
         return { id, isArchived: true };
       }
     } catch (error: any) {
@@ -463,15 +553,11 @@ export const unarchiveEmail = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event);
   if (await isConnected(email)) {
     try {
-      const client = await getClient(body?.accountEmail);
-      if (client) {
-        const gmail = google.gmail({ version: "v1", auth: client });
+      const acct = body?.accountEmail || email;
+      const accessToken = await getAccessToken(acct);
+      if (accessToken) {
         const id = getRouterParam(event, "id") as string;
-        await gmail.users.messages.modify({
-          userId: "me",
-          id,
-          requestBody: { addLabelIds: ["INBOX"] },
-        });
+        await gmailModifyMessage(accessToken, id, ["INBOX"]);
         return { id, isArchived: false };
       }
     } catch (error: any) {
@@ -517,14 +603,11 @@ export const trashEmail = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event);
   if (await isConnected(email)) {
     try {
-      const client = await getClient(body?.accountEmail);
-      if (client) {
-        const gmail = google.gmail({ version: "v1", auth: client });
+      const acct = body?.accountEmail || email;
+      const accessToken = await getAccessToken(acct);
+      if (accessToken) {
         const id = getRouterParam(event, "id") as string;
-        await gmail.users.messages.trash({
-          userId: "me",
-          id,
-        });
+        await gmailTrashMessage(accessToken, id);
         return { id, isTrashed: true };
       }
     } catch (error: any) {
@@ -565,18 +648,11 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
 
   if (await isConnected(email)) {
     try {
-      const client = await getClient(accountEmail);
-      if (client) {
-        const gmail = google.gmail({ version: "v1", auth: client });
+      const acct = accountEmail || email;
+      const accessToken = await getAccessToken(acct);
+      if (accessToken) {
         const id = getRouterParam(event, "id") as string;
-        await gmail.users.messages.modify({
-          userId: "me",
-          id,
-          requestBody: {
-            addLabelIds: ["SPAM"],
-            removeLabelIds: ["INBOX"],
-          },
-        });
+        await gmailModifyMessage(accessToken, id, ["SPAM"], ["INBOX"]);
         return { id, spam: true };
       }
     } catch (error: any) {
@@ -639,30 +715,28 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
   // If Gmail is connected, create a filter to auto-delete + report spam
   if (await isConnected(email)) {
     try {
-      const client = await getClient(accountEmail);
-      if (client) {
-        const gmail = google.gmail({ version: "v1", auth: client });
+      const acct = accountEmail || email;
+      const accessToken = await getAccessToken(acct);
+      if (accessToken) {
         const id = getRouterParam(event, "id") as string;
 
         // Also report the current message as spam
-        await gmail.users.messages.modify({
-          userId: "me",
-          id,
-          requestBody: {
-            addLabelIds: ["SPAM"],
-            removeLabelIds: ["INBOX"],
-          },
-        });
+        await gmailModifyMessage(accessToken, id, ["SPAM"], ["INBOX"]);
 
         // Create a filter to auto-delete future emails from this sender
         try {
-          await (gmail.users.settings.filters.create as any)({
-            userId: "me",
-            requestBody: {
-              criteria: { from: senderEmail },
-              action: { removeLabelIds: ["INBOX"], addLabelIds: ["TRASH"] },
+          await googleFetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/settings/filters`,
+            accessToken,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                criteria: { from: senderEmail },
+                action: { removeLabelIds: ["INBOX"], addLabelIds: ["TRASH"] },
+              }),
             },
-          });
+          );
         } catch (filterErr: any) {
           // Filter creation may fail (permissions), but spam report still worked
           console.error(
@@ -733,18 +807,23 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
 
   if (await isConnected(email)) {
     try {
-      const client = await getClient(accountEmail);
-      if (client) {
-        const gmail = google.gmail({ version: "v1", auth: client });
+      const acct = accountEmail || email;
+      const accessToken = await getAccessToken(acct);
+      if (accessToken) {
         const threadId = getRouterParam(event, "threadId") as string;
         // Gmail "mute" = remove from inbox; future replies also skip inbox
-        await gmail.users.threads.modify({
-          userId: "me",
-          id: threadId,
-          requestBody: {
-            removeLabelIds: ["INBOX"],
+        // Use threads.modify endpoint
+        await googleFetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}/modify`,
+          accessToken,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              removeLabelIds: ["INBOX"],
+            }),
           },
-        });
+        );
         return { threadId, muted: true };
       }
     } catch (error: any) {
@@ -809,9 +888,9 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
   // If Gmail is connected, send via Gmail API
   if (await isConnected(email)) {
     try {
-      const clients = await getClients(email);
-      let selectedClient = clients[0]?.client;
-      let selectedEmail = accountEmail || clients[0]?.email || "me";
+      const accountTokens = await getAccountTokens(email);
+      let selectedToken = accountTokens[0]?.accessToken;
+      let selectedEmail = accountEmail || accountTokens[0]?.email || "me";
 
       let threadId: string | undefined;
       let inReplyTo: string | undefined;
@@ -819,43 +898,43 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
 
       if (replyToId) {
         // Find which account owns the original message and use that for the reply
-        for (const { email, client } of clients) {
+        for (const { email: acctEmail, accessToken } of accountTokens) {
           try {
-            const gmail = google.gmail({ version: "v1", auth: client });
-            const original = await gmail.users.messages.get({
-              userId: "me",
-              id: replyToId,
-              format: "metadata",
-              metadataHeaders: ["Message-Id", "References"],
-            });
+            const original = await gmailGetMessage(
+              accessToken,
+              replyToId,
+              "metadata",
+            );
 
-            threadId = original.data.threadId ?? undefined;
-            const headers = original.data.payload?.headers || [];
+            threadId = original.threadId ?? undefined;
+            const headers = original.payload?.headers || [];
             inReplyTo =
-              headers.find((h) => h.name === "Message-Id")?.value ?? undefined;
-            const refs = headers.find((h) => h.name === "References")?.value;
+              headers.find((h: any) => h.name === "Message-Id")?.value ??
+              undefined;
+            const refs = headers.find(
+              (h: any) => h.name === "References",
+            )?.value;
             references = [refs, inReplyTo].filter(Boolean).join(" ");
             if (!accountEmail) {
-              selectedClient = client;
-              selectedEmail = email;
+              selectedToken = accessToken;
+              selectedEmail = acctEmail;
             }
             break;
           } catch (err: any) {
-            if (err?.response?.status === 404) continue;
+            if (err?.message?.includes("404")) continue;
           }
         }
       }
 
       if (accountEmail) {
-        const match = clients.find((c) => c.email === accountEmail);
+        const match = accountTokens.find((c) => c.email === accountEmail);
         if (match) {
-          selectedClient = match.client;
+          selectedToken = match.accessToken;
           selectedEmail = match.email;
         }
       }
 
-      if (selectedClient) {
-        const gmail = google.gmail({ version: "v1", auth: selectedClient });
+      if (selectedToken) {
         const raw = buildRawEmail({
           from: selectedEmail,
           to: to || "",
@@ -867,19 +946,24 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
           references,
         });
 
-        const requestBody: any = { raw };
-        if (threadId) requestBody.threadId = threadId;
+        const sendBody: any = { raw };
+        if (threadId) sendBody.threadId = threadId;
 
-        const sent = await (gmail.users.messages.send as any)({
-          userId: "me",
-          requestBody,
-        });
+        const sent = await googleFetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/send`,
+          selectedToken,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(sendBody),
+          },
+        );
 
         setResponseStatus(event, 201);
         return {
-          id: sent.data.id,
-          threadId: sent.data.threadId,
-          labelIds: sent.data.labelIds || ["SENT"],
+          id: sent.id,
+          threadId: sent.threadId,
+          labelIds: sent.labelIds || ["SENT"],
         };
       }
     } catch (error: any) {
@@ -948,9 +1032,9 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
   // If Gmail is connected, create/update a Gmail draft
   if (await isConnected(email)) {
     try {
-      const client = await getClient(reqBody?.accountEmail);
-      if (client) {
-        const gmail = google.gmail({ version: "v1", auth: client });
+      const acct = reqBody?.accountEmail || email;
+      const accessToken = await getAccessToken(acct);
+      if (accessToken) {
         const draftFrom = reqBody?.accountEmail || "me";
         const raw = buildRawEmail({
           from: draftFrom,
@@ -964,22 +1048,31 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
         if (draftId) {
           // Update existing Gmail draft
           try {
-            const updated = await (gmail.users.drafts.update as any)({
-              userId: "me",
-              id: draftId,
-              requestBody: { message: { raw } },
-            });
-            return { draftId: (updated as any).data.id, updated: true };
+            const updated = await googleFetch(
+              `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${draftId}`,
+              accessToken,
+              {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: { raw } }),
+              },
+            );
+            return { draftId: updated.id, updated: true };
           } catch {
             // Draft may have been deleted; create new
           }
         }
         // Create new Gmail draft
-        const created = await (gmail.users.drafts.create as any)({
-          userId: "me",
-          requestBody: { message: { raw } },
-        });
-        return { draftId: (created as any).data.id, created: true };
+        const created = await googleFetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/drafts`,
+          accessToken,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: { raw } }),
+          },
+        );
+        return { draftId: created.id, created: true };
       }
     } catch (error: any) {
       console.error("[saveDraft] Gmail error:", error.message);
@@ -1092,14 +1185,15 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
   if (await isConnected(email)) {
     try {
       const body = await readBody(event).catch(() => ({}));
-      const client = await getClient(body?.accountEmail);
-      if (client) {
-        const gmail = google.gmail({ version: "v1", auth: client });
+      const acct = body?.accountEmail || email;
+      const accessToken = await getAccessToken(acct);
+      if (accessToken) {
         try {
-          await (gmail.users.drafts.delete as any)({
-            userId: "me",
-            id,
-          });
+          await googleFetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${id}`,
+            accessToken,
+            { method: "DELETE" },
+          );
         } catch {
           // Draft may not exist in Gmail
         }
@@ -1125,26 +1219,23 @@ export const listContacts = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   if (await isConnected(email)) {
     try {
-      const clients = await getClients(email);
+      const accountTokens = await getAccountTokens(email);
       const contactMap = new Map<
         string,
         { name: string; email: string; count: number }
       >();
 
-      for (const { client } of clients) {
-        const people = google.people({ version: "v1", auth: client });
-
+      for (const { accessToken } of accountTokens) {
         // Fetch saved contacts (People API connections)
         try {
           let nextPageToken: string | undefined;
           do {
-            const resp = await people.people.connections.list({
-              resourceName: "people/me",
+            const resp = await peopleListConnections(accessToken, {
               pageSize: 200,
               personFields: "names,emailAddresses",
               pageToken: nextPageToken,
             });
-            for (const person of resp.data.connections || []) {
+            for (const person of resp.connections || []) {
               const emails = person.emailAddresses || [];
               const name =
                 person.names?.[0]?.displayName || emails[0]?.value || "";
@@ -1170,7 +1261,7 @@ export const listContacts = defineEventHandler(async (event: H3Event) => {
                 }
               }
             }
-            nextPageToken = resp.data.nextPageToken ?? undefined;
+            nextPageToken = resp.nextPageToken ?? undefined;
           } while (nextPageToken);
         } catch (err: any) {
           console.error("[listContacts] connections error:", err.message);
@@ -1180,12 +1271,12 @@ export const listContacts = defineEventHandler(async (event: H3Event) => {
         try {
           let nextPageToken: string | undefined;
           do {
-            const resp = await people.otherContacts.list({
+            const resp = await peopleListOtherContacts(accessToken, {
               pageSize: 200,
               readMask: "names,emailAddresses",
               pageToken: nextPageToken,
             });
-            for (const person of resp.data.otherContacts || []) {
+            for (const person of resp.otherContacts || []) {
               const emails = person.emailAddresses || [];
               const name =
                 person.names?.[0]?.displayName || emails[0]?.value || "";
@@ -1201,7 +1292,7 @@ export const listContacts = defineEventHandler(async (event: H3Event) => {
                 }
               }
             }
-            nextPageToken = resp.data.nextPageToken ?? undefined;
+            nextPageToken = resp.nextPageToken ?? undefined;
           } while (nextPageToken);
         } catch (err: any) {
           console.error("[listContacts] otherContacts error:", err.message);
@@ -1313,17 +1404,20 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
   const email = await userEmail(_event);
   if (await isConnected(email)) {
     try {
-      const clients = await getClients(email);
+      const accountTokens = await getAccountTokens(email);
       // Deduplicate by derived short-name id (not Gmail label ID)
       const labelMap = new Map<
         string,
         { id: string; name: string; type: "system" | "user" }
       >();
       // Fetch labels from each account sequentially to avoid race conditions on the shared map
-      for (const { client } of clients) {
+      for (const { accessToken } of accountTokens) {
         try {
-          const map = await fetchGmailLabelMap(client);
-          for (const [gmailId, name] of map) {
+          const res = await gmailListLabels(accessToken);
+          for (const label of res.labels || []) {
+            if (!label.id || !label.name) continue;
+            const gmailId = label.id;
+            const name = label.name;
             const isSystem = !gmailId.startsWith("Label_");
             // Use the full label name (preserving hierarchy) as the id,
             // but display the short name (last segment, underscores -> spaces)
@@ -1396,22 +1490,17 @@ export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
   }
 
   try {
-    const client = await getClient(accountEmail);
-    if (!client) {
+    const acct = accountEmail || email;
+    const accessToken = await getAccessToken(acct);
+    if (!accessToken) {
       setResponseStatus(event, 401);
       return { error: "Google account not found" };
     }
 
-    const calendar = google.calendar({ version: "v3", auth: client });
     const calId = calendarId || "primary";
 
     // Get the event first to preserve existing data
-    const eventRes = await calendar.events.get({
-      calendarId: calId,
-      eventId,
-    });
-
-    const calEvent = eventRes.data;
+    const calEvent = await calendarGetEvent(accessToken, calId, eventId);
     if (!calEvent) {
       setResponseStatus(event, 404);
       return { error: "Event not found" };
@@ -1439,12 +1528,7 @@ export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
       });
     }
 
-    await calendar.events.patch({
-      calendarId: calId,
-      eventId,
-      sendUpdates: "all",
-      requestBody: { attendees },
-    });
+    await calendarPatchEvent(accessToken, calId, eventId, { attendees }, "all");
 
     return { ok: true, response };
   } catch (error: any) {

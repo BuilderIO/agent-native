@@ -127,12 +127,14 @@ ${pluginCalls.join("\n")}
 
 export default {
   async fetch(request, env, ctx) {
-    // Expose env bindings as process.env for compatibility
+    // Expose env bindings globally for compatibility
     if (env) {
+      globalThis.process = globalThis.process || { env: {} };
+      globalThis.process.env = globalThis.process.env || {};
+      // Expose D1/KV/R2 bindings on globalThis.__cf_env for the db layer
+      globalThis.__cf_env = env;
       for (const [key, value] of Object.entries(env)) {
         if (typeof value === "string") {
-          globalThis.process = globalThis.process || { env: {} };
-          globalThis.process.env = globalThis.process.env || {};
           globalThis.process.env[key] = value;
         }
       }
@@ -188,6 +190,17 @@ async function buildCloudflarePages() {
   // Copy client assets to dist/
   copyDir(clientDir, distDir);
 
+  // Exclude _worker.js from being served as a public asset
+  fs.writeFileSync(path.join(distDir, ".assetsignore"), "_worker.js\n");
+
+  // Create empty stub for native modules that wrangler's bundler needs to resolve
+  const stubsDir = path.join(distDir, "_worker.js", "stubs");
+  fs.mkdirSync(stubsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(stubsDir, "empty.js"),
+    "export default {}; export const watch = () => ({ close() {} }); export const Database = class {};\n",
+  );
+
   // Discover routes and plugins
   const routes = discoverApiRoutes(cwd);
   const plugins = discoverPlugins(cwd);
@@ -203,11 +216,7 @@ async function buildCloudflarePages() {
   const workerOutDir = path.join(distDir, "_worker.js");
   fs.mkdirSync(workerOutDir, { recursive: true });
 
-  // Copy the React Router server build (already bundled by Vite) directly
-  // This avoids re-bundling the entire React SSR stack
-  copyDir(serverDir, path.join(workerOutDir, "server"));
-
-  // Write the worker entry — it imports from the copied server build
+  // Write the worker entry
   const entryFile = path.join(workerOutDir, "index.js");
 
   // Rewrite the server-build import to point at the copied files
@@ -216,15 +225,55 @@ async function buildCloudflarePages() {
     `import * as serverBuild from "./server/index.js";`,
   );
 
-  // Write a temp file for esbuild to bundle (only the API routes + plugins + H3 wiring)
+  // Write a temp file for esbuild to bundle everything into a single worker entry.
+  // The server build (React Router SSR) is copied to tmp so esbuild can resolve it.
   const tmpDir = path.join(cwd, ".deploy-tmp");
   fs.mkdirSync(tmpDir, { recursive: true });
   const tmpEntry = path.join(tmpDir, "worker-entry.js");
   fs.writeFileSync(tmpEntry, adjustedEntry);
 
-  // Bundle with esbuild — only the worker entry + API routes.
-  // The server build is external (already bundled by Vite).
+  // Copy server build files so esbuild can resolve the import
+  copyDir(serverDir, path.join(tmpDir, "server"));
+
+  // Create a require shim so CJS require("fs") calls resolve via ESM imports.
+  // This is injected via esbuild --inject to replace its broken __require shim.
+  fs.writeFileSync(
+    path.join(tmpDir, "_require-shim.js"),
+    generateRequireShim(),
+  );
+
+  // Create stub modules for native/Node-only deps that can't run on Workers.
+  // These get resolved by esbuild instead of the real modules, avoiding bundling
+  // native code that would fail on the Workers runtime.
+  const stubModules = [
+    "better-sqlite3",
+    "node-pty",
+    "chokidar",
+    "fsevents",
+    "dotenv",
+  ];
+  const stubDir = path.join(tmpDir, "node_modules");
+  for (const mod of stubModules) {
+    const modDir = path.join(stubDir, mod);
+    fs.mkdirSync(modDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(modDir, "index.js"),
+      `export default {}; export const watch = () => ({ close() {} });`,
+    );
+    fs.writeFileSync(
+      path.join(modDir, "package.json"),
+      JSON.stringify({ name: mod, main: "index.js", type: "module" }),
+    );
+  }
+
   const esbuildBin = findEsbuild();
+
+  // Externalize node builtins (both bare and node: prefixed) — the require shim handles bare ones,
+  // and CF Workers runtime handles node: prefixed ones via nodejs_compat
+  const nodeExternals = getNodeBuiltinNames().flatMap((n) => [
+    `--external:${n}`,
+    `--external:node:${n}`,
+  ]);
 
   execFileSync(
     esbuildBin,
@@ -233,21 +282,49 @@ async function buildCloudflarePages() {
       "--bundle",
       "--format=esm",
       "--target=es2022",
+      // browser platform for npm resolution; node builtins externalized separately
       "--platform=browser",
       "--minify",
       `--outfile=${entryFile}`,
-      // Node.js compat — CF Workers supports these via nodejs_compat flag
       "--conditions=workerd,worker,import",
-      // Keep the server build as external — it's already bundled
-      `--external:./server/*`,
-      // Externalize node builtins that Workers provides via compat
-      ...getExternals(),
+      // Banner: override the __require shim that esbuild generates for CJS modules.
+      // This provides a real require() backed by ESM imports of node builtins.
+      // Without this, CF Workers rejects the bundle because esbuild's default
+      // __require shim throws "Dynamic require of X is not supported".
+      `--banner:js=${generateRequireShim()}`,
+      // Externalize node: builtins — CF Workers runtime provides them
+      ...nodeExternals,
     ],
     { stdio: "inherit", cwd },
   );
 
   // Clean up tmp
   fs.rmSync(tmpDir, { recursive: true });
+
+  // Patch unenv stubs: make fs.mkdirSync/writeFileSync/readFileSync no-ops instead of throwing.
+  // Some code calls these at import time; on Workers there's no filesystem, but the calls
+  // are guarded by runtime checks (url.startsWith("file:")) so they're dead code on Workers.
+  // The unenv stubs throw "not implemented" which crashes at validation time.
+  // This patch makes them safe no-ops so the module loads without error.
+  let workerCode2 = fs.readFileSync(entryFile, "utf-8");
+  // Only add shim if unenv stubs would be present (when wrangler bundles with nodejs_compat_v2)
+  if (!workerCode2.includes("__unenv_fs_patched__")) {
+    workerCode2 = `/* __unenv_fs_patched__ */\n` + workerCode2;
+  }
+  fs.writeFileSync(entryFile, workerCode2);
+
+  // Strip "node:" prefix from all imports/requires — nodejs_compat v1 only provides bare names.
+  // Handles minified output (no space before quotes) and subpaths like node:fs/promises.
+  let workerCode = fs.readFileSync(entryFile, "utf-8");
+  workerCode = workerCode.replace(
+    /from\s*["']node:([^"']+)["']/g,
+    (_, mod) => `from"${mod}"`,
+  );
+  workerCode = workerCode.replace(
+    /import\s*["']node:([^"']+)["']/g,
+    (_, mod) => `import"${mod}"`,
+  );
+  fs.writeFileSync(entryFile, workerCode);
 
   // Report size
   const entrySize = fs.statSync(entryFile).size;
@@ -257,56 +334,96 @@ async function buildCloudflarePages() {
   );
 }
 
-function getExternals(): string[] {
-  // All Node.js builtins — both bare and node: prefixed
-  const names = [
-    "assert",
-    "async_hooks",
-    "buffer",
-    "child_process",
-    "cluster",
-    "console",
-    "constants",
-    "crypto",
-    "dgram",
-    "diagnostics_channel",
-    "dns",
-    "domain",
-    "events",
+const NODE_BUILTINS = [
+  "assert",
+  "async_hooks",
+  "buffer",
+  "child_process",
+  "cluster",
+  "console",
+  "constants",
+  "crypto",
+  "dgram",
+  "diagnostics_channel",
+  "dns",
+  "domain",
+  "events",
+  "fs",
+  "fs/promises",
+  "http",
+  "http2",
+  "https",
+  "inspector",
+  "module",
+  "net",
+  "os",
+  "path",
+  "perf_hooks",
+  "process",
+  "punycode",
+  "querystring",
+  "readline",
+  "repl",
+  "stream",
+  "stream/web",
+  "string_decoder",
+  "sys",
+  "timers",
+  "tls",
+  "trace_events",
+  "tty",
+  "url",
+  "util",
+  "v8",
+  "vm",
+  "wasi",
+  "worker_threads",
+  "zlib",
+];
+
+function getNodeBuiltinNames(): string[] {
+  return NODE_BUILTINS;
+}
+
+/**
+ * Generate a require() shim that bridges CJS require("fs") calls to ESM imports.
+ * Injected via esbuild --inject so CJS deps work on Workers runtime.
+ */
+function generateRequireShim(): string {
+  // Only shim the commonly-used builtins to keep it small
+  const shimmed = [
     "fs",
-    "fs/promises",
-    "http",
-    "http2",
-    "https",
-    "inspector",
-    "module",
-    "net",
-    "os",
     "path",
-    "perf_hooks",
-    "process",
-    "punycode",
-    "querystring",
-    "readline",
-    "repl",
+    "os",
+    "crypto",
+    "http",
+    "https",
     "stream",
-    "stream/web",
-    "string_decoder",
-    "sys",
-    "timers",
-    "tls",
-    "trace_events",
-    "tty",
     "url",
     "util",
-    "v8",
-    "vm",
-    "wasi",
-    "worker_threads",
+    "events",
+    "buffer",
+    "querystring",
     "zlib",
+    "net",
+    "tls",
+    "assert",
+    "timers",
+    "child_process",
+    "module",
   ];
-  const builtins = [...names, ...names.map((n) => `node:${n}`)];
-  return builtins.map((b) => `--external:${b}`);
+
+  const imports = shimmed
+    .map((m) => `import __${m.replace("/", "_")} from "${m}";`)
+    .join("");
+  const entries = shimmed
+    .map(
+      (m) =>
+        `"${m}":__${m.replace("/", "_")},"node:${m}":__${m.replace("/", "_")}`,
+    )
+    .join(",");
+
+  return `${imports}\nconst __mods={${entries}};export var require=globalThis.require||function(m){const r=__mods[m];if(r!==undefined)return r;throw new Error("Cannot require: "+m)};\n`;
 }
 
 function findEsbuild(): string {
