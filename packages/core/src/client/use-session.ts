@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { AuthSession } from "../server/auth.js";
+import { trackSessionStatus } from "./analytics.js";
 
 export type { AuthSession };
 
@@ -19,11 +20,13 @@ interface UseSessionResult {
 export function useSession(): UseSessionResult {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const trackedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
 
     async function fetchSession() {
+      let signedIn = false;
       try {
         const res = await fetch("/api/auth/session");
         if (!res.ok) {
@@ -37,12 +40,19 @@ export function useSession(): UseSessionResult {
             setSession(null);
           } else {
             setSession(data as AuthSession);
+            signedIn = true;
           }
         }
       } catch {
         if (!cancelled) setSession(null);
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+          if (!trackedRef.current) {
+            trackedRef.current = true;
+            trackSessionStatus(signedIn);
+          }
+        }
       }
     }
 
