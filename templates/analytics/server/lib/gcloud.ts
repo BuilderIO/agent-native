@@ -1,7 +1,8 @@
 // Google Cloud API helper
 // Fetches Cloud Run services, Cloud Functions, metrics, and logs
+// Uses manual JWT-based service account auth (no SDK dependencies)
 
-import { GoogleAuth } from "google-auth-library";
+import { createPrivateKey } from "crypto";
 
 const PROJECT_ID = process.env.BIGQUERY_PROJECT_ID || "your-gcp-project-id";
 
@@ -10,36 +11,86 @@ const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 120;
 
-let authClient: GoogleAuth | null = null;
+// Token cache
+let cachedToken: { token: string; expiresAt: number } | null = null;
 
-function getAuthClient(): GoogleAuth {
-  if (authClient) return authClient;
+function base64url(data: Buffer | Uint8Array | string): string {
+  const buf = typeof data === "string" ? Buffer.from(data) : Buffer.from(data);
+  return buf.toString("base64url");
+}
 
+function getServiceAccountCredentials() {
   const credsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
   if (!credsJson) {
     throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON env var required");
   }
+  return JSON.parse(credsJson);
+}
 
-  const credentials = JSON.parse(credsJson);
-  authClient = new GoogleAuth({
-    credentials,
-    scopes: [
+async function signJwt(
+  payload: object,
+  privateKeyPem: string,
+): Promise<string> {
+  const header = { alg: "RS256", typ: "JWT" };
+  const encodedHeader = base64url(JSON.stringify(header));
+  const encodedPayload = base64url(JSON.stringify(payload));
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+
+  const key = createPrivateKey(privateKeyPem);
+  const { sign } = await import("crypto");
+  const signature = sign("sha256", Buffer.from(signingInput), key);
+
+  return `${signingInput}.${base64url(signature)}`;
+}
+
+export async function getAccessToken(): Promise<string> {
+  if (cachedToken && Date.now() < cachedToken.expiresAt - 30_000) {
+    return cachedToken.token;
+  }
+
+  const creds = getServiceAccountCredentials();
+  const now = Math.floor(Date.now() / 1000);
+
+  const jwtPayload = {
+    iss: creds.client_email,
+    scope: [
       "https://www.googleapis.com/auth/cloud-platform",
       "https://www.googleapis.com/auth/monitoring.read",
       "https://www.googleapis.com/auth/logging.read",
-    ],
+      "https://www.googleapis.com/auth/bigquery",
+    ].join(" "),
+    aud: creds.token_uri || "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+  };
+
+  const jwt = await signJwt(jwtPayload, creds.private_key);
+
+  const tokenUri = creds.token_uri || "https://oauth2.googleapis.com/token";
+  const res = await fetch(tokenUri, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: jwt,
+    }),
   });
 
-  return authClient;
-}
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Token exchange failed (${res.status}): ${text}`);
+  }
 
-async function getAccessToken(): Promise<string> {
-  const auth = getAuthClient();
-  const client = await auth.getClient();
-  const tokenResponse = await client.getAccessToken();
-  const token = tokenResponse?.token;
-  if (!token) throw new Error("Failed to get access token");
-  return token;
+  const data = (await res.json()) as {
+    access_token: string;
+    expires_in: number;
+  };
+  cachedToken = {
+    token: data.access_token,
+    expiresAt: Date.now() + data.expires_in * 1000,
+  };
+
+  return data.access_token;
 }
 
 function cacheSet(key: string, data: unknown) {

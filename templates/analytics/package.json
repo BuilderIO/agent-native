@@ -25,10 +25,7 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
-    "@google-cloud/bigquery": "^8.1.1",
     "chart.js": "^4.5.1",
-    "chartjs-node-canvas": "^5.0.0",
-    "google-auth-library": "^10.6.1",
     "h3": "^1.15.3",
     "isbot": "^5",
     "zod": "^3.25.76"
