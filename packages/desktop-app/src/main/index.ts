@@ -9,12 +9,29 @@ import {
   type IpcMainInvokeEvent,
 } from "electron";
 import path from "path";
+import { autoUpdater } from "electron-updater";
 import { IPC, type InterAppMessage } from "@shared/ipc-channels";
 import { HARNESS_PORT } from "@shared/app-registry";
 import type { AppConfig } from "@shared/app-registry";
 import * as AppStore from "./app-store";
 
 const IS_DEV = !app.isPackaged;
+
+// ---------- Auto-updates (production only) ----------
+
+if (!IS_DEV) {
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  app.whenReady().then(() => {
+    autoUpdater.checkForUpdatesAndNotify();
+    // Re-check every 4 hours
+    setInterval(
+      () => autoUpdater.checkForUpdatesAndNotify(),
+      4 * 60 * 60 * 1000,
+    );
+  });
+}
 
 function createWindow(): BrowserWindow {
   const isMac = process.platform === "darwin";

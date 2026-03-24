@@ -1,6 +1,7 @@
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
 import { HeaderActionsProvider } from "./HeaderActions";
+import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -15,9 +16,20 @@ export function Layout({ children }: LayoutProps) {
         </div>
         <div className="flex flex-col flex-1 h-full overflow-hidden">
           <MobileNav />
-          <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
-            {children}
-          </main>
+          <AgentSidebar
+            position="left"
+            defaultOpen
+            emptyStateText="Ask me anything about your data"
+            suggestions={[
+              "Show weekly signup trends",
+              "Query top pages by traffic",
+              "Check error rates",
+            ]}
+          >
+            <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
+              {children}
+            </main>
+          </AgentSidebar>
         </div>
       </div>
     </HeaderActionsProvider>

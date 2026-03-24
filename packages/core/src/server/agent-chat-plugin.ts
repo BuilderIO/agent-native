@@ -66,7 +66,10 @@ export function createAgentChatPlugin(
 ): NitroPluginDef {
   return async (nitroApp: any) => {
     const env = process.env.NODE_ENV;
-    const isDev = env === "development" || env === "test";
+    // AGENT_MODE=production forces production agent constraints even in dev
+    const isDev =
+      (env === "development" || env === "test") &&
+      process.env.AGENT_MODE !== "production";
     const routePath = options?.path ?? "/api/agent-chat";
 
     // Resolve scripts — supports lazy loading to avoid import issues with Vite SSR

@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agent-native/shared-app-config": "workspace:*"
+    "@agent-native/shared-app-config": "workspace:*",
+    "electron-updater": "^6.8.3"
   },
   "devDependencies": {
     "@types/node": "^24.2.1",
