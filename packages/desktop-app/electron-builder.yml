@@ -27,7 +27,7 @@ mac:
         - universal
 
 dmg:
-  artifactName: ${productName}-${version}.${ext}
+  artifactName: ${productName}.${ext}
 
 win:
   target:
@@ -35,7 +35,7 @@ win:
       arch:
         - x64
         - arm64
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  artifactName: ${productName}-${arch}.${ext}
 
 nsis:
   oneClick: true
@@ -52,7 +52,7 @@ linux:
         - x64
         - arm64
   category: Development
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  artifactName: ${productName}-${arch}.${ext}
 
 publish:
   provider: github
