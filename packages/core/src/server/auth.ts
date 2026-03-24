@@ -65,7 +65,11 @@ function getSessionClient(): Client {
   if (!_sessionClient) {
     const url = process.env.DATABASE_URL || "file:./data/app.db";
     if (url.startsWith("file:")) {
-      fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
+      try {
+        fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
+      } catch {
+        // Edge runtime (e.g. Cloudflare Workers) — no filesystem
+      }
     }
     _sessionClient = createClient({
       url,

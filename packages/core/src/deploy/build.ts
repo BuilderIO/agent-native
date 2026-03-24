@@ -285,8 +285,11 @@ async function buildCloudflarePages() {
       "--minify",
       `--outfile=${entryFile}`,
       "--conditions=workerd,worker,import",
-      // Inject require shim so CJS require("fs") calls resolve via ESM imports
-      `--inject:${path.join(tmpDir, "_require-shim.js")}`,
+      // Banner: override the __require shim that esbuild generates for CJS modules.
+      // This provides a real require() backed by ESM imports of node builtins.
+      // Without this, CF Workers rejects the bundle because esbuild's default
+      // __require shim throws "Dynamic require of X is not supported".
+      `--banner:js=${generateRequireShim()}`,
       // Externalize node: builtins — CF Workers runtime provides them
       ...nodeExternals,
     ],
@@ -295,6 +298,31 @@ async function buildCloudflarePages() {
 
   // Clean up tmp
   fs.rmSync(tmpDir, { recursive: true });
+
+  // Patch unenv stubs: make fs.mkdirSync/writeFileSync/readFileSync no-ops instead of throwing.
+  // Some code calls these at import time; on Workers there's no filesystem, but the calls
+  // are guarded by runtime checks (url.startsWith("file:")) so they're dead code on Workers.
+  // The unenv stubs throw "not implemented" which crashes at validation time.
+  // This patch makes them safe no-ops so the module loads without error.
+  let workerCode2 = fs.readFileSync(entryFile, "utf-8");
+  // Only add shim if unenv stubs would be present (when wrangler bundles with nodejs_compat_v2)
+  if (!workerCode2.includes("__unenv_fs_patched__")) {
+    workerCode2 = `/* __unenv_fs_patched__ */\n` + workerCode2;
+  }
+  fs.writeFileSync(entryFile, workerCode2);
+
+  // Strip "node:" prefix from all imports/requires — nodejs_compat v1 only provides bare names.
+  // Handles minified output (no space before quotes) and subpaths like node:fs/promises.
+  let workerCode = fs.readFileSync(entryFile, "utf-8");
+  workerCode = workerCode.replace(
+    /from\s*["']node:([^"']+)["']/g,
+    (_, mod) => `from"${mod}"`,
+  );
+  workerCode = workerCode.replace(
+    /import\s*["']node:([^"']+)["']/g,
+    (_, mod) => `import"${mod}"`,
+  );
+  fs.writeFileSync(entryFile, workerCode);
 
   // Report size
   const entrySize = fs.statSync(entryFile).size;
@@ -384,7 +412,7 @@ function generateRequireShim(): string {
   ];
 
   const imports = shimmed
-    .map((m) => `import __${m.replace("/", "_")} from "node:${m}";`)
+    .map((m) => `import __${m.replace("/", "_")} from "${m}";`)
     .join("");
   const entries = shimmed
     .map(
