@@ -57,18 +57,41 @@ const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 // Session store — SQL-backed
 // ---------------------------------------------------------------------------
 
-let _sessionClient: Client | undefined;
+let _sessionClient: any;
 let _sessionTableReady = false;
 let sessionMaxAge = DEFAULT_MAX_AGE;
 
-function getSessionClient(): Client {
+function getSessionClient(): any {
   if (!_sessionClient) {
+    // Check for Cloudflare D1 binding
+    const d1 = (globalThis as any).__cf_env?.DB;
+    if (d1) {
+      _sessionClient = {
+        async execute(sql: string | { sql: string; args: any[] }) {
+          if (typeof sql === "string") {
+            const r = await d1.prepare(sql).all();
+            return {
+              rows: r.results || [],
+              rowsAffected: r.meta?.changes ?? 0,
+            };
+          }
+          const r = await d1
+            .prepare(sql.sql)
+            .bind(...sql.args)
+            .all();
+          return { rows: r.results || [], rowsAffected: r.meta?.changes ?? 0 };
+        },
+      };
+      return _sessionClient;
+    }
+
+    // Fall back to libsql
     const url = process.env.DATABASE_URL || "file:./data/app.db";
     if (url.startsWith("file:")) {
       try {
         fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
       } catch {
-        // Edge runtime (e.g. Cloudflare Workers) — no filesystem
+        // Edge runtime — no filesystem
       }
     }
     _sessionClient = createClient({
