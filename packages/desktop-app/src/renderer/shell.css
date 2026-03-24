@@ -604,6 +604,15 @@ body {
   background: rgba(239, 68, 68, 0.1);
 }
 
+.settings-icon-btn--active {
+  color: #3b82f6;
+}
+
+.settings-icon-btn--active:hover {
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.1);
+}
+
 /* Toggle switch */
 .settings-toggle {
   position: relative;

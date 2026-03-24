@@ -12,7 +12,17 @@ function getStorePath(): string {
 export function loadApps(): AppConfig[] {
   try {
     const raw = fs.readFileSync(getStorePath(), "utf-8");
-    return JSON.parse(raw) as AppConfig[];
+    const apps = JSON.parse(raw) as AppConfig[];
+    // Migrate: default useCliHarness to true for existing configs
+    let migrated = false;
+    for (const app of apps) {
+      if (app.useCliHarness === undefined) {
+        app.useCliHarness = true;
+        migrated = true;
+      }
+    }
+    if (migrated) saveApps(apps);
+    return apps;
   } catch {
     // First launch or corrupted — seed with defaults
     saveApps(DEFAULT_APPS);

@@ -6,6 +6,7 @@ import {
   Edit2,
   RotateCcw,
   Check,
+  Terminal,
   type LucideProps,
 } from "lucide-react";
 import type { AppConfig } from "@shared/app-registry";
@@ -50,6 +51,18 @@ export default function AppSettings({
       if (window.electronAPI?.appConfig) {
         const updated = await window.electronAPI.appConfig.update(id, {
           enabled,
+        });
+        onAppsChanged(updated);
+      }
+    },
+    [onAppsChanged],
+  );
+
+  const handleHarnessToggle = useCallback(
+    async (id: string, useCliHarness: boolean) => {
+      if (window.electronAPI?.appConfig) {
+        const updated = await window.electronAPI.appConfig.update(id, {
+          useCliHarness,
         });
         onAppsChanged(updated);
       }
@@ -117,6 +130,19 @@ export default function AppSettings({
                   <span className="settings-app-url">{app.url}</span>
                 </div>
                 <div className="settings-app-actions">
+                  <button
+                    className={`settings-icon-btn${app.useCliHarness !== false ? " settings-icon-btn--active" : ""}`}
+                    onClick={() =>
+                      handleHarnessToggle(app.id, app.useCliHarness === false)
+                    }
+                    title={
+                      app.useCliHarness !== false
+                        ? "CLI Harness: ON"
+                        : "CLI Harness: OFF"
+                    }
+                  >
+                    <Terminal size={14} />
+                  </button>
                   <button
                     className="settings-icon-btn"
                     onClick={() => setEditingId(app.id)}
@@ -217,6 +243,7 @@ function AppEditForm({
       colorRgb: hexToRgb(color),
       isBuiltIn: app?.isBuiltIn ?? false,
       enabled: app?.enabled ?? true,
+      useCliHarness: app?.useCliHarness ?? true,
     });
   }
 
