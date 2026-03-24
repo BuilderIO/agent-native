@@ -45,6 +45,35 @@ export function useGoogleAuthUrl(enabled = false) {
   return query;
 }
 
+/** Hook for adding an additional Google account (user is already logged in). */
+export function useGoogleAddAccountUrl(enabled = false) {
+  const queryClient = useQueryClient();
+  const query = useQuery<{ url: string }>({
+    queryKey: ["google-add-account-url"],
+    queryFn: async () => {
+      const { getCallbackOrigin } = await import("@agent-native/core/client");
+      const res = await fetch(
+        `/api/google/add-account/auth-url?redirect_uri=${encodeURIComponent(getCallbackOrigin() + "/api/google/add-account/callback")}`,
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || body.error || "Failed to get auth URL");
+      }
+      return res.json();
+    },
+    enabled,
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (!enabled && query.isError) {
+      queryClient.resetQueries({ queryKey: ["google-add-account-url"] });
+    }
+  }, [enabled, query.isError, queryClient]);
+
+  return query;
+}
+
 export function useDisconnectGoogle() {
   const queryClient = useQueryClient();
   return useMutation({

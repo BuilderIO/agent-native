@@ -3,5 +3,6 @@ export {
   saveOAuthTokens,
   deleteOAuthTokens,
   listOAuthAccounts,
+  listOAuthAccountsByOwner,
   hasOAuthTokens,
 } from "./store.js";

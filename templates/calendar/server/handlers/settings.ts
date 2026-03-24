@@ -5,7 +5,12 @@ import {
   type H3Event,
 } from "h3";
 import type { Settings } from "../../shared/api.js";
-import { getSetting, putSetting } from "@agent-native/core/settings";
+import {
+  getUserSetting,
+  putUserSetting,
+  putSetting,
+} from "@agent-native/core/settings";
+import { getSession } from "@agent-native/core/server";
 
 const DEFAULT_SETTINGS: Settings = {
   timezone: "America/New_York",
@@ -14,24 +19,31 @@ const DEFAULT_SETTINGS: Settings = {
   defaultEventDuration: 30,
 };
 
-export const getSettings = defineEventHandler(async (_event: H3Event) => {
+async function uEmail(event: H3Event): Promise<string> {
+  const session = await getSession(event);
+  return session?.email ?? "local@localhost";
+}
+
+export const getSettings = defineEventHandler(async (event: H3Event) => {
   try {
+    const email = await uEmail(event);
     const settings =
-      (await getSetting("calendar-settings")) || DEFAULT_SETTINGS;
+      (await getUserSetting(email, "calendar-settings")) || DEFAULT_SETTINGS;
     return settings;
   } catch (error: any) {
-    setResponseStatus(_event, 500);
+    setResponseStatus(event, 500);
     return { error: error.message };
   }
 });
 
 export const updateSettings = defineEventHandler(async (event: H3Event) => {
   try {
+    const email = await uEmail(event);
     const settings: Settings = await readBody(event);
-    await putSetting(
-      "calendar-settings",
-      settings as unknown as Record<string, unknown>,
-    );
+    const settingsRecord = settings as unknown as Record<string, unknown>;
+    await putUserSetting(email, "calendar-settings", settingsRecord);
+    // Also write to global key so the public booking/settings page can read it
+    await putSetting("calendar-settings", settingsRecord);
     return settings;
   } catch (error: any) {
     setResponseStatus(event, 500);

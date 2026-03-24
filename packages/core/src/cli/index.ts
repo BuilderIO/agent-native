@@ -83,6 +83,21 @@ switch (command) {
       console.log("Building...");
       execSync(`${vite} build`, { stdio: "inherit" });
     }
+
+    // Post-build: bundle for deployment target if NITRO_PRESET is set
+    const preset = process.env.NITRO_PRESET;
+    if (preset && preset !== "node") {
+      const __dirname = path.dirname(fileURLToPath(import.meta.url));
+      const deployBuild = path.resolve(__dirname, "../deploy/build.js");
+      if (fs.existsSync(deployBuild)) {
+        execSync(`node ${deployBuild}`, { stdio: "inherit", env: process.env });
+      } else {
+        console.warn(
+          `[build] Deploy build script not found at ${deployBuild}. Skipping post-build step.`,
+        );
+      }
+    }
+
     console.log("\nBuild complete.");
     break;
   }

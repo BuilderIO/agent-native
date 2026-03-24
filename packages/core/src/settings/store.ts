@@ -15,8 +15,12 @@ export function getSettingsEmitter(): EventEmitter {
 function getClient(): Client {
   if (!_client) {
     const url = process.env.DATABASE_URL || "file:./data/app.db";
-    if (url.startsWith("file:")) {
-      fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
+    if (url.startsWith("file:") && typeof fs.mkdirSync === "function") {
+      try {
+        fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
+      } catch {
+        // Non-Node runtime (e.g. Cloudflare Workers) — skip directory creation
+      }
     }
     _client = createClient({
       url,

@@ -5,6 +5,7 @@ import netlify from "@netlify/vite-plugin-tanstack-start";
 
 import viteReact from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { sitemapPlugin } from "./src/vite-sitemap-plugin";
 
 const config = defineConfig(({ command }) => ({
   plugins: [
@@ -18,6 +19,7 @@ const config = defineConfig(({ command }) => ({
     }),
     command === "build" && netlify(),
     viteReact(),
+    sitemapPlugin(),
   ],
   resolve: {
     tsconfigPaths: true,
