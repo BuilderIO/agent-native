@@ -41,3 +41,6 @@ ralph-loop.local.md
 
 # Local Netlify folder
 .netlify
+
+# Wrangler local state
+.wrangler
