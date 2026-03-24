@@ -19,7 +19,7 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
     icon: <AppleIcon />,
     primary: {
       label: "Download for Mac",
-      href: `${DL}/Agent%20Native.dmg`,
+      href: `${DL}/Agent-Native.dmg`,
     },
     note: "Universal binary — works on Apple Silicon and Intel.",
   },
@@ -28,11 +28,11 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
     icon: <WindowsIcon />,
     primary: {
       label: "Download for Windows",
-      href: `${DL}/Agent%20Native-x64.exe`,
+      href: `${DL}/Agent-Native-x64.exe`,
     },
     secondary: {
       label: "ARM64",
-      href: `${DL}/Agent%20Native-arm64.exe`,
+      href: `${DL}/Agent-Native-arm64.exe`,
     },
     note: "Windows 10 or later.",
   },
@@ -41,11 +41,11 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
     icon: <LinuxIcon />,
     primary: {
       label: "Download AppImage",
-      href: `${DL}/Agent%20Native-x64.AppImage`,
+      href: `${DL}/Agent-Native-x86_64.AppImage`,
     },
     secondary: {
       label: "Download .deb",
-      href: `${DL}/Agent%20Native-x64.deb`,
+      href: `${DL}/Agent-Native-amd64.deb`,
     },
     note: "x64 — ARM64 also available on GitHub.",
   },
