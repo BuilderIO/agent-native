@@ -131,14 +131,14 @@ export default function AppSettings({
                 </div>
                 <div className="settings-app-actions">
                   <button
-                    className={`settings-icon-btn${app.useCliHarness !== false ? " settings-icon-btn--active" : ""}`}
+                    className={`settings-icon-btn${app.useCliHarness ? " settings-icon-btn--active" : ""}`}
                     onClick={() =>
-                      handleHarnessToggle(app.id, app.useCliHarness === false)
+                      handleHarnessToggle(app.id, !app.useCliHarness)
                     }
                     title={
-                      app.useCliHarness !== false
-                        ? "CLI Harness: ON"
-                        : "CLI Harness: OFF"
+                      app.useCliHarness
+                        ? "Dev Mode: ON (localhost)"
+                        : "Dev Mode: OFF (production)"
                     }
                   >
                     <Terminal size={14} />
