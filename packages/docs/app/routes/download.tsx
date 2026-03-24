@@ -1,16 +1,15 @@
 import { useState, useEffect } from "react";
 import { trackEvent } from "../components/TemplateCard";
 
-const GITHUB_RELEASE_URL =
-  "https://github.com/BuilderIO/agent-native/releases/latest";
+const DL = "https://github.com/BuilderIO/agent-native/releases/latest/download";
 
 type Platform = "mac" | "windows" | "linux";
 
 interface PlatformInfo {
   name: string;
   icon: React.ReactNode;
-  primary: { label: string; file: string };
-  secondary?: { label: string; file: string };
+  primary: { label: string; href: string };
+  secondary?: { label: string; href: string };
   note: string;
 }
 
@@ -18,8 +17,10 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
   mac: {
     name: "macOS",
     icon: <AppleIcon />,
-    primary: { label: "Download for Mac", file: "Agent%20Native-{v}.dmg" },
-    secondary: { label: "Download .zip", file: "Agent%20Native-{v}-mac.zip" },
+    primary: {
+      label: "Download for Mac",
+      href: `${DL}/Agent%20Native.dmg`,
+    },
     note: "Universal binary — works on Apple Silicon and Intel.",
   },
   windows: {
@@ -27,11 +28,11 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
     icon: <WindowsIcon />,
     primary: {
       label: "Download for Windows",
-      file: "Agent%20Native-{v}-x64.exe",
+      href: `${DL}/Agent%20Native-x64.exe`,
     },
     secondary: {
       label: "ARM64",
-      file: "Agent%20Native-{v}-arm64.exe",
+      href: `${DL}/Agent%20Native-arm64.exe`,
     },
     note: "Windows 10 or later.",
   },
@@ -40,9 +41,12 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
     icon: <LinuxIcon />,
     primary: {
       label: "Download AppImage",
-      file: "Agent%20Native-{v}-x64.AppImage",
+      href: `${DL}/Agent%20Native-x64.AppImage`,
     },
-    secondary: { label: "Download .deb", file: "Agent%20Native-{v}-x64.deb" },
+    secondary: {
+      label: "Download .deb",
+      href: `${DL}/Agent%20Native-x64.deb`,
+    },
     note: "x64 — ARM64 also available on GitHub.",
   },
 };
@@ -57,30 +61,12 @@ function detectPlatform(): Platform {
 
 export default function DownloadPage() {
   const [platform, setPlatform] = useState<Platform>("mac");
-  const [version, setVersion] = useState<string | null>(null);
 
   useEffect(() => {
     setPlatform(detectPlatform());
   }, []);
 
-  useEffect(() => {
-    fetch("https://api.github.com/repos/BuilderIO/agent-native/releases/latest")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.tag_name) {
-          setVersion(data.tag_name.replace(/^v/, ""));
-        }
-      })
-      .catch(() => {});
-  }, []);
-
   const info = PLATFORMS[platform];
-
-  function downloadUrl(filePattern: string): string {
-    if (!version) return GITHUB_RELEASE_URL;
-    const file = filePattern.replace("{v}", version);
-    return `https://github.com/BuilderIO/agent-native/releases/download/v${version}/${file}`;
-  }
 
   function handleDownload(label: string) {
     trackEvent("desktop_download", { platform, label });
@@ -122,17 +108,12 @@ export default function DownloadPage() {
           {info.icon}
         </div>
 
-        <h2 className="mb-2 text-xl font-semibold">
+        <h2 className="mb-6 text-xl font-semibold">
           Agent Native for {info.name}
         </h2>
-        {version && (
-          <p className="mb-6 text-sm text-[var(--fg-secondary)]">
-            Version {version}
-          </p>
-        )}
 
         <a
-          href={downloadUrl(info.primary.file)}
+          href={info.primary.href}
           onClick={() => handleDownload(info.primary.label)}
           className="mb-3 inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-8 py-3 text-base font-medium text-white no-underline hover:opacity-90 hover:no-underline"
         >
@@ -143,7 +124,7 @@ export default function DownloadPage() {
         {info.secondary && (
           <div className="mt-3">
             <a
-              href={downloadUrl(info.secondary.file)}
+              href={info.secondary.href}
               onClick={() => handleDownload(info.secondary!.label)}
               className="text-sm text-[var(--accent)] no-underline hover:underline"
             >
@@ -179,7 +160,7 @@ export default function DownloadPage() {
       {/* All releases link */}
       <div className="mt-12 text-center">
         <a
-          href={GITHUB_RELEASE_URL}
+          href="https://github.com/BuilderIO/agent-native/releases"
           target="_blank"
           rel="noreferrer"
           className="inline-flex items-center gap-2 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"

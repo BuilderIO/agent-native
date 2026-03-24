@@ -5,7 +5,10 @@
   "main": "out/main/index.js",
   "productName": "Agent Native",
   "description": "Agent Native desktop app",
-  "author": "Builder.io, Inc",
+  "author": {
+    "name": "Builder.io, Inc",
+    "email": "support@builder.io"
+  },
   "homepage": "https://agent-native.com",
   "scripts": {
     "dev": "electron-vite dev",
