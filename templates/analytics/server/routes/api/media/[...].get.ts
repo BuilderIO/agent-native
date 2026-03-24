@@ -3,9 +3,17 @@ import { createReadStream } from "fs";
 import { stat } from "fs/promises";
 import { defineEventHandler, sendStream, setResponseStatus } from "h3";
 
-const mediaDir = path.resolve(import.meta.dirname, "../../../../media");
-
 export default defineEventHandler(async (event) => {
+  let mediaDir: string;
+  try {
+    mediaDir = path.resolve(
+      import.meta.dirname ?? process.cwd(),
+      import.meta.dirname ? "../../../../media" : "media",
+    );
+  } catch {
+    setResponseStatus(event, 501);
+    return { error: "Media serving not available in this environment" };
+  }
   const filename = event.path.replace("/api/media/", "");
   const filepath = path.resolve(mediaDir, filename);
   if (!filepath.startsWith(mediaDir + path.sep)) {

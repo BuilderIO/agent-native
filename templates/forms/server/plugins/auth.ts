@@ -1,5 +1,5 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createGoogleAuthPlugin } from "@agent-native/core/server";
 
-export default createAuthPlugin({
+export default createGoogleAuthPlugin({
   publicPaths: ["/f", "/api/forms/public", "/api/submit"],
 });

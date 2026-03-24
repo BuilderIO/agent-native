@@ -500,6 +500,9 @@ export function AppLayout({ children }: AppLayoutProps) {
               </svg>
             </button>
 
+            {/* Agent chat toggle */}
+            <AgentToggleButton />
+
             {/* Visible tabs */}
             {tabsLoading ? (
               <nav className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
@@ -654,9 +657,6 @@ export function AppLayout({ children }: AppLayoutProps) {
 
             {/* Theme toggle */}
             <ThemeToggle />
-
-            {/* Agent sidebar toggle */}
-            <AgentToggleButton />
 
             {/* Compose (pen) icon */}
             <button
@@ -927,6 +927,8 @@ export function AppLayout({ children }: AppLayoutProps) {
 
           {/* Show full-page takeover when no accounts connected, otherwise content */}
           <AgentSidebar
+            position="left"
+            defaultOpen
             emptyStateText="Ask me anything about your emails"
             suggestions={[
               "What's in my inbox?",

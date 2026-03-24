@@ -1,1 +1,3 @@
-export { defaultAuthPlugin as default } from "@agent-native/core/server";
+import { createGoogleAuthPlugin } from "@agent-native/core/server";
+
+export default createGoogleAuthPlugin();

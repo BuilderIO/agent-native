@@ -22,6 +22,8 @@ export interface AgentChatMessage {
   uploadedReferenceImages?: string[];
   /** Stable tab identifier — auto-generated if omitted */
   tabId?: string;
+  /** If true, this action requires source code changes (won't work in production) */
+  requiresCode?: boolean;
 }
 
 const AGENT_CHAT_MESSAGE_TYPE = "builder.submitChat";

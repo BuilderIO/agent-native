@@ -1,0 +1,12 @@
+name = "agent-native-forms"
+main = "templates/forms/dist/_worker.js/index.js"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat_v2"]
+
+[assets]
+directory = "templates/forms/dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "agent-native-forms"
+database_id = "ea55ebda-4c45-4f15-88c3-379199504dda"

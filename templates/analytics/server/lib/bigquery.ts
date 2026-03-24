@@ -1,27 +1,7 @@
-import { BigQuery } from "@google-cloud/bigquery";
 import { createHash } from "crypto";
+import { getAccessToken } from "./gcloud";
 
 const PROJECT_ID = process.env.BIGQUERY_PROJECT_ID || "your-gcp-project-id";
-
-let bigqueryClient: BigQuery | null = null;
-
-function getClient(): BigQuery {
-  if (bigqueryClient) return bigqueryClient;
-
-  const credentials = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
-  if (credentials) {
-    const parsed = JSON.parse(credentials);
-    bigqueryClient = new BigQuery({
-      projectId: PROJECT_ID,
-      credentials: parsed,
-    });
-  } else {
-    // Falls back to Application Default Credentials (ADC)
-    bigqueryClient = new BigQuery({ projectId: PROJECT_ID });
-  }
-
-  return bigqueryClient;
-}
 
 const APP_EVENTS_TABLE = `${PROJECT_ID}.analytics.events_partitioned`;
 
@@ -100,21 +80,6 @@ function setCache(sql: string, result: QueryResult): void {
   queryCache.set(getCacheKey(sql), { result, createdAt: Date.now() });
 }
 
-// --- Value normalization ---
-
-/**
- * BigQuery client returns wrapper objects for TIMESTAMP, DATE, DATETIME,
- * BigNumeric, etc. (e.g. { value: "2024-01-15T00:00:00Z" }).
- * Unwrap them to plain JSON-serializable values.
- */
-function normalizeValue(val: unknown): unknown {
-  if (val === null || val === undefined) return val;
-  if (typeof val === "object" && val !== null && "value" in val) {
-    return (val as { value: unknown }).value;
-  }
-  return val;
-}
-
 // --- Query execution ---
 
 export interface QueryResult {
@@ -123,6 +88,48 @@ export interface QueryResult {
   schema: { name: string; type: string }[];
   bytesProcessed: number;
   cached?: boolean;
+}
+
+interface BigQueryField {
+  name: string;
+  type: string;
+  mode?: string;
+  fields?: BigQueryField[];
+}
+
+interface BigQueryQueryResponse {
+  schema?: { fields?: BigQueryField[] };
+  rows?: { f: { v: unknown }[] }[];
+  totalRows?: string;
+  totalBytesProcessed?: string;
+  jobComplete?: boolean;
+  jobReference?: { jobId: string };
+}
+
+interface BigQueryGetQueryResultsResponse {
+  schema?: { fields?: BigQueryField[] };
+  rows?: { f: { v: unknown }[] }[];
+  totalRows?: string;
+  jobComplete?: boolean;
+  totalBytesProcessed?: string;
+}
+
+/**
+ * Convert BigQuery REST API row format to plain objects.
+ * BigQuery returns rows as { f: [{ v: value }, ...] } arrays
+ * mapped to the schema fields.
+ */
+function rowsToObjects(
+  rows: { f: { v: unknown }[] }[],
+  fields: BigQueryField[],
+): Record<string, unknown>[] {
+  return rows.map((row) => {
+    const obj: Record<string, unknown> = {};
+    row.f.forEach((cell, i) => {
+      obj[fields[i].name] = cell.v;
+    });
+    return obj;
+  });
 }
 
 export async function runQuery(sql: string): Promise<QueryResult> {
@@ -134,37 +141,64 @@ export async function runQuery(sql: string): Promise<QueryResult> {
     return { ...cached, cached: true };
   }
 
-  const client = getClient();
+  const token = await getAccessToken();
+  const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${PROJECT_ID}/queries`;
 
-  const [job] = await client.createQueryJob({
-    query: resolvedSql,
-    useLegacySql: false,
-    maximumBytesBilled: "750000000000", // 750GB cap
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      query: resolvedSql,
+      useLegacySql: false,
+      maximumBytesBilled: "750000000000", // 750GB cap
+    }),
   });
 
-  const [metadata] = await job.getMetadata();
-  const bytesProcessed = parseInt(
-    metadata.statistics?.totalBytesProcessed || "0",
-    10,
-  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`BigQuery API error ${res.status}: ${text}`);
+  }
 
-  const [rawRows, , response] = await job.getQueryResults();
+  let data = (await res.json()) as BigQueryQueryResponse;
 
-  const schema =
-    response?.schema?.fields?.map((f: any) => ({
-      name: f.name,
-      type: f.type,
-    })) ?? [];
+  // If the job isn't complete, poll until it is
+  if (!data.jobComplete && data.jobReference?.jobId) {
+    const jobId = data.jobReference.jobId;
+    const resultsUrl = `https://bigquery.googleapis.com/bigquery/v2/projects/${PROJECT_ID}/queries/${jobId}`;
 
-  // BigQuery client returns special wrapper objects for TIMESTAMP, DATE,
-  // DATETIME, BigDecimal etc. Normalize them to plain JSON-friendly values.
-  const rows = rawRows.map((row: Record<string, unknown>) => {
-    const normalized: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(row)) {
-      normalized[key] = normalizeValue(val);
+    let attempts = 0;
+    while (!data.jobComplete && attempts < 60) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const pollRes = await fetch(resultsUrl, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!pollRes.ok) {
+        const text = await pollRes.text();
+        throw new Error(`BigQuery poll error ${pollRes.status}: ${text}`);
+      }
+      data = (await pollRes.json()) as BigQueryGetQueryResultsResponse;
+      attempts++;
     }
-    return normalized;
-  });
+
+    if (!data.jobComplete) {
+      throw new Error("BigQuery query timed out after 60 seconds");
+    }
+  }
+
+  const fields = data.schema?.fields ?? [];
+  const schema = fields.map((f) => ({
+    name: f.name,
+    type: f.type,
+  }));
+
+  const rows = data.rows ? rowsToObjects(data.rows, fields) : [];
+  const bytesProcessed = parseInt(data.totalBytesProcessed || "0", 10);
 
   const result: QueryResult = {
     rows,

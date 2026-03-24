@@ -57,7 +57,11 @@ export default function DocsPrevNext() {
   return (
     <nav className="docs-prev-next">
       {prev ? (
-        <Link to={prev.to} className="docs-prev-next-link docs-prev-link">
+        <Link
+          prefetch="render"
+          to={prev.to}
+          className="docs-prev-next-link docs-prev-link"
+        >
           <ArrowLeft />
           <div className="docs-prev-next-text">
             <span className="docs-prev-next-label">Previous</span>
@@ -68,7 +72,11 @@ export default function DocsPrevNext() {
         <div />
       )}
       {next ? (
-        <Link to={next.to} className="docs-prev-next-link docs-next-link">
+        <Link
+          prefetch="render"
+          to={next.to}
+          className="docs-prev-next-link docs-next-link"
+        >
           <div className="docs-prev-next-text docs-next-text">
             <span className="docs-prev-next-label">Next</span>
             <span className="docs-prev-next-title">{next.label}</span>
