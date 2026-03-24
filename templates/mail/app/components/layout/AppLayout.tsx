@@ -927,6 +927,8 @@ export function AppLayout({ children }: AppLayoutProps) {
 
           {/* Show full-page takeover when no accounts connected, otherwise content */}
           <AgentSidebar
+            position="left"
+            defaultOpen
             emptyStateText="Ask me anything about your emails"
             suggestions={[
               "What's in my inbox?",
