@@ -27,7 +27,10 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     moduleName === "react-native"
   ) {
     return context.resolveRequest(
-      { ...context, originModulePath: path.join(mobileNodeModules, ".package") },
+      {
+        ...context,
+        originModulePath: path.join(mobileNodeModules, ".package"),
+      },
       moduleName,
       platform,
     );
