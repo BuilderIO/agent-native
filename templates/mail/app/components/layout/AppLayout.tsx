@@ -500,6 +500,9 @@ export function AppLayout({ children }: AppLayoutProps) {
               </svg>
             </button>
 
+            {/* Agent chat toggle */}
+            <AgentToggleButton />
+
             {/* Visible tabs */}
             {tabsLoading ? (
               <nav className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
@@ -654,9 +657,6 @@ export function AppLayout({ children }: AppLayoutProps) {
 
             {/* Theme toggle */}
             <ThemeToggle />
-
-            {/* Agent sidebar toggle */}
-            <AgentToggleButton />
 
             {/* Compose (pen) icon */}
             <button
