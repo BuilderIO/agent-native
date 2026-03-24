@@ -23,5 +23,18 @@ node-compile-cache/
 # Application state data files (ephemeral, may contain secrets)
 **/application-state/*.json
 
+# SQLite databases (local data, never commit)
+**/data/*.db
+**/data/*.db-journal
+**/data/*.db-wal
+**/data/*.db-shm
+
+# React Router generated types
+.react-router/
+
+# Build output
+build/
+
 # Ralph Loop runtime state
 ralph-loop.local.md
+.builder/plans/

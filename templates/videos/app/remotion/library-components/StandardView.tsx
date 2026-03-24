@@ -836,7 +836,6 @@ export const StandardView: React.FC<StandardViewProps> = (props) => {
               paddingRight: collapseAmount > 0.5 ? 20 : 0,
               paddingTop: collapseAmount > 0.5 ? 50 : 0,
               paddingBottom: collapseAmount > 0.5 ? 50 : 0,
-              overflow: "hidden",
             }}
           >
             {collapseAmount < 0.5 ? (

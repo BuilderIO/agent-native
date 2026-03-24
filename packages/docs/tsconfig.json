@@ -1,13 +1,12 @@
 {
-  "include": ["**/*.ts", "**/*.tsx"],
+  "include": ["app/**/*.ts", "app/**/*.tsx", "server/**/*.ts"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",
     "module": "ESNext",
     "baseUrl": ".",
     "paths": {
-      "#/*": ["./src/*"],
-      "@/*": ["./src/*"]
+      "@/*": ["./app/*"]
     },
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["vite/client"],
