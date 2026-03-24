@@ -210,17 +210,21 @@ export async function getClients(
         : undefined) ??
       accountId;
 
-    const accessToken = await getValidAccessToken(
-      accountId,
-      tokens,
-      ownerForRefresh,
-    );
+    try {
+      const accessToken = await getValidAccessToken(
+        accountId,
+        tokens,
+        ownerForRefresh,
+      );
 
-    results.push({
-      email: accountId,
-      accessToken,
-      refreshToken: tokens.refresh_token || "",
-    });
+      results.push({
+        email: accountId,
+        accessToken,
+        refreshToken: tokens.refresh_token || "",
+      });
+    } catch {
+      // Skip accounts with expired/invalid tokens so other accounts still work
+    }
   }
 
   return results;

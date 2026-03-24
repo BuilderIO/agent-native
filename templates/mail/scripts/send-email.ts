@@ -144,7 +144,7 @@ export async function run(args: Record<string, string>): Promise<string> {
   });
 
   try {
-    const sent = await gmailSendMessage(selectedToken, raw);
+    const sent = await gmailSendMessage(selectedToken, raw, threadId);
     return `Email sent successfully (id: ${sent.id})`;
   } catch (err: any) {
     return `Error sending email: ${err?.message}`;

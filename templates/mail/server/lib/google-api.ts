@@ -158,11 +158,17 @@ export function gmailGetMessage(
   );
 }
 
-export function gmailSendMessage(accessToken: string, raw: string) {
+export function gmailSendMessage(
+  accessToken: string,
+  raw: string,
+  threadId?: string,
+) {
+  const payload: Record<string, string> = { raw };
+  if (threadId) payload.threadId = threadId;
   return googleFetch(`${GMAIL_BASE}/messages/send`, accessToken, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ raw }),
+    body: JSON.stringify(payload),
   });
 }
 
