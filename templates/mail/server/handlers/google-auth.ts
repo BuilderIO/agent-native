@@ -23,6 +23,30 @@ function getOrigin(event: H3Event): string {
   return `${proto}://${host}`;
 }
 
+/** Encode a redirect URI into the OAuth state param so the callback can recover it across proxies. */
+function encodeState(redirectUri: string): string {
+  const nonce = crypto.randomBytes(8).toString("hex");
+  return Buffer.from(JSON.stringify({ n: nonce, r: redirectUri })).toString(
+    "base64url",
+  );
+}
+
+/** Recover the redirect URI from the state param, falling back to origin-based computation. */
+function decodeRedirectUri(
+  stateParam: string | undefined,
+  fallback: string,
+): string {
+  if (stateParam) {
+    try {
+      const parsed = JSON.parse(
+        Buffer.from(stateParam, "base64url").toString(),
+      );
+      if (parsed.r) return parsed.r;
+    } catch {}
+  }
+  return fallback;
+}
+
 export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
     setResponseStatus(event, 422);
@@ -36,7 +60,7 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
     const redirectUri =
       (getQuery(event).redirect_uri as string) ||
       `${getOrigin(event)}/api/google/callback`;
-    const state = crypto.randomBytes(16).toString("hex");
+    const state = encodeState(redirectUri);
     const url = getAuthUrl(undefined, redirectUri, state);
     return { url };
   } catch (error: any) {
@@ -55,9 +79,11 @@ export const handleGoogleCallback = defineEventHandler(
         return { error: "Missing authorization code" };
       }
 
-      // Compute redirect URI deterministically from request origin
-      // (must match what was sent to Google in getGoogleAuthUrl)
-      const redirectUri = `${getOrigin(event)}/api/google/callback`;
+      const stateParam = query.state as string | undefined;
+      const redirectUri = decodeRedirectUri(
+        stateParam,
+        `${getOrigin(event)}/api/google/callback`,
+      );
 
       // In dev mode, getSession returns "local@localhost" — use that as owner
       // so getAuthStatus("local@localhost") finds the tokens.
@@ -124,7 +150,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       const redirectUri =
         (getQuery(event).redirect_uri as string) ||
         `${getOrigin(event)}/api/google/add-account/callback`;
-      const state = crypto.randomBytes(16).toString("hex");
+      const state = encodeState(redirectUri);
       const url = getAuthUrl(undefined, redirectUri, state);
       return { url };
     } catch (error: any) {
@@ -149,7 +175,11 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         return errorPage("Missing authorization code.");
       }
 
-      const redirectUri = `${getOrigin(event)}/api/google/add-account/callback`;
+      const stateParam = query.state as string | undefined;
+      const redirectUri = decodeRedirectUri(
+        stateParam,
+        `${getOrigin(event)}/api/google/add-account/callback`,
+      );
 
       // Exchange code, passing the logged-in user as the owner
       const addedEmail = await exchangeCode(
