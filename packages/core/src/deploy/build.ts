@@ -127,12 +127,14 @@ ${pluginCalls.join("\n")}
 
 export default {
   async fetch(request, env, ctx) {
-    // Expose env bindings as process.env for compatibility
+    // Expose env bindings globally for compatibility
     if (env) {
+      globalThis.process = globalThis.process || { env: {} };
+      globalThis.process.env = globalThis.process.env || {};
+      // Expose D1/KV/R2 bindings on globalThis.__cf_env for the db layer
+      globalThis.__cf_env = env;
       for (const [key, value] of Object.entries(env)) {
         if (typeof value === "string") {
-          globalThis.process = globalThis.process || { env: {} };
-          globalThis.process.env = globalThis.process.env || {};
           globalThis.process.env[key] = value;
         }
       }
