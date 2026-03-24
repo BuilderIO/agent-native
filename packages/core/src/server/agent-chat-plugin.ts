@@ -2,10 +2,7 @@ import {
   createProductionAgentHandler,
   type ScriptEntry,
 } from "../agent/production-agent.js";
-import { createDevScriptRegistry } from "../scripts/dev/index.js";
 import { defineEventHandler, readBody, setResponseStatus, getMethod } from "h3";
-import { upsertEnvFile } from "./create-server.js";
-import path from "path";
 import { agentEnv } from "../shared/agent-env.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
@@ -77,9 +74,12 @@ export function createAgentChatPlugin(
       typeof rawScripts === "function"
         ? await rawScripts()
         : (rawScripts ?? {});
-    const scripts = isDev
-      ? { ...templateScripts, ...(await createDevScriptRegistry()) }
-      : templateScripts;
+    let scripts = templateScripts;
+    if (isDev) {
+      const { createDevScriptRegistry } =
+        await import("../scripts/dev/index.js");
+      scripts = { ...templateScripts, ...(await createDevScriptRegistry()) };
+    }
 
     // Build system prompt
     const basePrompt = options?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
@@ -100,6 +100,7 @@ export function createAgentChatPlugin(
     );
 
     // Mount save-key BEFORE the prefix handler so it isn't shadowed
+    // Only functional in Node.js environments (writes to .env file)
     nitroApp.h3App.use(
       `${routePath}/save-key`,
       defineEventHandler(async (event) => {
@@ -117,10 +118,17 @@ export function createAgentChatPlugin(
         }
 
         const trimmedKey = key.trim();
-        const envPath = path.join(process.cwd(), ".env");
-        upsertEnvFile(envPath, [
-          { key: "ANTHROPIC_API_KEY", value: trimmedKey },
-        ]);
+
+        try {
+          const path = await import("path");
+          const { upsertEnvFile } = await import("./create-server.js");
+          const envPath = path.join(process.cwd(), ".env");
+          upsertEnvFile(envPath, [
+            { key: "ANTHROPIC_API_KEY", value: trimmedKey },
+          ]);
+        } catch {
+          // Edge runtime — can't write .env, but can still update process.env
+        }
 
         // Update process.env so the agent works immediately
         process.env.ANTHROPIC_API_KEY = trimmedKey;
