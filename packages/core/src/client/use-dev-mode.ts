@@ -15,9 +15,9 @@ function fetchDevMode(apiBase: string): Promise<boolean> {
         return cached;
       })
       .catch(() => {
-        // Default to dev mode if endpoint unavailable (don't block features)
-        cached = true;
-        return true;
+        // Default to production (locked) if endpoint unavailable
+        cached = false;
+        return false;
       });
   }
   return fetchPromise;
@@ -31,7 +31,7 @@ export function useDevMode(apiBase = "/api/agent-chat"): {
   isDevMode: boolean;
   isLoading: boolean;
 } {
-  const [isDevMode, setIsDevMode] = useState<boolean>(cached ?? true);
+  const [isDevMode, setIsDevMode] = useState<boolean>(cached ?? false);
   const [isLoading, setIsLoading] = useState(cached === null);
 
   useEffect(() => {

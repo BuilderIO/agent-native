@@ -8,8 +8,8 @@ import fs from "fs/promises";
 import path from "path";
 
 export default defineEventHandler(async (event: H3Event) => {
-  // Block source file writes in production
-  if (process.env.NODE_ENV === "production") {
+  // Block source file writes in production (treat undefined NODE_ENV as production for edge runtimes)
+  if (process.env.NODE_ENV !== "development") {
     setResponseStatus(event, 403);
     return {
       error:
