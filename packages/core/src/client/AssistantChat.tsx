@@ -406,6 +406,8 @@ function TerminalIcon({ className }: { className?: string }) {
 export interface AssistantChatHandle {
   /** Programmatically send a message into this chat */
   sendMessage(text: string): void;
+  /** Queue a message to send after the current run finishes */
+  queueMessage(text: string): void;
   /** Whether the chat is currently running */
   isRunning(): boolean;
 }
@@ -450,6 +452,9 @@ const AssistantChatInner = forwardRef<
   const isRunning = thread.isRunning;
   const messages = thread.messages;
   const [missingApiKey, setMissingApiKey] = useState(false);
+  const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
+  const wasRunningRef = useRef(false);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
 
   // Listen for missing API key events from the adapter
   useEffect(() => {
@@ -459,30 +464,60 @@ const AssistantChatInner = forwardRef<
       window.removeEventListener("agent-chat:missing-api-key", handler);
   }, []);
 
+  // Auto-dequeue: when agent finishes running, send the next queued message
+  useEffect(() => {
+    if (wasRunningRef.current && !isRunning && queuedMessages.length > 0) {
+      const [next, ...rest] = queuedMessages;
+      setQueuedMessages(rest);
+      // Small delay to let the runtime settle after completion
+      setTimeout(() => {
+        threadRuntime.append({
+          role: "user",
+          content: [{ type: "text", text: next }],
+        });
+      }, 100);
+    }
+    wasRunningRef.current = isRunning;
+  }, [isRunning, queuedMessages, threadRuntime]);
+
+  const addToQueue = useCallback(
+    (text: string) => {
+      if (isRunning) {
+        setQueuedMessages((prev) => [...prev, text]);
+      } else {
+        threadRuntime.append({
+          role: "user",
+          content: [{ type: "text", text }],
+        });
+      }
+    },
+    [isRunning, threadRuntime],
+  );
+
   // Expose imperative handle
   useImperativeHandle(
     ref,
     () => ({
       sendMessage(text: string) {
-        threadRuntime.append({
-          role: "user",
-          content: [{ type: "text", text }],
-        });
+        addToQueue(text);
+      },
+      queueMessage(text: string) {
+        addToQueue(text);
       },
       isRunning() {
         return thread.isRunning;
       },
     }),
-    [threadRuntime, thread.isRunning],
+    [addToQueue, thread.isRunning],
   );
 
-  // Auto-scroll on new messages
+  // Auto-scroll on new messages or queued messages
   useEffect(() => {
     const el = scrollRef.current;
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages, isRunning]);
+  }, [messages, isRunning, queuedMessages]);
 
   return (
     <div
@@ -573,34 +608,56 @@ const AssistantChatInner = forwardRef<
               }}
             />
             {isRunning && <ThinkingIndicator />}
+            {queuedMessages.map((msg, i) => (
+              <div key={`queued-${i}`} className="flex justify-end">
+                <div className="max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
+                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1 font-medium uppercase tracking-wide">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="h-3 w-3"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                    Queued
+                  </div>
+                  {msg}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
 
       {/* Input area */}
       <div className="shrink-0 border-t border-border px-3 py-3">
-        <ComposerPrimitive.Root className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring">
-          <ComposerPrimitive.Input
-            placeholder="Message agent..."
-            submitMode="enter"
-            cancelOnEscape
-            className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-relaxed min-h-[24px] max-h-[120px]"
-            rows={1}
+        {isRunning ? (
+          <QueueComposer
+            composerRef={composerRef}
+            addToQueue={addToQueue}
+            queuedCount={queuedMessages.length}
           />
-          {isRunning ? (
-            <ComposerPrimitive.Cancel asChild>
-              <button className="shrink-0 flex h-8 w-8 items-center justify-center rounded-md bg-destructive text-destructive-foreground hover:opacity-90">
-                <StopIcon className="h-3.5 w-3.5" />
-              </button>
-            </ComposerPrimitive.Cancel>
-          ) : (
+        ) : (
+          <ComposerPrimitive.Root className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring">
+            <ComposerPrimitive.Input
+              placeholder="Message agent..."
+              submitMode="enter"
+              cancelOnEscape
+              className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-relaxed min-h-[24px] max-h-[120px]"
+              rows={1}
+            />
             <ComposerPrimitive.Send asChild>
               <button className="shrink-0 flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed">
                 <SendIcon className="h-3.5 w-3.5" />
               </button>
             </ComposerPrimitive.Send>
-          )}
-        </ComposerPrimitive.Root>
+          </ComposerPrimitive.Root>
+        )}
       </div>
     </div>
   );

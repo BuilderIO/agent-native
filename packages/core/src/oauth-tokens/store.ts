@@ -122,17 +122,22 @@ export async function deleteOAuthTokens(
   return result.rowsAffected;
 }
 
-export async function listOAuthAccounts(
-  provider: string,
-): Promise<Array<{ accountId: string; tokens: Record<string, unknown> }>> {
+export async function listOAuthAccounts(provider: string): Promise<
+  Array<{
+    accountId: string;
+    owner: string | null;
+    tokens: Record<string, unknown>;
+  }>
+> {
   await ensureTable();
   const client = getClient();
   const { rows } = await client.execute({
-    sql: `SELECT account_id, tokens FROM oauth_tokens WHERE provider = ?`,
+    sql: `SELECT account_id, owner, tokens FROM oauth_tokens WHERE provider = ?`,
     args: [provider],
   });
   return rows.map((row) => ({
     accountId: row.account_id as string,
+    owner: (row.owner as string) ?? null,
     tokens: JSON.parse(row.tokens as string),
   }));
 }

@@ -143,25 +143,24 @@ export function GoogleConnectBanner({
 
   // When add-account URL is ready, open it and poll for new account
   useEffect(() => {
-    if (addAccountUrl.data?.url) {
-      window.open(addAccountUrl.data.url, "_blank");
-      setWantAddAccount(false);
+    if (!wantAddAccount || !addAccountUrl.data?.url) return;
+    window.open(addAccountUrl.data.url, "_blank");
+    setWantAddAccount(false);
 
-      const prevCount = accounts.length;
-      const interval = setInterval(async () => {
-        const res = await fetch("/api/google/status").catch(() => null);
-        if (res?.ok) {
-          const data = await res.json();
-          if (data.accounts?.length > prevCount) {
-            clearInterval(interval);
-            window.location.reload();
-          }
+    const prevCount = accounts.length;
+    const interval = setInterval(async () => {
+      const res = await fetch("/api/google/status").catch(() => null);
+      if (res?.ok) {
+        const data = await res.json();
+        if (data.accounts?.length > prevCount) {
+          clearInterval(interval);
+          window.location.reload();
         }
-      }, 2000);
+      }
+    }, 2000);
 
-      return () => clearInterval(interval);
-    }
-  }, [addAccountUrl.data, accounts.length]);
+    return () => clearInterval(interval);
+  }, [wantAddAccount, addAccountUrl.data, accounts.length]);
 
   function handleConnect() {
     setWantAuthUrl(true);

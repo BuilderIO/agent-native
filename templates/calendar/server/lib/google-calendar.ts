@@ -157,6 +157,7 @@ export async function getClients(
   for (const account of accounts) {
     const tokens = account.tokens as unknown as GoogleTokens;
     const accountId = account.accountId;
+    const storedOwner = account.owner ?? accountId;
 
     const client = createOAuth2Client();
     client.setCredentials(tokens);
@@ -167,10 +168,12 @@ export async function getClients(
           "google",
           accountId,
         )) as unknown as GoogleTokens | null) ?? {};
-      await saveOAuthTokens("google", accountId, {
-        ...current,
-        ...newTokens,
-      });
+      await saveOAuthTokens(
+        "google",
+        accountId,
+        { ...current, ...newTokens },
+        storedOwner,
+      );
     });
 
     results.push({ email: accountId, client });

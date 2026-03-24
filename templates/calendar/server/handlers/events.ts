@@ -16,6 +16,13 @@ async function uEmail(event: H3Event): Promise<string> {
   return session?.email ?? "local@localhost";
 }
 
+class ForbiddenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ForbiddenError";
+  }
+}
+
 /** Resolve and validate an accountEmail from the request against the user's owned accounts. */
 async function resolveAccountEmail(
   requestAccountEmail: string | undefined,
@@ -24,13 +31,21 @@ async function resolveAccountEmail(
   if (!requestAccountEmail || requestAccountEmail === ownerEmail) {
     return ownerEmail;
   }
-  // Verify the requested account is owned by this user
   const status = await googleCalendar.getAuthStatus(ownerEmail);
   const isOwned = status.accounts.some((a) => a.email === requestAccountEmail);
   if (!isOwned) {
-    throw new Error("Account not owned by current user");
+    throw new ForbiddenError("Account not owned by current user");
   }
   return requestAccountEmail;
+}
+
+function handleError(event: H3Event, error: any) {
+  if (error instanceof ForbiddenError) {
+    setResponseStatus(event, 403);
+  } else {
+    setResponseStatus(event, 500);
+  }
+  return { error: error.message };
 }
 
 export const listEvents = defineEventHandler(async (event: H3Event) => {
@@ -169,8 +184,7 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 201);
     return calEvent;
   } catch (error: any) {
-    setResponseStatus(event, 500);
-    return { error: error.message };
+    return handleError(event, error);
   }
 });
 
@@ -211,8 +225,7 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
       updatedAt: new Date().toISOString(),
     };
   } catch (error: any) {
-    setResponseStatus(event, 500);
-    return { error: error.message };
+    return handleError(event, error);
   }
 });
 
@@ -248,7 +261,6 @@ export const deleteEvent = defineEventHandler(async (event: H3Event) => {
 
     return { success: true };
   } catch (error: any) {
-    setResponseStatus(event, 500);
-    return { error: error.message };
+    return handleError(event, error);
   }
 });
