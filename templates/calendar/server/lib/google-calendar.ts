@@ -1,4 +1,3 @@
-import { google, type Auth } from "googleapis";
 import type { CalendarEvent, GoogleAuthStatus } from "../../shared/api.js";
 import {
   getOAuthTokens,
@@ -8,6 +7,14 @@ import {
   listOAuthAccountsByOwner,
   hasOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
+import {
+  createOAuth2Client,
+  oauth2GetUserInfo,
+  calendarListEvents,
+  calendarInsertEvent,
+  calendarUpdateEvent,
+  calendarDeleteEvent,
+} from "./google-api.js";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
@@ -23,7 +30,7 @@ interface GoogleTokens {
   scope?: string;
 }
 
-function createOAuth2Client(redirectUri?: string) {
+function getOAuth2Credentials() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
@@ -31,11 +38,40 @@ function createOAuth2Client(redirectUri?: string) {
       "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in environment",
     );
   }
-  return new google.auth.OAuth2(
-    clientId,
-    clientSecret,
-    redirectUri ?? "http://localhost:8080/api/google/callback",
-  );
+  return { clientId, clientSecret };
+}
+
+/**
+ * Get a valid access token for a Google account, refreshing if expired.
+ */
+async function getValidAccessToken(
+  accountId: string,
+  tokens: GoogleTokens,
+  owner?: string,
+): Promise<string> {
+  // Check if token is expired (with 5-minute buffer)
+  if (
+    tokens.expiry_date &&
+    tokens.expiry_date < Date.now() + 5 * 60 * 1000 &&
+    tokens.refresh_token
+  ) {
+    try {
+      const { clientId, clientSecret } = getOAuth2Credentials();
+      const oauth2 = createOAuth2Client(clientId, clientSecret, "");
+      const newTokens = await oauth2.refreshToken(tokens.refresh_token);
+      const merged = { ...tokens, ...newTokens };
+      await saveOAuthTokens(
+        "google",
+        accountId,
+        merged as unknown as Record<string, unknown>,
+        owner ?? accountId,
+      );
+      return merged.access_token;
+    } catch {
+      // Refresh failed — use existing token
+    }
+  }
+  return tokens.access_token;
 }
 
 export function getAuthUrl(
@@ -43,10 +79,11 @@ export function getAuthUrl(
   redirectUri?: string,
   state?: string,
 ): string {
+  const { clientId, clientSecret } = getOAuth2Credentials();
   const uri =
     redirectUri || (origin ? `${origin}/api/google/callback` : undefined);
-  const client = createOAuth2Client(uri);
-  return client.generateAuthUrl({
+  const oauth2 = createOAuth2Client(clientId, clientSecret, uri ?? "");
+  return oauth2.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
     prompt: "consent",
@@ -60,16 +97,15 @@ export async function exchangeCode(
   redirectUri?: string,
   owner?: string,
 ): Promise<string> {
+  const { clientId, clientSecret } = getOAuth2Credentials();
   const uri =
     redirectUri || (origin ? `${origin}/api/google/callback` : undefined);
-  const client = createOAuth2Client(uri);
-  const { tokens } = await client.getToken(code);
+  const oauth2 = createOAuth2Client(clientId, clientSecret, uri ?? "");
+  const tokens = await oauth2.getToken(code);
 
-  // Determine the email address for this account
-  client.setCredentials(tokens);
-  const oauth2 = google.oauth2({ version: "v2", auth: client });
-  const userInfo = await oauth2.userinfo.get();
-  const email = userInfo.data.email;
+  // Get user email
+  const userInfo = await oauth2GetUserInfo(tokens.access_token);
+  const email = userInfo.email;
   if (!email) throw new Error("Google returned no email address");
 
   await saveOAuthTokens(
@@ -84,7 +120,7 @@ export async function exchangeCode(
 
 export async function getClient(
   email?: string,
-): Promise<Auth.OAuth2Client | null> {
+): Promise<{ accessToken: string } | null> {
   const accounts = await listOAuthAccounts("google");
   if (accounts.length === 0) return null;
 
@@ -97,86 +133,37 @@ export async function getClient(
   }
 
   const tokens = account.tokens as unknown as GoogleTokens;
-  const accountId = account.accountId;
-
-  const client = createOAuth2Client();
-  client.setCredentials(tokens);
-
-  client.on("tokens", async (newTokens) => {
-    const current =
-      ((await getOAuthTokens(
-        "google",
-        accountId,
-      )) as unknown as GoogleTokens | null) ?? {};
-    await saveOAuthTokens("google", accountId, {
-      ...current,
-      ...newTokens,
-    });
-  });
-
-  return client;
+  const accessToken = await getValidAccessToken(
+    account.accountId,
+    tokens,
+    account.owner ?? account.accountId,
+  );
+  return { accessToken };
 }
 
 export async function getClients(
   forEmail?: string,
-): Promise<Array<{ email: string; client: Auth.OAuth2Client }>> {
-  if (forEmail) {
-    const accounts = await listOAuthAccountsByOwner("google", forEmail);
-    const results: Array<{ email: string; client: Auth.OAuth2Client }> = [];
+): Promise<Array<{ email: string; accessToken: string }>> {
+  const accounts = forEmail
+    ? await listOAuthAccountsByOwner("google", forEmail)
+    : await listOAuthAccounts("google");
 
-    for (const account of accounts) {
-      const tokens = account.tokens as unknown as GoogleTokens;
-      const accountId = account.accountId;
-
-      const client = createOAuth2Client();
-      client.setCredentials(tokens);
-
-      client.on("tokens", async (newTokens) => {
-        const current =
-          ((await getOAuthTokens(
-            "google",
-            accountId,
-          )) as unknown as GoogleTokens | null) ?? {};
-        await saveOAuthTokens(
-          "google",
-          accountId,
-          { ...current, ...newTokens },
-          forEmail,
-        );
-      });
-
-      results.push({ email: accountId, client });
-    }
-
-    return results;
-  }
-
-  const accounts = await listOAuthAccounts("google");
-  const results: Array<{ email: string; client: Auth.OAuth2Client }> = [];
+  const results: Array<{ email: string; accessToken: string }> = [];
 
   for (const account of accounts) {
     const tokens = account.tokens as unknown as GoogleTokens;
-    const accountId = account.accountId;
-    const storedOwner = account.owner ?? accountId;
-
-    const client = createOAuth2Client();
-    client.setCredentials(tokens);
-
-    client.on("tokens", async (newTokens) => {
-      const current =
-        ((await getOAuthTokens(
-          "google",
-          accountId,
-        )) as unknown as GoogleTokens | null) ?? {};
-      await saveOAuthTokens(
-        "google",
-        accountId,
-        { ...current, ...newTokens },
-        storedOwner,
-      );
-    });
-
-    results.push({ email: accountId, client });
+    const owner =
+      forEmail ??
+      ("owner" in account && typeof account.owner === "string"
+        ? account.owner
+        : undefined) ??
+      account.accountId;
+    const accessToken = await getValidAccessToken(
+      account.accountId,
+      tokens,
+      owner,
+    );
+    results.push({ email: account.accountId, accessToken });
   }
 
   return results;
@@ -247,19 +234,17 @@ export async function listEvents(
   const errors: Array<{ email: string; error: string }> = [];
 
   const allResults = await Promise.all(
-    clients.map(async ({ email, client }) => {
+    clients.map(async ({ email, accessToken }) => {
       try {
-        const calendar = google.calendar({ version: "v3", auth: client });
-        const response = await calendar.events.list({
-          calendarId: "primary",
+        const response = await calendarListEvents(accessToken, "primary", {
           timeMin,
           timeMax,
           singleEvents: true,
           orderBy: "startTime",
         });
 
-        const events = response.data.items || [];
-        return events.map((event) => ({
+        const events = response.items || [];
+        return events.map((event: any) => ({
           id: `google-${event.id}`,
           title: event.summary || "Untitled",
           description: event.description || "",
@@ -293,23 +278,19 @@ export async function createEvent(
   const client = await getClient(event.accountEmail);
   if (!client) return undefined;
 
-  const calendar = google.calendar({ version: "v3", auth: client });
-  const response = await calendar.events.insert({
-    calendarId: "primary",
-    requestBody: {
-      summary: event.title,
-      description: event.description,
-      location: event.location,
-      start: event.allDay
-        ? { date: event.start.split("T")[0] }
-        : { dateTime: event.start },
-      end: event.allDay
-        ? { date: event.end.split("T")[0] }
-        : { dateTime: event.end },
-    },
+  const response = await calendarInsertEvent(client.accessToken, "primary", {
+    summary: event.title,
+    description: event.description,
+    location: event.location,
+    start: event.allDay
+      ? { date: event.start.split("T")[0] }
+      : { dateTime: event.start },
+    end: event.allDay
+      ? { date: event.end.split("T")[0] }
+      : { dateTime: event.end },
   });
 
-  return response.data.id || undefined;
+  return response.id || undefined;
 }
 
 export async function updateEvent(
@@ -319,7 +300,6 @@ export async function updateEvent(
   const client = await getClient(event.accountEmail);
   if (!client) return;
 
-  const calendar = google.calendar({ version: "v3", auth: client });
   const requestBody: any = {};
   if (event.title !== undefined) requestBody.summary = event.title;
   if (event.description !== undefined)
@@ -336,11 +316,12 @@ export async function updateEvent(
       : { dateTime: event.end };
   }
 
-  await calendar.events.update({
-    calendarId: "primary",
-    eventId: googleEventId,
+  await calendarUpdateEvent(
+    client.accessToken,
+    "primary",
+    googleEventId,
     requestBody,
-  });
+  );
 }
 
 export async function deleteEvent(
@@ -350,9 +331,5 @@ export async function deleteEvent(
   const client = await getClient(accountEmail);
   if (!client) return;
 
-  const calendar = google.calendar({ version: "v3", auth: client });
-  await calendar.events.delete({
-    calendarId: "primary",
-    eventId: googleEventId,
-  });
+  await calendarDeleteEvent(client.accessToken, "primary", googleEventId);
 }

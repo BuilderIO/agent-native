@@ -1,44 +1,28 @@
 # Deployment
 
-Agent-native apps can be deployed to any platform. The build uses React Router for the frontend and H3 for API routes. For edge/serverless targets, set `NITRO_PRESET` to bundle the server for the target platform.
+Agent-native apps can be deployed anywhere. Set `DATABASE_URL` for your database and optionally `NITRO_PRESET` for edge targets.
 
-## How It Works
+## Database
 
-`agent-native build` produces two outputs:
+By default, apps use local SQLite (`file:./data/app.db`). For production, set `DATABASE_URL` to any supported provider:
 
-```
-build/
-  client/          # Static assets (JS, CSS, images)
-  server/          # SSR server module (React Router)
-```
+| Provider           | `DATABASE_URL` format                                   |
+| ------------------ | ------------------------------------------------------- |
+| **SQLite** (local) | `file:./data/app.db` (default)                          |
+| **Turso**          | `libsql://your-db.turso.io`                             |
+| **Neon**           | `libsql://...` or use Neon's libsql-compatible endpoint |
+| **Supabase**       | `libsql://...` via Supabase's libsql proxy              |
+| **Cloudflare D1**  | No URL needed — uses the `DB` binding automatically     |
 
-For **Node.js** (default), this is all you need — run the server directly.
+For Turso/Neon/Supabase, also set `DATABASE_AUTH_TOKEN`.
 
-For **edge/serverless** targets, set `NITRO_PRESET` and the build adds a post-processing step that bundles the server into the target format:
-
-```bash
-NITRO_PRESET=cloudflare_pages pnpm build
-```
-
-This produces a `dist/` directory with the platform-specific output (e.g., `dist/_worker.js/` for Cloudflare Pages).
-
-## Setting the Preset
-
-Use the `NITRO_PRESET` environment variable at build time:
-
-```bash
-NITRO_PRESET=cloudflare_pages agent-native build
-```
-
-Supported presets: `cloudflare_pages` (more coming soon).
+D1 is auto-detected when running on Cloudflare Workers with a D1 binding named `DB`.
 
 ## Node.js (Default)
 
-No preset needed. Build and run:
-
 ```bash
-agent-native build
-agent-native start
+pnpm build
+pnpm start    # or: node build/server/index.js
 ```
 
 Set `PORT` to configure the listen port (default: `3000`).
@@ -62,64 +46,68 @@ EXPOSE 3000
 CMD ["node", "build/server/index.js"]
 ```
 
-## Cloudflare Pages
-
-Set `NITRO_PRESET=cloudflare_pages` as a build environment variable in the Cloudflare dashboard.
+## Cloudflare Workers
 
 **Build command:**
 
 ```bash
-pnpm build
+NITRO_PRESET=cloudflare_pages pnpm build
 ```
 
 **Wrangler configuration** (`wrangler.toml`):
 
 ```toml
 name = "my-app"
-pages_build_output_dir = "dist"
-compatibility_date = "2024-12-01"
-compatibility_flags = ["nodejs_compat"]
+main = "dist/_worker.js/index.js"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat_v2"]
+
+[assets]
+directory = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "my-app-db"
+database_id = "<your-d1-database-id>"
 ```
 
-**Database:** Cloudflare Workers can't use local SQLite. Use a remote database:
+**Deploy:**
 
-- **D1** — Cloudflare's native SQLite. Add a D1 binding in the dashboard or wrangler.toml.
-- **Turso** — Set `DATABASE_URL` and `DATABASE_AUTH_TOKEN` as environment variables.
+```bash
+npx wrangler deploy
+```
 
-**Limitations on edge runtimes:**
+Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and other runtime secrets in the Cloudflare dashboard under Settings → Variables and Secrets.
 
-Some features require Node.js and are automatically skipped on edge targets:
+**Edge runtime limitations** (automatically handled — no config needed):
 
-- **Agent chat** — requires child process spawning for scripts
-- **Terminal** — requires PTY
-- **File sync** — requires filesystem watchers
+- Agent chat, terminal, and file sync are skipped (require Node.js)
+- API routes, SSR, auth, and database all work
 
-API routes, SSR, auth, and database access all work on edge runtimes.
+## Netlify
+
+```bash
+pnpm build
+```
+
+Deploy via `netlify deploy --prod` or connect your Git repo in the Netlify dashboard. Set environment variables in the Netlify dashboard.
 
 ## Environment Variables
 
-Each platform has its own way to set environment variables:
+| Variable              | Description                      |
+| --------------------- | -------------------------------- |
+| `PORT`                | Server port (Node.js only)       |
+| `DATABASE_URL`        | Database connection URL          |
+| `DATABASE_AUTH_TOKEN` | Database auth token (Turso/Neon) |
+| `NITRO_PRESET`        | Edge target (build time only)    |
+| `ANTHROPIC_API_KEY`   | API key for production agent     |
 
-- **Node.js** — `.env` file or shell exports
-- **Cloudflare** — Dashboard settings or wrangler.toml secrets
+## File Sync
 
-Common variables:
-
-| Variable              | Description                           |
-| --------------------- | ------------------------------------- |
-| `PORT`                | Server port (Node.js only)            |
-| `NITRO_PRESET`        | Target platform (set at build time)   |
-| `DATABASE_URL`        | Database connection URL               |
-| `DATABASE_AUTH_TOKEN` | Database auth token (Turso)           |
-| `ANTHROPIC_API_KEY`   | API key for embedded production agent |
-| `FILE_SYNC_ENABLED`   | Enable file sync for multi-instance   |
-
-## File Sync in Production
-
-For multi-instance deployments (e.g., serverless or load-balanced), enable file sync to keep instances in sync:
+For multi-instance deployments, enable file sync:
 
 ```bash
 FILE_SYNC_ENABLED=true
 ```
 
-See [File Sync](/docs/file-sync) for adapter configuration (Firestore, Supabase, Convex).
+See [File Sync](/docs/file-sync) for adapter configuration.

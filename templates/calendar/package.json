@@ -16,7 +16,6 @@
   "dependencies": {
     "@agent-native/core": "workspace:*",
     "dotenv": "^17.2.1",
-    "googleapis": "^148.0.0",
     "h3": "^1.15.3",
     "nanoid": "^4.0.2",
     "@libsql/client": "^0.15.0",

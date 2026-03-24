@@ -93,7 +93,6 @@ async function getHandler() {
 
   const app = createApp();
   const router = createRouter();
-  app.use(router);
 
   // CORS
   app.use(defineEventHandler((event) => {
@@ -108,11 +107,14 @@ async function getHandler() {
     }
   }));
 
+  // Run plugins BEFORE routes — auth middleware must be mounted first
+${pluginCalls.join("\n")}
+
+  // Mount router AFTER plugins so auth middleware runs first
+  app.use(router);
+
   // Register API routes
 ${routeRegistrations.join("\n")}
-
-  // Run compatible plugins
-${pluginCalls.join("\n")}
 
   // SSR catch-all for React Router
   const rrHandler = createRequestHandler(() => serverBuild);

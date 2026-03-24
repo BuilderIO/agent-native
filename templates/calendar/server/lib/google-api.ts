@@ -131,7 +131,9 @@ export async function googleFetch(
 // URL builder helpers
 // ---------------------------------------------------------------------------
 
-function qs(params: Record<string, string | number | undefined>): string {
+function qs(
+  params: Record<string, string | number | boolean | undefined>,
+): string {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined) sp.set(k, String(v));
@@ -291,5 +293,78 @@ export function calendarPatchEvent(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     },
+  );
+}
+
+export function calendarListEvents(
+  accessToken: string,
+  calendarId: string,
+  params: {
+    timeMin?: string;
+    timeMax?: string;
+    singleEvents?: boolean;
+    orderBy?: string;
+    maxResults?: number;
+  } = {},
+) {
+  return googleFetch(
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events${qs(params)}`,
+    accessToken,
+  );
+}
+
+export function calendarInsertEvent(
+  accessToken: string,
+  calendarId: string,
+  body: any,
+) {
+  return googleFetch(
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events`,
+    accessToken,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export function calendarUpdateEvent(
+  accessToken: string,
+  calendarId: string,
+  eventId: string,
+  body: any,
+) {
+  return googleFetch(
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    accessToken,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export function calendarDeleteEvent(
+  accessToken: string,
+  calendarId: string,
+  eventId: string,
+) {
+  return googleFetch(
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    accessToken,
+    { method: "DELETE" },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// OAuth2 Userinfo
+// ---------------------------------------------------------------------------
+
+export function oauth2GetUserInfo(accessToken: string) {
+  return googleFetch(
+    "https://www.googleapis.com/oauth2/v2/userinfo",
+    accessToken,
   );
 }
