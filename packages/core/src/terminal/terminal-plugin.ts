@@ -11,7 +11,7 @@
 import { defineEventHandler } from "h3";
 
 export interface TerminalPluginOptions {
-  /** CLI command to run. Defaults to AGENT_CLI_COMMAND env or 'claude' */
+  /** CLI command to run. Defaults to AGENT_CLI_COMMAND env or 'fusion' */
   command?: string;
   /** Port for the WebSocket server. Defaults to AGENT_TERMINAL_PORT env or auto-assigned */
   port?: number;
@@ -80,12 +80,30 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
     }
 
     const command =
-      options.command || process.env.AGENT_CLI_COMMAND || "claude";
+      options.command || process.env.AGENT_CLI_COMMAND || "fusion";
     const port =
       options.port ??
       (process.env.AGENT_TERMINAL_PORT
         ? parseInt(process.env.AGENT_TERMINAL_PORT, 10)
         : 0);
+
+    // Mount available CLIs endpoint (always available, even if PTY fails)
+    nitroApp.h3App.use(
+      "/api/available-clis",
+      defineEventHandler(async () => {
+        const { CLI_REGISTRY, commandExists } =
+          await import("./cli-registry.js");
+        const results = [];
+        for (const [cmd, entry] of Object.entries(CLI_REGISTRY)) {
+          results.push({
+            command: cmd,
+            label: entry.label,
+            available: commandExists(cmd),
+          });
+        }
+        return results;
+      }),
+    );
 
     try {
       const { createPtyWebSocketServer } = await import("./pty-server.js");

@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { useParams, Navigate } from "react-router";
+import { AgentSidebar } from "@agent-native/core/client";
 import { compositions } from "@/remotion/registry";
 import { Sidebar } from "@/components/Sidebar";
 import { StudioHeader } from "@/components/StudioHeader";
@@ -42,23 +43,34 @@ function StudioContent() {
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
       />
 
-      <div className="flex flex-1 min-h-0">
-        <Sidebar
-          open={sidebarOpen}
-          cameraControlsTrigger={cameraControlsTrigger}
-          cursorControlsTrigger={cursorControlsTrigger}
-          compSettingsTrigger={compSettingsTrigger}
-          onGeneratingChange={setGeneratingComposition}
-        />
-
-        <div className="flex-1 min-w-0 overflow-y-auto">
-          <CompositionView
-            onCameraKeyframeClick={handleCameraKeyframeClick}
-            onCompSettingsClick={handleCompSettingsClick}
-            isGenerating={generatingComposition}
+      <AgentSidebar
+        position="left"
+        defaultOpen
+        emptyStateText="Ask me anything about your videos"
+        suggestions={[
+          "Create a new composition",
+          "Add a camera pan effect",
+          "Adjust the animation timing",
+        ]}
+      >
+        <div className="flex flex-1 min-h-0">
+          <Sidebar
+            open={sidebarOpen}
+            cameraControlsTrigger={cameraControlsTrigger}
+            cursorControlsTrigger={cursorControlsTrigger}
+            compSettingsTrigger={compSettingsTrigger}
+            onGeneratingChange={setGeneratingComposition}
           />
+
+          <div className="flex-1 min-w-0 overflow-y-auto">
+            <CompositionView
+              onCameraKeyframeClick={handleCameraKeyframeClick}
+              onCompSettingsClick={handleCompSettingsClick}
+              isGenerating={generatingComposition}
+            />
+          </div>
         </div>
-      </div>
+      </AgentSidebar>
     </div>
   );
 }

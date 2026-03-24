@@ -2,6 +2,8 @@ import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useEffect } from "react";
 import { DeckProvider } from "@/context/DeckContext";
 import {
+  AgentSidebar,
+  AgentToggleButton,
   enterStyleEditing as coreEnterStyleEditing,
   enterTextEditing as coreEnterTextEditing,
   exitSelectionMode as coreExitSelectionMode,
@@ -78,7 +80,21 @@ export default function Root() {
   useExitSelectionOnOutsideClick();
   return (
     <DeckProvider key={DECK_KEY}>
-      <Outlet />
+      <AgentSidebar
+        position="left"
+        defaultOpen
+        emptyStateText="Ask me anything about your presentations"
+        suggestions={[
+          "Create a new deck",
+          "Generate slides about AI",
+          "Add an image to this slide",
+        ]}
+      >
+        <div className="fixed top-3 left-3 z-50">
+          <AgentToggleButton />
+        </div>
+        <Outlet />
+      </AgentSidebar>
     </DeckProvider>
   );
 }
