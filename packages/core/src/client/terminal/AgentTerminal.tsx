@@ -19,7 +19,7 @@ import React, {
 import { getHarnessOrigin } from "../harness.js";
 
 export interface AgentTerminalProps {
-  /** CLI command to run. Default: 'claude' */
+  /** CLI command to run. Default: 'fusion' */
   command?: string;
   /** Additional CLI flags */
   flags?: string;
@@ -398,7 +398,7 @@ export function AgentTerminal({
       cleanupMessageHandler?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hideInHarness, inHarness]);
+  }, [hideInHarness, inHarness, command]);
 
   if (hideInHarness && inHarness) {
     return null;
