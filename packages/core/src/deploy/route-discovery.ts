@@ -30,8 +30,8 @@ export function parseRouteFile(relPath: string): {
   // Replace [param] with :param
   routePath = routePath.replace(/\[([^\]]+)\]/g, ":$1");
 
-  // Replace [...catchall] with *
-  routePath = routePath.replace(/:\.\.\.([^/]+)/g, "**:$1");
+  // Replace [...catchall] with ** (H3 catch-all syntax, value in params._)
+  routePath = routePath.replace(/:\.\.\.([^/]+)/g, "**");
 
   // Remove trailing /index
   routePath = routePath.replace(/\/index$/, "");

@@ -16,7 +16,7 @@
 
 import path from "path";
 import fs from "fs";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import {
   discoverApiRoutes,
   discoverPlugins,
@@ -212,9 +212,9 @@ async function buildCloudflarePages() {
   // The server build is external (already bundled by Vite).
   const esbuildBin = findEsbuild();
 
-  execSync(
+  execFileSync(
+    esbuildBin,
     [
-      esbuildBin,
       tmpEntry,
       "--bundle",
       "--format=esm",
@@ -228,7 +228,7 @@ async function buildCloudflarePages() {
       `--external:./server/*`,
       // Externalize node builtins that Workers provides via compat
       ...getExternals(),
-    ].join(" "),
+    ],
     { stdio: "inherit", cwd },
   );
 
