@@ -1,15 +1,13 @@
 import { SafeAreaView, StyleSheet } from "react-native";
 import AppWebView from "@/components/AppWebView";
-import { useApps } from "@/lib/use-apps";
+import { DEFAULT_APPS } from "@agent-native/shared-app-config";
+
+const calendar = DEFAULT_APPS.find((a) => a.id === "calendar")!;
 
 export default function CalendarTab() {
-  const { apps } = useApps();
-  const calendar = apps.find((a) => a.id === "calendar");
-  const url = calendar?.url || "https://calendar.agentnative.app";
-
   return (
     <SafeAreaView style={styles.container}>
-      <AppWebView url={url} color="#8B5CF6" />
+      <AppWebView url={calendar.url} color={calendar.color} />
     </SafeAreaView>
   );
 }

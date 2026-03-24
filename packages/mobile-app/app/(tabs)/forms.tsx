@@ -1,15 +1,13 @@
 import { SafeAreaView, StyleSheet } from "react-native";
 import AppWebView from "@/components/AppWebView";
-import { useApps } from "@/lib/use-apps";
+import { DEFAULT_APPS } from "@agent-native/shared-app-config";
+
+const forms = DEFAULT_APPS.find((a) => a.id === "forms")!;
 
 export default function FormsTab() {
-  const { apps } = useApps();
-  const forms = apps.find((a) => a.id === "forms");
-  const url = forms?.url || "https://forms.agentnative.app";
-
   return (
     <SafeAreaView style={styles.container}>
-      <AppWebView url={url} color="#06B6D4" />
+      <AppWebView url={forms.url} color={forms.color} />
     </SafeAreaView>
   );
 }

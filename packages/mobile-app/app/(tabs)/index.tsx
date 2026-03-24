@@ -1,15 +1,13 @@
 import { SafeAreaView, StyleSheet } from "react-native";
 import AppWebView from "@/components/AppWebView";
-import { useApps } from "@/lib/use-apps";
+import { DEFAULT_APPS } from "@agent-native/shared-app-config";
+
+const mail = DEFAULT_APPS.find((a) => a.id === "mail")!;
 
 export default function MailTab() {
-  const { apps } = useApps();
-  const mail = apps.find((a) => a.id === "mail");
-  const url = mail?.url || "https://mail.agentnative.app";
-
   return (
     <SafeAreaView style={styles.container}>
-      <AppWebView url={url} color="#3B82F6" />
+      <AppWebView url={mail.url} color={mail.color} />
     </SafeAreaView>
   );
 }

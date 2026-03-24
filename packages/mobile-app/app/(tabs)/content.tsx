@@ -1,15 +1,13 @@
 import { SafeAreaView, StyleSheet } from "react-native";
 import AppWebView from "@/components/AppWebView";
-import { useApps } from "@/lib/use-apps";
+import { DEFAULT_APPS } from "@agent-native/shared-app-config";
+
+const content = DEFAULT_APPS.find((a) => a.id === "content")!;
 
 export default function ContentTab() {
-  const { apps } = useApps();
-  const content = apps.find((a) => a.id === "content");
-  const url = content?.url || "https://content.agentnative.app";
-
   return (
     <SafeAreaView style={styles.container}>
-      <AppWebView url={url} color="#10B981" />
+      <AppWebView url={content.url} color={content.color} />
     </SafeAreaView>
   );
 }
