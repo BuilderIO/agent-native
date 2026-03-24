@@ -93,6 +93,12 @@ export function createAgentChatPlugin(
       apiKey: options?.apiKey,
     });
 
+    // Mount mode endpoint — lets clients detect dev vs production
+    nitroApp.h3App.use(
+      `${routePath}/mode`,
+      defineEventHandler(() => ({ devMode: isDev })),
+    );
+
     // Mount save-key BEFORE the prefix handler so it isn't shadowed
     nitroApp.h3App.use(
       `${routePath}/save-key`,
