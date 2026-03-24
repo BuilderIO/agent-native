@@ -53,12 +53,16 @@ export function createOAuth2Client(
           `OAuth token exchange failed: ${(data as any).error_description || (data as any).error || res.statusText}`,
         );
       }
-      return data as {
+      const typed = data as {
         access_token: string;
         refresh_token?: string;
         expires_in: number;
         token_type: string;
         scope: string;
+      };
+      return {
+        ...typed,
+        expiry_date: Date.now() + typed.expires_in * 1000,
       };
     },
 
@@ -79,11 +83,15 @@ export function createOAuth2Client(
           `OAuth token refresh failed: ${(data as any).error_description || (data as any).error || res.statusText}`,
         );
       }
-      return data as {
+      const typed = data as {
         access_token: string;
         expires_in: number;
         token_type: string;
         scope: string;
+      };
+      return {
+        ...typed,
+        expiry_date: Date.now() + typed.expires_in * 1000,
       };
     },
   };
