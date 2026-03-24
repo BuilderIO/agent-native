@@ -20,7 +20,7 @@
     "chrono-node": "^2.7.6",
     "drizzle-orm": "^0.36.4",
     "embla-carousel-react": "^8.6.0",
-"h3": "^1.13.0",
+    "h3": "^1.13.0",
     "input-otp": "^1.4.2",
     "isbot": "^5",
     "nanoid": "^4.0.2",

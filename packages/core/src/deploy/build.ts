@@ -233,6 +233,13 @@ async function buildCloudflarePages() {
   // Copy server build files so esbuild can resolve the import
   copyDir(serverDir, path.join(tmpDir, "server"));
 
+  // Create a require shim so CJS require("fs") calls resolve via ESM imports.
+  // This is injected via esbuild --inject to replace its broken __require shim.
+  fs.writeFileSync(
+    path.join(tmpDir, "_require-shim.js"),
+    generateRequireShim(),
+  );
+
   // Create stub modules for native/Node-only deps that can't run on Workers.
   // These get resolved by esbuild instead of the real modules, avoiding bundling
   // native code that would fail on the Workers runtime.
@@ -241,6 +248,7 @@ async function buildCloudflarePages() {
     "node-pty",
     "chokidar",
     "fsevents",
+    "dotenv",
   ];
   const stubDir = path.join(tmpDir, "node_modules");
   for (const mod of stubModules) {
@@ -258,6 +266,13 @@ async function buildCloudflarePages() {
 
   const esbuildBin = findEsbuild();
 
+  // Externalize node builtins (both bare and node: prefixed) — the require shim handles bare ones,
+  // and CF Workers runtime handles node: prefixed ones via nodejs_compat
+  const nodeExternals = getNodeBuiltinNames().flatMap((n) => [
+    `--external:${n}`,
+    `--external:node:${n}`,
+  ]);
+
   execFileSync(
     esbuildBin,
     [
@@ -265,15 +280,15 @@ async function buildCloudflarePages() {
       "--bundle",
       "--format=esm",
       "--target=es2022",
+      // browser platform for npm resolution; node builtins externalized separately
       "--platform=browser",
       "--minify",
       `--outfile=${entryFile}`,
-      // Resolve conditions for Workers/edge runtime
       "--conditions=workerd,worker,import",
-      // Resolve stubs before real node_modules
-      `--resolve-extensions=.js,.mjs,.ts`,
-      // Externalize node builtins that Workers provides via nodejs_compat
-      ...getExternals(),
+      // Inject require shim so CJS require("fs") calls resolve via ESM imports
+      `--inject:${path.join(tmpDir, "_require-shim.js")}`,
+      // Externalize node: builtins — CF Workers runtime provides them
+      ...nodeExternals,
     ],
     { stdio: "inherit", cwd },
   );
@@ -289,56 +304,96 @@ async function buildCloudflarePages() {
   );
 }
 
-function getExternals(): string[] {
-  // All Node.js builtins — both bare and node: prefixed
-  const names = [
-    "assert",
-    "async_hooks",
-    "buffer",
-    "child_process",
-    "cluster",
-    "console",
-    "constants",
-    "crypto",
-    "dgram",
-    "diagnostics_channel",
-    "dns",
-    "domain",
-    "events",
+const NODE_BUILTINS = [
+  "assert",
+  "async_hooks",
+  "buffer",
+  "child_process",
+  "cluster",
+  "console",
+  "constants",
+  "crypto",
+  "dgram",
+  "diagnostics_channel",
+  "dns",
+  "domain",
+  "events",
+  "fs",
+  "fs/promises",
+  "http",
+  "http2",
+  "https",
+  "inspector",
+  "module",
+  "net",
+  "os",
+  "path",
+  "perf_hooks",
+  "process",
+  "punycode",
+  "querystring",
+  "readline",
+  "repl",
+  "stream",
+  "stream/web",
+  "string_decoder",
+  "sys",
+  "timers",
+  "tls",
+  "trace_events",
+  "tty",
+  "url",
+  "util",
+  "v8",
+  "vm",
+  "wasi",
+  "worker_threads",
+  "zlib",
+];
+
+function getNodeBuiltinNames(): string[] {
+  return NODE_BUILTINS;
+}
+
+/**
+ * Generate a require() shim that bridges CJS require("fs") calls to ESM imports.
+ * Injected via esbuild --inject so CJS deps work on Workers runtime.
+ */
+function generateRequireShim(): string {
+  // Only shim the commonly-used builtins to keep it small
+  const shimmed = [
     "fs",
-    "fs/promises",
-    "http",
-    "http2",
-    "https",
-    "inspector",
-    "module",
-    "net",
-    "os",
     "path",
-    "perf_hooks",
-    "process",
-    "punycode",
-    "querystring",
-    "readline",
-    "repl",
+    "os",
+    "crypto",
+    "http",
+    "https",
     "stream",
-    "stream/web",
-    "string_decoder",
-    "sys",
-    "timers",
-    "tls",
-    "trace_events",
-    "tty",
     "url",
     "util",
-    "v8",
-    "vm",
-    "wasi",
-    "worker_threads",
+    "events",
+    "buffer",
+    "querystring",
     "zlib",
+    "net",
+    "tls",
+    "assert",
+    "timers",
+    "child_process",
+    "module",
   ];
-  const builtins = [...names, ...names.map((n) => `node:${n}`)];
-  return builtins.map((b) => `--external:${b}`);
+
+  const imports = shimmed
+    .map((m) => `import __${m.replace("/", "_")} from "node:${m}";`)
+    .join("");
+  const entries = shimmed
+    .map(
+      (m) =>
+        `"${m}":__${m.replace("/", "_")},"node:${m}":__${m.replace("/", "_")}`,
+    )
+    .join(",");
+
+  return `${imports}\nconst __mods={${entries}};export var require=globalThis.require||function(m){const r=__mods[m];if(r!==undefined)return r;throw new Error("Cannot require: "+m)};\n`;
 }
 
 function findEsbuild(): string {
