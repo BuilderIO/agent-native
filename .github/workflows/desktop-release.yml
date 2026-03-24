@@ -51,7 +51,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: W3PMF2T3MW
-        run: pnpm build && electron-builder --mac --config --publish always
+        run: pnpm build && npx electron-builder --mac --config --publish always
 
   build-windows:
     runs-on: windows-latest
