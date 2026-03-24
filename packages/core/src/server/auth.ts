@@ -219,7 +219,10 @@ function getAccessTokens(): string[] {
 // ---------------------------------------------------------------------------
 
 function isDevMode(): boolean {
-  return process.env.NODE_ENV !== "production";
+  // On edge runtimes (e.g. CF Workers), NODE_ENV may not be set.
+  // Treat undefined as production — dev mode must be explicitly opted in.
+  const env = process.env.NODE_ENV;
+  return env === "development" || env === "test";
 }
 
 // ---------------------------------------------------------------------------
@@ -442,7 +445,7 @@ function mountAuthRoutes(
   // Auth guard — runs before all other handlers
   app.use(
     defineEventHandler(async (event) => {
-      const url = event.node.req.url ?? "/";
+      const url = event.node?.req?.url ?? event.path ?? "/";
       const p = url.split("?")[0];
 
       // Skip auth routes
@@ -468,13 +471,12 @@ function mountAuthRoutes(
       // Unauthenticated
       if (p.startsWith("/api/")) {
         setResponseStatus(event, 401);
-        setResponseHeader(event, "Content-Type", "application/json");
-        event.node.res.end(JSON.stringify({ error: "Unauthorized" }));
-        return;
+        return { error: "Unauthorized" };
       }
 
+      setResponseStatus(event, 200);
       setResponseHeader(event, "Content-Type", "text/html");
-      event.node.res.end(LOGIN_HTML);
+      return LOGIN_HTML;
     }),
   );
 }
@@ -584,7 +586,8 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
     const byoaLoginHtml = options.loginHtml ?? LOGIN_HTML;
     app.use(
       defineEventHandler(async (event) => {
-        const url = event.node.req.url ?? "/";
+        // Use H3's getRequestURL for cross-platform compat (Node + Workers)
+        const url = event.node?.req?.url ?? event.path ?? "/";
         const p = url.split("?")[0];
         if (
           p === "/api/auth/login" ||
@@ -601,12 +604,11 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
         if (session) return;
         if (p.startsWith("/api/")) {
           setResponseStatus(event, 401);
-          setResponseHeader(event, "Content-Type", "application/json");
-          event.node.res.end(JSON.stringify({ error: "Unauthorized" }));
-          return;
+          return { error: "Unauthorized" };
         }
+        setResponseStatus(event, 200);
         setResponseHeader(event, "Content-Type", "text/html");
-        event.node.res.end(byoaLoginHtml);
+        return byoaLoginHtml;
       }),
     );
 
