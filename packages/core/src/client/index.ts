@@ -4,6 +4,12 @@ export {
   type AgentChatMessage,
 } from "./agent-chat.js";
 export { useAgentChatGenerating } from "./use-agent-chat.js";
+export { useDevMode } from "./use-dev-mode.js";
+export { useSendToAgentChat } from "./use-send-to-agent-chat.js";
+export {
+  CodeRequiredDialog,
+  type CodeRequiredDialogProps,
+} from "./components/CodeRequiredDialog.js";
 export { useFileWatcher } from "./use-file-watcher.js";
 export { useFileSyncStatus } from "./use-file-sync-status.js";
 export { cn } from "./utils.js";
@@ -52,3 +58,4 @@ export { Turnstile, type TurnstileProps } from "./Turnstile.js";
 export { PoweredByBadge, type PoweredByBadgeProps } from "./PoweredByBadge.js";
 export { ErrorBoundary } from "./ErrorBoundary.js";
 export { AgentTerminal, type AgentTerminalProps } from "./terminal/index.js";
+export { trackEvent, trackSessionStatus } from "./analytics.js";

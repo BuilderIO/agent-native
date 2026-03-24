@@ -13,11 +13,11 @@ export function loadApps(): AppConfig[] {
   try {
     const raw = fs.readFileSync(getStorePath(), "utf-8");
     const apps = JSON.parse(raw) as AppConfig[];
-    // Migrate: default useCliHarness to true for existing configs
+    // Migrate: default useCliHarness to false (production mode) for existing configs
     let migrated = false;
     for (const app of apps) {
       if (app.useCliHarness === undefined) {
-        app.useCliHarness = true;
+        app.useCliHarness = false;
         migrated = true;
       }
     }

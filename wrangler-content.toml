@@ -1,0 +1,12 @@
+name = "agent-native-content"
+main = "templates/content/dist/_worker.js/index.js"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat_v2"]
+
+[assets]
+directory = "templates/content/dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "agent-native-content"
+database_id = "e9999bd0-a254-4d46-8f86-dae15228b1e0"

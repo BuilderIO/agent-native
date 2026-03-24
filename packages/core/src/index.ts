@@ -37,6 +37,9 @@ export {
 export {
   sendToAgentChat,
   useAgentChatGenerating,
+  useDevMode,
+  useSendToAgentChat,
+  CodeRequiredDialog,
   useFileWatcher,
   cn,
   ApiKeySettings,
@@ -44,6 +47,7 @@ export {
   useProductionAgent,
   ProductionAgentPanel,
   type AgentChatMessage,
+  type CodeRequiredDialogProps,
   type ProductionAgentMessage,
   type UseProductionAgentResult,
   type ProductionAgentPanelProps,

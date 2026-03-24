@@ -31,7 +31,6 @@ const preset = process.env.NITRO_PRESET || "node";
 const NODE_ONLY_PLUGINS = new Set([
   "terminal", // PTY requires child_process
   "file-sync", // chokidar requires fs watchers
-  "agent-chat", // spawns child processes for scripts
 ]);
 
 function isNodeOnlyPlugin(filePath: string): boolean {

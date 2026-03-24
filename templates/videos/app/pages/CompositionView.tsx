@@ -5,6 +5,7 @@ import { Timeline } from "@/components/Timeline";
 import { CameraToolbar } from "@/components/CameraToolbar";
 import { CursorPositioningOverlay } from "@/components/CursorPositioningOverlay";
 import { Save } from "lucide-react";
+import { useDevMode } from "@agent-native/core/client";
 import { useComposition } from "@/contexts/CompositionContext";
 import { useTimeline } from "@/contexts/TimelineContext";
 import { usePlayback } from "@/contexts/PlaybackContext";
@@ -37,6 +38,8 @@ export default function CompositionView({
       frameFromUrl,
     );
   }, [initialFrame, frameFromUrl]);
+
+  const { isDevMode } = useDevMode();
 
   // Get state from contexts
   const {
@@ -356,16 +359,21 @@ export default function CompositionView({
             </button>
             <button
               onClick={handleSaveAsDefault}
+              disabled={!isDevMode}
               className={cn(
                 "flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors text-xs font-medium",
-                hasUnsavedChanges
-                  ? "bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/30"
-                  : "bg-secondary/50 hover:bg-secondary text-muted-foreground border border-border/50",
+                !isDevMode
+                  ? "bg-secondary/30 text-muted-foreground/40 border border-border/30 cursor-not-allowed"
+                  : hasUnsavedChanges
+                    ? "bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/30"
+                    : "bg-secondary/50 hover:bg-secondary text-muted-foreground border border-border/50",
               )}
               title={
-                hasUnsavedChanges
-                  ? "Save current settings as default for this composition"
-                  : "All changes saved to registry"
+                !isDevMode
+                  ? "Save to registry requires local development mode"
+                  : hasUnsavedChanges
+                    ? "Save current settings as default for this composition"
+                    : "All changes saved to registry"
               }
             >
               <Save className="w-3.5 h-3.5" />

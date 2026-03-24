@@ -59,6 +59,8 @@ export {
   type TerminalPluginOptions,
 } from "../terminal/terminal-plugin.js";
 
+export { wrapWithAnalytics } from "./analytics.js";
+
 // Nitro plugin helper — re-exported so templates don't need nitro as a direct dependency.
 // defineNitroPlugin is an identity function; this typed wrapper lets templates use it
 // without resolving `nitro/runtime` (which requires Nitro's virtual modules at runtime).

@@ -184,6 +184,10 @@ export interface AgentSidebarProps {
   suggestions?: string[];
   /** Width of the agent sidebar. Default: 380 */
   sidebarWidth?: number;
+  /** Which side the sidebar appears on. Default: "right" */
+  position?: "left" | "right";
+  /** Whether the sidebar starts open. Default: false */
+  defaultOpen?: boolean;
 }
 
 /**
@@ -195,8 +199,10 @@ export function AgentSidebar({
   emptyStateText = "How can I help you?",
   suggestions,
   sidebarWidth = 380,
+  position = "right",
+  defaultOpen = false,
 }: AgentSidebarProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
 
   useEffect(() => {
     const handler = () => {
@@ -206,25 +212,25 @@ export function AgentSidebar({
     return () => window.removeEventListener("agent-panel:toggle", handler);
   }, []);
 
+  const isLeft = position === "left";
+  const borderClass = isLeft ? "border-r" : "border-l";
+
+  const sidebar = open ? (
+    <div
+      className={`flex flex-col ${borderClass} border-border shrink-0 overflow-hidden agent-sidebar-panel`}
+      style={{ width: sidebarWidth }}
+    >
+      <AgentPanel emptyStateText={emptyStateText} suggestions={suggestions} />
+    </div>
+  ) : null;
+
   return (
     <div className="flex flex-1 overflow-hidden">
-      {/* Main content */}
+      {isLeft && sidebar}
       <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         {children}
       </div>
-
-      {/* Agent sidebar */}
-      {open && (
-        <div
-          className="flex flex-col border-l border-border shrink-0 overflow-hidden agent-sidebar-panel"
-          style={{ width: sidebarWidth }}
-        >
-          <AgentPanel
-            emptyStateText={emptyStateText}
-            suggestions={suggestions}
-          />
-        </div>
-      )}
+      {!isLeft && sidebar}
     </div>
   );
 }

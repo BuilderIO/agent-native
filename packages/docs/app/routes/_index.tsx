@@ -328,6 +328,7 @@ export default function Home() {
 
         <div className="mt-8 text-center">
           <Link
+            prefetch="render"
             to="/templates"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
             onClick={() =>
@@ -590,6 +591,7 @@ export default function Home() {
               </svg>
             </a>
             <Link
+              prefetch="render"
               to="/docs"
               className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
               onClick={() =>

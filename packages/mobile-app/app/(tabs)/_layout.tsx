@@ -19,9 +19,40 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Apps",
+          title: "Mail",
+          headerShown: false,
           tabBarIcon: ({ color, size }) => (
-            <Feather name="grid" size={size} color={color} />
+            <Feather name="mail" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="calendar"
+        options={{
+          title: "Calendar",
+          headerShown: false,
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="calendar" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="content"
+        options={{
+          title: "Content",
+          headerShown: false,
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="file-text" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="forms"
+        options={{
+          title: "Forms",
+          headerShown: false,
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="clipboard" size={size} color={color} />
           ),
         }}
       />

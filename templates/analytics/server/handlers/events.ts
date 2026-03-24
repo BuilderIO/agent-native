@@ -1,27 +1,7 @@
 import { defineEventHandler, readBody, setResponseStatus } from "h3";
-import { BigQuery } from "@google-cloud/bigquery";
+import { getAccessToken } from "../lib/gcloud";
 
 const PROJECT_ID = process.env.BIGQUERY_PROJECT_ID || "your-gcp-project-id";
-const EVENTS_TABLE = `${PROJECT_ID}.analytics.events_partitioned`;
-
-let bigqueryClient: BigQuery | null = null;
-
-function getBigQueryClient(): BigQuery {
-  if (bigqueryClient) return bigqueryClient;
-
-  const credentials = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
-  if (credentials) {
-    const parsed = JSON.parse(credentials);
-    bigqueryClient = new BigQuery({
-      projectId: PROJECT_ID,
-      credentials: parsed,
-    });
-  } else {
-    bigqueryClient = new BigQuery({ projectId: PROJECT_ID });
-  }
-
-  return bigqueryClient;
-}
 
 /**
  * POST /api/events/track
@@ -50,7 +30,9 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
       userEmail: userEmail || null,
       sessionId: null, // Could be added later if we track sessions
       organizationId: null, // Could be derived from user if needed
-      createdDate: timestamp ? new Date(timestamp) : new Date(),
+      createdDate: timestamp
+        ? new Date(timestamp).toISOString()
+        : new Date().toISOString(),
       name: null,
       url: null,
       type: null,
@@ -60,12 +42,31 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
       modelId: null,
     };
 
-    // Insert into BigQuery (fire and forget - don't await)
-    const client = getBigQueryClient();
-    client
-      .dataset("analytics")
-      .table("events_partitioned")
-      .insert([eventRow])
+    // Insert into BigQuery via REST API (fire and forget - don't await)
+    getAccessToken()
+      .then((token) =>
+        fetch(
+          `https://bigquery.googleapis.com/bigquery/v2/projects/${PROJECT_ID}/datasets/analytics/tables/events_partitioned/insertAll`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              rows: [{ json: eventRow }],
+            }),
+          },
+        ),
+      )
+      .then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text();
+          console.error(
+            `Failed to insert event to BigQuery: ${res.status} ${text}`,
+          );
+        }
+      })
       .catch((err) => {
         console.error("Failed to insert event to BigQuery:", err.message);
       });

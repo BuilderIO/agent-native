@@ -9,10 +9,12 @@ import fs from "fs";
 
 const UPLOADS_DIR = path.join(process.cwd(), "public", "uploads");
 
-// Ensure uploads directory exists
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-}
+// Ensure uploads directory exists (skip on edge runtimes like CF Workers)
+try {
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+} catch {}
 
 // Upload an asset
 export const uploadAsset = defineEventHandler(async (event) => {

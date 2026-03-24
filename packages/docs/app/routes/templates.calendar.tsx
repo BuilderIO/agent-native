@@ -90,6 +90,7 @@ export default function CalendarTemplate() {
       <section className="py-20">
         <div className="mb-4">
           <Link
+            prefetch="render"
             to="/templates"
             className="inline-flex items-center gap-1 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
           >
@@ -596,12 +597,14 @@ export default function CalendarTemplate() {
         </p>
         <div className="flex items-center justify-center gap-4">
           <Link
+            prefetch="render"
             to="/docs"
             className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
             Get Started
           </Link>
           <Link
+            prefetch="render"
             to="/templates"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >

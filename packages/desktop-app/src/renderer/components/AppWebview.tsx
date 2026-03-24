@@ -12,22 +12,27 @@ interface AppWebviewProps {
 
 /**
  * Determine the URL to load for this app.
- * Always connects to the harness (localhost:3334) which proxies to individual
- * app dev servers. If a user has configured a custom production URL in settings,
- * that takes priority.
+ *
+ * Production mode (default): load the production URL (e.g. https://mail.agent-native.com).
+ * Dev mode (opt-in via useCliHarness): load through the CLI harness on localhost:3334.
  */
 function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
-  // If the user configured a custom URL (not the default placeholder), use it
-  if (appConfig?.url && !appConfig.url.endsWith(".agentnative.app")) {
+  // Dev mode: load through the local CLI harness
+  if (appConfig?.useCliHarness) {
+    return getAppUrl(app);
+  }
+
+  // If user configured a custom dev URL, use it
+  if (appConfig?.devUrl) {
+    return appConfig.devUrl;
+  }
+
+  // Default: production URL
+  if (appConfig?.url) {
     return appConfig.url;
   }
 
-  // If harness is disabled, load the app directly
-  if (appConfig?.useCliHarness === false) {
-    return appConfig.devUrl || appConfig.url;
-  }
-
-  // Default: connect to the harness which serves all apps
+  // Fallback for apps with no production URL (e.g. starter)
   return getAppUrl(app);
 }
 

@@ -8,6 +8,15 @@ import fs from "fs/promises";
 import path from "path";
 
 export default defineEventHandler(async (event: H3Event) => {
+  // Block source file writes in production (treat undefined NODE_ENV as production for edge runtimes)
+  if (process.env.NODE_ENV !== "development") {
+    setResponseStatus(event, 403);
+    return {
+      error:
+        "Source file modification is not available in production mode. Use local development instead.",
+    };
+  }
+
   try {
     const body = await readBody(event);
     const {

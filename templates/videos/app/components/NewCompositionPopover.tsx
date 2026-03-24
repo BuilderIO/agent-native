@@ -9,8 +9,8 @@ import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import {
-  sendToAgentChat,
   useAgentChatGenerating,
+  useSendToAgentChat,
 } from "@agent-native/core/client";
 
 type NewCompositionPopoverProps = {
@@ -33,6 +33,7 @@ export function NewCompositionPopover({
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const { send, codeRequiredDialog } = useSendToAgentChat();
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -89,11 +90,15 @@ export function NewCompositionPopover({
     }
 
     // Send to agent chat via @agent-native/core
-    sendToAgentChat({
+    const result = send({
       message: prompt.trim(),
       context,
       submit: true,
+      requiresCode: true,
     });
+
+    // If gated by production mode, don't proceed
+    if (result === null) return;
 
     console.log("[NewComposition] Sent to agent chat:", {
       message: prompt.trim(),
@@ -172,110 +177,113 @@ export function NewCompositionPopover({
   }, [prompt]);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          className={cn(
-            "w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-dashed transition-all text-xs font-medium",
-            isNew
-              ? "border-primary/40 bg-primary/8 text-primary"
-              : "border-border text-muted-foreground hover:border-primary/30 hover:text-primary/80 hover:bg-primary/5",
-          )}
+    <>
+      {codeRequiredDialog}
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            className={cn(
+              "w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-dashed transition-all text-xs font-medium",
+              isNew
+                ? "border-primary/40 bg-primary/8 text-primary"
+                : "border-border text-muted-foreground hover:border-primary/30 hover:text-primary/80 hover:bg-primary/5",
+            )}
+          >
+            <Plus size={14} />
+            New Composition
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          side="right"
+          align="start"
+          sideOffset={8}
+          className="w-[400px] p-4 bg-card border-border shadow-xl rounded-xl"
         >
-          <Plus size={14} />
-          New Composition
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        side="right"
-        align="start"
-        sideOffset={8}
-        className="w-[400px] p-4 bg-card border-border shadow-xl rounded-xl"
-      >
-        <div className="space-y-4">
-          {/* Header */}
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">
-              New Composition
-            </h3>
-            <p className="text-xs text-muted-foreground mt-1">
-              Describe the video you want to create
-            </p>
-          </div>
-
-          {/* Prompt textarea */}
-          <div className="space-y-2">
-            <Textarea
-              ref={promptRef}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Describe the video you want to create..."
-              className="min-h-[120px] max-h-[200px] text-sm resize-none"
-            />
-            <p className="text-[10px] text-muted-foreground/60">
-              Press Enter to submit or Shift+Enter for new line
-            </p>
-          </div>
-
-          {/* Attachments */}
-          {attachments.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {attachments.map((attachment, index) => (
-                <div
-                  key={index}
-                  className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-secondary/50 border border-border/50 text-xs"
-                >
-                  <Paperclip className="w-3 h-3 text-muted-foreground" />
-                  <span className="text-foreground/80 max-w-[150px] truncate">
-                    {attachment.name}
-                  </span>
-                  <button
-                    onClick={() => removeAttachment(index)}
-                    className="p-0.5 hover:bg-destructive/10 rounded transition-colors"
-                  >
-                    <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="flex items-center justify-between gap-2 pt-2">
-            {/* File attachment button */}
+          <div className="space-y-4">
+            {/* Header */}
             <div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,video/*,.svg"
-                multiple
-                onChange={handleFileSelect}
-                className="hidden"
+              <h3 className="text-sm font-semibold text-foreground">
+                New Composition
+              </h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                Describe the video you want to create
+              </p>
+            </div>
+
+            {/* Prompt textarea */}
+            <div className="space-y-2">
+              <Textarea
+                ref={promptRef}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Describe the video you want to create..."
+                className="min-h-[120px] max-h-[200px] text-sm resize-none"
               />
+              <p className="text-[10px] text-muted-foreground/60">
+                Press Enter to submit or Shift+Enter for new line
+              </p>
+            </div>
+
+            {/* Attachments */}
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {attachments.map((attachment, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-secondary/50 border border-border/50 text-xs"
+                  >
+                    <Paperclip className="w-3 h-3 text-muted-foreground" />
+                    <span className="text-foreground/80 max-w-[150px] truncate">
+                      {attachment.name}
+                    </span>
+                    <button
+                      onClick={() => removeAttachment(index)}
+                      className="p-0.5 hover:bg-destructive/10 rounded transition-colors"
+                    >
+                      <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center justify-between gap-2 pt-2">
+              {/* File attachment button */}
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,video/*,.svg"
+                  multiple
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="h-8 text-xs"
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1.5" />
+                  Attach
+                </Button>
+              </div>
+
+              {/* Submit button */}
               <Button
-                variant="ghost"
                 size="sm"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={submitChat}
+                disabled={!prompt.trim()}
                 className="h-8 text-xs"
               >
-                <Plus className="w-3.5 h-3.5 mr-1.5" />
-                Attach
+                <ArrowUp className="w-3.5 h-3.5" />
               </Button>
             </div>
-
-            {/* Submit button */}
-            <Button
-              size="sm"
-              onClick={submitChat}
-              disabled={!prompt.trim()}
-              className="h-8 text-xs"
-            >
-              <ArrowUp className="w-3.5 h-3.5" />
-            </Button>
           </div>
-        </div>
-      </PopoverContent>
-    </Popover>
+        </PopoverContent>
+      </Popover>
+    </>
   );
 }

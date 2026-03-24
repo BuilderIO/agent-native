@@ -78,6 +78,7 @@ export default function Header() {
       <header className="sticky top-0 z-50 border-b border-[var(--border)] bg-[var(--header-bg)] backdrop-blur-lg">
         <nav className="mx-auto flex h-16 max-w-[1440px] items-center gap-6 px-6">
           <Link
+            prefetch="render"
             to="/"
             className="flex shrink-0 items-center gap-2 text-[var(--fg)] no-underline"
           >
@@ -89,6 +90,7 @@ export default function Header() {
           {/* Desktop nav links */}
           <div className="hidden sm:flex items-center gap-5 text-sm">
             <NavLink
+              prefetch="render"
               to="/docs"
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
@@ -97,6 +99,7 @@ export default function Header() {
               Docs
             </NavLink>
             <NavLink
+              prefetch="render"
               to="/templates"
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
@@ -142,6 +145,7 @@ export default function Header() {
         {mobileMenuOpen && (
           <div className="sm:hidden border-t border-[var(--border)] bg-[var(--header-bg)] backdrop-blur-lg px-6 py-4 flex flex-col gap-4">
             <NavLink
+              prefetch="render"
               to="/docs"
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
@@ -151,6 +155,7 @@ export default function Header() {
               Docs
             </NavLink>
             <NavLink
+              prefetch="render"
               to="/templates"
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
