@@ -59,7 +59,16 @@ export const handleGoogleCallback = defineEventHandler(
       // (must match what was sent to Google in getGoogleAuthUrl)
       const redirectUri = `${getOrigin(event)}/api/google/callback`;
 
-      const email = await exchangeCode(code, undefined, redirectUri);
+      // In dev mode, getSession returns "local@localhost" — use that as owner
+      // so getAuthStatus("local@localhost") finds the tokens.
+      // In production, session is null here (user isn't logged in yet),
+      // so owner defaults to the Google email (which becomes the session email).
+      const existingSession = await getSession(event);
+      const owner =
+        existingSession?.email !== "local@localhost"
+          ? undefined // production: owner = google email (default)
+          : "local@localhost"; // dev: owner = dev session
+      const email = await exchangeCode(code, undefined, redirectUri, owner);
 
       // Create a session tied to this Google email
       const sessionToken = crypto.randomBytes(32).toString("hex");

@@ -66,7 +66,12 @@ export const handleGoogleCallback = defineEventHandler(
       }
 
       const redirectUri = `${getOrigin(event)}/api/google/callback`;
-      const email = await exchangeCode(code, undefined, redirectUri);
+      const existingSession = await getSession(event);
+      const owner =
+        existingSession?.email !== "local@localhost"
+          ? undefined
+          : "local@localhost";
+      const email = await exchangeCode(code, undefined, redirectUri, owner);
 
       // Create a session tied to this Google email
       const sessionToken = crypto.randomBytes(32).toString("hex");
