@@ -4,6 +4,12 @@
   "private": true,
   "main": "out/main/index.js",
   "productName": "Agent Native",
+  "description": "Agent Native desktop app",
+  "author": {
+    "name": "Builder.io, Inc",
+    "email": "support@builder.io"
+  },
+  "homepage": "https://agent-native.com",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",

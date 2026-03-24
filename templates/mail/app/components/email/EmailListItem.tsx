@@ -1,6 +1,6 @@
 import { cn, formatEmailDate, truncate } from "@/lib/utils";
 import type { EmailMessage } from "@shared/types";
-import type { ThreadSummary } from "./EmailList";
+import type { ThreadSummary } from "@/lib/threads";
 
 interface EmailListItemProps {
   email: EmailMessage;

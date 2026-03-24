@@ -10,7 +10,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router";
 import { cn, formatEmailDate, formatFileSize } from "@/lib/utils";
 import { useTheme } from "next-themes";
 import { useComposeState } from "@/hooks/use-compose-state";
-import { useAccountFilter } from "@/components/layout/AppLayout";
+import { useAccountFilter } from "@/hooks/use-account-filter";
 import {
   useThreadMessages,
   useArchiveEmail,

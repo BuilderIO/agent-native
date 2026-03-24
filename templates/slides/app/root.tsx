@@ -1,5 +1,5 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { DeckProvider } from "@/context/DeckContext";
 import {
   AgentSidebar,
@@ -78,23 +78,32 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 export default function Root() {
   useExitSelectionOnOutsideClick();
+  // AgentSidebar uses useLayoutEffect internally (via @assistant-ui),
+  // which errors during SSR. Only render on client.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   return (
     <DeckProvider key={DECK_KEY}>
-      <AgentSidebar
-        position="left"
-        defaultOpen
-        emptyStateText="Ask me anything about your presentations"
-        suggestions={[
-          "Create a new deck",
-          "Generate slides about AI",
-          "Add an image to this slide",
-        ]}
-      >
-        <div className="fixed top-3 left-3 z-50">
-          <AgentToggleButton />
-        </div>
+      {mounted ? (
+        <AgentSidebar
+          position="left"
+          defaultOpen
+          emptyStateText="Ask me anything about your presentations"
+          suggestions={[
+            "Create a new deck",
+            "Generate slides about AI",
+            "Add an image to this slide",
+          ]}
+        >
+          <div className="fixed top-3 left-3 z-50">
+            <AgentToggleButton />
+          </div>
+          <Outlet />
+        </AgentSidebar>
+      ) : (
         <Outlet />
-      </AgentSidebar>
+      )}
     </DeckProvider>
   );
 }

@@ -178,13 +178,8 @@ export function AgentPanel({
               title="Select AI CLI"
             >
               {availableClis.map((cli) => (
-                <option
-                  key={cli.command}
-                  value={cli.command}
-                  disabled={!cli.available}
-                >
+                <option key={cli.command} value={cli.command}>
                   {cli.label}
-                  {!cli.available ? " (not installed)" : ""}
                 </option>
               ))}
             </select>
