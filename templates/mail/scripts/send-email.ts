@@ -16,9 +16,8 @@
  *   --account     Specific account to send from (optional)
  */
 
-import { google } from "googleapis";
-import { parseArgs, output, fatal } from "./helpers.js";
-import { getClients, getClient } from "../server/lib/google-auth.js";
+import { parseArgs, output, fatal, getAccessTokens } from "./helpers.js";
+import { gmailGetMessage, gmailSendMessage } from "../server/lib/google-api.js";
 import { getSetting } from "@agent-native/core/settings";
 import type { ScriptTool } from "@agent-native/core";
 
@@ -91,16 +90,16 @@ export async function run(args: Record<string, string>): Promise<string> {
   if (!args.body) return "Error: --body is required";
 
   const settings = await readSettings();
-  const clients = await getClients();
-  if (clients.length === 0) return "Error: No Google account connected.";
+  const accounts = await getAccessTokens();
+  if (accounts.length === 0) return "Error: No Google account connected.";
 
-  let selectedClient = clients[0].client;
-  let selectedEmail = clients[0].email;
+  let selectedToken = accounts[0].accessToken;
+  let selectedEmail = accounts[0].email;
 
   if (args.account) {
-    const match = clients.find((c) => c.email === args.account);
+    const match = accounts.find((a) => a.email === args.account);
     if (!match) return `Error: Account ${args.account} not connected`;
-    selectedClient = match.client;
+    selectedToken = match.accessToken;
     selectedEmail = match.email;
   }
 
@@ -109,23 +108,23 @@ export async function run(args: Record<string, string>): Promise<string> {
   let references: string | undefined;
 
   if (args.replyToId) {
-    for (const { email, client } of clients) {
+    for (const { email, accessToken } of accounts) {
       try {
-        const gmail = google.gmail({ version: "v1", auth: client });
-        const original = await gmail.users.messages.get({
-          userId: "me",
-          id: args.replyToId,
-          format: "metadata",
-          metadataHeaders: ["Message-Id", "References"],
-        });
-        threadId = original.data.threadId ?? undefined;
-        const headers = original.data.payload?.headers || [];
+        const original = await gmailGetMessage(
+          accessToken,
+          args.replyToId,
+          "metadata",
+        );
+        threadId = original.threadId ?? undefined;
+        const headers = original.payload?.headers || [];
         inReplyTo =
-          headers.find((h) => h.name === "Message-Id")?.value ?? undefined;
-        const refs = headers.find((h) => h.name === "References")?.value;
+          headers.find(
+            (h: any) => h.name === "Message-Id" || h.name === "Message-ID",
+          )?.value ?? undefined;
+        const refs = headers.find((h: any) => h.name === "References")?.value;
         references = [refs, inReplyTo].filter(Boolean).join(" ");
         if (!args.account) {
-          selectedClient = client;
+          selectedToken = accessToken;
           selectedEmail = email;
         }
         break;
@@ -144,16 +143,9 @@ export async function run(args: Record<string, string>): Promise<string> {
     references,
   });
 
-  const requestBody: any = { raw };
-  if (threadId) requestBody.threadId = threadId;
-
-  const gmail = google.gmail({ version: "v1", auth: selectedClient });
   try {
-    const sent = await (gmail.users.messages.send as any)({
-      userId: "me",
-      requestBody,
-    });
-    return `Email sent successfully (id: ${sent.data.id})`;
+    const sent = await gmailSendMessage(selectedToken, raw);
+    return `Email sent successfully (id: ${sent.id})`;
   } catch (err: any) {
     return `Error sending email: ${err?.message}`;
   }

@@ -10,13 +10,15 @@
  *   --compact  Show compact summary (from, subject, snippet, date)
  */
 
-import { google } from "googleapis";
-import { parseArgs, output, fatal } from "./helpers.js";
 import {
-  getClients,
-  gmailToEmailMessage,
-  fetchGmailLabelMap,
-} from "../server/lib/google-auth.js";
+  parseArgs,
+  output,
+  fatal,
+  getAccessTokens,
+  fetchLabelMap,
+} from "./helpers.js";
+import { gmailGetThread } from "../server/lib/google-api.js";
+import { gmailToEmailMessage } from "../server/lib/google-auth.js";
 import type { ScriptTool } from "@agent-native/core";
 
 export const tool: ScriptTool = {
@@ -39,28 +41,23 @@ export async function run(args: Record<string, string>): Promise<string> {
   if (!args.id) return "Error: --id is required";
   const compact = args.compact === "true";
 
-  const clients = await getClients();
-  if (clients.length === 0) return "Error: No Google account connected.";
+  const accounts = await getAccessTokens();
+  if (accounts.length === 0) return "Error: No Google account connected.";
 
   const labelMap = new Map<string, string>();
   await Promise.all(
-    clients.map(async ({ client }) => {
+    accounts.map(async ({ accessToken }) => {
       try {
-        const map = await fetchGmailLabelMap(client);
+        const map = await fetchLabelMap(accessToken);
         for (const [id, name] of map) labelMap.set(id, name);
       } catch {}
     }),
   );
 
-  for (const { email, client } of clients) {
-    const gmail = google.gmail({ version: "v1", auth: client });
+  for (const { email, accessToken } of accounts) {
     try {
-      const threadRes = await (gmail.users.threads.get as any)({
-        userId: "me",
-        id: args.id,
-        format: "full",
-      });
-      const messages = ((threadRes as any).data.messages || [])
+      const threadRes = await gmailGetThread(accessToken, args.id, "full");
+      const messages = (threadRes.messages || [])
         .map((m: any) =>
           gmailToEmailMessage({ ...m, _accountEmail: email }, email, labelMap),
         )
@@ -83,7 +80,7 @@ export async function run(args: Record<string, string>): Promise<string> {
 
       return JSON.stringify(result, null, 2);
     } catch (err: any) {
-      if (err?.response?.status === 404) continue;
+      if (err?.message?.includes("404")) continue;
       return `Error: ${err?.message}`;
     }
   }
@@ -99,30 +96,25 @@ export default async function main(): Promise<void> {
     fatal("--id is required. Usage: pnpm script get-thread --id=thread-123");
   }
 
-  const clients = await getClients();
-  if (clients.length === 0) {
+  const accounts = await getAccessTokens();
+  if (accounts.length === 0) {
     fatal("No Google account connected. Connect an account in the app first.");
   }
 
   const labelMap = new Map<string, string>();
   await Promise.all(
-    clients.map(async ({ client }) => {
+    accounts.map(async ({ accessToken }) => {
       try {
-        const map = await fetchGmailLabelMap(client);
+        const map = await fetchLabelMap(accessToken);
         for (const [id, name] of map) labelMap.set(id, name);
       } catch {}
     }),
   );
 
-  for (const { email, client } of clients) {
-    const gmail = google.gmail({ version: "v1", auth: client });
+  for (const { email, accessToken } of accounts) {
     try {
-      const threadRes = await (gmail.users.threads.get as any)({
-        userId: "me",
-        id: threadId,
-        format: "full",
-      });
-      const messages = ((threadRes as any).data.messages || [])
+      const threadRes = await gmailGetThread(accessToken, threadId, "full");
+      const messages = (threadRes.messages || [])
         .map((m: any) =>
           gmailToEmailMessage({ ...m, _accountEmail: email }, email, labelMap),
         )
@@ -150,8 +142,7 @@ export default async function main(): Promise<void> {
       }
       return;
     } catch (err: any) {
-      const status = err?.response?.status;
-      if (status === 404) continue;
+      if (err?.message?.includes("404")) continue;
       fatal(`Gmail error: ${err?.message}`);
     }
   }

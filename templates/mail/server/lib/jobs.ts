@@ -1,7 +1,81 @@
-import { google } from "googleapis";
 import { getSetting, putSetting } from "@agent-native/core/settings";
-import { isConnected, getClient } from "./google-auth.js";
+import {
+  getOAuthTokens,
+  saveOAuthTokens,
+  listOAuthAccounts,
+} from "@agent-native/core/oauth-tokens";
+import { isConnected } from "./google-auth.js";
+import {
+  createOAuth2Client,
+  gmailModifyMessage,
+  googleFetch,
+} from "./google-api.js";
 import type { EmailMessage } from "@shared/types.js";
+
+interface StoredTokens {
+  access_token: string;
+  refresh_token?: string;
+  expiry_date?: number;
+}
+
+async function getAccessToken(accountEmail: string): Promise<string | null> {
+  const tokens = (await getOAuthTokens("google", accountEmail)) as
+    | StoredTokens
+    | undefined;
+  if (!tokens?.access_token) return null;
+
+  // If token expires within 5 minutes, refresh it
+  if (
+    tokens.expiry_date &&
+    tokens.refresh_token &&
+    tokens.expiry_date < Date.now() + 5 * 60 * 1000
+  ) {
+    try {
+      const clientId = process.env.GOOGLE_CLIENT_ID!;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+      const oauth = createOAuth2Client(
+        clientId,
+        clientSecret,
+        "http://localhost:8080/api/google/callback",
+      );
+      const refreshed = await oauth.refreshToken(tokens.refresh_token);
+      const updated = {
+        ...tokens,
+        access_token: refreshed.access_token,
+        expiry_date: Date.now() + refreshed.expires_in * 1000,
+      };
+      await saveOAuthTokens(
+        "google",
+        accountEmail,
+        updated as unknown as Record<string, unknown>,
+      );
+      return refreshed.access_token;
+    } catch (err: any) {
+      console.error(
+        `[getAccessToken] refresh failed for ${accountEmail}:`,
+        err.message,
+      );
+    }
+  }
+
+  return tokens.access_token;
+}
+
+/** Find the first connected account's email and get its access token. */
+async function getFirstAccountToken(
+  preferEmail?: string,
+): Promise<{ email: string; accessToken: string } | null> {
+  if (preferEmail) {
+    const token = await getAccessToken(preferEmail);
+    if (token) return { email: preferEmail, accessToken: token };
+  }
+  const accounts = await listOAuthAccounts("google");
+  for (const account of accounts) {
+    const token = await getAccessToken(account.accountId);
+    if (token) return { email: account.accountId, accessToken: token };
+  }
+  return null;
+}
 
 async function readEmails(): Promise<any[]> {
   const data = await getSetting("local-emails");
@@ -24,17 +98,14 @@ export async function resurfaceEmail(
   accountEmail?: string,
 ): Promise<void> {
   if (await isConnected(accountEmail)) {
-    const client = await getClient(accountEmail);
-    if (client) {
-      const gmail = google.gmail({ version: "v1", auth: client });
-      await gmail.users.messages.modify({
-        userId: "me",
-        id: emailId,
-        requestBody: {
-          addLabelIds: ["INBOX", "UNREAD"],
-          removeLabelIds: [],
-        },
-      });
+    const account = await getFirstAccountToken(accountEmail);
+    if (account) {
+      await gmailModifyMessage(
+        account.accessToken,
+        emailId,
+        ["INBOX", "UNREAD"],
+        [],
+      );
       return;
     }
   }
@@ -77,9 +148,8 @@ export async function sendScheduledEmail(
   const { to, cc, bcc, subject, body, from, replyToId, threadId } = payload;
 
   if (await isConnected(accountEmail || from)) {
-    const client = await getClient(accountEmail || from);
-    if (client) {
-      const gmail = google.gmail({ version: "v1", auth: client });
+    const account = await getFirstAccountToken(accountEmail || from);
+    if (account) {
       const lines = [
         `From: ${from || "me"}`,
         `To: ${to}`,
@@ -96,13 +166,18 @@ export async function sendScheduledEmail(
         .replace(/\//g, "_")
         .replace(/=+$/, "");
 
-      const requestBody: any = { raw };
-      if (threadId) requestBody.threadId = threadId;
+      const sendBody: any = { raw };
+      if (threadId) sendBody.threadId = threadId;
 
-      await (gmail.users.messages.send as any)({
-        userId: "me",
-        requestBody,
-      });
+      await googleFetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/send`,
+        account.accessToken,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(sendBody),
+        },
+      );
       return;
     }
   }

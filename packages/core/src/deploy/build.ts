@@ -188,6 +188,17 @@ async function buildCloudflarePages() {
   // Copy client assets to dist/
   copyDir(clientDir, distDir);
 
+  // Exclude _worker.js from being served as a public asset
+  fs.writeFileSync(path.join(distDir, ".assetsignore"), "_worker.js\n");
+
+  // Create empty stub for native modules that wrangler's bundler needs to resolve
+  const stubsDir = path.join(distDir, "_worker.js", "stubs");
+  fs.mkdirSync(stubsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(stubsDir, "empty.js"),
+    "export default {}; export const watch = () => ({ close() {} }); export const Database = class {};\n",
+  );
+
   // Discover routes and plugins
   const routes = discoverApiRoutes(cwd);
   const plugins = discoverPlugins(cwd);
@@ -203,11 +214,7 @@ async function buildCloudflarePages() {
   const workerOutDir = path.join(distDir, "_worker.js");
   fs.mkdirSync(workerOutDir, { recursive: true });
 
-  // Copy the React Router server build (already bundled by Vite) directly
-  // This avoids re-bundling the entire React SSR stack
-  copyDir(serverDir, path.join(workerOutDir, "server"));
-
-  // Write the worker entry — it imports from the copied server build
+  // Write the worker entry
   const entryFile = path.join(workerOutDir, "index.js");
 
   // Rewrite the server-build import to point at the copied files
@@ -216,14 +223,39 @@ async function buildCloudflarePages() {
     `import * as serverBuild from "./server/index.js";`,
   );
 
-  // Write a temp file for esbuild to bundle (only the API routes + plugins + H3 wiring)
+  // Write a temp file for esbuild to bundle everything into a single worker entry.
+  // The server build (React Router SSR) is copied to tmp so esbuild can resolve it.
   const tmpDir = path.join(cwd, ".deploy-tmp");
   fs.mkdirSync(tmpDir, { recursive: true });
   const tmpEntry = path.join(tmpDir, "worker-entry.js");
   fs.writeFileSync(tmpEntry, adjustedEntry);
 
-  // Bundle with esbuild — only the worker entry + API routes.
-  // The server build is external (already bundled by Vite).
+  // Copy server build files so esbuild can resolve the import
+  copyDir(serverDir, path.join(tmpDir, "server"));
+
+  // Create stub modules for native/Node-only deps that can't run on Workers.
+  // These get resolved by esbuild instead of the real modules, avoiding bundling
+  // native code that would fail on the Workers runtime.
+  const stubModules = [
+    "better-sqlite3",
+    "node-pty",
+    "chokidar",
+    "fsevents",
+  ];
+  const stubDir = path.join(tmpDir, "node_modules");
+  for (const mod of stubModules) {
+    const modDir = path.join(stubDir, mod);
+    fs.mkdirSync(modDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(modDir, "index.js"),
+      `export default {}; export const watch = () => ({ close() {} });`,
+    );
+    fs.writeFileSync(
+      path.join(modDir, "package.json"),
+      JSON.stringify({ name: mod, main: "index.js", type: "module" }),
+    );
+  }
+
   const esbuildBin = findEsbuild();
 
   execFileSync(
@@ -236,11 +268,11 @@ async function buildCloudflarePages() {
       "--platform=browser",
       "--minify",
       `--outfile=${entryFile}`,
-      // Node.js compat — CF Workers supports these via nodejs_compat flag
+      // Resolve conditions for Workers/edge runtime
       "--conditions=workerd,worker,import",
-      // Keep the server build as external — it's already bundled
-      `--external:./server/*`,
-      // Externalize node builtins that Workers provides via compat
+      // Resolve stubs before real node_modules
+      `--resolve-extensions=.js,.mjs,.ts`,
+      // Externalize node builtins that Workers provides via nodejs_compat
       ...getExternals(),
     ],
     { stdio: "inherit", cwd },
