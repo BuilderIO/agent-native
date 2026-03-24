@@ -140,6 +140,13 @@ export async function getClients(
     if (!tokens) continue;
 
     const accountId = account.accountId;
+    // Preserve the stored owner on token refresh to avoid ownership conflicts
+    const ownerForRefresh: string =
+      forEmail ??
+      ("owner" in account && typeof account.owner === "string"
+        ? account.owner
+        : undefined) ??
+      accountId;
     const client = createOAuth2Client();
     client.setCredentials(tokens);
 
@@ -152,7 +159,7 @@ export async function getClients(
         "google",
         accountId,
         { ...current, ...newTokens } as unknown as Record<string, unknown>,
-        forEmail,
+        ownerForRefresh,
       );
     });
 
