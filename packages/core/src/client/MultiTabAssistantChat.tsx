@@ -71,22 +71,13 @@ export function MultiTabAssistantChat(props: MultiTabAssistantChatProps) {
 
       const currentTabId = activeTabIdRef.current;
       const activeRef = chatRefs.current.get(currentTabId);
-      const running = activeRef?.isRunning() ?? false;
 
-      if (!running) {
-        // Send to the current active tab
-        if (activeRef) {
-          activeRef.sendMessage(message);
-        } else {
-          // Ref not yet mounted — queue it
-          pendingSends.current.set(currentTabId, message);
-        }
+      if (activeRef) {
+        // Always send to the current tab — it will queue if busy
+        activeRef.sendMessage(message);
       } else {
-        // Active tab is busy — create a new tab
-        const tab = createChatTab();
-        pendingSends.current.set(tab.id, message);
-        setTabs((prev) => [...prev, tab]);
-        setActiveTabId(tab.id);
+        // Ref not yet mounted — queue it
+        pendingSends.current.set(currentTabId, message);
       }
     };
     window.addEventListener("message", handler);

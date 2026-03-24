@@ -67,7 +67,7 @@
     "h3": "^1.14.0",
     "isbot": "^5",
     "minimatch": "^10.0.0",
-    "nitro": "^3.0.0",
+    "nitropack": "^2.13.0",
     "p-limit": "^7.3.0",
     "react-markdown": "^10.1.0",
     "react-router": "^7.13.1",
