@@ -17,6 +17,7 @@
 import path from "path";
 import fs from "fs";
 import { execFileSync } from "child_process";
+import { createRequire } from "module";
 import {
   discoverApiRoutes,
   discoverPlugins,
@@ -296,11 +297,19 @@ function getExternals(): string[] {
 }
 
 function findEsbuild(): string {
-  // Check local node_modules
+  // Try to resolve esbuild's binary via Node module resolution
+  // This works regardless of hoisting or .bin symlink creation
+  try {
+    const _require = createRequire(cwd + "/");
+    const esbuildPkg = path.dirname(_require.resolve("esbuild/package.json"));
+    const bin = path.join(esbuildPkg, "bin", "esbuild");
+    if (fs.existsSync(bin)) return bin;
+  } catch {}
+
+  // Fallback: check local and workspace .bin
   const localBin = path.resolve(cwd, "node_modules/.bin/esbuild");
   if (fs.existsSync(localBin)) return localBin;
 
-  // Check workspace root
   const workspaceRoot = findWorkspaceRoot(cwd);
   if (workspaceRoot) {
     const workspaceBin = path.resolve(
