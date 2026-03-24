@@ -17,6 +17,7 @@ export default {
     "/docs/creating-templates",
     "/docs/cli-adapters",
     "/docs/database-adapters",
+    "/download",
     "/templates",
     "/templates/analytics",
     "/templates/calendar",

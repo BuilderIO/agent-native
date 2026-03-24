@@ -25,6 +25,7 @@ import {
   LayoutDashboard,
 } from "lucide-react";
 import { getIdToken } from "@/lib/auth";
+import { AgentToggleButton } from "@agent-native/core/client";
 import {
   getTotalCost,
   getTotalBytes,
@@ -619,6 +620,7 @@ export function Sidebar() {
         className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-10"
       />
       <div className="flex h-14 items-center border-b border-border px-4 lg:h-[60px] lg:px-6">
+        <AgentToggleButton />
         <Link
           to="/adhoc/overview"
           className="flex items-center gap-2 font-semibold"

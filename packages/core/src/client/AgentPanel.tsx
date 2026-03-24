@@ -31,6 +31,42 @@ const AgentTerminal = lazy(() =>
   import("./terminal/index.js").then((m) => ({ default: m.AgentTerminal })),
 );
 
+const CLI_STORAGE_KEY = "agent-native-cli-command";
+const CLI_DEFAULT = "fusion";
+
+interface AvailableCli {
+  command: string;
+  label: string;
+  available: boolean;
+}
+
+function useAvailableClis() {
+  const [clis, setClis] = useState<AvailableCli[]>([]);
+  useEffect(() => {
+    fetch("/api/available-clis")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => setClis(data))
+      .catch(() => {});
+  }, []);
+  return clis;
+}
+
+function useCliSelection() {
+  const [selected, setSelected] = useState(() => {
+    if (typeof localStorage !== "undefined") {
+      return localStorage.getItem(CLI_STORAGE_KEY) || CLI_DEFAULT;
+    }
+    return CLI_DEFAULT;
+  });
+  const select = (cmd: string) => {
+    setSelected(cmd);
+    try {
+      localStorage.setItem(CLI_STORAGE_KEY, cmd);
+    } catch {}
+  };
+  return [selected, select] as const;
+}
+
 // Detect dev mode at build time (Vite replaces this)
 const IS_DEV: boolean =
   typeof import.meta !== "undefined" &&
@@ -93,15 +129,16 @@ export function AgentPanel({
   showHeader = true,
 }: AgentPanelProps) {
   const [mode, setMode] = useState<"chat" | "cli">(defaultMode);
+  const availableClis = useAvailableClis();
+  const [selectedCli, selectCli] = useCliSelection();
+  const selectedLabel =
+    availableClis.find((c) => c.command === selectedCli)?.label || selectedCli;
 
   return (
     <div className={cn("flex flex-1 flex-col h-full min-h-0", className)}>
       {showHeader && (
         <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
-          <span className="text-[13px] font-medium text-muted-foreground">
-            Agent
-          </span>
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center gap-1.5">
             {/* Mode toggle — only show CLI option in dev mode */}
             <button
               onClick={() => setMode("chat")}
@@ -132,6 +169,26 @@ export function AgentPanel({
               </button>
             )}
           </div>
+          {/* CLI selector */}
+          {IS_DEV && availableClis.length > 0 && (
+            <select
+              value={selectedCli}
+              onChange={(e) => selectCli(e.target.value)}
+              className="text-[12px] text-muted-foreground bg-transparent border border-border rounded px-1.5 py-0.5 outline-none hover:text-foreground cursor-pointer"
+              title="Select AI CLI"
+            >
+              {availableClis.map((cli) => (
+                <option
+                  key={cli.command}
+                  value={cli.command}
+                  disabled={!cli.available}
+                >
+                  {cli.label}
+                  {!cli.available ? " (not installed)" : ""}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       )}
 
@@ -163,6 +220,7 @@ export function AgentPanel({
             }
           >
             <AgentTerminal
+              command={selectedCli}
               hideInHarness={false}
               className="h-full"
               style={{ background: "transparent" }}

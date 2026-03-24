@@ -59,7 +59,7 @@ agentChat.send({
 });
 ```
 
-In the browser, messages are sent via `window.postMessage()`. In Node.js (scripts), they use the `BUILDER_PARENT_MESSAGE:` stdout format that the harness host translates to postMessage.
+In the browser, messages are sent via `window.postMessage()`. In Node.js (scripts), they use the `BUILDER_PARENT_MESSAGE:` stdout format that the agent chat runtime translates to postMessage.
 
 ## Utility Functions
 

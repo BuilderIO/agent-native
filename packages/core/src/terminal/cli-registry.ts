@@ -6,6 +6,8 @@
 import { spawnSync } from "child_process";
 
 export interface CliEntry {
+  /** Human-readable display name */
+  label: string;
   /** npm package name for npx fallback */
   installPackage: string;
   /** Env vars to strip when spawning (prevents nesting) */
@@ -13,24 +15,29 @@ export interface CliEntry {
 }
 
 export const CLI_REGISTRY: Record<string, CliEntry> = {
+  fusion: {
+    label: "Builder.io",
+    installPackage: "@builder.io/fusion",
+    stripEnv: [],
+  },
   claude: {
+    label: "Claude Code",
     installPackage: "@anthropic-ai/claude-code",
     stripEnv: ["CLAUDECODE", "CLAUDE_CODE_SESSION"],
   },
   codex: {
+    label: "Codex",
     installPackage: "@openai/codex",
     stripEnv: [],
   },
   gemini: {
+    label: "Gemini CLI",
     installPackage: "@google/gemini-cli",
     stripEnv: [],
   },
   opencode: {
+    label: "OpenCode",
     installPackage: "opencode-ai",
-    stripEnv: [],
-  },
-  fusion: {
-    installPackage: "@builder.io/fusion",
     stripEnv: [],
   },
 };

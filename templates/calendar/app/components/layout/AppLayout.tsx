@@ -1,6 +1,7 @@
 import { createContext, useContext, useState } from "react";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
 import { Sidebar } from "./Sidebar";
 
 interface CalendarContextValue {
@@ -41,10 +42,22 @@ export function AppLayout({ children }: AppLayoutProps) {
             >
               <Menu className="h-4 w-4" />
             </Button>
+            <AgentToggleButton />
             <span className="ml-2 text-sm font-semibold">Calendar</span>
           </div>
 
-          <main className="flex-1 overflow-hidden">{children}</main>
+          <AgentSidebar
+            position="left"
+            defaultOpen
+            emptyStateText="Ask me anything about your calendar"
+            suggestions={[
+              "What's on my calendar today?",
+              "Find a free slot this week",
+              "Show me upcoming events",
+            ]}
+          >
+            <main className="flex-1 overflow-hidden">{children}</main>
+          </AgentSidebar>
         </div>
       </div>
     </CalendarContext.Provider>

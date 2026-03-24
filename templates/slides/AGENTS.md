@@ -207,7 +207,7 @@ agentChat.submit(
 
 ### Transport
 
-The `@agent-native/core` chat bridge handles the transport automatically — it works in both browser (postMessage) and Node (stdout) contexts. The harness picks up the messages and routes them to the agent.
+The `@agent-native/core` chat bridge handles the transport automatically — it works in both browser (postMessage) and Node (stdout) contexts. The agent chat runtime picks up the messages and routes them to the agent.
 
 ### Key Pattern: Image Generation via Chat
 

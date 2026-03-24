@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTheme } from "next-themes";
 import { AgentTerminal } from "@agent-native/core/terminal";
+import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
 
 export function meta() {
   return [{ title: "Agent Native App" }];
@@ -20,61 +21,77 @@ export default function IndexPage() {
 
   return (
     <div className="flex flex-col h-screen">
-      <div className="flex flex-col items-center justify-center flex-1 px-6">
-        <div className="max-w-md w-full space-y-8 text-center">
-          <div className="space-y-3">
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-              Your app is running
-            </h1>
-            <p className="text-[14px] text-muted-foreground leading-relaxed">
-              Start building by editing{" "}
-              <code className="text-[13px] bg-muted px-1.5 py-0.5 rounded font-mono">
-                app/routes/_index.tsx
-              </code>
-            </p>
-          </div>
+      <header className="flex items-center justify-between px-4 py-2 border-b border-border">
+        <h2 className="text-sm font-medium text-foreground">Agent Native</h2>
+        <AgentToggleButton />
+      </header>
 
-          <div className="h-px bg-border" />
+      <AgentSidebar
+        position="left"
+        defaultOpen
+        emptyStateText="How can I help?"
+        suggestions={[
+          "What can you do?",
+          "Show me the database schema",
+          "Create something cool",
+        ]}
+      >
+        <div className="flex flex-col items-center justify-center flex-1 px-6">
+          <div className="max-w-md w-full space-y-8 text-center">
+            <div className="space-y-3">
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Your app is running
+              </h1>
+              <p className="text-[14px] text-muted-foreground leading-relaxed">
+                Start building by editing{" "}
+                <code className="text-[13px] bg-muted px-1.5 py-0.5 rounded font-mono">
+                  app/routes/_index.tsx
+                </code>
+              </p>
+            </div>
 
-          <div className="grid grid-cols-2 gap-3 text-left">
-            <a
-              href="https://agent-native.dev/docs"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 transition-colors"
-            >
-              <p className="text-[13px] font-medium text-foreground">
-                Documentation
-              </p>
-              <p className="text-[12px] text-muted-foreground mt-0.5">
-                Learn the framework
-              </p>
-            </a>
+            <div className="h-px bg-border" />
+
+            <div className="grid grid-cols-2 gap-3 text-left">
+              <a
+                href="https://agent-native.dev/docs"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50"
+              >
+                <p className="text-[13px] font-medium text-foreground">
+                  Documentation
+                </p>
+                <p className="text-[12px] text-muted-foreground mt-0.5">
+                  Learn the framework
+                </p>
+              </a>
+              <button
+                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                className="rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 text-left"
+              >
+                <p className="text-[13px] font-medium text-foreground">Theme</p>
+                <p className="text-[12px] text-muted-foreground mt-0.5">
+                  Toggle dark / light
+                </p>
+              </button>
+            </div>
+
             <button
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              className="rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 transition-colors text-left"
+              onClick={() => setShowTerminal(!showTerminal)}
+              className="text-[13px] text-muted-foreground hover:text-foreground"
             >
-              <p className="text-[13px] font-medium text-foreground">Theme</p>
-              <p className="text-[12px] text-muted-foreground mt-0.5">
-                Toggle dark / light
-              </p>
+              {showTerminal ? "Hide" : "Show"} Agent Terminal
             </button>
           </div>
-
-          <button
-            onClick={() => setShowTerminal(!showTerminal)}
-            className="text-[13px] text-muted-foreground hover:text-foreground"
-          >
-            {showTerminal ? "Hide" : "Show"} Agent Terminal
-          </button>
         </div>
-      </div>
 
-      {showTerminal && (
-        <div className="h-[350px] border-t border-border">
-          <AgentTerminal />
-        </div>
-      )}
+        {showTerminal && (
+          <div className="h-[350px] border-t border-border">
+            <AgentTerminal />
+          </div>
+        )}
+      </AgentSidebar>
     </div>
   );
 }

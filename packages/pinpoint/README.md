@@ -2,7 +2,7 @@
 
 Visual feedback and annotation tool for web applications. Users select UI elements, add feedback, and send structured context to any AI agent.
 
-Works standalone, with [Builder.io](https://builder.io), or with any agent harness that speaks the agent-native protocol (Builder.io, Claude Code, Codex, Gemini CLI, Cursor, etc.).
+Works standalone, with [Builder.io](https://builder.io), or with any agent runtime that speaks the agent-native protocol (Builder.io, Claude Code, Codex, Gemini CLI, Cursor, etc.).
 
 ## AI Agent Setup Guide
 
@@ -393,7 +393,7 @@ Inside [Builder.io's Fusion](https://builder.io), annotations are sent via `send
 <Pinpoint author="Builder User" autoSubmit outputFormat="standard" />
 ```
 
-No additional configuration needed when running inside a Builder.io harness.
+No additional configuration needed when running inside a Builder.io project.
 
 ## Architecture
 
