@@ -1,6 +1,12 @@
-import { useState, useRef, useCallback } from "react";
-import { View, StyleSheet, ActivityIndicator, Linking } from "react-native";
-import { WebView, type WebViewNavigation } from "react-native-webview";
+import { useState, useRef, useCallback, useEffect } from "react";
+import {
+  View,
+  StyleSheet,
+  ActivityIndicator,
+  Linking,
+  AppState,
+} from "react-native";
+import { WebView } from "react-native-webview";
 
 interface AppWebViewProps {
   url: string;
@@ -8,8 +14,7 @@ interface AppWebViewProps {
 }
 
 // Google blocks OAuth in embedded WebViews. Open Google auth URLs in the
-// system browser (Safari) instead, which completes the OAuth flow and
-// redirects back to the app's callback URL.
+// system browser (Safari) instead.
 const EXTERNAL_HOSTS = ["accounts.google.com", "oauth2.googleapis.com"];
 
 export default function AppWebView({
@@ -18,25 +23,27 @@ export default function AppWebView({
 }: AppWebViewProps) {
   const webviewRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
+  const openedExternal = useRef(false);
 
-  const handleNavigationStateChange = useCallback(
-    (navState: WebViewNavigation) => {
-      // When the WebView returns from OAuth (callback URL), reload to pick up the session
-      if (navState.url?.includes("/api/google/callback")) {
-        // The callback will set cookies — after redirect, reload the app
-        setTimeout(() => webviewRef.current?.reload(), 1000);
+  // When the app returns to foreground after external OAuth, reload the WebView
+  // to pick up the new session cookie.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active" && openedExternal.current) {
+        openedExternal.current = false;
+        webviewRef.current?.reload();
       }
-    },
-    [],
-  );
+    });
+    return () => sub.remove();
+  }, []);
 
   const handleShouldStartLoad = useCallback((event: { url: string }) => {
     try {
       const parsed = new URL(event.url);
       if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
-        // Open in system browser via Linking (works without native module rebuild)
+        openedExternal.current = true;
         Linking.openURL(event.url);
-        return false; // Block the WebView from navigating
+        return false;
       }
     } catch {
       // Invalid URL — let WebView handle it
@@ -52,7 +59,6 @@ export default function AppWebView({
         style={styles.webview}
         onLoadStart={() => setLoading(true)}
         onLoadEnd={() => setLoading(false)}
-        onNavigationStateChange={handleNavigationStateChange}
         onShouldStartLoadWithRequest={handleShouldStartLoad}
         javaScriptEnabled
         domStorageEnabled
