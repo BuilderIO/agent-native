@@ -79,8 +79,9 @@ export const opencodeConfig: HarnessConfig = {
 
 export const fusionConfig: HarnessConfig = {
   name: "Builder.io",
-  command: "fusion",
-  installPackage: "@builder.io/fusion",
+  command: "builder",
+  installPackage: "",
+  installCommand: "curl -fsSL https://www.builder.io/install.sh | bash",
   options: [],
   customPlaceholder: "e.g. --project my-project",
 };

@@ -16,6 +16,8 @@ export interface HarnessConfig {
   command: string;
   /** npm package to install, e.g. "@anthropic-ai/claude-code" */
   installPackage: string;
+  /** Override install command shown in the UI (e.g. a curl script). Falls back to npx --yes {installPackage} */
+  installCommand?: string;
   /** Toggle options shown in settings panel */
   options: HarnessOption[];
   /** Placeholder for custom flags input */

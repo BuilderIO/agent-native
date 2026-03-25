@@ -32,7 +32,7 @@ const AgentTerminal = lazy(() =>
 );
 
 const CLI_STORAGE_KEY = "agent-native-cli-command";
-const CLI_DEFAULT = "fusion";
+const CLI_DEFAULT = "builder";
 
 interface AvailableCli {
   command: string;
