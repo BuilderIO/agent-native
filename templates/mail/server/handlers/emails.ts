@@ -9,7 +9,12 @@ import {
 } from "h3";
 import { nanoid } from "nanoid";
 import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import {
+  getUserSetting,
+  putUserSetting,
+  getSetting,
+  putSetting,
+} from "@agent-native/core/settings";
 import { getSession } from "@agent-native/core/server";
 import {
   getOAuthTokens,
@@ -134,7 +139,7 @@ const DEFAULT_SETTINGS: UserSettings = {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function readEmails(email: string): Promise<EmailMessage[]> {
-  const data = await getUserSetting(email, "local-emails");
+  const data = await getSetting("local-emails");
   if (data && Array.isArray((data as any).emails)) {
     return (data as any).emails;
   }
@@ -145,11 +150,11 @@ async function writeEmails(
   email: string,
   emails: EmailMessage[],
 ): Promise<void> {
-  await putUserSetting(email, "local-emails", { emails });
+  await putSetting("local-emails", { emails });
 }
 
 async function readLabels(email: string): Promise<Label[]> {
-  const data = await getUserSetting(email, "labels");
+  const data = await getSetting("labels");
   if (data && Array.isArray((data as any).labels)) {
     return (data as any).labels;
   }
@@ -157,7 +162,7 @@ async function readLabels(email: string): Promise<Label[]> {
 }
 
 async function writeLabels(email: string, labels: Label[]): Promise<void> {
-  await putUserSetting(email, "labels", { labels });
+  await putSetting("labels", { labels });
 }
 
 async function readSettings(email: string): Promise<UserSettings> {
