@@ -15,9 +15,9 @@ export interface CliEntry {
 }
 
 export const CLI_REGISTRY: Record<string, CliEntry> = {
-  fusion: {
+  builder: {
     label: "Builder.io",
-    installPackage: "@builder.io/fusion",
+    installPackage: "",
     stripEnv: [],
   },
   claude: {

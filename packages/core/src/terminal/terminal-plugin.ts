@@ -11,7 +11,7 @@
 import { defineEventHandler } from "h3";
 
 export interface TerminalPluginOptions {
-  /** CLI command to run. Defaults to AGENT_CLI_COMMAND env or 'fusion' */
+  /** CLI command to run. Defaults to AGENT_CLI_COMMAND env or 'builder' */
   command?: string;
   /** Port for the WebSocket server. Defaults to AGENT_TERMINAL_PORT env or auto-assigned */
   port?: number;
@@ -73,14 +73,15 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
         defineEventHandler(() => ({
           available: true,
           wsPort: existingPort ? parseInt(existingPort, 10) : 0,
-          command: options.command || process.env.AGENT_CLI_COMMAND || "claude",
+          command:
+            options.command || process.env.AGENT_CLI_COMMAND || "builder",
         })),
       );
       return;
     }
 
     const command =
-      options.command || process.env.AGENT_CLI_COMMAND || "fusion";
+      options.command || process.env.AGENT_CLI_COMMAND || "builder";
     const port =
       options.port ??
       (process.env.AGENT_TERMINAL_PORT
