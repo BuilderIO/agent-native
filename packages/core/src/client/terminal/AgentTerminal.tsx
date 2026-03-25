@@ -19,7 +19,7 @@ import React, {
 import { getHarnessOrigin } from "../harness.js";
 
 export interface AgentTerminalProps {
-  /** CLI command to run. Default: 'fusion' */
+  /** CLI command to run. Default: 'builder' */
   command?: string;
   /** Additional CLI flags */
   flags?: string;
