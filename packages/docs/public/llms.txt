@@ -2,7 +2,7 @@
 
 > Framework for building AI-native applications where agents and UI share state through files.
 
-Agent-Native is an open source framework for building full-featured applications powered by AI agents. Apps are React frontends with Express backends. All state lives in files — the agent and UI read/write the same source of truth. No traditional database needed.
+Agent-Native is an open source framework for building full-featured applications powered by AI agents. Apps are React frontends with Nitro backends. All state lives in files — the agent and UI read/write the same source of truth. No traditional database needed.
 
 ## Key Concepts
 
@@ -11,12 +11,12 @@ Agent-Native is an open source framework for building full-featured applications
 - **Agent Updates Code**: The agent can modify the app itself. Your tools get better over time.
 - **Real-time Sync**: File watcher streams changes via SSE. When the agent writes a file, the UI updates instantly.
 - **Scripts System**: Agent-callable scripts via `pnpm script <name>` for complex operations.
-- **Harnesses**: Apps run inside a harness (CLI harness supporting Claude Code, Codex, Gemini, OpenCode — or Builder.io Cloud) that provides the AI agent alongside your UI.
+- **Harnesses**: Apps run inside a harness (CLI harness supporting Claude Code, Codex, Gemini CLI, OpenCode, Builder.io — or Builder.io Cloud) that provides the AI agent alongside your UI.
 
 ## Quick Start
 
-```bash
-npx @agent-native/core create my-app --template analytics
+
+npx @agent-native/core create my-app
 cd my-app
 pnpm install
 pnpm dev
@@ -24,6 +24,8 @@ pnpm dev
 
 ## Templates
 
+- **Mail**: Superhuman-style email client with keyboard shortcuts, AI triage, and smart search
+- **Calendar**: Calendar app with Google Calendar sync, public booking page, and natural language scheduling
 - **Analytics**: BI platform with 20+ data connectors, SQL query explorer, dashboards, data dictionary
 - **Content**: Content workspace with brand-aware AI writing, CMS publishing, media management
 - **Slides**: AI presentation builder with 8 layouts, image generation, visual editing
@@ -37,7 +39,9 @@ All documentation pages are available as raw markdown by appending `.md` to any 
 - [Server API](https://agent-native.com/docs/server.md)
 - [Client Hooks](https://agent-native.com/docs/client.md)
 - [Scripts](https://agent-native.com/docs/scripts.md)
-- [Harnesses](https://agent-native.com/docs/harnesses.md)
+- [Routing](https://agent-native.com/docs/routing.md)
+- [Deployment](https://agent-native.com/docs/deployment.md)
+- [Harnesses](https://agent-native.com/docs/harnesses)
 
 ## Full Documentation
 

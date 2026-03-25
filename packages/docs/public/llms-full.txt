@@ -2,7 +2,7 @@
 
 > Framework for building AI-native applications where agents and UI share state through files.
 
-Agent-Native is an open source framework for building full-featured applications powered by AI agents. Apps are React frontends with Express backends. All state lives in files — the agent and UI read/write the same source of truth.
+Agent-Native is an open source framework for building full-featured applications powered by AI agents. Apps are React frontends with Nitro backends. All state lives in files — the agent and UI read/write the same source of truth.
 
 ---
 
@@ -10,39 +10,70 @@ Agent-Native is an open source framework for building full-featured applications
 
 ## Installation
 
-```bash
+Create a new project:
+
+
 npx @agent-native/core create my-app
+```
+
+Or fork a specific template:
+
+```bash
+npx @agent-native/core create my-app --template mail
 ```
 
 ## Project Structure
 
+Every agent-native app follows the same convention:
+
 ```
 my-app/
-  client/          # React frontend (Vite SPA)
-    App.tsx        # Entry point
-    components/    # UI components
-    lib/utils.ts   # cn() utility
-  server/          # Express backend
-    index.ts       # createAppServer()
-    node-build.ts  # Production entry point
-  shared/          # Isomorphic code (client & server)
-  scripts/         # Agent-callable scripts
-    run.ts         # Script dispatcher
-  data/            # App data files (watched by SSE)
+  app/                   # React frontend
+    root.tsx             # HTML shell + global providers
+    entry.client.tsx     # Client hydration entry
+    routes.ts            # Route config — flatRoutes()
+    routes/              # File-based page routes (auto-discovered)
+      _index.tsx         # / (home page)
+      settings.tsx       # /settings
+    components/          # UI components
+    lib/utils.ts         # cn() utility
+  server/                # Nitro API server
+    routes/
+      api/               # File-based API routes (auto-discovered)
+      [...page].get.ts   # SSR catch-all (delegates to React Router)
+    plugins/             # Server plugins (startup logic)
+    lib/                 # Shared server modules
+  shared/                # Isomorphic code (client & server)
+  scripts/               # Agent-callable scripts
+    run.ts               # Script dispatcher
+  data/                  # App data files (watched by SSE)
+  react-router.config.ts # React Router framework config
 ```
 
 ## Vite Configuration
 
+A single config file handles both client and server build:
+
 ```ts
 // vite.config.ts
 import { defineConfig } from "@agent-native/core/vite";
-export default defineConfig();
+
+export default defineConfig({
+  reactRouter: true,
+});
 ```
 
+`defineConfig()` sets up React Router framework mode (SSR + file-based routing), path aliases (`@/` → `app/`, `@shared/` → `shared/`), and the Nitro server plugin (file-based API routing, server plugins, deploy-anywhere presets).
+
+### Nitro options
+
 ```ts
-// vite.config.server.ts
-import { defineServerConfig } from "@agent-native/core/vite";
-export default defineServerConfig();
+export default defineConfig({
+  reactRouter: true,
+  nitro: {
+    preset: "vercel", // Deploy target (default: "node")
+  },
+});
 ```
 
 ## TypeScript & Tailwind
@@ -59,7 +90,7 @@ import preset from "@agent-native/core/tailwind";
 
 export default {
   presets: [preset],
-  content: ["./client/**/*.{ts,tsx}"],
+  content: ["./app/**/*.{ts,tsx}"],
 } satisfies Config;
 ```
 
@@ -67,10 +98,15 @@ export default {
 
 | Import | Exports |
 |--------|---------|
-| `@agent-native/core` | createServer, createFileWatcher, createSSEHandler, createProductionServer, runScript, parseArgs, loadEnv, fail, agentChat, sendToAgentChat, useAgentChatGenerating, useFileWatcher, cn |
-| `@agent-native/core/vite` | defineConfig(), defineServerConfig() |
+| `@agent-native/core` | Server: `createServer`, `createFileWatcher`, `createSSEHandler`, `mountAuthMiddleware`, `createProductionAgentHandler` · Client: `sendToAgentChat`, `useAgentChatGenerating`, `useFileWatcher`, `useProductionAgent`, `ProductionAgentPanel`, `cn` · Scripts: `runScript`, `parseArgs`, `loadEnv`, `fail`, `agentChat` |
+| `@agent-native/core/router` | React Router re-exports: `Link`, `NavLink`, `Outlet`, `useNavigate`, `useParams`, `useLoaderData`, `redirect`, `Form`, `Links`, `Meta`, `Scripts`, `ScrollRestoration` |
+| `@agent-native/core/vite` | `defineConfig()` |
 | `@agent-native/core/tailwind` | Tailwind preset (HSL colors, shadcn/ui tokens, animations) |
-| `@agent-native/core/adapters/firestore` | FileSync, threeWayMerge, loadSyncConfig |
+| `@agent-native/core/db` | `getDb()` — Drizzle ORM factory (SQLite via @libsql/client, local or cloud via `DATABASE_URL`) |
+| `@agent-native/core/adapters/sync` | `createFileSync`, `FileSync`, `FileSyncAdapter` interface, `FileRecord`, `FileChange` types |
+| `@agent-native/core/adapters/firestore` | `FirestoreFileSyncAdapter`, `threeWayMerge`, `loadSyncConfig` |
+| `@agent-native/core/adapters/supabase` | `SupabaseFileSyncAdapter`, `threeWayMerge`, `loadSyncConfig` |
+| `@agent-native/core/adapters/convex` | `ConvexFileSyncAdapter`, `threeWayMerge`, `loadSyncConfig` |
 
 ## Architecture Principles
 
@@ -79,28 +115,109 @@ export default {
 3. **Scripts for agent ops** — `pnpm script <name>` dispatches to callable script files.
 4. **Bidirectional SSE events** — File watcher keeps UI in sync with agent changes in real-time.
 5. **Agent can update code** — The agent modifies the app itself.
+6. **Application state as files** — Ephemeral UI state lives in `application-state/` as JSON. Both agent and UI can read and write these files; the SSE watcher covers this directory too.
+7. **Deploy anywhere** — Nitro presets let you deploy to Node.js, Vercel, Netlify, Cloudflare, AWS Lambda, Deno, and more with a single config change.
+
+---
+
+# Routing
+
+Agent-native apps use **React Router v7 framework mode** with file-based routing. Pages are auto-discovered from `app/routes/` via `flatRoutes()`.
+
+## Architecture: SSR Shell + Client Rendering
+
+Even though SSR is enabled, virtually every route renders only an SSR shell (loading spinner, optional meta tags). All real data fetching and rendering happens on the client via React Query hooks.
+
+## Adding a Page
+
+Create a file in `app/routes/`. The filename determines the URL path:
+
+```
+app/routes/
+  _index.tsx              → /
+  about.tsx               → /about
+  settings.tsx            → /settings
+  inbox.$threadId.tsx     → /inbox/:threadId
+```
+
+## Default Route Pattern (95% of routes)
+
+```tsx
+// app/routes/settings.tsx
+import Settings from "@/pages/Settings";
+
+export function meta() {
+  return [{ title: "Settings — My App" }];
+}
+
+export function HydrateFallback() {
+  return <div className="flex items-center justify-center h-screen">
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
+  </div>;
+}
+
+export default function SettingsRoute() {
+  return <Settings />;
+}
+```
+
+## Build Commands
+
+```bash
+pnpm dev        # Vite dev server
+pnpm build      # react-router build (client + SSR + Nitro)
+pnpm start      # node .output/server/index.mjs
+pnpm typecheck  # react-router typegen && tsc --noEmit
+```
 
 ---
 
 # Server API
 
-## createServer(options?)
+Agent-native apps use [Nitro](https://nitro.build) for the server layer, included automatically via `defineConfig()`.
 
-Creates a pre-configured Express app with standard middleware (cors, json, urlencoded, /api/ping).
+## File-Based Routing
 
-```ts
-import { createServer } from "@agent-native/core";
-const app = createServer();
+API routes live in `server/routes/`. Nitro auto-discovers them based on file name:
+
+```
+server/routes/
+  api/
+    hello.get.ts          → GET  /api/hello
+    items/
+      index.get.ts        → GET  /api/items
+      index.post.ts       → POST /api/items
+      [id].get.ts         → GET  /api/items/:id
+      [id].delete.ts      → DELETE /api/items/:id
 ```
 
-Options: `cors` (CorsOptions | false), `jsonLimit` (string, default "50mb"), `pingMessage` (string), `disablePing` (boolean).
+Each route file exports a default `defineEventHandler`:
+
+```ts
+// server/routes/api/items/index.get.ts
+import { defineEventHandler } from "h3";
+import fs from "fs/promises";
+
+export default defineEventHandler(async () => {
+  const files = await fs.readdir("./data/items");
+  const items = await Promise.all(
+    files
+      .filter((f) => f.endsWith(".json"))
+      .map(async (f) =>
+        JSON.parse(await fs.readFile(`./data/items/${f}`, "utf-8")),
+      ),
+  );
+  return items;
+});
+```
 
 ## createFileWatcher(dir, options?)
 
-Creates a chokidar file watcher for real-time file change detection.
+Creates a chokidar file watcher for real-time file change detection:
 
 ```ts
 import { createFileWatcher } from "@agent-native/core";
+
 const watcher = createFileWatcher("./data");
 ```
 
@@ -108,26 +225,80 @@ Options: `ignored` (glob/regex), `emitInitial` (boolean, default false).
 
 ## createSSEHandler(watcher, options?)
 
-Creates an Express route handler that streams file changes as Server-Sent Events.
+Creates an H3 event handler that streams file changes as Server-Sent Events:
 
 ```ts
-app.get("/api/events", createSSEHandler(watcher));
+// server/routes/api/events.get.ts
+import { createSSEHandler } from "@agent-native/core";
+import { watcher, sseExtraEmitters } from "../../lib/watcher.js";
+
+export default createSSEHandler(watcher, {
+  extraEmitters: sseExtraEmitters,
+  contentRoot: "./data",
+});
 ```
 
 Each SSE message: `{ "type": "change", "path": "data/file.json" }`
 
-Options: `extraEmitters` (Array<{ emitter, event }>).
+Options: `extraEmitters` (Array<{ emitter, event }>), `contentRoot` (string — root used to relativize paths in events).
 
-## createProductionServer(app, options?)
+## createServer(options?)
 
-Starts a production server with SPA fallback and graceful shutdown.
+Optional helper that creates a pre-configured H3 app with CORS middleware and a health-check route. Returns `{ app, router }`. Useful for programmatic route registration in server plugins:
 
 ```ts
-import { createProductionServer } from "@agent-native/core";
-createProductionServer(createAppServer());
+import { createServer } from "@agent-native/core";
+
+const { app, router } = createServer();
 ```
 
-Options: `port` (number/string, default 3000), `spaDir` (string, default "dist/spa"), `appName` (string).
+Options: `cors` (Record<string, unknown> | false), `pingMessage` (string), `disablePing` (boolean), `envKeys` (EnvKeyConfig[] — enables `/api/env-status` and `/api/env-vars` routes).
+
+## mountAuthMiddleware(app, accessToken)
+
+Mounts session-cookie authentication onto an H3 app. Serves a login page for unauthenticated browser requests and returns 401 for unauthenticated API requests.
+
+```ts
+import { mountAuthMiddleware } from "@agent-native/core";
+
+mountAuthMiddleware(app, process.env.ACCESS_TOKEN!);
+```
+
+Adds `POST /api/auth/login` and `POST /api/auth/logout` routes automatically.
+
+## createProductionAgentHandler(options)
+
+Creates an H3 SSE handler at `POST /api/agent-chat` that runs an agentic tool loop using Claude. Each script's `run()` function is registered as a tool the agent can invoke.
+
+```ts
+import { createProductionAgentHandler } from "@agent-native/core";
+import { scripts } from "./scripts/registry.js";
+import { readFileSync } from "fs";
+
+const agent = createProductionAgentHandler({
+  scripts,
+  systemPrompt: readFileSync("agents/system-prompt.md", "utf-8"),
+});
+```
+
+Options: `scripts` (Record<string, ScriptEntry>), `systemPrompt` (string), `apiKey` (string, default: `ANTHROPIC_API_KEY`), `model` (string, default: `claude-sonnet-4-6`).
+
+## Server Plugins
+
+Cross-cutting concerns go in `server/plugins/`. Nitro runs these at startup:
+
+```ts
+// server/plugins/file-sync.ts
+import { defineNitroPlugin } from "@agent-native/core";
+import { createFileSync } from "@agent-native/core/adapters/sync";
+
+export default defineNitroPlugin(async () => {
+  const result = await createFileSync({ contentRoot: "./data" });
+  if (result.status === "error") {
+    console.warn(`[app] File sync failed: ${result.reason}`);
+  }
+});
+```
 
 ---
 
@@ -151,15 +322,17 @@ AgentChatMessage fields: `message` (string), `context` (string?), `submit` (bool
 
 ## useAgentChatGenerating()
 
-React hook with loading state tracking.
+React hook with loading state tracking:
 
 ```tsx
 const [isGenerating, send] = useAgentChatGenerating();
 ```
 
+`isGenerating` turns true when you call `send()` and automatically resets to false when the agent finishes.
+
 ## useFileWatcher(options?)
 
-React hook that connects to SSE endpoint and invalidates react-query caches on file changes.
+React hook that connects to the SSE endpoint and invalidates react-query caches on file changes:
 
 ```tsx
 useFileWatcher({
@@ -169,6 +342,8 @@ useFileWatcher({
   onEvent: (data) => console.log("File changed:", data),
 });
 ```
+
+Options: `queryClient` (QueryClient?), `queryKeys` (string[]?), `eventsUrl` (string?, default: "/api/events"), `onEvent` ((data) => void).
 
 ## cn(...inputs)
 
@@ -210,9 +385,12 @@ Isomorphic chat bridge for browser and Node.js:
 
 ```ts
 import { agentChat } from "@agent-native/core";
+
 agentChat.submit("Generate a report for Q4");
 agentChat.prefill("Draft an email to...", contextData);
 ```
+
+In the browser, messages are sent via `window.postMessage()`. In Node.js (scripts), they use the `BUILDER_PARENT_MESSAGE:` stdout format.
 
 ## Utility Functions
 
@@ -223,15 +401,100 @@ agentChat.prefill("Draft an email to...", contextData);
 - `ensureDir(dir)` — mkdir -p helper
 - `fail(message)` — Print error and exit(1)
 
-## Firestore Adapter
+## Production Scripts (run() export)
 
-Bidirectional file sync with three-way merge:
+Scripts used by the embedded production agent must export a `tool` definition and a `run()` function:
 
 ```ts
-import { FileSync } from "@agent-native/core/adapters/firestore";
-const sync = new FileSync({ appId, ownerId, contentRoot, getFileCollection });
-await sync.initFileSync();
+import type { ScriptTool } from "@agent-native/core";
+
+export const tool: ScriptTool = {
+  description: "Archive an email by ID",
+  parameters: {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "Email ID to archive" },
+    },
+    required: ["id"],
+  },
+};
+
+export async function run(args: Record<string, string>): Promise<string> {
+  const result = await archiveEmail(args.id);
+  return `Archived email ${args.id}`;
+}
+
+export default async function main(args: string[]) {
+  const { id } = parseArgs(args);
+  await archiveEmail(id);
+}
 ```
+
+Register all production scripts in a registry:
+
+```ts
+// scripts/registry.ts
+import type { ScriptEntry } from "@agent-native/core";
+import * as archiveEmail from "./archive-email.js";
+
+export const scripts: Record<string, ScriptEntry> = {
+  "archive-email": { tool: archiveEmail.tool, run: archiveEmail.run },
+};
+```
+
+## File Sync
+
+For multi-user collaboration, agent-native provides a `createFileSync()` factory and adapters for **Firestore**, **Supabase**, and **Convex**. File sync is opt-in (`FILE_SYNC_ENABLED=true`).
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `FILE_SYNC_ENABLED` | No | Set to `"true"` to enable sync |
+| `FILE_SYNC_BACKEND` | When enabled | `"firestore"`, `"supabase"`, or `"convex"` |
+| `SUPABASE_URL` | For Supabase | Project URL |
+| `SUPABASE_PUBLISHABLE_KEY` | For Supabase | Publishable (anon) key |
+| `GOOGLE_APPLICATION_CREDENTIALS` | For Firestore | Path to service account JSON |
+| `CONVEX_URL` | For Convex | Deployment URL |
+
+---
+
+# Deployment
+
+## Database
+
+By default, apps use local SQLite (`file:./data/app.db`). For production, set `DATABASE_URL`:
+
+| Provider | `DATABASE_URL` format |
+|----------|-----------------------|
+| SQLite (local) | `file:./data/app.db` (default) |
+| Turso | `libsql://your-db.turso.io` |
+| Neon | `libsql://...` |
+| Cloudflare D1 | No URL needed — uses `DB` binding automatically |
+
+For Turso/Neon, also set `DATABASE_AUTH_TOKEN`.
+
+## Node.js (Default)
+
+```bash
+pnpm build
+pnpm start    # or: node build/server/index.js
+```
+
+## Cloudflare Workers
+
+```bash
+NITRO_PRESET=cloudflare_pages pnpm build
+npx wrangler deploy
+```
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `PORT` | Server port (Node.js only) |
+| `DATABASE_URL` | Database connection URL |
+| `DATABASE_AUTH_TOKEN` | Auth token (Turso/Neon) |
+| `NITRO_PRESET` | Edge target (build time only) |
+| `ANTHROPIC_API_KEY` | API key for production agent |
 
 ---
 
@@ -241,15 +504,25 @@ Apps run inside a **harness** — a host that provides the AI agent alongside yo
 
 ## CLI Harness (Local, Open Source)
 
-- xterm.js terminal + app iframe
-- Supports Claude Code, Codex, Gemini CLI, OpenCode — switchable from settings
-- Auto-installs missing CLIs, per-CLI launch flags
+- Open source, ships with `@agent-native/harness-cli`
+- Runs locally — xterm.js terminal + app iframe
+- Supports multiple AI coding CLIs — switch between them from the settings panel
+
+| CLI | Command |
+|-----|---------|
+| Claude Code | `claude` |
+| Codex | `codex` |
+| Gemini CLI | `gemini` |
+| OpenCode | `opencode` |
+| Builder.io | `fusion` |
+
+- Auto-installs missing CLIs on first use
 - Best for: solo development, testing
 
-## Builder Harness (Cloud)
+## Builder.io Cloud Harness
 
-- Real-time collaboration
-- Visual editing + AI agent
+- Real-time collaboration — multiple users can watch/interact simultaneously
+- Visual editing, roles and permissions
 - Parallel agent execution
 - Best for: teams, production
 
@@ -266,14 +539,43 @@ App code is identical regardless of harness or CLI.
 
 # Templates
 
+## Mail
+Superhuman-style email client with keyboard shortcuts, AI triage, smart search, and a fully customizable interface. Own your inbox workflow.
+
+```bash
+npx @agent-native/core create my-app --template mail
+```
+
+## Calendar
+Calendar app with Google Calendar sync (OAuth 2.0), Calendly-style public booking page, configurable availability, and natural language scheduling.
+
+```bash
+npx @agent-native/core create my-app --template calendar
+```
+
 ## Analytics
-BI platform with 20+ data connectors (BigQuery, HubSpot, Stripe, Jira, Sentry, GitHub, Slack, Grafana, Google Cloud, etc.), SQL query explorer, reusable dashboards, 550+ metric data dictionary, 50+ pre-built scripts, and natural language chart generation.
+BI platform with 20+ data connectors (BigQuery, HubSpot, Stripe, Jira, Sentry, GitHub, Slack, Grafana, etc.), SQL query explorer, reusable dashboards, 550+ metric data dictionary, 50+ pre-built scripts, and natural language chart generation.
+
+```bash
+npx @agent-native/core create my-app --template analytics
+```
 
 ## Content
 Content workspace with project/document organization, rich text editor, brand-aware AI writing, media management, CMS publishing (WordPress, Contentful, Builder), real-time sync via SSE, and script automation for batch operations.
 
+```bash
+npx @agent-native/core create my-app --template content
+```
+
 ## Slides
-AI presentation builder with 8 slide layouts (title, section, content, two-column, image, statement, full-bleed, blank), Gemini image generation with style references, logo/image search, drag-drop reordering, presentation mode with speaker notes, sharing, and undo/redo.
+AI presentation builder with 8 slide layouts (title, section, content, two-column, image, statement, full-bleed, blank), image generation with style references, logo/image search, drag-drop reordering, presentation mode with speaker notes, sharing, and undo/redo.
+
+```bash
+npx @agent-native/core create my-app --template slides
+```
 
 ## Video
-Video composition studio built on Remotion with track-based animation (duration, keyframe, expression tracks), 30+ easing curves, multi-keyframe editing, interactive cursor system (arrow, pointer, I-beam), 6D camera controls (pan, zoom, 3D tilt), and 12 example compositions. Renders to MP4/WebM at 1920x1080, 30fps.
+Video composition studio built on Remotion with track-based animation (duration, keyframe, expression tracks), 30+ easing curves, multi-keyframe editing, interactive cursor system, 6D camera controls, and 12 example compositions. Renders to MP4/WebM at 1920x1080, 30fps.
+
+```bash
+npx @agent-native/core create my-app --template video
