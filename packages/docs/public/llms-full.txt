@@ -12,7 +12,7 @@ Agent-Native is an open source framework for building full-featured applications
 
 Create a new project:
 
-
+```bash
 npx @agent-native/core create my-app
 ```
 

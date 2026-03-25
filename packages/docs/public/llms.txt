@@ -15,7 +15,7 @@ Agent-Native is an open source framework for building full-featured applications
 
 ## Quick Start
 
-
+```bash
 npx @agent-native/core create my-app
 cd my-app
 pnpm install
