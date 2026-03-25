@@ -36,6 +36,7 @@ import type { Label } from "@shared/types";
 import { toast } from "sonner";
 
 import { AccountFilterContext } from "@/hooks/use-account-filter";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 /** Extract the trailing segment of a nested label name, e.g. "[Superhuman]/AI/Pitch" → "Pitch" */
 function shortLabelName(name: string): string {
@@ -58,6 +59,7 @@ const collapsibleViews = [
 ];
 
 export function AppLayout({ children }: AppLayoutProps) {
+  const isMobile = useIsMobile();
   const compose = useComposeState();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
@@ -905,7 +907,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Show full-page takeover when no accounts connected, otherwise content */}
           <AgentSidebar
             position="left"
-            defaultOpen
+            defaultOpen={!isMobile}
             emptyStateText="Ask me anything about your emails"
             suggestions={[
               "What's in my inbox?",
