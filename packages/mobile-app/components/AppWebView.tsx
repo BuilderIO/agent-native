@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback } from "react";
-import { View, StyleSheet, ActivityIndicator } from "react-native";
+import { View, StyleSheet, ActivityIndicator, Linking } from "react-native";
 import { WebView, type WebViewNavigation } from "react-native-webview";
-import * as WebBrowser from "expo-web-browser";
 
 interface AppWebViewProps {
   url: string;
@@ -35,11 +34,8 @@ export default function AppWebView({
     try {
       const parsed = new URL(event.url);
       if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
-        // Open in system browser instead of WebView
-        WebBrowser.openBrowserAsync(event.url).then(() => {
-          // When browser closes, reload the WebView to check for new session
-          webviewRef.current?.reload();
-        });
+        // Open in system browser via Linking (works without native module rebuild)
+        Linking.openURL(event.url);
         return false; // Block the WebView from navigating
       }
     } catch {

@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useParams, useNavigate, useSearchParams } from "react-router";
 import { cn } from "@/lib/utils";
 import { EmailList, InboxZero } from "@/components/email/EmailList";
@@ -388,6 +389,7 @@ export function InboxPage() {
     [compose, deleteDraft],
   );
 
+  const isMobile = useIsMobile();
   const hasThread = !!threadId;
   const isInboxZero =
     !isLoading &&
@@ -420,8 +422,8 @@ export function InboxPage() {
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      {/* Thin email list sidebar — shown when viewing a thread */}
-      {hasThread && (
+      {/* Thin email list sidebar — shown when viewing a thread, hidden on mobile */}
+      {hasThread && !isMobile && (
         <ThreadListSidebar
           emails={emails}
           activeThreadId={threadId!}
