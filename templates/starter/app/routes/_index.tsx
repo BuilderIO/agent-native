@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useTheme } from "next-themes";
 import {
   AgentSidebar,
   AgentToggleButton,
@@ -18,6 +19,7 @@ export function HydrateFallback() {
 }
 
 export default function IndexPage() {
+  const { theme, setTheme } = useTheme();
   const [prompt, setPrompt] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -114,6 +116,35 @@ export default function IndexPage() {
                     {suggestion}
                   </button>
                 ))}
+              </div>
+
+              <div className="h-px bg-border" />
+
+              <div className="grid grid-cols-2 gap-3 text-left">
+                <a
+                  href="https://agent-native.com/docs"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50"
+                >
+                  <p className="text-[13px] font-medium text-foreground">
+                    Documentation
+                  </p>
+                  <p className="text-[12px] text-muted-foreground mt-0.5">
+                    Learn the framework
+                  </p>
+                </a>
+                <button
+                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                  className="rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 text-left"
+                >
+                  <p className="text-[13px] font-medium text-foreground">
+                    Theme
+                  </p>
+                  <p className="text-[12px] text-muted-foreground mt-0.5">
+                    Toggle dark / light
+                  </p>
+                </button>
               </div>
             </div>
           </div>

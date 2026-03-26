@@ -374,35 +374,39 @@ export function MultiTabAssistantChat({
         </div>
       ) : null}
 
-      {renderOverlay ? renderOverlay(headerProps) : null}
+      {/* Chat content with optional overlay */}
+      <div className="relative flex-1 flex flex-col min-h-0">
+        {renderOverlay ? renderOverlay(headerProps) : null}
 
-      {/* Render all tabs, hide inactive ones to preserve state */}
-      {tabs.map((tab) => (
-        <div
-          key={tab.id}
-          className="flex-1 min-h-0"
-          style={{
-            display: contentHidden || tab.id !== activeTabId ? "none" : "flex",
-          }}
-        >
-          <AssistantChat
-            ref={(handle) => {
-              if (handle) {
-                chatRefs.current.set(tab.id, handle);
-              } else {
-                chatRefs.current.delete(tab.id);
-              }
+        {/* Render all tabs, hide inactive ones to preserve state */}
+        {tabs.map((tab) => (
+          <div
+            key={tab.id}
+            className="flex-1 min-h-0"
+            style={{
+              display:
+                contentHidden || tab.id !== activeTabId ? "none" : "flex",
             }}
-            tabId={tab.id}
-            onMessageCountChange={(count) =>
-              setMessageCounts((prev) =>
-                prev[tab.id] === count ? prev : { ...prev, [tab.id]: count },
-              )
-            }
-            {...props}
-          />
-        </div>
-      ))}
+          >
+            <AssistantChat
+              ref={(handle) => {
+                if (handle) {
+                  chatRefs.current.set(tab.id, handle);
+                } else {
+                  chatRefs.current.delete(tab.id);
+                }
+              }}
+              tabId={tab.id}
+              onMessageCountChange={(count) =>
+                setMessageCounts((prev) =>
+                  prev[tab.id] === count ? prev : { ...prev, [tab.id]: count },
+                )
+              }
+              {...props}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   ExternalLink,
   Check,
@@ -102,6 +102,17 @@ export function NotionButton() {
       ? `${window.location.origin}/api/notion/callback`
       : "";
 
+  const pollRef = useRef<ReturnType<typeof setInterval>>();
+  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+    };
+  }, []);
+
   function handleConnect() {
     if (!connection?.authUrl) {
       if (needsCredentials) {
@@ -113,20 +124,30 @@ export function NotionButton() {
     }
     window.open(connection.authUrl, "_blank");
 
+    // Clear any existing poll before starting a new one
+    if (pollRef.current) clearInterval(pollRef.current);
+    if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
+
     // Poll for connection
-    const interval = setInterval(async () => {
+    pollRef.current = setInterval(async () => {
       const res = await fetch("/api/notion/status").catch(() => null);
       if (res?.ok) {
         const data = await res.json();
         if (data.connected) {
-          clearInterval(interval);
+          clearInterval(pollRef.current);
+          pollRef.current = undefined;
+          setShowWizard(false);
+          setOpen(false);
           refetch();
         }
       }
     }, 2000);
 
     // Stop polling after 5 minutes
-    setTimeout(() => clearInterval(interval), 300_000);
+    pollTimeoutRef.current = setTimeout(() => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = undefined;
+    }, 300_000);
   }
 
   async function handleDisconnect() {

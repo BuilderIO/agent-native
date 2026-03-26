@@ -632,11 +632,13 @@ export function AgentPanel({
           <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
             {tabs.length > 1 &&
               tabs.map((tab) => (
-                <button
+                <div
                   key={tab.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setActiveTabId(tab.id)}
                   className={cn(
-                    "group/tab flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium leading-none",
+                    "group/tab flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium leading-none cursor-pointer",
                     tab.id === activeTabId
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -667,7 +669,7 @@ export function AgentPanel({
                   >
                     <XIcon className="h-2.5 w-2.5" />
                   </button>
-                </button>
+                </div>
               ))}
             <IconTooltip content="New chat">
               <button
@@ -691,7 +693,7 @@ export function AgentPanel({
       clearActiveTab,
     }: MultiTabAssistantChatHeaderProps) =>
       activeTabMessageCount > 0 ? (
-        <div className="pointer-events-none absolute right-3 top-14 z-20">
+        <div className="pointer-events-none absolute right-2 top-2 z-20">
           <IconTooltip content="Clear chat">
             <button
               onClick={clearActiveTab}
@@ -713,10 +715,17 @@ export function AgentPanel({
       )}
       style={AGENT_PANEL_ROOT_STYLE}
     >
-      {/* Chat view — multi-tab, always mounted to preserve state.
+      {/* Chat view — always mounted to preserve state.
           Header (with tabs + mode buttons) is always visible.
-          Chat content is hidden when CLI or resources mode is active. */}
-      <div className="flex-1 flex flex-col min-h-0">
+          Chat content is hidden when CLI or resources mode is active.
+          The wrapper collapses (no flex-1) when another mode is active
+          so it only takes the height of its header. */}
+      <div
+        className={cn(
+          "flex flex-col min-h-0",
+          mode === "chat" ? "flex-1" : "shrink-0",
+        )}
+      >
         {mounted && (
           <MultiTabAssistantChat
             apiUrl={apiUrl}

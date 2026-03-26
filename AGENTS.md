@@ -184,5 +184,6 @@ Agent skills in `.agents/skills/` provide detailed guidance for architectural ru
 | `create-skill`        | Adding new skills for the agent                      |
 | `capture-learnings`   | Recording corrections and patterns                   |
 | `frontend-design`     | Building or styling any web UI, components, or pages |
+| `ship`                | Commit, prep, push, check CI, fix PR feedback        |
 
 The **`frontend-design`** skill (sourced from [Anthropic's skills library](https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md)) applies whenever the agent generates or modifies UI. It enforces distinctive, production-grade aesthetics — avoiding generic AI-generated design patterns like purple gradients, overused fonts, and cookie-cutter layouts.

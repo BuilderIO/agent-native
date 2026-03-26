@@ -487,7 +487,10 @@ export function ResourceTree({
       )}
 
       {tree.length === 0 && !creating && (
-        <div className="flex flex-col items-center justify-center gap-2 py-8 text-muted-foreground/50">
+        <div
+          className="flex flex-col items-center gap-2 text-muted-foreground/50"
+          style={{ paddingTop: "5vh" }}
+        >
           <FileIcon className="h-8 w-8" />
           <p className="text-[12px]">No resources yet</p>
           <p className="text-[11px]">Drop files here or click + to create</p>

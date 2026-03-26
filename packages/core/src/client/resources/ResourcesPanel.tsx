@@ -151,7 +151,12 @@ function NewFilePopover({ onSubmit }: { onSubmit: (name: string) => void }) {
       {open && (
         <div
           ref={popoverRef}
-          className="absolute right-0 top-full mt-1.5 z-[220] w-56 rounded-lg border border-border bg-popover p-2 shadow-lg"
+          className="absolute right-0 top-full mt-1.5 z-[220] rounded-lg border border-border bg-popover p-3 shadow-lg"
+          style={{
+            width: 240,
+            fontSize: 13,
+            lineHeight: "normal",
+          }}
         >
           <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
             File path
@@ -164,14 +169,14 @@ function NewFilePopover({ onSubmit }: { onSubmit: (name: string) => void }) {
               if (e.key === "Enter") submit();
               if (e.key === "Escape") setOpen(false);
             }}
-            className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+            className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
             placeholder="notes/ideas.md"
           />
-          <div className="mt-2 flex justify-end">
+          <div className="mt-2.5 flex justify-end">
             <button
               onClick={submit}
               disabled={!value.trim()}
-              className="rounded-md bg-accent px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
+              className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
             >
               Create
             </button>
