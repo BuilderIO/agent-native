@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Dark-first defaults so portals (e.g. toasts) match the shell */
+  :root {
+    --background: 240 6% 6%;
+    --foreground: 240 6% 93%;
+
+    --card: 240 5% 8%;
+    --card-foreground: 240 6% 93%;
+
+    --popover: 240 5% 10%;
+    --popover-foreground: 240 6% 93%;
+
+    --primary: 211 100% 64%;
+    --primary-foreground: 0 0% 0%;
+
+    --secondary: 240 4% 14%;
+    --secondary-foreground: 240 6% 93%;
+
+    --muted: 240 4% 14%;
+    --muted-foreground: 240 4% 55%;
+
+    --accent: 240 4% 16%;
+    --accent-foreground: 240 6% 93%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 4% 16%;
+    --input: 240 4% 16%;
+    --ring: 211 100% 64%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 240 6% 5%;
+    --sidebar-foreground: 240 4% 55%;
+    --sidebar-primary: 211 100% 64%;
+    --sidebar-primary-foreground: 0 0% 0%;
+    --sidebar-accent: 240 4% 12%;
+    --sidebar-accent-foreground: 240 6% 93%;
+    --sidebar-border: 240 4% 14%;
+    --sidebar-ring: 211 100% 64%;
+  }
+
+  .dark {
+    --background: 240 6% 6%;
+    --foreground: 240 6% 93%;
+
+    --card: 240 5% 8%;
+    --card-foreground: 240 6% 93%;
+
+    --popover: 240 5% 10%;
+    --popover-foreground: 240 6% 93%;
+
+    --primary: 211 100% 64%;
+    --primary-foreground: 0 0% 0%;
+
+    --secondary: 240 4% 14%;
+    --secondary-foreground: 240 6% 93%;
+
+    --muted: 240 4% 14%;
+    --muted-foreground: 240 4% 55%;
+
+    --accent: 240 4% 16%;
+    --accent-foreground: 240 6% 93%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 4% 16%;
+    --input: 240 4% 16%;
+    --ring: 211 100% 64%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 240 6% 5%;
+    --sidebar-foreground: 240 4% 55%;
+    --sidebar-primary: 211 100% 64%;
+    --sidebar-primary-foreground: 0 0% 0%;
+    --sidebar-accent: 240 4% 12%;
+    --sidebar-accent-foreground: 240 6% 93%;
+    --sidebar-border: 240 4% 14%;
+    --sidebar-ring: 211 100% 64%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family:
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
+  }
+}
