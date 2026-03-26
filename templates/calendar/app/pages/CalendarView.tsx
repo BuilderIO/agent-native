@@ -41,8 +41,10 @@ import { CreateEventPopover } from "@/components/calendar/CreateEventDialog";
 import { CommandPalette } from "@/components/calendar/CommandPalette";
 import { KeyboardShortcutsHelp } from "@/components/calendar/KeyboardShortcutsHelp";
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
+import { PeopleSearchDialog } from "@/components/calendar/PeopleSearchDialog";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import { useEvents, useUpdateEvent, useDeleteEvent } from "@/hooks/use-events";
+import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { toast } from "sonner";
 import type { CalendarEvent } from "@shared/api";
@@ -56,13 +58,23 @@ const viewModeLabels: Record<ViewMode, string> = {
 };
 
 export default function CalendarView() {
-  const { selectedDate, setSelectedDate } = useCalendarContext();
+  const {
+    selectedDate,
+    setSelectedDate,
+    peopleSearchOpen,
+    setPeopleSearchOpen,
+  } = useCalendarContext();
   const [viewMode, setViewMode] = useState<ViewMode>("week");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
 
   const googleStatus = useGoogleAuthStatus();
+  const { data: overlayPeople = [] } = useOverlayPeople();
+  const overlayEmails = useMemo(
+    () => overlayPeople.map((p) => p.email),
+    [overlayPeople],
+  );
   const isGoogleConnected = googleStatus.data?.connected ?? false;
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
@@ -95,10 +107,21 @@ export default function CalendarView() {
   }, [viewMode, selectedDate]);
 
   const {
-    data: events = [],
+    data: rawEvents = [],
     error: eventsError,
     isLoading: eventsLoading,
-  } = useEvents(from, to);
+  } = useEvents(from, to, overlayEmails);
+
+  // Apply overlay colors to events
+  const events = useMemo(() => {
+    const colorMap = new Map(overlayPeople.map((p) => [p.email, p.color]));
+    return rawEvents.map((e) => {
+      if (e.overlayEmail && colorMap.has(e.overlayEmail)) {
+        return { ...e, color: colorMap.get(e.overlayEmail) };
+      }
+      return e;
+    });
+  }, [rawEvents, overlayPeople]);
 
   // Filter events for day view
   const dayEvents = useMemo(
@@ -208,9 +231,12 @@ export default function CalendarView() {
           handleNavigate("next");
           break;
         case "k":
-        case "p":
           e.preventDefault();
           handleNavigate("prev");
+          break;
+        case "p":
+          e.preventDefault();
+          setPeopleSearchOpen(true);
           break;
         case "t":
           handleToday();
@@ -486,6 +512,10 @@ export default function CalendarView() {
         <KeyboardShortcutsHelp
           open={shortcutsHelpOpen}
           onClose={() => setShortcutsHelpOpen(false)}
+        />
+        <PeopleSearchDialog
+          open={peopleSearchOpen}
+          onOpenChange={setPeopleSearchOpen}
         />
       </div>
     </TooltipProvider>

@@ -9,9 +9,17 @@ export interface CalendarEvent {
   source: "local" | "google";
   googleEventId?: string;
   accountEmail?: string;
+  /** Set when this event belongs to an overlaid person's calendar */
+  overlayEmail?: string;
   color?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface OverlayPerson {
+  email: string;
+  name?: string;
+  color: string;
 }
 
 export interface TimeSlot {

@@ -20,6 +20,7 @@ const SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/directory.readonly",
 ];
 
 interface GoogleTokens {
@@ -264,6 +265,62 @@ export async function listEvents(
           error.message,
         );
         errors.push({ email, error: error.message });
+        return [];
+      }
+    }),
+  );
+
+  return { events: allResults.flat(), errors };
+}
+
+export async function listOverlayEvents(
+  timeMin: string,
+  timeMax: string,
+  overlayEmails: string[],
+  forEmail?: string,
+): Promise<{
+  events: CalendarEvent[];
+  errors: Array<{ email: string; error: string }>;
+}> {
+  const clients = await getClients(forEmail);
+  if (clients.length === 0) return { events: [], errors: [] };
+
+  // Use the first available token to query other people's calendars
+  const { accessToken } = clients[0];
+  const errors: Array<{ email: string; error: string }> = [];
+
+  const allResults = await Promise.all(
+    overlayEmails.map(async (overlayEmail) => {
+      try {
+        const response = await calendarListEvents(accessToken, overlayEmail, {
+          timeMin,
+          timeMax,
+          singleEvents: true,
+          orderBy: "startTime",
+        });
+
+        const events = response.items || [];
+        return events.map((event: any) => ({
+          id: `overlay-${overlayEmail}-${event.id}`,
+          title: event.summary || "Busy",
+          description: event.description || "",
+          start: event.start?.dateTime || event.start?.date || "",
+          end: event.end?.dateTime || event.end?.date || "",
+          location: event.location || "",
+          allDay: !event.start?.dateTime,
+          source: "google" as const,
+          googleEventId: event.id || undefined,
+          accountEmail: undefined,
+          overlayEmail,
+          createdAt: event.created || new Date().toISOString(),
+          updatedAt: event.updated || new Date().toISOString(),
+        }));
+      } catch (error: any) {
+        console.error(
+          `[listOverlayEvents] Error fetching ${overlayEmail}:`,
+          error.message,
+        );
+        errors.push({ email: overlayEmail, error: error.message });
         return [];
       }
     }),

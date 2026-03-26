@@ -7,11 +7,15 @@ import { Sidebar } from "./Sidebar";
 interface CalendarContextValue {
   selectedDate: Date;
   setSelectedDate: (date: Date) => void;
+  peopleSearchOpen: boolean;
+  setPeopleSearchOpen: (open: boolean) => void;
 }
 
 const CalendarContext = createContext<CalendarContextValue>({
   selectedDate: new Date(),
   setSelectedDate: () => {},
+  peopleSearchOpen: false,
+  setPeopleSearchOpen: () => {},
 });
 
 export function useCalendarContext() {
@@ -25,9 +29,17 @@ interface AppLayoutProps {
 export function AppLayout({ children }: AppLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [peopleSearchOpen, setPeopleSearchOpen] = useState(false);
 
   return (
-    <CalendarContext.Provider value={{ selectedDate, setSelectedDate }}>
+    <CalendarContext.Provider
+      value={{
+        selectedDate,
+        setSelectedDate,
+        peopleSearchOpen,
+        setPeopleSearchOpen,
+      }}
+    >
       <div className="flex h-screen overflow-hidden bg-background">
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <AgentSidebar

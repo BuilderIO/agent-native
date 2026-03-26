@@ -1,6 +1,14 @@
 import { useState } from "react";
 import { format, parseISO, differenceInMinutes } from "date-fns";
-import { X, Clock, MapPin, Trash2, Edit2, ExternalLink } from "lucide-react";
+import {
+  X,
+  Clock,
+  MapPin,
+  Trash2,
+  Edit2,
+  ExternalLink,
+  User,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -108,16 +116,24 @@ export function EventDetailPopover({
           )}
 
           {/* Google Calendar badge */}
-          {event.source === "google" && (
+          {event.source === "google" && !event.overlayEmail && (
             <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
               <ExternalLink className="h-3.5 w-3.5" />
               <span>Synced from Google Calendar</span>
             </div>
           )}
+
+          {/* Overlay person badge */}
+          {event.overlayEmail && (
+            <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+              <User className="h-3.5 w-3.5" />
+              <span>{event.overlayEmail}</span>
+            </div>
+          )}
         </div>
 
         {/* Actions */}
-        {event.source !== "google" && (
+        {event.source !== "google" && !event.overlayEmail && (
           <div className="shrink-0 border-t border-border px-4 py-3 flex items-center gap-2">
             <Button
               variant="ghost"

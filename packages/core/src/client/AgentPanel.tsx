@@ -29,6 +29,8 @@ import React, {
   lazy,
   Suspense,
 } from "react";
+import * as SelectPrimitive from "@radix-ui/react-select";
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import {
   MultiTabAssistantChat,
   type MultiTabAssistantChatHeaderProps,
@@ -44,8 +46,23 @@ const AgentTerminal = lazy(() =>
 
 const CLI_STORAGE_KEY = "agent-native-cli-command";
 const CLI_DEFAULT = "builder";
+const AGENT_PANEL_FONT_FAMILY =
+  'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+const AGENT_PANEL_ROOT_STYLE = {
+  fontFamily: AGENT_PANEL_FONT_FAMILY,
+  fontSize: 13,
+  lineHeight: 1.2,
+} satisfies React.CSSProperties;
 const AGENT_PANEL_HEADER_CLASS =
-  "flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border pl-3 pr-2";
+  "flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border";
+const AGENT_PANEL_HEADER_STYLE = {
+  paddingLeft: 12,
+  paddingRight: 8,
+} satisfies React.CSSProperties;
+const AGENT_PANEL_CONTROL_STYLE = {
+  fontSize: 12,
+  lineHeight: 1,
+} satisfies React.CSSProperties;
 
 interface AvailableCli {
   command: string;
@@ -156,6 +173,38 @@ function SidebarIcon({ className }: { className?: string }) {
   );
 }
 
+function ChevronDownIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
+function CheckIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
 function PlusIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -201,6 +250,106 @@ function XIcon({ className }: { className?: string }) {
     >
       <path d="M18 6L6 18M6 6l12 12" />
     </svg>
+  );
+}
+
+interface SettingsSelectOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+function SettingsSelect({
+  label,
+  value,
+  options,
+  onValueChange,
+}: {
+  label: string;
+  value: string;
+  options: SettingsSelectOption[];
+  onValueChange: (value: string) => void;
+}) {
+  const selected = options.find((option) => option.value === value);
+
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[12px] font-medium text-foreground">{label}</p>
+      <SelectPrimitive.Root value={value} onValueChange={onValueChange}>
+        <SelectPrimitive.Trigger
+          className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-left text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
+          aria-label={label}
+          style={AGENT_PANEL_CONTROL_STYLE}
+        >
+          <SelectPrimitive.Value>
+            {selected?.label ?? value}
+          </SelectPrimitive.Value>
+          <SelectPrimitive.Icon asChild>
+            <ChevronDownIcon className="h-3.5 w-3.5 text-muted-foreground" />
+          </SelectPrimitive.Icon>
+        </SelectPrimitive.Trigger>
+        <SelectPrimitive.Portal>
+          <SelectPrimitive.Content
+            position="popper"
+            sideOffset={6}
+            className="z-[220] w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
+          >
+            <SelectPrimitive.Viewport className="p-1">
+              {options.map((option) => (
+                <SelectPrimitive.Item
+                  key={option.value}
+                  value={option.value}
+                  className="relative flex w-full cursor-default select-none items-start gap-2 rounded-md px-8 py-2.5 text-[12px] outline-none transition-colors data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40"
+                  style={AGENT_PANEL_CONTROL_STYLE}
+                >
+                  <span className="absolute left-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
+                    <SelectPrimitive.ItemIndicator>
+                      <CheckIcon className="h-3.5 w-3.5" />
+                    </SelectPrimitive.ItemIndicator>
+                  </span>
+                  <div className="flex min-w-0 flex-col">
+                    <SelectPrimitive.ItemText>
+                      <span className="text-foreground">{option.label}</span>
+                    </SelectPrimitive.ItemText>
+                    {option.description ? (
+                      <span className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                        {option.description}
+                      </span>
+                    ) : null}
+                  </div>
+                </SelectPrimitive.Item>
+              ))}
+            </SelectPrimitive.Viewport>
+          </SelectPrimitive.Content>
+        </SelectPrimitive.Portal>
+      </SelectPrimitive.Root>
+    </div>
+  );
+}
+
+function IconTooltip({
+  content,
+  children,
+}: {
+  content: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <TooltipPrimitive.Provider delayDuration={250}>
+      <TooltipPrimitive.Root>
+        <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
+        <TooltipPrimitive.Portal>
+          <TooltipPrimitive.Content
+            side="bottom"
+            sideOffset={8}
+            className="z-[230] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md"
+          >
+            {content}
+            <TooltipPrimitive.Arrow className="fill-popover" />
+          </TooltipPrimitive.Content>
+        </TooltipPrimitive.Portal>
+      </TooltipPrimitive.Root>
+    </TooltipPrimitive.Provider>
   );
 }
 
@@ -250,6 +399,23 @@ function AgentSettingsPopover({
     return () => document.removeEventListener("keydown", handleKey);
   }, [open]);
 
+  const environmentOptions: SettingsSelectOption[] = [
+    {
+      value: "production",
+      label: "Production",
+      description: "Restricted to app tools only.",
+    },
+    {
+      value: "development",
+      label: "Development",
+      description: "Full access to code editing, shell, and files.",
+    },
+  ];
+  const cliOptions: SettingsSelectOption[] = availableClis.map((cli) => ({
+    value: cli.command,
+    label: cli.label,
+  }));
+
   return (
     <div className="relative">
       <button
@@ -266,73 +432,27 @@ function AgentSettingsPopover({
       {open && (
         <div
           ref={popoverRef}
-          className="absolute right-0 top-full mt-1.5 z-50 w-56 rounded-lg border border-border bg-popover shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
+          className="absolute right-0 top-full mt-1.5 z-[120] w-72 rounded-lg border border-border bg-popover shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
         >
-          <div className="p-3 pb-2">
-            <p className="text-[12px] font-medium text-foreground">
-              Environment
-            </p>
+          <div className="space-y-3 p-3">
+            <SettingsSelect
+              label="Environment"
+              value={isDevMode ? "development" : "production"}
+              options={environmentOptions}
+              onValueChange={(next) => {
+                const nextIsDev = next === "development";
+                if (nextIsDev !== isDevMode) onToggle();
+              }}
+            />
+            {IS_DEV && cliOptions.length > 0 && (
+              <SettingsSelect
+                label="CLI Agent"
+                value={selectedCli}
+                options={cliOptions}
+                onValueChange={onSelectCli}
+              />
+            )}
           </div>
-          <div className="px-3">
-            <div className="flex items-center rounded-md bg-muted/50 p-0.5">
-              <button
-                onClick={() => {
-                  if (isDevMode) onToggle();
-                }}
-                className={cn(
-                  "flex-1 rounded px-2 py-1 text-[11px] font-medium text-center",
-                  !isDevMode
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                Production
-              </button>
-              <button
-                onClick={() => {
-                  if (!isDevMode) onToggle();
-                }}
-                className={cn(
-                  "flex-1 rounded px-2 py-1 text-[11px] font-medium text-center",
-                  isDevMode
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                Development
-              </button>
-            </div>
-          </div>
-          <div className="px-3 pb-3 pt-1.5">
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              {isDevMode
-                ? "Full access — code editing, shell, files"
-                : "Restricted — app tools only"}
-            </p>
-          </div>
-          {IS_DEV && availableClis.length > 0 && (
-            <>
-              <div className="border-t border-border/70 p-3 pb-2">
-                <p className="text-[12px] font-medium text-foreground">
-                  CLI Agent
-                </p>
-              </div>
-              <div className="px-3 pb-3">
-                <select
-                  value={selectedCli}
-                  onChange={(e) => onSelectCli(e.target.value)}
-                  className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-[12px] text-foreground outline-none"
-                  title="Select AI CLI"
-                >
-                  {availableClis.map((cli) => (
-                    <option key={cli.command} value={cli.command}>
-                      {cli.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </>
-          )}
         </div>
       )}
     </div>
@@ -389,12 +509,13 @@ export function AgentPanel({
         <button
           onClick={() => setMode("chat")}
           className={cn(
-            "flex items-center gap-1 rounded-md px-2 py-1 text-[12px]",
+            "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
             activeMode === "chat"
               ? "bg-accent text-foreground"
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
           )}
           title="Chat mode"
+          style={AGENT_PANEL_CONTROL_STYLE}
         >
           <ChatBubbleIcon className="h-3.5 w-3.5" />
           Chat
@@ -403,12 +524,13 @@ export function AgentPanel({
           <button
             onClick={() => setMode("cli")}
             className={cn(
-              "flex items-center gap-1 rounded-md px-2 py-1 text-[12px]",
+              "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
               activeMode === "cli"
                 ? "bg-accent text-foreground"
                 : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
             )}
             title="CLI terminal mode"
+            style={AGENT_PANEL_CONTROL_STYLE}
           >
             <TerminalIcon className="h-3.5 w-3.5" />
             CLI
@@ -423,22 +545,27 @@ export function AgentPanel({
     () => (
       <div className="flex shrink-0 items-center gap-1.5">
         {showDevToggle && (
-          <AgentSettingsPopover
-            isDevMode={isDevMode}
-            onToggle={() => setDevMode(!isDevMode)}
-            availableClis={availableClis}
-            selectedCli={selectedCli}
-            onSelectCli={selectCli}
-          />
+          <IconTooltip content="Agent settings">
+            <div>
+              <AgentSettingsPopover
+                isDevMode={isDevMode}
+                onToggle={() => setDevMode(!isDevMode)}
+                availableClis={availableClis}
+                selectedCli={selectedCli}
+                onSelectCli={selectCli}
+              />
+            </div>
+          </IconTooltip>
         )}
         {onCollapse && (
-          <button
-            onClick={onCollapse}
-            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-            title="Collapse sidebar"
-          >
-            <SidebarIcon className="h-3.5 w-3.5" />
-          </button>
+          <IconTooltip content="Collapse sidebar">
+            <button
+              onClick={onCollapse}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+            >
+              <SidebarIcon className="h-3.5 w-3.5" />
+            </button>
+          </IconTooltip>
         )}
       </div>
     ),
@@ -463,7 +590,10 @@ export function AgentPanel({
       closeTab,
       clearActiveTab,
     }: MultiTabAssistantChatHeaderProps) => (
-      <div className={AGENT_PANEL_HEADER_CLASS}>
+      <div
+        className={AGENT_PANEL_HEADER_CLASS}
+        style={AGENT_PANEL_HEADER_STYLE}
+      >
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
           {renderModeButtons(mode)}
           <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
@@ -473,11 +603,12 @@ export function AgentPanel({
                   key={tab.id}
                   onClick={() => setActiveTabId(tab.id)}
                   className={cn(
-                    "group/tab flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium",
+                    "group/tab flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium leading-none",
                     tab.id === activeTabId
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                   )}
+                  style={AGENT_PANEL_CONTROL_STYLE}
                 >
                   <span>{tab.label}</span>
                   {tab.status === "running" && (
@@ -486,23 +617,23 @@ export function AgentPanel({
                   {tab.status === "completed" && (
                     <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
                   )}
-                  <span
-                    role="button"
+                  <button
+                    type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       closeTab(tab.id);
                     }}
                     className={cn(
-                      "rounded p-0.5 opacity-100",
+                      "ml-0.5 flex h-4 w-4 items-center justify-center rounded-sm opacity-100",
                       tab.id === activeTabId
-                        ? "text-foreground/45 hover:bg-accent hover:text-foreground"
-                        : "text-muted-foreground/55 hover:!bg-accent hover:!text-foreground",
+                        ? "text-foreground/55 hover:bg-background/60 hover:text-foreground"
+                        : "text-muted-foreground/65 hover:bg-accent hover:text-foreground",
                     )}
                     title={`Close chat ${tab.label}`}
                     aria-label={`Close chat ${tab.label}`}
                   >
                     <XIcon className="h-3 w-3" />
-                  </span>
+                  </button>
                 </button>
               ))}
             {activeTabMessageCount > 0 && (
@@ -514,13 +645,14 @@ export function AgentPanel({
                 <TrashIcon className="h-3.5 w-3.5" />
               </button>
             )}
-            <button
-              onClick={addTab}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:bg-accent/50 hover:text-foreground"
-              title="New chat"
-            >
-              <PlusIcon className="h-3.5 w-3.5" />
-            </button>
+            <IconTooltip content="New chat">
+              <button
+                onClick={addTab}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:bg-accent/40 hover:text-muted-foreground"
+              >
+                <PlusIcon className="h-3.5 w-3.5" />
+              </button>
+            </IconTooltip>
           </div>
         </div>
         {renderHeaderActions()}
@@ -530,9 +662,18 @@ export function AgentPanel({
   );
 
   return (
-    <div className={cn("flex flex-1 flex-col h-full min-h-0", className)}>
+    <div
+      className={cn(
+        "agent-panel-root flex flex-1 flex-col min-h-0 h-full text-[13px] leading-[1.2] antialiased",
+        className,
+      )}
+      style={AGENT_PANEL_ROOT_STYLE}
+    >
       {showHeader && mode === "cli" && (
-        <div className={AGENT_PANEL_HEADER_CLASS}>
+        <div
+          className={AGENT_PANEL_HEADER_CLASS}
+          style={AGENT_PANEL_HEADER_STYLE}
+        >
           <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
             {renderModeButtons("cli")}
           </div>
@@ -604,7 +745,7 @@ function ResizeHandle({
     e.preventDefault();
     dragging.current = true;
     lastX.current = e.clientX;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    e.currentTarget.setPointerCapture(e.pointerId);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
   }, []);
@@ -632,30 +773,20 @@ function ResizeHandle({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      className="group relative shrink-0 w-px"
+      className="group relative z-10 shrink-0 w-px touch-none"
     >
       <div
         className={cn(
           "absolute inset-y-0 cursor-col-resize",
-          position === "left" ? "-right-2.5 left-0" : "-left-2.5 right-0",
+          position === "left" ? "-left-1.5 w-4" : "-right-1.5 w-4",
         )}
       />
       <div
         className={cn(
-          "absolute inset-y-0 w-px bg-border transition-colors group-hover:bg-accent group-active:bg-accent",
+          "absolute inset-y-0 top-0 w-px bg-border transition-colors group-hover:bg-accent group-active:bg-accent",
           position === "left" ? "left-0" : "right-0",
         )}
       />
-      <div
-        className={cn(
-          "pointer-events-none absolute top-1/2 -translate-y-1/2 rounded-full border border-border/80 bg-background/95 px-1 py-0.5 text-[9px] font-medium tracking-[0.18em] text-muted-foreground opacity-0 shadow-sm transition-all group-hover:opacity-100 group-active:opacity-100 group-hover:text-foreground group-hover:border-accent/50 group-active:border-accent/50 group-active:text-foreground",
-          position === "left"
-            ? "left-1/2 -translate-x-1/2"
-            : "right-1/2 translate-x-1/2",
-        )}
-      >
-        <span className="block leading-none">‹›</span>
-      </div>
     </div>
   );
 }
@@ -750,8 +881,8 @@ export function AgentSidebar({
     <>
       {isLeft ? null : <ResizeHandle position={position} onDrag={handleDrag} />}
       <div
-        className="flex flex-col shrink-0 overflow-hidden agent-sidebar-panel"
-        style={{ width }}
+        className="agent-sidebar-panel flex shrink-0 flex-col overflow-hidden text-[13px] leading-[1.2] antialiased"
+        style={{ ...AGENT_PANEL_ROOT_STYLE, width }}
       >
         <AgentPanel
           emptyStateText={emptyStateText}
