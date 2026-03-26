@@ -245,20 +245,27 @@ export async function listEvents(
         });
 
         const events = response.items || [];
-        return events.map((event: any) => ({
-          id: `google-${event.id}`,
-          title: event.summary || "Untitled",
-          description: event.description || "",
-          start: event.start?.dateTime || event.start?.date || "",
-          end: event.end?.dateTime || event.end?.date || "",
-          location: event.location || "",
-          allDay: !event.start?.dateTime,
-          source: "google" as const,
-          googleEventId: event.id || undefined,
-          accountEmail: email,
-          createdAt: event.created || new Date().toISOString(),
-          updatedAt: event.updated || new Date().toISOString(),
-        }));
+        return events.map((event: any) => {
+          // Find the current user's RSVP status from attendees
+          const selfAttendee = event.attendees?.find(
+            (a: any) => a.self === true,
+          );
+          return {
+            id: `google-${event.id}`,
+            title: event.summary || "Untitled",
+            description: event.description || "",
+            start: event.start?.dateTime || event.start?.date || "",
+            end: event.end?.dateTime || event.end?.date || "",
+            location: event.location || "",
+            allDay: !event.start?.dateTime,
+            source: "google" as const,
+            googleEventId: event.id || undefined,
+            accountEmail: email,
+            responseStatus: selfAttendee?.responseStatus,
+            createdAt: event.created || new Date().toISOString(),
+            updatedAt: event.updated || new Date().toISOString(),
+          };
+        });
       } catch (error: any) {
         console.error(
           `[listEvents] Error fetching from ${email}:`,

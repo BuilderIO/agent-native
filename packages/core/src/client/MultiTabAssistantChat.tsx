@@ -92,10 +92,10 @@ function createChatTab(label: string): ChatTab {
 }
 
 function getNextLabel(tabs: ChatTab[]): string {
-  const maxNum = tabs.reduce((max, t) => {
-    const n = parseInt(t.label, 10);
-    return isNaN(n) ? max : Math.max(max, n);
-  }, 0);
+  const numericLabels = tabs
+    .map((t) => parseInt(t.label, 10))
+    .filter((n) => !isNaN(n));
+  const maxNum = numericLabels.length > 0 ? Math.max(...numericLabels) : 0;
   return String(maxNum + 1);
 }
 
@@ -151,12 +151,15 @@ export type MultiTabAssistantChatProps = Omit<AssistantChatProps, "tabId"> & {
   renderHeader?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
   /** Optional overlay actions renderer for the active tab */
   renderOverlay?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
+  /** Hide the chat content while keeping the header visible. Used when CLI/resources mode is active. */
+  contentHidden?: boolean;
 };
 
 export function MultiTabAssistantChat({
   showTabBar = true,
   renderHeader,
   renderOverlay,
+  contentHidden = false,
   ...props
 }: MultiTabAssistantChatProps) {
   const [tabs, setTabs] = useState<ChatTab[]>(() => {
@@ -242,12 +245,17 @@ export function MultiTabAssistantChat({
   }, []);
 
   const addTab = useCallback(() => {
-    const label = getNextLabel(tabs);
-    const tab = createChatTab(label);
-    setTabs((prev) => [...prev, tab]);
-    setMessageCounts((prev) => ({ ...prev, [tab.id]: 0 }));
-    setActiveTabId(tab.id);
-  }, [tabs]);
+    setTabs((prev) => {
+      // When going from 1 → 2 tabs, relabel the existing tab as "1"
+      const renumbered =
+        prev.length === 1 ? [{ ...prev[0], label: "1" }] : prev;
+      const label = getNextLabel(renumbered);
+      const tab = createChatTab(label);
+      setMessageCounts((p) => ({ ...p, [tab.id]: 0 }));
+      setActiveTabId(tab.id);
+      return [...renumbered, tab];
+    });
+  }, []);
 
   const closeTab = useCallback(
     (tabId: string) => {
@@ -339,14 +347,9 @@ export function MultiTabAssistantChat({
                       e.stopPropagation();
                       closeTab(tab.id);
                     }}
-                    className={cn(
-                      "rounded p-px",
-                      tab.id === activeTabId
-                        ? "text-foreground/40 hover:text-foreground hover:bg-accent"
-                        : "text-transparent group-hover/tab:text-muted-foreground/50 hover:!text-foreground hover:!bg-accent",
-                    )}
+                    className="rounded p-px opacity-0 group-hover/tab:opacity-100 text-muted-foreground/50 hover:!text-foreground hover:!bg-accent"
                   >
-                    <IconX size={10} />
+                    <IconX size={8} />
                   </span>
                 )}
               </button>
@@ -378,7 +381,9 @@ export function MultiTabAssistantChat({
         <div
           key={tab.id}
           className="flex-1 min-h-0"
-          style={{ display: tab.id === activeTabId ? "flex" : "none" }}
+          style={{
+            display: contentHidden || tab.id !== activeTabId ? "none" : "flex",
+          }}
         >
           <AssistantChat
             ref={(handle) => {

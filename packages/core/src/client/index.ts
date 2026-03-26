@@ -63,6 +63,24 @@ export { DefaultSpinner } from "./DefaultSpinner.js";
 export { AgentTerminal, type AgentTerminalProps } from "./terminal/index.js";
 export { trackEvent, trackSessionStatus } from "./analytics.js";
 export {
+  ResourcesPanel,
+  ResourceTree,
+  ResourceEditor,
+  useResources,
+  useResourceTree,
+  useResource,
+  useCreateResource,
+  useUpdateResource,
+  useDeleteResource,
+  useUploadResource,
+  type Resource,
+  type ResourceMeta,
+  type TreeNode,
+  type ResourceScope,
+  type ResourceTreeProps,
+  type ResourceEditorProps,
+} from "./resources/index.js";
+export {
   CommandMenu,
   useCommandMenuShortcut,
   openAgentSidebar,

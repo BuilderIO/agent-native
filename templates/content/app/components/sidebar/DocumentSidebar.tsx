@@ -224,7 +224,10 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
           <Plus size={14} className="mr-1" />
           New page
         </Button>
-        <ThemeToggle />
+        <div className="flex items-center gap-0.5">
+          <NotionButton />
+          <ThemeToggle />
+        </div>
       </div>
     </div>
   );

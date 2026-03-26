@@ -2,6 +2,7 @@ import { createSSEHandler } from "./sse.js";
 import type { SSEHandlerOptions } from "./sse.js";
 import { getAppStateEmitter } from "../application-state/emitter.js";
 import { getSettingsEmitter } from "../settings/store.js";
+import { getResourcesEmitter } from "../resources/emitter.js";
 
 const _emitters: NonNullable<SSEHandlerOptions["extraEmitters"]> = [];
 let _emittersRegistered = false;
@@ -12,6 +13,7 @@ function ensureEmitters() {
   _emittersRegistered = true;
   _emitters.push({ emitter: getAppStateEmitter(), event: "app-state" });
   _emitters.push({ emitter: getSettingsEmitter(), event: "settings" });
+  _emitters.push({ emitter: getResourcesEmitter(), event: "resources" });
 }
 
 export function getDefaultSSEEmitters(): NonNullable<

@@ -9,13 +9,33 @@ This is an **agent-native** app built with `@agent-native/core`. See `.agents/sk
 - **real-time-sync** — UI stays in sync with agent changes via SSE (streams DB change events).
 - **frontend-design** — Build distinctive, production-grade UI. Read this skill before creating or restyling any component, page, or layout.
 
+For code editing and development guidance, read `DEVELOPING.md`.
+
 ---
 
-## Learnings & Preferences
+## Resources
 
-**Always read `learnings.md` at the start of every conversation.** This file is the app's memory — it contains user preferences, corrections, important context, and patterns learned from past interactions.
+Resources are SQL-backed persistent files for notes, learnings, and context. They replace the old `learnings.md` file approach.
 
-**Update `learnings.md` when you learn something important.**
+**Always read the `learnings.md` resource at the start of every conversation.** It contains user preferences, corrections, and patterns from past interactions.
+
+**Update the `learnings.md` resource when you learn something important:**
+
+- User corrects your tone, style, or approach
+- User shares personal info relevant to the app
+- You discover a non-obvious pattern or gotcha
+- User gives feedback that should apply to future conversations
+
+Resources can be **personal** (per-user, default) or **shared** (team-wide).
+
+| Script            | Args                                                        | Purpose                 |
+| ----------------- | ----------------------------------------------------------- | ----------------------- |
+| `resource-read`   | `--path <path> [--scope personal\|shared]`                  | Read a resource         |
+| `resource-write`  | `--path <path> --content <text> [--scope personal\|shared]` | Write/update a resource |
+| `resource-list`   | `[--prefix <path>] [--scope personal\|shared\|all]`         | List resources          |
+| `resource-delete` | `--path <path> [--scope personal\|shared]`                  | Delete a resource       |
+
+Resources are stored in SQL, not files. They persist across sessions and are not in git.
 
 ## Architecture
 
@@ -27,39 +47,11 @@ This is an agent-native form builder with:
 - **Captcha:** Cloudflare Turnstile on public form submissions (opt-in)
 - **Branding:** "Built with Agent Native" badge on public forms
 
-### Data Model (DB-backed via Drizzle)
-
-Form data lives in SQLite (`data/app.db`) via Drizzle ORM:
-
-| Table       | Contents                                                           |
-| ----------- | ------------------------------------------------------------------ |
-| `forms`     | Form definitions (title, fields JSON, settings JSON, status, slug) |
-| `responses` | Form submissions (data JSON, submittedAt, formId)                  |
-
 App settings are stored in SQL via the settings API (`getSetting`/`putSetting` from `@agent-native/core/settings`).
-
-### Form Field Types
-
-Forms support these field types:
-
-- `text` — Short text input
-- `email` — Email input
-- `number` — Number input
-- `textarea` — Long text / paragraph
-- `select` — Dropdown select
-- `multiselect` — Multiple checkbox selection
-- `checkbox` — Single checkbox
-- `radio` — Radio button group
-- `date` — Date picker
-- `file` — File upload
-- `rating` — 5-star rating
-- `scale` — Numeric scale slider
-
-Each field has: `id`, `type`, `label`, `placeholder`, `description`, `required`, `options` (for select/radio/multiselect), `validation` (min/max/pattern), `conditional` (show/hide based on another field), `width` (full/half).
 
 ## Core Database Scripts
 
-In addition to the template-specific scripts below, these **core scripts** are available automatically for inspecting and manipulating the SQLite database:
+These **core scripts** are available automatically for inspecting and manipulating the SQLite database:
 
 | Script      | Purpose                         | Example                                            |
 | ----------- | ------------------------------- | -------------------------------------------------- |
@@ -67,7 +59,7 @@ In addition to the template-specific scripts below, these **core scripts** are a
 | `db-query`  | Run a SELECT query              | `pnpm script db-query --sql "SELECT * FROM forms"` |
 | `db-exec`   | Run INSERT/UPDATE/DELETE        | `pnpm script db-exec --sql "UPDATE forms SET ..."` |
 
-Use `db-schema` first to understand the data model, then `db-query` and `db-exec` for ad-hoc reads and writes. The template-specific scripts below provide higher-level domain operations.
+Use `db-schema` first to understand the data model, then `db-query` and `db-exec` for ad-hoc reads and writes.
 
 ## Running Scripts
 
@@ -96,93 +88,6 @@ After creating, publish it:
 ```bash
 pnpm script update-form --id <id> --status published
 ```
-
-## API Routes
-
-| Method | Path                       | Auth   | Purpose                                    |
-| ------ | -------------------------- | ------ | ------------------------------------------ |
-| GET    | `/api/forms`               | Yes    | List all forms (admin)                     |
-| POST   | `/api/forms`               | Yes    | Create form (admin)                        |
-| GET    | `/api/forms/:id`           | Yes    | Get form with response count (admin)       |
-| PATCH  | `/api/forms/:id`           | Yes    | Update form (admin)                        |
-| DELETE | `/api/forms/:id`           | Yes    | Delete form (admin)                        |
-| GET    | `/api/forms/:id/responses` | Yes    | List responses (admin)                     |
-| GET    | `/api/forms/public/:slug`  | **No** | Get published form (public)                |
-| POST   | `/api/submit/:id`          | **No** | Submit response (public, captcha-verified) |
-
-## Public vs Admin Routes
-
-The auth plugin declares public paths:
-
-- `/f` — Public form filling pages
-- `/api/forms/public` — Public form definition endpoint
-- `/api/submit` — Public form submission endpoint
-
-Everything else requires authentication in production.
-
-## Captcha Configuration
-
-Cloudflare Turnstile is opt-in. Set these env vars to enable:
-
-- `TURNSTILE_SECRET_KEY` — Server-side verification key
-- `VITE_TURNSTILE_SITE_KEY` — Client-side widget key
-
-If not set, captcha is silently skipped (works fine in dev without it).
-
-## Deployment
-
-### Local (default)
-
-Works out of the box with local SQLite via `@libsql/client`. Just set `ACCESS_TOKEN` for auth.
-
-### Cloud Database (Turso)
-
-Set `DATABASE_URL` to a Turso database URL (e.g. `libsql://your-db.turso.io`) and `DATABASE_AUTH_TOKEN` to your Turso auth token. The same `@libsql/client` driver handles both local and remote seamlessly.
-
-### Multi-User Collaboration
-
-For multi-user access, set `DATABASE_URL` to a cloud database provider (Turso, Neon, etc.). The SQL database handles remote access natively — no separate file sync system needed.
-
-### Cloudflare Pages + D1
-
-1. Set `NITRO_PRESET=cloudflare_pages` in env
-2. Swap `server/db/index.ts` to use `drizzle-orm/d1` driver instead of `@libsql/client`
-3. Configure `wrangler.toml` with D1 binding
-4. Set `TURNSTILE_SECRET_KEY` and `VITE_TURNSTILE_SITE_KEY` in Cloudflare dashboard
-
-## Project Structure
-
-```
-app/
-  components/
-    layout/      # AppLayout, Sidebar
-    builder/     # FieldRenderer, FieldPropertiesPanel
-    fill/        # (public form filling components)
-    ui/          # shadcn/ui components
-  hooks/         # use-forms, use-responses
-  pages/         # FormsListPage, FormBuilderPage, FormFillPage, ResponsesPage
-  routes/        # File-based routes
-server/
-  routes/api/    # API route handlers
-  handlers/      # forms.ts, submissions.ts
-  plugins/       # auth, SSE
-  db/            # Drizzle schema + init
-shared/
-  types.ts       # Form, FormField, FormResponse types
-scripts/         # Agent-callable scripts
-data/            # SQLite database file (app.db)
-```
-
-## Tech Stack
-
-- **Framework**: @agent-native/core
-- **Package manager**: pnpm
-- **Frontend**: React 18, React Router 7, TypeScript, Vite, TailwindCSS
-- **Backend**: Nitro (via @agent-native/core)
-- **Database**: SQLite via Drizzle ORM + @libsql/client (local by default, cloud upgrade via `DATABASE_URL`)
-- **UI**: Radix UI + Lucide icons + shadcn/ui
-- **Captcha**: Cloudflare Turnstile (opt-in)
-- **Path aliases**: `@/*` → app/, `@shared/*` → shared/
 
 ## Key Conventions
 

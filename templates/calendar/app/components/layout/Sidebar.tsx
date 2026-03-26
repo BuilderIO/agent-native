@@ -33,7 +33,6 @@ import {
 } from "@/hooks/use-overlay-people";
 import { useCalendarContext } from "./AppLayout";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { AgentToggleButton } from "@agent-native/core/client";
 
 const navItems = [
   { path: "/", label: "Calendar", icon: CalendarDays },
@@ -220,7 +219,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           <span className="text-base font-semibold tracking-tight">
             Calendar
           </span>
-          <AgentToggleButton />
         </div>
 
         {/* Mini calendar */}

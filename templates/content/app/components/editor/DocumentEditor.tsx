@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { VisualEditor } from "./VisualEditor";
 import { useDocument, useUpdateDocument } from "@/hooks/use-documents";
 import { Loader2 } from "lucide-react";
-import { NotionSyncBar } from "./NotionSyncBar";
 
 interface DocumentEditorProps {
   documentId: string;
@@ -101,7 +100,6 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
 
       {/* Title */}
       <div className="px-16 pt-16 pb-2">
-        <NotionSyncBar documentId={documentId} />
         <div className="flex items-center gap-3 mb-2">
           {document.icon && <span className="text-4xl">{document.icon}</span>}
         </div>

@@ -54,6 +54,10 @@ export {
   defaultFileSyncPlugin,
 } from "./file-sync-plugin.js";
 export {
+  createResourcesPlugin,
+  defaultResourcesPlugin,
+} from "./resources-plugin.js";
+export {
   createTerminalPlugin,
   defaultTerminalPlugin,
   type TerminalPluginOptions,

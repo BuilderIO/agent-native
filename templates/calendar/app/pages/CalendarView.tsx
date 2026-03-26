@@ -46,6 +46,7 @@ import { useCalendarContext } from "@/components/layout/AppLayout";
 import { useEvents, useUpdateEvent, useDeleteEvent } from "@/hooks/use-events";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { AgentToggleButton } from "@agent-native/core/client";
 import { toast } from "sonner";
 import type { CalendarEvent } from "@shared/api";
 
@@ -453,6 +454,7 @@ export default function CalendarView() {
               onOpenChange={setCreateDialogOpen}
               defaultDate={selectedDate}
             />
+            <AgentToggleButton />
           </div>
         </div>
 

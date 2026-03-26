@@ -2,8 +2,165 @@ import {
   createProductionAgentHandler,
   type ScriptEntry,
 } from "../agent/production-agent.js";
+import type { ScriptTool } from "../agent/types.js";
 import { defineEventHandler, readBody, setResponseStatus, getMethod } from "h3";
 import { agentEnv } from "../shared/agent-env.js";
+
+/**
+ * Wraps a core CLI script (that writes to console.log) as a ScriptEntry
+ * by capturing stdout.
+ */
+function wrapCliScript(
+  tool: ScriptTool,
+  cliDefault: (args: string[]) => Promise<void>,
+): ScriptEntry {
+  return {
+    tool,
+    run: async (args: Record<string, string>): Promise<string> => {
+      const cliArgs: string[] = [];
+      for (const [k, v] of Object.entries(args)) {
+        cliArgs.push(`--${k}`, v);
+      }
+      const logs: string[] = [];
+      const origLog = console.log;
+      console.log = (...a: unknown[]) => {
+        logs.push(a.map(String).join(" "));
+      };
+      try {
+        await cliDefault(cliArgs);
+      } catch (err: any) {
+        logs.push(`Error: ${err?.message ?? String(err)}`);
+      } finally {
+        console.log = origLog;
+      }
+      return logs.join("\n") || "(no output)";
+    },
+  };
+}
+
+/**
+ * Creates resource ScriptEntries available in both prod and dev modes.
+ */
+async function createResourceScriptEntries(): Promise<
+  Record<string, ScriptEntry>
+> {
+  try {
+    const [list, read, write, del] = await Promise.all([
+      import("../scripts/resources/list.js"),
+      import("../scripts/resources/read.js"),
+      import("../scripts/resources/write.js"),
+      import("../scripts/resources/delete.js"),
+    ]);
+
+    return {
+      "resource-list": wrapCliScript(
+        {
+          description:
+            "List resources (persistent files/notes). Returns file paths, sizes, and metadata.",
+          parameters: {
+            type: "object",
+            properties: {
+              prefix: {
+                type: "string",
+                description: "Filter by path prefix (e.g. 'notes/')",
+              },
+              scope: {
+                type: "string",
+                description:
+                  "Which resources to list: personal, shared, or all (default: all)",
+                enum: ["personal", "shared", "all"],
+              },
+              format: {
+                type: "string",
+                description: 'Output format: "json" or "text" (default: text)',
+                enum: ["json", "text"],
+              },
+            },
+          },
+        },
+        list.default,
+      ),
+      "resource-read": wrapCliScript(
+        {
+          description: "Read a resource by path. Returns the file contents.",
+          parameters: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description:
+                  "Resource path (e.g. 'learnings.md', 'notes/ideas.md')",
+              },
+              scope: {
+                type: "string",
+                description:
+                  "personal or shared (default: personal, falls back to shared)",
+                enum: ["personal", "shared"],
+              },
+            },
+            required: ["path"],
+          },
+        },
+        read.default,
+      ),
+      "resource-write": wrapCliScript(
+        {
+          description:
+            "Write or update a resource. Creates the resource if it doesn't exist.",
+          parameters: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description:
+                  "Resource path (e.g. 'learnings.md', 'notes/ideas.md')",
+              },
+              content: {
+                type: "string",
+                description: "The content to write",
+              },
+              scope: {
+                type: "string",
+                description: "personal or shared (default: personal)",
+                enum: ["personal", "shared"],
+              },
+              mime: {
+                type: "string",
+                description: "MIME type (default: inferred from extension)",
+              },
+            },
+            required: ["path", "content"],
+          },
+        },
+        write.default,
+      ),
+      "resource-delete": wrapCliScript(
+        {
+          description: "Delete a resource by path.",
+          parameters: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description: "Resource path to delete",
+              },
+              scope: {
+                type: "string",
+                description: "personal or shared (default: personal)",
+                enum: ["personal", "shared"],
+              },
+            },
+            required: ["path"],
+          },
+        },
+        del.default,
+      ),
+    };
+  } catch {
+    // Resources not available — skip silently
+    return {};
+  }
+}
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -28,7 +185,13 @@ export interface AgentChatPluginOptions {
 
 const DEFAULT_SYSTEM_PROMPT = `You are an AI assistant for this application. You can help users by running available tools and answering questions.
 
-Be concise and helpful. Use the available tools to read data, make changes, and assist the user.`;
+Be concise and helpful. Use the available tools to read data, make changes, and assist the user.
+
+You have access to a Resources system for persistent notes, learnings, and context files.
+Use resource-list, resource-read, resource-write, and resource-delete to manage resources.
+Resources can be personal (per-user) or shared (team-wide). By default, resources are personal.
+At the start of conversations, read the "learnings.md" resource for user preferences and context.
+When you learn something important (user corrections, preferences, patterns), update the "learnings.md" resource.`;
 
 const DEFAULT_DEV_PROMPT = `You are a development assistant with full access to the project filesystem, shell, and database.
 
@@ -92,13 +255,16 @@ export function createAgentChatPlugin(
         ? await rawScripts()
         : (rawScripts ?? {});
 
+    // Resource scripts are available in both prod and dev modes
+    const resourceScripts = await createResourceScriptEntries();
+
     // Build system prompts
     const basePrompt = options?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     const devPrefix = options?.devSystemPrompt ?? DEFAULT_DEV_PROMPT;
 
-    // Always build the production handler
+    // Always build the production handler (includes resource tools)
     const prodHandler = createProductionAgentHandler({
-      scripts: templateScripts,
+      scripts: { ...templateScripts, ...resourceScripts },
       systemPrompt: basePrompt,
       model: options?.model,
       apiKey: options?.apiKey,
@@ -112,6 +278,7 @@ export function createAgentChatPlugin(
         await import("../scripts/dev/index.js");
       const devScripts = {
         ...templateScripts,
+        ...resourceScripts,
         ...(await createDevScriptRegistry()),
       };
       devHandler = createProductionAgentHandler({

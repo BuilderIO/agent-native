@@ -1,7 +1,12 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
+import {
+  ClientOnly,
+  CommandMenu,
+  DefaultSpinner,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./global.css";
 
@@ -34,10 +39,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
+          <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+            <CommandMenu.Group heading="Videos">
+              <CommandMenu.Item onSelect={() => {}}>
+                Search compositions
+              </CommandMenu.Item>
+            </CommandMenu.Group>
+          </CommandMenu>
           <Outlet />
         </TooltipProvider>
       </QueryClientProvider>

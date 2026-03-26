@@ -1,0 +1,301 @@
+import { createClient, type Client } from "@libsql/client";
+import { emitResourceChange, emitResourceDelete } from "./emitter.js";
+import crypto from "crypto";
+
+export const SHARED_OWNER = "__shared__";
+
+export interface Resource {
+  id: string;
+  path: string;
+  owner: string;
+  content: string;
+  mimeType: string;
+  size: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ResourceMeta {
+  id: string;
+  path: string;
+  owner: string;
+  mimeType: string;
+  size: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface DbExec {
+  execute(
+    sql: string | { sql: string; args: any[] },
+  ): Promise<{ rows: any[]; rowsAffected: number }>;
+}
+
+let _client: DbExec | undefined;
+
+function getClient(): DbExec {
+  if (!_client) {
+    // Check for Cloudflare D1 binding
+    const d1 = (globalThis as any).__cf_env?.DB;
+    if (d1) {
+      _client = {
+        async execute(sql) {
+          if (typeof sql === "string") {
+            const r = await d1.prepare(sql).all();
+            return {
+              rows: r.results || [],
+              rowsAffected: r.meta?.changes ?? 0,
+            };
+          }
+          const r = await d1
+            .prepare(sql.sql)
+            .bind(...sql.args)
+            .all();
+          return { rows: r.results || [], rowsAffected: r.meta?.changes ?? 0 };
+        },
+      };
+      return _client;
+    }
+
+    const url = process.env.DATABASE_URL || "file:./data/app.db";
+    _client = createClient({
+      url,
+      authToken: process.env.DATABASE_AUTH_TOKEN,
+    });
+  }
+  return _client;
+}
+
+let _initialized = false;
+
+async function ensureTable(): Promise<void> {
+  if (_initialized) return;
+  const client = getClient();
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS resources (
+      id TEXT PRIMARY KEY,
+      path TEXT NOT NULL,
+      owner TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      mime_type TEXT NOT NULL DEFAULT 'text/markdown',
+      size INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(path, owner)
+    )
+  `);
+  _initialized = true;
+}
+
+function rowToResource(row: any): Resource {
+  return {
+    id: row.id as string,
+    path: row.path as string,
+    owner: row.owner as string,
+    content: row.content as string,
+    mimeType: row.mime_type as string,
+    size: row.size as number,
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+  };
+}
+
+function rowToMeta(row: any): ResourceMeta {
+  return {
+    id: row.id as string,
+    path: row.path as string,
+    owner: row.owner as string,
+    mimeType: row.mime_type as string,
+    size: row.size as number,
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+  };
+}
+
+export async function resourceGet(id: string): Promise<Resource | null> {
+  await ensureTable();
+  const client = getClient();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM resources WHERE id = ?`,
+    args: [id],
+  });
+  if (rows.length === 0) return null;
+  return rowToResource(rows[0]);
+}
+
+export async function resourceGetByPath(
+  owner: string,
+  path: string,
+): Promise<Resource | null> {
+  await ensureTable();
+  const client = getClient();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM resources WHERE owner = ? AND path = ?`,
+    args: [owner, path],
+  });
+  if (rows.length === 0) return null;
+  return rowToResource(rows[0]);
+}
+
+export async function resourcePut(
+  owner: string,
+  path: string,
+  content: string,
+  mimeType?: string,
+): Promise<Resource> {
+  await ensureTable();
+  const client = getClient();
+  const now = Date.now();
+  const size = Buffer.byteLength(content, "utf8");
+  const mime = mimeType || "text/markdown";
+
+  // Check for existing resource to preserve ID on upsert
+  const { rows: existing } = await client.execute({
+    sql: `SELECT id, created_at FROM resources WHERE owner = ? AND path = ?`,
+    args: [owner, path],
+  });
+
+  const id =
+    existing.length > 0 ? (existing[0].id as string) : crypto.randomUUID();
+  const createdAt =
+    existing.length > 0 ? (existing[0].created_at as number) : now;
+
+  await client.execute({
+    sql: `INSERT OR REPLACE INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [id, path, owner, content, mime, size, createdAt, now],
+  });
+
+  emitResourceChange(id, path, owner);
+
+  return {
+    id,
+    path,
+    owner,
+    content,
+    mimeType: mime,
+    size,
+    createdAt,
+    updatedAt: now,
+  };
+}
+
+export async function resourceDelete(id: string): Promise<boolean> {
+  await ensureTable();
+  const client = getClient();
+
+  // Get resource info for emitter before deleting
+  const { rows } = await client.execute({
+    sql: `SELECT path, owner FROM resources WHERE id = ?`,
+    args: [id],
+  });
+  if (rows.length === 0) return false;
+
+  const result = await client.execute({
+    sql: `DELETE FROM resources WHERE id = ?`,
+    args: [id],
+  });
+  const deleted = result.rowsAffected > 0;
+  if (deleted) {
+    emitResourceDelete(id, rows[0].path as string, rows[0].owner as string);
+  }
+  return deleted;
+}
+
+export async function resourceDeleteByPath(
+  owner: string,
+  path: string,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getClient();
+
+  // Get resource info for emitter before deleting
+  const { rows } = await client.execute({
+    sql: `SELECT id FROM resources WHERE owner = ? AND path = ?`,
+    args: [owner, path],
+  });
+  if (rows.length === 0) return false;
+
+  const result = await client.execute({
+    sql: `DELETE FROM resources WHERE owner = ? AND path = ?`,
+    args: [owner, path],
+  });
+  const deleted = result.rowsAffected > 0;
+  if (deleted) {
+    emitResourceDelete(rows[0].id as string, path, owner);
+  }
+  return deleted;
+}
+
+export async function resourceList(
+  owner: string,
+  pathPrefix?: string,
+): Promise<ResourceMeta[]> {
+  await ensureTable();
+  const client = getClient();
+
+  if (pathPrefix) {
+    const { rows } = await client.execute({
+      sql: `SELECT id, path, owner, mime_type, size, created_at, updated_at FROM resources WHERE owner = ? AND path LIKE ?`,
+      args: [owner, pathPrefix + "%"],
+    });
+    return rows.map(rowToMeta);
+  }
+
+  const { rows } = await client.execute({
+    sql: `SELECT id, path, owner, mime_type, size, created_at, updated_at FROM resources WHERE owner = ?`,
+    args: [owner],
+  });
+  return rows.map(rowToMeta);
+}
+
+export async function resourceListAccessible(
+  userEmail: string,
+  pathPrefix?: string,
+): Promise<ResourceMeta[]> {
+  await ensureTable();
+  const client = getClient();
+
+  if (pathPrefix) {
+    const { rows } = await client.execute({
+      sql: `SELECT id, path, owner, mime_type, size, created_at, updated_at FROM resources WHERE owner = ? AND path LIKE ?
+            UNION
+            SELECT id, path, owner, mime_type, size, created_at, updated_at FROM resources WHERE owner = ? AND path LIKE ?`,
+      args: [userEmail, pathPrefix + "%", SHARED_OWNER, pathPrefix + "%"],
+    });
+    return rows.map(rowToMeta);
+  }
+
+  const { rows } = await client.execute({
+    sql: `SELECT id, path, owner, mime_type, size, created_at, updated_at FROM resources WHERE owner = ?
+          UNION
+          SELECT id, path, owner, mime_type, size, created_at, updated_at FROM resources WHERE owner = ?`,
+    args: [userEmail, SHARED_OWNER],
+  });
+  return rows.map(rowToMeta);
+}
+
+export async function resourceMove(
+  id: string,
+  newPath: string,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getClient();
+  const now = Date.now();
+
+  // Get current resource info
+  const { rows } = await client.execute({
+    sql: `SELECT path, owner FROM resources WHERE id = ?`,
+    args: [id],
+  });
+  if (rows.length === 0) return false;
+
+  const result = await client.execute({
+    sql: `UPDATE resources SET path = ?, updated_at = ? WHERE id = ?`,
+    args: [newPath, now, id],
+  });
+  const moved = result.rowsAffected > 0;
+  if (moved) {
+    emitResourceChange(id, newPath, rows[0].owner as string);
+  }
+  return moved;
+}

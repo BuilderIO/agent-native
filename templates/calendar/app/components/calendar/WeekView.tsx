@@ -84,13 +84,11 @@ interface LayoutInfo {
 }
 
 /**
- * Google Calendar-style layout.
+ * Stacking layout — like the user's drawing and Google Cal.
  *
- * Text lives at the TOP of each event card. Two events need side-by-side
- * columns only when their text regions overlap (start times within ~45 min).
- * Events that overlap in duration but start far apart can share horizontal
- * space — the later event stacks on top with a small indent since its text
- * is well below the earlier event's text.
+ * Every event is nearly full width. Overlapping events get a small left
+ * indent per nesting depth and stack on top with opaque backgrounds.
+ * Text at the top stays readable; the card beneath is covered.
  */
 function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
   const result = new Map<string, LayoutInfo>();
@@ -112,63 +110,24 @@ function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
     });
   }
 
-  // Two events overlap in time (any part of their duration)
-  const timeOverlaps = (a: string, b: string) => {
-    const ta = times.get(a)!;
-    const tb = times.get(b)!;
-    return ta.start < tb.end && tb.start < ta.end;
-  };
-
-  // Text region = top ~45 min of the event card (where title + time render).
-  // Two events need separate columns only if their text regions collide.
-  const TEXT_REGION_MS = 45 * 60 * 1000;
-  const textOverlaps = (a: string, b: string) => {
-    const ta = times.get(a)!;
-    const tb = times.get(b)!;
-    const aTextEnd = Math.min(ta.start + TEXT_REGION_MS, ta.end);
-    const bTextEnd = Math.min(tb.start + TEXT_REGION_MS, tb.end);
-    return ta.start < bTextEnd && tb.start < aTextEnd;
-  };
-
-  // Step 1: Assign columns based on TEXT overlap only.
-  // Events whose text doesn't collide can reuse the same column.
-  const columns: string[][] = [];
-  const eventCol = new Map<string, number>();
+  // Each event is full-width minus a small indent per overlap depth.
+  // Depth = how many earlier events in the sorted list overlap with this one.
+  const INDENT_PX = 16; // pixels per nesting level
 
   for (const ev of sorted) {
-    let placed = false;
-    for (let c = 0; c < columns.length; c++) {
-      if (columns[c].every((id) => !textOverlaps(id, ev.id))) {
-        columns[c].push(ev.id);
-        eventCol.set(ev.id, c);
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) {
-      columns.push([ev.id]);
-      eventCol.set(ev.id, columns.length - 1);
-    }
-  }
-
-  // Step 2: For each event, determine width. It expands rightward into
-  // columns that have no time-overlapping event (not just text-overlapping).
-  const totalCols = columns.length;
-
-  for (const ev of sorted) {
-    const col = eventCol.get(ev.id)!;
-
-    let span = 1;
-    for (let c = col + 1; c < totalCols; c++) {
-      if (columns[c].some((id) => timeOverlaps(id, ev.id))) break;
-      span++;
+    let depth = 0;
+    for (const other of sorted) {
+      if (other.id === ev.id) break;
+      const ta = times.get(other.id)!;
+      const tb = times.get(ev.id)!;
+      if (ta.start < tb.end && tb.start < ta.end) depth++;
     }
 
     result.set(ev.id, {
-      left: (col / totalCols) * 100,
-      width: (span / totalCols) * 100,
-      col,
-      totalCols,
+      left: depth * INDENT_PX, // pixels, not percentage
+      width: 0, // signal to use calc(100% - left)
+      col: depth,
+      totalCols: depth + 1,
     });
   }
 
@@ -552,7 +511,7 @@ export function WeekView({
                   dayEvents.map((event) => {
                     const li = layout.get(event.id) ?? {
                       left: 0,
-                      width: 100,
+                      width: 0,
                       col: 0,
                       totalCols: 1,
                     };
@@ -560,7 +519,8 @@ export function WeekView({
                     const color = getEventColor(event);
                     const start = parseISO(event.start);
                     const end = parseISO(event.end);
-                    const durationMin = differenceInMinutes(end, start);
+                    const isPast = end < now;
+                    const isDeclined = event.responseStatus === "declined";
 
                     return (
                       <EventDetailPopover
@@ -570,11 +530,14 @@ export function WeekView({
                         onDelete={onDeleteEvent}
                       >
                         <button
-                          className="absolute overflow-hidden rounded-md px-2 py-1 text-left text-xs transition-all hover:z-30 hover:brightness-110 hover:shadow-md"
+                          className={cn(
+                            "absolute overflow-hidden rounded-md px-1.5 py-0.5 text-left text-xs flex flex-col justify-start transition-all hover:z-30 hover:brightness-110 hover:shadow-md",
+                            isPast && "opacity-50",
+                          )}
                           style={{
                             ...style,
-                            left: `calc(${li.left}% + ${li.col > 0 ? 2 : 0}px)`,
-                            width: `calc(${li.width}% - ${li.col > 0 ? 4 : 2}px)`,
+                            left: `${li.left}px`,
+                            width: `calc(100% - ${li.left + 2}px)`,
                             zIndex: li.col + 1,
                             backgroundColor: color
                               ? `color-mix(in srgb, ${color} 18%, hsl(var(--background)))`
@@ -584,23 +547,21 @@ export function WeekView({
                         >
                           <div
                             className={cn(
-                              "font-semibold leading-tight text-foreground",
-                              durationMin < 90 && "truncate",
+                              "truncate font-semibold leading-tight text-foreground",
+                              isDeclined &&
+                                "line-through text-muted-foreground",
                             )}
                           >
                             {event.title}
-                            {durationMin < 45 && (
-                              <span className="font-normal text-foreground/60">
-                                {" "}
-                                {format(start, "h:mm a")}
-                              </span>
-                            )}
                           </div>
-                          {durationMin >= 45 && (
-                            <div className="truncate text-[10px] text-foreground/60">
-                              {formatEventTime(start, end)}
-                            </div>
-                          )}
+                          <div
+                            className={cn(
+                              "truncate text-[10px] leading-tight text-foreground/60",
+                              isDeclined && "text-muted-foreground/50",
+                            )}
+                          >
+                            {formatEventTime(start, end)}
+                          </div>
                         </button>
                       </EventDetailPopover>
                     );

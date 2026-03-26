@@ -60,6 +60,8 @@ function FileWatcherSetup() {
 
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
       <QueryClientProvider client={queryClient}>
@@ -72,6 +74,13 @@ export default function Root() {
           <TooltipProvider>
             <FileWatcherSetup />
             <Toaster position="bottom-left" />
+            <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+              <CommandMenu.Group heading="Forms">
+                <CommandMenu.Item onSelect={() => {}}>
+                  Search forms
+                </CommandMenu.Item>
+              </CommandMenu.Group>
+            </CommandMenu>
             <Outlet />
           </TooltipProvider>
         </ThemeProvider>

@@ -63,54 +63,22 @@ function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
     });
   }
 
-  const timeOverlaps = (a: string, b: string) => {
-    const ta = times.get(a)!;
-    const tb = times.get(b)!;
-    return ta.start < tb.end && tb.start < ta.end;
-  };
-
-  const TEXT_REGION_MS = 45 * 60 * 1000;
-  const textOverlaps = (a: string, b: string) => {
-    const ta = times.get(a)!;
-    const tb = times.get(b)!;
-    const aTextEnd = Math.min(ta.start + TEXT_REGION_MS, ta.end);
-    const bTextEnd = Math.min(tb.start + TEXT_REGION_MS, tb.end);
-    return ta.start < bTextEnd && tb.start < aTextEnd;
-  };
-
-  const columns: string[][] = [];
-  const eventCol = new Map<string, number>();
+  const INDENT_PX = 20; // DayView has wider columns, more indent room
 
   for (const ev of sorted) {
-    let placed = false;
-    for (let c = 0; c < columns.length; c++) {
-      if (columns[c].every((id) => !textOverlaps(id, ev.id))) {
-        columns[c].push(ev.id);
-        eventCol.set(ev.id, c);
-        placed = true;
-        break;
-      }
+    let depth = 0;
+    for (const other of sorted) {
+      if (other.id === ev.id) break;
+      const ta = times.get(other.id)!;
+      const tb = times.get(ev.id)!;
+      if (ta.start < tb.end && tb.start < ta.end) depth++;
     }
-    if (!placed) {
-      columns.push([ev.id]);
-      eventCol.set(ev.id, columns.length - 1);
-    }
-  }
 
-  const totalCols = columns.length;
-
-  for (const ev of sorted) {
-    const col = eventCol.get(ev.id)!;
-    let span = 1;
-    for (let c = col + 1; c < totalCols; c++) {
-      if (columns[c].some((id) => timeOverlaps(id, ev.id))) break;
-      span++;
-    }
     result.set(ev.id, {
-      left: (col / totalCols) * 100,
-      width: (span / totalCols) * 100,
-      col,
-      totalCols,
+      left: depth * INDENT_PX,
+      width: 0,
+      col: depth,
+      totalCols: depth + 1,
     });
   }
 
@@ -305,6 +273,8 @@ export function DayView({
                 parseISO(event.end),
                 parseISO(event.start),
               );
+              const isPast = parseISO(event.end) < now;
+              const isDeclined = event.responseStatus === "declined";
               return (
                 <EventDetailPopover
                   key={event.id}
@@ -313,11 +283,14 @@ export function DayView({
                   onDelete={onDeleteEvent}
                 >
                   <button
-                    className="absolute overflow-hidden rounded-lg px-2.5 py-1.5 text-left text-sm transition-all hover:z-30 hover:brightness-110 hover:shadow-lg"
+                    className={cn(
+                      "absolute overflow-hidden rounded-lg px-2 py-1 text-left text-sm flex flex-col justify-start transition-all hover:z-30 hover:brightness-110 hover:shadow-lg",
+                      isPast && "opacity-50",
+                    )}
                     style={{
                       ...posStyle,
-                      left: `calc(${li.left}% + ${li.col > 0 ? 2 : 0}px)`,
-                      width: `calc(${li.width}% - ${li.col > 0 ? 4 : 2}px)`,
+                      left: `${li.left}px`,
+                      width: `calc(100% - ${li.left + 2}px)`,
                       zIndex: li.col + 1,
                       backgroundColor: color
                         ? `color-mix(in srgb, ${color} 18%, hsl(var(--background)))`
@@ -325,18 +298,26 @@ export function DayView({
                       borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
                     }}
                   >
-                    <div className="truncate font-semibold leading-tight text-foreground">
+                    <div
+                      className={cn(
+                        "truncate font-semibold leading-tight text-foreground",
+                        isDeclined && "line-through text-muted-foreground",
+                      )}
+                    >
                       {event.title}
                     </div>
-                    {durationMin >= 30 && (
-                      <div className="mt-0.5 truncate text-[11px] text-foreground/60">
-                        {format(parseISO(event.start), "h:mm a")} –{" "}
-                        {format(parseISO(event.end), "h:mm a")}
-                      </div>
-                    )}
+                    <div
+                      className={cn(
+                        "truncate text-[11px] leading-tight text-foreground/60",
+                        isDeclined && "text-muted-foreground/50",
+                      )}
+                    >
+                      {format(parseISO(event.start), "h:mm a")} –{" "}
+                      {format(parseISO(event.end), "h:mm a")}
+                    </div>
                     {durationMin >= 45 && event.location && (
-                      <div className="mt-0.5 truncate text-[11px] text-foreground/50">
-                        📍 {event.location}
+                      <div className="truncate text-[11px] leading-tight text-foreground/50">
+                        {event.location}
                       </div>
                     )}
                   </button>

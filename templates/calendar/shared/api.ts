@@ -12,6 +12,8 @@ export interface CalendarEvent {
   /** Set when this event belongs to an overlaid person's calendar */
   overlayEmail?: string;
   color?: string;
+  /** User's RSVP status from Google Calendar */
+  responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
   createdAt: string;
   updatedAt: string;
 }

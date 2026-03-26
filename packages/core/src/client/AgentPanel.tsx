@@ -44,6 +44,13 @@ const AgentTerminal = lazy(() =>
   import("./terminal/index.js").then((m) => ({ default: m.AgentTerminal })),
 );
 
+// Lazy-load ResourcesPanel to avoid bundling when not needed
+const ResourcesPanel = lazy(() =>
+  import("./resources/ResourcesPanel.js").then((m) => ({
+    default: m.ResourcesPanel,
+  })),
+);
+
 const CLI_STORAGE_KEY = "agent-native-cli-command";
 const CLI_DEFAULT = "builder";
 const AGENT_PANEL_FONT_FAMILY =
@@ -233,6 +240,22 @@ function TrashIcon({ className }: { className?: string }) {
       className={className}
     >
       <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </svg>
+  );
+}
+
+function FolderIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
     </svg>
   );
 }
@@ -489,7 +512,7 @@ export function AgentPanel({
   onCollapse,
 }: AgentPanelProps) {
   const mounted = useClientOnly();
-  const [mode, setMode] = useState<"chat" | "cli">(defaultMode);
+  const [mode, setMode] = useState<"chat" | "cli" | "resources">(defaultMode);
   const availableClis = useAvailableClis();
   const [selectedCli, selectCli] = useCliSelection();
   const selectedLabel =
@@ -504,7 +527,7 @@ export function AgentPanel({
   const showDevToggle = canToggle && isLocalhost;
 
   const renderModeButtons = useCallback(
-    (activeMode: "chat" | "cli") => (
+    (activeMode: "chat" | "cli" | "resources") => (
       <div className="flex shrink-0 items-center gap-1">
         <button
           onClick={() => setMode("chat")}
@@ -544,6 +567,17 @@ export function AgentPanel({
   const renderHeaderActions = useCallback(
     () => (
       <div className="flex shrink-0 items-center gap-1.5">
+        <IconTooltip content="Resources">
+          <button
+            onClick={() => setMode(mode === "resources" ? "chat" : "resources")}
+            className={cn(
+              "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
+              mode === "resources" && "bg-accent/50 text-foreground",
+            )}
+          >
+            <FolderIcon className="h-3.5 w-3.5" />
+          </button>
+        </IconTooltip>
         {showDevToggle && (
           <IconTooltip content="Agent settings">
             <div>
@@ -572,6 +606,7 @@ export function AgentPanel({
     [
       availableClis,
       isDevMode,
+      mode,
       onCollapse,
       selectCli,
       selectedCli,
@@ -622,7 +657,7 @@ export function AgentPanel({
                       closeTab(tab.id);
                     }}
                     className={cn(
-                      "ml-0.5 flex h-4 w-4 items-center justify-center rounded-sm opacity-100",
+                      "ml-0.5 flex h-3 w-3 items-center justify-center rounded-sm opacity-0 group-hover/tab:opacity-100",
                       tab.id === activeTabId
                         ? "text-foreground/55 hover:bg-background/60 hover:text-foreground"
                         : "text-muted-foreground/65 hover:bg-accent hover:text-foreground",
@@ -630,7 +665,7 @@ export function AgentPanel({
                     title={`Close chat ${tab.label}`}
                     aria-label={`Close chat ${tab.label}`}
                   >
-                    <XIcon className="h-3 w-3" />
+                    <XIcon className="h-2.5 w-2.5" />
                   </button>
                 </button>
               ))}
@@ -678,32 +713,17 @@ export function AgentPanel({
       )}
       style={AGENT_PANEL_ROOT_STYLE}
     >
-      {showHeader && mode === "cli" && (
-        <div
-          className={AGENT_PANEL_HEADER_CLASS}
-          style={AGENT_PANEL_HEADER_STYLE}
-        >
-          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
-            {renderModeButtons("cli")}
-          </div>
-          {renderHeaderActions()}
-        </div>
-      )}
-
-      {/* Chat view — multi-tab, client-only
-          because @assistant-ui uses useLayoutEffect which breaks SSR */}
-      <div
-        className={cn(
-          "flex-1 flex flex-col min-h-0",
-          mode !== "chat" && "hidden",
-        )}
-      >
+      {/* Chat view — multi-tab, always mounted to preserve state.
+          Header (with tabs + mode buttons) is always visible.
+          Chat content is hidden when CLI or resources mode is active. */}
+      <div className="flex-1 flex flex-col min-h-0">
         {mounted && (
           <MultiTabAssistantChat
             apiUrl={apiUrl}
             showHeader={false}
             renderHeader={showHeader ? renderChatHeader : undefined}
             renderOverlay={showHeader ? renderChatOverlay : undefined}
+            contentHidden={mode !== "chat"}
             emptyStateText={emptyStateText}
             suggestions={suggestions}
             onSwitchToCli={IS_DEV ? () => setMode("cli") : undefined}
@@ -727,6 +747,21 @@ export function AgentPanel({
               className="h-full"
               style={{ background: "transparent" }}
             />
+          </Suspense>
+        </div>
+      )}
+
+      {/* Resources view */}
+      {mode === "resources" && (
+        <div className="flex-1 min-h-0">
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                Loading resources...
+              </div>
+            }
+          >
+            <ResourcesPanel />
           </Suspense>
         </div>
       )}
