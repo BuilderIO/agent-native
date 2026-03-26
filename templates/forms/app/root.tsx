@@ -6,7 +6,11 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
-import { useFileWatcher, ClientOnly, DefaultSpinner } from "@agent-native/core/client";
+import {
+  useFileWatcher,
+  ClientOnly,
+  DefaultSpinner,
+} from "@agent-native/core/client";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./global.css";
