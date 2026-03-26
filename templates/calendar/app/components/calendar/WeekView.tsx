@@ -84,12 +84,13 @@ interface LayoutInfo {
 }
 
 /**
- * Google Calendar-style stacking layout.
+ * Google Calendar-style layout.
  *
- * Events visually overlap: each event is wide and readable, and later
- * overlapping events are indented slightly to the right and stacked on top
- * with opaque backgrounds. Text from events underneath is hidden by the
- * card above — not squeezed into tiny columns.
+ * Text lives at the TOP of each event card. Two events need side-by-side
+ * columns only when their text regions overlap (start times within ~45 min).
+ * Events that overlap in duration but start far apart can share horizontal
+ * space — the later event stacks on top with a small indent since its text
+ * is well below the earlier event's text.
  */
 function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
   const result = new Map<string, LayoutInfo>();
@@ -111,30 +112,63 @@ function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
     });
   }
 
-  const overlaps = (a: string, b: string) => {
+  // Two events overlap in time (any part of their duration)
+  const timeOverlaps = (a: string, b: string) => {
     const ta = times.get(a)!;
     const tb = times.get(b)!;
     return ta.start < tb.end && tb.start < ta.end;
   };
 
-  const INDENT_PCT = 14;
-  const MIN_WIDTH_PCT = 45;
+  // Text region = top ~45 min of the event card (where title + time render).
+  // Two events need separate columns only if their text regions collide.
+  const TEXT_REGION_MS = 45 * 60 * 1000;
+  const textOverlaps = (a: string, b: string) => {
+    const ta = times.get(a)!;
+    const tb = times.get(b)!;
+    const aTextEnd = Math.min(ta.start + TEXT_REGION_MS, ta.end);
+    const bTextEnd = Math.min(tb.start + TEXT_REGION_MS, tb.end);
+    return ta.start < bTextEnd && tb.start < aTextEnd;
+  };
+
+  // Step 1: Assign columns based on TEXT overlap only.
+  // Events whose text doesn't collide can reuse the same column.
+  const columns: string[][] = [];
+  const eventCol = new Map<string, number>();
 
   for (const ev of sorted) {
-    let depth = 0;
-    for (const other of sorted) {
-      if (other.id === ev.id) break;
-      if (overlaps(other.id, ev.id)) depth++;
+    let placed = false;
+    for (let c = 0; c < columns.length; c++) {
+      if (columns[c].every((id) => !textOverlaps(id, ev.id))) {
+        columns[c].push(ev.id);
+        eventCol.set(ev.id, c);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      columns.push([ev.id]);
+      eventCol.set(ev.id, columns.length - 1);
+    }
+  }
+
+  // Step 2: For each event, determine width. It expands rightward into
+  // columns that have no time-overlapping event (not just text-overlapping).
+  const totalCols = columns.length;
+
+  for (const ev of sorted) {
+    const col = eventCol.get(ev.id)!;
+
+    let span = 1;
+    for (let c = col + 1; c < totalCols; c++) {
+      if (columns[c].some((id) => timeOverlaps(id, ev.id))) break;
+      span++;
     }
 
-    const leftPct = Math.min(depth * INDENT_PCT, 100 - MIN_WIDTH_PCT);
-    const widthPct = Math.max(100 - leftPct, MIN_WIDTH_PCT);
-
     result.set(ev.id, {
-      left: leftPct,
-      width: widthPct,
-      col: depth,
-      totalCols: depth + 1,
+      left: (col / totalCols) * 100,
+      width: (span / totalCols) * 100,
+      col,
+      totalCols,
     });
   }
 

@@ -584,11 +584,9 @@ export function AgentPanel({
     ({
       tabs,
       activeTabId,
-      activeTabMessageCount,
       setActiveTabId,
       addTab,
       closeTab,
-      clearActiveTab,
     }: MultiTabAssistantChatHeaderProps) => (
       <div
         className={AGENT_PANEL_HEADER_CLASS}
@@ -636,15 +634,6 @@ export function AgentPanel({
                   </button>
                 </button>
               ))}
-            {activeTabMessageCount > 0 && (
-              <button
-                onClick={clearActiveTab}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:bg-accent/50 hover:text-foreground"
-                title="Clear chat"
-              >
-                <TrashIcon className="h-3.5 w-3.5" />
-              </button>
-            )}
             <IconTooltip content="New chat">
               <button
                 onClick={addTab}
@@ -659,6 +648,26 @@ export function AgentPanel({
       </div>
     ),
     [mode, renderHeaderActions, renderModeButtons],
+  );
+
+  const renderChatOverlay = useCallback(
+    ({
+      activeTabMessageCount,
+      clearActiveTab,
+    }: MultiTabAssistantChatHeaderProps) =>
+      activeTabMessageCount > 0 ? (
+        <div className="pointer-events-none absolute right-3 top-14 z-20">
+          <IconTooltip content="Clear chat">
+            <button
+              onClick={clearActiveTab}
+              className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded text-muted-foreground/50 hover:bg-accent/40 hover:text-muted-foreground"
+            >
+              <TrashIcon className="h-3.5 w-3.5" />
+            </button>
+          </IconTooltip>
+        </div>
+      ) : null,
+    [],
   );
 
   return (
@@ -694,6 +703,7 @@ export function AgentPanel({
             apiUrl={apiUrl}
             showHeader={false}
             renderHeader={showHeader ? renderChatHeader : undefined}
+            renderOverlay={showHeader ? renderChatOverlay : undefined}
             emptyStateText={emptyStateText}
             suggestions={suggestions}
             onSwitchToCli={IS_DEV ? () => setMode("cli") : undefined}

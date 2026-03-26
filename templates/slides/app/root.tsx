@@ -1,14 +1,16 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DeckProvider } from "@/context/DeckContext";
 import {
   AgentSidebar,
   ClientOnly,
+  CommandMenu,
   DefaultSpinner,
   enterStyleEditing as coreEnterStyleEditing,
   enterTextEditing as coreEnterTextEditing,
   exitSelectionMode as coreExitSelectionMode,
+  useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import "./global.css";
 
@@ -90,10 +92,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
 export default function Root() {
   useExitSelectionOnOutsideClick();
   const [queryClient] = useState(() => new QueryClient());
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
 
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
       <QueryClientProvider client={queryClient}>
+        <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+          <CommandMenu.Group heading="Presentations">
+            <CommandMenu.Item onSelect={() => {}}>
+              Search decks
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>
         <DeckProvider key={DECK_KEY}>
           <AgentSidebar
             position="right"

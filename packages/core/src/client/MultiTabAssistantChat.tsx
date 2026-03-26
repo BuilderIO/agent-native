@@ -149,11 +149,14 @@ export type MultiTabAssistantChatProps = Omit<AssistantChatProps, "tabId"> & {
   showTabBar?: boolean;
   /** Optional custom single-row header renderer */
   renderHeader?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
+  /** Optional overlay actions renderer for the active tab */
+  renderOverlay?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
 };
 
 export function MultiTabAssistantChat({
   showTabBar = true,
   renderHeader,
+  renderOverlay,
   ...props
 }: MultiTabAssistantChatProps) {
   const [tabs, setTabs] = useState<ChatTab[]>(() => {
@@ -367,6 +370,8 @@ export function MultiTabAssistantChat({
           </div>
         </div>
       ) : null}
+
+      {renderOverlay ? renderOverlay(headerProps) : null}
 
       {/* Render all tabs, hide inactive ones to preserve state */}
       {tabs.map((tab) => (

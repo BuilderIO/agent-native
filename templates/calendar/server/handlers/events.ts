@@ -82,7 +82,10 @@ export const listEvents = defineEventHandler(async (event: H3Event) => {
     // Fetch overlay people's events in parallel
     let allEvents = googleEvents;
     if (overlayEmailsParam) {
-      const overlayEmails = overlayEmailsParam.split(",").filter(Boolean);
+      const overlayEmails = overlayEmailsParam
+        .split(",")
+        .filter(Boolean)
+        .slice(0, 10);
       if (overlayEmails.length > 0) {
         const { events: overlayEvents } =
           await googleCalendar.listOverlayEvents(

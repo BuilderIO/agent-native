@@ -545,10 +545,12 @@ function QueueComposer({
   composerRef,
   addToQueue,
   queuedCount,
+  onStop,
 }: {
   composerRef: React.RefObject<HTMLTextAreaElement | null>;
   addToQueue: (text: string) => void;
   queuedCount: number;
+  onStop: () => void;
 }) {
   const [value, setValue] = useState("");
 
@@ -571,33 +573,37 @@ function QueueComposer({
   );
 
   return (
-    <div className="flex items-end gap-2 rounded-lg border border-input bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring">
-      <textarea
-        ref={composerRef}
-        value={value}
-        onChange={handleAutoResize}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            handleSubmit();
+    <div className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
+      <div className="flex items-center gap-1 px-2 py-1.5">
+        <div className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground">
+          <PaperclipIcon className="h-4 w-4 opacity-30" />
+        </div>
+        <textarea
+          ref={composerRef}
+          value={value}
+          onChange={handleAutoResize}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmit();
+            }
+          }}
+          placeholder={
+            queuedCount > 0
+              ? `${queuedCount} queued — type another...`
+              : "Queue a message..."
           }
-        }}
-        placeholder={
-          queuedCount > 0
-            ? `${queuedCount} queued — type another...`
-            : "Queue a message..."
-        }
-        className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-relaxed"
-        rows={1}
-      />
-      <button
-        onClick={handleSubmit}
-        disabled={!value.trim()}
-        className="shrink-0 flex h-8 w-8 items-center justify-center rounded-md bg-primary/70 text-primary-foreground hover:bg-primary disabled:opacity-30 disabled:cursor-not-allowed"
-        title="Queue message"
-      >
-        <SendIcon className="h-3.5 w-3.5" />
-      </button>
+          className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-[1.625rem]"
+          rows={1}
+        />
+        <button
+          onClick={onStop}
+          className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90"
+          title="Stop generating"
+        >
+          <StopIcon className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 }
@@ -877,12 +883,13 @@ const AssistantChatInner = forwardRef<
       </div>
 
       {/* Input area */}
-      <div className="shrink-0 border-t border-border px-3 py-2">
+      <div className="shrink-0 px-3 py-2">
         {isRunning ? (
           <QueueComposer
             composerRef={composerRef}
             addToQueue={addToQueue}
             queuedCount={queuedMessages.length}
+            onStop={() => threadRuntime.cancelRun()}
           />
         ) : (
           <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">

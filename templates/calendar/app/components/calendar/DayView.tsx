@@ -63,30 +63,54 @@ function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
     });
   }
 
-  const overlaps = (a: string, b: string) => {
+  const timeOverlaps = (a: string, b: string) => {
     const ta = times.get(a)!;
     const tb = times.get(b)!;
     return ta.start < tb.end && tb.start < ta.end;
   };
 
-  const INDENT_PCT = 14;
-  const MIN_WIDTH_PCT = 45;
+  const TEXT_REGION_MS = 45 * 60 * 1000;
+  const textOverlaps = (a: string, b: string) => {
+    const ta = times.get(a)!;
+    const tb = times.get(b)!;
+    const aTextEnd = Math.min(ta.start + TEXT_REGION_MS, ta.end);
+    const bTextEnd = Math.min(tb.start + TEXT_REGION_MS, tb.end);
+    return ta.start < bTextEnd && tb.start < aTextEnd;
+  };
+
+  const columns: string[][] = [];
+  const eventCol = new Map<string, number>();
 
   for (const ev of sorted) {
-    let depth = 0;
-    for (const other of sorted) {
-      if (other.id === ev.id) break;
-      if (overlaps(other.id, ev.id)) depth++;
+    let placed = false;
+    for (let c = 0; c < columns.length; c++) {
+      if (columns[c].every((id) => !textOverlaps(id, ev.id))) {
+        columns[c].push(ev.id);
+        eventCol.set(ev.id, c);
+        placed = true;
+        break;
+      }
     }
+    if (!placed) {
+      columns.push([ev.id]);
+      eventCol.set(ev.id, columns.length - 1);
+    }
+  }
 
-    const leftPct = Math.min(depth * INDENT_PCT, 100 - MIN_WIDTH_PCT);
-    const widthPct = Math.max(100 - leftPct, MIN_WIDTH_PCT);
+  const totalCols = columns.length;
 
+  for (const ev of sorted) {
+    const col = eventCol.get(ev.id)!;
+    let span = 1;
+    for (let c = col + 1; c < totalCols; c++) {
+      if (columns[c].some((id) => timeOverlaps(id, ev.id))) break;
+      span++;
+    }
     result.set(ev.id, {
-      left: leftPct,
-      width: widthPct,
-      col: depth,
-      totalCols: depth + 1,
+      left: (col / totalCols) * 100,
+      width: (span / totalCols) * 100,
+      col,
+      totalCols,
     });
   }
 

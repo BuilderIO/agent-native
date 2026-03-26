@@ -61,7 +61,7 @@ function SearchIcon({ className }: { className?: string }) {
   );
 }
 
-function SparklesIcon({ className }: { className?: string }) {
+function MessageIcon({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -72,11 +72,7 @@ function SparklesIcon({ className }: { className?: string }) {
       strokeLinejoin="round"
       className={className}
     >
-      <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
-      <path d="M20 3v4" />
-      <path d="M22 5h-4" />
-      <path d="M4 17v2" />
-      <path d="M5 18H3" />
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
     </svg>
   );
 }
@@ -312,13 +308,12 @@ export function CommandMenu({
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 animate-in fade-in-0 duration-100">
+    <div className="fixed inset-0 z-50 bg-black/50">
       <div
         ref={containerRef}
         className={cn(
-          "fixed left-1/2 top-[15%] -translate-x-1/2 w-full max-w-lg",
+          "fixed left-1/2 top-[10vh] -translate-x-1/2 w-full max-w-lg",
           "rounded-lg border border-border bg-popover text-popover-foreground shadow-lg",
-          "animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-100",
           className,
         )}
       >
@@ -338,32 +333,38 @@ export function CommandMenu({
 
           {/* Command list */}
           <div className="max-h-[300px] overflow-y-auto overflow-x-hidden">
-            {hasResults ? (
-              filteredChildren
-            ) : (
-              <div className="py-6 text-center text-sm text-muted-foreground">
-                {emptyText}
-              </div>
-            )}
+            {hasResults && filteredChildren}
 
-            {/* Agent fallback */}
-            {showAgentFallback && search.trim() && (
+            {/* Ask AI — always visible at the bottom */}
+            {showAgentFallback && (
               <>
-                <CommandSeparator />
+                {hasResults && <CommandSeparator />}
                 <div className="p-1">
                   <div
                     className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
                     onClick={handleSubmitToAgent}
                     role="option"
                   >
-                    <SparklesIcon className="h-4 w-4 text-purple-500" />
+                    <MessageIcon className="h-4 w-4 text-muted-foreground" />
                     <span>
-                      Ask AI:{" "}
-                      <span className="text-muted-foreground">"{search}"</span>
+                      {search.trim() ? (
+                        <>
+                          Ask AI:{" "}
+                          <span className="text-muted-foreground">
+                            "{search}"
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">
+                          Ask AI anything...
+                        </span>
+                      )}
                     </span>
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      ↵
-                    </span>
+                    {search.trim() && (
+                      <span className="ml-auto text-xs text-muted-foreground">
+                        ↵
+                      </span>
+                    )}
                   </div>
                 </div>
               </>

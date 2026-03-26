@@ -1,5 +1,5 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   QueryClient,
   QueryClientProvider,
@@ -9,7 +9,9 @@ import { ThemeProvider } from "next-themes";
 import {
   useFileWatcher,
   ClientOnly,
+  CommandMenu,
   DefaultSpinner,
+  useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";

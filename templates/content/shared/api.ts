@@ -34,6 +34,7 @@ export interface NotionConnectionStatus {
   workspaceName: string | null;
   workspaceId: string | null;
   authUrl: string | null;
+  error?: "missing_credentials";
 }
 
 export interface LinkNotionPageRequest {
