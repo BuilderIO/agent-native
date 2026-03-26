@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { useNavigate } from "react-router";
 import { Plus, Search, Star, FileText } from "lucide-react";
+import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -33,10 +34,17 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
 
   const handleCreatePage = useCallback(
     async (parentId?: string) => {
-      const doc = await createDocument.mutateAsync({
-        parentId: parentId ?? null,
-      });
-      navigate(`/${doc.id}`);
+      try {
+        const doc = await createDocument.mutateAsync({
+          parentId: parentId ?? null,
+        });
+        navigate(`/${doc.id}`);
+      } catch (err) {
+        toast.error("Failed to create page", {
+          description:
+            err instanceof Error ? err.message : "Something went wrong",
+        });
+      }
     },
     [createDocument, navigate],
   );

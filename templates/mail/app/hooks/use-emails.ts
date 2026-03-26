@@ -26,6 +26,8 @@ export function useEmails(view: string = "inbox", search?: string) {
       return apiFetch(`/api/emails?${params}`);
     },
     staleTime: 15_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
     retry: false,
   });
 }
@@ -76,10 +78,21 @@ export function useMarkRead() {
 
 export function useMarkThreadRead() {
   const qc = useQueryClient();
+  // Stash unread IDs between onMutate (which computes them before the
+  // optimistic update) and mutationFn (which sends the actual API calls).
+  let pendingUnreadIds: string[] = [];
   return useMutation({
-    mutationFn: async (threadId: string) => {
-      // Actual API calls happen in onMutate (before optimistic update)
-      // This is intentionally empty — the work is done in onMutate
+    mutationFn: async (_threadId: string) => {
+      if (pendingUnreadIds.length > 0) {
+        await Promise.all(
+          pendingUnreadIds.map((id) =>
+            apiFetch(`/api/emails/${id}/read`, {
+              method: "PATCH",
+              body: JSON.stringify({ isRead: true }),
+            }),
+          ),
+        );
+      }
     },
     onMutate: async (threadId) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
@@ -88,22 +101,9 @@ export function useMarkThreadRead() {
       });
       // Capture unread IDs BEFORE optimistic update
       const allEmails = previous.flatMap(([, data]) => data ?? []) ?? [];
-      const unreadIds = allEmails
+      pendingUnreadIds = allEmails
         .filter((e) => (e.threadId || e.id) === threadId && !e.isRead)
         .map((e) => e.id);
-      // Fire API calls for the unread emails
-      if (unreadIds.length > 0) {
-        Promise.all(
-          unreadIds.map((id) =>
-            apiFetch(`/api/emails/${id}/read`, {
-              method: "PATCH",
-              body: JSON.stringify({ isRead: true }),
-            }),
-          ),
-        ).catch(() => {
-          /* errors handled by onError rollback */
-        });
-      }
       // Optimistic update
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.map((e) =>

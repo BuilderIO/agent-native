@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   eachHourOfInterval,
   format,
@@ -9,13 +9,24 @@ import {
   isToday,
 } from "date-fns";
 import { cn } from "@/lib/utils";
+import { EventDetailPopover } from "./EventDetailPopover";
 import type { CalendarEvent } from "@shared/api";
 
 interface DayViewProps {
   events: CalendarEvent[];
   date: Date;
-  onEventClick: (event: CalendarEvent) => void;
+  onEditEvent: (event: CalendarEvent) => void;
+  onDeleteEvent: (eventId: string) => void;
+  isLoading?: boolean;
 }
+
+// [startHour, startMin, durationMin, widthPct]
+const DAY_SKELETONS: [number, number, number, number][] = [
+  [9, 0, 60, 82],
+  [11, 0, 45, 68],
+  [14, 0, 90, 76],
+  [16, 30, 30, 60],
+];
 
 const START_HOUR = 6;
 const END_HOUR = 23;
@@ -26,7 +37,80 @@ function getEventColor(event: CalendarEvent) {
   return event.source === "google" ? "#5085C0" : null;
 }
 
-export function DayView({ events, date, onEventClick }: DayViewProps) {
+interface LayoutInfo {
+  left: number; // percentage 0-100
+  width: number; // percentage 0-100
+  col: number;
+  totalCols: number;
+}
+
+function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
+  const result = new Map<string, LayoutInfo>();
+  if (dayEvents.length === 0) return result;
+
+  const sorted = [...dayEvents].sort((a, b) => {
+    const aStart = parseISO(a.start).getTime();
+    const bStart = parseISO(b.start).getTime();
+    if (aStart !== bStart) return aStart - bStart;
+    return parseISO(b.end).getTime() - parseISO(a.end).getTime();
+  });
+
+  const columns: { id: string; end: number }[][] = [];
+  const eventCol = new Map<string, number>();
+
+  for (const ev of sorted) {
+    const evStart = parseISO(ev.start).getTime();
+    const evEnd = parseISO(ev.end).getTime();
+    let placed = false;
+    for (let c = 0; c < columns.length; c++) {
+      if (columns[c].every((slot) => slot.end <= evStart)) {
+        columns[c].push({ id: ev.id, end: evEnd });
+        eventCol.set(ev.id, c);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      columns.push([{ id: ev.id, end: evEnd }]);
+      eventCol.set(ev.id, columns.length - 1);
+    }
+  }
+
+  const totalCols = columns.length;
+
+  for (const ev of sorted) {
+    const col = eventCol.get(ev.id)!;
+    const evStart = parseISO(ev.start).getTime();
+    const evEnd = parseISO(ev.end).getTime();
+    let span = 1;
+    for (let c = col + 1; c < totalCols; c++) {
+      const isBlocked = columns[c].some((slot) => {
+        const slotEv = sorted.find((e) => e.id === slot.id)!;
+        const slotStart = parseISO(slotEv.start).getTime();
+        const slotEnd = parseISO(slotEv.end).getTime();
+        return slotStart < evEnd && slotEnd > evStart;
+      });
+      if (isBlocked) break;
+      span++;
+    }
+    result.set(ev.id, {
+      left: (col / totalCols) * 100,
+      width: (span / totalCols) * 100,
+      col,
+      totalCols,
+    });
+  }
+
+  return result;
+}
+
+export function DayView({
+  events,
+  date,
+  onEditEvent,
+  onDeleteEvent,
+  isLoading = false,
+}: DayViewProps) {
   const [now, setNow] = useState(new Date());
   const currentTimeRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -68,8 +152,9 @@ export function DayView({ events, date, onEventClick }: DayViewProps) {
     };
   }
 
-  const allDayEvents = events.filter((e) => e.allDay);
-  const timedEvents = events.filter((e) => !e.allDay);
+  const allDayEvents = useMemo(() => events.filter((e) => e.allDay), [events]);
+  const timedEvents = useMemo(() => events.filter((e) => !e.allDay), [events]);
+  const layout = useMemo(() => computeLayout(timedEvents), [timedEvents]);
 
   const today = isToday(date);
   const nowMinutes = (now.getHours() - START_HOUR) * 60 + now.getMinutes();
@@ -104,24 +189,29 @@ export function DayView({ events, date, onEventClick }: DayViewProps) {
             {allDayEvents.map((event) => {
               const color = getEventColor(event);
               return (
-                <button
+                <EventDetailPopover
                   key={event.id}
-                  onClick={() => onEventClick(event)}
-                  className="block w-full rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground transition-all hover:brightness-110"
-                  style={
-                    color
-                      ? {
-                          backgroundColor: `${color}30`,
-                          borderLeft: `3px solid ${color}`,
-                        }
-                      : {
-                          backgroundColor: "hsl(var(--primary) / 0.15)",
-                          borderLeft: "3px solid hsl(var(--primary))",
-                        }
-                  }
+                  event={event}
+                  onEdit={onEditEvent}
+                  onDelete={onDeleteEvent}
                 >
-                  {event.title}
-                </button>
+                  <button
+                    className="block w-full rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground transition-all hover:brightness-110"
+                    style={
+                      color
+                        ? {
+                            backgroundColor: `${color}30`,
+                            borderLeft: `3px solid ${color}`,
+                          }
+                        : {
+                            backgroundColor: "hsl(var(--primary) / 0.15)",
+                            borderLeft: "3px solid hsl(var(--primary))",
+                          }
+                    }
+                  >
+                    {event.title}
+                  </button>
+                </EventDetailPopover>
               );
             })}
           </div>
@@ -164,36 +254,76 @@ export function DayView({ events, date, onEventClick }: DayViewProps) {
             </div>
           )}
 
+          {/* Skeleton events when loading */}
+          {isLoading &&
+            DAY_SKELETONS.map(([startHour, startMin, duration, widthPct], i) => {
+              const topPx =
+                ((startHour - START_HOUR) * 60 + startMin) * (HOUR_HEIGHT / 60);
+              const heightPx = Math.max((duration / 60) * HOUR_HEIGHT, 20);
+              return (
+                <div
+                  key={i}
+                  className="absolute animate-pulse rounded-lg bg-muted"
+                  style={{
+                    top: `${topPx}px`,
+                    height: `${heightPx}px`,
+                    left: "2px",
+                    width: `calc(${widthPct}% - 4px)`,
+                  }}
+                />
+              );
+            })}
+
           {/* Timed events */}
-          {timedEvents.map((event) => {
-            const style = getEventStyle(event);
+          {!isLoading && timedEvents.map((event) => {
+            const posStyle = getEventStyle(event);
+            const li = layout.get(event.id) ?? {
+              left: 0,
+              width: 100,
+              col: 0,
+              totalCols: 1,
+            };
             const color = getEventColor(event);
+            const durationMin = differenceInMinutes(
+              parseISO(event.end),
+              parseISO(event.start),
+            );
             return (
-              <button
+              <EventDetailPopover
                 key={event.id}
-                onClick={() => onEventClick(event)}
-                className="absolute left-0 right-0 overflow-hidden rounded-lg px-3 py-2 text-left text-sm transition-all hover:brightness-110 hover:shadow-lg"
-                style={{
-                  ...style,
-                  backgroundColor: color
-                    ? `${color}30`
-                    : "hsl(var(--primary) / 0.15)",
-                  borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
-                }}
+                event={event}
+                onEdit={onEditEvent}
+                onDelete={onDeleteEvent}
               >
-                <div className="truncate font-semibold leading-tight text-foreground">
-                  {event.title}
-                </div>
-                <div className="truncate mt-0.5 text-[11px] text-foreground/60">
-                  {format(parseISO(event.start), "h:mm a")} –{" "}
-                  {format(parseISO(event.end), "h:mm a")}
-                </div>
-                {event.location && (
-                  <div className="truncate mt-0.5 text-[11px] text-foreground/50">
-                    📍 {event.location}
+                <button
+                  className="absolute overflow-hidden rounded-lg px-2.5 py-1.5 text-left text-sm transition-all hover:z-30 hover:brightness-110 hover:shadow-lg"
+                  style={{
+                    ...posStyle,
+                    left: `calc(${li.left}% + ${li.col > 0 ? 2 : 0}px)`,
+                    width: `calc(${li.width}% - ${li.totalCols > 1 ? 4 : 3}px)`,
+                    zIndex: li.col + 1,
+                    backgroundColor: color
+                      ? `${color}22`
+                      : "hsl(var(--primary) / 0.12)",
+                    borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
+                  }}
+                >
+                  <div className="truncate font-semibold leading-tight text-foreground">
+                    {event.title}
                   </div>
-                )}
-              </button>
+                  {durationMin >= 30 && (
+                    <div className="mt-0.5 truncate text-[11px] text-foreground/60">
+                      {format(parseISO(event.start), "h:mm a")} –{" "}
+                      {format(parseISO(event.end), "h:mm a")}
+                    </div>
+                  )}
+                  {durationMin >= 45 && event.location && (
+                    <div className="mt-0.5 truncate text-[11px] text-foreground/50">
+                      📍 {event.location}
+                    </div>
+                  )}
+                </button>
+              </EventDetailPopover>
             );
           })}
         </div>

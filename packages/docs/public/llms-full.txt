@@ -514,7 +514,7 @@ Apps run inside a **harness** — a host that provides the AI agent alongside yo
 | Codex | `codex` |
 | Gemini CLI | `gemini` |
 | OpenCode | `opencode` |
-| Builder.io | `fusion` |
+| Builder.io | `builder` |
 
 - Auto-installs missing CLIs on first use
 - Best for: solo development, testing

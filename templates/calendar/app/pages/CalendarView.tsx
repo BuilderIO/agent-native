@@ -37,7 +37,6 @@ import {
 import { MonthView } from "@/components/calendar/MonthView";
 import { WeekView } from "@/components/calendar/WeekView";
 import { DayView } from "@/components/calendar/DayView";
-import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
 import { CreateEventPopover } from "@/components/calendar/CreateEventDialog";
 import { CommandPalette } from "@/components/calendar/CommandPalette";
 import { KeyboardShortcutsHelp } from "@/components/calendar/KeyboardShortcutsHelp";
@@ -59,9 +58,6 @@ const viewModeLabels: Record<ViewMode, string> = {
 export default function CalendarView() {
   const { selectedDate, setSelectedDate } = useCalendarContext();
   const [viewMode, setViewMode] = useState<ViewMode>("week");
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(
-    null,
-  );
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
@@ -98,7 +94,11 @@ export default function CalendarView() {
     }
   }, [viewMode, selectedDate]);
 
-  const { data: events = [], error: eventsError } = useEvents(from, to);
+  const {
+    data: events = [],
+    error: eventsError,
+    isLoading: eventsLoading,
+  } = useEvents(from, to);
 
   // Filter events for day view
   const dayEvents = useMemo(
@@ -121,10 +121,6 @@ export default function CalendarView() {
     setSelectedDate(new Date());
   }
 
-  function handleEventClick(event: CalendarEvent) {
-    setSelectedEvent(event);
-  }
-
   function handleDateSelect(date: Date) {
     setSelectedDate(date);
     if (viewMode === "month") {
@@ -137,23 +133,13 @@ export default function CalendarView() {
     setViewMode("day");
   }
 
-  function handleCloseDetail() {
-    setSelectedEvent(null);
-  }
-
-  function handleEditEvent(event: CalendarEvent) {
-    // Close detail panel and open create dialog with event data
-    // For now, keep as a simple close — the CreateEventDialog can be extended for editing
-    setSelectedEvent(null);
+  function handleEditEvent(_event: CalendarEvent) {
     setCreateDialogOpen(true);
   }
 
   function handleDeleteEvent(eventId: string) {
     deleteEvent.mutate(eventId, {
-      onSuccess: () => {
-        toast.success("Event deleted");
-        setSelectedEvent(null);
-      },
+      onSuccess: () => toast.success("Event deleted"),
       onError: () => toast.error("Failed to delete event"),
     });
   }
@@ -239,6 +225,7 @@ export default function CalendarView() {
           setViewMode("day");
           break;
         case "c":
+          e.preventDefault();
           setCreateDialogOpen(true);
           break;
         case "/":
@@ -248,23 +235,12 @@ export default function CalendarView() {
         case "?":
           setShortcutsHelpOpen(true);
           break;
-        case "Escape":
-          if (selectedEvent) {
-            setSelectedEvent(null);
-          }
-          break;
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    createDialogOpen,
-    shortcutsHelpOpen,
-    selectedEvent,
-    isTypingInInput,
-    viewMode,
-  ]);
+  }, [createDialogOpen, shortcutsHelpOpen, isTypingInInput, viewMode]);
 
   const headerLabel = (() => {
     switch (viewMode) {
@@ -456,15 +432,16 @@ export default function CalendarView() {
 
         {/* Main content: calendar grid + detail panel */}
         <div className="flex flex-1 overflow-hidden">
-          {/* Calendar grid */}
           <div className="flex-1 overflow-hidden">
             {viewMode === "month" && (
               <MonthView
                 events={events}
                 selectedDate={selectedDate}
                 onDateSelect={handleDateSelect}
-                onEventClick={handleEventClick}
+                onEditEvent={handleEditEvent}
+                onDeleteEvent={handleDeleteEvent}
                 onEventDrop={handleEventDrop}
+                isLoading={eventsLoading}
               />
             )}
             {viewMode === "week" && (
@@ -472,25 +449,21 @@ export default function CalendarView() {
                 events={events}
                 selectedDate={selectedDate}
                 onDateSelect={handleDateSelect}
-                onEventClick={handleEventClick}
+                onEditEvent={handleEditEvent}
+                onDeleteEvent={handleDeleteEvent}
+                isLoading={eventsLoading}
               />
             )}
             {viewMode === "day" && (
               <DayView
                 events={dayEvents}
                 date={selectedDate}
-                onEventClick={handleEventClick}
+                onEditEvent={handleEditEvent}
+                onDeleteEvent={handleDeleteEvent}
+                isLoading={eventsLoading}
               />
             )}
           </div>
-
-          {/* Event detail side panel */}
-          <EventDetailPanel
-            event={selectedEvent}
-            onClose={handleCloseDetail}
-            onEdit={handleEditEvent}
-            onDelete={handleDeleteEvent}
-          />
         </div>
 
         {/* Dialogs */}
@@ -501,7 +474,7 @@ export default function CalendarView() {
           onGoToDate={handleGoToDate}
           onEventClick={(event) => {
             setCommandPaletteOpen(false);
-            handleEventClick(event);
+            handleGoToDate(parseISO(event.start));
           }}
           onCreateEvent={() => {
             setCommandPaletteOpen(false);

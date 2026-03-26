@@ -67,7 +67,7 @@ function createWindow(): BrowserWindow {
   // In dev, load from the Vite dev server; in prod, load built files
   if (IS_DEV && process.env["ELECTRON_RENDERER_URL"]) {
     win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
-    // DevTools will be opened for the active webview via Cmd+Option+I
+    // DevTools will be opened for the active webview via Cmd+Shift+I
   } else {
     win.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
@@ -208,14 +208,10 @@ app.on("web-contents-created", (_event, contents) => {
 
     const key = input.key.toLowerCase();
 
-    // Cmd+Option+I — toggle devtools for this webview
-    if (key === "i" && input.alt) {
+    // Cmd+Shift+I — toggle devtools for the active app webview, not this webview
+    if (key === "i" && input.shift) {
       event.preventDefault();
-      if (contents.isDevToolsOpened()) {
-        contents.closeDevTools();
-      } else {
-        contents.openDevTools({ mode: "detach" });
-      }
+      toggleWebviewDevTools();
       return;
     }
 
@@ -288,8 +284,8 @@ app.whenReady().then(() => {
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
     const key = input.key.toLowerCase();
 
-    // Cmd+Option+I — open devtools for the active webview, not the shell
-    if (key === "i" && input.alt) {
+    // Cmd+Shift+I — open devtools for the active webview, not the shell
+    if (key === "i" && input.shift) {
       _event.preventDefault();
       toggleWebviewDevTools();
       return;

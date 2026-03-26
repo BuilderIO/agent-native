@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation, useSearchParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "./CommandPalette";
 import { ComposeModal } from "@/components/email/ComposeModal";
@@ -433,8 +434,16 @@ export function AppLayout({ children }: AppLayoutProps) {
   ]);
 
   // Sequence shortcuts (g + key = go to view)
+  const qc = useQueryClient();
   useSequenceShortcuts([
-    { keys: ["g", "i"], handler: () => navigate("/inbox") },
+    {
+      keys: ["g", "i"],
+      handler: () => {
+        navigate("/inbox");
+        qc.invalidateQueries({ queryKey: ["emails"] });
+        qc.invalidateQueries({ queryKey: ["labels"] });
+      },
+    },
     { keys: ["g", "s"], handler: () => navigate("/starred") },
     { keys: ["g", "t"], handler: () => navigate("/sent") },
     { keys: ["g", "d"], handler: () => navigate("/drafts") },

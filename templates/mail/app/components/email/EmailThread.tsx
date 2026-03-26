@@ -574,16 +574,6 @@ export function EmailThread({
     !!threadId,
   );
 
-  if (!threadId) return null;
-
-  if (!email) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <p className="text-muted-foreground text-sm">Email not found</p>
-      </div>
-    );
-  }
-
   // Extract GitHub PR URL from any message in the thread
   const githubPrUrl = useMemo(() => {
     for (const msg of messages) {
@@ -595,6 +585,16 @@ export function EmailThread({
     }
     return null;
   }, [messages]);
+
+  if (!threadId) return null;
+
+  if (!email) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <p className="text-muted-foreground text-sm">Email not found</p>
+      </div>
+    );
+  }
 
   // Filter to user labels for display
   const systemLabels = new Set([

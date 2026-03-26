@@ -425,8 +425,6 @@ export interface AssistantChatProps {
   showHeader?: boolean;
   /** CSS class for the outer container */
   className?: string;
-  /** Whether to show the "Use CLI" hint in dev mode. Default: true */
-  showDevHint?: boolean;
   /** Callback when user clicks "Use CLI" button */
   onSwitchToCli?: () => void;
 }
@@ -495,7 +493,6 @@ const AssistantChatInner = forwardRef<
     emptyStateText,
     suggestions,
     showHeader = true,
-    showDevHint = true,
     onSwitchToCli,
     className,
     apiUrl = "/api/agent-chat",
@@ -641,18 +638,6 @@ const AssistantChatInner = forwardRef<
                   </button>
                 ))}
               </div>
-            )}
-            {showDevHint && onSwitchToCli && (
-              <p className="text-xs text-muted-foreground/60 text-center max-w-[260px] mt-2">
-                In dev mode you can also use the{" "}
-                <button
-                  onClick={onSwitchToCli}
-                  className="underline hover:text-muted-foreground"
-                >
-                  CLI terminal
-                </button>{" "}
-                for full Claude Code capabilities.
-              </p>
             )}
           </div>
         ) : (

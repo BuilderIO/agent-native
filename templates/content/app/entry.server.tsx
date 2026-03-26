@@ -21,6 +21,12 @@ export default async function handleRequest(
     });
   }
 
+  // Reject Chrome DevTools probes that have no matching route
+  const url = new URL(request.url);
+  if (url.pathname.startsWith("/.well-known/")) {
+    return new Response(null, { status: 404 });
+  }
+
   const userAgent = request.headers.get("user-agent");
   const waitForAll = (userAgent && isbot(userAgent)) || routerContext.isSpaMode;
 

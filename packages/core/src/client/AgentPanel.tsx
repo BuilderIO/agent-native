@@ -21,7 +21,14 @@
  *   <AgentPanel className="h-screen" />
  */
 
-import React, { useState, useEffect, lazy, Suspense } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  lazy,
+  Suspense,
+} from "react";
 import { AssistantChat } from "./AssistantChat.js";
 import type { AssistantChatProps } from "./AssistantChat.js";
 import { cn } from "./utils.js";
@@ -52,12 +59,13 @@ function useAvailableClis() {
 }
 
 function useCliSelection() {
-  const [selected, setSelected] = useState(() => {
-    if (typeof localStorage !== "undefined") {
-      return localStorage.getItem(CLI_STORAGE_KEY) || CLI_DEFAULT;
-    }
-    return CLI_DEFAULT;
-  });
+  const [selected, setSelected] = useState(CLI_DEFAULT);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(CLI_STORAGE_KEY);
+      if (saved) setSelected(saved);
+    } catch {}
+  }, []);
   const select = (cmd: string) => {
     setSelected(cmd);
     try {
@@ -108,16 +116,41 @@ function TerminalIcon({ className }: { className?: string }) {
   );
 }
 
+function SidebarIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M9 3v18" />
+    </svg>
+  );
+}
+
 // ─── AgentPanel ─────────────────────────────────────────────────────────────
 
 export interface AgentPanelProps extends Omit<
   AssistantChatProps,
-  "onSwitchToCli" | "showDevHint"
+  "onSwitchToCli"
 > {
   /** Initial mode. Default: "chat" */
   defaultMode?: "chat" | "cli";
   /** CSS class for the outer container */
   className?: string;
+  /** Called when the user clicks the collapse button. If provided, a collapse button appears in the header. */
+  onCollapse?: () => void;
+}
+
+function useClientOnly() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  return mounted;
 }
 
 export function AgentPanel({
@@ -127,7 +160,9 @@ export function AgentPanel({
   emptyStateText,
   suggestions,
   showHeader = true,
+  onCollapse,
 }: AgentPanelProps) {
+  const mounted = useClientOnly();
   const [mode, setMode] = useState<"chat" | "cli">(defaultMode);
   const availableClis = useAvailableClis();
   const [selectedCli, selectCli] = useCliSelection();
@@ -169,39 +204,52 @@ export function AgentPanel({
               </button>
             )}
           </div>
-          {/* CLI selector */}
-          {IS_DEV && availableClis.length > 0 && (
-            <select
-              value={selectedCli}
-              onChange={(e) => selectCli(e.target.value)}
-              className="text-[12px] text-muted-foreground bg-transparent border border-border rounded px-1.5 py-0.5 outline-none hover:text-foreground cursor-pointer"
-              title="Select AI CLI"
-            >
-              {availableClis.map((cli) => (
-                <option key={cli.command} value={cli.command}>
-                  {cli.label}
-                </option>
-              ))}
-            </select>
-          )}
+          <div className="flex items-center gap-1.5">
+            {/* CLI selector — only visible in CLI mode */}
+            {IS_DEV && mode === "cli" && availableClis.length > 0 && (
+              <select
+                value={selectedCli}
+                onChange={(e) => selectCli(e.target.value)}
+                className="text-[12px] text-muted-foreground bg-transparent border border-border rounded px-1.5 py-0.5 outline-none hover:text-foreground cursor-pointer"
+                title="Select AI CLI"
+              >
+                {availableClis.map((cli) => (
+                  <option key={cli.command} value={cli.command}>
+                    {cli.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            {onCollapse && (
+              <button
+                onClick={onCollapse}
+                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                title="Collapse sidebar"
+              >
+                <SidebarIcon className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Chat view — always mounted to preserve conversation */}
+      {/* Chat view — always mounted to preserve conversation (client-only
+          because @assistant-ui uses useLayoutEffect which breaks SSR) */}
       <div
         className={cn(
           "flex-1 flex flex-col min-h-0",
           mode !== "chat" && "hidden",
         )}
       >
-        <AssistantChat
-          apiUrl={apiUrl}
-          showHeader={false}
-          showDevHint={IS_DEV}
-          emptyStateText={emptyStateText}
-          suggestions={suggestions}
-          onSwitchToCli={IS_DEV ? () => setMode("cli") : undefined}
-        />
+        {mounted && (
+          <AssistantChat
+            apiUrl={apiUrl}
+            showHeader={false}
+            emptyStateText={emptyStateText}
+            suggestions={suggestions}
+            onSwitchToCli={IS_DEV ? () => setMode("cli") : undefined}
+          />
+        )}
       </div>
 
       {/* CLI terminal — only rendered in dev mode */}
@@ -224,6 +272,65 @@ export function AgentPanel({
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Resize handle ──────────────────────────────────────────────────────────
+
+const SIDEBAR_STORAGE_KEY = "agent-native-sidebar-width";
+const SIDEBAR_OPEN_KEY = "agent-native-sidebar-open";
+const SIDEBAR_MIN = 280;
+const SIDEBAR_MAX = 700;
+
+function ResizeHandle({
+  position,
+  onDrag,
+}: {
+  position: "left" | "right";
+  onDrag: (delta: number) => void;
+}) {
+  const dragging = useRef(false);
+  const lastX = useRef(0);
+
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    lastX.current = e.clientX;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, []);
+
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!dragging.current) return;
+      const delta = e.clientX - lastX.current;
+      lastX.current = e.clientX;
+      // For a left sidebar, dragging right = wider (positive delta)
+      // For a right sidebar, dragging left = wider (negative delta)
+      onDrag(position === "left" ? delta : -delta);
+    },
+    [onDrag, position],
+  );
+
+  const onPointerUp = useCallback(() => {
+    dragging.current = false;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  }, []);
+
+  return (
+    <div
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      className={cn(
+        "shrink-0 w-1 cursor-col-resize hover:bg-accent/60 active:bg-accent transition-colors",
+        position === "left"
+          ? "border-r border-border"
+          : "border-l border-border",
+      )}
+    />
   );
 }
 
@@ -255,35 +362,94 @@ export function AgentSidebar({
   position = "right",
   defaultOpen = false,
 }: AgentSidebarProps) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SIDEBAR_OPEN_KEY);
+      if (saved !== null) return saved === "true";
+    } catch {}
+    return defaultOpen;
+  });
+  const [width, setWidth] = useState(sidebarWidth);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+      if (saved) {
+        const n = parseInt(saved, 10);
+        if (n >= SIDEBAR_MIN && n <= SIDEBAR_MAX) setWidth(n);
+      }
+    } catch {}
+  }, []);
+
+  const setOpenPersisted = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      setOpen((prev) => {
+        const value = typeof next === "function" ? next(prev) : next;
+        try {
+          localStorage.setItem(SIDEBAR_OPEN_KEY, String(value));
+        } catch {}
+        return value;
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     const handler = () => {
-      setOpen((prev) => !prev);
+      setOpenPersisted((prev) => !prev);
     };
     window.addEventListener("agent-panel:toggle", handler);
     return () => window.removeEventListener("agent-panel:toggle", handler);
+  }, [setOpenPersisted]);
+
+  const handleDrag = useCallback((delta: number) => {
+    setWidth((prev) => {
+      const next = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, prev + delta));
+      try {
+        localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
+      } catch {}
+      return next;
+    });
   }, []);
 
   const isLeft = position === "left";
-  const borderClass = isLeft ? "border-r" : "border-l";
 
-  const sidebar = open ? (
-    <div
-      className={`flex flex-col ${borderClass} border-border shrink-0 overflow-hidden agent-sidebar-panel`}
-      style={{ width: sidebarWidth }}
+  const collapsedTab = (
+    <button
+      onClick={() => setOpenPersisted(true)}
+      className={cn(
+        "shrink-0 flex flex-col items-center pt-3 w-10 bg-card text-muted-foreground hover:text-foreground",
+        isLeft ? "border-r border-border" : "border-l border-border",
+      )}
+      title="Open agent sidebar"
     >
-      <AgentPanel emptyStateText={emptyStateText} suggestions={suggestions} />
-    </div>
-  ) : null;
+      <ChatBubbleIcon className="h-4 w-4" />
+    </button>
+  );
+
+  const sidebar = (
+    <>
+      {isLeft ? null : <ResizeHandle position={position} onDrag={handleDrag} />}
+      <div
+        className="flex flex-col shrink-0 overflow-hidden agent-sidebar-panel"
+        style={{ width }}
+      >
+        <AgentPanel
+          emptyStateText={emptyStateText}
+          suggestions={suggestions}
+          onCollapse={() => setOpenPersisted(false)}
+        />
+      </div>
+      {isLeft ? <ResizeHandle position={position} onDrag={handleDrag} /> : null}
+    </>
+  );
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      {isLeft && sidebar}
+      {isLeft && (open ? sidebar : collapsedTab)}
       <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         {children}
       </div>
-      {!isLeft && sidebar}
+      {!isLeft && (open ? sidebar : collapsedTab)}
     </div>
   );
 }

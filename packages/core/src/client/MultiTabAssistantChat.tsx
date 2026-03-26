@@ -113,9 +113,8 @@ export function MultiTabAssistantChat(props: MultiTabAssistantChatProps) {
         }),
       );
     };
-    window.addEventListener("builder.fusion.chatRunning", handler);
-    return () =>
-      window.removeEventListener("builder.fusion.chatRunning", handler);
+    window.addEventListener("builder.chatRunning", handler);
+    return () => window.removeEventListener("builder.chatRunning", handler);
   }, []);
 
   const closeTab = useCallback(

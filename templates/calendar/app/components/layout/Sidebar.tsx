@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { useGoogleAuthStatus, useGoogleAuthUrl } from "@/hooks/use-google-auth";
 import { useCalendarContext } from "./AppLayout";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { AgentToggleButton } from "@agent-native/core/client";
 
 const navItems = [
   { path: "/", label: "Calendar", icon: CalendarDays },
@@ -207,9 +208,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       >
         {/* Logo */}
         <div className="flex h-14 items-center gap-2.5 border-b border-border px-4">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/20">
-            <CalendarDays className="h-4 w-4 text-primary" />
-          </div>
+          <AgentToggleButton />
           <span className="text-base font-semibold tracking-tight">
             Calendar
           </span>

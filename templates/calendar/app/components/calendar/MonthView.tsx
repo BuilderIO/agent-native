@@ -13,13 +13,15 @@ import {
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import { EventCard } from "./EventCard";
+import { EventDetailPopover } from "./EventDetailPopover";
 import type { CalendarEvent } from "@shared/api";
 
 interface MonthViewProps {
   events: CalendarEvent[];
   selectedDate: Date;
   onDateSelect: (date: Date) => void;
-  onEventClick?: (event: CalendarEvent) => void;
+  onEditEvent?: (event: CalendarEvent) => void;
+  onDeleteEvent?: (eventId: string) => void;
   onEventDrop?: (eventId: string, newDate: Date) => void;
 }
 
@@ -29,7 +31,8 @@ export function MonthView({
   events,
   selectedDate,
   onDateSelect,
-  onEventClick,
+  onEditEvent,
+  onDeleteEvent,
   onEventDrop,
 }: MonthViewProps) {
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
@@ -133,25 +136,26 @@ export function MonthView({
               {/* Events */}
               <div className="mt-1 space-y-0.5 overflow-hidden">
                 {dayEvents.slice(0, 3).map((event) => (
-                  <div
+                  <EventDetailPopover
                     key={event.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onEventClick?.(event);
-                    }}
+                    event={event}
+                    onEdit={onEditEvent ?? (() => {})}
+                    onDelete={onDeleteEvent ?? (() => {})}
                   >
-                    <EventCard
-                      event={event}
-                      compact
-                      draggable
-                      onDragStart={(id) => setDraggingId(id)}
-                      onDragEnd={() => {
-                        setDraggingId(null);
-                        setDragOverDay(null);
-                      }}
-                      dimmed={draggingId === event.id}
-                    />
-                  </div>
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <EventCard
+                        event={event}
+                        compact
+                        draggable
+                        onDragStart={(id) => setDraggingId(id)}
+                        onDragEnd={() => {
+                          setDraggingId(null);
+                          setDragOverDay(null);
+                        }}
+                        dimmed={draggingId === event.id}
+                      />
+                    </div>
+                  </EventDetailPopover>
                 ))}
                 {dayEvents.length > 3 && (
                   <button
