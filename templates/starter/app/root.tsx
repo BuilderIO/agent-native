@@ -59,7 +59,7 @@ export default function Root() {
           <TooltipProvider>
             <FileWatcherSetup />
             <Outlet />
-            <Toaster />
+            <Toaster position="bottom-left" />
           </TooltipProvider>
         </QueryClientProvider>
       </ThemeProvider>

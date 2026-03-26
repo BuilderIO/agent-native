@@ -3,6 +3,7 @@ import {
   AssistantChat,
   type AssistantChatProps,
   type AssistantChatHandle,
+  CHAT_STORAGE_PREFIX,
 } from "./AssistantChat.js";
 import { generateTabId } from "./agent-chat.js";
 import { getHarnessOrigin } from "./harness.js";
@@ -69,6 +70,16 @@ interface ChatTab {
   status: "idle" | "running" | "completed";
 }
 
+export interface MultiTabAssistantChatHeaderProps {
+  tabs: ChatTab[];
+  activeTabId: string;
+  activeTabMessageCount: number;
+  setActiveTabId: (tabId: string) => void;
+  addTab: () => void;
+  closeTab: (tabId: string) => void;
+  clearActiveTab: () => void;
+}
+
 const TABS_STORAGE_KEY = "agent-chat-tabs";
 const ACTIVE_TAB_STORAGE_KEY = "agent-chat-tabs:active";
 
@@ -120,15 +131,29 @@ function saveTabs(tabs: ChatTab[], activeId: string) {
   } catch {}
 }
 
+function getPersistedMessageCount(tabId: string): number {
+  try {
+    const saved = sessionStorage.getItem(`${CHAT_STORAGE_PREFIX}${tabId}`);
+    if (!saved) return 0;
+    const repo = JSON.parse(saved);
+    return Array.isArray(repo?.messages) ? repo.messages.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export type MultiTabAssistantChatProps = Omit<AssistantChatProps, "tabId"> & {
   /** Show the tab bar. Default: true */
   showTabBar?: boolean;
+  /** Optional custom single-row header renderer */
+  renderHeader?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
 };
 
 export function MultiTabAssistantChat({
   showTabBar = true,
+  renderHeader,
   ...props
 }: MultiTabAssistantChatProps) {
   const [tabs, setTabs] = useState<ChatTab[]>(() => {
@@ -143,6 +168,12 @@ export function MultiTabAssistantChat({
   activeTabIdRef.current = activeTabId;
   const chatRefs = useRef<Map<string, AssistantChatHandle>>(new Map());
   const pendingSends = useRef<Map<string, string>>(new Map());
+  const [messageCounts, setMessageCounts] = useState<Record<string, number>>(
+    () =>
+      Object.fromEntries(
+        tabs.map((tab) => [tab.id, getPersistedMessageCount(tab.id)]),
+      ),
+  );
 
   // Persist tabs to localStorage
   useEffect(() => {
@@ -211,6 +242,7 @@ export function MultiTabAssistantChat({
     const label = getNextLabel(tabs);
     const tab = createChatTab(label);
     setTabs((prev) => [...prev, tab]);
+    setMessageCounts((prev) => ({ ...prev, [tab.id]: 0 }));
     setActiveTabId(tab.id);
   }, [tabs]);
 
@@ -228,6 +260,11 @@ export function MultiTabAssistantChat({
       });
       chatRefs.current.delete(tabId);
       pendingSends.current.delete(tabId);
+      setMessageCounts((prev) => {
+        const next = { ...prev };
+        delete next[tabId];
+        return next;
+      });
       // Clean up persisted messages
       try {
         sessionStorage.removeItem(`agent-chat:${tabId}`);
@@ -247,13 +284,31 @@ export function MultiTabAssistantChat({
       tabs.find((t) => t.id === currentId)?.label || "1",
     );
     setTabs((prev) => prev.map((t) => (t.id === currentId ? newTab : t)));
+    setMessageCounts((prev) => {
+      const next = { ...prev };
+      delete next[currentId];
+      next[newTab.id] = 0;
+      return next;
+    });
     setActiveTabId(newTab.id);
     chatRefs.current.delete(currentId);
   }, [activeTabId, tabs]);
 
+  const headerProps: MultiTabAssistantChatHeaderProps = {
+    tabs,
+    activeTabId,
+    activeTabMessageCount: messageCounts[activeTabId] ?? 0,
+    setActiveTabId,
+    addTab,
+    closeTab,
+    clearActiveTab,
+  };
+
   return (
     <div className="flex flex-1 flex-col h-full min-h-0">
-      {showTabBar && (
+      {renderHeader ? (
+        renderHeader(headerProps)
+      ) : showTabBar ? (
         <div className="flex items-center h-8 px-1 border-b border-border shrink-0 gap-px">
           <div className="flex items-center gap-px min-w-0 overflow-x-auto scrollbar-none flex-1">
             {tabs.map((tab) => (
@@ -311,7 +366,7 @@ export function MultiTabAssistantChat({
             </button>
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* Render all tabs, hide inactive ones to preserve state */}
       {tabs.map((tab) => (
@@ -329,6 +384,11 @@ export function MultiTabAssistantChat({
               }
             }}
             tabId={tab.id}
+            onMessageCountChange={(count) =>
+              setMessageCounts((prev) =>
+                prev[tab.id] === count ? prev : { ...prev, [tab.id]: count },
+              )
+            }
             {...props}
           />
         </div>

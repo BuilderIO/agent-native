@@ -210,6 +210,23 @@ function MarkdownText() {
   );
 }
 
+// ─── Composer Attachment Preview ─────────────────────────────────────────────
+
+function ComposerAttachmentPreview() {
+  return (
+    <AttachmentPrimitive.Root className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs text-foreground m-1.5 mb-0">
+      <span className="max-w-[160px] truncate">
+        <AttachmentPrimitive.Name />
+      </span>
+      <AttachmentPrimitive.Remove asChild>
+        <button className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-accent text-muted-foreground hover:text-foreground">
+          <XIcon className="h-3 w-3" />
+        </button>
+      </AttachmentPrimitive.Remove>
+    </AttachmentPrimitive.Root>
+  );
+}
+
 // ─── Tool Call Fallback ─────────────────────────────────────────────────────
 
 function ToolCallFallback({
@@ -516,6 +533,8 @@ export interface AssistantChatProps {
   className?: string;
   /** Callback when user clicks "Use CLI" button */
   onSwitchToCli?: () => void;
+  /** Callback when message count changes */
+  onMessageCountChange?: (count: number) => void;
 }
 
 // ─── Queue Composer ──────────────────────────────────────────────────────────
@@ -604,6 +623,7 @@ const AssistantChatInner = forwardRef<
     className,
     apiUrl,
     tabId,
+    onMessageCountChange,
   },
   ref,
 ) {
@@ -650,6 +670,10 @@ const AssistantChatInner = forwardRef<
       // Ignore storage errors
     }
   }, [messages, isRunning, storageKey, threadRuntime]);
+
+  useEffect(() => {
+    onMessageCountChange?.(messages.length);
+  }, [messages.length, onMessageCountChange]);
 
   const clearChat = useCallback(() => {
     try {

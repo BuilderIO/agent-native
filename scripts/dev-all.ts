@@ -81,6 +81,12 @@ const appConfig = templates.map((name, i) => ({
   wsPort: WS_BASE_PORT + i,
 }));
 
+// Core TypeScript watch
+names.push("core");
+commands.push(
+  "pnpm --filter @agent-native/core exec tsc --watch --preserveWatchOutput",
+);
+
 // Docs site
 names.push("docs");
 commands.push(`pnpm --filter @agent-native/docs dev`);

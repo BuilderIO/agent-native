@@ -10,12 +10,7 @@ export interface Document {
   updatedAt: string;
 }
 
-export type SyncState =
-  | "idle"
-  | "linked"
-  | "syncing"
-  | "error"
-  | "conflict";
+export type SyncState = "idle" | "linked" | "syncing" | "error" | "conflict";
 
 export interface DocumentSyncStatus {
   provider: "notion";

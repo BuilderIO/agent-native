@@ -38,6 +38,36 @@ export function createAgentChatAdapter(options?: {
           .map((p) => p.text)
           .join("\n") ?? "";
 
+      // Extract attachments (images as base64, text as content)
+      const attachments: {
+        type: string;
+        name: string;
+        contentType?: string;
+        data?: string;
+        text?: string;
+      }[] = [];
+      if (lastUserMsg) {
+        for (const part of lastUserMsg.content) {
+          if (part.type === "image" && "image" in part) {
+            const img = part as { type: "image"; image: string };
+            attachments.push({ type: "image", name: "image", data: img.image });
+          } else if (part.type === "file" && "data" in part) {
+            const f = part as {
+              type: "file";
+              data: string;
+              mimeType?: string;
+              name?: string;
+            };
+            attachments.push({
+              type: "file",
+              name: f.name ?? "file",
+              contentType: f.mimeType,
+              text: f.data,
+            });
+          }
+        }
+      }
+
       const history = messages
         .slice(0, -1) // exclude the latest user message
         .filter((m) => m.role === "user" || m.role === "assistant")
@@ -70,7 +100,11 @@ export function createAgentChatAdapter(options?: {
         const res = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: messageText, history }),
+          body: JSON.stringify({
+            message: messageText,
+            history,
+            ...(attachments.length > 0 ? { attachments } : {}),
+          }),
           signal: abortSignal,
         });
 

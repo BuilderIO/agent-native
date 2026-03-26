@@ -62,3 +62,13 @@ export { ClientOnly } from "./ClientOnly.js";
 export { DefaultSpinner } from "./DefaultSpinner.js";
 export { AgentTerminal, type AgentTerminalProps } from "./terminal/index.js";
 export { trackEvent, trackSessionStatus } from "./analytics.js";
+export {
+  CommandMenu,
+  useCommandMenuShortcut,
+  openAgentSidebar,
+  submitToAgent,
+  type CommandMenuProps,
+  type CommandGroupProps,
+  type CommandItemProps,
+  type CommandShortcutProps,
+} from "./CommandMenu.js";

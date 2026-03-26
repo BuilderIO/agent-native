@@ -124,7 +124,7 @@ export default function Root() {
           disableTransitionOnChange
         >
           <TooltipProvider delayDuration={300}>
-            <Toaster richColors position="bottom-right" />
+            <Toaster richColors position="bottom-left" />
             <AutoFocus />
             <FileWatcherSetup />
             <AppLayout>

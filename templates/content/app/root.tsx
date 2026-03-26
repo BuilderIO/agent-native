@@ -50,7 +50,7 @@ export default function Root() {
           <FileWatcherSetup />
           <TooltipProvider>
             <Toaster />
-            <Sonner />
+            <Sonner position="bottom-left" />
             <Outlet />
           </TooltipProvider>
         </QueryClientProvider>

@@ -43,7 +43,7 @@ export default function Root() {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <Toaster />
-          <Sonner />
+          <Sonner position="bottom-left" />
           <AuthProvider>
             <CommandPalette />
             <Outlet />

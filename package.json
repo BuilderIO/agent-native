@@ -13,8 +13,8 @@
     "test": "pnpm --filter @agent-native/core test && pnpm --filter @agent-native/docs test",
     "lint": "pnpm fmt:check && pnpm typecheck",
     "prep": "concurrently -n fmt,types,test -c blue,cyan,green \"pnpm fmt\" \"pnpm typecheck\" \"pnpm test\"",
-    "dev:all": "pnpm --filter @agent-native/core build && node scripts/dev-all.ts",
-    "dev:all:single-port": "pnpm --filter @agent-native/core build && node scripts/dev-all-single-port.ts",
+    "dev:all": "(pnpm --filter @agent-native/core build || true) && node scripts/dev-all.ts",
+    "dev:all:single-port": "(pnpm --filter @agent-native/core build || true) && node scripts/dev-all-single-port.ts",
     "dev:docs": "pnpm --filter @agent-native/docs dev",
     "dev:electron": "node scripts/dev-electron.ts",
     "dev:electron:apps": "node scripts/dev-electron.ts --apps"
