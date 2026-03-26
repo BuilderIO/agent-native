@@ -668,21 +668,38 @@ const AssistantChatInner = forwardRef<
     [addToQueue, thread.isRunning],
   );
 
-  // Auto-scroll on new messages or queued messages
+  // Track whether user has scrolled away from bottom
+  const isNearBottomRef = useRef(true);
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) {
+    if (!el) return;
+    function onScroll() {
+      if (!el) return;
+      const threshold = 40;
+      isNearBottomRef.current =
+        el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    }
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Auto-scroll on new messages or queued messages (only if near bottom)
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && isNearBottomRef.current) {
       el.scrollTop = el.scrollHeight;
     }
   }, [messages, queuedMessages]);
 
-  // Continuous auto-scroll while streaming (content changes without messages array changing)
+  // Continuous auto-scroll while streaming (only if near bottom)
   useEffect(() => {
     if (!isRunning) return;
     const el = scrollRef.current;
     if (!el) return;
     const interval = setInterval(() => {
-      el.scrollTop = el.scrollHeight;
+      if (isNearBottomRef.current) {
+        el.scrollTop = el.scrollHeight;
+      }
     }, 100);
     return () => clearInterval(interval);
   }, [isRunning]);

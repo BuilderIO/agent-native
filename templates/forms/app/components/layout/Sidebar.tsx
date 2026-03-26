@@ -5,8 +5,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useForms, useCreateForm } from "@/hooks/use-forms";
 import { cn } from "@/lib/utils";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { AgentToggleButton } from "@agent-native/core/client";
 
 const statusColors: Record<string, string> = {
   draft: "bg-amber-600/10 text-amber-600 dark:text-amber-400",
@@ -33,16 +31,13 @@ export function Sidebar() {
     <div className="flex h-screen w-64 flex-col border-r border-border bg-sidebar">
       {/* Header */}
       <div className="flex h-14 items-center justify-between border-b border-sidebar-border px-4">
-        <div className="flex items-center gap-2">
-          <AgentToggleButton />
-          <Link
-            to="/forms"
-            className="flex items-center gap-2 font-semibold text-sidebar-foreground"
-          >
-            <LayoutDashboard className="h-5 w-5" />
-            <span>Forms</span>
-          </Link>
-        </div>
+        <Link
+          to="/forms"
+          className="flex items-center gap-2 font-semibold text-sidebar-foreground"
+        >
+          <LayoutDashboard className="h-5 w-5" />
+          <span>Forms</span>
+        </Link>
       </div>
 
       {/* New form button */}
@@ -97,11 +92,6 @@ export function Sidebar() {
           )}
         </div>
       </ScrollArea>
-
-      {/* Theme toggle */}
-      <div className="border-t border-sidebar-border px-3 py-2 flex items-center">
-        <ThemeToggle />
-      </div>
     </div>
   );
 }

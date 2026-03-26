@@ -99,7 +99,7 @@ export default function Root() {
       <DeckProvider key={DECK_KEY}>
         {mounted ? (
           <AgentSidebar
-            position="left"
+            position="right"
             defaultOpen
             emptyStateText="Ask me anything about your presentations"
             suggestions={[
@@ -108,8 +108,8 @@ export default function Root() {
               "Add an image to this slide",
             ]}
           >
-            <div className="fixed top-3 left-3 z-50">
-              <AgentToggleButton />
+            <div className="fixed right-3 top-3 z-50">
+              <AgentToggleButton className="h-9 w-9 rounded-xl border border-border/60 bg-background/90 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/75" />
             </div>
             <Outlet />
           </AgentSidebar>

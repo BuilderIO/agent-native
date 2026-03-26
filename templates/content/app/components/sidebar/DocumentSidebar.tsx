@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { AgentToggleButton } from "@agent-native/core/client";
 import { DocumentTreeItem } from "./DocumentTreeItem";
 import {
   useDocuments,
@@ -76,12 +75,7 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
     <div className="flex flex-col h-full w-60 border-r border-border bg-muted/30">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-        <div className="flex items-center gap-1">
-          <AgentToggleButton />
-          <span className="text-sm font-semibold text-foreground">
-            Documents
-          </span>
-        </div>
+        <span className="text-sm font-semibold text-foreground">Documents</span>
         <div className="flex items-center gap-1">
           <button
             className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"

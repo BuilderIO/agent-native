@@ -29,8 +29,12 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <CalendarContext.Provider value={{ selectedDate, setSelectedDate }}>
       <div className="flex h-screen overflow-hidden bg-background">
+        <div className="fixed right-3 top-3 z-50">
+          <AgentToggleButton className="h-9 w-9 rounded-xl border border-border/60 bg-background/90 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/75" />
+        </div>
+        <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <AgentSidebar
-          position="left"
+          position="right"
           defaultOpen
           emptyStateText="Ask me anything about your calendar"
           suggestions={[
@@ -39,26 +43,21 @@ export function AppLayout({ children }: AppLayoutProps) {
             "Show me upcoming events",
           ]}
         >
-          <div className="flex flex-1 overflow-hidden">
-            <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-            <div className="flex flex-1 flex-col overflow-hidden">
-              {/* Mobile header */}
-              <div className="flex h-12 items-center border-b border-border px-3 lg:hidden">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => setSidebarOpen(true)}
-                >
-                  <Menu className="h-4 w-4" />
-                </Button>
-                <AgentToggleButton />
-                <span className="ml-2 text-sm font-semibold">Calendar</span>
-              </div>
-
-              <main className="flex-1 overflow-hidden">{children}</main>
+          <div className="flex flex-1 flex-col overflow-hidden">
+            {/* Mobile header */}
+            <div className="flex h-12 items-center border-b border-border px-3 lg:hidden">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setSidebarOpen(true)}
+              >
+                <Menu className="h-4 w-4" />
+              </Button>
+              <span className="ml-2 text-sm font-semibold">Calendar</span>
             </div>
+
+            <main className="flex-1 overflow-hidden">{children}</main>
           </div>
         </AgentSidebar>
       </div>

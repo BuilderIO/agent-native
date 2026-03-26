@@ -3,7 +3,6 @@ import { useLocation } from "react-router";
 import { Menu, BarChart3 } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Sidebar } from "./Sidebar";
-import { AgentToggleButton } from "@agent-native/core/client";
 
 export function MobileNav() {
   const [open, setOpen] = useState(false);
@@ -23,7 +22,6 @@ export function MobileNav() {
       >
         <Menu className="h-5 w-5 text-foreground" />
       </button>
-      <AgentToggleButton />
       <div className="flex items-center gap-2">
         <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
           <BarChart3 className="h-4 w-4" />

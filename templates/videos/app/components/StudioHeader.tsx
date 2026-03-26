@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { PanelLeftClose, PanelLeft, Box, Film, Share2 } from "lucide-react";
 import { Link, useLocation } from "react-router";
-import { AgentToggleButton } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
@@ -24,8 +23,6 @@ export function StudioHeader({
     <>
       <header className="flex items-center justify-between px-4 h-12 border-b border-border bg-card/80 backdrop-blur-xl z-10 flex-shrink-0">
         <div className="flex items-center gap-3">
-          <AgentToggleButton />
-
           <button
             onClick={onToggleSidebar}
             className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
