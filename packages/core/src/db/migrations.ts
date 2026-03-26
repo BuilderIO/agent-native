@@ -1,6 +1,4 @@
-import { createClient } from "@libsql/client";
-import fs from "fs";
-import path from "path";
+import { getDbExec, getDialect, isPostgres } from "./client.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -34,38 +32,26 @@ export function runMigrations(
         return;
       }
 
-      // Fall back to libsql
-      const url = process.env.DATABASE_URL || "file:./data/app.db";
+      // Generic path — works for libsql, Postgres, and any DbExec backend
+      const exec = getDbExec();
 
-      if (url.startsWith("file:")) {
-        try {
-          fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
-        } catch {
-          // Edge runtime — no filesystem
-        }
-      }
+      const createTable = isPostgres()
+        ? `CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY)`
+        : `CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY)`;
+      await exec.execute(createTable);
 
-      const client = createClient({
-        url,
-        authToken: process.env.DATABASE_AUTH_TOKEN,
-      });
-
-      await client.execute(
-        `CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY)`,
-      );
-      const { rows } = await client.execute(
+      const { rows } = await exec.execute(
         `SELECT MAX(version) as v FROM _migrations`,
       );
       const current = (rows[0]?.v as number) ?? 0;
 
+      const insertSql = isPostgres()
+        ? `INSERT INTO _migrations VALUES (?) ON CONFLICT DO NOTHING`
+        : `INSERT OR IGNORE INTO _migrations VALUES (?)`;
+
       for (const m of migrations.filter((m) => m.version > current)) {
-        await client.batch([
-          { sql: m.sql, args: [] },
-          {
-            sql: `INSERT OR IGNORE INTO _migrations VALUES (?)`,
-            args: [m.version],
-          },
-        ]);
+        await exec.execute(m.sql);
+        await exec.execute({ sql: insertSql, args: [m.version] });
       }
     } catch (err) {
       console.error("[db] Migration failed:", err);

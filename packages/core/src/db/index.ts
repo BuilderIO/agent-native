@@ -8,10 +8,14 @@ export type DbConfig =
 
 /**
  * Create a Drizzle ORM database instance.
- * Currently supports SQLite via better-sqlite3.
- * D1 and Postgres/Neon support added as needed.
+ * Supports SQLite via better-sqlite3 and Postgres/Neon via postgres-js.
  */
 export function createDb(config: DbConfig) {
+  if (config.driver === "postgres" || config.driver === "neon") {
+    const pg = require("postgres") as any;
+    const { drizzle: drizzlePg } = require("drizzle-orm/postgres-js");
+    return drizzlePg(pg(config.connectionString));
+  }
   if (config.driver === "sqlite") {
     const sqlite = new Database(config.filename);
     // Enable WAL mode for better concurrent read performance
@@ -25,3 +29,11 @@ export type DrizzleDb = ReturnType<typeof createDb>;
 
 export { createGetDb } from "./create-get-db.js";
 export { runMigrations } from "./migrations.js";
+export {
+  getDbExec,
+  getDialect,
+  isPostgres,
+  closeDbExec,
+  type DbExec,
+  type Dialect,
+} from "./client.js";

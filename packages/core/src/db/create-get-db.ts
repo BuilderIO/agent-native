@@ -1,9 +1,12 @@
 import { drizzle as drizzleLibsql } from "drizzle-orm/libsql";
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
+import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
+import { getDialect } from "./client.js";
 
 export function createGetDb<T extends Record<string, unknown>>(schema: T) {
-  let _db: LibSQLDatabase<T> | undefined;
+  let _db: any;
   return function getDb(): LibSQLDatabase<T> {
     if (!_db) {
       // Check for Cloudflare D1 binding
@@ -14,8 +17,17 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
         return _db;
       }
 
-      // Fall back to libsql (local dev, Turso)
       const url = process.env.DATABASE_URL || "file:./data/app.db";
+
+      // Postgres
+      if (getDialect() === "postgres") {
+        _db = drizzlePostgres(postgres(url), {
+          schema,
+        }) as unknown as LibSQLDatabase<T>;
+        return _db;
+      }
+
+      // Fall back to libsql (local dev, Turso)
       _db = drizzleLibsql({
         connection: {
           url,

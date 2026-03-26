@@ -1,4 +1,4 @@
-import { createClient, type Client } from "@libsql/client";
+import { getDbExec, isPostgres, type DbExec } from "../db/client.js";
 import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 import crypto from "crypto";
 
@@ -25,52 +25,11 @@ export interface ResourceMeta {
   updatedAt: number;
 }
 
-interface DbExec {
-  execute(
-    sql: string | { sql: string; args: any[] },
-  ): Promise<{ rows: any[]; rowsAffected: number }>;
-}
-
-let _client: DbExec | undefined;
-
-function getClient(): DbExec {
-  if (!_client) {
-    // Check for Cloudflare D1 binding
-    const d1 = (globalThis as any).__cf_env?.DB;
-    if (d1) {
-      _client = {
-        async execute(sql) {
-          if (typeof sql === "string") {
-            const r = await d1.prepare(sql).all();
-            return {
-              rows: r.results || [],
-              rowsAffected: r.meta?.changes ?? 0,
-            };
-          }
-          const r = await d1
-            .prepare(sql.sql)
-            .bind(...sql.args)
-            .all();
-          return { rows: r.results || [], rowsAffected: r.meta?.changes ?? 0 };
-        },
-      };
-      return _client;
-    }
-
-    const url = process.env.DATABASE_URL || "file:./data/app.db";
-    _client = createClient({
-      url,
-      authToken: process.env.DATABASE_AUTH_TOKEN,
-    });
-  }
-  return _client;
-}
-
 let _initialized = false;
 
 async function ensureTable(): Promise<void> {
   if (_initialized) return;
-  const client = getClient();
+  const client = getDbExec();
   await client.execute(`
     CREATE TABLE IF NOT EXISTS resources (
       id TEXT PRIMARY KEY,
@@ -114,7 +73,7 @@ function rowToMeta(row: any): ResourceMeta {
 
 export async function resourceGet(id: string): Promise<Resource | null> {
   await ensureTable();
-  const client = getClient();
+  const client = getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT * FROM resources WHERE id = ?`,
     args: [id],
@@ -128,7 +87,7 @@ export async function resourceGetByPath(
   path: string,
 ): Promise<Resource | null> {
   await ensureTable();
-  const client = getClient();
+  const client = getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT * FROM resources WHERE owner = ? AND path = ?`,
     args: [owner, path],
@@ -144,7 +103,7 @@ export async function resourcePut(
   mimeType?: string,
 ): Promise<Resource> {
   await ensureTable();
-  const client = getClient();
+  const client = getDbExec();
   const now = Date.now();
   const size = Buffer.byteLength(content, "utf8");
   const mime = mimeType || "text/markdown";
@@ -161,7 +120,9 @@ export async function resourcePut(
     existing.length > 0 ? (existing[0].created_at as number) : now;
 
   await client.execute({
-    sql: `INSERT OR REPLACE INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: isPostgres()
+      ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET path=EXCLUDED.path, owner=EXCLUDED.owner, content=EXCLUDED.content, mime_type=EXCLUDED.mime_type, size=EXCLUDED.size, updated_at=EXCLUDED.updated_at`
+      : `INSERT OR REPLACE INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [id, path, owner, content, mime, size, createdAt, now],
   });
 
@@ -181,7 +142,7 @@ export async function resourcePut(
 
 export async function resourceDelete(id: string): Promise<boolean> {
   await ensureTable();
-  const client = getClient();
+  const client = getDbExec();
 
   // Get resource info for emitter before deleting
   const { rows } = await client.execute({
@@ -206,7 +167,7 @@ export async function resourceDeleteByPath(
   path: string,
 ): Promise<boolean> {
   await ensureTable();
-  const client = getClient();
+  const client = getDbExec();
 
   // Get resource info for emitter before deleting
   const { rows } = await client.execute({
@@ -231,7 +192,7 @@ export async function resourceList(
   pathPrefix?: string,
 ): Promise<ResourceMeta[]> {
   await ensureTable();
-  const client = getClient();
+  const client = getDbExec();
 
   if (pathPrefix) {
     const { rows } = await client.execute({
@@ -253,7 +214,7 @@ export async function resourceListAccessible(
   pathPrefix?: string,
 ): Promise<ResourceMeta[]> {
   await ensureTable();
-  const client = getClient();
+  const client = getDbExec();
 
   if (pathPrefix) {
     const { rows } = await client.execute({
@@ -279,7 +240,7 @@ export async function resourceMove(
   newPath: string,
 ): Promise<boolean> {
   await ensureTable();
-  const client = getClient();
+  const client = getDbExec();
   const now = Date.now();
 
   // Get current resource info
