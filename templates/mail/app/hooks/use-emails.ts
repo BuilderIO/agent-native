@@ -19,6 +19,18 @@ export function fetchThreadMessages(threadId: string): Promise<EmailMessage[]> {
   return apiFetch(`/api/threads/${threadId}/messages`);
 }
 
+function parseRecipients(value?: string): EmailMessage["to"] {
+  return (value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((email) => ({ name: email, email }));
+}
+
+function makeTempId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 // ─── Emails ──────────────────────────────────────────────────────────────────
 
 export function useEmails(view: string = "inbox", search?: string) {
@@ -266,11 +278,84 @@ export function useSendEmail() {
       replyToId?: string;
       accountEmail?: string;
     }) =>
-      apiFetch("/api/emails/send", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-    onSuccess: () => {
+      apiFetch<{ id: string; threadId?: string; labelIds?: string[] }>(
+        "/api/emails/send",
+        {
+          method: "POST",
+          body: JSON.stringify(data),
+        },
+      ),
+    onMutate: async (data) => {
+      await qc.cancelQueries({ queryKey: ["thread-messages"] });
+
+      const previousThreads = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["thread-messages"],
+      });
+      const settings = qc.getQueryData<UserSettings>(["settings"]);
+      const cachedEmails = qc
+        .getQueriesData<EmailMessage[]>({ queryKey: ["emails"] })
+        .flatMap(([, emails]) => emails ?? []);
+      const replyTarget = data.replyToId
+        ? cachedEmails.find((email) => email.id === data.replyToId)
+        : undefined;
+      const threadId =
+        replyTarget?.threadId || data.replyToId || makeTempId("thread");
+      const optimisticMessage: EmailMessage = {
+        id: makeTempId("sent"),
+        threadId,
+        from: {
+          name: settings?.name || settings?.email || data.accountEmail || "Me",
+          email: data.accountEmail || settings?.email || "",
+        },
+        to: parseRecipients(data.to),
+        ...(data.cc ? { cc: parseRecipients(data.cc) } : {}),
+        ...(data.bcc ? { bcc: parseRecipients(data.bcc) } : {}),
+        subject: data.subject || "(no subject)",
+        snippet: data.body.slice(0, 120).replace(/\n/g, " "),
+        body: data.body,
+        date: new Date().toISOString(),
+        isRead: true,
+        isStarred: false,
+        isSent: true,
+        isArchived: false,
+        isTrashed: false,
+        labelIds: ["sent"],
+        ...(data.accountEmail ? { accountEmail: data.accountEmail } : {}),
+      };
+
+      qc.setQueryData<EmailMessage[]>(["thread-messages", threadId], (old) =>
+        [...(old ?? []), optimisticMessage].sort(
+          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+        ),
+      );
+
+      return { previousThreads, optimisticMessage, threadId };
+    },
+    onError: (_err, _vars, context) => {
+      context?.previousThreads.forEach(([key, thread]) => {
+        qc.setQueryData(key, thread);
+      });
+    },
+    onSuccess: (result, _vars, context) => {
+      const threadId = result.threadId || context?.threadId;
+      if (!threadId || !context?.optimisticMessage) return;
+
+      qc.setQueryData<EmailMessage[]>(["thread-messages", threadId], (old) =>
+        (old ?? []).map((message) =>
+          message.id === context.optimisticMessage.id
+            ? {
+                ...message,
+                id: result.id || message.id,
+                threadId,
+                labelIds: result.labelIds?.map((id) => id.toLowerCase()) || [
+                  "sent",
+                ],
+              }
+            : message,
+        ),
+      );
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["emails"] });
       qc.invalidateQueries({ queryKey: ["thread-messages"] });
     },

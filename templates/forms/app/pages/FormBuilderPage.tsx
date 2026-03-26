@@ -40,7 +40,7 @@ import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel"
 import { useForm, useUpdateForm } from "@/hooks/use-forms";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
-import { sendToAgentChat } from "@agent-native/core/client";
+import { AgentToggleButton, sendToAgentChat } from "@agent-native/core/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { FormField, FormFieldType, FormSettings } from "@shared/types";
@@ -300,6 +300,7 @@ export function FormBuilderPage() {
           <Button size="sm" className="text-xs" onClick={handleTogglePublish}>
             {form.status === "published" ? "Unpublish" : "Publish"}
           </Button>
+          <AgentToggleButton />
         </div>
       </div>
 

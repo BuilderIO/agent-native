@@ -56,6 +56,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import { AgentToggleButton } from "@agent-native/core/client";
 import { NewDashboardDialog } from "./NewDashboardDialog";
 import { FeedbackButton } from "./FeedbackButton";
 import {
@@ -618,7 +619,7 @@ export function Sidebar() {
         onMouseDown={handleResizeStart}
         className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-10"
       />
-      <div className="flex h-14 items-center border-b border-border px-4 lg:h-[60px] lg:px-6">
+      <div className="flex h-14 items-center justify-between border-b border-border px-4 lg:h-[60px] lg:px-6">
         <Link
           to="/adhoc/overview"
           className="flex items-center gap-2 font-semibold"
@@ -640,6 +641,7 @@ export function Sidebar() {
           </svg>
           <span className="text-lg font-bold tracking-tight">Analytics</span>
         </Link>
+        <AgentToggleButton />
       </div>
       <div className="flex-1 overflow-auto py-2">
         <nav className="grid items-start px-2 text-sm font-medium lg:px-4 space-y-1">

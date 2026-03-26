@@ -6,6 +6,7 @@ import {
 } from "./AssistantChat.js";
 import { generateTabId } from "./agent-chat.js";
 import { getHarnessOrigin } from "./harness.js";
+import { cn } from "./utils.js";
 
 // ─── Inline Icons ───────────────────────────────────────────────────────────
 
@@ -26,6 +27,40 @@ function IconX({ size = 10 }: { size?: number }) {
   );
 }
 
+function IconPlus({ size = 12 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function IconTrash({ size = 12 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+    </svg>
+  );
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 interface ChatTab {
@@ -34,31 +69,89 @@ interface ChatTab {
   status: "idle" | "running" | "completed";
 }
 
-let labelCounter = 0;
-function createChatTab(): ChatTab {
+const TABS_STORAGE_KEY = "agent-chat-tabs";
+const ACTIVE_TAB_STORAGE_KEY = "agent-chat-tabs:active";
+
+function createChatTab(label: string): ChatTab {
   return {
     id: generateTabId(),
-    label: String(++labelCounter),
+    label,
     status: "idle",
   };
 }
 
+function getNextLabel(tabs: ChatTab[]): string {
+  const maxNum = tabs.reduce((max, t) => {
+    const n = parseInt(t.label, 10);
+    return isNaN(n) ? max : Math.max(max, n);
+  }, 0);
+  return String(maxNum + 1);
+}
+
+function loadTabs(): { tabs: ChatTab[]; activeId: string } | null {
+  try {
+    const saved = localStorage.getItem(TABS_STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Reset status on restore (nothing is running after refresh)
+        const restored: ChatTab[] = parsed.map((t: ChatTab) => ({
+          ...t,
+          status: "idle" as const,
+        }));
+        const activeId = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+        const validActive =
+          activeId && restored.find((t) => t.id === activeId)
+            ? activeId
+            : restored[0].id;
+        return { tabs: restored, activeId: validActive };
+      }
+    }
+  } catch {}
+  return null;
+}
+
+function saveTabs(tabs: ChatTab[], activeId: string) {
+  try {
+    // Only persist id and label, not status
+    const toSave = tabs.map(({ id, label }) => ({ id, label }));
+    localStorage.setItem(TABS_STORAGE_KEY, JSON.stringify(toSave));
+    localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeId);
+  } catch {}
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export type MultiTabAssistantChatProps = Omit<AssistantChatProps, "tabId">;
+export type MultiTabAssistantChatProps = Omit<AssistantChatProps, "tabId"> & {
+  /** Show the tab bar. Default: true */
+  showTabBar?: boolean;
+};
 
-export function MultiTabAssistantChat(props: MultiTabAssistantChatProps) {
-  const [tabs, setTabs] = useState<ChatTab[]>(() => [createChatTab()]);
-  const [activeTabId, setActiveTabId] = useState(() => tabs[0].id);
+export function MultiTabAssistantChat({
+  showTabBar = true,
+  ...props
+}: MultiTabAssistantChatProps) {
+  const [tabs, setTabs] = useState<ChatTab[]>(() => {
+    const loaded = loadTabs();
+    return loaded ? loaded.tabs : [createChatTab("1")];
+  });
+  const [activeTabId, setActiveTabId] = useState(() => {
+    const loaded = loadTabs();
+    return loaded ? loaded.activeId : tabs[0].id;
+  });
   const activeTabIdRef = useRef(activeTabId);
   activeTabIdRef.current = activeTabId;
   const chatRefs = useRef<Map<string, AssistantChatHandle>>(new Map());
   const pendingSends = useRef<Map<string, string>>(new Map());
 
+  // Persist tabs to localStorage
+  useEffect(() => {
+    saveTabs(tabs, activeTabId);
+  }, [tabs, activeTabId]);
+
   // Listen for builder.submitChat postMessages
   useEffect(() => {
     const handler = (event: MessageEvent) => {
-      // Only accept messages from same origin or known harness
       if (
         event.origin !== window.location.origin &&
         event.origin !== getHarnessOrigin()
@@ -73,23 +166,20 @@ export function MultiTabAssistantChat(props: MultiTabAssistantChatProps) {
       const activeRef = chatRefs.current.get(currentTabId);
 
       if (activeRef) {
-        // Always send to the current tab — it will queue if busy
         activeRef.sendMessage(message);
       } else {
-        // Ref not yet mounted — queue it
         pendingSends.current.set(currentTabId, message);
       }
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, []); // stable — uses refs instead of state
+  }, []);
 
   // Process pending sends when refs mount
   useEffect(() => {
     for (const [tabId, message] of pendingSends.current) {
       const ref = chatRefs.current.get(tabId);
       if (ref) {
-        // Small delay to let the runtime initialise
         setTimeout(() => ref.sendMessage(message), 50);
         pendingSends.current.delete(tabId);
       }
@@ -117,6 +207,13 @@ export function MultiTabAssistantChat(props: MultiTabAssistantChatProps) {
     return () => window.removeEventListener("builder.chatRunning", handler);
   }, []);
 
+  const addTab = useCallback(() => {
+    const label = getNextLabel(tabs);
+    const tab = createChatTab(label);
+    setTabs((prev) => [...prev, tab]);
+    setActiveTabId(tab.id);
+  }, [tabs]);
+
   const closeTab = useCallback(
     (tabId: string) => {
       setTabs((prev) => {
@@ -131,44 +228,88 @@ export function MultiTabAssistantChat(props: MultiTabAssistantChatProps) {
       });
       chatRefs.current.delete(tabId);
       pendingSends.current.delete(tabId);
+      // Clean up persisted messages
+      try {
+        sessionStorage.removeItem(`agent-chat:${tabId}`);
+      } catch {}
     },
     [activeTabId],
   );
 
-  const showTabs = tabs.length > 1;
+  const clearActiveTab = useCallback(() => {
+    const currentId = activeTabId;
+    // Remove persisted messages for the current tab
+    try {
+      sessionStorage.removeItem(`agent-chat:${currentId}`);
+    } catch {}
+    // Replace with a fresh tab in the same position
+    const newTab = createChatTab(
+      tabs.find((t) => t.id === currentId)?.label || "1",
+    );
+    setTabs((prev) => prev.map((t) => (t.id === currentId ? newTab : t)));
+    setActiveTabId(newTab.id);
+    chatRefs.current.delete(currentId);
+  }, [activeTabId, tabs]);
 
   return (
     <div className="flex flex-1 flex-col h-full min-h-0">
-      {showTabs && (
-        <div className="flex items-center gap-0.5 px-2 py-1 border-b border-border shrink-0">
-          {tabs.map((tab) => (
+      {showTabBar && (
+        <div className="flex items-center h-8 px-1 border-b border-border shrink-0 gap-px">
+          <div className="flex items-center gap-px min-w-0 overflow-x-auto scrollbar-none flex-1">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTabId(tab.id)}
+                className={cn(
+                  "group/tab flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-[11px] font-medium shrink-0",
+                  tab.id === activeTabId
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                )}
+              >
+                <span>{tab.label}</span>
+                {tab.status === "running" && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 animate-pulse" />
+                )}
+                {tab.status === "completed" && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                )}
+                {tabs.length > 1 && (
+                  <span
+                    role="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      closeTab(tab.id);
+                    }}
+                    className={cn(
+                      "rounded p-px",
+                      tab.id === activeTabId
+                        ? "text-foreground/40 hover:text-foreground hover:bg-accent"
+                        : "text-transparent group-hover/tab:text-muted-foreground/50 hover:!text-foreground hover:!bg-accent",
+                    )}
+                  >
+                    <IconX size={10} />
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-px shrink-0 ml-auto">
             <button
-              key={tab.id}
-              onClick={() => setActiveTabId(tab.id)}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
-                tab.id === activeTabId
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-              }`}
+              onClick={clearActiveTab}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50"
+              title="Clear chat"
             >
-              <span>{tab.label}</span>
-              {tab.status === "completed" && (
-                <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
-              )}
-              {tabs.length > 1 && (
-                <span
-                  role="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    closeTab(tab.id);
-                  }}
-                  className="text-muted-foreground/50 hover:text-muted-foreground ml-0.5"
-                >
-                  <IconX size={10} />
-                </span>
-              )}
+              <IconTrash size={11} />
             </button>
-          ))}
+            <button
+              onClick={addTab}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50"
+              title="New chat"
+            >
+              <IconPlus size={12} />
+            </button>
+          </div>
         </div>
       )}
 

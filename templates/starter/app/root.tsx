@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { useFileWatcher } from "@agent-native/core";
+import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./global.css";
@@ -47,20 +48,22 @@ function FileWatcherSetup() {
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
   return (
-    <ThemeProvider
-      attribute="class"
-      defaultTheme="system"
-      enableSystem
-      disableTransitionOnChange
-    >
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <FileWatcherSetup />
-          <Outlet />
-          <Toaster />
-        </TooltipProvider>
-      </QueryClientProvider>
-    </ThemeProvider>
+    <ClientOnly fallback={<DefaultSpinner />}>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="system"
+        enableSystem
+        disableTransitionOnChange
+      >
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <FileWatcherSetup />
+            <Outlet />
+            <Toaster />
+          </TooltipProvider>
+        </QueryClientProvider>
+      </ThemeProvider>
+    </ClientOnly>
   );
 }
 

@@ -84,7 +84,9 @@ The **`frontend-design`** skill (sourced from [Anthropic's skills library](https
 
 ### Framework Basics
 
-**SSR-first framework, CSR-by-default content:** This app uses React Router v7 framework mode with `ssr: true`. But virtually every route renders only an SSR shell (loading spinner + meta tags). All real data fetching and rendering happens on the client via React Query hooks. Server-side data fetching is the exception — only used for public pages that need SEO/og tags.
+**Client-side-first rendering:** This app uses React Router v7 framework mode with `ssr: true`, but all app content renders **client-side only**. The server renders only the HTML shell (meta tags, styles, scripts) plus a loading spinner. This is enforced by the `ClientOnly` wrapper in `root.tsx` — never remove it. Browser APIs (`window`, `localStorage`, `new Date()`) are safe to use anywhere in app code because components never run on the server.
+
+**Do NOT fetch data server-side** in route loaders. The standard pattern is: server renders a spinner, client hydrates, React Query hooks fetch from `/api/*`.
 
 **Adding a page:**
 Create a file in `app/routes/`. The filename determines the URL path:
@@ -97,7 +99,7 @@ app/routes/inbox.$threadId.tsx     → /inbox/:threadId
 app/routes/$id.tsx                 → /:id (dynamic param)
 ```
 
-Each route file exports a default component, optional `meta()`, and optional `HydrateFallback()`:
+Each route file exports a default component and optional `meta()`:
 
 ```tsx
 import MyPage from "@/pages/MyPage";
@@ -106,20 +108,10 @@ export function meta() {
   return [{ title: "My Page" }];
 }
 
-export function HydrateFallback() {
-  return (
-    <div className="flex items-center justify-center h-screen">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
-    </div>
-  );
-}
-
 export default function MyPageRoute() {
   return <MyPage />;
 }
 ```
-
-**Do NOT fetch data server-side** in route loaders unless the page genuinely needs SEO content or og tags based on dynamic data. The standard pattern is: SSR renders a loading spinner, client hydrates, React Query hooks fetch from `/api/*`.
 
 ### Key Patterns
 

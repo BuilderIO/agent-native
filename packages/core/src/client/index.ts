@@ -28,6 +28,7 @@ export {
 } from "./harness.js";
 export {
   AssistantChat,
+  clearChatStorage,
   type AssistantChatProps,
   type AssistantChatHandle,
 } from "./AssistantChat.js";

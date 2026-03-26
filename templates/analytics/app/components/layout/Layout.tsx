@@ -1,7 +1,7 @@
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
 import { HeaderActionsProvider } from "./HeaderActions";
-import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -11,9 +11,6 @@ export function Layout({ children }: LayoutProps) {
   return (
     <HeaderActionsProvider>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-        <div className="fixed right-3 top-3 z-50">
-          <AgentToggleButton className="h-9 w-9 rounded-xl border border-border/60 bg-background/90 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/75" />
-        </div>
         <div className="hidden md:block">
           <Sidebar />
         </div>

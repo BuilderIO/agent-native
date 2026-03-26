@@ -29,7 +29,7 @@ import React, {
   lazy,
   Suspense,
 } from "react";
-import { AssistantChat } from "./AssistantChat.js";
+import { MultiTabAssistantChat } from "./MultiTabAssistantChat.js";
 import type { AssistantChatProps } from "./AssistantChat.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { cn } from "./utils.js";
@@ -117,6 +117,23 @@ function TerminalIcon({ className }: { className?: string }) {
   );
 }
 
+function NewChatIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M12 20h9" />
+      <path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838.838-2.872a2 2 0 0 1 .506-.855z" />
+    </svg>
+  );
+}
+
 function CogIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -196,7 +213,10 @@ function AgentSettingsPopover({
       <button
         ref={buttonRef}
         onClick={() => setOpen(!open)}
-        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+        className={cn(
+          "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
+          open && "bg-accent/50 text-foreground",
+        )}
         title="Agent settings"
       >
         <CogIcon className="h-3.5 w-3.5" />
@@ -204,47 +224,49 @@ function AgentSettingsPopover({
       {open && (
         <div
           ref={popoverRef}
-          className="absolute right-0 top-full mt-1 z-50 w-64 rounded-lg border border-border bg-popover p-3 shadow-lg"
+          className="absolute right-0 top-full mt-1.5 z-50 w-56 rounded-lg border border-border bg-popover shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
         >
-          <div className="flex items-center justify-between">
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[13px] font-medium text-foreground">
-                Agent mode
-              </span>
-              <span className="text-[11px] text-muted-foreground leading-snug">
-                {isDevMode
-                  ? "Full access — can edit code, run shell commands, and modify files"
-                  : "Restricted — app tools only, no code editing or shell access"}
-              </span>
+          <div className="p-3 pb-2">
+            <p className="text-[12px] font-medium text-foreground">
+              Environment
+            </p>
+          </div>
+          <div className="px-3">
+            <div className="flex items-center rounded-md bg-muted/50 p-0.5">
+              <button
+                onClick={() => {
+                  if (isDevMode) onToggle();
+                }}
+                className={cn(
+                  "flex-1 rounded px-2 py-1 text-[11px] font-medium text-center",
+                  !isDevMode
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Production
+              </button>
+              <button
+                onClick={() => {
+                  if (!isDevMode) onToggle();
+                }}
+                className={cn(
+                  "flex-1 rounded px-2 py-1 text-[11px] font-medium text-center",
+                  isDevMode
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Development
+              </button>
             </div>
           </div>
-          <div className="mt-2.5 flex items-center gap-2">
-            <button
-              onClick={() => {
-                if (isDevMode) onToggle();
-              }}
-              className={cn(
-                "flex-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-center border",
-                !isDevMode
-                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                  : "border-border text-muted-foreground hover:bg-accent/50",
-              )}
-            >
-              Production
-            </button>
-            <button
-              onClick={() => {
-                if (!isDevMode) onToggle();
-              }}
-              className={cn(
-                "flex-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-center border",
-                isDevMode
-                  ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                  : "border-border text-muted-foreground hover:bg-accent/50",
-              )}
-            >
-              Development
-            </button>
+          <div className="px-3 pb-3 pt-1.5">
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              {isDevMode
+                ? "Full access — code editing, shell, files"
+                : "Restricted — app tools only"}
+            </p>
           </div>
         </div>
       )}
@@ -299,7 +321,7 @@ export function AgentPanel({
   return (
     <div className={cn("flex flex-1 flex-col h-full min-h-0", className)}>
       {showHeader && (
-        <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
+        <div className="flex h-11 shrink-0 items-center justify-between border-b border-border pl-1 pr-2">
           <div className="flex items-center gap-1.5">
             {/* Mode toggle — only show CLI option in dev mode */}
             <button
@@ -367,8 +389,8 @@ export function AgentPanel({
         </div>
       )}
 
-      {/* Chat view — always mounted to preserve conversation (client-only
-          because @assistant-ui uses useLayoutEffect which breaks SSR) */}
+      {/* Chat view — multi-tab, client-only
+          because @assistant-ui uses useLayoutEffect which breaks SSR */}
       <div
         className={cn(
           "flex-1 flex flex-col min-h-0",
@@ -376,7 +398,7 @@ export function AgentPanel({
         )}
       >
         {mounted && (
-          <AssistantChat
+          <MultiTabAssistantChat
             apiUrl={apiUrl}
             showHeader={false}
             emptyStateText={emptyStateText}
@@ -458,13 +480,15 @@ function ResizeHandle({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      className={cn(
-        "shrink-0 w-1 cursor-col-resize hover:bg-accent/60 active:bg-accent transition-colors",
-        position === "left"
-          ? "border-r border-border"
-          : "border-l border-border",
-      )}
-    />
+      className="shrink-0 w-3 cursor-col-resize relative flex items-center justify-center group"
+    >
+      <div
+        className={cn(
+          "absolute inset-y-0 w-px group-hover:w-0.5 group-active:w-0.5 bg-border group-hover:bg-accent group-active:bg-accent transition-all",
+          position === "left" ? "right-0" : "left-0",
+        )}
+      />
+    </div>
   );
 }
 
@@ -547,19 +571,6 @@ export function AgentSidebar({
 
   const isLeft = position === "left";
 
-  const collapsedTab = (
-    <button
-      onClick={() => setOpenPersisted(true)}
-      className={cn(
-        "shrink-0 flex flex-col items-center pt-3 w-10 bg-card text-muted-foreground hover:text-foreground",
-        isLeft ? "border-r border-border" : "border-l border-border",
-      )}
-      title="Open agent sidebar"
-    >
-      <ChatBubbleIcon className="h-4 w-4" />
-    </button>
-  );
-
   const sidebar = (
     <>
       {isLeft ? null : <ResizeHandle position={position} onDrag={handleDrag} />}
@@ -579,11 +590,11 @@ export function AgentSidebar({
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      {isLeft && (open ? sidebar : collapsedTab)}
+      {isLeft && open ? sidebar : null}
       <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         {children}
       </div>
-      {!isLeft && (open ? sidebar : collapsedTab)}
+      {!isLeft && open ? sidebar : null}
     </div>
   );
 }

@@ -1,6 +1,4 @@
-import { useState } from "react";
 import { useTheme } from "next-themes";
-import { AgentTerminal } from "@agent-native/core/terminal";
 import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
 
 export function meta() {
@@ -17,13 +15,9 @@ export function HydrateFallback() {
 
 export default function IndexPage() {
   const { theme, setTheme } = useTheme();
-  const [showTerminal, setShowTerminal] = useState(false);
 
   return (
     <div className="flex flex-col h-screen">
-      <div className="fixed right-3 top-3 z-50">
-        <AgentToggleButton className="h-9 w-9 rounded-xl border border-border/60 bg-background/90 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/75" />
-      </div>
       <AgentSidebar
         position="right"
         defaultOpen
@@ -39,6 +33,7 @@ export default function IndexPage() {
             <h2 className="text-sm font-medium text-foreground">
               Agent Native
             </h2>
+            <AgentToggleButton />
           </header>
 
           <div className="flex flex-1 flex-col items-center justify-center px-6">
@@ -59,7 +54,7 @@ export default function IndexPage() {
 
               <div className="grid grid-cols-2 gap-3 text-left">
                 <a
-                  href="https://agent-native.dev/docs"
+                  href="https://agent-native.com/docs"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50"
@@ -83,21 +78,8 @@ export default function IndexPage() {
                   </p>
                 </button>
               </div>
-
-              <button
-                onClick={() => setShowTerminal(!showTerminal)}
-                className="text-[13px] text-muted-foreground hover:text-foreground"
-              >
-                {showTerminal ? "Hide" : "Show"} Agent Terminal
-              </button>
             </div>
           </div>
-
-          {showTerminal && (
-            <div className="h-[350px] border-t border-border">
-              <AgentTerminal />
-            </div>
-          )}
         </div>
       </AgentSidebar>
     </div>

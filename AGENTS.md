@@ -101,6 +101,29 @@ data/                  # App data (SQLite DB at data/app.db)
 react-router.config.ts # React Router framework config
 ```
 
+## Client-Side-First Rendering
+
+All app content renders **client-side only**. The server renders only the HTML shell (`<html>`, `<head>` with meta tags, `<body>` with scripts) plus a loading spinner. This is enforced by the `ClientOnly` wrapper in every template's `root.tsx`:
+
+```tsx
+import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
+
+export default function Root() {
+  return (
+    <ClientOnly fallback={<DefaultSpinner />}>
+      {/* All providers and <Outlet /> go inside ClientOnly */}
+    </ClientOnly>
+  );
+}
+```
+
+**Why:** This prevents hydration mismatches. The server never renders app components, so `window`, `localStorage`, `new Date()`, `next-themes`, and any browser API are safe to use anywhere in app code.
+
+**Do:** Keep the `ClientOnly` wrapper in `root.tsx`. Use `window`, `localStorage`, browser APIs freely in components.
+**Don't:** Remove `ClientOnly` from `root.tsx`. Don't add server-side data fetching in route loaders (use React Query client-side instead).
+
+Route `meta()` functions still work for SEO — they're resolved at the `Layout` level which is server-rendered.
+
 ## Scripts
 
 Create `scripts/my-script.ts`:

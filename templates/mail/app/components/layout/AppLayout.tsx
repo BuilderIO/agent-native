@@ -473,9 +473,6 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <AccountFilterContext.Provider value={accountFilterValue}>
       <div className="flex h-screen overflow-hidden bg-background">
-        <div className="fixed right-3 top-3 z-50">
-          <AgentToggleButton className="h-9 w-9 rounded-xl border border-border/60 bg-background/90 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/75" />
-        </div>
         <AgentSidebar
           position="right"
           defaultOpen={!isMobile}
@@ -762,6 +759,8 @@ export function AppLayout({ children }: AppLayoutProps) {
                   )}
                 </div>
               )}
+
+              <AgentToggleButton />
             </header>
 
             {/* Sidebar overlay */}

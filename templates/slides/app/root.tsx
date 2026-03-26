@@ -4,7 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DeckProvider } from "@/context/DeckContext";
 import {
   AgentSidebar,
-  AgentToggleButton,
+  ClientOnly,
+  DefaultSpinner,
   enterStyleEditing as coreEnterStyleEditing,
   enterTextEditing as coreEnterTextEditing,
   exitSelectionMode as coreExitSelectionMode,
@@ -89,15 +90,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
 export default function Root() {
   useExitSelectionOnOutsideClick();
   const [queryClient] = useState(() => new QueryClient());
-  // AgentSidebar uses useLayoutEffect internally (via @assistant-ui),
-  // which errors during SSR. Only render on client.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <DeckProvider key={DECK_KEY}>
-        {mounted ? (
+    <ClientOnly fallback={<DefaultSpinner />}>
+      <QueryClientProvider client={queryClient}>
+        <DeckProvider key={DECK_KEY}>
           <AgentSidebar
             position="right"
             defaultOpen
@@ -108,16 +105,11 @@ export default function Root() {
               "Add an image to this slide",
             ]}
           >
-            <div className="fixed right-3 top-3 z-50">
-              <AgentToggleButton className="h-9 w-9 rounded-xl border border-border/60 bg-background/90 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/75" />
-            </div>
             <Outlet />
           </AgentSidebar>
-        ) : (
-          <Outlet />
-        )}
-      </DeckProvider>
-    </QueryClientProvider>
+        </DeckProvider>
+      </QueryClientProvider>
+    </ClientOnly>
   );
 }
 

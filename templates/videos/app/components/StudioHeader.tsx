@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { PanelLeftClose, PanelLeft, Box, Film, Share2 } from "lucide-react";
 import { Link, useLocation } from "react-router";
+import { AgentToggleButton } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
@@ -69,19 +70,22 @@ export function StudioHeader({
           </nav>
         </div>
 
-        <button
-          onClick={() => {
-            if (isLocal) {
-              setShowCloudUpgrade(true);
-            } else {
-              // Future: implement share/export flow
-            }
-          }}
-          className="px-3 py-1.5 text-xs font-medium rounded-md transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary/50 flex items-center gap-1.5"
-        >
-          <Share2 className="w-3.5 h-3.5" />
-          Share
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              if (isLocal) {
+                setShowCloudUpgrade(true);
+              } else {
+                // Future: implement share/export flow
+              }
+            }}
+            className="px-3 py-1.5 text-xs font-medium rounded-md transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary/50 flex items-center gap-1.5"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            Share
+          </button>
+          <AgentToggleButton />
+        </div>
       </header>
 
       {showCloudUpgrade && (

@@ -3,6 +3,7 @@ import { useLocation } from "react-router";
 import { Menu, BarChart3 } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Sidebar } from "./Sidebar";
+import { AgentToggleButton } from "@agent-native/core/client";
 
 export function MobileNav() {
   const [open, setOpen] = useState(false);
@@ -27,6 +28,9 @@ export function MobileNav() {
           <BarChart3 className="h-4 w-4" />
         </div>
         <span className="text-base font-bold tracking-tight">Analytics</span>
+      </div>
+      <div className="ml-auto">
+        <AgentToggleButton />
       </div>
 
       <Sheet open={open} onOpenChange={setOpen}>

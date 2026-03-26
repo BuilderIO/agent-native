@@ -16,8 +16,14 @@ import {
   ThreadPrimitive,
   ComposerPrimitive,
   MessagePrimitive,
+  AttachmentPrimitive,
 } from "@assistant-ui/react";
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
+import {
+  SimpleImageAttachmentAdapter,
+  SimpleTextAttachmentAdapter,
+  CompositeAttachmentAdapter,
+} from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
 import { cn } from "./utils.js";
@@ -52,6 +58,38 @@ function SendIcon({ className }: { className?: string }) {
       className={className}
     >
       <path d="M5 12h14M12 5l7 7-7 7" />
+    </svg>
+  );
+}
+
+function PaperclipIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+    </svg>
+  );
+}
+
+function XIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M18 6 6 18M6 6l12 12" />
     </svg>
   );
 }
@@ -545,7 +583,14 @@ function QueueComposer({
   );
 }
 
-const STORAGE_PREFIX = "agent-chat:";
+export const CHAT_STORAGE_PREFIX = "agent-chat:";
+
+/** Remove persisted chat for a given tabId (or "default"). */
+export function clearChatStorage(tabId?: string) {
+  try {
+    sessionStorage.removeItem(`${CHAT_STORAGE_PREFIX}${tabId || "default"}`);
+  } catch {}
+}
 
 const AssistantChatInner = forwardRef<
   AssistantChatHandle,
@@ -573,7 +618,7 @@ const AssistantChatInner = forwardRef<
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
   // ─── Chat persistence ──────────────────────────────────────────────
-  const storageKey = `${STORAGE_PREFIX}${tabId || "default"}`;
+  const storageKey = `${CHAT_STORAGE_PREFIX}${tabId || "default"}`;
   const hasRestoredRef = useRef(false);
 
   // Restore messages from sessionStorage on mount
@@ -808,7 +853,7 @@ const AssistantChatInner = forwardRef<
       </div>
 
       {/* Input area */}
-      <div className="shrink-0 border-t border-border px-3 py-3">
+      <div className="shrink-0 border-t border-border px-3 py-2">
         {isRunning ? (
           <QueueComposer
             composerRef={composerRef}
@@ -816,20 +861,33 @@ const AssistantChatInner = forwardRef<
             queuedCount={queuedMessages.length}
           />
         ) : (
-          <ComposerPrimitive.Root className="flex items-end gap-2 rounded-lg border border-input bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring">
-            <ComposerPrimitive.Input
-              placeholder="Message agent..."
-              submitMode="enter"
-              cancelOnEscape
-              className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-relaxed"
-              minRows={1}
-              maxRows={8}
+          <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
+            {/* Attachment previews */}
+            <ComposerPrimitive.Attachments
+              components={{
+                Attachment: ComposerAttachmentPreview,
+              }}
             />
-            <ComposerPrimitive.Send asChild>
-              <button className="shrink-0 flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed">
-                <SendIcon className="h-3.5 w-3.5" />
-              </button>
-            </ComposerPrimitive.Send>
+            <div className="flex items-center gap-1 px-2 py-1.5">
+              <ComposerPrimitive.AddAttachment asChild>
+                <button className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50">
+                  <PaperclipIcon className="h-4 w-4" />
+                </button>
+              </ComposerPrimitive.AddAttachment>
+              <ComposerPrimitive.Input
+                placeholder="Message agent..."
+                submitMode="enter"
+                cancelOnEscape
+                className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-[1.625rem]"
+                minRows={1}
+                maxRows={8}
+              />
+              <ComposerPrimitive.Send asChild>
+                <button className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed">
+                  <SendIcon className="h-3.5 w-3.5" />
+                </button>
+              </ComposerPrimitive.Send>
+            </div>
           </ComposerPrimitive.Root>
         )}
       </div>
@@ -845,7 +903,17 @@ export const AssistantChat = forwardRef<
     () => createAgentChatAdapter({ apiUrl, tabId }),
     [apiUrl, tabId],
   );
-  const runtime = useLocalRuntime(adapter);
+  const attachmentAdapter = useMemo(
+    () =>
+      new CompositeAttachmentAdapter([
+        new SimpleImageAttachmentAdapter(),
+        new SimpleTextAttachmentAdapter(),
+      ]),
+    [],
+  );
+  const runtime = useLocalRuntime(adapter, {
+    adapters: { attachments: attachmentAdapter },
+  });
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>

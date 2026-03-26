@@ -1,7 +1,7 @@
 import { createContext, useContext, useState } from "react";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client";
 import { Sidebar } from "./Sidebar";
 
 interface CalendarContextValue {
@@ -29,9 +29,6 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <CalendarContext.Provider value={{ selectedDate, setSelectedDate }}>
       <div className="flex h-screen overflow-hidden bg-background">
-        <div className="fixed right-3 top-3 z-50">
-          <AgentToggleButton className="h-9 w-9 rounded-xl border border-border/60 bg-background/90 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/75" />
-        </div>
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <AgentSidebar
           position="right"

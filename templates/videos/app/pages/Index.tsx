@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useParams, Navigate } from "react-router";
-import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client";
 import { compositions } from "@/remotion/registry";
 import { Sidebar } from "@/components/Sidebar";
 import { StudioHeader } from "@/components/StudioHeader";
@@ -38,9 +38,6 @@ function StudioContent() {
 
   return (
     <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
-      <div className="fixed right-3 top-3 z-50">
-        <AgentToggleButton className="h-9 w-9 rounded-xl border border-border/60 bg-background/90 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/75" />
-      </div>
       <AgentSidebar
         position="right"
         defaultOpen
@@ -114,9 +111,6 @@ export default function Studio() {
           <TimelineProvider>
             <PlaybackProvider>
               <div className="h-screen flex bg-background text-foreground overflow-hidden">
-                <div className="fixed right-3 top-3 z-50">
-                  <AgentToggleButton className="h-9 w-9 rounded-xl border border-border/60 bg-background/90 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/75" />
-                </div>
                 <AgentSidebar
                   position="right"
                   defaultOpen
