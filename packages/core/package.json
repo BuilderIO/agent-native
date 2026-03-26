@@ -55,10 +55,10 @@
     "release": "npm version patch && npm publish --access public"
   },
   "dependencies": {
-    "@radix-ui/react-select": "^2.2.6",
-    "@radix-ui/react-tooltip": "^1.2.8",
     "@anthropic-ai/sdk": "^0.80.0",
     "@libsql/client": "^0.15.0",
+    "@radix-ui/react-select": "^2.2.6",
+    "@radix-ui/react-tooltip": "^1.2.8",
     "@react-router/dev": "^7.13.1",
     "@react-router/fs-routes": "^7.13.1",
     "@tailwindcss/typography": "^0.5.19",
@@ -72,6 +72,7 @@
     "minimatch": "^10.0.0",
     "nitropack": "^2.13.0",
     "p-limit": "^7.3.0",
+    "postgres": "^3.4.8",
     "react-markdown": "^10.1.0",
     "react-router": "^7.13.1",
     "remark-gfm": "^4.0.1",

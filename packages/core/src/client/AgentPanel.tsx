@@ -80,6 +80,8 @@ interface AvailableCli {
 function useAvailableClis() {
   const [clis, setClis] = useState<AvailableCli[]>([]);
   useEffect(() => {
+    // Only fetch in dev mode — this endpoint is provided by the terminal plugin
+    if (!IS_DEV) return;
     fetch("/api/available-clis")
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => setClis(data))

@@ -14,7 +14,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
         return _db;
       }
 
-      // Fall back to libsql (local dev, Turso, Neon, etc.)
+      // Fall back to libsql (local dev, Turso)
       const url = process.env.DATABASE_URL || "file:./data/app.db";
       _db = drizzleLibsql({
         connection: {

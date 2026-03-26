@@ -37,8 +37,15 @@ export {
   getDefaultSSEEmitters,
   setDefaultSyncResult,
   createDefaultSSEHandler,
+  createDefaultPollHandler,
   defaultSyncStatusHandler,
 } from "./default-watcher.js";
+export {
+  createPollHandler,
+  recordChange,
+  getVersion,
+  getChangesSince,
+} from "./poll.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
 export {
   createGoogleAuthPlugin,

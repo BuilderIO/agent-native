@@ -54,10 +54,9 @@ export function createResourcesPlugin(): NitroPluginDef {
       "/api/resources",
       defineEventHandler(async (event) => {
         const method = getMethod(event);
-        const url = event.path || event.node?.req?.url || "";
-
-        // Strip the base path to get the sub-path
-        const subPath = url.replace(/^\/api\/resources\/?/, "").split("?")[0];
+        // h3 strips the mount prefix, so event.path is "/" or "/:id"
+        const raw = (event.path || "/").split("?")[0];
+        const subPath = raw.replace(/^\//, "");
 
         // No sub-path: /api/resources — list or create
         if (!subPath || subPath === "") {

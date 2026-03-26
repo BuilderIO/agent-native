@@ -285,7 +285,7 @@ export function DayView({
                   <button
                     className={cn(
                       "absolute overflow-hidden rounded-lg px-2 py-1 text-left text-sm flex flex-col justify-start transition-all hover:z-30 hover:brightness-110 hover:shadow-lg",
-                      isPast && "opacity-50",
+                      isDeclined && "saturate-[0.3]",
                     )}
                     style={{
                       ...posStyle,
@@ -293,23 +293,33 @@ export function DayView({
                       width: `calc(100% - ${li.left + 2}px)`,
                       zIndex: li.col + 1,
                       backgroundColor: color
-                        ? `color-mix(in srgb, ${color} 18%, hsl(var(--background)))`
-                        : `color-mix(in srgb, hsl(var(--primary)) 12%, hsl(var(--background)))`,
-                      borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
+                        ? `color-mix(in srgb, ${color} ${isPast || isDeclined ? 8 : 18}%, hsl(var(--background)))`
+                        : `color-mix(in srgb, hsl(var(--primary)) ${isPast || isDeclined ? 5 : 12}%, hsl(var(--background)))`,
+                      borderLeft: `3px solid ${
+                        isPast || isDeclined
+                          ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
+                          : (color ?? "hsl(var(--primary))")
+                      }`,
                     }}
                   >
                     <div
                       className={cn(
-                        "truncate font-semibold leading-tight text-foreground",
-                        isDeclined && "line-through text-muted-foreground",
+                        "truncate leading-tight",
+                        isPast || isDeclined
+                          ? "text-muted-foreground"
+                          : "text-foreground",
+                        isDeclined && "line-through",
+                        !isPast && !isDeclined && "font-semibold",
                       )}
                     >
                       {event.title}
                     </div>
                     <div
                       className={cn(
-                        "truncate text-[11px] leading-tight text-foreground/60",
-                        isDeclined && "text-muted-foreground/50",
+                        "truncate text-[11px] leading-tight",
+                        isPast || isDeclined
+                          ? "text-muted-foreground/50"
+                          : "text-foreground/60",
                       )}
                     >
                       {format(parseISO(event.start), "h:mm a")} –{" "}

@@ -3,17 +3,34 @@ import type { SSEHandlerOptions } from "./sse.js";
 import { getAppStateEmitter } from "../application-state/emitter.js";
 import { getSettingsEmitter } from "../settings/store.js";
 import { getResourcesEmitter } from "../resources/emitter.js";
+import { recordChange, createPollHandler } from "./poll.js";
 
 const _emitters: NonNullable<SSEHandlerOptions["extraEmitters"]> = [];
 let _emittersRegistered = false;
 
-/** Ensure the DB change emitters are wired into SSE. */
+/** Wire DB change emitters into both SSE and the polling version counter. */
 function ensureEmitters() {
   if (_emittersRegistered) return;
   _emittersRegistered = true;
-  _emitters.push({ emitter: getAppStateEmitter(), event: "app-state" });
-  _emitters.push({ emitter: getSettingsEmitter(), event: "settings" });
-  _emitters.push({ emitter: getResourcesEmitter(), event: "resources" });
+
+  const appState = getAppStateEmitter();
+  const settings = getSettingsEmitter();
+  const resources = getResourcesEmitter();
+
+  _emitters.push({ emitter: appState, event: "app-state" });
+  _emitters.push({ emitter: settings, event: "settings" });
+  _emitters.push({ emitter: resources, event: "resources" });
+
+  // Also record changes for the polling endpoint
+  appState.on("app-state", (data: any) =>
+    recordChange({ source: "app-state", ...data }),
+  );
+  settings.on("settings", (data: any) =>
+    recordChange({ source: "settings", ...data }),
+  );
+  resources.on("resources", (data: any) =>
+    recordChange({ source: "resources", ...data }),
+  );
 }
 
 export function getDefaultSSEEmitters(): NonNullable<
@@ -35,13 +52,20 @@ export function setDefaultSyncResult(_result: any) {}
 
 /**
  * Create the default SSE handler for all templates.
- *
- * Streams DB change events (application state, settings) to connected clients.
- * No file watcher — all data lives in SQL.
+ * @deprecated Use createDefaultPollHandler() for serverless-compatible polling.
  */
 export function createDefaultSSEHandler() {
   ensureEmitters();
   return createSSEHandler({
     extraEmitters: _emitters,
   });
+}
+
+/**
+ * Create the default polling handler for all templates.
+ * Works in all deployment environments (serverless, edge, long-lived).
+ */
+export function createDefaultPollHandler() {
+  ensureEmitters();
+  return createPollHandler();
 }

@@ -25,33 +25,10 @@ const PROVIDERS: Provider[] = [
     needsAuthToken: true,
     steps: [
       "Install CLI: curl -sSfL https://get.tur.so/install.sh | bash",
-      "Login: turso auth login",
-      "Create DB: turso db create my-app",
-      "Get URL: turso db show my-app --url",
-      "Get token: turso db tokens create my-app",
-    ],
-  },
-  {
-    id: "neon",
-    name: "Neon",
-    description: "Serverless Postgres",
-    urlPrefix: "postgres://",
-    needsAuthToken: false,
-    steps: [
-      "Create project at neon.tech",
-      "Copy connection string from dashboard",
-    ],
-  },
-  {
-    id: "supabase",
-    name: "Supabase",
-    description: "Open source Firebase alternative",
-    urlPrefix: "postgres://",
-    needsAuthToken: false,
-    steps: [
-      "Create project at supabase.com",
-      "Go to Settings > Database > Connection string",
-      "Copy the URI connection string",
+      "Sign up / login: turso auth login (opens browser)",
+      "Create a database: turso db create my-app",
+      "Copy the URL: turso db show my-app --url → starts with libsql://",
+      "Create an auth token: turso db tokens create my-app → paste below",
     ],
   },
   {
@@ -61,8 +38,12 @@ const PROVIDERS: Provider[] = [
     urlPrefix: "d1://",
     needsAuthToken: true,
     steps: [
-      "Create D1 database in Cloudflare dashboard",
-      "Copy database ID and API token",
+      "Go to dash.cloudflare.com → Workers & Pages → D1 SQL Database",
+      'Click "Create" → name your database → click Create',
+      "Copy the Database ID from the database overview page",
+      "For the auth token: go to My Profile → API Tokens → Create Token",
+      'Select "Edit Cloudflare Workers" template → Create Token → copy it',
+      "Paste as: d1://<database-id> with the API token below",
     ],
   },
 ];
