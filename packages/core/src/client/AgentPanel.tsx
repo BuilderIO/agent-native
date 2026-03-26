@@ -31,6 +31,7 @@ import React, {
 } from "react";
 import { AssistantChat } from "./AssistantChat.js";
 import type { AssistantChatProps } from "./AssistantChat.js";
+import { useDevMode } from "./use-dev-mode.js";
 import { cn } from "./utils.js";
 
 // Lazy-load AgentTerminal to avoid bundling xterm.js when not needed
@@ -116,6 +117,23 @@ function TerminalIcon({ className }: { className?: string }) {
   );
 }
 
+function CogIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
 function SidebarIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -130,6 +148,107 @@ function SidebarIcon({ className }: { className?: string }) {
       <rect x="3" y="3" width="18" height="18" rx="2" />
       <path d="M9 3v18" />
     </svg>
+  );
+}
+
+// ─── Agent Settings Popover ──────────────────────────────────────────────────
+
+function AgentSettingsPopover({
+  isDevMode,
+  onToggle,
+}: {
+  isDevMode: boolean;
+  onToggle: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (
+        popoverRef.current &&
+        !popoverRef.current.contains(e.target as Node) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [open]);
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        onClick={() => setOpen(!open)}
+        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+        title="Agent settings"
+      >
+        <CogIcon className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <div
+          ref={popoverRef}
+          className="absolute right-0 top-full mt-1 z-50 w-64 rounded-lg border border-border bg-popover p-3 shadow-lg"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[13px] font-medium text-foreground">
+                Agent mode
+              </span>
+              <span className="text-[11px] text-muted-foreground leading-snug">
+                {isDevMode
+                  ? "Full access — can edit code, run shell commands, and modify files"
+                  : "Restricted — app tools only, no code editing or shell access"}
+              </span>
+            </div>
+          </div>
+          <div className="mt-2.5 flex items-center gap-2">
+            <button
+              onClick={() => {
+                if (isDevMode) onToggle();
+              }}
+              className={cn(
+                "flex-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-center border",
+                !isDevMode
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                  : "border-border text-muted-foreground hover:bg-accent/50",
+              )}
+            >
+              Production
+            </button>
+            <button
+              onClick={() => {
+                if (!isDevMode) onToggle();
+              }}
+              className={cn(
+                "flex-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-center border",
+                isDevMode
+                  ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                  : "border-border text-muted-foreground hover:bg-accent/50",
+              )}
+            >
+              Development
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -168,6 +287,14 @@ export function AgentPanel({
   const [selectedCli, selectCli] = useCliSelection();
   const selectedLabel =
     availableClis.find((c) => c.command === selectedCli)?.label || selectedCli;
+  const { isDevMode, canToggle, setDevMode } = useDevMode(apiUrl);
+  const isLocalhost =
+    mounted &&
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1" ||
+      window.location.hostname === "::1");
+  const showDevToggle = canToggle && isLocalhost;
 
   return (
     <div className={cn("flex flex-1 flex-col h-full min-h-0", className)}>
@@ -205,6 +332,13 @@ export function AgentPanel({
             )}
           </div>
           <div className="flex items-center gap-1.5">
+            {/* Agent settings popover — localhost only */}
+            {showDevToggle && (
+              <AgentSettingsPopover
+                isDevMode={isDevMode}
+                onToggle={() => setDevMode(!isDevMode)}
+              />
+            )}
             {/* CLI selector — only visible in CLI mode */}
             {IS_DEV && mode === "cli" && availableClis.length > 0 && (
               <select

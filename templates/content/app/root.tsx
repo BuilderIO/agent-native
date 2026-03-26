@@ -5,6 +5,7 @@ import { ThemeProvider } from "next-themes";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
+import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
 import { useFileWatcher } from "./hooks/use-file-watcher";
 import "./global.css";
 
@@ -43,16 +44,18 @@ function FileWatcherSetup() {
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
   return (
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
-      <QueryClientProvider client={queryClient}>
-        <FileWatcherSetup />
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <Outlet />
-        </TooltipProvider>
-      </QueryClientProvider>
-    </ThemeProvider>
+    <ClientOnly fallback={<DefaultSpinner />}>
+      <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+        <QueryClientProvider client={queryClient}>
+          <FileWatcherSetup />
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <Outlet />
+          </TooltipProvider>
+        </QueryClientProvider>
+      </ThemeProvider>
+    </ClientOnly>
   );
 }
 

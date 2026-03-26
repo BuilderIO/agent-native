@@ -61,13 +61,26 @@ When editing code, maintain existing patterns and conventions. After writing fil
  * });
  * ```
  */
+function isLocalhost(event: any): boolean {
+  try {
+    const host =
+      event.node?.req?.headers?.host || event.headers?.get?.("host") || "";
+    const hostname = host.split(":")[0];
+    return (
+      hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
   return async (nitroApp: any) => {
     const env = process.env.NODE_ENV;
     // AGENT_MODE=production forces production agent constraints even in dev
-    const isDev =
+    const canToggle =
       (env === "development" || env === "test") &&
       process.env.AGENT_MODE !== "production";
     const routePath = options?.path ?? "/api/agent-chat";
@@ -78,29 +91,63 @@ export function createAgentChatPlugin(
       typeof rawScripts === "function"
         ? await rawScripts()
         : (rawScripts ?? {});
-    let scripts = templateScripts;
-    if (isDev) {
-      const { createDevScriptRegistry } =
-        await import("../scripts/dev/index.js");
-      scripts = { ...templateScripts, ...(await createDevScriptRegistry()) };
-    }
 
-    // Build system prompt
+    // Build system prompts
     const basePrompt = options?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     const devPrefix = options?.devSystemPrompt ?? DEFAULT_DEV_PROMPT;
-    const systemPrompt = isDev ? devPrefix + basePrompt : basePrompt;
 
-    const handler = createProductionAgentHandler({
-      scripts,
-      systemPrompt,
+    // Always build the production handler
+    const prodHandler = createProductionAgentHandler({
+      scripts: templateScripts,
+      systemPrompt: basePrompt,
       model: options?.model,
       apiKey: options?.apiKey,
     });
 
-    // Mount mode endpoint — lets clients detect dev vs production
+    // Build the dev handler (with filesystem/shell/db tools) if environment allows toggling
+    let devHandler: ReturnType<typeof createProductionAgentHandler> | null =
+      null;
+    if (canToggle) {
+      const { createDevScriptRegistry } =
+        await import("../scripts/dev/index.js");
+      const devScripts = {
+        ...templateScripts,
+        ...(await createDevScriptRegistry()),
+      };
+      devHandler = createProductionAgentHandler({
+        scripts: devScripts,
+        systemPrompt: devPrefix + basePrompt,
+        model: options?.model,
+        apiKey: options?.apiKey,
+      });
+    }
+
+    // Mutable mode flag — starts in dev if environment allows
+    let currentDevMode = canToggle;
+
+    // Mount mode endpoint — GET returns current mode, POST toggles it (localhost only)
     nitroApp.h3App.use(
       `${routePath}/mode`,
-      defineEventHandler(() => ({ devMode: isDev })),
+      defineEventHandler(async (event) => {
+        if (getMethod(event) === "POST") {
+          if (!canToggle) {
+            setResponseStatus(event, 403);
+            return { error: "Mode switching not available in production" };
+          }
+          if (!isLocalhost(event)) {
+            setResponseStatus(event, 403);
+            return { error: "Mode switching only available on localhost" };
+          }
+          const body = await readBody(event);
+          if (typeof body?.devMode === "boolean") {
+            currentDevMode = body.devMode;
+          } else {
+            currentDevMode = !currentDevMode;
+          }
+          return { devMode: currentDevMode, canToggle };
+        }
+        return { devMode: currentDevMode, canToggle };
+      }),
     );
 
     // Mount save-key BEFORE the prefix handler so it isn't shadowed
@@ -141,8 +188,14 @@ export function createAgentChatPlugin(
       }),
     );
 
-    // Mount the main chat handler — must come AFTER save-key to avoid prefix shadowing
-    nitroApp.h3App.use(routePath, handler);
+    // Mount the main chat handler — delegates to dev or prod handler based on current mode
+    nitroApp.h3App.use(
+      routePath,
+      defineEventHandler((event) => {
+        const handler = currentDevMode && devHandler ? devHandler : prodHandler;
+        return handler(event);
+      }),
+    );
   };
 }
 

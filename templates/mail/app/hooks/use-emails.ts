@@ -15,6 +15,10 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export function fetchThreadMessages(threadId: string): Promise<EmailMessage[]> {
+  return apiFetch(`/api/threads/${threadId}/messages`);
+}
+
 // ─── Emails ──────────────────────────────────────────────────────────────────
 
 export function useEmails(view: string = "inbox", search?: string) {
@@ -43,7 +47,7 @@ export function useEmail(id: string | undefined) {
 export function useThreadMessages(threadId: string | undefined) {
   return useQuery<EmailMessage[]>({
     queryKey: ["thread-messages", threadId],
-    queryFn: () => apiFetch(`/api/threads/${threadId}/messages`),
+    queryFn: () => fetchThreadMessages(threadId!),
     enabled: !!threadId,
   });
 }
@@ -285,19 +289,20 @@ export function useDeleteEmail() {
 export function useReportSpam() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
+    mutationFn: ({ id, threadId }: { id: string; threadId: string }) =>
       apiFetch(`/api/emails/${id}/spam`, { method: "POST" }),
-    onMutate: async (id: string) => {
+    onMutate: async ({ threadId }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],
       });
+      // Filter out entire thread, not just the single message
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
-        old?.filter((e) => e.id !== id),
+        old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
       return { previous };
     },
-    onError: (_err, _id, context) => {
+    onError: (_err, _vars, context) => {
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
@@ -307,18 +312,27 @@ export function useReportSpam() {
 export function useBlockSender() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, senderEmail }: { id: string; senderEmail: string }) =>
+    mutationFn: ({
+      id,
+      threadId,
+      senderEmail,
+    }: {
+      id: string;
+      threadId: string;
+      senderEmail: string;
+    }) =>
       apiFetch(`/api/emails/${id}/block-sender`, {
         method: "POST",
         body: JSON.stringify({ senderEmail }),
       }),
-    onMutate: async ({ id }) => {
+    onMutate: async ({ threadId }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],
       });
+      // Filter out entire thread, not just the single message
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
-        old?.filter((e) => e.id !== id),
+        old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
       return { previous };
     },

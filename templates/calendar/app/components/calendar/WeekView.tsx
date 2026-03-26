@@ -28,11 +28,20 @@ interface WeekViewProps {
 
 // [startHour, startMin, durationMin, widthPct] per day column (Sun–Sat)
 const WEEK_SKELETONS: [number, number, number, number][][] = [
-  [[9, 0, 60, 78], [14, 0, 30, 62]],
+  [
+    [9, 0, 60, 78],
+    [14, 0, 30, 62],
+  ],
   [[10, 0, 90, 82]],
-  [[8, 30, 45, 74], [15, 0, 60, 68]],
+  [
+    [8, 30, 45, 74],
+    [15, 0, 60, 68],
+  ],
   [[10, 0, 60, 80]],
-  [[9, 0, 45, 70], [13, 0, 90, 78]],
+  [
+    [9, 0, 45, 70],
+    [13, 0, 90, 78],
+  ],
   [[11, 0, 30, 65]],
   [[9, 30, 60, 72]],
 ];
@@ -75,16 +84,18 @@ interface LayoutInfo {
 }
 
 /**
- * Google Calendar-style overlap layout.
- * Events are assigned columns. Each event spans from its column to the right
- * edge unless a later-starting event needs the space. Events cascade/overlap
- * rather than being squeezed into tiny equal-width slots.
+ * Google Calendar-style stacking layout.
+ *
+ * Events visually overlap: each event is wide and readable, and later
+ * overlapping events are indented slightly to the right and stacked on top
+ * with opaque backgrounds. Text from events underneath is hidden by the
+ * card above — not squeezed into tiny columns.
  */
 function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
   const result = new Map<string, LayoutInfo>();
   if (dayEvents.length === 0) return result;
 
-  // Sort: earliest start first, then longest duration first
+  // Sort: earliest start first, then longest duration first (background)
   const sorted = [...dayEvents].sort((a, b) => {
     const aStart = parseISO(a.start).getTime();
     const bStart = parseISO(b.start).getTime();
@@ -92,7 +103,6 @@ function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
     return parseISO(b.end).getTime() - parseISO(a.end).getTime();
   });
 
-  // Parse times once
   const times = new Map<string, { start: number; end: number }>();
   for (const ev of sorted) {
     times.set(ev.id, {
@@ -107,81 +117,25 @@ function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
     return ta.start < tb.end && tb.start < ta.end;
   };
 
-  // Google Calendar-style hybrid layout:
-  // 1. Build overlap clusters (events transitively connected by overlap)
-  // 2. Within each cluster, assign columns
-  // 3. Give each event its column's width, but let events expand right
-  //    into unused space — so non-overlapping events get full width
-
-  // Step 1: Build overlap clusters
-  const clusters: CalendarEvent[][] = [];
-  let clusterEnd = -Infinity;
-  let currentCluster: CalendarEvent[] = [];
+  const INDENT_PCT = 14;
+  const MIN_WIDTH_PCT = 45;
 
   for (const ev of sorted) {
-    const t = times.get(ev.id)!;
-    if (t.start >= clusterEnd && currentCluster.length > 0) {
-      clusters.push(currentCluster);
-      currentCluster = [];
-      clusterEnd = -Infinity;
-    }
-    currentCluster.push(ev);
-    clusterEnd = Math.max(clusterEnd, t.end);
-  }
-  if (currentCluster.length > 0) clusters.push(currentCluster);
-
-  // Step 2: Lay out each cluster
-  for (const cluster of clusters) {
-    // Assign columns — each event goes to the leftmost free column
-    const columns: string[][] = [];
-    const eventCol = new Map<string, number>();
-
-    for (const ev of cluster) {
-      let placed = false;
-      for (let c = 0; c < columns.length; c++) {
-        if (columns[c].every((id) => !overlaps(id, ev.id))) {
-          columns[c].push(ev.id);
-          eventCol.set(ev.id, c);
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) {
-        columns.push([ev.id]);
-        eventCol.set(ev.id, columns.length - 1);
-      }
+    let depth = 0;
+    for (const other of sorted) {
+      if (other.id === ev.id) break;
+      if (overlaps(other.id, ev.id)) depth++;
     }
 
-    const totalCols = columns.length;
+    const leftPct = Math.min(depth * INDENT_PCT, 100 - MIN_WIDTH_PCT);
+    const widthPct = Math.max(100 - leftPct, MIN_WIDTH_PCT);
 
-    // For each event, find its "forward" neighbor count: the max number of
-    // columns simultaneously used at any point during this event's time span.
-    // This determines the width — the event gets 1/forwardCols of the space
-    // starting from its column, but only relative to events it actually overlaps.
-    for (const ev of cluster) {
-      const col = eventCol.get(ev.id)!;
-
-      // Expand rightward into columns that have no overlapping event
-      let span = 1;
-      for (let c = col + 1; c < totalCols; c++) {
-        if (columns[c].some((id) => overlaps(id, ev.id))) break;
-        span++;
-      }
-
-      // Width: span / totalCols, but cap the right edge so the event
-      // doesn't extend past the rightmost occupied column at its time.
-      // This prevents an event from being needlessly wide when there's
-      // empty space to its right that belongs to a different time slice.
-      const leftPct = (col / totalCols) * 100;
-      const widthPct = (span / totalCols) * 100;
-
-      result.set(ev.id, {
-        left: leftPct,
-        width: widthPct,
-        col,
-        totalCols,
-      });
-    }
+    result.set(ev.id, {
+      left: leftPct,
+      width: widthPct,
+      col: depth,
+      totalCols: depth + 1,
+    });
   }
 
   return result;
@@ -560,62 +514,63 @@ export function WeekView({
                   )}
 
                 {/* Timed events */}
-                {!isLoading && dayEvents.map((event) => {
-                  const li = layout.get(event.id) ?? {
-                    left: 0,
-                    width: 100,
-                    col: 0,
-                    totalCols: 1,
-                  };
-                  const style = getEventStyle(event);
-                  const color = getEventColor(event);
-                  const start = parseISO(event.start);
-                  const end = parseISO(event.end);
-                  const durationMin = differenceInMinutes(end, start);
+                {!isLoading &&
+                  dayEvents.map((event) => {
+                    const li = layout.get(event.id) ?? {
+                      left: 0,
+                      width: 100,
+                      col: 0,
+                      totalCols: 1,
+                    };
+                    const style = getEventStyle(event);
+                    const color = getEventColor(event);
+                    const start = parseISO(event.start);
+                    const end = parseISO(event.end);
+                    const durationMin = differenceInMinutes(end, start);
 
-                  return (
-                    <EventDetailPopover
-                      key={event.id}
-                      event={event}
-                      onEdit={onEditEvent}
-                      onDelete={onDeleteEvent}
-                    >
-                      <button
-                        className="absolute overflow-hidden rounded-md px-2 py-1 text-left text-xs transition-all hover:z-30 hover:brightness-110 hover:shadow-md"
-                        style={{
-                          ...style,
-                          left: `calc(${li.left}% + ${li.col > 0 ? 2 : 0}px)`,
-                          width: `calc(${li.width}% - ${li.col > 0 ? 4 : 2}px)`,
-                          zIndex: li.col + 1,
-                          backgroundColor: color
-                            ? `color-mix(in srgb, ${color} 18%, hsl(var(--background)))`
-                            : "hsl(var(--primary) / 0.12)",
-                          borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
-                        }}
+                    return (
+                      <EventDetailPopover
+                        key={event.id}
+                        event={event}
+                        onEdit={onEditEvent}
+                        onDelete={onDeleteEvent}
                       >
-                        <div
-                          className={cn(
-                            "font-semibold leading-tight text-foreground",
-                            durationMin < 90 && "truncate",
-                          )}
+                        <button
+                          className="absolute overflow-hidden rounded-md px-2 py-1 text-left text-xs transition-all hover:z-30 hover:brightness-110 hover:shadow-md"
+                          style={{
+                            ...style,
+                            left: `calc(${li.left}% + ${li.col > 0 ? 2 : 0}px)`,
+                            width: `calc(${li.width}% - ${li.col > 0 ? 4 : 2}px)`,
+                            zIndex: li.col + 1,
+                            backgroundColor: color
+                              ? `color-mix(in srgb, ${color} 18%, hsl(var(--background)))`
+                              : `color-mix(in srgb, hsl(var(--primary)) 12%, hsl(var(--background)))`,
+                            borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
+                          }}
                         >
-                          {event.title}
-                          {durationMin < 45 && (
-                            <span className="font-normal text-foreground/60">
-                              {" "}
-                              {format(start, "h:mm a")}
-                            </span>
-                          )}
-                        </div>
-                        {durationMin >= 45 && (
-                          <div className="truncate text-[10px] text-foreground/60">
-                            {formatEventTime(start, end)}
+                          <div
+                            className={cn(
+                              "font-semibold leading-tight text-foreground",
+                              durationMin < 90 && "truncate",
+                            )}
+                          >
+                            {event.title}
+                            {durationMin < 45 && (
+                              <span className="font-normal text-foreground/60">
+                                {" "}
+                                {format(start, "h:mm a")}
+                              </span>
+                            )}
                           </div>
-                        )}
-                      </button>
-                    </EventDetailPopover>
-                  );
-                })}
+                          {durationMin >= 45 && (
+                            <div className="truncate text-[10px] text-foreground/60">
+                              {formatEventTime(start, end)}
+                            </div>
+                          )}
+                        </button>
+                      </EventDetailPopover>
+                    );
+                  })}
               </div>
             );
           })}

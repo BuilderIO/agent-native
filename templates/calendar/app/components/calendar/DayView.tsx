@@ -55,49 +55,38 @@ function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
     return parseISO(b.end).getTime() - parseISO(a.end).getTime();
   });
 
-  const columns: { id: string; end: number }[][] = [];
-  const eventCol = new Map<string, number>();
-
+  const times = new Map<string, { start: number; end: number }>();
   for (const ev of sorted) {
-    const evStart = parseISO(ev.start).getTime();
-    const evEnd = parseISO(ev.end).getTime();
-    let placed = false;
-    for (let c = 0; c < columns.length; c++) {
-      if (columns[c].every((slot) => slot.end <= evStart)) {
-        columns[c].push({ id: ev.id, end: evEnd });
-        eventCol.set(ev.id, c);
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) {
-      columns.push([{ id: ev.id, end: evEnd }]);
-      eventCol.set(ev.id, columns.length - 1);
-    }
+    times.set(ev.id, {
+      start: parseISO(ev.start).getTime(),
+      end: parseISO(ev.end).getTime(),
+    });
   }
 
-  const totalCols = columns.length;
+  const overlaps = (a: string, b: string) => {
+    const ta = times.get(a)!;
+    const tb = times.get(b)!;
+    return ta.start < tb.end && tb.start < ta.end;
+  };
+
+  const INDENT_PCT = 14;
+  const MIN_WIDTH_PCT = 45;
 
   for (const ev of sorted) {
-    const col = eventCol.get(ev.id)!;
-    const evStart = parseISO(ev.start).getTime();
-    const evEnd = parseISO(ev.end).getTime();
-    let span = 1;
-    for (let c = col + 1; c < totalCols; c++) {
-      const isBlocked = columns[c].some((slot) => {
-        const slotEv = sorted.find((e) => e.id === slot.id)!;
-        const slotStart = parseISO(slotEv.start).getTime();
-        const slotEnd = parseISO(slotEv.end).getTime();
-        return slotStart < evEnd && slotEnd > evStart;
-      });
-      if (isBlocked) break;
-      span++;
+    let depth = 0;
+    for (const other of sorted) {
+      if (other.id === ev.id) break;
+      if (overlaps(other.id, ev.id)) depth++;
     }
+
+    const leftPct = Math.min(depth * INDENT_PCT, 100 - MIN_WIDTH_PCT);
+    const widthPct = Math.max(100 - leftPct, MIN_WIDTH_PCT);
+
     result.set(ev.id, {
-      left: (col / totalCols) * 100,
-      width: (span / totalCols) * 100,
-      col,
-      totalCols,
+      left: leftPct,
+      width: widthPct,
+      col: depth,
+      totalCols: depth + 1,
     });
   }
 
@@ -256,76 +245,80 @@ export function DayView({
 
           {/* Skeleton events when loading */}
           {isLoading &&
-            DAY_SKELETONS.map(([startHour, startMin, duration, widthPct], i) => {
-              const topPx =
-                ((startHour - START_HOUR) * 60 + startMin) * (HOUR_HEIGHT / 60);
-              const heightPx = Math.max((duration / 60) * HOUR_HEIGHT, 20);
-              return (
-                <div
-                  key={i}
-                  className="absolute animate-pulse rounded-lg bg-muted"
-                  style={{
-                    top: `${topPx}px`,
-                    height: `${heightPx}px`,
-                    left: "2px",
-                    width: `calc(${widthPct}% - 4px)`,
-                  }}
-                />
-              );
-            })}
+            DAY_SKELETONS.map(
+              ([startHour, startMin, duration, widthPct], i) => {
+                const topPx =
+                  ((startHour - START_HOUR) * 60 + startMin) *
+                  (HOUR_HEIGHT / 60);
+                const heightPx = Math.max((duration / 60) * HOUR_HEIGHT, 20);
+                return (
+                  <div
+                    key={i}
+                    className="absolute animate-pulse rounded-lg bg-muted"
+                    style={{
+                      top: `${topPx}px`,
+                      height: `${heightPx}px`,
+                      left: "2px",
+                      width: `calc(${widthPct}% - 4px)`,
+                    }}
+                  />
+                );
+              },
+            )}
 
           {/* Timed events */}
-          {!isLoading && timedEvents.map((event) => {
-            const posStyle = getEventStyle(event);
-            const li = layout.get(event.id) ?? {
-              left: 0,
-              width: 100,
-              col: 0,
-              totalCols: 1,
-            };
-            const color = getEventColor(event);
-            const durationMin = differenceInMinutes(
-              parseISO(event.end),
-              parseISO(event.start),
-            );
-            return (
-              <EventDetailPopover
-                key={event.id}
-                event={event}
-                onEdit={onEditEvent}
-                onDelete={onDeleteEvent}
-              >
-                <button
-                  className="absolute overflow-hidden rounded-lg px-2.5 py-1.5 text-left text-sm transition-all hover:z-30 hover:brightness-110 hover:shadow-lg"
-                  style={{
-                    ...posStyle,
-                    left: `calc(${li.left}% + ${li.col > 0 ? 2 : 0}px)`,
-                    width: `calc(${li.width}% - ${li.totalCols > 1 ? 4 : 3}px)`,
-                    zIndex: li.col + 1,
-                    backgroundColor: color
-                      ? `${color}22`
-                      : "hsl(var(--primary) / 0.12)",
-                    borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
-                  }}
+          {!isLoading &&
+            timedEvents.map((event) => {
+              const posStyle = getEventStyle(event);
+              const li = layout.get(event.id) ?? {
+                left: 0,
+                width: 100,
+                col: 0,
+                totalCols: 1,
+              };
+              const color = getEventColor(event);
+              const durationMin = differenceInMinutes(
+                parseISO(event.end),
+                parseISO(event.start),
+              );
+              return (
+                <EventDetailPopover
+                  key={event.id}
+                  event={event}
+                  onEdit={onEditEvent}
+                  onDelete={onDeleteEvent}
                 >
-                  <div className="truncate font-semibold leading-tight text-foreground">
-                    {event.title}
-                  </div>
-                  {durationMin >= 30 && (
-                    <div className="mt-0.5 truncate text-[11px] text-foreground/60">
-                      {format(parseISO(event.start), "h:mm a")} –{" "}
-                      {format(parseISO(event.end), "h:mm a")}
+                  <button
+                    className="absolute overflow-hidden rounded-lg px-2.5 py-1.5 text-left text-sm transition-all hover:z-30 hover:brightness-110 hover:shadow-lg"
+                    style={{
+                      ...posStyle,
+                      left: `calc(${li.left}% + ${li.col > 0 ? 2 : 0}px)`,
+                      width: `calc(${li.width}% - ${li.col > 0 ? 4 : 2}px)`,
+                      zIndex: li.col + 1,
+                      backgroundColor: color
+                        ? `color-mix(in srgb, ${color} 18%, hsl(var(--background)))`
+                        : `color-mix(in srgb, hsl(var(--primary)) 12%, hsl(var(--background)))`,
+                      borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
+                    }}
+                  >
+                    <div className="truncate font-semibold leading-tight text-foreground">
+                      {event.title}
                     </div>
-                  )}
-                  {durationMin >= 45 && event.location && (
-                    <div className="mt-0.5 truncate text-[11px] text-foreground/50">
-                      📍 {event.location}
-                    </div>
-                  )}
-                </button>
-              </EventDetailPopover>
-            );
-          })}
+                    {durationMin >= 30 && (
+                      <div className="mt-0.5 truncate text-[11px] text-foreground/60">
+                        {format(parseISO(event.start), "h:mm a")} –{" "}
+                        {format(parseISO(event.end), "h:mm a")}
+                      </div>
+                    )}
+                    {durationMin >= 45 && event.location && (
+                      <div className="mt-0.5 truncate text-[11px] text-foreground/50">
+                        📍 {event.location}
+                      </div>
+                    )}
+                  </button>
+                </EventDetailPopover>
+              );
+            })}
         </div>
       </div>
     </div>

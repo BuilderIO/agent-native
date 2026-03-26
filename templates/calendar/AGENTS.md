@@ -193,14 +193,27 @@ The script runner (`scripts/run.ts`) dispatches to individual script files in `s
 
 ### Available Scripts
 
-| Script                 | Args                                                                     | Purpose                                     |
-| ---------------------- | ------------------------------------------------------------------------ | ------------------------------------------- |
-| `sync-google-calendar` | `--from`, `--to`                                                         | Pull Google Calendar events                 |
-| `create-event`         | `--title`, `--start`, `--end`, `--description`, `--location`, `--google` | Create event locally + optionally on Google |
-| `list-events`          | `--from`, `--to`, `--source`                                             | List events with filtering                  |
-| `check-availability`   | `--date`, `--duration`                                                   | Show available time slots for a date        |
+| Script                 | Args                                                                     | Purpose                                                               |
+| ---------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| `list-events`          | `--from`, `--to`, `--source`                                             | **Query Google Calendar events** — use this for any schedule question |
+| `sync-google-calendar` | `--from`, `--to`                                                         | Pull Google Calendar events                                           |
+| `create-event`         | `--title`, `--start`, `--end`, `--description`, `--location`, `--google` | Create event locally + optionally on Google                           |
+| `check-availability`   | `--date`, `--duration`                                                   | Show available time slots for a date                                  |
 
 Usage: `pnpm script <name> --arg value`
+
+### Querying Today's Events
+
+**Always use `list-events` to answer schedule questions — never guess or return empty results.**
+
+To get today's events, set `--from` to today's date and `--to` to tomorrow's date (the `--to` bound is exclusive):
+
+```bash
+# Today is 2026-03-26
+pnpm script list-events --from 2026-03-26 --to 2026-03-27
+```
+
+This queries Google Calendar directly and returns all events within the date range.
 
 ### Adding New Scripts
 
@@ -315,3 +328,4 @@ All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`,
 2. **Scripts for backend logic** — anything the agent needs to execute goes through `pnpm script`. Create reusable scripts for common operations, generate throwaway scripts for one-offs.
 3. **Agent chat for complex flows** — use `agentChat.submit()` from scripts and `agentChat.submit()` / `agentChat.prefill()` from the client to delegate multi-step operations, especially when follow-up conversation is valuable.
 4. **Keep the UI thin** — the UI should be for direct manipulation. Anything that benefits from AI reasoning or iteration should route through the agent chat.
+5. **Always query Google Calendar for schedule questions** — use `pnpm script list-events --from <date> --to <date+1>` to answer any "what's on my calendar" question. Never return empty results without running the script first.

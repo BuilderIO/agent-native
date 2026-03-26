@@ -328,7 +328,10 @@ export function AppLayout({ children }: AppLayoutProps) {
       return;
     }
     dismissEmail(targetEmail.id);
-    reportSpam.mutate(targetEmail.id);
+    reportSpam.mutate({
+      id: targetEmail.id,
+      threadId: targetEmail.threadId || targetEmail.id,
+    });
     toast("Reported as spam.");
   }, [targetEmail, reportSpam, dismissEmail]);
 
@@ -340,6 +343,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     dismissEmail(targetEmail.id);
     blockSender.mutate({
       id: targetEmail.id,
+      threadId: targetEmail.threadId || targetEmail.id,
       senderEmail: targetEmail.from.email,
     });
     toast(`Reported as spam & blocked ${targetEmail.from.email}.`);

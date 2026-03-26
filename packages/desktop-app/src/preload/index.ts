@@ -1,5 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
-import { IPC, type InterAppMessage } from "@shared/ipc-channels";
+import {
+  IPC,
+  type ActiveWebviewTarget,
+  type InterAppMessage,
+} from "@shared/ipc-channels";
 
 /** The API surface exposed to the renderer via window.electronAPI */
 const electronAPI = {
@@ -58,6 +62,8 @@ const electronAPI = {
 
   /** Tell main process which app webview is currently active (for DevTools targeting) */
   setActiveApp: (appId: string) => ipcRenderer.send(IPC.SET_ACTIVE_APP, appId),
+  setActiveWebview: (target: ActiveWebviewTarget) =>
+    ipcRenderer.send(IPC.SET_ACTIVE_WEBVIEW, target),
 
   /** Inter-app communication — relay messages between loaded apps */
   interApp: {

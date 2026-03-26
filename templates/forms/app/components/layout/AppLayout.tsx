@@ -1,10 +1,9 @@
 import { Sidebar } from "./Sidebar";
-import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar />
       <AgentSidebar
         position="left"
         defaultOpen
@@ -17,6 +16,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       >
         <main className="flex-1 overflow-auto">{children}</main>
       </AgentSidebar>
+      <Sidebar />
     </div>
   );
 }

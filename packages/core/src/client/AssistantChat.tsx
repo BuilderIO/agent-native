@@ -18,6 +18,7 @@ import {
   MessagePrimitive,
 } from "@assistant-ui/react";
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
+import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
 import { cn } from "./utils.js";
 
@@ -128,6 +129,49 @@ function CopyIcon({ className }: { className?: string }) {
   );
 }
 
+// ─── Markdown Text ──────────────────────────────────────────────────────────
+
+const markdownStyles = `
+.agent-markdown > :first-child { margin-top: 0; }
+.agent-markdown > :last-child { margin-bottom: 0; }
+.agent-markdown p { margin: 0.5em 0; }
+.agent-markdown ul, .agent-markdown ol { margin: 0.5em 0; padding-left: 1.5em; }
+.agent-markdown li { margin: 0.2em 0; }
+.agent-markdown li > p { margin: 0; }
+.agent-markdown h1 { font-size: 1.25em; font-weight: 600; margin: 0.75em 0 0.25em; }
+.agent-markdown h2 { font-size: 1.125em; font-weight: 600; margin: 0.75em 0 0.25em; }
+.agent-markdown h3 { font-size: 1em; font-weight: 600; margin: 0.75em 0 0.25em; }
+.agent-markdown strong { font-weight: 600; }
+.agent-markdown em { font-style: italic; }
+.agent-markdown code { font-size: 0.875em; padding: 0.15em 0.35em; border-radius: 0.25em; background: var(--color-muted, hsl(0 0% 15%)); }
+.agent-markdown pre { margin: 0.5em 0; padding: 0.75em 1em; border-radius: 0.375em; background: var(--color-muted, hsl(0 0% 15%)); overflow-x: auto; }
+.agent-markdown pre code { padding: 0; background: transparent; font-size: 0.8125em; }
+.agent-markdown hr { border: none; border-top: 1px solid var(--color-border, hsl(0 0% 20%)); margin: 0.75em 0; }
+.agent-markdown a { text-decoration: underline; text-underline-offset: 2px; }
+.agent-markdown blockquote { border-left: 2px solid var(--color-border, hsl(0 0% 20%)); padding-left: 0.75em; margin: 0.5em 0; opacity: 0.8; }
+.agent-markdown table { border-collapse: collapse; margin: 0.5em 0; font-size: 0.875em; }
+.agent-markdown th, .agent-markdown td { border: 1px solid var(--color-border, hsl(0 0% 20%)); padding: 0.35em 0.65em; text-align: left; }
+.agent-markdown th { font-weight: 600; background: var(--color-muted, hsl(0 0% 15%)); }
+`;
+
+let stylesInjected = false;
+function injectMarkdownStyles() {
+  if (stylesInjected || typeof document === "undefined") return;
+  stylesInjected = true;
+  const style = document.createElement("style");
+  style.textContent = markdownStyles;
+  document.head.appendChild(style);
+}
+
+function MarkdownText() {
+  useEffect(() => {
+    injectMarkdownStyles();
+  }, []);
+  return (
+    <MarkdownTextPrimitive smooth className="agent-markdown break-words" />
+  );
+}
+
 // ─── Tool Call Fallback ─────────────────────────────────────────────────────
 
 function ToolCallFallback({
@@ -200,7 +244,7 @@ function ToolCallFallback({
 
 function UserMessage() {
   return (
-    <div className="flex justify-end">
+    <div className="flex justify-end" style={{ contentVisibility: "auto" }}>
       <div className="max-w-[85%] rounded-lg bg-accent text-foreground px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
         <MessagePrimitive.Parts
           components={{
@@ -215,10 +259,16 @@ function UserMessage() {
 function AssistantMessage() {
   const [copied, setCopied] = useState(false);
   const messageRuntime = useMessageRuntime();
+  const thread = useThread();
+  const msg = messageRuntime.getState();
+  const isLast =
+    thread.messages.length > 0 &&
+    thread.messages[thread.messages.length - 1].id === msg.id;
+  const isComplete = !isLast || !thread.isRunning;
 
   const handleCopy = useCallback(() => {
-    const msg = messageRuntime.getState();
-    const text = msg.content
+    const m = messageRuntime.getState();
+    const text = m.content
       .filter((p) => p.type === "text")
       .map((p) => (p as { text: string }).text)
       .join("\n");
@@ -228,32 +278,35 @@ function AssistantMessage() {
   }, [messageRuntime]);
 
   return (
-    <div className="group relative">
+    <div
+      className="group relative"
+      style={{ contentVisibility: isComplete ? "auto" : "visible" }}
+    >
       <div className="max-w-[95%] text-sm leading-relaxed text-foreground">
         <MessagePrimitive.Parts
           components={{
-            Text: ({ text }) => (
-              <div className="whitespace-pre-wrap break-words">{text}</div>
-            ),
+            Text: MarkdownText,
             tools: {
               Fallback: ToolCallFallback,
             },
           }}
         />
       </div>
-      {/* Action bar on hover */}
-      <div className="mt-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
-        <button
-          onClick={handleCopy}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          {copied ? (
-            <CheckIcon className="h-3.5 w-3.5" />
-          ) : (
-            <CopyIcon className="h-3.5 w-3.5" />
-          )}
-        </button>
-      </div>
+      {/* Action bar — only show after message is complete */}
+      {isComplete && (
+        <div className="mt-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+          <button
+            onClick={handleCopy}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            {copied ? (
+              <CheckIcon className="h-3 w-3" />
+            ) : (
+              <CopyIcon className="h-3 w-3" />
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -261,18 +314,16 @@ function AssistantMessage() {
 // ─── Thinking Indicator ─────────────────────────────────────────────────────
 
 function ThinkingIndicator() {
+  const [dots, setDots] = useState(1);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDots((d) => (d % 3) + 1);
+    }, 400);
+    return () => clearInterval(interval);
+  }, []);
   return (
-    <div className="flex items-center gap-1.5 text-muted-foreground py-2">
-      <div className="flex gap-1">
-        {[0, 1, 2].map((i) => (
-          <span
-            key={i}
-            className="h-1.5 w-1.5 rounded-full bg-current opacity-40 animate-bounce"
-            style={{ animationDelay: `${i * 0.15}s` }}
-          />
-        ))}
-      </div>
-      <span className="text-xs">Thinking...</span>
+    <div className="flex items-center text-muted-foreground">
+      <span className="text-xs">Thinking{".".repeat(dots)}</span>
     </div>
   );
 }
@@ -453,12 +504,21 @@ function QueueComposer({
     setTimeout(() => composerRef.current?.focus(), 0);
   }, [value, addToQueue, composerRef]);
 
+  const handleAutoResize = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      setValue(e.target.value);
+      e.target.style.height = "auto";
+      e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
+    },
+    [],
+  );
+
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring">
+    <div className="flex items-end gap-2 rounded-lg border border-input bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring">
       <textarea
         ref={composerRef}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={handleAutoResize}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
@@ -470,7 +530,7 @@ function QueueComposer({
             ? `${queuedCount} queued — type another...`
             : "Queue a message..."
         }
-        className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-relaxed min-h-[24px] max-h-[120px]"
+        className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-relaxed"
         rows={1}
       />
       <button
@@ -485,9 +545,11 @@ function QueueComposer({
   );
 }
 
+const STORAGE_PREFIX = "agent-chat:";
+
 const AssistantChatInner = forwardRef<
   AssistantChatHandle,
-  Omit<AssistantChatProps, "tabId">
+  AssistantChatProps & { apiUrl: string }
 >(function AssistantChatInner(
   {
     emptyStateText,
@@ -495,7 +557,8 @@ const AssistantChatInner = forwardRef<
     showHeader = true,
     onSwitchToCli,
     className,
-    apiUrl = "/api/agent-chat",
+    apiUrl,
+    tabId,
   },
   ref,
 ) {
@@ -508,6 +571,47 @@ const AssistantChatInner = forwardRef<
   const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
   const wasRunningRef = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+
+  // ─── Chat persistence ──────────────────────────────────────────────
+  const storageKey = `${STORAGE_PREFIX}${tabId || "default"}`;
+  const hasRestoredRef = useRef(false);
+
+  // Restore messages from sessionStorage on mount
+  useEffect(() => {
+    if (hasRestoredRef.current) return;
+    hasRestoredRef.current = true;
+    try {
+      const saved = sessionStorage.getItem(storageKey);
+      if (saved) {
+        const repo = JSON.parse(saved);
+        if (repo?.messages?.length > 0) {
+          threadRuntime.import(repo);
+        }
+      }
+    } catch {
+      // Ignore — start fresh
+    }
+  }, [storageKey, threadRuntime]);
+
+  // Persist messages to sessionStorage after each completed response
+  useEffect(() => {
+    if (!hasRestoredRef.current) return;
+    if (isRunning) return;
+    if (messages.length === 0) return;
+    try {
+      const repo = threadRuntime.export();
+      sessionStorage.setItem(storageKey, JSON.stringify(repo));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [messages, isRunning, storageKey, threadRuntime]);
+
+  const clearChat = useCallback(() => {
+    try {
+      sessionStorage.removeItem(storageKey);
+    } catch {}
+    window.location.reload();
+  }, [storageKey]);
 
   // Listen for missing API key events from the adapter
   useEffect(() => {
@@ -570,7 +674,18 @@ const AssistantChatInner = forwardRef<
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages, isRunning, queuedMessages]);
+  }, [messages, queuedMessages]);
+
+  // Continuous auto-scroll while streaming (content changes without messages array changing)
+  useEffect(() => {
+    if (!isRunning) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const interval = setInterval(() => {
+      el.scrollTop = el.scrollHeight;
+    }, 100);
+    return () => clearInterval(interval);
+  }, [isRunning]);
 
   return (
     <div
@@ -597,7 +712,7 @@ const AssistantChatInner = forwardRef<
             )}
             {messages.length > 0 && (
               <button
-                onClick={() => window.location.reload()}
+                onClick={clearChat}
                 className="text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
               >
                 Clear
@@ -684,13 +799,14 @@ const AssistantChatInner = forwardRef<
             queuedCount={queuedMessages.length}
           />
         ) : (
-          <ComposerPrimitive.Root className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring">
+          <ComposerPrimitive.Root className="flex items-end gap-2 rounded-lg border border-input bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring">
             <ComposerPrimitive.Input
               placeholder="Message agent..."
               submitMode="enter"
               cancelOnEscape
-              className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-relaxed min-h-[24px] max-h-[120px]"
-              rows={1}
+              className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-relaxed"
+              minRows={1}
+              maxRows={8}
             />
             <ComposerPrimitive.Send asChild>
               <button className="shrink-0 flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed">
@@ -707,7 +823,7 @@ const AssistantChatInner = forwardRef<
 export const AssistantChat = forwardRef<
   AssistantChatHandle,
   AssistantChatProps
->(function AssistantChat({ apiUrl, tabId, ...props }, ref) {
+>(function AssistantChat({ apiUrl = "/api/agent-chat", tabId, ...props }, ref) {
   const adapter = useMemo(
     () => createAgentChatAdapter({ apiUrl, tabId }),
     [apiUrl, tabId],
@@ -717,7 +833,12 @@ export const AssistantChat = forwardRef<
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="flex flex-1 flex-col h-full min-h-0">
-        <AssistantChatInner ref={ref} {...props} apiUrl={apiUrl} />
+        <AssistantChatInner
+          ref={ref}
+          {...props}
+          apiUrl={apiUrl}
+          tabId={tabId}
+        />
       </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>
   );
