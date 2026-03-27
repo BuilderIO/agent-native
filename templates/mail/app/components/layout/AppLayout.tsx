@@ -112,6 +112,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const tabSettingsRef = useRef<HTMLDivElement>(null);
 
   const pinnedLabels = settings?.pinnedLabels ?? [];
+  const labelAliases = settings?.labelAliases ?? {};
   const { data: inboxEmails = [], isLoading: emailsLoading } =
     useEmails("inbox");
   const tabsLoading = labelsLoading || settingsLoading || emailsLoading;
@@ -206,12 +207,14 @@ export function AppLayout({ children }: AppLayoutProps) {
           l.name.toLowerCase() === id.toLowerCase(),
       );
       if (lbl) {
-        const displayName = shortLabelName(lbl.name).toLowerCase();
-        if (seenLabels.has(displayName)) continue;
-        seenLabels.add(displayName);
+        const rawName = shortLabelName(lbl.name);
+        const aliasedName = labelAliases[lbl.id] || labelAliases[id] || rawName;
+        const displayKey = aliasedName.toLowerCase();
+        if (seenLabels.has(displayKey)) continue;
+        seenLabels.add(displayKey);
         tabs.push({
           id: lbl.id,
-          label: shortLabelName(lbl.name),
+          label: aliasedName,
           href: `/inbox?label=${encodeURIComponent(lbl.id)}`,
           isActive: activeLabel === lbl.id,
           color: lbl.color,
@@ -219,7 +222,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       }
     }
     return tabs;
-  }, [labels, pinnedLabels, view, activeLabel]);
+  }, [labels, pinnedLabels, labelAliases, view, activeLabel]);
 
   // System views NOT pinned (go in the "more" dropdown)
   const hiddenViews = useMemo(
@@ -596,9 +599,16 @@ export function AppLayout({ children }: AppLayoutProps) {
                     systemViews={collapsibleViews}
                     userLabels={userLabels}
                     pinnedLabels={pinnedLabels}
+                    labelAliases={labelAliases}
                     search={labelSearch}
                     onSearchChange={setLabelSearch}
                     onToggle={togglePinned}
+                    onRename={(id, alias) => {
+                      const next = { ...labelAliases };
+                      if (alias) next[id] = alias;
+                      else delete next[id];
+                      updateSettings.mutate({ labelAliases: next });
+                    }}
                   />
                 )}
               </div>
@@ -1108,17 +1118,23 @@ function TabSettingsPopover({
   systemViews,
   userLabels,
   pinnedLabels,
+  labelAliases,
   search,
   onSearchChange,
   onToggle,
+  onRename,
 }: {
   systemViews: { id: string; label: string }[];
   userLabels: Label[];
   pinnedLabels: string[];
+  labelAliases: Record<string, string>;
   search: string;
   onSearchChange: (v: string) => void;
   onToggle: (id: string) => void;
+  onRename: (id: string, alias: string) => void;
 }) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
   const q = search.toLowerCase();
 
   const filteredViews = search
@@ -1188,15 +1204,60 @@ function TabSettingsPopover({
             >
               Labels
             </p>
-            {sortedLabels.map((label) => (
-              <CheckboxRow
-                key={label.id}
-                checked={pinnedLabels.includes(label.id)}
-                label={shortLabelName(label.name)}
-                color={label.color}
-                onToggle={() => onToggle(label.id)}
-              />
-            ))}
+            {sortedLabels.map((label) => {
+              const isPinned = pinnedLabels.includes(label.id);
+              const isEditing = editingId === label.id;
+              const alias = labelAliases[label.id];
+              const displayName = alias || shortLabelName(label.name);
+
+              return (
+                <div key={label.id} className="group flex items-center">
+                  <div className="flex-1 min-w-0">
+                    {isEditing ? (
+                      <div className="flex items-center gap-1 px-3 py-1">
+                        <input
+                          autoFocus
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              onRename(label.id, editValue.trim());
+                              setEditingId(null);
+                            }
+                            if (e.key === "Escape") setEditingId(null);
+                          }}
+                          onBlur={() => {
+                            onRename(label.id, editValue.trim());
+                            setEditingId(null);
+                          }}
+                          className="flex-1 bg-transparent text-[13px] text-foreground outline-none border-b border-primary/50 px-0 py-0.5"
+                          placeholder={shortLabelName(label.name)}
+                        />
+                      </div>
+                    ) : (
+                      <CheckboxRow
+                        checked={isPinned}
+                        label={displayName}
+                        color={label.color}
+                        onToggle={() => onToggle(label.id)}
+                      />
+                    )}
+                  </div>
+                  {isPinned && !isEditing && (
+                    <button
+                      onClick={() => {
+                        setEditingId(label.id);
+                        setEditValue(alias || "");
+                      }}
+                      className="shrink-0 mr-2 px-1 py-0.5 text-[10px] text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 rounded hover:bg-accent/50"
+                      title="Rename tab"
+                    >
+                      Rename
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

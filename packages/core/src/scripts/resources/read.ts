@@ -36,8 +36,10 @@ Options:
   if (scope === "shared") {
     const resource = await resourceGetByPath(SHARED_OWNER, resourcePath);
     if (!resource) {
-      console.error(`Resource not found: ${resourcePath}`);
-      process.exit(1);
+      console.log(
+        `Resource not found: ${resourcePath} (scope: shared). You can create it with resource-write.`,
+      );
+      return;
     }
     process.stdout.write(resource.content);
     return;
@@ -52,8 +54,10 @@ Options:
 
   if (scope === "personal") {
     // Explicit personal scope — don't fall back
-    console.error(`Resource not found: ${resourcePath}`);
-    process.exit(1);
+    console.log(
+      `Resource not found: ${resourcePath} (scope: personal). You can create it with resource-write.`,
+    );
+    return;
   }
 
   const shared = await resourceGetByPath(SHARED_OWNER, resourcePath);
@@ -62,6 +66,7 @@ Options:
     return;
   }
 
-  console.error(`Resource not found: ${resourcePath}`);
-  process.exit(1);
+  console.log(
+    `Resource not found: ${resourcePath}. You can create it with resource-write.`,
+  );
 }

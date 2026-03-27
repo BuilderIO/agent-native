@@ -30,6 +30,9 @@ export {
   type AgentMessage,
   type AgentChatRequest,
   type AgentChatEvent,
+  type AgentChatReference,
+  type MentionProvider,
+  type MentionProviderItem,
 } from "../agent/index.js";
 export { createDevScriptRegistry } from "../scripts/dev/index.js";
 

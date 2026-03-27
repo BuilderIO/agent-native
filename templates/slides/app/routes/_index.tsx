@@ -1,7 +1,7 @@
 import Index from "@/pages/Index";
 
 export function meta() {
-  return [{ title: "Deck Generator" }];
+  return [{ title: "Slides" }];
 }
 
 export function HydrateFallback() {
