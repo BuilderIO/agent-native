@@ -196,7 +196,7 @@ const DEV_SESSION: AuthSession = { email: "local@localhost" };
 /**
  * Get the current auth session for a request.
  *
- * - In dev mode: checks for a real session cookie first (e.g. from Google OAuth),
+ * - In dev mode: checks for a session cookie first (e.g. from Google OAuth),
  *   so the real email is used when sharing a DB with production.
  *   Falls back to { email: "local@localhost" } if no session cookie.
  * - In production with built-in auth: returns session if cookie is valid
