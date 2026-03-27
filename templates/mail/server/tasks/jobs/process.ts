@@ -1,5 +1,6 @@
 import {
   getDuePendingJobs,
+  getSnoozeThreadId,
   markJobCancelled,
   markJobDone,
   markJobProcessing,
@@ -29,7 +30,7 @@ export async function processJobs(): Promise<{ result: string }> {
           await resurfaceEmail(
             ownerEmail,
             job.emailId,
-            job.threadId ?? undefined,
+            getSnoozeThreadId(job),
             acctEmail,
           );
         }

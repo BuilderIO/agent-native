@@ -346,6 +346,8 @@ export async function resurfaceEmail(
             body: JSON.stringify({ addLabelIds: ["INBOX"] }),
           },
         );
+      } else {
+        await gmailModifyMessage(account.accessToken, emailId, ["INBOX"], []);
       }
       await gmailModifyMessage(account.accessToken, emailId, ["UNREAD"], []);
       return;
@@ -370,22 +372,34 @@ export async function resurfaceEmail(
   await writeEmails(ownerEmail, emails);
 }
 
+export function getSnoozeThreadId(job: ScheduledJobRecord): string | undefined {
+  if (job.threadId) return job.threadId;
+  const payload = JSON.parse(job.payload || "{}") as Partial<SnoozeJobPayload>;
+  return payload.snapshot?.threadId || undefined;
+}
+
 export async function shouldResurfaceSnoozedThread(
   job: ScheduledJobRecord,
 ): Promise<boolean> {
-  if (job.type !== "snooze" || !job.emailId || !job.threadId) {
+  if (job.type !== "snooze" || !job.emailId) {
     return false;
   }
 
   const payload = JSON.parse(job.payload || "{}") as Partial<SnoozeJobPayload>;
   const ownerEmail = job.ownerEmail || job.accountEmail;
   if (!ownerEmail) return true;
+  const threadId = getSnoozeThreadId(job);
+  if (!threadId) {
+    // Back-compat: older snooze jobs had no thread metadata. Resurface rather
+    // than silently dropping them when they come due.
+    return true;
+  }
 
   const snoozedAt = payload.snoozedAt || job.createdAt;
   const hasReply = await threadHasReplySinceSnooze(
     ownerEmail,
     job.emailId,
-    job.threadId,
+    threadId,
     snoozedAt,
     job.accountEmail ?? undefined,
   );
