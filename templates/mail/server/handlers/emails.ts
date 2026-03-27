@@ -97,11 +97,9 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
 async function getAccountTokens(
   forEmail?: string,
 ): Promise<Array<{ email: string; accessToken: string }>> {
-  // In dev mode (local@localhost), show all accounts regardless of owner
-  const accounts =
-    forEmail && forEmail !== "local@localhost"
-      ? await listOAuthAccountsByOwner("google", forEmail)
-      : await listOAuthAccounts("google");
+  const accounts = forEmail
+    ? await listOAuthAccountsByOwner("google", forEmail)
+    : await listOAuthAccounts("google");
 
   const results: Array<{ email: string; accessToken: string }> = [];
 

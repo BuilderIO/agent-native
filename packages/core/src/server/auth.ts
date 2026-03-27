@@ -196,13 +196,23 @@ const DEV_SESSION: AuthSession = { email: "local@localhost" };
 /**
  * Get the current auth session for a request.
  *
- * - In dev mode: always returns { email: "local@localhost" }
+ * - In dev mode: checks for a session cookie first (e.g. from Google OAuth),
+ *   so the real email is used when sharing a DB with production.
+ *   Falls back to { email: "local@localhost" } if no session cookie.
  * - In production with built-in auth: returns session if cookie is valid
  * - With custom auth (BYOA): delegates to the custom getSession
  */
 export async function getSession(event: H3Event): Promise<AuthSession | null> {
-  if (isDevMode()) return DEV_SESSION;
-  if (authDisabledMode) return DEV_SESSION;
+  if (isDevMode() || authDisabledMode) {
+    // Check for a real session cookie (created by Google OAuth callback)
+    // so dev and prod share the same identity on the same DB
+    const cookie = getCookie(event, COOKIE_NAME);
+    if (cookie) {
+      const email = await getSessionEmail(cookie);
+      if (email) return { email, token: cookie };
+    }
+    return DEV_SESSION;
+  }
 
   if (customGetSession) return customGetSession(event);
 

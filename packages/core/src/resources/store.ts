@@ -27,6 +27,17 @@ export interface ResourceMeta {
 
 let _initialized = false;
 
+const DEFAULT_LEARNINGS_MD = `# Learnings
+
+Record user preferences, corrections, and patterns here. The agent reads this at the start of every conversation.
+
+## Preferences
+
+## Corrections
+
+## Patterns
+`;
+
 const DEFAULT_AGENTS_MD = `# Agent Instructions
 
 This file customizes how the AI agent behaves in this app. Edit it to add your own instructions, preferences, and context.
@@ -81,20 +92,39 @@ async function ensureTable(): Promise<void> {
     )
   `);
 
-  // Seed default shared AGENTS.md if it doesn't exist (INSERT OR IGNORE to avoid race conditions)
+  // Seed default shared resources if they don't exist (INSERT OR IGNORE to avoid race conditions)
   const now = Date.now();
-  const size = Buffer.byteLength(DEFAULT_AGENTS_MD, "utf8");
+  const seedSql = isPostgres()
+    ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`
+    : `INSERT OR IGNORE INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+
+  // AGENTS.md — shared agent instructions
+  const agentsSize = Buffer.byteLength(DEFAULT_AGENTS_MD, "utf8");
   await client.execute({
-    sql: isPostgres()
-      ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`
-      : `INSERT OR IGNORE INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: seedSql,
     args: [
       crypto.randomUUID(),
       "AGENTS.md",
       SHARED_OWNER,
       DEFAULT_AGENTS_MD,
       "text/markdown",
-      size,
+      agentsSize,
+      now,
+      now,
+    ],
+  });
+
+  // LEARNINGS.md — shared learnings (preferences, corrections, patterns)
+  const learningsSize = Buffer.byteLength(DEFAULT_LEARNINGS_MD, "utf8");
+  await client.execute({
+    sql: seedSql,
+    args: [
+      crypto.randomUUID(),
+      "LEARNINGS.md",
+      SHARED_OWNER,
+      DEFAULT_LEARNINGS_MD,
+      "text/markdown",
+      learningsSize,
       now,
       now,
     ],
