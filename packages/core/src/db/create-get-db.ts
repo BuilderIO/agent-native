@@ -34,16 +34,18 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   function startInit(): Promise<any> {
     if (_dbReady) return _dbReady;
 
-    // Check for Cloudflare D1 binding (synchronous — no dynamic import needed)
-    const d1 = (globalThis as any).__cf_env?.DB;
-    if (d1) {
-      _db = drizzleD1(d1, { schema }) as unknown as LibSQLDatabase<T>;
-      _dbReady = Promise.resolve(_db);
-      return _dbReady;
-    }
-
     const url = process.env.DATABASE_URL || "file:./data/app.db";
     const dialect = getDialect();
+
+    // D1 only if dialect detected it (DATABASE_URL takes priority)
+    if (dialect === "d1") {
+      const d1 = (globalThis as any).__cf_env?.DB;
+      if (d1) {
+        _db = drizzleD1(d1, { schema }) as unknown as LibSQLDatabase<T>;
+        _dbReady = Promise.resolve(_db);
+        return _dbReady;
+      }
+    }
 
     if (dialect === "postgres") {
       _dbReady = getPgDrizzle().then(({ drizzle, postgres }) => {

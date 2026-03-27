@@ -29,7 +29,9 @@ let _initialized = false;
 
 const DEFAULT_LEARNINGS_MD = `# Learnings
 
-Record user preferences, corrections, and patterns here. The agent reads this at the start of every conversation.
+User preferences, corrections, and patterns. The agent reads this at the start of every conversation.
+
+Keep this file tidy — revise, consolidate, and remove outdated entries. Don't just append forever.
 
 ## Preferences
 
