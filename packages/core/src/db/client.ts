@@ -111,25 +111,59 @@ async function initClient(): Promise<void> {
 
   // Postgres — uses postgres.js. Works on Node.js natively and on Cloudflare
   // Workers with the nodejs_compat compatibility flag (provides net/tls polyfills).
+  // On Workers, connections can't be shared across requests, so we create a
+  // fresh connection per query (max:1) to avoid the "I/O on behalf of a
+  // different request" error.
   if (dialect === "postgres") {
     const { default: postgres } = await import("postgres");
-    _pgPool = postgres(url, {
-      onnotice: () => {}, // Suppress CREATE TABLE IF NOT EXISTS notices
-    });
-    const pool = _pgPool;
+    const isWorkers =
+      typeof (globalThis as any).__cf_env !== "undefined" ||
+      (typeof navigator !== "undefined" &&
+        navigator.userAgent === "Cloudflare-Workers");
 
-    _exec = {
-      async execute(sql) {
-        const rawSql = typeof sql === "string" ? sql : sql.sql;
-        const args = typeof sql === "string" ? [] : sql.args || [];
-        const pgSql = sqliteToPostgresParams(rawSql);
-        const result = await pool.unsafe(pgSql, args as any[]);
-        return {
-          rows: Array.from(result),
-          rowsAffected: result.count ?? 0,
-        };
-      },
-    };
+    if (isWorkers) {
+      // Workers: fresh connection per query — I/O can't be shared across requests
+      _exec = {
+        async execute(sql) {
+          const conn = postgres(url, {
+            max: 1,
+            idle_timeout: 0,
+            onnotice: () => {},
+          });
+          try {
+            const rawSql = typeof sql === "string" ? sql : sql.sql;
+            const args = typeof sql === "string" ? [] : sql.args || [];
+            const pgSql = sqliteToPostgresParams(rawSql);
+            const result = await conn.unsafe(pgSql, args as any[]);
+            return {
+              rows: Array.from(result),
+              rowsAffected: result.count ?? 0,
+            };
+          } finally {
+            await conn.end();
+          }
+        },
+      };
+    } else {
+      // Node.js: reuse connection pool
+      _pgPool = postgres(url, {
+        onnotice: () => {},
+      });
+      const pool = _pgPool;
+
+      _exec = {
+        async execute(sql) {
+          const rawSql = typeof sql === "string" ? sql : sql.sql;
+          const args = typeof sql === "string" ? [] : sql.args || [];
+          const pgSql = sqliteToPostgresParams(rawSql);
+          const result = await pool.unsafe(pgSql, args as any[]);
+          return {
+            rows: Array.from(result),
+            rowsAffected: result.count ?? 0,
+          };
+        },
+      };
+    }
     return;
   }
 

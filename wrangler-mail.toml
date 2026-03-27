@@ -13,6 +13,9 @@ directory = "templates/mail/dist"
 "chokidar" = "./templates/mail/dist/_worker.js/stubs/empty.js"
 "fsevents" = "./templates/mail/dist/_worker.js/stubs/empty.js"
 
+[triggers]
+crons = ["* * * * *"]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "agent-native-mail"
