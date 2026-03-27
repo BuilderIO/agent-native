@@ -1,5 +1,5 @@
 import { EventEmitter } from "events";
-import { getDbExec, isPostgres, type DbExec } from "../db/client.js";
+import { getDbExec, isPostgres, intType, type DbExec } from "../db/client.js";
 
 let _initialized = false;
 
@@ -16,7 +16,7 @@ async function ensureTable(): Promise<void> {
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at ${intType()} NOT NULL
     )
   `);
   _initialized = true;

@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { getEventAutoColor } from "@/lib/event-colors";
 import type { CalendarEvent } from "@shared/api";
 
 interface EventCardProps {
@@ -12,8 +13,7 @@ interface EventCardProps {
 }
 
 function getEventAccentColor(event: CalendarEvent): string {
-  if (event.color) return event.color;
-  return event.source === "google" ? "#5085C0" : "hsl(var(--primary))";
+  return getEventAutoColor(event);
 }
 
 export function EventCard({
