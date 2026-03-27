@@ -44,8 +44,8 @@ function SendIcon({ className }: { className?: string }) {
       strokeLinejoin="round"
       className={className}
     >
-      <path d="M22 2L11 13" />
-      <path d="M22 2L15 22L11 13L2 9L22 2Z" />
+      <path d="M12 19V5" />
+      <path d="M6 11L12 5L18 11" />
     </svg>
   );
 }
@@ -437,10 +437,6 @@ export function TiptapComposer({
   return (
     <>
       <div className="flex items-center gap-1 px-2 py-1.5">
-        <EditorContent
-          editor={editor}
-          className="flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0"
-        />
         <ComposerPrimitive.AddAttachment asChild>
           <button
             type="button"
@@ -450,6 +446,10 @@ export function TiptapComposer({
             <PaperclipIcon className="h-4 w-4" />
           </button>
         </ComposerPrimitive.AddAttachment>
+        <EditorContent
+          editor={editor}
+          className="flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0"
+        />
         <button
           type="button"
           onClick={submitComposer}

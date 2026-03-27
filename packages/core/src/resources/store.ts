@@ -81,28 +81,24 @@ async function ensureTable(): Promise<void> {
     )
   `);
 
-  // Seed default shared AGENTS.md if it doesn't exist
-  const { rows } = await client.execute({
-    sql: `SELECT id FROM resources WHERE owner = ? AND path = ?`,
-    args: [SHARED_OWNER, "AGENTS.md"],
+  // Seed default shared AGENTS.md if it doesn't exist (INSERT OR IGNORE to avoid race conditions)
+  const now = Date.now();
+  const size = Buffer.byteLength(DEFAULT_AGENTS_MD, "utf8");
+  await client.execute({
+    sql: isPostgres()
+      ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`
+      : `INSERT OR IGNORE INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      crypto.randomUUID(),
+      "AGENTS.md",
+      SHARED_OWNER,
+      DEFAULT_AGENTS_MD,
+      "text/markdown",
+      size,
+      now,
+      now,
+    ],
   });
-  if (rows.length === 0) {
-    const now = Date.now();
-    const size = Buffer.byteLength(DEFAULT_AGENTS_MD, "utf8");
-    await client.execute({
-      sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [
-        crypto.randomUUID(),
-        "AGENTS.md",
-        SHARED_OWNER,
-        DEFAULT_AGENTS_MD,
-        "text/markdown",
-        size,
-        now,
-        now,
-      ],
-    });
-  }
 
   _initialized = true;
 }

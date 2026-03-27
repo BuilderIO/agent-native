@@ -161,6 +161,15 @@ export async function handleCreateResource(event: any) {
   }
 
   const owner = await resolveOwner(event, body.shared);
+
+  // If ifNotExists is set, skip if the resource already exists
+  if (body.ifNotExists) {
+    const existing = await resourceGetByPath(owner, body.path);
+    if (existing) {
+      return existing;
+    }
+  }
+
   const resource = await resourcePut(
     owner,
     body.path,

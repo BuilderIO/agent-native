@@ -152,20 +152,69 @@ function NewSkillPopover({
     const trimmed = value.trim();
     if (!trimmed) return;
 
-    const skillPath = `skills/${trimmed.toLowerCase().replace(/\s+/g, "-")}.md`;
     sendToAgentChat({
-      message: `Create a new skill: ${trimmed}`,
-      context: `The user wants to create an agent skill called "${trimmed}". Write it as a ${scope} resource at path "${skillPath}" using the resource-write tool.
+      message: `Create a skill: ${trimmed}`,
+      context: `The user wants to create an agent skill. Their description: "${trimmed}"
 
-A skill file should contain:
-- A title and brief description of what the skill covers
-- Specific instructions, rules, and patterns the agent should follow
-- Examples where helpful
-- Common pitfalls to avoid
+Follow the create-skill pattern to build this. Before writing:
 
-After creating the skill, update the shared AGENTS.md resource to reference the new skill in its skills table.
+1. **Determine the skill name** — derive a hyphen-case name from the description (e.g. "code review" → "code-review")
+2. **Determine the skill type** — Pattern (architectural rule), Workflow (step-by-step), or Generator (scaffolding)
+3. **Write the skill** as a ${scope} resource at path "skills/<name>.md" using resource-write
 
-Keep the skill concise and actionable.`,
+The skill file MUST have YAML frontmatter with name and description (under 40 words), then markdown with:
+- Clear rule/purpose statement
+- Why this skill exists
+- How to follow it (with code examples where helpful)
+- Common violations to avoid
+- Related skills
+
+Template for a Pattern skill:
+\`\`\`markdown
+---
+name: <hyphen-case-name>
+description: >-
+  <Under 40 words. When should this trigger?>
+---
+
+# <Skill Name>
+
+## Rule
+<One sentence: what must be true>
+
+## Why
+<Why this rule exists>
+
+## How
+<How to follow it, with code examples>
+
+## Don't
+<Common violations>
+\`\`\`
+
+Template for a Workflow skill:
+\`\`\`markdown
+---
+name: <hyphen-case-name>
+description: >-
+  <Under 40 words. When should this trigger?>
+---
+
+# <Workflow Name>
+
+## Prerequisites
+<What must be in place>
+
+## Steps
+<Numbered steps with code examples>
+
+## Verification
+<How to confirm it worked>
+\`\`\`
+
+After creating, update the shared AGENTS.md resource to reference the new skill in its skills table.
+
+Keep the skill concise (under 500 lines) and actionable.`,
       submit: true,
     });
 
@@ -182,7 +231,7 @@ Keep the skill concise and actionable.`,
           "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
           open && "bg-accent/50 text-foreground",
         )}
-        title="New skill (AI-generated)"
+        title="Create a skill"
       >
         <SkillIcon className="h-3.5 w-3.5" />
       </button>
@@ -191,35 +240,39 @@ Keep the skill concise and actionable.`,
           ref={popoverRef}
           className="absolute right-0 top-full mt-1.5 z-[220] rounded-lg border border-border bg-popover p-3 shadow-lg"
           style={{
-            width: 260,
+            width: 280,
             fontSize: 13,
             lineHeight: "normal",
           }}
         >
-          <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
-            Skill name
+          <label className="mb-1 block text-[11px] font-semibold text-foreground">
+            Skill Creator
           </label>
-          <input
-            ref={inputRef}
+          <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
+            Describe what kind of skill you want and the agent will create it.
+          </p>
+          <textarea
+            ref={inputRef as any}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") submit();
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
               if (e.key === "Escape") setOpen(false);
             }}
-            className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-            placeholder="e.g. Code Review, Data Analysis"
+            rows={3}
+            className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+            placeholder="e.g. A skill that reviews PRs for security issues and OWASP top 10 vulnerabilities"
           />
-          <p className="mt-1.5 text-[10px] text-muted-foreground/60 leading-relaxed">
-            The agent will generate the skill and add it to AGENTS.md
-          </p>
           <div className="mt-2.5 flex justify-end">
             <button
               onClick={submit}
               disabled={!value.trim()}
               className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
             >
-              Create with AI
+              Create
             </button>
           </div>
         </div>
@@ -394,25 +447,23 @@ export function ResourcesPanel() {
   const deleteResource = useDeleteResource();
   const uploadResource = useUploadResource();
 
-  // Ensure AGENTS.md exists in shared scope when panel opens
+  // Ensure AGENTS.md exists in shared scope when panel opens.
+  // Uses the server's /api/resources endpoint which handles dedup via INSERT OR IGNORE.
   const seededRef = useRef(false);
   useEffect(() => {
     if (seededRef.current) return;
     seededRef.current = true;
-    // Check if shared AGENTS.md exists, create if not
-    fetch("/api/resources?scope=shared&prefix=AGENTS.md")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((resources: any[]) => {
-        if (!resources.some((r: any) => r.path === "AGENTS.md")) {
-          createResource.mutate({
-            path: "AGENTS.md",
-            content: DEFAULT_AGENTS_MD_CLIENT,
-            shared: true,
-          });
-        }
-      })
-      .catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    fetch("/api/resources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path: "AGENTS.md",
+        content: DEFAULT_AGENTS_MD_CLIENT,
+        shared: true,
+        ifNotExists: true,
+      }),
+    }).catch(() => {});
+  }, []);
 
   // Are we viewing a file (editor) or the tree?
   const isEditing = selectedResourceId !== null;

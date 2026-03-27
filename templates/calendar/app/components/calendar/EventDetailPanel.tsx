@@ -4,10 +4,22 @@ import {
   differenceInMinutes,
   differenceInHours,
 } from "date-fns";
-import { X, Clock, MapPin, Trash2, Edit2, ExternalLink } from "lucide-react";
+import {
+  X,
+  Clock,
+  MapPin,
+  Trash2,
+  Edit2,
+  ExternalLink,
+  User,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent } from "@shared/api";
+import {
+  AttendeeApolloPopover,
+  ResearchMeetingButton,
+} from "@/components/calendar/ApolloPanel";
 
 interface EventDetailPanelProps {
   event: CalendarEvent | null;
@@ -119,6 +131,49 @@ export function EventDetailPanel({
                 <p className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground">
                   {event.description}
                 </p>
+              )}
+
+              {/* Attendees */}
+              {event.attendees && event.attendees.length > 0 && (
+                <div className="flex items-start gap-2.5">
+                  <User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="flex-1 space-y-1.5">
+                    {event.attendees.map((attendee, i) => (
+                      <AttendeeApolloPopover
+                        key={attendee.email + i}
+                        attendee={attendee}
+                      >
+                        <div className="flex items-center gap-2 rounded-md hover:bg-muted/40 transition-colors -mx-1 px-1 py-0.5 cursor-pointer">
+                          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground shrink-0">
+                            {(attendee.displayName || attendee.email)
+                              .charAt(0)
+                              .toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-foreground truncate">
+                              {attendee.displayName || attendee.email}
+                            </p>
+                            {attendee.displayName && (
+                              <p className="text-[11px] text-muted-foreground/60 truncate">
+                                {attendee.email}
+                              </p>
+                            )}
+                          </div>
+                          {attendee.organizer && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium shrink-0">
+                              Org
+                            </span>
+                          )}
+                        </div>
+                      </AttendeeApolloPopover>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Research Meeting */}
+              {event.attendees && event.attendees.length > 0 && (
+                <ResearchMeetingButton event={event} />
               )}
 
               {/* Google Calendar badge */}

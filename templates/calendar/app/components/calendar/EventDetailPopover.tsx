@@ -21,6 +21,11 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import type { CalendarEvent } from "@shared/api";
+import {
+  AttendeeApolloPopover,
+  ResearchMeetingButton,
+} from "@/components/calendar/ApolloPanel";
+import { useAttendeePhotos } from "@/hooks/use-attendee-photos";
 
 function formatDuration(start: string, end: string): string {
   const totalMinutes = differenceInMinutes(parseISO(end), parseISO(start));
@@ -172,27 +177,44 @@ function ResponseStatusIcon({ status }: { status?: string }) {
   }
 }
 
+/**
+ * Build an avatar URL from an email address.
+ * Uses unavatar.io which aggregates from Gravatar, Google, GitHub, etc.
+ * Returns 404 if no avatar found (handled by onError fallback).
+ */
+function getAvatarUrl(email: string): string {
+  return `https://unavatar.io/${encodeURIComponent(email.trim().toLowerCase())}?fallback=false`;
+}
+
 function AttendeeAvatar({
   attendee,
+  resolvedPhotoUrl,
 }: {
   attendee: NonNullable<CalendarEvent["attendees"]>[number];
+  resolvedPhotoUrl?: string;
 }) {
   const initials = (attendee.displayName || attendee.email)
     .charAt(0)
     .toUpperCase();
+  const [imgFailed, setImgFailed] = useState(false);
 
-  if (attendee.photoUrl) {
+  const photoSrc =
+    attendee.photoUrl || resolvedPhotoUrl || getAvatarUrl(attendee.email);
+
+  if (photoSrc && !imgFailed) {
     return (
       <img
-        src={attendee.photoUrl}
+        src={photoSrc}
         alt=""
-        className="h-6 w-6 rounded-full object-cover"
+        referrerPolicy="no-referrer"
+        className="h-8 w-8 rounded-full object-cover bg-muted"
+        onError={() => setImgFailed(true)}
       />
     );
   }
 
   return (
-    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground">
+    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
       {initials}
     </div>
   );
@@ -206,6 +228,235 @@ function isUrl(str: string): boolean {
 /** Check if description contains HTML */
 function isHtml(str: string): boolean {
   return /<[a-z][\s\S]*>/i.test(str);
+}
+
+const ATTENDEE_TRUNCATE_THRESHOLD = 5;
+const ATTENDEE_INITIAL_SHOW = 3;
+
+function AttendeesSection({
+  attendees,
+}: {
+  attendees: NonNullable<CalendarEvent["attendees"]>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const total = attendees.length;
+  const shouldTruncate = total > ATTENDEE_TRUNCATE_THRESHOLD;
+
+  // Sort: organizer first, then self at the bottom, rest alphabetically
+  const sorted = [...attendees].sort((a, b) => {
+    if (a.organizer && !b.organizer) return -1;
+    if (!a.organizer && b.organizer) return 1;
+    if (a.self && !b.self) return 1;
+    if (!a.self && b.self) return -1;
+    return (a.displayName || a.email).localeCompare(b.displayName || b.email);
+  });
+
+  const selfAttendee = sorted.find((a) => a.self);
+  const others = sorted.filter((a) => !a.self);
+  const visibleOthers =
+    shouldTruncate && !expanded
+      ? others.slice(0, ATTENDEE_INITIAL_SHOW)
+      : others;
+  const hiddenCount = others.length - visibleOthers.length;
+
+  const accepted = attendees.filter(
+    (a) => a.responseStatus === "accepted",
+  ).length;
+  const declined = attendees.filter(
+    (a) => a.responseStatus === "declined",
+  ).length;
+  const pending = total - accepted - declined;
+
+  return (
+    <div className="px-4 py-1">
+      <div className="flex items-start gap-3">
+        <User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="flex-1">
+          {shouldTruncate && (
+            <div className="mb-2">
+              <div className="text-sm font-medium text-foreground">
+                {total} participants
+              </div>
+              <div className="text-[11px] text-muted-foreground/60">
+                {accepted} yes
+                {declined > 0 && `, ${declined} no`}
+                {pending > 0 && `, ${pending} awaiting`}
+              </div>
+            </div>
+          )}
+          <div className="space-y-1.5">
+            {visibleOthers.map((attendee, i) => (
+              <AttendeeRow key={attendee.email + i} attendee={attendee} />
+            ))}
+            {shouldTruncate && !expanded && hiddenCount > 0 && (
+              <button
+                onClick={() => setExpanded(true)}
+                className="flex items-center gap-2 py-1 text-sm text-muted-foreground hover:text-foreground"
+              >
+                <span className="flex h-6 w-6 items-center justify-center text-muted-foreground/50">
+                  ⋮
+                </span>
+                <span>See all {total} participants</span>
+              </button>
+            )}
+            {selfAttendee && (
+              <>
+                {(shouldTruncate || others.length > 0) && (
+                  <div className="my-1 border-t border-border/30" />
+                )}
+                <AttendeeRow attendee={selfAttendee} />
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AttendeeRow({
+  attendee,
+}: {
+  attendee: NonNullable<CalendarEvent["attendees"]>[number];
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="relative">
+        <AttendeeAvatar attendee={attendee} />
+        <div className="absolute -bottom-0.5 -right-0.5">
+          <ResponseStatusIcon status={attendee.responseStatus} />
+        </div>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm text-foreground truncate">
+            {attendee.displayName || attendee.email}
+          </span>
+          {attendee.organizer && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
+              Organizer
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const TRUNCATE_AFTER = 4;
+
+function AttendeesList({
+  attendees,
+}: {
+  attendees: NonNullable<CalendarEvent["attendees"]>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const emails = attendees.map((a) => a.email);
+  const { data: photos } = useAttendeePhotos(emails);
+
+  // Sort: organizer first, self at bottom, rest alphabetical
+  const sorted = [...attendees].sort((a, b) => {
+    if (a.organizer && !b.organizer) return -1;
+    if (!a.organizer && b.organizer) return 1;
+    if (a.self && !b.self) return 1;
+    if (!a.self && b.self) return -1;
+    return (a.displayName || a.email).localeCompare(b.displayName || b.email);
+  });
+
+  const selfAttendee = sorted.find((a) => a.self);
+  const others = sorted.filter((a) => !a.self);
+  const shouldTruncate = others.length > TRUNCATE_AFTER;
+  const visibleOthers =
+    shouldTruncate && !expanded ? others.slice(0, TRUNCATE_AFTER) : others;
+  const hiddenCount = others.length - visibleOthers.length;
+
+  const accepted = attendees.filter(
+    (a) => a.responseStatus === "accepted",
+  ).length;
+  const declined = attendees.filter(
+    (a) => a.responseStatus === "declined",
+  ).length;
+  const pending = attendees.length - accepted - declined;
+
+  const renderRow = (
+    attendee: NonNullable<CalendarEvent["attendees"]>[number],
+    i: number,
+  ) => (
+    <AttendeeApolloPopover key={attendee.email + i} attendee={attendee}>
+      <div className="flex items-center gap-2.5 rounded-md hover:bg-muted/40 -mx-1 px-1 py-1 cursor-pointer">
+        <div className="relative">
+          <AttendeeAvatar
+            attendee={attendee}
+            resolvedPhotoUrl={photos?.[attendee.email.toLowerCase()]}
+          />
+          <div className="absolute -bottom-0.5 -right-0.5">
+            <ResponseStatusIcon status={attendee.responseStatus} />
+          </div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm text-foreground truncate">
+              {attendee.displayName || attendee.email}
+            </span>
+            {attendee.organizer && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
+                Organizer
+              </span>
+            )}
+          </div>
+          {attendee.displayName && (
+            <div className="text-[11px] text-muted-foreground/60 truncate">
+              {attendee.email}
+            </div>
+          )}
+        </div>
+      </div>
+    </AttendeeApolloPopover>
+  );
+
+  return (
+    <div className="px-4 py-1">
+      <div className="flex items-start gap-3">
+        <User className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="flex-1">
+          {shouldTruncate && (
+            <div className="mb-2">
+              <div className="text-sm font-medium text-foreground">
+                {attendees.length} participants
+              </div>
+              <div className="text-[11px] text-muted-foreground/60">
+                {accepted} yes
+                {declined > 0 && `, ${declined} no`}
+                {pending > 0 && `, ${pending} awaiting`}
+              </div>
+            </div>
+          )}
+          <div className="space-y-0.5">
+            {visibleOthers.map((a, i) => renderRow(a, i))}
+            {shouldTruncate && !expanded && hiddenCount > 0 && (
+              <button
+                onClick={() => setExpanded(true)}
+                className="flex items-center gap-2.5 py-1.5 text-sm text-muted-foreground hover:text-foreground -mx-1 px-1"
+              >
+                <span className="flex h-8 w-8 items-center justify-center text-muted-foreground/50 text-lg">
+                  ⋮
+                </span>
+                <span>See all {attendees.length} participants</span>
+              </button>
+            )}
+            {selfAttendee && (
+              <>
+                {others.length > 0 && (
+                  <div className="my-1 border-t border-border/30" />
+                )}
+                {renderRow(selfAttendee, -1)}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 interface EventDetailPopoverProps {
@@ -266,7 +517,7 @@ export function EventDetailPopover({
         side="right"
         align="start"
         sideOffset={8}
-        className="w-[420px] p-0 overflow-hidden"
+        className="w-[420px] max-h-[90vh] p-0 overflow-hidden flex flex-col"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         {/* Header */}
@@ -286,7 +537,7 @@ export function EventDetailPopover({
         </div>
 
         {/* Content */}
-        <div className="max-h-[500px] overflow-y-auto">
+        <div className="flex-1 overflow-y-auto">
           <div className="px-4 pt-4 pb-1">
             {/* Title */}
             <h2 className="text-lg font-semibold text-foreground leading-tight mb-4">
@@ -352,39 +603,17 @@ export function EventDetailPopover({
 
           {/* Attendees */}
           {event.attendees && event.attendees.length > 0 && (
-            <div className="px-4 py-1">
-              <div className="flex items-start gap-3">
-                <User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                <div className="flex-1 space-y-1.5">
-                  {event.attendees.map((attendee, i) => (
-                    <div
-                      key={attendee.email + i}
-                      className="flex items-center gap-2"
-                    >
-                      <AttendeeAvatar attendee={attendee} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-sm text-foreground truncate">
-                            {attendee.displayName || attendee.email}
-                          </span>
-                          {attendee.organizer && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
-                              Organizer
-                            </span>
-                          )}
-                        </div>
-                        {attendee.displayName && (
-                          <div className="text-[11px] text-muted-foreground/60 truncate">
-                            {attendee.email}
-                          </div>
-                        )}
-                      </div>
-                      <ResponseStatusIcon status={attendee.responseStatus} />
-                    </div>
-                  ))}
-                </div>
+            <AttendeesList attendees={event.attendees} />
+          )}
+
+          {/* Research Meeting button */}
+          {event.attendees && event.attendees.length > 0 && (
+            <>
+              <div className="mx-4 my-2 border-t border-border/50" />
+              <div className="px-4 py-1">
+                <ResearchMeetingButton event={event} />
               </div>
-            </div>
+            </>
           )}
 
           {/* Meeting link */}
@@ -396,13 +625,15 @@ export function EventDetailPopover({
                   href={meetingLink.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 w-full rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium py-2.5 text-sm"
+                  className="flex items-center justify-center w-full rounded-xl bg-[#4965E0] hover:bg-[#5A75F0] text-white font-semibold py-3 px-4 text-[15px] relative"
                 >
-                  <Video className="h-4 w-4" />
-                  {getMeetingLabel(meetingLink.type)}
-                  <span className="ml-auto text-xs text-white/50 flex items-center gap-0.5">
-                    <kbd className="text-[10px]">&#x2318;</kbd>
-                    <kbd className="text-[10px]">J</kbd>
+                  <Video className="h-5 w-5 mr-2 opacity-80" />
+                  <span>{getMeetingLabel(meetingLink.type)}</span>
+                  <span className="absolute right-4 flex items-center gap-1 opacity-50">
+                    <kbd className="text-xs font-normal">⌘</kbd>
+                    <kbd className="inline-flex h-5 w-5 items-center justify-center rounded bg-white/20 text-[11px] font-medium">
+                      J
+                    </kbd>
                   </span>
                 </a>
                 {(meetingLink.pin || meetingLink.passcode) && (
@@ -452,13 +683,13 @@ export function EventDetailPopover({
               <div className="px-4 py-1.5">
                 {descriptionIsHtml ? (
                   <div
-                    className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80 max-h-32 overflow-y-auto prose prose-sm prose-invert prose-p:my-1 prose-a:text-primary"
+                    className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80  prose prose-sm prose-invert prose-p:my-1 prose-a:text-primary"
                     dangerouslySetInnerHTML={{
                       __html: sanitizeHtml(event.description),
                     }}
                   />
                 ) : (
-                  <p className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80 max-h-32 overflow-y-auto whitespace-pre-wrap">
+                  <p className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80  whitespace-pre-wrap">
                     {event.description}
                   </p>
                 )}
