@@ -100,7 +100,12 @@ function isDomainColumnHeader(low: string): boolean {
 }
 
 function isEmailColumnHeader(low: string): boolean {
-  return low === "email" || low === "e-mail" || low.endsWith(" email") || low === "mail";
+  return (
+    low === "email" ||
+    low === "e-mail" ||
+    low.endsWith(" email") ||
+    low === "mail"
+  );
 }
 
 function isCompanyColumnHeader(low: string): boolean {
@@ -178,7 +183,8 @@ function getRowMatchKey(
 
   const firstNameCol = findFirstMatchingColumn(
     columns,
-    (low) => low === "first name" || low === "firstname" || low === "first_name",
+    (low) =>
+      low === "first name" || low === "firstname" || low === "first_name",
   );
   const lastNameCol = findFirstMatchingColumn(
     columns,
@@ -187,7 +193,8 @@ function getRowMatchKey(
   const singleNameCol = findFirstMatchingColumn(columns, isNameColumnHeader);
 
   if (firstNameCol && lastNameCol) {
-    const combined = `${row[firstNameCol] ?? ""} ${row[lastNameCol] ?? ""}`.trim();
+    const combined =
+      `${row[firstNameCol] ?? ""} ${row[lastNameCol] ?? ""}`.trim();
     if (combined) {
       return { kind: "name", value: normalizeString(combined) };
     }
@@ -250,7 +257,10 @@ function extractItemPersonName(item: WebsetItem): string | null {
   return null;
 }
 
-function itemMatchesRowKey(item: WebsetItem, key: { kind: MatchKind; value: string }): boolean {
+function itemMatchesRowKey(
+  item: WebsetItem,
+  key: { kind: MatchKind; value: string },
+): boolean {
   switch (key.kind) {
     case "domain": {
       const d = extractItemDomain(item);
@@ -339,7 +349,9 @@ function flattenWebsetItem(item: WebsetItem): Record<string, string | null> {
   return out;
 }
 
-function nullEnrichedShape(sample: Record<string, string | null>): Record<string, string | null> {
+function nullEnrichedShape(
+  sample: Record<string, string | null>,
+): Record<string, string | null> {
   const out: Record<string, string | null> = {};
   for (const k of Object.keys(sample)) {
     out[k] = null;
@@ -347,7 +359,10 @@ function nullEnrichedShape(sample: Record<string, string | null>): Record<string
   return out;
 }
 
-export function mergeResults(importData: ImportRecord, websetItems: WebsetItem[]): EnrichedRow[] {
+export function mergeResults(
+  importData: ImportRecord,
+  websetItems: WebsetItem[],
+): EnrichedRow[] {
   const columns = importData.columns;
   const rowKeys = importData.rows.map((row) => getRowMatchKey(row, columns));
 
@@ -372,7 +387,9 @@ export function mergeResults(importData: ImportRecord, websetItems: WebsetItem[]
   const results: EnrichedRow[] = [];
 
   importData.rows.forEach((row, idx) => {
-    const matchingItems = websetItems.filter((it) => itemToRowIndices.get(it)?.includes(idx) ?? false);
+    const matchingItems = websetItems.filter(
+      (it) => itemToRowIndices.get(it)?.includes(idx) ?? false,
+    );
 
     if (matchingItems.length === 0) {
       results.push({
@@ -411,7 +428,10 @@ export async function readJsonFile<T>(filePath: string): Promise<T> {
   return JSON.parse(raw) as T;
 }
 
-export async function writeJsonFile(filePath: string, data: unknown): Promise<void> {
+export async function writeJsonFile(
+  filePath: string,
+  data: unknown,
+): Promise<void> {
   const dir = path.dirname(filePath);
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");

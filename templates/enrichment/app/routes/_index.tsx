@@ -50,8 +50,7 @@ export default function EnrichmentPage() {
 
   const { enrichments } = useEnrichmentsForImport(selectedImportId);
 
-  const activeJob =
-    enrichments.find((j) => j.id === selectedJobId) ?? null;
+  const activeJob = enrichments.find((j) => j.id === selectedJobId) ?? null;
 
   function handleUpload(record: ImportRecord) {
     setSelectedImportId(record.id);
@@ -70,12 +69,8 @@ export default function EnrichmentPage() {
 
   const { tableRows, tableColumns, enrichedColumns } = useMemo(() => {
     if (activeJob && activeJob.results.length > 0) {
-      const enrichedCols = Object.keys(
-        activeJob.results[0]?.enriched ?? {},
-      );
-      const origCols = Object.keys(
-        activeJob.results[0]?.originalRow ?? {},
-      );
+      const enrichedCols = Object.keys(activeJob.results[0]?.enriched ?? {});
+      const origCols = Object.keys(activeJob.results[0]?.originalRow ?? {});
       return {
         tableColumns: [...origCols, ...enrichedCols],
         enrichedColumns: enrichedCols,
@@ -104,9 +99,7 @@ export default function EnrichmentPage() {
   return (
     <div className="flex flex-col h-screen">
       <header className="flex items-center justify-between px-4 py-2 border-b border-border shrink-0">
-        <h2 className="text-sm font-medium text-foreground">
-          Data Enrichment
-        </h2>
+        <h2 className="text-sm font-medium text-foreground">Data Enrichment</h2>
         <AgentToggleButton />
       </header>
 

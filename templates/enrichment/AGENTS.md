@@ -13,11 +13,11 @@ This project is an **enrichment template** built on **@agent-native/core**. You 
 
 Application state for imports, jobs, and exports is **JSON (and CSV) on disk** under `data/`, not SQL tables for enrichment payloads:
 
-| Area            | Location                      | Role                                      |
-| --------------- | ----------------------------- | ----------------------------------------- |
-| Imports         | `data/imports/{id}.json`      | Parsed CSV metadata + rows after upload   |
-| Enrichments     | `data/enrichments/{id}.json`  | Job status, webset IDs, merged results    |
-| Exports         | `data/exports/*.csv`          | Generated CSV from enrichment results     |
+| Area        | Location                     | Role                                    |
+| ----------- | ---------------------------- | --------------------------------------- |
+| Imports     | `data/imports/{id}.json`     | Parsed CSV metadata + rows after upload |
+| Enrichments | `data/enrichments/{id}.json` | Job status, webset IDs, merged results  |
+| Exports     | `data/exports/*.csv`         | Generated CSV from enrichment results   |
 
 Core may still use shared infrastructure (e.g. auth/session); **treat user datasets and enrichment artifacts as file-backed** under `data/`.
 
@@ -59,14 +59,14 @@ shared/                # Shared types / API helpers
 
 These names match **`scripts/registry.ts`**:
 
-| Script             | Purpose |
-| ------------------ | ------- |
-| **`create-webset`** | Full enrichment lifecycle: create Exa Webset, wait for results, merge into enrichment record, mark complete. |
-| **`check-webset`**  | Check status of an in-progress enrichment job. |
-| **`get-results`**   | **Recovery:** fetch items from an existing webset and merge into local enrichment data. |
-| **`export-csv`**    | Generate a CSV export from enrichment results. |
-| **`list-imports`**  | List available datasets (imports). |
-| **`list-enrichments`** | List enrichment jobs. |
+| Script                 | Purpose                                                                                                      |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **`create-webset`**    | Full enrichment lifecycle: create Exa Webset, wait for results, merge into enrichment record, mark complete. |
+| **`check-webset`**     | Check status of an in-progress enrichment job.                                                               |
+| **`get-results`**      | **Recovery:** fetch items from an existing webset and merge into local enrichment data.                      |
+| **`export-csv`**       | Generate a CSV export from enrichment results.                                                               |
+| **`list-imports`**     | List available datasets (imports).                                                                           |
+| **`list-enrichments`** | List enrichment jobs.                                                                                        |
 
 Use **`list-imports`** / **`list-enrichments`** before acting when the user is vague about which dataset or job to use.
 
@@ -101,12 +101,12 @@ For Exa-specific behavior (search types, enrichment descriptions, limits), read 
 
 Users may ask you to:
 
-| Ask | You might do |
-| --- | ------------ |
-| “Add a column for LinkedIn profiles” | Adjust enrichment **descriptions** or merge mapping in scripts / server Exa integration (`server/lib/exa.ts` and related). |
-| “Only enrich rows where country = US” | **Filter** rows before webset creation (script or preprocessing), or document a two-step import. |
-| “Use a different search query” | Customize webset **creation** arguments or code paths used by **`create-webset`**. |
-| “Score results by relevance” | **Post-process** merged JSON (script or small utility) before export. |
+| Ask                                   | You might do                                                                                                               |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| “Add a column for LinkedIn profiles”  | Adjust enrichment **descriptions** or merge mapping in scripts / server Exa integration (`server/lib/exa.ts` and related). |
+| “Only enrich rows where country = US” | **Filter** rows before webset creation (script or preprocessing), or document a two-step import.                           |
+| “Use a different search query”        | Customize webset **creation** arguments or code paths used by **`create-webset`**.                                         |
+| “Score results by relevance”          | **Post-process** merged JSON (script or small utility) before export.                                                      |
 
 Keep changes minimal and consistent with existing patterns; extend scripts rather than one-off chat instructions when the behavior should repeat.
 
@@ -140,7 +140,7 @@ Other skills in `.agents/skills/` (e.g. **`scripts`**, **`delegate-to-agent`**, 
 
 ## Tech stack
 
-- **Framework:** @agent-native/core + React Router v7  
-- **Backend:** Nitro (file-based routes, plugins)  
-- **Enrichment:** Exa Websets (API key via env)  
+- **Framework:** @agent-native/core + React Router v7
+- **Backend:** Nitro (file-based routes, plugins)
+- **Enrichment:** Exa Websets (API key via env)
 - **Dev:** `pnpm dev` · **Build:** `pnpm build` · **Production start:** `node .output/server/index.mjs`

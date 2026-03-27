@@ -28,10 +28,7 @@ async function listEnrichmentFiles(): Promise<EnrichmentJob[]> {
     const jobs: EnrichmentJob[] = [];
     for (const file of jsonFiles) {
       try {
-        const raw = await fs.readFile(
-          path.join(ENRICHMENTS_DIR, file),
-          "utf8",
-        );
+        const raw = await fs.readFile(path.join(ENRICHMENTS_DIR, file), "utf8");
         jobs.push(JSON.parse(raw) as EnrichmentJob);
       } catch {
         // skip malformed files

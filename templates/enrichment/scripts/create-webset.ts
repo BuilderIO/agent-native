@@ -83,7 +83,9 @@ function buildSearchQuery(
   if (searchType === "companies") {
     const companyCol = importData.columns.find((c) => {
       const low = c.toLowerCase();
-      return low.includes("company") || low.includes("organization") || low === "org";
+      return (
+        low.includes("company") || low.includes("organization") || low === "org"
+      );
     });
     if (companyCol) {
       const names = sampleRows
@@ -103,9 +105,7 @@ function buildSearchQuery(
         .map((r) => r[firstCol])
         .filter(Boolean)
         .slice(0, 3);
-      parts.push(
-        `Find ${searchType} matching: ${values.join(", ")}`,
-      );
+      parts.push(`Find ${searchType} matching: ${values.join(", ")}`);
     } else {
       parts.push(`Find ${searchType}`);
     }
@@ -119,7 +119,12 @@ function rowsToCsv(importData: ImportRecord): string {
   const escape = (v: string | null | undefined): string => {
     if (v == null) return "";
     const s = String(v);
-    if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
+    if (
+      s.includes(",") ||
+      s.includes('"') ||
+      s.includes("\n") ||
+      s.includes("\r")
+    ) {
       return `"${s.replace(/"/g, '""')}"`;
     }
     return s;
@@ -185,9 +190,10 @@ export async function run(args: Record<string, string>): Promise<string> {
       const csvContent = rowsToCsv(importData);
       const csvBuffer = Buffer.from(csvContent, "utf8");
 
-      const entity = searchType === "people"
-        ? { type: "person" as const }
-        : { type: "company" as const };
+      const entity =
+        searchType === "people"
+          ? { type: "person" as const }
+          : { type: "company" as const };
 
       const importJob = await (exa.websets as any).imports.create(websetId, {
         format: "csv",
@@ -204,15 +210,13 @@ export async function run(args: Record<string, string>): Promise<string> {
         });
       }
     } else {
-      const query =
-        args.query || buildSearchQuery(importData, searchType);
-      const count = args.count
-        ? parseInt(args.count, 10)
-        : importData.rowCount;
+      const query = args.query || buildSearchQuery(importData, searchType);
+      const count = args.count ? parseInt(args.count, 10) : importData.rowCount;
 
-      const entityParam = searchType === "people"
-        ? { type: "person" as const }
-        : { type: "company" as const };
+      const entityParam =
+        searchType === "people"
+          ? { type: "person" as const }
+          : { type: "company" as const };
 
       const webset = await exa.websets.create({
         search: { query, count, entity: entityParam },

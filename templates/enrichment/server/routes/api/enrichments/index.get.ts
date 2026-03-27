@@ -34,8 +34,7 @@ export default defineEventHandler(async (event) => {
   }
 
   jobs.sort(
-    (a, b) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
 
   return jobs;

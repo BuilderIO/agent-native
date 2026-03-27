@@ -4,10 +4,22 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 
 const STATUS_CONFIG = {
-  pending: { label: "Pending", className: "bg-yellow-500/15 text-yellow-700 border-yellow-500/25" },
-  running: { label: "Running", className: "bg-blue-500/15 text-blue-700 border-blue-500/25" },
-  completed: { label: "Completed", className: "bg-green-500/15 text-green-700 border-green-500/25" },
-  failed: { label: "Failed", className: "bg-red-500/15 text-red-700 border-red-500/25" },
+  pending: {
+    label: "Pending",
+    className: "bg-yellow-500/15 text-yellow-700 border-yellow-500/25",
+  },
+  running: {
+    label: "Running",
+    className: "bg-blue-500/15 text-blue-700 border-blue-500/25",
+  },
+  completed: {
+    label: "Completed",
+    className: "bg-green-500/15 text-green-700 border-green-500/25",
+  },
+  failed: {
+    label: "Failed",
+    className: "bg-red-500/15 text-red-700 border-red-500/25",
+  },
 } as const;
 
 interface EnrichmentStatusProps {
@@ -33,9 +45,8 @@ export function EnrichmentStatus({ job }: EnrichmentStatusProps) {
         )}
       </div>
 
-      {(job.status === "running" || job.status === "completed") && total > 0 && (
-        <Progress value={pct} className="h-2" />
-      )}
+      {(job.status === "running" || job.status === "completed") &&
+        total > 0 && <Progress value={pct} className="h-2" />}
 
       {job.status === "failed" && job.error && (
         <p className="text-xs text-destructive">{job.error}</p>

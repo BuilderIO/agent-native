@@ -32,7 +32,10 @@ export function DataTable({
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(0);
 
-  const enrichedSet = useMemo(() => new Set(enrichedColumns), [enrichedColumns]);
+  const enrichedSet = useMemo(
+    () => new Set(enrichedColumns),
+    [enrichedColumns],
+  );
 
   const sorted = useMemo(() => {
     if (!sortCol) return rows;

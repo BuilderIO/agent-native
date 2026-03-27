@@ -2,7 +2,11 @@ import path from "path";
 import { parseArgs } from "@agent-native/core";
 import type { ScriptTool } from "@agent-native/core";
 import type { EnrichmentJob } from "../shared/types.js";
-import { getExaClient, readJsonFile, writeJsonFile } from "../server/lib/exa.js";
+import {
+  getExaClient,
+  readJsonFile,
+  writeJsonFile,
+} from "../server/lib/exa.js";
 
 const ENRICHMENTS_DIR = path.join(process.cwd(), "data", "enrichments");
 

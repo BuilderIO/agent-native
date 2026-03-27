@@ -20,7 +20,12 @@ export default defineEventHandler(async (event) => {
     const raw = await fs.readFile(filePath, "utf8");
     return JSON.parse(raw) as ImportRecord;
   } catch (err) {
-    if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
+    if (
+      err &&
+      typeof err === "object" &&
+      "code" in err &&
+      err.code === "ENOENT"
+    ) {
       throw createError({
         statusCode: 404,
         statusMessage: "Import not found",

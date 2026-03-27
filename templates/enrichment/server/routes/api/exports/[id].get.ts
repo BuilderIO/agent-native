@@ -17,7 +17,12 @@ export default defineEventHandler(async (event) => {
   try {
     content = await fs.readFile(filePath, "utf8");
   } catch (err) {
-    if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
+    if (
+      err &&
+      typeof err === "object" &&
+      "code" in err &&
+      err.code === "ENOENT"
+    ) {
       throw createError({
         statusCode: 404,
         statusMessage: "Export not found",
