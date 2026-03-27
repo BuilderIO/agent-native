@@ -218,13 +218,21 @@ function openAuthWindow(url: string) {
   authWin.loadURL(url);
 
   // After the OAuth provider redirects to localhost (the callback),
-  // let the request complete then close the popup.
+  // let the request complete, reload the webview, then close the popup.
   authWin.webContents.on("did-navigate", (_event, navUrl) => {
     try {
       const parsed = new URL(navUrl);
       if (parsed.hostname === "localhost") {
-        // Give the callback handler time to store tokens then close
+        // Give the callback handler time to store tokens
         setTimeout(() => {
+          // Reload all webviews so they pick up the new auth state
+          const allContents = webContents.getAllWebContents();
+          for (const wc of allContents) {
+            if (wc.getType() === "webview") {
+              wc.reload();
+            }
+          }
+          // Close the auth popup
           if (!authWin.isDestroyed()) authWin.close();
         }, 1500);
       }
@@ -318,18 +326,21 @@ app.whenReady().then(() => {
   }
 
   // Intercept OAuth callbacks on the harness port and redirect to the app's server.
-  // Google redirects to localhost:3334/api/google/callback but the harness doesn't
+  // Google redirects to localhost:3334/api/google/... but the harness doesn't
   // serve API routes — the actual app server runs on a different port.
   session.defaultSession.webRequest.onBeforeRequest(
-    { urls: [`http://localhost:${HARNESS_PORT}/api/google/callback*`] },
+    { urls: [`http://localhost:${HARNESS_PORT}/api/google/*`] },
     (details, callback) => {
-      // Find which app handles this callback (currently only mail has Google auth)
+      // Route to the correct app's server based on the callback path
       const apps = AppStore.loadApps();
-      const mailApp = apps.find((a) => a.id === "mail");
-      if (mailApp) {
+      // Try mail first, then calendar — both have Google OAuth
+      const app =
+        apps.find((a) => a.id === "mail") ||
+        apps.find((a) => a.id === "calendar");
+      if (app) {
         const appUrl = details.url.replace(
           `http://localhost:${HARNESS_PORT}`,
-          `http://localhost:${mailApp.devPort}`,
+          `http://localhost:${app.devPort}`,
         );
         callback({ redirectURL: appUrl });
       } else {
