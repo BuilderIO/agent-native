@@ -1,10 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import {
-  useCreateScheduledJob,
-  useParseDate,
-} from "@/hooks/use-scheduled-jobs";
+import { useParseDate, useSnoozeEmail } from "@/hooks/use-scheduled-jobs";
 import { toast } from "sonner";
 
 interface SnoozeModalProps {
@@ -82,7 +79,7 @@ export function SnoozeModal({
   const presets = getPresets();
 
   const queryClient = useQueryClient();
-  const createJob = useCreateScheduledJob();
+  const snoozeEmail = useSnoozeEmail();
   const parseDate = useParseDate();
 
   // Reset & focus on open
@@ -138,17 +135,10 @@ export function SnoozeModal({
     async (opt: Option) => {
       if (!emailId) return;
       try {
-        await createJob.mutateAsync({
-          type: "snooze",
+        await snoozeEmail.mutateAsync({
           emailId,
-          payload: {},
           runAt: opt.date.getTime(),
         });
-        // Archive before dispatching — don't advance UI if archive failed
-        const archiveRes = await fetch(`/api/emails/${emailId}/archive`, {
-          method: "PATCH",
-        });
-        if (!archiveRes.ok) throw new Error("Archive failed");
         queryClient.invalidateQueries({ queryKey: ["emails"] });
         // Dispatch after successful archive so list advances selection
         window.dispatchEvent(
@@ -172,7 +162,7 @@ export function SnoozeModal({
         }
       }
     },
-    [emailId, createJob, queryClient, onSnoozed, onClose],
+    [emailId, snoozeEmail, queryClient, onSnoozed, onClose],
   );
 
   const handleKeyDown = useCallback(

@@ -2,6 +2,7 @@ import {
   defineEventHandler,
   readBody,
   getRouterParam,
+  getHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -26,7 +27,8 @@ export const getSettingHandler = defineEventHandler(async (event: H3Event) => {
 export const putSettingHandler = defineEventHandler(async (event: H3Event) => {
   const key = safeKey(String(getRouterParam(event, "key")));
   const body = await readBody(event);
-  await putSetting(key, body);
+  const requestSource = getHeader(event, "x-request-source") || undefined;
+  await putSetting(key, body, { requestSource });
   return body;
 });
 
@@ -34,7 +36,8 @@ export const putSettingHandler = defineEventHandler(async (event: H3Event) => {
 export const deleteSettingHandler = defineEventHandler(
   async (event: H3Event) => {
     const key = safeKey(String(getRouterParam(event, "key")));
-    await deleteSetting(key);
+    const requestSource = getHeader(event, "x-request-source") || undefined;
+    await deleteSetting(key, { requestSource });
     return { ok: true };
   },
 );

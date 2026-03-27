@@ -90,6 +90,8 @@ export type MailboxView =
   | "starred"
   | "sent"
   | "drafts"
+  | "snoozed"
+  | "scheduled"
   | "archive"
   | "trash"
   | "all"

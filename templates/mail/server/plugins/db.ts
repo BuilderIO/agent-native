@@ -17,4 +17,12 @@ export default runMigrations([
     version: 2,
     sql: `ALTER TABLE scheduled_jobs ADD COLUMN account_email TEXT`,
   },
+  {
+    version: 3,
+    sql: `ALTER TABLE scheduled_jobs ADD COLUMN owner_email TEXT`,
+  },
+  {
+    version: 4,
+    sql: `ALTER TABLE scheduled_jobs ADD COLUMN thread_id TEXT`,
+  },
 ]);

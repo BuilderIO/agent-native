@@ -44,6 +44,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+const TAB_ID = Math.random().toString(36).slice(2, 10);
+
 function FileWatcherSetup() {
   const qc = useQueryClient();
   useFileWatcher({
@@ -56,6 +58,7 @@ function FileWatcherSetup() {
       "settings",
       "google-status",
     ],
+    ignoreSource: TAB_ID,
   });
   return null;
 }

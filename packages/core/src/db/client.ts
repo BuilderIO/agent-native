@@ -32,30 +32,19 @@ let _dialect: Dialect | undefined;
 export function getDialect(): Dialect {
   if (_dialect !== undefined) return _dialect;
 
-  // DATABASE_URL takes priority — if set, use it (Postgres or libsql).
-  // Exception: on Cloudflare Workers, the `postgres` npm package doesn't work
-  // (no TCP sockets), so fall back to D1 if a D1 binding exists.
+  // DATABASE_URL takes priority over D1 when set.
   const url = process.env.DATABASE_URL || "";
-  const d1 = (globalThis as any).__cf_env?.DB;
-  const isPostgresUrl =
-    url.startsWith("postgres://") || url.startsWith("postgresql://");
-
-  if (isPostgresUrl && !d1) {
-    // Postgres URL without D1 — use Postgres (Node.js / local dev)
+  if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
     _dialect = "postgres";
     return _dialect;
   }
-  if (isPostgresUrl && d1) {
-    // Postgres URL WITH D1 — on Workers, postgres.js won't work (no TCP).
-    // Use D1 for now. TODO: switch to @neondatabase/serverless for Workers.
-    _dialect = "d1";
-    return _dialect;
-  }
   if (url && !url.startsWith("file:")) {
-    // Remote libsql (e.g. Turso) — use sqlite driver, not D1
+    // Remote libsql (e.g. Turso)
     _dialect = "sqlite";
     return _dialect;
   }
+
+  const d1 = (globalThis as any).__cf_env?.DB;
   if (d1) {
     _dialect = "d1";
     return _dialect;
@@ -120,7 +109,8 @@ async function initClient(): Promise<void> {
 
   const url = process.env.DATABASE_URL || "file:./data/app.db";
 
-  // Postgres — dynamically import to avoid bundling in non-Postgres runtimes
+  // Postgres — uses postgres.js. Works on Node.js natively and on Cloudflare
+  // Workers with the nodejs_compat compatibility flag (provides net/tls polyfills).
   if (dialect === "postgres") {
     const { default: postgres } = await import("postgres");
     _pgPool = postgres(url, {

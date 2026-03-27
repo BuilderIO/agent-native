@@ -1,8 +1,11 @@
-import { and, eq, lte } from "drizzle-orm";
-import { db, schema } from "../../db/index.js";
 import {
+  getDuePendingJobs,
+  markJobCancelled,
+  markJobDone,
+  markJobProcessing,
   resurfaceEmail,
   sendScheduledEmail,
+  shouldResurfaceSnoozedThread,
   type SendLaterPayload,
 } from "../../lib/jobs.js";
 
@@ -12,45 +15,34 @@ import {
  */
 export async function processJobs(): Promise<{ result: string }> {
   const now = Date.now();
-
-  // Fetch all pending due jobs
-  const due = await db
-    .select()
-    .from(schema.scheduledJobs)
-    .where(
-      and(
-        eq(schema.scheduledJobs.status, "pending"),
-        lte(schema.scheduledJobs.runAt, now),
-      ),
-    );
+  const due = await getDuePendingJobs(now);
 
   for (const job of due) {
-    // Mark as processing immediately
-    await db
-      .update(schema.scheduledJobs)
-      .set({ status: "processing" } as any)
-      .where(eq(schema.scheduledJobs.id, job.id));
+    await markJobProcessing(job.id);
 
     try {
+      const ownerEmail = job.ownerEmail || job.accountEmail;
       const acctEmail = job.accountEmail ?? undefined;
       if (job.type === "snooze" && job.emailId) {
-        await resurfaceEmail(job.emailId, acctEmail);
+        const shouldResurface = await shouldResurfaceSnoozedThread(job);
+        if (shouldResurface && ownerEmail) {
+          await resurfaceEmail(
+            ownerEmail,
+            job.emailId,
+            job.threadId ?? undefined,
+            acctEmail,
+          );
+        }
       } else if (job.type === "send_later") {
         await sendScheduledEmail(
           JSON.parse(job.payload) as SendLaterPayload,
           acctEmail,
         );
       }
-      await db
-        .update(schema.scheduledJobs)
-        .set({ status: "done" } as any)
-        .where(eq(schema.scheduledJobs.id, job.id));
+      await markJobDone(job.id);
     } catch (err) {
       console.error(`[jobs:process] Job ${job.id} failed:`, err);
-      await db
-        .update(schema.scheduledJobs)
-        .set({ status: "cancelled" } as any)
-        .where(eq(schema.scheduledJobs.id, job.id));
+      await markJobCancelled(job.id);
     }
   }
 
