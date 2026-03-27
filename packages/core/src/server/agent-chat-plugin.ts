@@ -591,7 +591,7 @@ export function createAgentChatPlugin(
 
         if (skills.length === 0) {
           result.hint =
-            "No skills found. Add skill files under skills/ in Resources to teach the agent new capabilities.";
+            "No skills found. Add skill files under skills/ in Resources. Learn more: https://agent-native.com/docs/creating-templates#add-skills";
         }
 
         return result;

@@ -214,9 +214,11 @@ export function TiptapComposer({
     const ed = editor;
     if (!ed) return;
     const currentPos = ed.state.selection.from;
+    // startPos is after the trigger char, so -1 to include the @ or /
+    const deleteFrom = Math.max(0, pop.startPos - 1);
     ed.chain()
       .focus()
-      .deleteRange({ from: pop.startPos, to: currentPos })
+      .deleteRange({ from: deleteFrom, to: currentPos })
       .insertContent({
         type: "fileReference",
         attrs: { path: file.path, source: file.source },
@@ -235,9 +237,10 @@ export function TiptapComposer({
     const ed = editor;
     if (!ed) return;
     const currentPos = ed.state.selection.from;
+    const deleteFrom = Math.max(0, pop.startPos - 1);
     ed.chain()
       .focus()
-      .deleteRange({ from: pop.startPos, to: currentPos })
+      .deleteRange({ from: deleteFrom, to: currentPos })
       .insertContent({
         type: "skillReference",
         attrs: { name: skill.name, path: skill.path, source: skill.source },
@@ -282,10 +285,11 @@ export function TiptapComposer({
     (file: FileResult) => {
       if (!editor || !popover) return;
       const currentPos = editor.state.selection.from;
+      const deleteFrom = Math.max(0, popover.startPos - 1);
       editor
         .chain()
         .focus()
-        .deleteRange({ from: popover.startPos, to: currentPos })
+        .deleteRange({ from: deleteFrom, to: currentPos })
         .insertContent({
           type: "fileReference",
           attrs: { path: file.path, source: file.source },
@@ -301,10 +305,11 @@ export function TiptapComposer({
     (skill: SkillResult) => {
       if (!editor || !popover) return;
       const currentPos = editor.state.selection.from;
+      const deleteFrom = Math.max(0, popover.startPos - 1);
       editor
         .chain()
         .focus()
-        .deleteRange({ from: popover.startPos, to: currentPos })
+        .deleteRange({ from: deleteFrom, to: currentPos })
         .insertContent({
           type: "skillReference",
           attrs: { name: skill.name, path: skill.path, source: skill.source },

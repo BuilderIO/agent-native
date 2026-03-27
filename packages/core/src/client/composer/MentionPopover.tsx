@@ -85,6 +85,27 @@ function SkillIconSmall() {
   );
 }
 
+function HintWithLink({ hint }: { hint: string }) {
+  // If hint contains a URL, split it and render the URL as a link
+  const urlMatch = hint.match(/(https?:\/\/\S+)/);
+  if (!urlMatch) return <>{hint}</>;
+  const before = hint.slice(0, urlMatch.index);
+  const url = urlMatch[1];
+  return (
+    <>
+      {before}
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline hover:text-foreground"
+      >
+        Learn more
+      </a>
+    </>
+  );
+}
+
 function LoadingSkeleton() {
   return (
     <div className="space-y-1 p-1">
@@ -170,11 +191,17 @@ export const MentionPopover = forwardRef<
           <LoadingSkeleton />
         ) : itemCount === 0 ? (
           <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-            {type === "@"
-              ? query
-                ? "No files found"
-                : "Type to search files..."
-              : hint || "No skills available"}
+            {type === "@" ? (
+              query ? (
+                "No files found"
+              ) : (
+                "Type to search files..."
+              )
+            ) : hint ? (
+              <HintWithLink hint={hint} />
+            ) : (
+              "No skills available"
+            )}
           </div>
         ) : (
           <div ref={listRef} className="p-1">
