@@ -1,16 +1,16 @@
+import { useState, useRef, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { FileText, Plus, LayoutDashboard, ArrowRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { FileText, Plus, Sparkles, X } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useForms, useCreateForm } from "@/hooks/use-forms";
+import { useSendToAgentChat } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 
 const statusColors: Record<string, string> = {
-  draft: "bg-amber-600/10 text-amber-600 dark:text-amber-400",
-  published: "bg-emerald-600/10 text-emerald-600 dark:text-emerald-400",
-  closed: "bg-destructive/10 text-destructive",
+  draft: "text-amber-500",
+  published: "text-emerald-500",
+  closed: "text-muted-foreground/50",
 };
 
 export function Sidebar() {
@@ -18,60 +18,54 @@ export function Sidebar() {
   const navigate = useNavigate();
   const { data: forms = [] } = useForms();
   const createForm = useCreateForm();
+  const { send } = useSendToAgentChat();
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  function handleCreate() {
+  useEffect(() => {
+    if (showPrompt) {
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    }
+  }, [showPrompt]);
+
+  function handleNewForm() {
+    setPrompt("");
+    setShowPrompt(true);
+  }
+
+  function handleSkip() {
+    setShowPrompt(false);
     createForm.mutate(
       { title: "Untitled Form" },
-      {
-        onSuccess: (form) => navigate(`/forms/${form.id}`),
-      },
+      { onSuccess: (form) => navigate(`/forms/${form.id}`) },
     );
   }
 
+  function handleSubmitPrompt() {
+    if (!prompt.trim()) return;
+    setShowPrompt(false);
+    send({
+      message: `Create a new form based on this description: ${prompt.trim()}`,
+      context:
+        "Create the form using the create-form script with appropriate title, description, and fields. After creating, tell the user the form name and a summary of the fields.",
+    });
+  }
+
   return (
-    <aside className="flex h-screen w-72 flex-col border-r border-border bg-card/95">
-      <div className="border-b border-border px-4 py-4">
+    <div className="flex h-screen w-60 flex-col border-r border-border bg-muted/30">
+      {/* Header */}
+      <div className="flex items-center border-b border-border px-3 py-2">
         <Link
           to="/forms"
-          className="flex items-center gap-3 text-foreground transition-colors hover:text-foreground/90"
+          className="text-sm font-semibold text-foreground hover:text-foreground/80"
         >
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-muted/40 shadow-sm">
-            <LayoutDashboard className="h-4.5 w-4.5" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              Workspace
-            </p>
-            <h2 className="truncate text-base font-semibold tracking-tight">
-              Forms
-            </h2>
-          </div>
+          Forms
         </Link>
       </div>
 
-      <div className="border-b border-border px-4 py-4">
-        <Button
-          onClick={handleCreate}
-          className="h-10 w-full justify-start gap-2.5 rounded-xl"
-        >
-          <Plus className="h-4 w-4" />
-          New Form
-        </Button>
-      </div>
-
-      <div className="flex items-center justify-between px-4 pb-2 pt-4">
-        <div>
-          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            All Forms
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Recent drafts and published forms
-          </p>
-        </div>
-      </div>
-
-      <ScrollArea className="flex-1 px-3">
-        <div className="space-y-1.5 pb-4">
+      <ScrollArea className="flex-1">
+        <div className="py-2">
           {forms.map((form) => {
             const isActive =
               location.pathname === `/forms/${form.id}` ||
@@ -81,71 +75,90 @@ export function Sidebar() {
                 key={form.id}
                 to={`/forms/${form.id}`}
                 className={cn(
-                  "group flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm transition-all",
+                  "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm",
                   isActive
-                    ? "border-primary/20 bg-primary/8 text-foreground shadow-sm"
-                    : "border-transparent text-foreground/72 hover:border-border hover:bg-muted/40 hover:text-foreground",
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                 )}
               >
-                <div
+                <FileText
+                  size={14}
                   className={cn(
-                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border",
+                    "shrink-0",
                     isActive
-                      ? "border-primary/20 bg-primary/10 text-primary"
-                      : "border-border bg-background text-muted-foreground group-hover:text-foreground",
-                  )}
-                >
-                  <FileText className="h-4 w-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium">
-                    {form.title || "Untitled Form"}
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-muted-foreground">
-                    /f/{form.slug}
-                  </div>
-                </div>
-                <Badge
-                  variant="secondary"
-                  className={cn(
-                    "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium",
-                    statusColors[form.status],
-                  )}
-                >
-                  {form.status}
-                </Badge>
-                <ArrowRight
-                  className={cn(
-                    "h-3.5 w-3.5 shrink-0 transition-opacity",
-                    isActive
-                      ? "text-primary"
-                      : "text-muted-foreground/50 opacity-0 group-hover:opacity-100",
+                      ? "text-accent-foreground"
+                      : statusColors[form.status],
                   )}
                 />
+                <span className="truncate">
+                  {form.title || "Untitled Form"}
+                </span>
               </Link>
             );
           })}
 
-          {forms.length === 0 && (
-            <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-4 py-10 text-center">
-              <p className="text-sm font-medium text-foreground">
-                No forms yet
-              </p>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Create your first form to start collecting responses.
-              </p>
-            </div>
-          )}
+          {/* New form button — under the list */}
+          <button
+            className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            onClick={handleNewForm}
+          >
+            <Plus size={14} className="shrink-0" />
+            <span>New form</span>
+          </button>
         </div>
       </ScrollArea>
 
-      <div className="flex items-center justify-between border-t border-border px-4 py-3">
-        <div>
-          <p className="text-xs font-medium text-foreground">Appearance</p>
-          <p className="text-[11px] text-muted-foreground">Theme</p>
+      {/* Agent prompt overlay */}
+      {showPrompt && (
+        <div className="border-t border-border p-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Sparkles size={13} className="text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground">
+              Describe your form
+            </span>
+            <button
+              className="ml-auto text-muted-foreground hover:text-foreground"
+              onClick={() => setShowPrompt(false)}
+            >
+              <X size={13} />
+            </button>
+          </div>
+          <textarea
+            ref={textareaRef}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSubmitPrompt();
+              }
+            }}
+            placeholder='e.g. "Customer feedback survey with rating and comments"'
+            className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-2 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+            rows={3}
+          />
+          <div className="flex justify-end gap-2 mt-2">
+            <button
+              className="text-xs text-muted-foreground hover:text-foreground"
+              onClick={handleSkip}
+            >
+              Skip
+            </button>
+            <button
+              className="text-xs font-medium bg-primary text-primary-foreground rounded-md px-3 py-1 hover:bg-primary/90 disabled:opacity-50"
+              onClick={handleSubmitPrompt}
+              disabled={!prompt.trim()}
+            >
+              Create
+            </button>
+          </div>
         </div>
+      )}
+
+      {/* Footer */}
+      <div className="flex items-center justify-end border-t border-border px-3 py-2">
         <ThemeToggle />
       </div>
-    </aside>
+    </div>
   );
 }

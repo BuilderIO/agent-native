@@ -259,7 +259,8 @@ export function FormBuilderPage() {
             }}
             onFocus={() => (titleFocused.current = true)}
             onBlur={() => (titleFocused.current = false)}
-            className="h-8 text-sm font-medium border-none bg-transparent px-0 focus-visible:ring-0 w-64"
+            style={{ width: `${Math.max(localTitle.length + 1, 8)}ch` }}
+            className="h-8 text-sm font-medium border-none bg-transparent px-0 focus-visible:ring-0 max-w-80"
           />
           <Badge
             variant="outline"
