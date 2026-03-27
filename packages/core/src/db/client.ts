@@ -6,6 +6,8 @@
  */
 import fs from "fs";
 import path from "path";
+import { createClient } from "@libsql/client";
+import postgres from "postgres";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -94,8 +96,6 @@ export function getDbExec(): DbExec {
 
   // Postgres
   if (dialect === "postgres") {
-    // Dynamic require to avoid bundling postgres when not needed
-    const postgres = require("postgres") as any;
     _pgPool = postgres(url);
     const pool = _pgPool;
 
@@ -123,8 +123,6 @@ export function getDbExec(): DbExec {
     }
   }
 
-  const { createClient } =
-    require("@libsql/client") as typeof import("@libsql/client");
   const client = createClient({
     url,
     authToken: process.env.DATABASE_AUTH_TOKEN,
