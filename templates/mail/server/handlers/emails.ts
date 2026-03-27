@@ -1368,8 +1368,25 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
 
 // ─── Contacts (extracted from email history) ─────────────────────────────────
 
+// Contact cache: keyed by user email, TTL 10 minutes
+const contactCache = new Map<
+  string,
+  {
+    data: Array<{ name: string; email: string; count: number }>;
+    expiresAt: number;
+  }
+>();
+const CONTACT_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
 export const listContacts = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
+
+  // Return cached contacts if fresh
+  const cached = contactCache.get(email);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.data;
+  }
+
   if (await isConnected(email)) {
     try {
       const accountTokens = await getAccountTokens(email);
@@ -1502,6 +1519,10 @@ export const listContacts = defineEventHandler(async (event: H3Event) => {
       const contacts = Array.from(contactMap.values()).sort(
         (a, b) => b.count - a.count,
       );
+      contactCache.set(email, {
+        data: contacts,
+        expiresAt: Date.now() + CONTACT_CACHE_TTL,
+      });
       return contacts;
     } catch (error: any) {
       console.error("[listContacts] error:", error.message);
@@ -1548,6 +1569,10 @@ export const listContacts = defineEventHandler(async (event: H3Event) => {
   const contacts = Array.from(contactMap.values()).sort(
     (a, b) => b.count - a.count,
   );
+  contactCache.set(email, {
+    data: contacts,
+    expiresAt: Date.now() + CONTACT_CACHE_TTL,
+  });
   return contacts;
 });
 

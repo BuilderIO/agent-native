@@ -199,20 +199,57 @@ ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
   });
 });
 
+// ---------- OAuth popup handling ----------
+// Open OAuth flows in an Electron BrowserWindow so the callback stays
+// inside the app. Other popups still open in the system browser.
+
+const OAUTH_HOSTS = ["accounts.google.com"];
+
+function openAuthWindow(url: string) {
+  const authWin = new BrowserWindow({
+    width: 500,
+    height: 680,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  authWin.loadURL(url);
+
+  // After the OAuth provider redirects to localhost (the callback),
+  // let the request complete then close the popup.
+  authWin.webContents.on("did-navigate", (_event, navUrl) => {
+    try {
+      const parsed = new URL(navUrl);
+      if (parsed.hostname === "localhost") {
+        // Give the callback handler time to store tokens then close
+        setTimeout(() => {
+          if (!authWin.isDestroyed()) authWin.close();
+        }, 1500);
+      }
+    } catch {
+      // ignore
+    }
+  });
+}
+
 // ---------- Webview popup handling ----------
-// Open popups from webviews (e.g. OAuth flows) in the system browser
-// instead of creating broken Electron popup windows.
 
 app.on("web-contents-created", (_event, contents) => {
   // Only intercept webview guest contents
   if (contents.getType() !== "webview") return;
 
   contents.setWindowOpenHandler(({ url }) => {
-    // Only allow http/https URLs to prevent protocol-handler attacks
-    // (e.g. ms-msdt:, file://, etc.)
     try {
       const parsed = new URL(url);
-      if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        return { action: "deny" };
+      }
+      // OAuth flows stay in Electron so the callback redirect works
+      if (OAUTH_HOSTS.includes(parsed.hostname)) {
+        openAuthWindow(url);
+      } else {
         shell.openExternal(url);
       }
     } catch {
@@ -245,9 +282,13 @@ app.on("web-contents-created", (_event, contents) => {
       return;
     }
 
-    // Forward other Cmd+ shortcuts: T, Shift+T, 1-9, [, ]
+    // Forward other Cmd+ shortcuts: R, T, Shift+T, 1-9, [, ]
     const isShortcut =
-      key === "t" || key === "[" || key === "]" || (key >= "1" && key <= "9");
+      key === "r" ||
+      key === "t" ||
+      key === "[" ||
+      key === "]" ||
+      (key >= "1" && key <= "9");
 
     if (isShortcut) {
       event.preventDefault();
@@ -308,6 +349,16 @@ app.whenReady().then(() => {
     if (key === "i" && (input.alt || input.shift)) {
       _event.preventDefault();
       toggleWebviewDevTools();
+      return;
+    }
+
+    // Cmd+R — refresh active webview, not the shell
+    if (key === "r") {
+      _event.preventDefault();
+      win.webContents.send("shortcut:keydown", {
+        key: "r",
+        shiftKey: input.shift,
+      });
       return;
     }
 

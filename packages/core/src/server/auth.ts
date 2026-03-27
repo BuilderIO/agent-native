@@ -206,10 +206,14 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   if (isDevMode() || authDisabledMode) {
     // Check for a real session cookie (created by Google OAuth callback)
     // so dev and prod share the same identity on the same DB
-    const cookie = getCookie(event, COOKIE_NAME);
-    if (cookie) {
-      const email = await getSessionEmail(cookie);
-      if (email) return { email, token: cookie };
+    try {
+      const cookie = getCookie(event, COOKIE_NAME);
+      if (cookie) {
+        const email = await getSessionEmail(cookie);
+        if (email) return { email, token: cookie };
+      }
+    } catch {
+      // DB not ready yet — fall back to dev session
     }
     return DEV_SESSION;
   }
@@ -217,8 +221,9 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   if (customGetSession) return customGetSession(event);
 
   const cookie = getCookie(event, COOKIE_NAME);
-  if (cookie && (await hasSession(cookie))) {
-    return { email: "user", token: cookie };
+  if (cookie) {
+    const email = await getSessionEmail(cookie);
+    if (email) return { email, token: cookie };
   }
   return null;
 }
@@ -497,7 +502,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
 
   // Dev mode — skip auth entirely
   if (isDevMode()) {
-    // Mount a session endpoint that returns the dev stub
+    // Mount a session endpoint that checks for a real session first
     app.use(
       "/api/auth/session",
       defineEventHandler(async (event) => {
@@ -505,7 +510,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        return DEV_SESSION;
+        return await getSession(event);
       }),
     );
 
@@ -596,7 +601,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
           "Ensure this app is behind infrastructure-level auth (Cloudflare Access, VPN, etc.).",
       );
 
-      // Mount session endpoint — getSession() will return DEV_SESSION
+      // Mount session endpoint
       app.use(
         "/api/auth/session",
         defineEventHandler(async (event) => {
@@ -604,7 +609,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          return DEV_SESSION;
+          return await getSession(event);
         }),
       );
       app.use(

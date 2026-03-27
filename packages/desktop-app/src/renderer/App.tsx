@@ -101,6 +101,7 @@ export default function App() {
   }, [enabledApps.map((a) => a.id).join(",")]);
 
   const closedTabsRef = useRef<{ tab: Tab; appId: string }[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const currentAppTabs = appTabs[activeSidebarAppId];
 
@@ -195,6 +196,11 @@ export default function App() {
   const handleShortcut = useCallback(
     (key: string, shiftKey: boolean) => {
       const k = key.toLowerCase();
+
+      if (k === "r") {
+        setRefreshKey((n) => n + 1);
+        return;
+      }
 
       if (k === "t") {
         if (shiftKey) handleReopenTab();
@@ -314,6 +320,7 @@ export default function App() {
               app={appDef}
               appConfig={app}
               isActive={isActive}
+              refreshKey={isActive ? refreshKey : 0}
             />
           ))}
         </div>

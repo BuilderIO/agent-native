@@ -10,6 +10,8 @@ interface AppWebviewProps {
   /** Full app config with URL overrides (optional for backward compat) */
   appConfig?: AppConfig;
   isActive: boolean;
+  /** Increment to trigger a webview reload (Cmd+R) */
+  refreshKey?: number;
 }
 
 /**
@@ -42,6 +44,7 @@ export default function AppWebview({
   app,
   appConfig,
   isActive,
+  refreshKey = 0,
 }: AppWebviewProps) {
   const webviewRef = useRef<ElectronWebviewElement>(null);
   const [error, setError] = useState(false);
@@ -121,6 +124,22 @@ export default function AppWebview({
       wv.removeEventListener("console-message", onConsoleMessage);
     };
   }, [app.placeholder, isActive, app.id]);
+
+  // Cmd+R — reload the active webview when refreshKey increments
+  const prevRefreshKey = useRef(refreshKey);
+  useEffect(() => {
+    if (refreshKey > 0 && refreshKey !== prevRefreshKey.current) {
+      prevRefreshKey.current = refreshKey;
+      const wv = webviewRef.current;
+      if (wv && isActive && !app.placeholder) {
+        try {
+          wv.reloadIgnoringCache();
+        } catch {
+          wv.reload();
+        }
+      }
+    }
+  }, [refreshKey, isActive, app.placeholder]);
 
   useEffect(() => {
     if (isActive && error && !app.placeholder) {
