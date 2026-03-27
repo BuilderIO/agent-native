@@ -44,9 +44,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+const TAB_ID = Math.random().toString(36).slice(2, 10);
+
 function FileWatcherSetup() {
   const qc = useQueryClient();
-  useFileWatcher({ queryClient: qc, queryKeys: ["files", "data"] });
+  useFileWatcher({
+    queryClient: qc,
+    queryKeys: ["files", "data"],
+    ignoreSource: TAB_ID,
+  });
   return null;
 }
 

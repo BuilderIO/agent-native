@@ -32,15 +32,14 @@ let _dialect: Dialect | undefined;
 export function getDialect(): Dialect {
   if (_dialect !== undefined) return _dialect;
 
-  // DATABASE_URL takes priority — if set, use it (Postgres or libsql).
-  // This ensures Neon/Supabase/Turso wins over a D1 binding when both exist.
+  // DATABASE_URL takes priority over D1 when set.
   const url = process.env.DATABASE_URL || "";
   if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
     _dialect = "postgres";
     return _dialect;
   }
   if (url && !url.startsWith("file:")) {
-    // Remote libsql (e.g. Turso) — use sqlite driver, not D1
+    // Remote libsql (e.g. Turso)
     _dialect = "sqlite";
     return _dialect;
   }
@@ -110,7 +109,8 @@ async function initClient(): Promise<void> {
 
   const url = process.env.DATABASE_URL || "file:./data/app.db";
 
-  // Postgres — dynamically import to avoid bundling in non-Postgres runtimes
+  // Postgres — uses postgres.js. Works on Node.js natively and on Cloudflare
+  // Workers with the nodejs_compat compatibility flag (provides net/tls polyfills).
   if (dialect === "postgres") {
     const { default: postgres } = await import("postgres");
     _pgPool = postgres(url, {

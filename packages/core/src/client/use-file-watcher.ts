@@ -17,6 +17,9 @@ interface QueryClient {
  * @param options.eventsUrl - Poll endpoint URL. Default: "/api/poll"
  * @param options.onEvent - Optional callback for each change event
  * @param options.interval - Poll interval in ms. Default: 2000
+ * @param options.ignoreSource - Skip events whose `requestSource` matches this
+ *   value. Use a per-tab ID so the UI ignores its own writes while still
+ *   picking up changes from other tabs, agents, and scripts.
  */
 export function useFileWatcher(
   options: {
@@ -25,6 +28,7 @@ export function useFileWatcher(
     eventsUrl?: string;
     onEvent?: (data: any) => void;
     interval?: number;
+    ignoreSource?: string;
   } = {},
 ): void {
   const {
@@ -39,6 +43,9 @@ export function useFileWatcher(
 
   const keysRef = useRef(queryKeys);
   keysRef.current = queryKeys;
+
+  const ignoreSourceRef = useRef(options.ignoreSource);
+  ignoreSourceRef.current = options.ignoreSource;
 
   useEffect(() => {
     let versionRef = 0;
@@ -57,9 +64,18 @@ export function useFileWatcher(
         };
 
         if (events.length > 0 && queryClient) {
-          for (const key of keysRef.current) {
-            queryClient.invalidateQueries({ queryKey: [key] });
+          const ignore = ignoreSourceRef.current;
+          const relevant = ignore
+            ? events.filter((e: any) => e.requestSource !== ignore)
+            : events;
+
+          if (relevant.length > 0) {
+            for (const key of keysRef.current) {
+              queryClient.invalidateQueries({ queryKey: [key] });
+            }
           }
+
+          // Always forward all events to onEvent — templates can decide
           for (const evt of events) {
             onEventRef.current?.(evt);
           }

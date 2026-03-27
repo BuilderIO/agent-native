@@ -1,5 +1,6 @@
 import { getDbExec, isPostgres, intType, type DbExec } from "../db/client.js";
 import { emitResourceChange, emitResourceDelete } from "./emitter.js";
+import type { StoreWriteOptions } from "../settings/store.js";
 import crypto from "crypto";
 
 export const SHARED_OWNER = "__shared__";
@@ -190,6 +191,7 @@ export async function resourcePut(
   path: string,
   content: string,
   mimeType?: string,
+  options?: StoreWriteOptions,
 ): Promise<Resource> {
   await ensureTable();
   const client = getDbExec();
@@ -215,7 +217,7 @@ export async function resourcePut(
     args: [id, path, owner, content, mime, size, createdAt, now],
   });
 
-  emitResourceChange(id, path, owner);
+  emitResourceChange(id, path, owner, options?.requestSource);
 
   return {
     id,

@@ -8,7 +8,12 @@
  * prevents one user's private data from leaking to other users.
  */
 
-import { getSetting, putSetting, deleteSetting } from "./store.js";
+import {
+  getSetting,
+  putSetting,
+  deleteSetting,
+  type StoreWriteOptions,
+} from "./store.js";
 
 function userKey(email: string, key: string): string {
   return `u:${email}:${key}`;
@@ -27,14 +32,16 @@ export async function putUserSetting(
   email: string,
   key: string,
   value: Record<string, unknown>,
+  options?: StoreWriteOptions,
 ): Promise<void> {
-  return putSetting(userKey(email, key), value);
+  return putSetting(userKey(email, key), value, options);
 }
 
 /** Delete a user-scoped setting. */
 export async function deleteUserSetting(
   email: string,
   key: string,
+  options?: StoreWriteOptions,
 ): Promise<boolean> {
-  return deleteSetting(userKey(email, key));
+  return deleteSetting(userKey(email, key), options);
 }

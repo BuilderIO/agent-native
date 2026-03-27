@@ -3,6 +3,7 @@ import {
   getQuery,
   readBody,
   getRouterParam,
+  getHeader,
   setResponseStatus,
   setResponseHeader,
   type H3Event,
@@ -35,6 +36,7 @@ import {
   listGmailMessages,
   gmailToEmailMessage,
 } from "../lib/google-auth.js";
+import { getSyntheticEmailsForView } from "../lib/jobs.js";
 
 // ---------------------------------------------------------------------------
 // Token helper — get a valid access token, refreshing if needed
@@ -141,11 +143,16 @@ async function readEmails(email: string): Promise<EmailMessage[]> {
   return [];
 }
 
+function reqSource(event: H3Event) {
+  return getHeader(event, "x-request-source") || undefined;
+}
+
 async function writeEmails(
   email: string,
   emails: EmailMessage[],
+  options?: { requestSource?: string },
 ): Promise<void> {
-  await putUserSetting(email, "local-emails", { emails });
+  await putUserSetting(email, "local-emails", { emails }, options);
 }
 
 async function readLabels(email: string): Promise<Label[]> {
@@ -156,8 +163,12 @@ async function readLabels(email: string): Promise<Label[]> {
   return [];
 }
 
-async function writeLabels(email: string, labels: Label[]): Promise<void> {
-  await putUserSetting(email, "labels", { labels });
+async function writeLabels(
+  email: string,
+  labels: Label[],
+  options?: { requestSource?: string },
+): Promise<void> {
+  await putUserSetting(email, "labels", { labels }, options);
 }
 
 async function readSettings(email: string): Promise<UserSettings> {
@@ -189,6 +200,22 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     view?: string;
     q?: string;
   };
+
+  if (view === "snoozed" || view === "scheduled") {
+    let emails = await getSyntheticEmailsForView(email, view);
+    if (q) {
+      const query = q.toLowerCase();
+      emails = emails.filter(
+        (message) =>
+          message.subject.toLowerCase().includes(query) ||
+          message.snippet.toLowerCase().includes(query) ||
+          message.from.name.toLowerCase().includes(query) ||
+          message.from.email.toLowerCase().includes(query) ||
+          message.body.toLowerCase().includes(query),
+      );
+    }
+    return emails;
+  }
 
   // If Google is connected, fetch from Gmail directly (skip demo data)
   if (await isConnected(email)) {
@@ -479,10 +506,10 @@ export const markRead = defineEventHandler(async (event: H3Event) => {
   }
 
   emails[idx] = { ...emails[idx], isRead };
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
 
   const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels);
+  await writeLabels(email, labels, { requestSource: reqSource(event) });
 
   return emails[idx];
 });
@@ -503,7 +530,7 @@ export const toggleStar = defineEventHandler(async (event: H3Event) => {
   }
 
   emails[idx] = { ...emails[idx], isStarred };
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
   return emails[idx];
 });
 
@@ -549,10 +576,10 @@ export const archiveEmail = defineEventHandler(async (event: H3Event) => {
       };
     }
   }
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
 
   const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels);
+  await writeLabels(email, labels, { requestSource: reqSource(event) });
 
   return { id: getRouterParam(event, "id"), threadId, isArchived: true };
 });
@@ -601,10 +628,10 @@ export const unarchiveEmail = defineEventHandler(async (event: H3Event) => {
       };
     }
   }
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
 
   const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels);
+  await writeLabels(email, labels, { requestSource: reqSource(event) });
 
   return { id: getRouterParam(event, "id"), threadId, isArchived: false };
 });
@@ -647,10 +674,10 @@ export const trashEmail = defineEventHandler(async (event: H3Event) => {
       emails[i] = { ...emails[i], isTrashed: true, isArchived: false };
     }
   }
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
 
   const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels);
+  await writeLabels(email, labels, { requestSource: reqSource(event) });
 
   return { id: getRouterParam(event, "id"), threadId, isTrashed: true };
 });
@@ -722,9 +749,9 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
       };
     }
   }
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
   const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels);
+  await writeLabels(email, labels, { requestSource: reqSource(event) });
   return { id: getRouterParam(event, "id"), threadId, spam: true };
 });
 
@@ -741,8 +768,9 @@ async function readBlockedSenders(email: string): Promise<string[]> {
 async function writeBlockedSenders(
   email: string,
   senders: string[],
+  options?: { requestSource?: string },
 ): Promise<void> {
-  await putUserSetting(email, "blocked-senders", { senders });
+  await putUserSetting(email, "blocked-senders", { senders }, options);
 }
 
 export const blockSender = defineEventHandler(async (event: H3Event) => {
@@ -806,7 +834,9 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
   const blocked = await readBlockedSenders(email);
   if (!blocked.includes(senderEmail.toLowerCase())) {
     blocked.push(senderEmail.toLowerCase());
-    await writeBlockedSenders(email, blocked);
+    await writeBlockedSenders(email, blocked, {
+      requestSource: reqSource(event),
+    });
   }
 
   const emails = await readEmails(email);
@@ -826,9 +856,9 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
       };
     }
   }
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
   const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels);
+  await writeLabels(email, labels, { requestSource: reqSource(event) });
   return { id: getRouterParam(event, "id"), threadId, blocked: senderEmail };
 });
 
@@ -845,8 +875,9 @@ async function readMutedThreads(email: string): Promise<string[]> {
 async function writeMutedThreads(
   email: string,
   threads: string[],
+  options?: { requestSource?: string },
 ): Promise<void> {
-  await putUserSetting(email, "muted-threads", { threads });
+  await putUserSetting(email, "muted-threads", { threads }, options);
 }
 
 export const muteThread = defineEventHandler(async (event: H3Event) => {
@@ -891,7 +922,7 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
   const muted = await readMutedThreads(email);
   if (!muted.includes(threadId)) {
     muted.push(threadId);
-    await writeMutedThreads(email, muted);
+    await writeMutedThreads(email, muted, { requestSource: reqSource(event) });
   }
 
   const emails = await readEmails(email);
@@ -905,9 +936,9 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
       };
     }
   }
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
   const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels);
+  await writeLabels(email, labels, { requestSource: reqSource(event) });
   return { threadId, muted: true };
 });
 
@@ -921,7 +952,7 @@ export const deleteEmail = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 404);
     return { error: "Email not found" };
   }
-  await writeEmails(email, filtered);
+  await writeEmails(email, filtered, { requestSource: reqSource(event) });
   return { ok: true };
 });
 
@@ -1068,7 +1099,7 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
   };
 
   emails.push(newEmail);
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
 
   setResponseStatus(event, 201);
   return newEmail;
@@ -1195,7 +1226,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
   } else {
     emails.push(draftEmail);
   }
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
 
   return {
     draftId: draftEmail.id,
@@ -1361,7 +1392,7 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
   const emails = await readEmails(email);
   const filtered = emails.filter((e) => !(e.id === id && e.isDraft));
   if (filtered.length !== emails.length) {
-    await writeEmails(email, filtered);
+    await writeEmails(email, filtered, { requestSource: reqSource(event) });
   }
   return { ok: true };
 });
@@ -1640,6 +1671,7 @@ export const updateSettings = defineEventHandler(async (event: H3Event) => {
     email,
     "mail-settings",
     updated as Record<string, unknown>,
+    { requestSource: reqSource(event) },
   );
   return updated;
 });

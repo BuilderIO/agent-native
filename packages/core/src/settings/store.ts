@@ -35,9 +35,15 @@ export async function getSetting(
   return JSON.parse(rows[0].value as string);
 }
 
+export interface StoreWriteOptions {
+  /** Tag identifying who initiated this write (e.g. a tab ID). */
+  requestSource?: string;
+}
+
 export async function putSetting(
   key: string,
   value: Record<string, unknown>,
+  options?: StoreWriteOptions,
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
@@ -51,10 +57,14 @@ export async function putSetting(
     source: "settings",
     type: "change",
     key,
+    ...(options?.requestSource && { requestSource: options.requestSource }),
   });
 }
 
-export async function deleteSetting(key: string): Promise<boolean> {
+export async function deleteSetting(
+  key: string,
+  options?: StoreWriteOptions,
+): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const result = await client.execute({
@@ -66,6 +76,7 @@ export async function deleteSetting(key: string): Promise<boolean> {
       source: "settings",
       type: "delete",
       key,
+      ...(options?.requestSource && { requestSource: options.requestSource }),
     });
     return true;
   }

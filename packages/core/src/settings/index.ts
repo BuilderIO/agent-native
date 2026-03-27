@@ -5,6 +5,7 @@ export {
   deleteSetting,
   getAllSettings,
   getSettingsEmitter,
+  type StoreWriteOptions,
 } from "./store.js";
 
 // H3 route handlers

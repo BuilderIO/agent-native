@@ -1,9 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Alias } from "@shared/types";
+import { TAB_ID } from "@/lib/tab-id";
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Request-Source": TAB_ID,
+    },
     ...options,
   });
   if (!res.ok) {

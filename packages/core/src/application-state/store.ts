@@ -1,5 +1,6 @@
 import { getDbExec, isPostgres, intType, type DbExec } from "../db/client.js";
 import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
+import type { StoreWriteOptions } from "../settings/store.js";
 
 let _initialized = false;
 
@@ -36,6 +37,7 @@ export async function appStatePut(
   sessionId: string,
   key: string,
   value: Record<string, unknown>,
+  options?: StoreWriteOptions,
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
@@ -45,12 +47,13 @@ export async function appStatePut(
       : `INSERT OR REPLACE INTO application_state (session_id, key, value, updated_at) VALUES (?, ?, ?, ?)`,
     args: [sessionId, key, JSON.stringify(value), Date.now()],
   });
-  emitAppStateChange(key);
+  emitAppStateChange(key, options?.requestSource);
 }
 
 export async function appStateDelete(
   sessionId: string,
   key: string,
+  options?: StoreWriteOptions,
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
@@ -59,7 +62,7 @@ export async function appStateDelete(
     args: [sessionId, key],
   });
   const deleted = result.rowsAffected > 0;
-  if (deleted) emitAppStateDelete(key);
+  if (deleted) emitAppStateDelete(key, options?.requestSource);
   return deleted;
 }
 
@@ -82,6 +85,7 @@ export async function appStateList(
 export async function appStateDeleteByPrefix(
   sessionId: string,
   keyPrefix: string,
+  options?: StoreWriteOptions,
 ): Promise<number> {
   await ensureTable();
   const client = getDbExec();
@@ -100,7 +104,7 @@ export async function appStateDeleteByPrefix(
   });
 
   for (const row of rows) {
-    emitAppStateDelete(row.key as string);
+    emitAppStateDelete(row.key as string, options?.requestSource);
   }
 
   return result.rowsAffected;
