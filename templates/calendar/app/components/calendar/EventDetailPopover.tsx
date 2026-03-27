@@ -52,9 +52,7 @@ function sanitizeHtml(html: string): string {
 }
 
 /** Extract a Zoom/Meet/Teams link from location or description */
-function extractMeetingLink(
-  event: CalendarEvent,
-): {
+function extractMeetingLink(event: CalendarEvent): {
   url: string;
   type: "zoom" | "meet" | "teams" | "link";
   label?: string;
