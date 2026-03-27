@@ -1,9 +1,10 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useState } from "react";
 import {
   QueryClient,
   QueryClientProvider,
+  useIsMutating,
   useQueryClient,
 } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
@@ -66,6 +67,22 @@ function AutoFocus() {
 
 function FileWatcherSetup() {
   const qc = useQueryClient();
+
+  // Suppress poll-triggered email refetches while UI mutations are active
+  // (and for a short cooldown after) to prevent stale data from overwriting
+  // optimistic updates. The mutation's own onSettled handles the refetch.
+  const activeMutations = useIsMutating();
+  const cooldownUntilRef = useRef(0);
+
+  useEffect(() => {
+    if (activeMutations > 0) {
+      // Extend cooldown while mutations are in flight.
+      // The 5s buffer handles Gmail eventual consistency — changes may not
+      // be visible on the next list query for a few seconds after the API call.
+      cooldownUntilRef.current = Date.now() + 5_000;
+    }
+  }, [activeMutations]);
+
   useFileWatcher({
     queryClient: qc,
     queryKeys: [],
@@ -75,6 +92,8 @@ function FileWatcherSetup() {
       path?: string;
       key?: string;
     }) => {
+      const suppressEmailRefetch = Date.now() < cooldownUntilRef.current;
+
       if (data.source === "app-state") {
         if (data.key?.startsWith("compose-")) {
           qc.invalidateQueries({
@@ -87,11 +106,15 @@ function FileWatcherSetup() {
         qc.invalidateQueries({ queryKey: ["settings"] });
         qc.invalidateQueries({ queryKey: ["aliases"] });
         qc.invalidateQueries({ queryKey: ["labels"] });
-        qc.invalidateQueries({ queryKey: ["emails"] });
-        qc.invalidateQueries({ queryKey: ["email"] });
+        if (!suppressEmailRefetch) {
+          qc.invalidateQueries({ queryKey: ["emails"] });
+          qc.invalidateQueries({ queryKey: ["email"] });
+        }
       } else {
-        qc.invalidateQueries({ queryKey: ["emails"] });
-        qc.invalidateQueries({ queryKey: ["email"] });
+        if (!suppressEmailRefetch) {
+          qc.invalidateQueries({ queryKey: ["emails"] });
+          qc.invalidateQueries({ queryKey: ["email"] });
+        }
         qc.invalidateQueries({ queryKey: ["labels"] });
         qc.invalidateQueries({ queryKey: ["settings"] });
         qc.invalidateQueries({ queryKey: ["aliases"] });
