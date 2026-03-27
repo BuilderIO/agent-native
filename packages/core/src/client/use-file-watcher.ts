@@ -49,7 +49,7 @@ export function useFileWatcher(
       if (stopped) return;
       try {
         const res = await fetch(`${eventsUrl}?since=${versionRef}`);
-        if (!res.ok) return;
+        if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
         const { version, events } = data as {
           version: number;
