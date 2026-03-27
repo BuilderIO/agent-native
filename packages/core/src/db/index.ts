@@ -1,19 +1,20 @@
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
 import Database from "better-sqlite3";
-import pg from "postgres";
 
 export type DbConfig =
   | { driver: "sqlite"; filename: string }
   | { driver: "d1"; binding: any }
-  | { driver: "postgres" | "neon"; connectionString: string };
+  | { driver: "postgres"; connectionString: string };
 
 /**
  * Create a Drizzle ORM database instance.
- * Supports SQLite via better-sqlite3 and Postgres/Neon via postgres-js.
+ * Supports SQLite via better-sqlite3 and Postgres via postgres-js.
+ * Postgres driver is loaded dynamically to avoid bundling in edge runtimes.
  */
-export function createDb(config: DbConfig) {
-  if (config.driver === "postgres" || config.driver === "neon") {
+export async function createDb(config: DbConfig) {
+  if (config.driver === "postgres") {
+    const { drizzle: drizzlePg } = await import("drizzle-orm/postgres-js");
+    const { default: pg } = await import("postgres");
     return drizzlePg(pg(config.connectionString));
   }
   if (config.driver === "sqlite") {
@@ -24,7 +25,7 @@ export function createDb(config: DbConfig) {
   throw new Error(`Unsupported driver: ${(config as any).driver}`);
 }
 
-export type DrizzleDb = ReturnType<typeof createDb>;
+export type DrizzleDb = Awaited<ReturnType<typeof createDb>>;
 
 export { createGetDb } from "./create-get-db.js";
 export { runMigrations } from "./migrations.js";
