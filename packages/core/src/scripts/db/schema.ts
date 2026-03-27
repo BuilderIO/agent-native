@@ -11,7 +11,6 @@
 
 import path from "path";
 import { createClient, type Client } from "@libsql/client";
-import pg from "postgres";
 import { parseArgs, fail } from "../utils.js";
 
 interface ColumnInfo {
@@ -64,6 +63,7 @@ async function introspectPostgres(
   url: string,
   parsed: Record<string, string>,
 ): Promise<void> {
+  const { default: pg } = await import("postgres");
   const sql = pg(url);
 
   try {

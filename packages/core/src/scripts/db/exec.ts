@@ -10,7 +10,6 @@
 
 import path from "path";
 import { createClient } from "@libsql/client";
-import pg from "postgres";
 import { parseArgs, fail } from "../utils.js";
 
 function isPostgresUrl(url: string): boolean {
@@ -74,6 +73,7 @@ Options:
 
   // Postgres path
   if (isPostgresUrl(url)) {
+    const { default: pg } = await import("postgres");
     const pgSql = pg(url);
     try {
       const result = await pgSql.unsafe(sql);
