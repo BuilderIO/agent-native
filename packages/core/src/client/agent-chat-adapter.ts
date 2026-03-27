@@ -23,7 +23,7 @@ export function createAgentChatAdapter(options?: {
   const tabId = options?.tabId;
 
   return {
-    async *run({ messages, abortSignal }) {
+    async *run({ messages, abortSignal, runConfig }) {
       // Extract latest user message and build history from prior messages
       let lastUserMsg: (typeof messages)[number] | undefined;
       for (let i = messages.length - 1; i >= 0; i--) {
@@ -104,6 +104,9 @@ export function createAgentChatAdapter(options?: {
             message: messageText,
             history,
             ...(attachments.length > 0 ? { attachments } : {}),
+            ...(runConfig?.custom?.references
+              ? { references: runConfig.custom.references }
+              : {}),
           }),
           signal: abortSignal,
         });

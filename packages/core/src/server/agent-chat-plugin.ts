@@ -3,8 +3,22 @@ import {
   type ScriptEntry,
 } from "../agent/production-agent.js";
 import type { ScriptTool } from "../agent/types.js";
-import { defineEventHandler, readBody, setResponseStatus, getMethod } from "h3";
+import {
+  defineEventHandler,
+  readBody,
+  setResponseStatus,
+  getMethod,
+  getQuery,
+} from "h3";
 import { agentEnv } from "../shared/agent-env.js";
+import {
+  resourceListAccessible,
+  resourceList,
+  resourceGet,
+  SHARED_OWNER,
+} from "../resources/store.js";
+import fs from "node:fs";
+import nodePath from "node:path";
 
 /**
  * Wraps a core CLI script (that writes to console.log) as a ScriptEntry
@@ -230,6 +244,56 @@ When editing code, maintain existing patterns and conventions. After writing fil
  * });
  * ```
  */
+function collectFiles(
+  dir: string,
+  prefix: string,
+  depth: number,
+  results: Array<{ path: string; name: string; type: "file" | "folder" }>,
+): void {
+  if (depth > 4 || results.length >= 500) return;
+  const skip = new Set([
+    "node_modules",
+    ".git",
+    ".next",
+    ".output",
+    "dist",
+    ".cache",
+    ".turbo",
+    "data",
+  ]);
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (results.length >= 500) return;
+    if (skip.has(entry.name) || entry.name.startsWith(".")) continue;
+    const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const isDir = entry.isDirectory();
+    results.push({
+      path: relPath,
+      name: entry.name,
+      type: isDir ? "folder" : "file",
+    });
+    if (isDir)
+      collectFiles(nodePath.join(dir, entry.name), relPath, depth + 1, results);
+  }
+}
+
+function parseSkillFrontmatter(content: string): {
+  name?: string;
+  description?: string;
+} {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return {};
+  const fm = match[1];
+  const name = fm.match(/^name:\s*(.+)$/m)?.[1]?.trim();
+  const description = fm.match(/^description:\s*(.+)$/m)?.[1]?.trim();
+  return { name, description };
+}
+
 function isLocalhost(event: any): boolean {
   try {
     const host =
@@ -358,6 +422,179 @@ export function createAgentChatPlugin(
         process.env.ANTHROPIC_API_KEY = trimmedKey;
 
         return { ok: true };
+      }),
+    );
+
+    // Mount file search endpoint
+    nitroApp.h3App.use(
+      `${routePath}/files`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+
+        const query = getQuery(event);
+        const q = typeof query.q === "string" ? query.q.toLowerCase() : "";
+
+        const files: Array<{
+          path: string;
+          name: string;
+          source: "codebase" | "resource";
+          type: string;
+        }> = [];
+        const seen = new Set<string>();
+
+        // In dev mode, walk the filesystem
+        if (currentDevMode) {
+          const codebaseFiles: Array<{
+            path: string;
+            name: string;
+            type: "file" | "folder";
+          }> = [];
+          try {
+            collectFiles(process.cwd(), "", 0, codebaseFiles);
+          } catch {
+            // Filesystem access failed — skip
+          }
+          for (const f of codebaseFiles) {
+            if (!seen.has(f.path)) {
+              seen.add(f.path);
+              files.push({
+                path: f.path,
+                name: f.name,
+                source: "codebase",
+                type: f.type,
+              });
+            }
+          }
+        }
+
+        // Query resources
+        try {
+          const resources = currentDevMode
+            ? await resourceListAccessible("local@localhost")
+            : await resourceList(SHARED_OWNER);
+          for (const r of resources) {
+            if (!seen.has(r.path)) {
+              seen.add(r.path);
+              files.push({
+                path: r.path,
+                name: r.path.split("/").pop() || r.path,
+                source: "resource",
+                type: "file",
+              });
+            }
+          }
+        } catch {
+          // Resources not available — skip
+        }
+
+        // Filter by query and limit
+        const filtered = q
+          ? files.filter((f) => f.path.toLowerCase().includes(q))
+          : files;
+
+        return { files: filtered.slice(0, 30) };
+      }),
+    );
+
+    // Mount skills listing endpoint
+    nitroApp.h3App.use(
+      `${routePath}/skills`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+
+        const skills: Array<{
+          name: string;
+          description?: string;
+          path: string;
+          source: "codebase" | "resource";
+        }> = [];
+        const seenNames = new Set<string>();
+
+        // In dev mode, scan .agents/skills/ directory
+        if (currentDevMode) {
+          try {
+            const skillsDir = nodePath.join(process.cwd(), ".agents", "skills");
+            const entries = fs.readdirSync(skillsDir, {
+              withFileTypes: true,
+            });
+            for (const entry of entries) {
+              if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+              try {
+                const content = fs.readFileSync(
+                  nodePath.join(skillsDir, entry.name),
+                  "utf-8",
+                );
+                const fm = parseSkillFrontmatter(content);
+                const skillName = fm.name || entry.name.replace(/\.md$/, "");
+                if (!seenNames.has(skillName)) {
+                  seenNames.add(skillName);
+                  skills.push({
+                    name: skillName,
+                    description: fm.description,
+                    path: `.agents/skills/${entry.name}`,
+                    source: "codebase",
+                  });
+                }
+              } catch {
+                // Could not read individual skill file — skip
+              }
+            }
+          } catch {
+            // .agents/skills/ directory doesn't exist or not readable — skip
+          }
+        }
+
+        // Query resources with skills/ prefix
+        try {
+          const resourceSkills = currentDevMode
+            ? await resourceListAccessible("local@localhost", "skills/")
+            : await resourceList(SHARED_OWNER, "skills/");
+          for (const r of resourceSkills) {
+            // Try to get content to parse frontmatter
+            let skillName =
+              r.path.split("/").pop()?.replace(/\.md$/, "") || r.path;
+            let description: string | undefined;
+            try {
+              const full = await resourceGet(r.id);
+              if (full) {
+                const fm = parseSkillFrontmatter(full.content);
+                if (fm.name) skillName = fm.name;
+                description = fm.description;
+              }
+            } catch {
+              // Could not read resource content — use path-based name
+            }
+            if (!seenNames.has(skillName)) {
+              seenNames.add(skillName);
+              skills.push({
+                name: skillName,
+                description,
+                path: r.path,
+                source: "resource",
+              });
+            }
+          }
+        } catch {
+          // Resources not available — skip
+        }
+
+        const result: {
+          skills: typeof skills;
+          hint?: string;
+        } = { skills };
+
+        if (skills.length === 0) {
+          result.hint =
+            "No skills found. Add skill files under skills/ in Resources to teach the agent new capabilities.";
+        }
+
+        return result;
       }),
     );
 

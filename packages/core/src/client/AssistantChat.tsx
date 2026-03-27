@@ -27,6 +27,8 @@ import {
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
 import { cn } from "./utils.js";
+import { TiptapComposer } from "./composer/TiptapComposer.js";
+import type { Reference } from "./composer/types.js";
 
 // ─── Icons ──────────────────────────────────────────────────────────────────
 
@@ -892,34 +894,28 @@ const AssistantChatInner = forwardRef<
             onStop={() => threadRuntime.cancelRun()}
           />
         ) : (
-          <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
+          <div className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
             {/* Attachment previews */}
-            <ComposerPrimitive.Attachments
-              components={{
-                Attachment: ComposerAttachmentPreview,
+            <ComposerPrimitive.Root>
+              <ComposerPrimitive.Attachments
+                components={{
+                  Attachment: ComposerAttachmentPreview,
+                }}
+              />
+            </ComposerPrimitive.Root>
+            <TiptapComposer
+              onSubmit={(text, references) => {
+                threadRuntime.append({
+                  role: "user",
+                  content: [{ type: "text", text }],
+                  runConfig:
+                    references.length > 0
+                      ? { custom: { references } }
+                      : undefined,
+                });
               }}
             />
-            <div className="flex items-center gap-1 px-2 py-1.5">
-              <ComposerPrimitive.AddAttachment asChild>
-                <button className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50">
-                  <PaperclipIcon className="h-4 w-4" />
-                </button>
-              </ComposerPrimitive.AddAttachment>
-              <ComposerPrimitive.Input
-                placeholder="Message agent..."
-                submitMode="enter"
-                cancelOnEscape
-                className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-[1.625rem]"
-                minRows={1}
-                maxRows={8}
-              />
-              <ComposerPrimitive.Send asChild>
-                <button className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed">
-                  <SendIcon className="h-3.5 w-3.5" />
-                </button>
-              </ComposerPrimitive.Send>
-            </div>
-          </ComposerPrimitive.Root>
+          </div>
         )}
       </div>
     </div>
