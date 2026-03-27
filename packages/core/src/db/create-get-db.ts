@@ -61,30 +61,59 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   }
 
   /**
+   * Create a lazy proxy that records property accesses and method calls,
+   * then replays them on the real DB once init completes. Supports
+   * Drizzle's chained API: db.select().from(table).where(...).
+   *
+   * When `.then()` is called (i.e. the chain is awaited), the proxy
+   * awaits _dbReady and replays the recorded chain on the real _db.
+   */
+  function createLazyProxy(
+    ready: Promise<any>,
+    chain: Array<{ prop: string | symbol; args?: any[] }>,
+  ): any {
+    return new Proxy(function () {} as any, {
+      get(_target, prop) {
+        // When awaited, replay the chain on the real db
+        if (prop === "then" || prop === "catch" || prop === "finally") {
+          const promise = ready.then(() => {
+            let result: any = _db;
+            for (const step of chain) {
+              const val = result[step.prop];
+              result =
+                typeof val === "function" ? val.apply(result, step.args) : val;
+            }
+            return result;
+          });
+          return (promise as any)[prop].bind(promise);
+        }
+        // Symbol.toStringTag, Symbol.iterator, etc. — return another proxy
+        // Property access (e.g. db.query) — record and return another proxy
+        return createLazyProxy(ready, [...chain, { prop }]);
+      },
+      apply(_target, _thisArg, args) {
+        // Method call (e.g. .from(table)) — record args and return another proxy
+        const last = chain[chain.length - 1];
+        const newChain = chain.slice(0, -1);
+        newChain.push({ prop: last.prop, args });
+        return createLazyProxy(ready, newChain);
+      },
+    });
+  }
+
+  /**
    * Get the Drizzle DB instance. Kicks off lazy init on first call.
-   * If the async init hasn't completed yet, returns a Proxy that
-   * transparently awaits initialization before forwarding operations.
-   * This eliminates the startup race where requests arrive before
-   * the dynamic import of the DB driver finishes.
+   * If the async init hasn't completed yet, returns a lazy Proxy that
+   * records the Drizzle chain (select/from/where/etc.) and replays it
+   * once the DB driver finishes loading. Since callers always `await`
+   * the final result, the proxy is transparent.
    */
   function getDb(): LibSQLDatabase<T> {
     if (_db) return _db;
     startInit();
     if (_db) return _db;
 
-    // Return a proxy that awaits _dbReady before forwarding.
-    // Every Drizzle operation (select, insert, etc.) returns a thenable,
-    // so callers already `await` the result — the extra await is transparent.
-    return new Proxy({} as LibSQLDatabase<T>, {
-      get(_target, prop) {
-        return (...args: any[]) => {
-          return _dbReady!.then(() => {
-            const val = (_db as any)[prop];
-            return typeof val === "function" ? val.apply(_db, args) : val;
-          });
-        };
-      },
-    });
+    return createLazyProxy(_dbReady!, []) as LibSQLDatabase<T>;
   }
 
   return getDb;
