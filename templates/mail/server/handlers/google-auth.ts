@@ -215,7 +215,11 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
 export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
   try {
     const session = await getSession(event);
-    const status = await getAuthStatus(session?.email);
+    // In dev mode (local@localhost), show all connected accounts regardless of owner
+    // so tokens created in prod are visible locally and vice versa
+    const forEmail =
+      session?.email === "local@localhost" ? undefined : session?.email;
+    const status = await getAuthStatus(forEmail);
     return status;
   } catch (error: any) {
     setResponseStatus(event, 500);
