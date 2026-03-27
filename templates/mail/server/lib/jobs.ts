@@ -4,7 +4,7 @@ import {
   saveOAuthTokens,
   listOAuthAccounts,
 } from "@agent-native/core/oauth-tokens";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, lte } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { EmailMessage } from "@shared/types.js";
 import { db, schema } from "../db/index.js";
@@ -473,17 +473,40 @@ export async function sendScheduledEmail(
   payload: SendLaterPayload,
   accountEmail?: string,
 ): Promise<void> {
-  const { to, cc, bcc, subject, body, from, threadId } = payload;
+  const { to, cc, bcc, subject, body, from, replyToId, threadId } = payload;
 
   if (await isConnected(accountEmail || from)) {
     const account = await getFirstAccountToken(accountEmail || from);
     if (account) {
+      let inReplyTo: string | undefined;
+      let references: string | undefined;
+
+      if (replyToId) {
+        try {
+          const original = await gmailGetMessage(
+            account.accessToken,
+            replyToId,
+            "metadata",
+          );
+          const headers = original.payload?.headers || [];
+          inReplyTo =
+            headers.find((header: any) => header.name === "Message-Id")
+              ?.value ?? undefined;
+          const refs = headers.find(
+            (header: any) => header.name === "References",
+          )?.value;
+          references = [refs, inReplyTo].filter(Boolean).join(" ");
+        } catch {}
+      }
+
       const lines = [
         `From: ${from || account.email || "me"}`,
         `To: ${to}`,
         ...(cc ? [`Cc: ${cc}`] : []),
         ...(bcc ? [`Bcc: ${bcc}`] : []),
         `Subject: ${subject}`,
+        ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`] : []),
+        ...(references ? [`References: ${references}`] : []),
         `Content-Type: text/plain; charset="UTF-8"`,
         "",
         body,
@@ -564,9 +587,9 @@ export async function getDuePendingJobs(
     .where(
       and(
         eq(schema.scheduledJobs.status, "pending"),
-        eq(schema.scheduledJobs.status, "pending"),
+        lte(schema.scheduledJobs.runAt, now),
       ),
     );
 
-  return due.filter((job) => job.runAt <= now) as ScheduledJobRecord[];
+  return due as ScheduledJobRecord[];
 }

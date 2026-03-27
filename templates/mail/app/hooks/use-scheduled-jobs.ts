@@ -3,7 +3,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 export interface ScheduledJob {
   id: string;
   type: "snooze" | "send_later";
+  ownerEmail?: string | null;
   emailId: string | null;
+  threadId?: string | null;
+  accountEmail?: string | null;
   payload: string; // JSON string
   runAt: number; // epoch ms
   status: "pending" | "processing" | "done" | "cancelled";

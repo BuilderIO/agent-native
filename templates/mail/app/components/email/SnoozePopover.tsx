@@ -6,10 +6,7 @@ import {
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import {
-  useCreateScheduledJob,
-  useParseDate,
-} from "@/hooks/use-scheduled-jobs";
+import { useParseDate, useSnoozeEmail } from "@/hooks/use-scheduled-jobs";
 import { IconAlarm } from "@tabler/icons-react";
 
 interface SnoozePopoverProps {
@@ -77,7 +74,7 @@ export function SnoozePopover({
   const [parseError, setParseError] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const createJob = useCreateScheduledJob();
+  const snoozeEmail = useSnoozeEmail();
   const parseDate = useParseDate();
   const presets = getPresets();
 
@@ -119,10 +116,8 @@ export function SnoozePopover({
 
   const handleSnooze = async () => {
     if (!selectedDate) return;
-    await createJob.mutateAsync({
-      type: "snooze",
+    await snoozeEmail.mutateAsync({
       emailId,
-      payload: {},
       runAt: selectedDate.getTime(),
     });
     // Archive the email immediately
@@ -203,12 +198,12 @@ export function SnoozePopover({
           <Button
             size="sm"
             className="w-full"
-            disabled={!selectedDate || createJob.isPending}
+            disabled={!selectedDate || snoozeEmail.isPending}
             onClick={handleSnooze}
           >
             <IconAlarm className="h-3.5 w-3.5 mr-1.5" />
-            {createJob.isPending ? "Snoozing..." : "Snooze"}
-            {displayDate && !createJob.isPending && (
+            {snoozeEmail.isPending ? "Snoozing..." : "Snooze"}
+            {displayDate && !snoozeEmail.isPending && (
               <span className="ml-1 opacity-60 truncate max-w-[120px]">
                 · {displayDate}
               </span>
