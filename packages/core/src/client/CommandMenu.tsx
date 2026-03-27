@@ -312,7 +312,7 @@ export function CommandMenu({
       <div
         ref={containerRef}
         className={cn(
-          "fixed left-1/2 top-[10vh] -translate-x-1/2 w-full max-w-lg",
+          "fixed left-1/2 top-[5vh] -translate-x-1/2 w-full max-w-lg",
           "rounded-lg border border-border bg-popover text-popover-foreground shadow-lg",
           className,
         )}
