@@ -13,6 +13,7 @@ import {
   Copy,
   Check,
   ArrowUp,
+  MessageCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -444,25 +445,22 @@ export function FormBuilderPage() {
                 onOpenChange={setAgentPopoverOpen}
               >
                 <PopoverTrigger asChild>
-                  <Button variant="outline">Ask Agent to Help</Button>
+                  <Button variant="outline" size="icon">
+                    <MessageCircle className="h-4 w-4" />
+                  </Button>
                 </PopoverTrigger>
                 <PopoverContent
                   side="top"
                   align="end"
                   sideOffset={8}
-                  className="w-80 p-4"
+                  className="w-80 p-0 rounded-xl"
                   onOpenAutoFocus={(e) => {
                     e.preventDefault();
                     agentPromptRef.current?.focus();
                   }}
                 >
-                  <div className="space-y-3">
-                    <div>
-                      <p className="text-sm font-semibold">Ask Agent</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        What would you like help with?
-                      </p>
-                    </div>
+                  <div className="p-4 pb-3">
+                    <p className="text-sm font-semibold">Edit form</p>
                     <textarea
                       ref={agentPromptRef}
                       value={agentPrompt}
@@ -473,23 +471,19 @@ export function FormBuilderPage() {
                           submitAgentPrompt();
                         }
                       }}
-                      placeholder="Improve this form, add missing fields, change the layout..."
-                      rows={3}
-                      className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 outline-none focus:ring-1 focus:ring-ring"
+                      placeholder="Add missing fields, change the layout..."
+                      rows={4}
+                      className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
                     />
-                    <p className="text-[10px] text-muted-foreground/60">
-                      Enter to submit · Shift+Enter for new line
-                    </p>
-                    <div className="flex justify-end">
-                      <Button
-                        size="sm"
-                        onClick={submitAgentPrompt}
-                        disabled={!agentPrompt.trim()}
-                        className="h-8 w-8 p-0"
-                      >
-                        <ArrowUp className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
+                  </div>
+                  <div className="flex items-center justify-end border-t border-border px-4 py-2.5">
+                    <button
+                      className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-accent disabled:opacity-30"
+                      onClick={submitAgentPrompt}
+                      disabled={!agentPrompt.trim()}
+                    >
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 </PopoverContent>
               </Popover>
