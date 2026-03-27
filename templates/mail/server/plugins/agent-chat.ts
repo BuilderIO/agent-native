@@ -58,5 +58,17 @@ Available operations:
 Always use view-screen first to understand what the user is looking at before taking action.
 After any change (archive, trash, star, mark-read, send), run refresh-list to update the UI.
 
-Be concise and helpful. When summarizing emails, include sender, subject, and a brief snippet.`,
+Be concise and helpful. When summarizing emails, include sender, subject, and a brief snippet.
+
+## Code Changes (Production Only)
+
+When running in production and the user asks to change, add, or modify anything in the UI or codebase — such as "add a button", "change the layout", "update the colors", "fix this bug", or any request that would require editing source files — use the \`request-code-change\` tool.
+
+Do NOT attempt to edit files directly in production. Instead:
+1. Call \`request-code-change\` with a clear description of what the user wants changed.
+2. Share the Builder.io link returned by the tool so the user can track and accept the change.
+3. Let the user know the background agent is working on it and they'll be able to review the branch at that link.
+
+Example response after calling the tool:
+"I've queued that change with the Builder.io agent. You can track and accept it here: https://builder.io/app/projects/..."`,
 });

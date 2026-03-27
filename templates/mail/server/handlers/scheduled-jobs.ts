@@ -33,13 +33,18 @@ function ianaToOffsetMinutes(iana: string, ref: Date): number {
 
 export function parseNlDate(input: string, timezone: string): Date | null {
   const ref = new Date();
-  const result = chrono.parseDate(input, ref, {
+  const opts = {
     timezone: ianaToOffsetMinutes(timezone, ref),
     forwardDate: true,
-  } as any);
-  if (!result) return null;
-  // Default to 8am when no time component present
-  if (!input.match(/\d{1,2}[:.]\d{2}|[ap]m/i)) {
+  } as any;
+  const parsed = chrono.parse(input, ref, opts);
+  if (!parsed.length) return null;
+  const result = parsed[0].start.date();
+  // Default to 8am only when chrono didn't extract an explicit time component
+  // (e.g. "tomorrow" → 8am, but "1 hour" or "3pm" keep their parsed time)
+  const hasTime =
+    parsed[0].start.isCertain("hour") || parsed[0].start.isCertain("minute");
+  if (!hasTime) {
     result.setHours(8, 0, 0, 0);
   }
   return result;

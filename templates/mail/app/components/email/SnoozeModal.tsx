@@ -205,118 +205,56 @@ export function SnoozeModal({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-start justify-center pt-[18vh]"
+      className="fixed inset-0 z-[60] bg-black/50"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50" />
-
-      {/* Modal */}
+      {/* Modal — matches CommandMenu positioning and style */}
       <div
-        className="relative z-10 w-[520px] overflow-hidden rounded-xl shadow-[0_24px_80px_rgba(0,0,0,0.7)]"
-        style={{ background: "#252830" }}
+        ref={null}
+        className="fixed left-1/2 top-[5vh] -translate-x-1/2 w-full max-w-lg rounded-lg border border-border bg-popover text-popover-foreground shadow-lg overflow-hidden"
         onKeyDown={handleKeyDown}
       >
-        {/* Header */}
-        <div
-          className="flex items-center justify-between px-5 py-3"
-          style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
-        >
-          <div className="flex items-center gap-2.5">
-            {/* Clock icon */}
-            <svg
-              viewBox="0 0 20 20"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              className="h-4 w-4"
-              style={{ color: "rgba(255,255,255,0.45)" }}
-            >
-              <circle cx="10" cy="10" r="7.5" />
-              <path d="M10 6v4l2.5 2.5" strokeLinecap="round" />
-            </svg>
-            <span
-              className="text-[14px] tracking-wide"
-              style={{ color: "rgba(255,255,255,0.55)" }}
-            >
-              Remind me
-            </span>
-          </div>
-          <span
-            className="text-[12px] flex items-center gap-0.5"
-            style={{ color: "rgba(255,255,255,0.2)" }}
+        {/* Header / input row */}
+        <div className="flex items-center border-b px-3">
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            className="mr-2 h-4 w-4 shrink-0 opacity-50"
           >
-            if no reply
-            <svg
-              viewBox="0 0 12 12"
-              fill="currentColor"
-              className="h-2.5 w-2.5"
-            >
-              <path
-                d="M2 4l4 4 4-4"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
-          </span>
-        </div>
-
-        {/* Input row */}
-        <div
-          className="relative flex items-center"
-          style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
-        >
-          {/* Left accent bar */}
-          <div
-            className="absolute left-0 top-0 bottom-0 w-[3px] transition-opacity duration-150"
-            style={{
-              background: "linear-gradient(180deg, #6e7cf5 0%, #8b6ff5 100%)",
-              opacity: nlTyping ? (nlFailed ? 0.3 : 1) : 0.6,
-            }}
-          />
-
-          <div className="flex-1 flex items-center justify-between px-5 py-3.5 pl-6">
-            <input
-              ref={inputRef}
-              type="text"
-              value={nlInput}
-              onChange={(e) => setNlInput(e.target.value)}
-              placeholder="Try: 8 am, 3 days, aug 7"
-              className="flex-1 bg-transparent text-[14px] font-mono outline-none min-w-0"
-              style={{
-                color: nlFailed
-                  ? "rgba(255,120,100,0.8)"
-                  : "rgba(255,255,255,0.88)",
-                caretColor: "#7c8bf5",
-              }}
-            />
-            {nlTyping && (
-              <span
-                className="shrink-0 ml-4 text-[12px] font-mono"
-                style={{
-                  color: nlParsed
-                    ? "rgba(255,255,255,0.5)"
-                    : nlFailed
-                      ? "rgba(255,100,80,0.5)"
-                      : "rgba(255,255,255,0.2)",
-                }}
-              >
-                {parseDate.isPending
-                  ? "…"
-                  : nlParsed
-                    ? parsedFormatted
-                    : "no match"}
-              </span>
+            <circle cx="10" cy="10" r="7.5" />
+            <path d="M10 6v4l2.5 2.5" strokeLinecap="round" />
+          </svg>
+          <input
+            ref={inputRef}
+            type="text"
+            value={nlInput}
+            onChange={(e) => setNlInput(e.target.value)}
+            placeholder="Try: 8 am, 3 days, aug 7"
+            className={cn(
+              "flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground",
+              nlFailed && "text-destructive",
             )}
-          </div>
+          />
+          {nlTyping && (
+            <span className="shrink-0 ml-3 text-xs text-muted-foreground tabular-nums">
+              {parseDate.isPending
+                ? "…"
+                : nlParsed
+                  ? parsedFormatted
+                  : "no match"}
+            </span>
+          )}
         </div>
 
         {/* Options list */}
-        <div className="pb-1.5 pt-0.5">
+        <div className="max-h-[300px] overflow-y-auto overflow-x-hidden p-1">
+          <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+            Snooze until
+          </div>
           {options.map((opt, i) => {
             const active = i === selectedIndex;
             return (
@@ -325,43 +263,14 @@ export function SnoozeModal({
                 onClick={() => handleConfirm(opt)}
                 onMouseEnter={() => setSelectedIndex(i)}
                 className={cn(
-                  "relative w-full flex items-center justify-between px-5 py-2.5 text-left transition-colors duration-75",
+                  "relative w-full flex items-center justify-between rounded-sm px-2 py-1.5 text-sm text-left transition-colors",
+                  active
+                    ? "bg-accent text-accent-foreground"
+                    : "hover:bg-accent hover:text-accent-foreground",
                 )}
-                style={{
-                  background: active
-                    ? "rgba(255,255,255,0.055)"
-                    : "transparent",
-                }}
               >
-                {/* Active accent */}
-                {active && (
-                  <div
-                    className="absolute left-0 top-0 bottom-0 w-[3px]"
-                    style={{
-                      background:
-                        "linear-gradient(180deg, #6e7cf5 0%, #8b6ff5 100%)",
-                    }}
-                  />
-                )}
-
-                <span
-                  className="text-[14px] font-mono pl-1"
-                  style={{
-                    color: active
-                      ? "rgba(255,255,255,0.92)"
-                      : "rgba(255,255,255,0.62)",
-                  }}
-                >
-                  {opt.label}
-                </span>
-                <span
-                  className="text-[13px] font-mono tabular-nums"
-                  style={{
-                    color: active
-                      ? "rgba(255,255,255,0.55)"
-                      : "rgba(255,255,255,0.28)",
-                  }}
-                >
+                <span>{opt.label}</span>
+                <span className="ml-auto text-xs tracking-widest text-muted-foreground tabular-nums">
                   {formatRight(opt.date, opt.sublabel)}
                 </span>
               </button>

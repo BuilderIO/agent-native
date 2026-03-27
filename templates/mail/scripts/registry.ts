@@ -30,6 +30,10 @@ import {
   tool as bulkArchiveTool,
   run as bulkArchiveRun,
 } from "./bulk-archive.js";
+import {
+  tool as requestCodeChangeTool,
+  run as requestCodeChangeRun,
+} from "./request-code-change.js";
 import type { ScriptEntry } from "@agent-native/core";
 
 export const scriptRegistry: Record<string, ScriptEntry> = {
@@ -48,4 +52,8 @@ export const scriptRegistry: Record<string, ScriptEntry> = {
   "view-composer": { tool: viewComposerTool, run: viewComposerRun },
   "refresh-list": { tool: refreshListTool, run: refreshListRun },
   "bulk-archive": { tool: bulkArchiveTool, run: bulkArchiveRun },
+  "request-code-change": {
+    tool: requestCodeChangeTool,
+    run: requestCodeChangeRun,
+  },
 };
