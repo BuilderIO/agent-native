@@ -109,6 +109,24 @@ export function FormBuilderPage() {
   const agentPromptRef = useRef<HTMLTextAreaElement>(null);
   const { send, codeRequiredDialog } = useSendToAgentChat();
 
+  // Local state for text inputs — prevents polling-driven refetches from
+  // resetting input values while the user is typing.
+  const [localTitle, setLocalTitle] = useState(form?.title ?? "");
+  const [localDescription, setLocalDescription] = useState(
+    form?.description ?? "",
+  );
+  const titleFocused = useRef(false);
+  const descriptionFocused = useRef(false);
+
+  // Sync from server when not focused (e.g. agent updates the title)
+  useEffect(() => {
+    if (form && !titleFocused.current) setLocalTitle(form.title);
+  }, [form?.title]);
+  useEffect(() => {
+    if (form && !descriptionFocused.current)
+      setLocalDescription(form.description || "");
+  }, [form?.description]);
+
   // Debounced save
   const saveTimeout = useRef<ReturnType<typeof setTimeout>>();
   const save = useCallback(
@@ -234,8 +252,13 @@ export function FormBuilderPage() {
       <div className="flex items-center justify-between border-b border-border px-4 h-14 shrink-0">
         <div className="flex items-center gap-3">
           <Input
-            value={form.title}
-            onChange={(e) => save({ id: form.id, title: e.target.value })}
+            value={localTitle}
+            onChange={(e) => {
+              setLocalTitle(e.target.value);
+              save({ id: form.id, title: e.target.value });
+            }}
+            onFocus={() => (titleFocused.current = true)}
+            onBlur={() => (titleFocused.current = false)}
             className="h-8 text-sm font-medium border-none bg-transparent px-0 focus-visible:ring-0 w-64"
           />
           <Badge
@@ -343,16 +366,24 @@ export function FormBuilderPage() {
             {/* Form header */}
             <div className="mb-6">
               <Input
-                value={form.title}
-                onChange={(e) => save({ id: form.id, title: e.target.value })}
+                value={localTitle}
+                onChange={(e) => {
+                  setLocalTitle(e.target.value);
+                  save({ id: form.id, title: e.target.value });
+                }}
+                onFocus={() => (titleFocused.current = true)}
+                onBlur={() => (titleFocused.current = false)}
                 className="text-2xl font-semibold border-none bg-transparent px-0 focus-visible:ring-0 h-auto"
                 placeholder="Form Title"
               />
               <Textarea
-                value={form.description || ""}
-                onChange={(e) =>
-                  save({ id: form.id, description: e.target.value })
-                }
+                value={localDescription}
+                onChange={(e) => {
+                  setLocalDescription(e.target.value);
+                  save({ id: form.id, description: e.target.value });
+                }}
+                onFocus={() => (descriptionFocused.current = true)}
+                onBlur={() => (descriptionFocused.current = false)}
                 className="mt-1 text-sm text-muted-foreground border-none bg-transparent px-0 focus-visible:ring-0 resize-none"
                 placeholder="Add a description..."
                 rows={1}
