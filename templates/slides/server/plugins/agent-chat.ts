@@ -1,1 +1,36 @@
-export { defaultAgentChatPlugin as default } from "@agent-native/core/server";
+import { createAgentChatPlugin } from "@agent-native/core/server";
+
+export default createAgentChatPlugin({
+  mentionProviders: async () => {
+    const { getDb } = await import("../db/index.js");
+    const { decks } = await import("../db/schema.js");
+    const { like, desc } = await import("drizzle-orm");
+    return {
+      decks: {
+        label: "Decks",
+        icon: "deck",
+        search: async (query: string) => {
+          const db = getDb();
+          const rows = query
+            ? await db
+                .select()
+                .from(decks)
+                .where(like(decks.title, `%${query}%`))
+                .limit(15)
+            : await db
+                .select()
+                .from(decks)
+                .orderBy(desc(decks.updatedAt))
+                .limit(15);
+          return rows.map((deck) => ({
+            id: deck.id,
+            label: deck.title,
+            icon: "deck" as const,
+            refType: "deck",
+            refId: deck.id,
+          }));
+        },
+      },
+    };
+  },
+});

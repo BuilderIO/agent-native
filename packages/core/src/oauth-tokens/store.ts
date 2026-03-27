@@ -1,4 +1,4 @@
-import { getDbExec, isPostgres, type DbExec } from "../db/client.js";
+import { getDbExec, isPostgres, intType, type DbExec } from "../db/client.js";
 
 let _initialized = false;
 
@@ -11,7 +11,7 @@ async function ensureTable(): Promise<void> {
       account_id TEXT NOT NULL,
       owner TEXT,
       tokens TEXT NOT NULL,
-      updated_at INTEGER NOT NULL,
+      updated_at ${intType()} NOT NULL,
       PRIMARY KEY (provider, account_id)
     )
   `);

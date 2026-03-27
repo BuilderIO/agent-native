@@ -22,6 +22,7 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { getEventAutoColor } from "@/lib/event-colors";
 import type { CalendarEvent } from "@shared/api";
 import {
   AttendeeApolloPopover,
@@ -45,9 +46,8 @@ function formatDuration(start: string, end: string): string {
   return `${hours}h ${minutes}m`;
 }
 
-function getEventColor(event: CalendarEvent): string | null {
-  if (event.color) return event.color;
-  return event.source === "google" ? "#5085C0" : null;
+function getEventColor(event: CalendarEvent): string {
+  return getEventAutoColor(event);
 }
 
 export function EventDetailPanel({
@@ -76,14 +76,6 @@ export function EventDetailPanel({
         <div className="h-full w-80 border-l border-border bg-card flex flex-col">
           {event && (
             <>
-              {/* Color accent strip */}
-              {color && (
-                <div
-                  className="h-1 w-full shrink-0"
-                  style={{ backgroundColor: color }}
-                />
-              )}
-
               {/* Header */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">

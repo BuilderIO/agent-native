@@ -9,7 +9,8 @@ type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 function adaptSqlForPostgres(sql: string): string {
   return sql
     .replace(/datetime\s*\(\s*'now'\s*\)/gi, "CURRENT_TIMESTAMP")
-    .replace(/\bAUTOINCREMENT\b/gi, "");
+    .replace(/\bAUTOINCREMENT\b/gi, "")
+    .replace(/\bINTEGER\b/gi, "BIGINT");
 }
 
 export function runMigrations(

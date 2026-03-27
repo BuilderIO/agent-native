@@ -1,7 +1,7 @@
 import DeckEditor from "@/pages/DeckEditor";
 
 export function meta() {
-  return [{ title: "Editor — Deck Generator" }];
+  return [{ title: "Editor — Slides" }];
 }
 
 export function HydrateFallback() {

@@ -61,7 +61,7 @@ const AGENT_PANEL_ROOT_STYLE = {
   lineHeight: 1.2,
 } satisfies React.CSSProperties;
 const AGENT_PANEL_HEADER_CLASS =
-  "flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border";
+  "relative z-[240] flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border";
 const AGENT_PANEL_HEADER_STYLE = {
   paddingLeft: 12,
   paddingRight: 8,
@@ -457,7 +457,7 @@ function AgentSettingsPopover({
       {open && (
         <div
           ref={popoverRef}
-          className="absolute right-0 top-full mt-1.5 z-[120] w-72 rounded-lg border border-border bg-popover shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
+          className="absolute right-0 top-full mt-1.5 z-[260] w-72 rounded-lg border border-border bg-popover shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
         >
           <div className="space-y-3 p-3">
             <SettingsSelect

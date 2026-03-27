@@ -51,6 +51,11 @@ export function isPostgres(): boolean {
   return getDialect() === "postgres";
 }
 
+/** Returns BIGINT for Postgres (64-bit), INTEGER for SQLite (already 64-bit). */
+export function intType(): string {
+  return isPostgres() ? "BIGINT" : "INTEGER";
+}
+
 // ---------------------------------------------------------------------------
 // Parameter conversion: ? -> $1, $2, $3
 // ---------------------------------------------------------------------------

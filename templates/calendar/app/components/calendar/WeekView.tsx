@@ -14,6 +14,7 @@ import {
   addDays,
 } from "date-fns";
 import { cn } from "@/lib/utils";
+import { getEventAutoColor } from "@/lib/event-colors";
 import { EventDetailPopover } from "./EventDetailPopover";
 import type { CalendarEvent } from "@shared/api";
 
@@ -52,8 +53,7 @@ const HOUR_HEIGHT = 60;
 const GUTTER_WIDTH = 60;
 
 function getEventColor(event: CalendarEvent) {
-  if (event.color) return event.color;
-  return event.source === "google" ? "#5085C0" : null;
+  return getEventAutoColor(event);
 }
 
 /** Format an event's time range in compact Notion style: "8–10:30 AM" or "9 AM" */

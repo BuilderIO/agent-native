@@ -2,7 +2,11 @@ import {
   createProductionAgentHandler,
   type ScriptEntry,
 } from "../agent/production-agent.js";
-import type { ScriptTool } from "../agent/types.js";
+import type {
+  ScriptTool,
+  MentionProvider,
+  MentionProviderItem,
+} from "../agent/types.js";
 import {
   defineEventHandler,
   readBody,
@@ -24,6 +28,15 @@ import nodePath from "node:path";
  * Wraps a core CLI script (that writes to console.log) as a ScriptEntry
  * by capturing stdout.
  */
+/** Sentinel thrown by our process.exit interceptor */
+class ExitIntercepted extends Error {
+  code: number;
+  constructor(code: number) {
+    super(`process.exit(${code})`);
+    this.code = code;
+  }
+}
+
 function wrapCliScript(
   tool: ScriptTool,
   cliDefault: (args: string[]) => Promise<void>,
@@ -37,15 +50,28 @@ function wrapCliScript(
       }
       const logs: string[] = [];
       const origLog = console.log;
+      const origError = console.error;
+      const origExit = process.exit;
       console.log = (...a: unknown[]) => {
         logs.push(a.map(String).join(" "));
       };
+      console.error = (...a: unknown[]) => {
+        logs.push(a.map(String).join(" "));
+      };
+      // Intercept process.exit so scripts don't kill the server
+      process.exit = ((code?: number) => {
+        throw new ExitIntercepted(code ?? 0);
+      }) as never;
       try {
         await cliDefault(cliArgs);
       } catch (err: any) {
-        logs.push(`Error: ${err?.message ?? String(err)}`);
+        if (!(err instanceof ExitIntercepted)) {
+          logs.push(`Error: ${err?.message ?? String(err)}`);
+        }
       } finally {
         console.log = origLog;
+        console.error = origError;
+        process.exit = origExit;
       }
       return logs.join("\n") || "(no output)";
     },
@@ -195,6 +221,12 @@ export interface AgentChatPluginOptions {
   apiKey?: string;
   /** Route path. Default: /api/agent-chat */
   path?: string;
+  /** Custom mention providers for @-tagging template entities */
+  mentionProviders?:
+    | Record<string, MentionProvider>
+    | (() =>
+        | Record<string, MentionProvider>
+        | Promise<Record<string, MentionProvider>>);
 }
 
 const DEFAULT_SYSTEM_PROMPT = `You are an AI assistant for this application. You can help users by running available tools and answering questions.
@@ -209,6 +241,8 @@ At the start of conversations:
 1. Read the shared "AGENTS.md" resource — it contains custom instructions, preferences, and skill references for this app.
 2. Read the personal "learnings.md" resource for user-specific preferences and context.
 3. If AGENTS.md references skill files (e.g. "skills/data-analysis.md"), read the relevant skill before performing that type of task.
+
+If a resource doesn't exist yet, that's fine — just skip it and continue helping the user. Don't treat missing resources as errors.
 
 When you learn something important (user corrections, preferences, patterns), update the "learnings.md" resource.
 When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource instead.`;
@@ -358,6 +392,13 @@ export function createAgentChatPlugin(
         apiKey: options?.apiKey,
       });
     }
+
+    // Resolve mention providers
+    const rawProviders = options?.mentionProviders;
+    const mentionProviders: Record<string, MentionProvider> =
+      typeof rawProviders === "function"
+        ? await rawProviders()
+        : (rawProviders ?? {});
 
     // Mutable mode flag — starts in dev if environment allows
     let currentDevMode = canToggle;
@@ -595,6 +636,109 @@ export function createAgentChatPlugin(
         }
 
         return result;
+      }),
+    );
+
+    // Mount unified mentions endpoint (files + resources + custom providers)
+    nitroApp.h3App.use(
+      `${routePath}/mentions`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+
+        const query = getQuery(event);
+        const q = typeof query.q === "string" ? query.q.toLowerCase() : "";
+
+        interface MentionItemResponse {
+          id: string;
+          label: string;
+          description?: string;
+          icon?: string;
+          source: string;
+          refType: string;
+          refPath?: string;
+          refId?: string;
+        }
+
+        const items: MentionItemResponse[] = [];
+
+        // 1. Built-in: files from codebase (dev mode only)
+        if (currentDevMode) {
+          const codebaseFiles: Array<{
+            path: string;
+            name: string;
+            type: "file" | "folder";
+          }> = [];
+          try {
+            collectFiles(process.cwd(), "", 0, codebaseFiles);
+          } catch {}
+          for (const f of codebaseFiles) {
+            items.push({
+              id: `codebase:${f.path}`,
+              label: f.name,
+              description: f.path !== f.name ? f.path : undefined,
+              icon: f.type,
+              source: "codebase",
+              refType: "file",
+              refPath: f.path,
+            });
+          }
+        }
+
+        // 2. Built-in: resources from SQL
+        try {
+          const resources = currentDevMode
+            ? await resourceListAccessible("local@localhost")
+            : await resourceList(SHARED_OWNER);
+          for (const r of resources) {
+            items.push({
+              id: `resource:${r.path}`,
+              label: r.path.split("/").pop() || r.path,
+              description: r.path,
+              icon: "file",
+              source: "resource",
+              refType: "file",
+              refPath: r.path,
+            });
+          }
+        } catch {}
+
+        // 3. Custom mention providers
+        const providerResults = await Promise.all(
+          Object.entries(mentionProviders).map(async ([key, provider]) => {
+            try {
+              const providerItems = await provider.search(q);
+              return providerItems.map((item) => ({
+                id: item.id,
+                label: item.label,
+                description: item.description,
+                icon: item.icon || provider.icon || "file",
+                source: key,
+                refType: item.refType,
+                refPath: item.refPath,
+                refId: item.refId,
+              }));
+            } catch {
+              return [];
+            }
+          }),
+        );
+        for (const batch of providerResults) {
+          items.push(...batch);
+        }
+
+        // Filter by query and limit
+        const filtered = q
+          ? items.filter(
+              (item) =>
+                item.label.toLowerCase().includes(q) ||
+                (item.description?.toLowerCase().includes(q) ?? false),
+            )
+          : items;
+
+        return { items: filtered.slice(0, 30) };
       }),
     );
 

@@ -15,10 +15,11 @@ import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { FileReference } from "./extensions/FileReference.js";
 import { SkillReference } from "./extensions/SkillReference.js";
+import { MentionReference } from "./extensions/MentionReference.js";
 import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
-import { useFileSearch } from "./use-file-search.js";
+import { useMentionSearch } from "./use-mention-search.js";
 import { useSkills } from "./use-skills.js";
-import type { FileResult, SkillResult, Reference } from "./types.js";
+import type { MentionItem, SkillResult, Reference } from "./types.js";
 
 interface TiptapComposerProps {
   onSubmit: (text: string, references: Reference[]) => void;
@@ -82,7 +83,7 @@ export function TiptapComposer({
   const onSubmitRef = useRef(onSubmit);
   onSubmitRef.current = onSubmit;
 
-  const { files, isLoading: filesLoading } = useFileSearch(
+  const { items: mentionItems, isLoading: mentionsLoading } = useMentionSearch(
     popover?.type === "@" ? popover.query : "",
     popover?.type === "@",
   );
@@ -105,8 +106,8 @@ export function TiptapComposer({
   }, [skills, popover]);
 
   // Keep refs in sync with state
-  const filesRef = useRef(files);
-  filesRef.current = files;
+  const mentionItemsRef = useRef(mentionItems);
+  mentionItemsRef.current = mentionItems;
   const filteredSkillsRef = useRef(filteredSkills);
   filteredSkillsRef.current = filteredSkills;
 
@@ -137,6 +138,7 @@ export function TiptapComposer({
       }),
       FileReference,
       SkillReference,
+      MentionReference,
     ],
     editable: !disabled,
     editorProps: {
@@ -162,10 +164,10 @@ export function TiptapComposer({
           if (event.key === "Enter") {
             event.preventDefault();
             const idx = popoverRef.current?.getSelectedIndex() ?? 0;
-            const currentFiles = filesRef.current;
+            const currentMentions = mentionItemsRef.current;
             const currentSkills = filteredSkillsRef.current;
-            if (pop.type === "@" && currentFiles[idx]) {
-              selectFile(view, pop, currentFiles[idx]);
+            if (pop.type === "@" && currentMentions[idx]) {
+              selectMention(view, pop, currentMentions[idx]);
             } else if (pop.type === "/" && currentSkills[idx]) {
               selectSkill(view, pop, currentSkills[idx]);
             }
@@ -251,11 +253,21 @@ export function TiptapComposer({
 
     ed.state.doc.descendants((node: any) => {
       if (node.type.name === "fileReference") {
+        // Legacy support
         references.push({
           type: "file",
           path: node.attrs.path,
           name: node.attrs.path?.split("/").pop() || node.attrs.path,
           source: node.attrs.source || "codebase",
+        });
+      } else if (node.type.name === "mentionReference") {
+        references.push({
+          type: node.attrs.refType === "file" ? "file" : "mention",
+          path: node.attrs.refPath || "",
+          name: node.attrs.label,
+          source: node.attrs.source,
+          refType: node.attrs.refType,
+          refId: node.attrs.refId,
         });
       } else if (node.type.name === "skillReference") {
         references.push({
@@ -294,10 +306,10 @@ export function TiptapComposer({
 
   // Helper functions that operate on the editor view directly
   // These are called from handleKeyDown which can't use React state
-  function selectFile(
+  function selectMention(
     view: any,
     pop: NonNullable<PopoverState>,
-    file: FileResult,
+    item: MentionItem,
   ) {
     const ed = editor;
     if (!ed) return;
@@ -308,8 +320,15 @@ export function TiptapComposer({
       .focus()
       .deleteRange({ from: deleteFrom, to: currentPos })
       .insertContent({
-        type: "fileReference",
-        attrs: { path: file.path, source: file.source },
+        type: "mentionReference",
+        attrs: {
+          label: item.label,
+          icon: item.icon || "file",
+          source: item.source,
+          refType: item.refType,
+          refId: item.refId || null,
+          refPath: item.refPath || null,
+        },
       })
       .insertContent(" ")
       .run();
@@ -340,8 +359,8 @@ export function TiptapComposer({
   }
 
   // Popover select handlers for click-based selection (from MentionPopover)
-  const handleSelectFile = useCallback(
-    (file: FileResult) => {
+  const handleSelectMention = useCallback(
+    (item: MentionItem) => {
       if (!editor || !popover) return;
       const currentPos = editor.state.selection.from;
       const deleteFrom = Math.max(0, popover.startPos - 1);
@@ -350,8 +369,15 @@ export function TiptapComposer({
         .focus()
         .deleteRange({ from: deleteFrom, to: currentPos })
         .insertContent({
-          type: "fileReference",
-          attrs: { path: file.path, source: file.source },
+          type: "mentionReference",
+          attrs: {
+            label: item.label,
+            icon: item.icon || "file",
+            source: item.source,
+            refType: item.refType,
+            refId: item.refId || null,
+            refPath: item.refPath || null,
+          },
         })
         .insertContent(" ")
         .run();
@@ -464,12 +490,12 @@ export function TiptapComposer({
         ref={popoverRef}
         type={popover?.type ?? "@"}
         position={popover?.position ?? null}
-        files={files}
+        mentionItems={mentionItems}
         skills={filteredSkills}
         hint={hint}
-        isLoading={popover?.type === "@" ? filesLoading : skillsLoading}
+        isLoading={popover?.type === "@" ? mentionsLoading : skillsLoading}
         query={popover?.query ?? ""}
-        onSelectFile={handleSelectFile}
+        onSelectMention={handleSelectMention}
         onSelectSkill={handleSelectSkill}
         onClose={closePopover}
       />

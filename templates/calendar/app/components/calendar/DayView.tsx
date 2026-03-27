@@ -9,6 +9,7 @@ import {
   isToday,
 } from "date-fns";
 import { cn } from "@/lib/utils";
+import { getEventAutoColor } from "@/lib/event-colors";
 import { EventDetailPopover } from "./EventDetailPopover";
 import type { CalendarEvent } from "@shared/api";
 
@@ -33,8 +34,7 @@ const END_HOUR = 23;
 const HOUR_HEIGHT = 72;
 
 function getEventColor(event: CalendarEvent) {
-  if (event.color) return event.color;
-  return event.source === "google" ? "#5085C0" : null;
+  return getEventAutoColor(event);
 }
 
 interface LayoutInfo {

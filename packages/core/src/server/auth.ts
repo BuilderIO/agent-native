@@ -10,7 +10,7 @@ import {
   deleteCookie,
 } from "h3";
 import type { App as H3App, H3Event } from "h3";
-import { getDbExec, isPostgres, type DbExec } from "../db/client.js";
+import { getDbExec, isPostgres, intType, type DbExec } from "../db/client.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,7 +65,7 @@ async function ensureSessionTable(): Promise<void> {
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
       email TEXT,
-      created_at INTEGER NOT NULL
+      created_at ${intType()} NOT NULL
     )
   `);
   // Migration: add email column to existing tables that lack it
