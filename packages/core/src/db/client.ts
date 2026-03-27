@@ -32,18 +32,26 @@ let _dialect: Dialect | undefined;
 export function getDialect(): Dialect {
   if (_dialect !== undefined) return _dialect;
 
+  // DATABASE_URL takes priority — if set, use it (Postgres or libsql).
+  // This ensures Neon/Supabase/Turso wins over a D1 binding when both exist.
+  const url = process.env.DATABASE_URL || "";
+  if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
+    _dialect = "postgres";
+    return _dialect;
+  }
+  if (url && !url.startsWith("file:")) {
+    // Remote libsql (e.g. Turso) — use sqlite driver, not D1
+    _dialect = "sqlite";
+    return _dialect;
+  }
+
   const d1 = (globalThis as any).__cf_env?.DB;
   if (d1) {
     _dialect = "d1";
     return _dialect;
   }
 
-  const url = process.env.DATABASE_URL || "";
-  if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
-    _dialect = "postgres";
-  } else {
-    _dialect = "sqlite";
-  }
+  _dialect = "sqlite";
   return _dialect;
 }
 

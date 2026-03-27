@@ -1,4 +1,4 @@
-import { getDbExec, isPostgres } from "./client.js";
+import { getDbExec, isPostgres, getDialect } from "./client.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -18,8 +18,9 @@ export function runMigrations(
 ): NitroPluginDef {
   return async () => {
     try {
-      // Check for Cloudflare D1 binding
-      const d1 = (globalThis as any).__cf_env?.DB;
+      // Check for Cloudflare D1 binding (only if DATABASE_URL not set)
+      const d1 =
+        getDialect() === "d1" ? (globalThis as any).__cf_env?.DB : null;
       if (d1) {
         await d1
           .prepare(

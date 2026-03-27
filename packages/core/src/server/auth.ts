@@ -379,7 +379,7 @@ function mountAuthRoutes(
         return { error: "Invalid token" };
       }
       const sessionToken = crypto.randomBytes(32).toString("hex");
-      await addSession(sessionToken);
+      await addSession(sessionToken, "user");
       setCookie(event, COOKIE_NAME, sessionToken, {
         httpOnly: true,
         secure: true,

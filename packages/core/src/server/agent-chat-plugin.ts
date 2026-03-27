@@ -244,7 +244,7 @@ At the start of conversations:
 
 If a resource doesn't exist yet, that's fine — just skip it and continue helping the user. Don't treat missing resources as errors.
 
-When you learn something important (user corrections, preferences, patterns), update the "learnings.md" resource.
+When you learn something important (user corrections, preferences, patterns), update the "learnings.md" resource. Keep it tidy — revise, consolidate, and remove outdated entries rather than only appending. The file should stay concise and scannable.
 When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource instead.`;
 
 const DEFAULT_DEV_PROMPT = `You are a development assistant with full access to the project filesystem, shell, and database.
