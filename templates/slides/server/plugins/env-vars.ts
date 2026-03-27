@@ -1,4 +1,4 @@
-import { defineNitroPlugin } from "@agent-native/core";
+import { defineNitroPlugin } from "@agent-native/core/server";
 import { defineEventHandler, readBody, setResponseStatus, getMethod } from "h3";
 
 const ALLOWED_KEYS = new Set([

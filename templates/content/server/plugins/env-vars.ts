@@ -1,4 +1,4 @@
-import { defineNitroPlugin } from "@agent-native/core";
+import { defineNitroPlugin } from "@agent-native/core/server";
 import { defineEventHandler, readBody, setResponseStatus } from "h3";
 import { envKeys } from "../lib/env-config.js";
 
