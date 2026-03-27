@@ -1,8 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { FileText, Plus, Sparkles, X } from "lucide-react";
+import { ArrowUp, FileText, Plus } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { useForms, useCreateForm } from "@/hooks/use-forms";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
@@ -19,23 +24,19 @@ export function Sidebar() {
   const { data: forms = [] } = useForms();
   const createForm = useCreateForm();
   const { send } = useSendToAgentChat();
-  const [showPrompt, setShowPrompt] = useState(false);
+  const [popoverOpen, setPopoverOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (showPrompt) {
+    if (popoverOpen) {
+      setPrompt("");
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
-  }, [showPrompt]);
-
-  function handleNewForm() {
-    setPrompt("");
-    setShowPrompt(true);
-  }
+  }, [popoverOpen]);
 
   function handleSkip() {
-    setShowPrompt(false);
+    setPopoverOpen(false);
     createForm.mutate(
       { title: "Untitled Form" },
       { onSuccess: (form) => navigate(`/forms/${form.id}`) },
@@ -44,13 +45,67 @@ export function Sidebar() {
 
   function handleSubmitPrompt() {
     if (!prompt.trim()) return;
-    setShowPrompt(false);
+    setPopoverOpen(false);
     send({
       message: `Create a new form based on this description: ${prompt.trim()}`,
       context:
         "Create the form using the create-form script with appropriate title, description, and fields. After creating, tell the user the form name and a summary of the fields.",
     });
   }
+
+  const newFormButton = (
+    <PopoverTrigger asChild>
+      <button className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground">
+        <Plus size={14} className="shrink-0" />
+        <span>New form</span>
+      </button>
+    </PopoverTrigger>
+  );
+
+  const newFormPopover = (
+    <PopoverContent
+      side="right"
+      align="start"
+      sideOffset={8}
+      className="w-80 p-0 rounded-xl"
+    >
+      <div className="p-4 pb-3">
+        <p className="text-sm font-semibold">New form</p>
+        <textarea
+          ref={textareaRef}
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmitPrompt();
+            }
+          }}
+          placeholder="Describe your form..."
+          className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
+          rows={4}
+        />
+      </div>
+      <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
+        <div />
+        <div className="flex items-center gap-3">
+          <button
+            className="text-xs text-blue-400 hover:text-blue-300"
+            onClick={handleSkip}
+          >
+            Skip prompt
+          </button>
+          <button
+            className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-accent disabled:opacity-30"
+            onClick={handleSubmitPrompt}
+            disabled={!prompt.trim()}
+          >
+            <ArrowUp size={14} />
+          </button>
+        </div>
+      </div>
+    </PopoverContent>
+  );
 
   return (
     <div className="flex h-screen w-60 flex-col border-r border-border bg-muted/30">
@@ -98,62 +153,12 @@ export function Sidebar() {
           })}
 
           {/* New form button — under the list */}
-          <button
-            className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-            onClick={handleNewForm}
-          >
-            <Plus size={14} className="shrink-0" />
-            <span>New form</span>
-          </button>
+          <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+            {newFormButton}
+            {newFormPopover}
+          </Popover>
         </div>
       </ScrollArea>
-
-      {/* Agent prompt overlay */}
-      {showPrompt && (
-        <div className="border-t border-border p-3">
-          <div className="flex items-center gap-1.5 mb-2">
-            <Sparkles size={13} className="text-muted-foreground" />
-            <span className="text-xs font-medium text-muted-foreground">
-              Describe your form
-            </span>
-            <button
-              className="ml-auto text-muted-foreground hover:text-foreground"
-              onClick={() => setShowPrompt(false)}
-            >
-              <X size={13} />
-            </button>
-          </div>
-          <textarea
-            ref={textareaRef}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSubmitPrompt();
-              }
-            }}
-            placeholder='e.g. "Customer feedback survey with rating and comments"'
-            className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-2 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
-            rows={3}
-          />
-          <div className="flex justify-end gap-2 mt-2">
-            <button
-              className="text-xs text-muted-foreground hover:text-foreground"
-              onClick={handleSkip}
-            >
-              Skip
-            </button>
-            <button
-              className="text-xs font-medium bg-primary text-primary-foreground rounded-md px-3 py-1 hover:bg-primary/90 disabled:opacity-50"
-              onClick={handleSubmitPrompt}
-              disabled={!prompt.trim()}
-            >
-              Create
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Footer */}
       <div className="flex items-center justify-end border-t border-border px-3 py-2">
