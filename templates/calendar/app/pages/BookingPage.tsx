@@ -11,6 +11,7 @@ import { BookingConfirmation } from "@/components/booking/BookingConfirmation";
 import {
   usePublicSettings,
   usePublicAvailability,
+  usePublicBookingLink,
 } from "@/hooks/use-public-data";
 import { useAvailableSlots, useCreateBooking } from "@/hooks/use-bookings";
 import { Button } from "@/components/ui/button";
@@ -21,8 +22,14 @@ type Step = "date" | "time" | "info" | "confirmed";
 
 export default function BookingPage() {
   const { slug } = useParams<{ slug: string }>();
-  const { data: settings } = usePublicSettings();
-  const { data: availability } = usePublicAvailability();
+  const { data: settings, isLoading: settingsLoading } = usePublicSettings();
+  const { data: availability, isLoading: availabilityLoading } =
+    usePublicAvailability();
+  const {
+    data: bookingLink,
+    isLoading: bookingLinkLoading,
+    isError: bookingLinkError,
+  } = usePublicBookingLink(slug);
 
   const [step, setStep] = useState<Step>("date");
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -33,7 +40,10 @@ export default function BookingPage() {
 
   const dateStr = selectedDate ? format(selectedDate, "yyyy-MM-dd") : "";
   const duration =
-    availability?.slotDurationMinutes ?? settings?.defaultEventDuration ?? 30;
+    bookingLink?.duration ??
+    availability?.slotDurationMinutes ??
+    settings?.defaultEventDuration ??
+    30;
   const { data: slots = [], isLoading: slotsLoading } = useAvailableSlots(
     dateStr,
     duration,
@@ -92,6 +102,30 @@ export default function BookingPage() {
   const title = settings?.bookingPageTitle || "Book a Meeting";
   const description =
     settings?.bookingPageDescription || "Pick a time that works for you.";
+  const isLegacyBookingPage = !!slug && availability?.bookingPageSlug === slug;
+  const pageTitle = bookingLink?.title || title;
+  const pageDescription = bookingLink?.description || description;
+
+  if (bookingLinkLoading || settingsLoading || availabilityLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
+      </div>
+    );
+  }
+
+  if ((bookingLinkError || !bookingLink) && !isLegacyBookingPage) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-2xl border border-border bg-card p-8 text-center">
+          <h1 className="text-xl font-semibold">Booking link not found</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            This meeting type may have been removed or is no longer active.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4 relative">
@@ -104,8 +138,13 @@ export default function BookingPage() {
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
             <CalendarDays className="h-6 w-6 text-primary" />
           </div>
-          <h1 className="text-2xl font-semibold">{title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+          <h1 className="text-2xl font-semibold">{pageTitle}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {pageDescription}
+          </p>
+          <p className="mt-3 inline-flex rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground">
+            {duration} minute meeting
+          </p>
         </div>
 
         {/* Steps */}

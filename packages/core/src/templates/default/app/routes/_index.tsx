@@ -34,7 +34,7 @@ export default function IndexPage() {
 
         <div className="grid grid-cols-2 gap-3 text-left">
           <a
-            href="https://agent-native.dev/docs"
+            href="https://agent-native.com/docs"
             target="_blank"
             rel="noopener noreferrer"
             className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 transition-colors"

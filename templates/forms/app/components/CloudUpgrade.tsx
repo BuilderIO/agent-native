@@ -25,10 +25,10 @@ const PROVIDERS: Provider[] = [
     needsAuthToken: true,
     steps: [
       "Install CLI: curl -sSfL https://get.tur.so/install.sh | bash",
-      "Login: turso auth login",
-      "Create DB: turso db create my-app",
-      "Get URL: turso db show my-app --url",
-      "Get token: turso db tokens create my-app",
+      "Sign up / login: turso auth login (opens browser)",
+      "Create a database: turso db create my-app",
+      "Copy the URL: turso db show my-app --url → starts with libsql://",
+      "Create an auth token: turso db tokens create my-app → paste below",
     ],
   },
   {
@@ -38,8 +38,11 @@ const PROVIDERS: Provider[] = [
     urlPrefix: "postgres://",
     needsAuthToken: false,
     steps: [
-      "Create project at neon.tech",
-      "Copy connection string from dashboard",
+      "Go to console.neon.tech and sign up or log in",
+      'Click "New Project" → pick a name and region → click Create',
+      "On the project dashboard, find the Connection Details panel",
+      'Select "Connection string" tab → copy the postgres://... URL',
+      "Paste the full connection string (includes password) below",
     ],
   },
   {
@@ -49,9 +52,11 @@ const PROVIDERS: Provider[] = [
     urlPrefix: "postgres://",
     needsAuthToken: false,
     steps: [
-      "Create project at supabase.com",
-      "Go to Settings > Database > Connection string",
-      "Copy the URI connection string",
+      "Go to supabase.com/dashboard and sign up or log in",
+      'Click "New Project" → set a name and database password → click Create',
+      "Wait for the project to finish provisioning (~30 seconds)",
+      "Go to Project Settings → Database → Connection string",
+      'Select "URI" tab → copy the postgres://... string (replace [YOUR-PASSWORD] with your DB password)',
     ],
   },
   {
@@ -61,8 +66,12 @@ const PROVIDERS: Provider[] = [
     urlPrefix: "d1://",
     needsAuthToken: true,
     steps: [
-      "Create D1 database in Cloudflare dashboard",
-      "Copy database ID and API token",
+      "Go to dash.cloudflare.com → Workers & Pages → D1 SQL Database",
+      'Click "Create" → name your database → click Create',
+      "Copy the Database ID from the database overview page",
+      "For the auth token: go to My Profile → API Tokens → Create Token",
+      'Select "Edit Cloudflare Workers" template → Create Token → copy it',
+      "Paste as: d1://<database-id> with the API token below",
     ],
   },
 ];

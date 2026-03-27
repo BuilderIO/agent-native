@@ -1,5 +1,5 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   QueryClient,
   QueryClientProvider,
@@ -7,6 +7,12 @@ import {
 } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { useFileWatcher } from "@agent-native/core";
+import {
+  ClientOnly,
+  CommandMenu,
+  DefaultSpinner,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./global.css";
@@ -46,21 +52,30 @@ function FileWatcherSetup() {
 
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
-    <ThemeProvider
-      attribute="class"
-      defaultTheme="system"
-      enableSystem
-      disableTransitionOnChange
-    >
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <FileWatcherSetup />
-          <Outlet />
-          <Toaster />
-        </TooltipProvider>
-      </QueryClientProvider>
-    </ThemeProvider>
+    <ClientOnly fallback={<DefaultSpinner />}>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="system"
+        enableSystem
+        disableTransitionOnChange
+      >
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <FileWatcherSetup />
+            <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+              <CommandMenu.Group heading="Actions">
+                <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+              </CommandMenu.Group>
+            </CommandMenu>
+            <Outlet />
+            <Toaster position="bottom-left" />
+          </TooltipProvider>
+        </QueryClientProvider>
+      </ThemeProvider>
+    </ClientOnly>
   );
 }
 

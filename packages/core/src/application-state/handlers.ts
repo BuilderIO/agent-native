@@ -38,11 +38,7 @@ export const getState = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const key = safeKey(String(getRouterParam(event, "key")));
   const value = await appStateGet(sessionId, key);
-  if (!value) {
-    setResponseStatus(event, 404);
-    return { error: `No state for ${key}` };
-  }
-  return value;
+  return value ?? null;
 });
 
 export const putState = defineEventHandler(async (event: H3Event) => {
@@ -78,11 +74,7 @@ export const getComposeDraft = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const id = getRouterParam(event, "id") as string;
   const value = await appStateGet(sessionId, composeDraftKey(id));
-  if (!value) {
-    setResponseStatus(event, 404);
-    return { error: "Draft not found" };
-  }
-  return value;
+  return value ?? null;
 });
 
 /** Create or update a compose draft */

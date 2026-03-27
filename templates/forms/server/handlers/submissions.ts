@@ -43,7 +43,8 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.id, id))
-    .get();
+
+    .then((rows) => rows[0]);
   if (!form || form.status !== "published") {
     setResponseStatus(event, 404);
     return { error: "Form not found or not accepting responses" };
@@ -135,16 +136,13 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   const responseId = nanoid();
   const ip = getRequestIP(event) ?? null;
 
-  await db
-    .insert(schema.responses)
-    .values({
-      id: responseId,
-      formId: id,
-      data: JSON.stringify(data),
-      submittedAt: now,
-      ip,
-    })
-    .run();
+  await db.insert(schema.responses).values({
+    id: responseId,
+    formId: id,
+    data: JSON.stringify(data),
+    submittedAt: now,
+    ip,
+  });
 
   // Write submission notification to application state (SQL-backed)
   try {
@@ -173,7 +171,8 @@ export const listResponses = defineEventHandler(async (event: H3Event) => {
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.id, id))
-    .get();
+
+    .then((rows) => rows[0]);
   if (!form) {
     setResponseStatus(event, 404);
     return { error: "Form not found" };
@@ -184,14 +183,13 @@ export const listResponses = defineEventHandler(async (event: H3Event) => {
     .from(schema.responses)
     .where(eq(schema.responses.formId, id))
     .orderBy(desc(schema.responses.submittedAt))
-    .limit(limit)
-    .all();
-
+    .limit(limit);
   const total = await db
     .select({ count: sql<number>`count(*)` })
     .from(schema.responses)
     .where(eq(schema.responses.formId, id))
-    .get();
+
+    .then((rows) => rows[0]);
 
   return {
     responses: rows.map((r) => ({

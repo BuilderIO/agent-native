@@ -564,7 +564,7 @@ export class FileSync {
       if (legacyDocs.length > 0) {
         console.warn(
           `[file-sync] Found ${legacyDocs.length} document(s) with legacy '__' separator. ` +
-            `These will be treated as orphans. See: https://agent-native.dev/docs/file-sync#migration`,
+            `These will be treated as orphans. See: https://agent-native.com/docs/file-sync#migration`,
         );
       }
 

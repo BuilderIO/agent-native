@@ -9,9 +9,20 @@ import type { Config } from "tailwindcss";
  *   import preset from "@agent-native/core/tailwind";
  *   export default { presets: [preset], content: ["./client/**\/*.{ts,tsx}"] };
  */
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+
+// Scan @agent-native/core's dist/client for Tailwind classes used in
+// core components (AgentPanel, AssistantChat, etc.)
+const thisDir =
+  typeof __dirname !== "undefined"
+    ? __dirname
+    : dirname(fileURLToPath(import.meta.url));
+const coreClientGlob = join(thisDir, "client", "**/*.{js,mjs}");
+
 const preset: Config = {
   darkMode: ["class"],
-  content: [],
+  content: [coreClientGlob],
   prefix: "",
   theme: {
     container: {

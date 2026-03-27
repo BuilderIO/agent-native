@@ -11,6 +11,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useFileWatcher } from "@agent-native/core";
+import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
 import "./global.css";
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -105,28 +106,34 @@ export default function Root() {
     () =>
       new QueryClient({
         defaultOptions: {
-          queries: { staleTime: 30_000, retry: 1 },
+          queries: {
+            staleTime: 30_000,
+            retry: 1,
+            refetchOnWindowFocus: true,
+          },
         },
       }),
   );
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="system"
-        enableSystem
-        disableTransitionOnChange
-      >
-        <TooltipProvider delayDuration={300}>
-          <Toaster richColors position="bottom-right" />
-          <AutoFocus />
-          <FileWatcherSetup />
-          <AppLayout>
-            <Outlet />
-          </AppLayout>
-        </TooltipProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+    <ClientOnly fallback={<DefaultSpinner />}>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <TooltipProvider delayDuration={300}>
+            <Toaster richColors position="bottom-left" />
+            <AutoFocus />
+            <FileWatcherSetup />
+            <AppLayout>
+              <Outlet />
+            </AppLayout>
+          </TooltipProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    </ClientOnly>
   );
 }
 

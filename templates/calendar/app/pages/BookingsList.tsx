@@ -36,7 +36,7 @@ export default function BookingsList() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6 px-4 py-8 pb-12">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Bookings</h1>

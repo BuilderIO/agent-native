@@ -52,6 +52,20 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       return { error: "name, email, start, and end are required" };
     }
 
+    const bookingLink =
+      body.slug &&
+      (
+        await getDb()
+          .select()
+          .from(schema.bookingLinks)
+          .where(eq(schema.bookingLinks.slug, body.slug))
+      )[0];
+
+    if (body.slug && (!bookingLink || !bookingLink.isActive)) {
+      setResponseStatus(event, 404);
+      return { error: "Booking link not found" };
+    }
+
     // Check for conflicts + insert atomically in a transaction
     const db = getDb();
     const insertResult = await db.transaction(async (tx) => {
@@ -77,7 +91,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         start: body.start,
         end: body.end,
         slug: body.slug || "",
-        eventTitle: body.eventTitle || null,
+        eventTitle: body.eventTitle || bookingLink?.title || null,
         notes: body.notes || null,
         status: "confirmed",
         createdAt: now,
@@ -96,7 +110,10 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       try {
         const calEvent: CalendarEvent = {
           id: nanoid(),
-          title: body.eventTitle || `Booking with ${body.name}`,
+          title:
+            body.eventTitle ||
+            bookingLink?.title ||
+            `Booking with ${body.name}`,
           description: `Booking by ${body.name} (${body.email})${body.notes ? `\n\nNotes: ${body.notes}` : ""}`,
           start: body.start,
           end: body.end,
@@ -119,7 +136,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       start: body.start,
       end: body.end,
       slug: body.slug || "",
-      eventTitle: body.eventTitle,
+      eventTitle: body.eventTitle || bookingLink?.title,
       notes: body.notes,
       status: "confirmed",
       createdAt: now,

@@ -1,6 +1,4 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 import {
   defineEventHandler,
   readBody,
@@ -12,7 +10,7 @@ import {
   deleteCookie,
 } from "h3";
 import type { App as H3App, H3Event } from "h3";
-import { createClient, type Client } from "@libsql/client";
+import { getDbExec, isPostgres, type DbExec } from "../db/client.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,54 +55,12 @@ const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 // Session store — SQL-backed
 // ---------------------------------------------------------------------------
 
-let _sessionClient: any;
 let _sessionTableReady = false;
 let sessionMaxAge = DEFAULT_MAX_AGE;
 
-function getSessionClient(): any {
-  if (!_sessionClient) {
-    // Check for Cloudflare D1 binding
-    const d1 = (globalThis as any).__cf_env?.DB;
-    if (d1) {
-      _sessionClient = {
-        async execute(sql: string | { sql: string; args: any[] }) {
-          if (typeof sql === "string") {
-            const r = await d1.prepare(sql).all();
-            return {
-              rows: r.results || [],
-              rowsAffected: r.meta?.changes ?? 0,
-            };
-          }
-          const r = await d1
-            .prepare(sql.sql)
-            .bind(...sql.args)
-            .all();
-          return { rows: r.results || [], rowsAffected: r.meta?.changes ?? 0 };
-        },
-      };
-      return _sessionClient;
-    }
-
-    // Fall back to libsql
-    const url = process.env.DATABASE_URL || "file:./data/app.db";
-    if (url.startsWith("file:")) {
-      try {
-        fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
-      } catch {
-        // Edge runtime — no filesystem
-      }
-    }
-    _sessionClient = createClient({
-      url,
-      authToken: process.env.DATABASE_AUTH_TOKEN,
-    });
-  }
-  return _sessionClient;
-}
-
 async function ensureSessionTable(): Promise<void> {
   if (_sessionTableReady) return;
-  const client = getSessionClient();
+  const client = getDbExec();
   await client.execute(`
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
@@ -123,7 +79,7 @@ async function ensureSessionTable(): Promise<void> {
 
 async function pruneExpiredSessions(): Promise<void> {
   await ensureSessionTable();
-  const client = getSessionClient();
+  const client = getDbExec();
   const cutoff = Date.now() - sessionMaxAge * 1000;
   await client.execute({
     sql: `DELETE FROM sessions WHERE created_at < ?`,
@@ -137,9 +93,11 @@ async function pruneExpiredSessions(): Promise<void> {
  */
 export async function addSession(token: string, email?: string): Promise<void> {
   await ensureSessionTable();
-  const client = getSessionClient();
+  const client = getDbExec();
   await client.execute({
-    sql: `INSERT OR REPLACE INTO sessions (token, email, created_at) VALUES (?, ?, ?)`,
+    sql: isPostgres()
+      ? `INSERT INTO sessions (token, email, created_at) VALUES (?, ?, ?) ON CONFLICT (token) DO UPDATE SET email=EXCLUDED.email, created_at=EXCLUDED.created_at`
+      : `INSERT OR REPLACE INTO sessions (token, email, created_at) VALUES (?, ?, ?)`,
     args: [token, email ?? null, Date.now()],
   });
 }
@@ -147,7 +105,7 @@ export async function addSession(token: string, email?: string): Promise<void> {
 /** Remove a session by token. */
 export async function removeSession(token: string): Promise<void> {
   await ensureSessionTable();
-  const client = getSessionClient();
+  const client = getDbExec();
   await client.execute({
     sql: `DELETE FROM sessions WHERE token = ?`,
     args: [token],
@@ -160,7 +118,7 @@ export async function removeSession(token: string): Promise<void> {
  */
 export async function getSessionEmail(token: string): Promise<string | null> {
   await ensureSessionTable();
-  const client = getSessionClient();
+  const client = getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT email, created_at FROM sessions WHERE token = ?`,
     args: [token],
@@ -179,7 +137,7 @@ export async function getSessionEmail(token: string): Promise<string | null> {
 
 async function hasSession(token: string): Promise<boolean> {
   await ensureSessionTable();
-  const client = getSessionClient();
+  const client = getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT created_at FROM sessions WHERE token = ?`,
     args: [token],

@@ -3,6 +3,7 @@ export const NAV_ITEMS = [
   { label: "Key Concepts", to: "/docs/key-concepts" as const },
   { label: "Server", to: "/docs/server" as const },
   { label: "Client", to: "/docs/client" as const },
+  { label: "Resources & Skills", to: "/docs/resources" as const },
   { label: "Scripts", to: "/docs/scripts" as const },
   { label: "File Sync", to: "/docs/file-sync" as const },
   { label: "CLI Adapters", to: "/docs/cli-adapters" as const },

@@ -2,14 +2,22 @@ import { FileText, Plus } from "lucide-react";
 import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { useCreateDocument } from "@/hooks/use-documents";
+import { toast } from "sonner";
 
 export function EmptyState() {
   const navigate = useNavigate();
   const createDocument = useCreateDocument();
 
   const handleCreate = async () => {
-    const doc = await createDocument.mutateAsync({});
-    navigate(`/${doc.id}`);
+    try {
+      const doc = await createDocument.mutateAsync({});
+      navigate(`/${doc.id}`);
+    } catch (err) {
+      toast.error("Failed to create page", {
+        description:
+          err instanceof Error ? err.message : "Something went wrong",
+      });
+    }
   };
 
   return (

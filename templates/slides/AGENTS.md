@@ -8,76 +8,33 @@ This is an **agent-native** app built with `@agent-native/core`. See `.agents/sk
 - **real-time-sync** — UI stays in sync with agent changes via SSE (DB change events).
 - **frontend-design** — Build distinctive, production-grade UI. Read this skill before creating or restyling any component, page, or layout.
 
----
-
-## Framework Basics (Nitro + @agent-native/core)
-
-This app uses **Nitro** (via `@agent-native/core`) for the server. All server code lives in `server/`.
-
-### Server Directory
-
-```
-server/
-  routes/     # File-based API routes (auto-discovered by Nitro)
-  handlers/   # Route handler logic modules
-  plugins/    # Server plugins — run at startup (auth, SSE, etc.)
-  lib/        # Shared server modules (watcher instance, helpers)
-```
-
-### Adding an API Route
-
-Create a file in `server/routes/api/`. The filename determines the URL path and HTTP method:
-
-```
-server/routes/api/items/index.get.ts    → GET  /api/items
-server/routes/api/items/index.post.ts   → POST /api/items
-server/routes/api/items/[id].get.ts     → GET  /api/items/:id
-server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
-```
-
-Each file exports a default `defineEventHandler`:
-
-```ts
-export default defineEventHandler(async (event) => {
-  const body = await readBody(event);
-  return { ok: true };
-});
-```
-
-### Server Plugins
-
-Startup logic (auth, SSE, etc.) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
-
-```ts
-import { defineNitroPlugin } from "@agent-native/core";
-
-export default defineNitroPlugin(async (nitroApp) => {
-  // Runs once at server startup
-});
-```
-
-### Key Imports from `@agent-native/core`
-
-| Import                                       | Purpose                                                                    |
-| -------------------------------------------- | -------------------------------------------------------------------------- |
-| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)                            |
-| `createDefaultSSEHandler`                    | Create SSE endpoint for DB change events (server)                          |
-| `readAppState`, `writeAppState`              | Read/write application state (from `@agent-native/core/application-state`) |
-| `readSetting`, `writeSetting`                | Read/write settings (from `@agent-native/core/settings`)                   |
-| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)                                   |
-| `sendToAgentChat`                            | Send messages to agent from UI (client-side)                               |
-| `agentChat`                                  | Send messages to agent from scripts (server-side)                          |
-
-### Build & Dev Commands
-
-```bash
-pnpm dev        # Vite dev server + Nitro plugin (single process)
-pnpm build      # Single Vite build (client SPA + Nitro server)
-pnpm start      # node .output/server/index.mjs (production)
-pnpm typecheck  # TypeScript validation
-```
+For code editing and development guidance, read `DEVELOPING.md`.
 
 ---
+
+## Resources
+
+Resources are SQL-backed persistent files for notes, learnings, and context. They replace the old `learnings.md` file approach.
+
+**Always read the `learnings.md` resource at the start of every conversation.** It contains user preferences, corrections, and patterns from past interactions.
+
+**Update the `learnings.md` resource when you learn something important:**
+
+- User corrects your tone, style, or approach
+- User shares personal info relevant to the app
+- You discover a non-obvious pattern or gotcha
+- User gives feedback that should apply to future conversations
+
+Resources can be **personal** (per-user, default) or **shared** (team-wide).
+
+| Script            | Args                                                        | Purpose                 |
+| ----------------- | ----------------------------------------------------------- | ----------------------- |
+| `resource-read`   | `--path <path> [--scope personal\|shared]`                  | Read a resource         |
+| `resource-write`  | `--path <path> --content <text> [--scope personal\|shared]` | Write/update a resource |
+| `resource-list`   | `[--prefix <path>] [--scope personal\|shared\|all]`         | List resources          |
+| `resource-delete` | `--path <path> [--scope personal\|shared]`                  | Delete a resource       |
+
+Resources are stored in SQL, not files. They persist across sessions and are not in git.
 
 ## Core Principle: Everything is in SQL
 
@@ -91,48 +48,6 @@ This means:
 - **No localStorage for data** — the database is the only source of truth
 - The frontend subscribes to DB change events via SSE (`/api/events`), so agent writes appear in the UI in real-time
 
-```
-┌─────────────────────┐         ┌─────────────────────┐
-│  Frontend           │         │  Agent Chat         │
-│  (React + Vite)     │◄───────►│  (AI agent)         │
-│                     │   SQL   │                     │
-│  - reads/writes     │         │  - reads/writes     │
-│    DB via API       │         │    DB + code        │
-│  - sends prompts    │         │  - runs scripts     │
-│    via agentChat    │         │    via pnpm script  │
-│                     │         │  - generates code   │
-└────────┬────────────┘         └──────────┬──────────┘
-         │                                 │
-         │         ┌───────────────┐       │
-         └────────►│  Backend      │◄──────┘
-                   │  (Nitro)      │
-                   │               │
-                   │  - API routes │
-                   │  - image gen  │
-                   │  - share      │
-                   └───────┬───────┘
-                           │
-                   ┌───────┴───────┐
-                   │  scripts/     │
-                   │               │
-                   │  Reusable     │
-                   │  Node.js      │
-                   │  scripts run  │
-                   │  via pnpm     │
-                   └───────────────┘
-```
-
-### Database (Cloud Deployment)
-
-By default, data is stored in SQLite at `data/app.db`. For production/cloud deployment, set `DATABASE_URL` to point to a remote database (Turso, Neon, Supabase, D1).
-
-**Environment variables:**
-
-| Variable              | Required         | Description                                                |
-| --------------------- | ---------------- | ---------------------------------------------------------- |
-| `DATABASE_URL`        | No (has default) | Database connection string (default: `file:./data/app.db`) |
-| `DATABASE_AUTH_TOKEN` | For remote DBs   | Auth token for Turso or other remote databases             |
-
 ## Running Scripts
 
 The agent executes backend logic via `pnpm script <name> [--args]`:
@@ -140,8 +55,6 @@ The agent executes backend logic via `pnpm script <name> [--args]`:
 ```bash
 pnpm script generate-image --prompt "a diagram of microservices" --count 3
 ```
-
-The script runner (`scripts/run.ts`) dispatches to individual script files in `scripts/`. Each script exports a default async function that receives CLI args.
 
 ### Available Scripts
 
@@ -175,23 +88,14 @@ export default async function main(args: string[]) {
 
 The app can delegate tasks to the agent chat using `sendToAgentChat()` and `agentChat` from `@agent-native/core`. This lets any UI button or action trigger an agentic flow with full conversational follow-up.
 
-### How It Works
-
 From browser code (React components):
 
 ```typescript
 import { agentChat } from "@agent-native/core";
 
-// Auto-submit to the agent
 agentChat.submit(
   "Generate 3 hero images for the AI slide",
   "Hidden context: slide id is 'slide-3', deck id is 'my-deck', current content is...",
-);
-
-// Or prefill for user review
-agentChat.prefill(
-  "Update all slides to use dark gradient backgrounds",
-  "Context about the current deck state...",
 );
 ```
 
@@ -204,10 +108,6 @@ agentChat.submit(
   "Image generation complete — 3 variations saved to /tmp/images/",
 );
 ```
-
-### Transport
-
-The `@agent-native/core` chat bridge handles the transport automatically — it works in both browser (postMessage) and Node (stdout) contexts. The agent chat runtime picks up the messages and routes them to the agent.
 
 ### Key Pattern: Image Generation via Chat
 
@@ -277,7 +177,7 @@ Reference existing deck JSON files in `data/decks/` for specific examples of eac
 
 ## Current Selection State
 
-The editor exposes the current selection state so the AI agent agent can access it:
+The editor exposes the current selection state so the AI agent can access it:
 
 ### Browser Context (DOM)
 
@@ -306,90 +206,6 @@ window.__deckSelection;
 
 The agent can read this from the browser console or via injected scripts to understand what the user is currently looking at and working on.
 
-## Project Structure
-
-```
-app/                           # React SPA frontend
-├── pages/                     # Route components
-│   ├── DeckEditor.tsx         # Main editor page
-│   ├── DeckList.tsx           # Deck listing / home
-│   └── PresentView.tsx        # Presentation mode
-├── components/
-│   ├── editor/                # Editor UI components
-│   │   ├── EditorToolbar.tsx  # Main toolbar (layout, bg, image, undo/redo)
-│   │   ├── EditorSidebar.tsx  # Slide list with drag-and-drop
-│   │   ├── SlideEditor.tsx    # Slide preview / code editor
-│   │   ├── ImageGenPanel.tsx  # Image gen dialog (delegates to agent chat)
-│   │   ├── HistoryPanel.tsx   # Undo/redo history popover
-│   │   └── ShareDialog.tsx    # Share link dialog
-│   ├── deck/
-│   │   └── SlideRenderer.tsx  # Core 960x540 slide rendering
-│   └── ui/                    # Reusable UI primitives (Radix-based)
-├── data/                      # Shared data types and utilities
-├── context/
-│   └── DeckContext.tsx        # Central state: decks, slides, undo/redo (fetches from /api/decks)
-├── lib/
-│   └── utils.ts               # cn() utility
-└── root.tsx               # HTML shell + global providers
-
-server/                        # Nitro API server
-├── routes/                    # File-based API routes (auto-discovered by Nitro)
-├── handlers/                  # Route handler modules
-│   ├── decks.ts               # GET/PUT/POST/DELETE /api/decks (file-based CRUD)
-│   ├── image-gen.ts           # POST /api/image-gen/generate (Gemini)
-│   ├── generate-slides.ts     # POST /api/generate-slides (Gemini)
-│   └── share.ts               # POST /api/share, GET /api/share/:token
-├── plugins/                   # Server plugins (startup logic)
-└── lib/                       # Shared server modules
-
-data/                          # App data (SQLite DB file)
-
-shared/                        # Shared between client + server + scripts
-└── api.ts                     # Types, interfaces, DEFAULT_STYLE_REFERENCE_URLS
-
-scripts/                       # Runnable via `pnpm script <name>`
-├── run.ts                     # Script dispatcher
-├── generate-image.ts          # Image generation with style references
-├── image-gen-status.ts        # Check API key status
-├── image-search.ts            # Google Image search
-└── logo-lookup.ts             # Clearbit logo URL lookup
-```
-
-## Tech Stack
-
-- **Framework**: @agent-native/core
-- **Package manager**: pnpm
-- **Frontend**: React 18, React Router 6, TypeScript, Vite, TailwindCSS 3
-- **Backend**: Nitro (via @agent-native/core) — file-based API routing
-- **UI components**: Radix UI primitives + Lucide icons
-- **Image generation**: Google Gemini via `@google/genai`
-- **State**: SQL-backed via `/api/decks`, in-memory undo/redo, share tokens
-- **Logo lookup**: Logo.dev API (free tier with token) or Google Image Search fallback
-- **Path aliases**: `@/*` → app/, `@shared/*` → shared/
-
-## Development
-
-```bash
-pnpm dev          # Start dev server (client + server on port 8080)
-pnpm build        # Production build
-pnpm typecheck    # TypeScript validation
-pnpm test         # Run Vitest tests
-pnpm script <name> [--args]  # Run a backend script
-```
-
-## Learnings & Preferences
-
-**Always read `learnings.md` at the start of every conversation.** This file is the app's memory — it contains user preferences, corrections, important context, and patterns learned from past interactions.
-
-**Update `learnings.md` when you learn something important:**
-
-- User corrects your tone, style, or approach
-- User shares personal info relevant to the app (contacts, preferences, habits)
-- You discover a non-obvious pattern or gotcha
-- User gives feedback that should apply to future conversations
-
-Keep entries concise and actionable. Group by category. This file is gitignored so personal data stays local.
-
 ## Content Generation: Positioning & Messaging
 
 When generating outbound content (deck slides, marketing copy, sales materials, competitive positioning), always consult **`data/builder-positioning.md`** for:
@@ -404,10 +220,6 @@ When generating outbound content (deck slides, marketing copy, sales materials, 
 - **Strategic narrative**: From sequential/engineer-bottlenecked → parallel/collaborative AI product development
 
 Always match content to the appropriate persona and competitive context. Use proof points and customer quotes where relevant.
-
-## TypeScript Everywhere
-
-All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`, or `.mjs` files. Node 22+ runs `.ts` files natively, so no compilation step is needed for scripts. Use ESM imports (`import`), not CommonJS (`require`).
 
 ## Key Conventions
 

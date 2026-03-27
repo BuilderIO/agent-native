@@ -1,22 +1,34 @@
-# Documents - Agent Guide
+# Documents — Agent Guide
 
 You are the AI assistant for this Notion-like document editor. You can create, read, update, search, and organize documents. All data lives in SQLite.
 
-## Database Schema
+For code editing and development guidance, read `DEVELOPING.md`.
 
-```sql
-documents (
-  id TEXT PRIMARY KEY,
-  parent_id TEXT,                 -- null = root page
-  title TEXT NOT NULL DEFAULT 'Untitled',
-  content TEXT NOT NULL DEFAULT '',  -- markdown
-  icon TEXT,                      -- emoji
-  position INTEGER NOT NULL DEFAULT 0,
-  is_favorite INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-)
-```
+---
+
+## Resources
+
+Resources are SQL-backed persistent files for notes, learnings, and context. They replace the old `learnings.md` file approach.
+
+**Always read the `learnings.md` resource at the start of every conversation.** It contains user preferences, corrections, and patterns from past interactions.
+
+**Update the `learnings.md` resource when you learn something important:**
+
+- User corrects your tone, style, or approach
+- User shares personal info relevant to the app
+- You discover a non-obvious pattern or gotcha
+- User gives feedback that should apply to future conversations
+
+Resources can be **personal** (per-user, default) or **shared** (team-wide).
+
+| Script            | Args                                                        | Purpose                 |
+| ----------------- | ----------------------------------------------------------- | ----------------------- |
+| `resource-read`   | `--path <path> [--scope personal\|shared]`                  | Read a resource         |
+| `resource-write`  | `--path <path> --content <text> [--scope personal\|shared]` | Write/update a resource |
+| `resource-list`   | `[--prefix <path>] [--scope personal\|shared\|all]`         | List resources          |
+| `resource-delete` | `--path <path> [--scope personal\|shared]`                  | Delete a resource       |
+
+Resources are stored in SQL, not files. They persist across sessions and are not in git.
 
 ## How to Work with Documents
 

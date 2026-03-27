@@ -227,9 +227,8 @@ export function App() {
         }),
       );
     };
-    window.addEventListener("builder.fusion.chatRunning", handler);
-    return () =>
-      window.removeEventListener("builder.fusion.chatRunning", handler);
+    window.addEventListener("builder.chatRunning", handler);
+    return () => window.removeEventListener("builder.chatRunning", handler);
   }, [isAgentUi]);
 
   // Process pending messages for agent-ui tabs when refs mount

@@ -1,14 +1,21 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { CalendarEvent } from "@shared/api";
 
-export function useEvents(from?: string, to?: string) {
+export function useEvents(
+  from?: string,
+  to?: string,
+  overlayEmails?: string[],
+) {
   const params = new URLSearchParams();
   if (from) params.set("from", from);
   if (to) params.set("to", to);
+  if (overlayEmails && overlayEmails.length > 0) {
+    params.set("overlayEmails", overlayEmails.join(","));
+  }
   const qs = params.toString();
 
   return useQuery<CalendarEvent[]>({
-    queryKey: ["events", from, to],
+    queryKey: ["events", from, to, overlayEmails?.join(",") ?? ""],
     queryFn: async () => {
       const res = await fetch(`/api/events${qs ? `?${qs}` : ""}`);
       if (!res.ok) {

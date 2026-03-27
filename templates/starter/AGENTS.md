@@ -22,41 +22,16 @@ Auth is automatic and environment-driven. The `server/plugins/auth.ts` plugin ca
 
 Use `getSession(event)` server-side and `useSession()` client-side. See [docs/auth.md](docs/auth.md).
 
-### Directory Structure
+## Resources
 
-```
-app/                   # React frontend
-  root.tsx             # HTML shell + global providers
-  entry.client.tsx     # Client hydration entry
-  routes.ts            # Route config — flatRoutes()
-  routes/              # File-based page routes (auto-discovered)
-    _index.tsx         # / (home page)
-  components/          # UI components
-  hooks/               # React hooks
-  lib/                 # Utilities (cn, etc)
+Resources are SQL-backed persistent files that store notes, learnings, context, and other long-lived information. They replace the old `learnings.md` file approach with a structured, scriptable system.
 
-server/                # Nitro API server
-  routes/
-    api/               # File-based API routes (auto-discovered)
-    [...page].get.ts   # SSR catch-all (delegates to React Router)
-  plugins/             # Server plugins (startup logic)
-  lib/                 # Shared server modules
+- **Personal resources** — scoped to the current user. Use these for individual preferences, corrections, and context.
+- **Shared resources** — visible to all users. Use these for team-wide patterns, app-specific knowledge, and shared context.
 
-shared/                # Isomorphic code (imported by both client & server)
+### The `learnings.md` resource
 
-scripts/               # Agent-callable scripts
-  run.ts               # Script dispatcher
-  *.ts                 # Individual scripts (pnpm script <name>)
-
-data/                  # App data (SQLite DB file)
-
-react-router.config.ts # React Router framework config
-.agents/skills/        # Agent skills — detailed guidance for each rule
-```
-
-## Learnings & Preferences
-
-**Always read `learnings.md` at the start of every conversation.** This file is the app's memory — it contains user preferences, corrections, important context, and patterns learned from past interactions.
+**At the start of every conversation, read the `learnings.md` resource.** This is the app's memory — it contains user preferences, corrections, important context, and patterns learned from past interactions.
 
 **Update `learnings.md` when you learn something important:**
 
@@ -65,9 +40,26 @@ react-router.config.ts # React Router framework config
 - You discover a non-obvious pattern or gotcha
 - User gives feedback that should apply to future conversations
 
-Keep entries concise and actionable. Group by category. This file is gitignored so personal data stays local.
+Keep entries concise and actionable. Group by category.
 
----
+### Resource scripts
+
+| Script            | Purpose                     | Example                                                          |
+| ----------------- | --------------------------- | ---------------------------------------------------------------- |
+| `resource-read`   | Read a resource             | `pnpm script resource-read --name learnings.md`                  |
+| `resource-write`  | Create or update a resource | `pnpm script resource-write --name learnings.md --content "..."` |
+| `resource-list`   | List all resources          | `pnpm script resource-list`                                      |
+| `resource-delete` | Delete a resource           | `pnpm script resource-delete --name old-notes.md`                |
+
+## Available Scripts
+
+| Script      | Purpose                         | Example                                            |
+| ----------- | ------------------------------- | -------------------------------------------------- |
+| `db-schema` | Show all tables, columns, types | `pnpm script db-schema`                            |
+| `db-query`  | Run a SELECT query              | `pnpm script db-query --sql "SELECT * FROM forms"` |
+| `db-exec`   | Run INSERT/UPDATE/DELETE        | `pnpm script db-exec --sql "UPDATE forms SET ..."` |
+
+## Skills
 
 Skills in `.agents/skills/` provide detailed guidance for each architectural rule. Read them before making changes.
 
@@ -82,121 +74,6 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 
 The **`frontend-design`** skill (sourced from [Anthropic's skills library](https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md)) enforces distinctive, production-grade aesthetics — committing to a clear visual direction and avoiding generic patterns like purple gradients, overused fonts, and cookie-cutter layouts.
 
-### Framework Basics
+---
 
-**SSR-first framework, CSR-by-default content:** This app uses React Router v7 framework mode with `ssr: true`. But virtually every route renders only an SSR shell (loading spinner + meta tags). All real data fetching and rendering happens on the client via React Query hooks. Server-side data fetching is the exception — only used for public pages that need SEO/og tags.
-
-**Adding a page:**
-Create a file in `app/routes/`. The filename determines the URL path:
-
-```
-app/routes/_index.tsx              → /
-app/routes/settings.tsx            → /settings
-app/routes/inbox.tsx               → /inbox
-app/routes/inbox.$threadId.tsx     → /inbox/:threadId
-app/routes/$id.tsx                 → /:id (dynamic param)
-```
-
-Each route file exports a default component, optional `meta()`, and optional `HydrateFallback()`:
-
-```tsx
-import MyPage from "@/pages/MyPage";
-
-export function meta() {
-  return [{ title: "My Page" }];
-}
-
-export function HydrateFallback() {
-  return (
-    <div className="flex items-center justify-center h-screen">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
-    </div>
-  );
-}
-
-export default function MyPageRoute() {
-  return <MyPage />;
-}
-```
-
-**Do NOT fetch data server-side** in route loaders unless the page genuinely needs SEO content or og tags based on dynamic data. The standard pattern is: SSR renders a loading spinner, client hydrates, React Query hooks fetch from `/api/*`.
-
-### Key Patterns
-
-**Adding an API route:**
-Create a file in `server/routes/api/`. The filename determines the URL path and HTTP method:
-
-```
-server/routes/api/items/index.get.ts    → GET  /api/items
-server/routes/api/items/[id].get.ts     → GET  /api/items/:id
-server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
-```
-
-Each file exports a default `defineEventHandler`.
-
-**Adding a server plugin:**
-Startup logic (auth, SSE, etc.) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
-
-```ts
-import { defineNitroPlugin } from "@agent-native/core";
-
-export default defineNitroPlugin(async (nitroApp) => {
-  // Runs once at server startup
-});
-```
-
-**Key imports from `@agent-native/core`:**
-
-| Import                                       | Purpose                                                                    |
-| -------------------------------------------- | -------------------------------------------------------------------------- |
-| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)                            |
-| `createDefaultSSEHandler`                    | Create SSE endpoint for DB change events (server)                          |
-| `readAppState`, `writeAppState`              | Read/write application state (from `@agent-native/core/application-state`) |
-| `readSetting`, `writeSetting`                | Read/write settings (from `@agent-native/core/settings`)                   |
-| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)                                   |
-| `sendToAgentChat`                            | Send messages to agent from UI (client-side)                               |
-| `agentChat`                                  | Send messages to agent from scripts (server-side)                          |
-
-**Adding a script:**
-Create `scripts/my-script.ts` exporting `default async function(args: string[])`.
-Run with: `pnpm script my-script --arg value`
-
-**Sending to agent chat from UI:**
-
-```ts
-import { sendToAgentChat } from "@agent-native/core";
-sendToAgentChat({
-  message: "Generate something",
-  context: "...",
-  submit: true,
-});
-```
-
-**Sending to agent chat from scripts:**
-
-```ts
-import { agentChat } from "@agent-native/core";
-agentChat.submit("Generate something");
-```
-
-### Database (Cloud Deployment)
-
-By default, data is stored in SQLite at `data/app.db`. For production/cloud deployment, set `DATABASE_URL` to point to a remote database (Turso, Neon, Supabase, D1).
-
-**Environment variables:**
-
-| Variable              | Required         | Description                                                |
-| --------------------- | ---------------- | ---------------------------------------------------------- |
-| `DATABASE_URL`        | No (has default) | Database connection string (default: `file:./data/app.db`) |
-| `DATABASE_AUTH_TOKEN` | For remote DBs   | Auth token for Turso or other remote databases             |
-
-### Tech Stack
-
-- **Framework:** @agent-native/core + React Router v7 (framework mode)
-- **Frontend:** React 18, Vite, TailwindCSS, shadcn/ui
-- **Routing:** File-based via `flatRoutes()` — SSR shell + client rendering
-- **Backend:** Nitro (via @agent-native/core) — file-based API routing, server plugins, deploy-anywhere presets
-- **State:** SQL-backed (SSE for real-time updates)
-- **Build:** `pnpm build` (React Router build — client + SSR + Nitro server)
-- **Dev:** `pnpm dev` (Vite dev server with both React Router + Nitro plugins)
-- **Start:** `node .output/server/index.mjs` (production)
+For code editing and development guidance, read `DEVELOPING.md`.

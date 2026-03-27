@@ -1,0 +1,92 @@
+import {
+  defineEventHandler,
+  getQuery,
+  readBody,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
+import {
+  appStateGet,
+  appStatePut,
+  appStateDelete,
+} from "@agent-native/core/application-state";
+
+const SESSION_ID = "local";
+
+async function getApolloKey(): Promise<string | undefined> {
+  const data = await appStateGet(SESSION_ID, "apollo");
+  return (data as any)?.apiKey || undefined;
+}
+
+// GET /api/apollo/status
+export const apolloStatus = defineEventHandler(async (_event: H3Event) => {
+  return { connected: !!(await getApolloKey()) };
+});
+
+// PUT /api/apollo/key
+export const apolloSaveKey = defineEventHandler(async (event: H3Event) => {
+  const body = await readBody(event);
+  const { apiKey } = body;
+  if (!apiKey || typeof apiKey !== "string") {
+    setResponseStatus(event, 400);
+    return { error: "apiKey is required" };
+  }
+  await appStatePut(SESSION_ID, "apollo", { apiKey });
+  return { connected: true };
+});
+
+// DELETE /api/apollo/key
+export const apolloDeleteKey = defineEventHandler(async (_event: H3Event) => {
+  await appStateDelete(SESSION_ID, "apollo");
+  return { connected: false };
+});
+
+// In-memory cache for Apollo person lookups
+const personCache = new Map<string, { data: any; expiry: number }>();
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+// GET /api/apollo/person?email=...
+export const apolloPersonLookup = defineEventHandler(async (event: H3Event) => {
+  const { email } = getQuery(event);
+  if (!email || typeof email !== "string") {
+    setResponseStatus(event, 400);
+    return { error: "email query param required" };
+  }
+
+  const apiKey = await getApolloKey();
+  if (!apiKey) {
+    setResponseStatus(event, 401);
+    return { error: "Apollo API key not configured" };
+  }
+
+  const cached = personCache.get(email);
+  if (cached && cached.expiry > Date.now()) {
+    return cached.data;
+  }
+
+  try {
+    const response = await fetch("https://api.apollo.io/api/v1/people/match", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+      },
+      body: JSON.stringify({ email }),
+    });
+
+    if (!response.ok) {
+      setResponseStatus(event, response.status);
+      return { error: `Apollo API error: ${response.status}` };
+    }
+
+    const data = await response.json();
+    const person = data.person || null;
+
+    personCache.set(email, { data: person, expiry: Date.now() + CACHE_TTL });
+
+    return person;
+  } catch {
+    setResponseStatus(event, 500);
+    return { error: "Failed to reach Apollo API" };
+  }
+});

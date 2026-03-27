@@ -6,7 +6,7 @@ import {
   Strikethrough,
   Code,
   Link,
-  Sparkles,
+  Wand2,
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -242,7 +242,7 @@ export function ComposeBubbleToolbar({
             title="AI Assist"
             className="p-1.5 rounded transition-colors text-gray-300 hover:bg-gray-700 hover:text-white"
           >
-            <Sparkles size={14} strokeWidth={2.5} />
+            <Wand2 size={14} strokeWidth={2.5} />
           </button>
         </div>
       )}

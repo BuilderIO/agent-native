@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { format, parseISO, parse, isValid } from "date-fns";
 import {
   Calendar,
@@ -9,16 +9,7 @@ import {
   Zap,
   ArrowRight,
 } from "lucide-react";
-import {
-  CommandDialog,
-  CommandInput,
-  CommandList,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandShortcut,
-  CommandSeparator,
-} from "@/components/ui/command";
+import { CommandMenu } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent } from "@shared/api";
 
@@ -57,6 +48,11 @@ export function CommandPalette({
 }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
 
+  // Reset query when opening
+  useEffect(() => {
+    if (open) setQuery("");
+  }, [open]);
+
   const parsedDate = useMemo(() => {
     if (!query.trim()) return null;
     for (const fmt of DATE_FORMATS) {
@@ -79,105 +75,113 @@ export function CommandPalette({
       .slice(0, 6);
   }, [query, events]);
 
-  function run(fn: () => void) {
-    fn();
-    setQuery("");
-    onClose();
-  }
-
-  function handleOpenChange(open: boolean) {
-    if (!open) {
+  function handleOpenChange(isOpen: boolean) {
+    if (!isOpen) {
       setQuery("");
       onClose();
     }
   }
 
   return (
-    <CommandDialog open={open} onOpenChange={handleOpenChange}>
-      <CommandInput
-        placeholder="Search events, go to date, or run a command…"
-        value={query}
-        onValueChange={setQuery}
-      />
-      <CommandList>
-        <CommandEmpty>
-          No results. Try typing a date like "Jan 15" or an event name.
-        </CommandEmpty>
+    <CommandMenu
+      open={open}
+      onOpenChange={handleOpenChange}
+      placeholder="Search events, go to date, or ask AI..."
+    >
+      {/* Date jump - only show if query parses to a date */}
+      {parsedDate && (
+        <CommandMenu.Group heading="Jump to">
+          <CommandMenu.Item
+            onSelect={() => onGoToDate(parsedDate)}
+            keywords={["date", "go", "jump"]}
+          >
+            <Calendar className="h-4 w-4" />
+            Go to {format(parsedDate, "MMMM d, yyyy")}
+            <CommandMenu.Shortcut>
+              <ArrowRight className="h-3 w-3" />
+            </CommandMenu.Shortcut>
+          </CommandMenu.Item>
+        </CommandMenu.Group>
+      )}
 
-        {parsedDate && (
-          <CommandGroup heading="Jump to">
-            <CommandItem onSelect={() => run(() => onGoToDate(parsedDate))}>
-              <Calendar className="mr-2 h-4 w-4" />
-              Go to {format(parsedDate, "MMMM d, yyyy")}
-              <CommandShortcut>
-                <ArrowRight className="h-3 w-3" />
-              </CommandShortcut>
-            </CommandItem>
-          </CommandGroup>
-        )}
+      {/* Matching events */}
+      {matchingEvents.length > 0 && (
+        <CommandMenu.Group heading="Events">
+          {matchingEvents.map((event) => (
+            <CommandMenu.Item
+              key={event.id}
+              onSelect={() => onEventClick(event)}
+              keywords={[event.title.toLowerCase()]}
+            >
+              <span
+                className={cn(
+                  "h-2 w-2 shrink-0 rounded-full",
+                  event.color
+                    ? ""
+                    : event.source === "google"
+                      ? "bg-primary"
+                      : "bg-primary",
+                )}
+                style={event.color ? { background: event.color } : undefined}
+              />
+              <span className="flex-1 truncate">{event.title}</span>
+              <span className="ml-2 text-xs text-muted-foreground">
+                {format(parseISO(event.start), "MMM d")}
+              </span>
+            </CommandMenu.Item>
+          ))}
+        </CommandMenu.Group>
+      )}
 
-        {matchingEvents.length > 0 && (
-          <CommandGroup heading="Events">
-            {matchingEvents.map((event) => (
-              <CommandItem
-                key={event.id}
-                onSelect={() => run(() => onEventClick(event))}
-              >
-                <span
-                  className={cn(
-                    "mr-2 h-2 w-2 shrink-0 rounded-full",
-                    event.color
-                      ? ""
-                      : event.source === "google"
-                        ? "bg-primary"
-                        : "bg-primary",
-                  )}
-                  style={event.color ? { background: event.color } : undefined}
-                />
-                <span className="flex-1 truncate">{event.title}</span>
-                <span className="ml-2 text-xs text-muted-foreground">
-                  {format(parseISO(event.start), "MMM d")}
-                </span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        )}
+      {(parsedDate || matchingEvents.length > 0) && <CommandMenu.Separator />}
 
-        <CommandSeparator />
+      <CommandMenu.Group heading="Actions">
+        <CommandMenu.Item
+          onSelect={onCreateEvent}
+          keywords={["create", "new", "add", "event"]}
+        >
+          <Plus className="h-4 w-4" />
+          Create new event
+          <CommandMenu.Shortcut>C</CommandMenu.Shortcut>
+        </CommandMenu.Item>
+        <CommandMenu.Item
+          onSelect={onToday}
+          keywords={["today", "now", "current"]}
+        >
+          <Zap className="h-4 w-4" />
+          Go to today
+          <CommandMenu.Shortcut>T</CommandMenu.Shortcut>
+        </CommandMenu.Item>
+      </CommandMenu.Group>
 
-        <CommandGroup heading="Actions">
-          <CommandItem onSelect={() => run(onCreateEvent)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Create new event
-            <CommandShortcut>C</CommandShortcut>
-          </CommandItem>
-          <CommandItem onSelect={() => run(onToday)}>
-            <Zap className="mr-2 h-4 w-4" />
-            Go to today
-            <CommandShortcut>T</CommandShortcut>
-          </CommandItem>
-        </CommandGroup>
+      <CommandMenu.Separator />
 
-        <CommandSeparator />
-
-        <CommandGroup heading="Views">
-          <CommandItem onSelect={() => run(() => onViewChange("month"))}>
-            <CalendarDays className="mr-2 h-4 w-4" />
-            Month view
-            <CommandShortcut>M</CommandShortcut>
-          </CommandItem>
-          <CommandItem onSelect={() => run(() => onViewChange("week"))}>
-            <CalendarRange className="mr-2 h-4 w-4" />
-            Week view
-            <CommandShortcut>W</CommandShortcut>
-          </CommandItem>
-          <CommandItem onSelect={() => run(() => onViewChange("day"))}>
-            <Clock className="mr-2 h-4 w-4" />
-            Day view
-            <CommandShortcut>D</CommandShortcut>
-          </CommandItem>
-        </CommandGroup>
-      </CommandList>
-    </CommandDialog>
+      <CommandMenu.Group heading="Views">
+        <CommandMenu.Item
+          onSelect={() => onViewChange("month")}
+          keywords={["month", "view"]}
+        >
+          <CalendarDays className="h-4 w-4" />
+          Month view
+          <CommandMenu.Shortcut>M</CommandMenu.Shortcut>
+        </CommandMenu.Item>
+        <CommandMenu.Item
+          onSelect={() => onViewChange("week")}
+          keywords={["week", "view"]}
+        >
+          <CalendarRange className="h-4 w-4" />
+          Week view
+          <CommandMenu.Shortcut>W</CommandMenu.Shortcut>
+        </CommandMenu.Item>
+        <CommandMenu.Item
+          onSelect={() => onViewChange("day")}
+          keywords={["day", "view"]}
+        >
+          <Clock className="h-4 w-4" />
+          Day view
+          <CommandMenu.Shortcut>D</CommandMenu.Shortcut>
+        </CommandMenu.Item>
+      </CommandMenu.Group>
+    </CommandMenu>
   );
 }

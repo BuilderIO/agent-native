@@ -257,7 +257,7 @@ export function AgentTerminal({
       function notifyAgentRunning(running: boolean) {
         onAgentRunningChange?.(running);
         window.dispatchEvent(
-          new CustomEvent("builder.fusion.chatRunning", {
+          new CustomEvent("builder.chatRunning", {
             detail: { isRunning: running },
           }),
         );

@@ -3,6 +3,8 @@ import { AlertCircle, RefreshCw } from "lucide-react";
 import type { AppDefinition, AppConfig } from "@shared/app-registry";
 import { getAppUrl } from "@shared/app-registry";
 
+const IS_DEV = window.location.protocol !== "file:";
+
 interface AppWebviewProps {
   app: AppDefinition;
   /** Full app config with URL overrides (optional for backward compat) */
@@ -44,6 +46,25 @@ export default function AppWebview({
   const webviewRef = useRef<ElectronWebviewElement>(null);
   const [error, setError] = useState(false);
   const url = resolveUrl(app, appConfig);
+  const optimizeDepRecoveryRef = useRef(false);
+
+  function reportActiveWebview() {
+    if (!isActive || !window.electronAPI?.setActiveWebview) return;
+    const wv = webviewRef.current;
+    if (!wv) return;
+
+    let webContentsId: number | undefined;
+    try {
+      webContentsId = wv.getWebContentsId();
+    } catch {
+      webContentsId = undefined;
+    }
+
+    window.electronAPI.setActiveWebview({
+      appId: app.id,
+      webContentsId,
+    });
+  }
 
   useEffect(() => {
     if (app.placeholder) return;
@@ -51,21 +72,55 @@ export default function AppWebview({
     const wv = webviewRef.current;
     if (!wv) return;
 
-    const onReady = () => setError(false);
+    const recoverOutdatedOptimizeDep = () => {
+      if (!IS_DEV || optimizeDepRecoveryRef.current) return;
+      optimizeDepRecoveryRef.current = true;
+      setError(false);
+      setTimeout(() => {
+        try {
+          wv.reloadIgnoringCache();
+        } catch {
+          wv.reload();
+        }
+      }, 120);
+    };
+
+    const onReady = () => {
+      setError(false);
+      optimizeDepRecoveryRef.current = false;
+      reportActiveWebview();
+    };
     const onFailed = (e: Event) => {
-      const errorCode = (e as any).errorCode;
+      const details = e as any;
+      const errorCode = details.errorCode;
+      const description = String(details.errorDescription || "");
       if (errorCode === -3) return;
+      if (
+        IS_DEV &&
+        (errorCode === 504 || description.includes("Outdated Optimize Dep"))
+      ) {
+        recoverOutdatedOptimizeDep();
+        return;
+      }
       setError(true);
+    };
+    const onConsoleMessage = (e: Event) => {
+      const message = String((e as any).message || "");
+      if (message.includes("Outdated Optimize Dep")) {
+        recoverOutdatedOptimizeDep();
+      }
     };
 
     wv.addEventListener("dom-ready", onReady);
     wv.addEventListener("did-fail-load", onFailed);
+    wv.addEventListener("console-message", onConsoleMessage);
 
     return () => {
       wv.removeEventListener("dom-ready", onReady);
       wv.removeEventListener("did-fail-load", onFailed);
+      wv.removeEventListener("console-message", onConsoleMessage);
     };
-  }, [app.placeholder]);
+  }, [app.placeholder, isActive, app.id]);
 
   useEffect(() => {
     if (isActive && error && !app.placeholder) {
@@ -73,6 +128,10 @@ export default function AppWebview({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isActive]);
+
+  useEffect(() => {
+    reportActiveWebview();
+  }, [isActive, url]);
 
   function handleRetry() {
     setError(false);

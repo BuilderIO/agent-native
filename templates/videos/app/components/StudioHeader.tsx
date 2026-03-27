@@ -24,8 +24,6 @@ export function StudioHeader({
     <>
       <header className="flex items-center justify-between px-4 h-12 border-b border-border bg-card/80 backdrop-blur-xl z-10 flex-shrink-0">
         <div className="flex items-center gap-3">
-          <AgentToggleButton />
-
           <button
             onClick={onToggleSidebar}
             className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
@@ -72,19 +70,22 @@ export function StudioHeader({
           </nav>
         </div>
 
-        <button
-          onClick={() => {
-            if (isLocal) {
-              setShowCloudUpgrade(true);
-            } else {
-              // Future: implement share/export flow
-            }
-          }}
-          className="px-3 py-1.5 text-xs font-medium rounded-md transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary/50 flex items-center gap-1.5"
-        >
-          <Share2 className="w-3.5 h-3.5" />
-          Share
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              if (isLocal) {
+                setShowCloudUpgrade(true);
+              } else {
+                // Future: implement share/export flow
+              }
+            }}
+            className="px-3 py-1.5 text-xs font-medium rounded-md transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary/50 flex items-center gap-1.5"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            Share
+          </button>
+          <AgentToggleButton />
+        </div>
       </header>
 
       {showCloudUpgrade && (

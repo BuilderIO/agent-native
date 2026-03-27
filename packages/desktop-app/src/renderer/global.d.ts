@@ -18,6 +18,7 @@ interface ElectronAPI {
   };
 
   setActiveApp(appId: string): void;
+  setActiveWebview(target: { appId: string; webContentsId?: number }): void;
 
   interApp: {
     send(targetAppId: string, event: string, data: unknown): void;
@@ -65,6 +66,8 @@ declare namespace JSX {
 interface ElectronWebviewElement extends HTMLElement {
   src: string;
   reload(): void;
+  reloadIgnoringCache(): void;
+  getWebContentsId(): number;
   getURL(): string;
   getTitle(): string;
   canGoBack(): boolean;

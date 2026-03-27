@@ -10,7 +10,7 @@ import {
   Code2,
   Quote,
   Minus,
-  Sparkles,
+  Wand2,
   ImageIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -107,7 +107,7 @@ function createCommands(onGenerate: () => void): CommandItem[] {
     {
       title: "Generate",
       description: "AI-assisted writing",
-      icon: Sparkles,
+      icon: Wand2,
       category: "ai",
       action: (_editor) => {
         onGenerate();

@@ -12,7 +12,7 @@ export function AppLayout({ activeDocumentId, children }: AppLayoutProps) {
     <div className="flex h-screen overflow-hidden bg-background">
       <DocumentSidebar activeDocumentId={activeDocumentId} />
       <AgentSidebar
-        position="left"
+        position="right"
         defaultOpen
         emptyStateText="Ask me anything about your documents"
         suggestions={[
@@ -21,7 +21,7 @@ export function AppLayout({ activeDocumentId, children }: AppLayoutProps) {
           "Organize my pages",
         ]}
       >
-        <main className="flex-1 flex flex-col min-w-0 relative">
+        <main className="relative flex min-w-0 flex-1 flex-col">
           {children}
         </main>
       </AgentSidebar>

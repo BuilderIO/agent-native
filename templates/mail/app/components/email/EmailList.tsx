@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { EmailListItem } from "./EmailListItem";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
+  fetchThreadMessages,
   useEmails,
   useMarkRead,
   useMarkThreadRead,
@@ -11,6 +12,7 @@ import {
   useArchiveEmail,
   useTrashEmail,
 } from "@/hooks/use-emails";
+import { useQueryClient } from "@tanstack/react-query";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import type { EmailMessage } from "@shared/types";
 import { setUndoAction } from "@/hooks/use-undo";
@@ -152,6 +154,7 @@ export function EmailList({
   const toggleStar = useToggleStar();
   const archiveEmail = useArchiveEmail();
   const trashEmail = useTrashEmail();
+  const queryClient = useQueryClient();
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -184,13 +187,25 @@ export function EmailList({
     if (!focusedId) return;
     const thread = threads.find((t) => t.latestMessage.id === focusedId);
     if (!thread) return;
+    const targetThreadId = thread.latestMessage.threadId || focusedId;
     if (thread.hasUnread) {
-      markThreadRead.mutate(thread.latestMessage.threadId || focusedId);
+      markThreadRead.mutate(targetThreadId);
     }
-    navigate(
-      `/${view}/${thread.latestMessage.threadId || focusedId}${labelSuffix}`,
-    );
-  }, [focusedId, threads, view, navigate, markThreadRead, labelSuffix]);
+    void queryClient.prefetchQuery({
+      queryKey: ["thread-messages", targetThreadId],
+      queryFn: () => fetchThreadMessages(targetThreadId),
+      staleTime: 30_000,
+    });
+    navigate(`/${view}/${targetThreadId}${labelSuffix}`);
+  }, [
+    focusedId,
+    threads,
+    view,
+    navigate,
+    markThreadRead,
+    labelSuffix,
+    queryClient,
+  ]);
 
   const archiveFocused = useCallback(() => {
     if (!focusedId) return;
@@ -303,6 +318,31 @@ export function EmailList({
     }
   }, [threads, focusedId, setFocusedId]);
 
+  useEffect(() => {
+    if (!focusedId) return;
+    const index = threads.findIndex((t) => t.latestMessage.id === focusedId);
+    if (index === -1) return;
+
+    const threadIdsToWarm = new Set<string>();
+    for (const candidate of [
+      threads[index - 1],
+      threads[index],
+      threads[index + 1],
+    ]) {
+      const id =
+        candidate?.latestMessage.threadId || candidate?.latestMessage.id;
+      if (id) threadIdsToWarm.add(id);
+    }
+
+    threadIdsToWarm.forEach((threadId) => {
+      void queryClient.prefetchQuery({
+        queryKey: ["thread-messages", threadId],
+        queryFn: () => fetchThreadMessages(threadId),
+        staleTime: 30_000,
+      });
+    });
+  }, [focusedId, threads, queryClient]);
+
   // Advance selection when an email is snoozed (same logic as archiveFocused)
   useEffect(() => {
     const handler = (e: Event) => {
@@ -322,6 +362,7 @@ export function EmailList({
 
   const handleSelect = (thread: ThreadSummary) => {
     const email = thread.latestMessage;
+    const targetThreadId = email.threadId || email.id;
     setFocusedId(email.id);
     // Draft emails: open in compose window instead of thread view
     if (email.isDraft && onDraftOpen) {
@@ -329,9 +370,14 @@ export function EmailList({
       return;
     }
     if (thread.hasUnread) {
-      markThreadRead.mutate(email.threadId || email.id);
+      markThreadRead.mutate(targetThreadId);
     }
-    navigate(`/${view}/${email.threadId || email.id}${labelSuffix}`);
+    void queryClient.prefetchQuery({
+      queryKey: ["thread-messages", targetThreadId],
+      queryFn: () => fetchThreadMessages(targetThreadId),
+      staleTime: 30_000,
+    });
+    navigate(`/${view}/${targetThreadId}${labelSuffix}`);
   };
 
   const handleStar = (e: React.MouseEvent, thread: ThreadSummary) => {
@@ -442,7 +488,16 @@ export function EmailList({
             isFocused={thread.latestMessage.id === focusedId}
             onSelect={() => handleSelect(thread)}
             onStar={(e) => handleStar(e, thread)}
-            onHover={() => setFocusedId(thread.latestMessage.id)}
+            onHover={() => {
+              setFocusedId(thread.latestMessage.id);
+              const targetThreadId =
+                thread.latestMessage.threadId || thread.latestMessage.id;
+              void queryClient.prefetchQuery({
+                queryKey: ["thread-messages", targetThreadId],
+                queryFn: () => fetchThreadMessages(targetThreadId),
+                staleTime: 30_000,
+              });
+            }}
           />
         ))}
       </div>

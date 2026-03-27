@@ -45,7 +45,7 @@ export default function DeckEditor() {
   const isNewDeckGenerating = generating && wasNewDeckCreation.current;
   const [activeTab, setActiveTab] = useState<"visual" | "code">("visual");
   const [sidebarOpen, setSidebarOpen] = useState(
-    () => window.innerWidth >= 768,
+    () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
 
   // Dialog/popover states

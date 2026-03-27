@@ -8,165 +8,33 @@ This is an **agent-native** app built with `@agent-native/core`. See `.agents/sk
 - **real-time-sync** — UI stays in sync with agent changes via SSE (DB change events).
 - **frontend-design** — Build distinctive, production-grade UI. Read this skill before creating or restyling any component, page, or layout.
 
+For code editing and development guidance, read `DEVELOPING.md`.
+
 ---
 
-## Learnings & Preferences
+## Resources
 
-**Always read `learnings.md` at the start of every conversation.** This file is the app's memory — it contains user preferences, corrections, important context, and patterns learned from past interactions.
+Resources are SQL-backed persistent files for notes, learnings, and context. They replace the old `learnings.md` file approach.
 
-**Update `learnings.md` when you learn something important:**
+**Always read the `learnings.md` resource at the start of every conversation.** It contains user preferences, corrections, and patterns from past interactions.
+
+**Update the `learnings.md` resource when you learn something important:**
 
 - User corrects your tone, style, or approach
-- User shares personal info relevant to the app (contacts, preferences, habits)
+- User shares personal info relevant to the app
 - You discover a non-obvious pattern or gotcha
 - User gives feedback that should apply to future conversations
 
-Keep entries concise and actionable. Group by category. This file is gitignored so personal data stays local.
+Resources can be **personal** (per-user, default) or **shared** (team-wide).
 
-## Framework Basics (Nitro + @agent-native/core)
+| Script            | Args                                                        | Purpose                 |
+| ----------------- | ----------------------------------------------------------- | ----------------------- |
+| `resource-read`   | `--path <path> [--scope personal\|shared]`                  | Read a resource         |
+| `resource-write`  | `--path <path> --content <text> [--scope personal\|shared]` | Write/update a resource |
+| `resource-list`   | `[--prefix <path>] [--scope personal\|shared\|all]`         | List resources          |
+| `resource-delete` | `--path <path> [--scope personal\|shared]`                  | Delete a resource       |
 
-This app uses **Nitro** (via `@agent-native/core`) for the server. All server code lives in `server/`.
-
-### Server Directory
-
-```
-server/
-  routes/     # File-based API routes (auto-discovered by Nitro)
-  handlers/   # Route handler logic modules
-  plugins/    # Server plugins — run at startup (auth, SSE, etc.)
-  lib/        # Shared server modules (watcher instance, helpers)
-```
-
-### Adding an API Route
-
-Create a file in `server/routes/api/`. The filename determines the URL path and HTTP method:
-
-```
-server/routes/api/items/index.get.ts    → GET  /api/items
-server/routes/api/items/index.post.ts   → POST /api/items
-server/routes/api/items/[id].get.ts     → GET  /api/items/:id
-server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
-```
-
-Each file exports a default `defineEventHandler`:
-
-```ts
-export default defineEventHandler(async (event) => {
-  const body = await readBody(event);
-  return { ok: true };
-});
-```
-
-### Server Plugins
-
-Startup logic (auth, SSE, etc.) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
-
-```ts
-import { defineNitroPlugin } from "@agent-native/core";
-
-export default defineNitroPlugin(async (nitroApp) => {
-  // Runs once at server startup
-});
-```
-
-### Key Imports from `@agent-native/core`
-
-| Import                                       | Purpose                                                                    |
-| -------------------------------------------- | -------------------------------------------------------------------------- |
-| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)                            |
-| `createDefaultSSEHandler`                    | Create SSE endpoint for DB change events (server)                          |
-| `readAppState`, `writeAppState`              | Read/write application state (from `@agent-native/core/application-state`) |
-| `readSetting`, `writeSetting`                | Read/write settings (from `@agent-native/core/settings`)                   |
-| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)                                   |
-| `sendToAgentChat`                            | Send messages to agent from UI (client-side)                               |
-| `agentChat`                                  | Send messages to agent from scripts (server-side)                          |
-
-### Build & Dev Commands
-
-```bash
-pnpm dev        # Vite dev server + Nitro plugin (single process)
-pnpm build      # Single Vite build (client SPA + Nitro server)
-pnpm start      # node .output/server/index.mjs (production)
-pnpm typecheck  # TypeScript validation
-```
-
----
-
-# Agent-Native Starter
-
-A production-ready full-stack React application template with integrated Nitro server, featuring React Router 6 SPA mode, TypeScript, Vitest, Zod and modern tooling.
-
-While the starter comes with a Nitro server, only create endpoint when strictly neccesary, for example to encapsulate logic that must leave in the server, such as private keys handling, or certain DB operations, db...
-
-## Tech Stack
-
-- **PNPM**: Prefer pnpm
-- **Frontend**: React 18 + React Router 6 (spa) + TypeScript + Vite + TailwindCSS 3
-- **Backend**: Nitro (via @agent-native/core) — file-based API routing
-- **Testing**: Vitest
-- **UI**: Radix UI + TailwindCSS 3 + Lucide React icons
-
-## Project Structure
-
-```
-app/                      # React SPA frontend
-├── pages/                # Route components (Index.tsx = home)
-├── components/ui/        # Pre-built UI component library
-├── root.tsx               # HTML shell + global providers setup
-└── global.css            # TailwindCSS 3 theming and global styles
-
-server/                   # Nitro API server
-├── routes/               # File-based API routes (auto-discovered by Nitro)
-├── plugins/              # Server plugins (startup logic)
-└── lib/                  # Shared server modules
-
-shared/                   # Types used by both client & server
-└── api.ts                # Shared API interfaces
-```
-
-## Routing System
-
-The routing system uses React Router v7 framework mode with file-based routing:
-
-- Routes are auto-discovered from `app/routes/` via `flatRoutes()`.
-- `app/routes/_index.tsx` is the home page (`/`).
-- Create a file to add a route (e.g. `app/routes/settings.tsx` → `/settings`).
-- Dynamic params use `$` prefix (e.g. `app/routes/c.$compositionId.tsx` → `/c/:compositionId`).
-
-### Styling System
-
-- **Primary**: TailwindCSS 3 utility classes
-- **Theme and design tokens**: Configure in `app/global.css`
-- **UI components**: Pre-built library in `app/components/ui/`
-- **Utility**: `cn()` combines `clsx` + `tailwind-merge` for conditional classes
-
-### Path Aliases
-
-- `@shared/*` — Shared folder
-- `@/*` — Client folder
-
-## Development Commands
-
-```bash
-pnpm dev        # Start dev server (client + server)
-pnpm build      # Production build
-pnpm start      # Start production server
-pnpm typecheck  # TypeScript validation
-pnpm test       # Run Vitest tests
-```
-
----
-
-### Database (Cloud Deployment)
-
-By default, data is stored in SQLite at `data/app.db`. For production/cloud deployment, set `DATABASE_URL` to point to a remote database (Turso, Neon, Supabase, D1).
-
-**Environment variables:**
-
-| Variable              | Required         | Description                                                |
-| --------------------- | ---------------- | ---------------------------------------------------------- |
-| `DATABASE_URL`        | No (has default) | Database connection string (default: `file:./data/app.db`) |
-| `DATABASE_AUTH_TOKEN` | For remote DBs   | Auth token for Turso or other remote databases             |
+Resources are stored in SQL, not files. They persist across sessions and are not in git.
 
 ---
 

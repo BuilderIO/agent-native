@@ -7,7 +7,6 @@ import {
   ArrowDown,
   TrendingUp,
   TrendingDown,
-  Sparkles,
   ChevronDown,
   ChevronRight,
   ExternalLink,
@@ -559,8 +558,8 @@ function ExpandedKeywords({ keywords }: { keywords: BlogKeywordRanking[] }) {
 function TrendIndicator({ kw }: { kw: BlogKeywordRanking }) {
   if (kw.is_new) {
     return (
-      <span className="inline-flex items-center gap-0.5 text-purple-400">
-        <Sparkles className="h-3 w-3" />
+      <span className="inline-flex items-center gap-1 text-purple-400">
+        <span className="h-1.5 w-1.5 rounded-full bg-purple-400" />
         <span className="text-[10px]">New</span>
       </span>
     );

@@ -4,116 +4,31 @@ You are the AI assistant for this email client. You can read, search, organize, 
 
 This is an **agent-native** email client built with `@agent-native/core`.
 
-## Learnings & Preferences
+## Resources
 
-**Always read `learnings.md` at the start of every conversation.** This file is the app's memory — it contains user preferences, corrections, important context, and patterns learned from past interactions.
+Resources are SQL-backed persistent files for storing notes, learnings, and context. They replace the old `learnings.md` file approach — resources are stored in the database, not the filesystem.
 
-**Update `learnings.md` when you learn something important:**
+**At the start of every conversation, read the `learnings.md` resource.** This is the app's memory — it contains user preferences, corrections, important context, and patterns learned from past interactions.
+
+**Update the `learnings.md` resource when you learn something important:**
 
 - User corrects your tone, style, or approach
 - User shares personal info relevant to the app (contacts, preferences, habits)
 - You discover a non-obvious pattern or gotcha
 - User gives feedback that should apply to future conversations
 
-Keep entries concise and actionable. Group by category. This file is gitignored so personal data stays local.
+Keep entries concise and actionable. Group by category.
 
-## Framework Basics (Nitro + @agent-native/core)
+Resources support **personal** scope (per-user) and **shared** scope (visible to all users).
 
-This app uses **Nitro** (via `@agent-native/core`) for the server. All server code lives in `server/`.
+### Resource scripts
 
-### Server Directory
-
-```
-server/
-  routes/     # File-based API routes (auto-discovered by Nitro)
-  handlers/   # Route handler logic modules
-  plugins/    # Server plugins — run at startup (DB migrations, auth)
-  lib/        # Shared server modules
-```
-
-### Adding an API Route
-
-Create a file in `server/routes/api/`. The filename determines the URL path and HTTP method:
-
-```
-server/routes/api/items/index.get.ts    → GET  /api/items
-server/routes/api/items/index.post.ts   → POST /api/items
-server/routes/api/items/[id].get.ts     → GET  /api/items/:id
-server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
-```
-
-Each file exports a default `defineEventHandler`:
-
-```ts
-export default defineEventHandler(async (event) => {
-  const body = await readBody(event);
-  return { ok: true };
-});
-```
-
-### Server Plugins
-
-Startup logic (DB migrations, auth) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
-
-```ts
-import { defineNitroPlugin } from "@agent-native/core";
-
-export default defineNitroPlugin(async (nitroApp) => {
-  // Runs once at server startup
-});
-```
-
-### Key Imports from `@agent-native/core`
-
-| Import                                       | Purpose                                           |
-| -------------------------------------------- | ------------------------------------------------- |
-| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)   |
-| `createSSEHandler`                           | Create SSE endpoint for real-time updates         |
-| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)          |
-| `sendToAgentChat`                            | Send messages to agent from UI (client-side)      |
-| `agentChat`                                  | Send messages to agent from scripts (server-side) |
-
-### Key Imports from `@agent-native/core/settings`
-
-| Import                                   | Purpose                                     |
-| ---------------------------------------- | ------------------------------------------- |
-| `getSetting(key)` / `setSetting(key, v)` | Read/write settings from SQL settings store |
-
-### Key Imports from `@agent-native/core/application-state`
-
-| Import                                        | Purpose                               |
-| --------------------------------------------- | ------------------------------------- |
-| `readAppState(key)` / `writeAppState(key, v)` | Read/write ephemeral app state in SQL |
-
-### Build & Dev Commands
-
-```bash
-pnpm dev        # Vite dev server + Nitro plugin (single process)
-pnpm build      # Single Vite build (client SPA + Nitro server)
-pnpm start      # node .output/server/index.mjs (production)
-pnpm typecheck  # TypeScript validation
-```
-
----
-
-## Data Sources
-
-**When a Google account is connected**, emails come from the Gmail API — the app works with real emails. **When no account is connected**, the SQL settings store (`getSetting("local-emails")`) is used as a local store (starts empty).
-
-To check the current state:
-
-- Use `readAppState("email-list")` to see the emails currently displayed on the user's screen (compact summaries with id, threadId, from, subject, snippet, date, isRead, isStarred)
-- Use `readAppState("navigation")` to see what view/thread the user is looking at
-- Use `pnpm script list-emails --view=inbox` to list emails (automatically uses Gmail when connected, falls back to local data)
-- Use `pnpm script search-emails --q=term` to search across all emails
-- Check Google connection status via `GET /api/google/status`
-
-**IMPORTANT — Drafts vs Emails:**
-
-- The **compose window** the user sees is stored via `readAppState("compose-{id}")` — NOT the email store
-- To see/edit the user's current draft: use `readAppState("compose-{id}")` / `writeAppState("compose-{id}", draft)`
-- To see stored email messages: use `pnpm script list-emails` or query the settings store
-- NEVER edit the email store to modify a draft the user is currently composing
+| Script            | Args                                           | Purpose                 |
+| ----------------- | ---------------------------------------------- | ----------------------- |
+| `resource-read`   | `--name <name> [--scope personal\|shared]`     | Read a resource         |
+| `resource-write`  | `--name <name> --content <text> [--scope ...]` | Write/update a resource |
+| `resource-list`   | `[--scope personal\|shared]`                   | List all resources      |
+| `resource-delete` | `--name <name> [--scope personal\|shared]`     | Delete a resource       |
 
 ## Architecture
 
@@ -145,6 +60,25 @@ To check the current state:
             │  (data/app.db)│
             └───────────────┘
 ```
+
+## Data Sources
+
+**When a Google account is connected**, emails come from the Gmail API — the app works with real emails. **When no account is connected**, the SQL settings store (`getSetting("local-emails")`) is used as a local store (starts empty).
+
+To check the current state:
+
+- Use `readAppState("email-list")` to see the emails currently displayed on the user's screen (compact summaries with id, threadId, from, subject, snippet, date, isRead, isStarred)
+- Use `readAppState("navigation")` to see what view/thread the user is looking at
+- Use `pnpm script list-emails --view=inbox` to list emails (automatically uses Gmail when connected, falls back to local data)
+- Use `pnpm script search-emails --q=term` to search across all emails
+- Check Google connection status via `GET /api/google/status`
+
+**IMPORTANT — Drafts vs Emails:**
+
+- The **compose window** the user sees is stored via `readAppState("compose-{id}")` — NOT the email store
+- To see/edit the user's current draft: use `readAppState("compose-{id}")` / `writeAppState("compose-{id}", draft)`
+- To see stored email messages: use `pnpm script list-emails` or query the settings store
+- NEVER edit the email store to modify a draft the user is currently composing
 
 ## Data Model
 
@@ -313,15 +247,6 @@ Use `writeAppState("navigate", ...)` to navigate the user to a specific email or
 
 This is a one-shot command — the entry is deleted after the UI processes it.
 
-#### Common navigation tasks
-
-| User request                                  | What to do                                                                                                         |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| "What email am I looking at?"                 | `readAppState("navigation")` to get the threadId, then fetch that thread via `GET /api/threads/:threadId/messages` |
-| "Reply to this email"                         | Read navigation state for threadId -> fetch thread via API -> `writeAppState("compose-{id}", ...)` with mode=reply |
-| "Find the email from Alice about the project" | `pnpm script list-emails --q=alice`, then `writeAppState("navigate", { threadId: "..." })` to open it              |
-| "Open my starred emails"                      | `writeAppState("navigate", { view: "starred" })`                                                                   |
-
 ### Compose emails
 
 Use `writeAppState("compose-{id}", draft)` to open a new draft tab with pre-filled content:
@@ -361,7 +286,7 @@ The UI will pick up the changes automatically (via SSE on `"app-state"` events).
 | `replyToId`       | string | no       | ID of email being replied to        |
 | `replyToThreadId` | string | no       | Thread ID for grouping              |
 
-#### Common tasks
+## Common Tasks
 
 | User request                      | What to do                                                                                                                                                                 |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -419,7 +344,7 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 
 `list-emails` and `search-emails` support `--compact` for shorter output and `--fields=from,subject,date` to pick specific fields.
 
-### Common tasks
+### Script tasks
 
 | User request                        | Script to run                                                                                       |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------- |
@@ -439,18 +364,6 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 | "Send this email"                   | `pnpm script send-email --to=<email> --subject="..." --body="..."`                                  |
 | "What thread am I looking at?"      | `pnpm script view-screen --full`                                                                    |
 | "Archive old emails"                | `pnpm script bulk-archive --older-than=30`                                                          |
-
-### Adding new scripts
-
-1. Create `scripts/my-script.ts` with:
-
-```typescript
-export default async function main(args: string[]): Promise<void> {
-  // parse args, use readAppState/writeAppState or readSetting/writeSetting
-}
-```
-
-2. Run with `pnpm script my-script` (auto-discovered, no registration needed).
 
 ## API Routes
 
@@ -491,47 +404,6 @@ export default async function main(args: string[]): Promise<void> {
 | `G then A` | Go to Archive                |
 | `Esc`      | Close thread / clear search  |
 
-## Project Structure
-
-```
-app/
-  components/
-    layout/       # AppLayout, Sidebar, CommandPalette
-    email/        # EmailList, EmailListItem, EmailThread, ComposeModal
-    ui/           # shadcn/ui components
-  hooks/          # use-emails.ts (React Query), use-keyboard-shortcuts.ts
-  pages/          # InboxPage, NotFound
-  lib/            # utils.ts
-server/
-  routes/         # File-based API routes (auto-discovered by Nitro)
-  handlers/       # Route handler modules
-  plugins/        # Server plugins (startup logic)
-  lib/            # Shared server modules
-shared/
-  types.ts        # Shared TypeScript types
-scripts/
-  run.ts          # Script dispatcher
-data/
-  app.db          # SQLite database (all app data)
-```
-
-## Tech Stack
-
-- **Framework**: `@agent-native/core`
-- **Package manager**: `pnpm`
-- **Frontend**: React 18, React Router 6, TypeScript, Vite, TailwindCSS
-- **Backend**: Nitro (via @agent-native/core)
-- **UI**: Radix UI + shadcn/ui
-- **Icons**: `@tabler/icons-react` — use Tabler icons for all icons. Do not use Lucide or inline SVGs.
-- **Themes**: next-themes (dark/light/system)
-- **State**: SQL-backed via `@agent-native/core/settings` and `@agent-native/core/application-state`
-- **Database**: SQLite (via Drizzle ORM), upgradeable to Turso/Neon/Supabase via `DATABASE_URL`
-
 ## Development
 
-```bash
-pnpm dev          # Start dev server (client + server)
-pnpm build        # Production build
-pnpm typecheck    # TypeScript validation
-pnpm script <name> [--args]  # Run a backend script
-```
+For code editing and development guidance, read `DEVELOPING.md`.

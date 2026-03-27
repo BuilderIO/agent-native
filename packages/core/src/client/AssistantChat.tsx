@@ -16,10 +16,19 @@ import {
   ThreadPrimitive,
   ComposerPrimitive,
   MessagePrimitive,
+  AttachmentPrimitive,
 } from "@assistant-ui/react";
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
+import {
+  SimpleImageAttachmentAdapter,
+  SimpleTextAttachmentAdapter,
+  CompositeAttachmentAdapter,
+} from "@assistant-ui/react";
+import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
 import { cn } from "./utils.js";
+import { TiptapComposer } from "./composer/TiptapComposer.js";
+import type { Reference } from "./composer/types.js";
 
 // ─── Icons ──────────────────────────────────────────────────────────────────
 
@@ -51,6 +60,38 @@ function SendIcon({ className }: { className?: string }) {
       className={className}
     >
       <path d="M5 12h14M12 5l7 7-7 7" />
+    </svg>
+  );
+}
+
+function PaperclipIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+    </svg>
+  );
+}
+
+function XIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M18 6 6 18M6 6l12 12" />
     </svg>
   );
 }
@@ -128,6 +169,66 @@ function CopyIcon({ className }: { className?: string }) {
   );
 }
 
+// ─── Markdown Text ──────────────────────────────────────────────────────────
+
+const markdownStyles = `
+.agent-markdown > :first-child { margin-top: 0; }
+.agent-markdown > :last-child { margin-bottom: 0; }
+.agent-markdown p { margin: 0.5em 0; }
+.agent-markdown ul, .agent-markdown ol { margin: 0.5em 0; padding-left: 1.5em; }
+.agent-markdown li { margin: 0.2em 0; }
+.agent-markdown li > p { margin: 0; }
+.agent-markdown h1 { font-size: 1.25em; font-weight: 600; margin: 0.75em 0 0.25em; }
+.agent-markdown h2 { font-size: 1.125em; font-weight: 600; margin: 0.75em 0 0.25em; }
+.agent-markdown h3 { font-size: 1em; font-weight: 600; margin: 0.75em 0 0.25em; }
+.agent-markdown strong { font-weight: 600; }
+.agent-markdown em { font-style: italic; }
+.agent-markdown code { font-size: 0.875em; padding: 0.15em 0.35em; border-radius: 0.25em; background: var(--color-muted, hsl(0 0% 15%)); }
+.agent-markdown pre { margin: 0.5em 0; padding: 0.75em 1em; border-radius: 0.375em; background: var(--color-muted, hsl(0 0% 15%)); overflow-x: auto; }
+.agent-markdown pre code { padding: 0; background: transparent; font-size: 0.8125em; }
+.agent-markdown hr { border: none; border-top: 1px solid var(--color-border, hsl(0 0% 20%)); margin: 0.75em 0; }
+.agent-markdown a { text-decoration: underline; text-underline-offset: 2px; }
+.agent-markdown blockquote { border-left: 2px solid var(--color-border, hsl(0 0% 20%)); padding-left: 0.75em; margin: 0.5em 0; opacity: 0.8; }
+.agent-markdown table { border-collapse: collapse; margin: 0.5em 0; font-size: 0.875em; }
+.agent-markdown th, .agent-markdown td { border: 1px solid var(--color-border, hsl(0 0% 20%)); padding: 0.35em 0.65em; text-align: left; }
+.agent-markdown th { font-weight: 600; background: var(--color-muted, hsl(0 0% 15%)); }
+`;
+
+let stylesInjected = false;
+function injectMarkdownStyles() {
+  if (stylesInjected || typeof document === "undefined") return;
+  stylesInjected = true;
+  const style = document.createElement("style");
+  style.textContent = markdownStyles;
+  document.head.appendChild(style);
+}
+
+function MarkdownText() {
+  useEffect(() => {
+    injectMarkdownStyles();
+  }, []);
+  return (
+    <MarkdownTextPrimitive smooth className="agent-markdown break-words" />
+  );
+}
+
+// ─── Composer Attachment Preview ─────────────────────────────────────────────
+
+function ComposerAttachmentPreview() {
+  return (
+    <AttachmentPrimitive.Root className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs text-foreground m-1.5 mb-0">
+      <span className="max-w-[160px] truncate">
+        <AttachmentPrimitive.Name />
+      </span>
+      <AttachmentPrimitive.Remove asChild>
+        <button className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-accent text-muted-foreground hover:text-foreground">
+          <XIcon className="h-3 w-3" />
+        </button>
+      </AttachmentPrimitive.Remove>
+    </AttachmentPrimitive.Root>
+  );
+}
+
 // ─── Tool Call Fallback ─────────────────────────────────────────────────────
 
 function ToolCallFallback({
@@ -200,7 +301,7 @@ function ToolCallFallback({
 
 function UserMessage() {
   return (
-    <div className="flex justify-end">
+    <div className="flex justify-end" style={{ contentVisibility: "auto" }}>
       <div className="max-w-[85%] rounded-lg bg-accent text-foreground px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
         <MessagePrimitive.Parts
           components={{
@@ -215,10 +316,16 @@ function UserMessage() {
 function AssistantMessage() {
   const [copied, setCopied] = useState(false);
   const messageRuntime = useMessageRuntime();
+  const thread = useThread();
+  const msg = messageRuntime.getState();
+  const isLast =
+    thread.messages.length > 0 &&
+    thread.messages[thread.messages.length - 1].id === msg.id;
+  const isComplete = !isLast || !thread.isRunning;
 
   const handleCopy = useCallback(() => {
-    const msg = messageRuntime.getState();
-    const text = msg.content
+    const m = messageRuntime.getState();
+    const text = m.content
       .filter((p) => p.type === "text")
       .map((p) => (p as { text: string }).text)
       .join("\n");
@@ -228,32 +335,35 @@ function AssistantMessage() {
   }, [messageRuntime]);
 
   return (
-    <div className="group relative">
+    <div
+      className="group relative"
+      style={{ contentVisibility: isComplete ? "auto" : "visible" }}
+    >
       <div className="max-w-[95%] text-sm leading-relaxed text-foreground">
         <MessagePrimitive.Parts
           components={{
-            Text: ({ text }) => (
-              <div className="whitespace-pre-wrap break-words">{text}</div>
-            ),
+            Text: MarkdownText,
             tools: {
               Fallback: ToolCallFallback,
             },
           }}
         />
       </div>
-      {/* Action bar on hover */}
-      <div className="mt-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
-        <button
-          onClick={handleCopy}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          {copied ? (
-            <CheckIcon className="h-3.5 w-3.5" />
-          ) : (
-            <CopyIcon className="h-3.5 w-3.5" />
-          )}
-        </button>
-      </div>
+      {/* Action bar — only show after message is complete */}
+      {isComplete && (
+        <div className="mt-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+          <button
+            onClick={handleCopy}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            {copied ? (
+              <CheckIcon className="h-3 w-3" />
+            ) : (
+              <CopyIcon className="h-3 w-3" />
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -261,18 +371,16 @@ function AssistantMessage() {
 // ─── Thinking Indicator ─────────────────────────────────────────────────────
 
 function ThinkingIndicator() {
+  const [dots, setDots] = useState(1);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDots((d) => (d % 3) + 1);
+    }, 400);
+    return () => clearInterval(interval);
+  }, []);
   return (
-    <div className="flex items-center gap-1.5 text-muted-foreground py-2">
-      <div className="flex gap-1">
-        {[0, 1, 2].map((i) => (
-          <span
-            key={i}
-            className="h-1.5 w-1.5 rounded-full bg-current opacity-40 animate-bounce"
-            style={{ animationDelay: `${i * 0.15}s` }}
-          />
-        ))}
-      </div>
-      <span className="text-xs">Thinking...</span>
+    <div className="flex items-center text-muted-foreground">
+      <span className="text-xs">Thinking{".".repeat(dots)}</span>
     </div>
   );
 }
@@ -425,10 +533,10 @@ export interface AssistantChatProps {
   showHeader?: boolean;
   /** CSS class for the outer container */
   className?: string;
-  /** Whether to show the "Use CLI" hint in dev mode. Default: true */
-  showDevHint?: boolean;
   /** Callback when user clicks "Use CLI" button */
   onSwitchToCli?: () => void;
+  /** Callback when message count changes */
+  onMessageCountChange?: (count: number) => void;
 }
 
 // ─── Queue Composer ──────────────────────────────────────────────────────────
@@ -439,10 +547,12 @@ function QueueComposer({
   composerRef,
   addToQueue,
   queuedCount,
+  onStop,
 }: {
   composerRef: React.RefObject<HTMLTextAreaElement | null>;
   addToQueue: (text: string) => void;
   queuedCount: number;
+  onStop: () => void;
 }) {
   const [value, setValue] = useState("");
 
@@ -455,50 +565,73 @@ function QueueComposer({
     setTimeout(() => composerRef.current?.focus(), 0);
   }, [value, addToQueue, composerRef]);
 
+  const handleAutoResize = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      setValue(e.target.value);
+      e.target.style.height = "auto";
+      e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
+    },
+    [],
+  );
+
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring">
-      <textarea
-        ref={composerRef}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            handleSubmit();
+    <div className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
+      <div className="flex items-center gap-1 px-2 py-1.5">
+        <div className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground">
+          <PaperclipIcon className="h-4 w-4 opacity-30" />
+        </div>
+        <textarea
+          ref={composerRef}
+          value={value}
+          onChange={handleAutoResize}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmit();
+            }
+          }}
+          placeholder={
+            queuedCount > 0
+              ? `${queuedCount} queued — type another...`
+              : "Queue a message..."
           }
-        }}
-        placeholder={
-          queuedCount > 0
-            ? `${queuedCount} queued — type another...`
-            : "Queue a message..."
-        }
-        className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-relaxed min-h-[24px] max-h-[120px]"
-        rows={1}
-      />
-      <button
-        onClick={handleSubmit}
-        disabled={!value.trim()}
-        className="shrink-0 flex h-8 w-8 items-center justify-center rounded-md bg-primary/70 text-primary-foreground hover:bg-primary disabled:opacity-30 disabled:cursor-not-allowed"
-        title="Queue message"
-      >
-        <SendIcon className="h-3.5 w-3.5" />
-      </button>
+          className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-[1.625rem]"
+          rows={1}
+        />
+        <button
+          onClick={onStop}
+          className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90"
+          title="Stop generating"
+        >
+          <StopIcon className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 }
 
+export const CHAT_STORAGE_PREFIX = "agent-chat:";
+
+/** Remove persisted chat for a given tabId (or "default"). */
+export function clearChatStorage(tabId?: string) {
+  try {
+    sessionStorage.removeItem(`${CHAT_STORAGE_PREFIX}${tabId || "default"}`);
+  } catch {}
+}
+
 const AssistantChatInner = forwardRef<
   AssistantChatHandle,
-  Omit<AssistantChatProps, "tabId">
+  AssistantChatProps & { apiUrl: string }
 >(function AssistantChatInner(
   {
     emptyStateText,
     suggestions,
     showHeader = true,
-    showDevHint = true,
     onSwitchToCli,
     className,
-    apiUrl = "/api/agent-chat",
+    apiUrl,
+    tabId,
+    onMessageCountChange,
   },
   ref,
 ) {
@@ -511,6 +644,51 @@ const AssistantChatInner = forwardRef<
   const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
   const wasRunningRef = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+
+  // ─── Chat persistence ──────────────────────────────────────────────
+  const storageKey = `${CHAT_STORAGE_PREFIX}${tabId || "default"}`;
+  const hasRestoredRef = useRef(false);
+
+  // Restore messages from sessionStorage on mount
+  useEffect(() => {
+    if (hasRestoredRef.current) return;
+    hasRestoredRef.current = true;
+    try {
+      const saved = sessionStorage.getItem(storageKey);
+      if (saved) {
+        const repo = JSON.parse(saved);
+        if (repo?.messages?.length > 0) {
+          threadRuntime.import(repo);
+        }
+      }
+    } catch {
+      // Ignore — start fresh
+    }
+  }, [storageKey, threadRuntime]);
+
+  // Persist messages to sessionStorage after each completed response
+  useEffect(() => {
+    if (!hasRestoredRef.current) return;
+    if (isRunning) return;
+    if (messages.length === 0) return;
+    try {
+      const repo = threadRuntime.export();
+      sessionStorage.setItem(storageKey, JSON.stringify(repo));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [messages, isRunning, storageKey, threadRuntime]);
+
+  useEffect(() => {
+    onMessageCountChange?.(messages.length);
+  }, [messages.length, onMessageCountChange]);
+
+  const clearChat = useCallback(() => {
+    try {
+      sessionStorage.removeItem(storageKey);
+    } catch {}
+    window.location.reload();
+  }, [storageKey]);
 
   // Listen for missing API key events from the adapter
   useEffect(() => {
@@ -567,13 +745,41 @@ const AssistantChatInner = forwardRef<
     [addToQueue, thread.isRunning],
   );
 
-  // Auto-scroll on new messages or queued messages
+  // Track whether user has scrolled away from bottom
+  const isNearBottomRef = useRef(true);
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) {
+    if (!el) return;
+    function onScroll() {
+      if (!el) return;
+      const threshold = 40;
+      isNearBottomRef.current =
+        el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    }
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Auto-scroll on new messages or queued messages (only if near bottom)
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && isNearBottomRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages, isRunning, queuedMessages]);
+  }, [messages, queuedMessages]);
+
+  // Continuous auto-scroll while streaming (only if near bottom)
+  useEffect(() => {
+    if (!isRunning) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const interval = setInterval(() => {
+      if (isNearBottomRef.current) {
+        el.scrollTop = el.scrollHeight;
+      }
+    }, 100);
+    return () => clearInterval(interval);
+  }, [isRunning]);
 
   return (
     <div
@@ -600,7 +806,7 @@ const AssistantChatInner = forwardRef<
             )}
             {messages.length > 0 && (
               <button
-                onClick={() => window.location.reload()}
+                onClick={clearChat}
                 className="text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
               >
                 Clear
@@ -642,18 +848,6 @@ const AssistantChatInner = forwardRef<
                 ))}
               </div>
             )}
-            {showDevHint && onSwitchToCli && (
-              <p className="text-xs text-muted-foreground/60 text-center max-w-[260px] mt-2">
-                In dev mode you can also use the{" "}
-                <button
-                  onClick={onSwitchToCli}
-                  className="underline hover:text-muted-foreground"
-                >
-                  CLI terminal
-                </button>{" "}
-                for full Claude Code capabilities.
-              </p>
-            )}
           </div>
         ) : (
           <div className="flex flex-col gap-4 px-4 py-4">
@@ -691,27 +885,34 @@ const AssistantChatInner = forwardRef<
       </div>
 
       {/* Input area */}
-      <div className="shrink-0 border-t border-border px-3 py-3">
+      <div className="shrink-0 px-3 py-2">
         {isRunning ? (
           <QueueComposer
             composerRef={composerRef}
             addToQueue={addToQueue}
             queuedCount={queuedMessages.length}
+            onStop={() => threadRuntime.cancelRun()}
           />
         ) : (
-          <ComposerPrimitive.Root className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring">
-            <ComposerPrimitive.Input
-              placeholder="Message agent..."
-              submitMode="enter"
-              cancelOnEscape
-              className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none leading-relaxed min-h-[24px] max-h-[120px]"
-              rows={1}
+          <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
+            {/* Attachment previews */}
+            <ComposerPrimitive.Attachments
+              components={{
+                Attachment: ComposerAttachmentPreview,
+              }}
             />
-            <ComposerPrimitive.Send asChild>
-              <button className="shrink-0 flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed">
-                <SendIcon className="h-3.5 w-3.5" />
-              </button>
-            </ComposerPrimitive.Send>
+            <TiptapComposer
+              onSubmit={(text, references) => {
+                threadRuntime.append({
+                  role: "user",
+                  content: [{ type: "text", text }],
+                  runConfig:
+                    references.length > 0
+                      ? { custom: { references } }
+                      : undefined,
+                });
+              }}
+            />
           </ComposerPrimitive.Root>
         )}
       </div>
@@ -722,17 +923,32 @@ const AssistantChatInner = forwardRef<
 export const AssistantChat = forwardRef<
   AssistantChatHandle,
   AssistantChatProps
->(function AssistantChat({ apiUrl, tabId, ...props }, ref) {
+>(function AssistantChat({ apiUrl = "/api/agent-chat", tabId, ...props }, ref) {
   const adapter = useMemo(
     () => createAgentChatAdapter({ apiUrl, tabId }),
     [apiUrl, tabId],
   );
-  const runtime = useLocalRuntime(adapter);
+  const attachmentAdapter = useMemo(
+    () =>
+      new CompositeAttachmentAdapter([
+        new SimpleImageAttachmentAdapter(),
+        new SimpleTextAttachmentAdapter(),
+      ]),
+    [],
+  );
+  const runtime = useLocalRuntime(adapter, {
+    adapters: { attachments: attachmentAdapter },
+  });
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="flex flex-1 flex-col h-full min-h-0">
-        <AssistantChatInner ref={ref} {...props} apiUrl={apiUrl} />
+        <AssistantChatInner
+          ref={ref}
+          {...props}
+          apiUrl={apiUrl}
+          tabId={tabId}
+        />
       </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>
   );

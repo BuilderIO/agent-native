@@ -13,15 +13,29 @@ import {
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import { EventCard } from "./EventCard";
+import { EventDetailPopover } from "./EventDetailPopover";
 import type { CalendarEvent } from "@shared/api";
 
 interface MonthViewProps {
   events: CalendarEvent[];
   selectedDate: Date;
   onDateSelect: (date: Date) => void;
-  onEventClick?: (event: CalendarEvent) => void;
+  onEditEvent?: (event: CalendarEvent) => void;
+  onDeleteEvent?: (eventId: string) => void;
   onEventDrop?: (eventId: string, newDate: Date) => void;
+  isLoading?: boolean;
 }
+
+// Skeleton pill widths per day-of-week (Sun–Sat), empty = no skeletons
+const MONTH_SKELETON_WIDTHS = [
+  ["75%"],
+  ["85%", "60%"],
+  ["70%"],
+  ["90%", "55%"],
+  ["80%"],
+  ["65%"],
+  [],
+];
 
 const WEEKDAY_HEADERS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -29,8 +43,10 @@ export function MonthView({
   events,
   selectedDate,
   onDateSelect,
-  onEventClick,
+  onEditEvent,
+  onDeleteEvent,
   onEventDrop,
+  isLoading = false,
 }: MonthViewProps) {
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -130,30 +146,40 @@ export function MonthView({
                 )}
               </div>
 
-              {/* Events */}
+              {/* Events / Skeleton */}
               <div className="mt-1 space-y-0.5 overflow-hidden">
-                {dayEvents.slice(0, 3).map((event) => (
-                  <div
-                    key={event.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onEventClick?.(event);
-                    }}
-                  >
-                    <EventCard
-                      event={event}
-                      compact
-                      draggable
-                      onDragStart={(id) => setDraggingId(id)}
-                      onDragEnd={() => {
-                        setDraggingId(null);
-                        setDragOverDay(null);
-                      }}
-                      dimmed={draggingId === event.id}
+                {isLoading &&
+                  MONTH_SKELETON_WIDTHS[day.getDay()].map((w, i) => (
+                    <div
+                      key={i}
+                      className="h-4 animate-pulse rounded bg-muted"
+                      style={{ width: w }}
                     />
-                  </div>
-                ))}
-                {dayEvents.length > 3 && (
+                  ))}
+                {!isLoading &&
+                  dayEvents.slice(0, 3).map((event) => (
+                    <EventDetailPopover
+                      key={event.id}
+                      event={event}
+                      onEdit={onEditEvent ?? (() => {})}
+                      onDelete={onDeleteEvent ?? (() => {})}
+                    >
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <EventCard
+                          event={event}
+                          compact
+                          draggable
+                          onDragStart={(id) => setDraggingId(id)}
+                          onDragEnd={() => {
+                            setDraggingId(null);
+                            setDragOverDay(null);
+                          }}
+                          dimmed={draggingId === event.id}
+                        />
+                      </div>
+                    </EventDetailPopover>
+                  ))}
+                {!isLoading && dayEvents.length > 3 && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

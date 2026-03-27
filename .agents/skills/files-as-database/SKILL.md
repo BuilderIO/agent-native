@@ -1,102 +1,87 @@
 ---
-name: files-as-database
+name: storing-data
 description: >-
-  How to choose between files and SQLite for storing application state. Use when
-  adding data models, deciding where to store data, or reading/writing
+  How to store application data in agent-native apps. All data lives in SQL.
+  Use when adding data models, deciding where to store data, or reading/writing
   application data.
 ---
 
-# Files vs SQLite — Choosing the Right Data Layer
+# Storing Data — SQL is the Source of Truth
 
 ## Rule
 
-Agent-native apps use **two data layers**: files for content and configuration, SQLite for structured application data. Choose the right one based on what you're storing.
+All application data lives in **SQL** (SQLite locally, cloud database in production). The agent and UI share the same database. There is no filesystem dependency for data.
 
-## When to Use Files
+## How It Works
 
-Store data as files in `data/` (JSON, markdown, images) when:
+Agent-native apps use SQLite via Drizzle ORM + `@libsql/client`. This works locally out of the box and upgrades seamlessly to cloud databases (Turso, Neon, Supabase, D1) by setting `DATABASE_URL`. **Local and production behave identically.**
 
-- **Content** — markdown documents, drafts, articles, slide decks
-- **Settings/Configuration** — app settings, user preferences, sync config
-- **Application state** — ephemeral UI state in `application-state/` (compose windows, search state)
-- **Media** — images, uploads, generated assets
-- **Data the agent edits directly** — the agent can read/write files on the filesystem without going through an API
+### Core SQL Stores (auto-created, available in all templates)
 
-Files are the shared interface between the AI agent and the UI. The agent reads and writes files directly. The UI reads files via API routes. SSE streams file changes back to the UI in real-time.
+| Store               | Purpose                                              | Access                                     |
+| ------------------- | ---------------------------------------------------- | ------------------------------------------ |
+| `application_state` | Ephemeral UI state (compose windows, navigation)     | `readAppState()` / `writeAppState()`       |
+| `settings`          | Persistent KV config (preferences, app settings)     | `getSetting()` / `setSetting()`            |
+| `oauth_tokens`      | OAuth credentials                                    | `@agent-native/core/oauth-tokens`          |
+| `sessions`          | Auth sessions                                        | `@agent-native/core/server`               |
 
-### How (Files)
+### Domain Data (per-template)
 
-- Store data as JSON or markdown files in `data/` (or a project-specific subdirectory).
-- API routes in `server/routes/` read files with `fs.readFile` and return them.
-- The agent modifies files directly — no API calls needed from the agent side.
-- `createFileWatcher("./data")` watches for changes and streams them via SSE.
-- `useFileWatcher()` on the client invalidates React Query caches when files change.
+Define schema with Drizzle ORM in `server/db/schema.ts`. Get a database instance with `const db = getDb()` from `server/db/index.ts`. All queries are async.
 
-### File Organization
+| Template     | Tables                                        |
+| ------------ | --------------------------------------------- |
+| **Mail**     | emails, labels (+ Gmail API when connected)   |
+| **Calendar** | events, bookings                              |
+| **Forms**    | forms, responses                              |
+| **Content**  | documents                                     |
+| **Slides**   | decks (JSON stored in SQL)                    |
+| **Videos**   | compositions in registry + localStorage       |
 
-| Question                             | Single file       | Directory of files           |
-| ------------------------------------ | ----------------- | ---------------------------- |
-| Are items independently addressable? | No — use one file | Yes — one file per item      |
-| Will there be >50 items?             | Probably fine     | Definitely split             |
-| Do items need individual URLs?       | No                | Yes                          |
-| Do items change independently?       | No                | Yes — avoids write conflicts |
+### Agent Access
 
-## When to Use SQLite
+The agent uses scripts to read/write the database:
 
-Store data in SQLite (`data/app.db`) via Drizzle ORM + `@libsql/client` when:
+- `pnpm script db-schema` — Show all tables, columns, types
+- `pnpm script db-query --sql "SELECT * FROM forms"` — Run SELECT queries
+- `pnpm script db-exec --sql "INSERT INTO ..."` — Run INSERT/UPDATE/DELETE
+- App-specific scripts for domain operations
 
-- **Structured records** — forms, bookings, submissions, compositions with relationships
-- **Data that needs querying** — filtering, sorting, aggregation, joins
-- **High-volume data** — hundreds or thousands of records
-- **Relational data** — foreign keys, references between entities
-- **Data that benefits from transactions** — atomic multi-table writes
+### Cloud Deployment
 
-### How (SQLite)
+Local SQLite works out of the box. To deploy to production with a cloud database:
 
-- Define schema with Drizzle ORM in `server/db/schema.ts`.
-- Get a database instance with `const db = getDb()` from `server/db/index.ts`.
-- All queries are **async** (using `@libsql/client`, not `better-sqlite3`).
-- The agent uses DB scripts (`pnpm script db-schema`, `db-query`, `db-exec`) or app-specific scripts to read/write data.
-- Set `DATABASE_URL` env var for cloud database (Turso); defaults to local `file:data/app.db`.
-
-### Cloud Upgrade Path
-
-Local SQLite works out of the box. To upgrade to a cloud database:
-
-1. Set `DATABASE_URL` to a Turso URL (e.g. `libsql://your-db.turso.io`)
-2. Set `DATABASE_AUTH_TOKEN` to your Turso auth token
+1. Set `DATABASE_URL` (e.g. `libsql://your-db.turso.io`)
+2. Set `DATABASE_AUTH_TOKEN` for auth
 3. No code changes needed — `@libsql/client` handles both local and remote
+
+### Real-time Sync
+
+SSE streams database changes to the UI. When the agent writes to the database via scripts, the UI updates instantly via `useFileWatcher()` which invalidates React Query caches.
+
+## Do
+
+- Use Drizzle ORM for structured domain data (forms, bookings, documents)
+- Use the `settings` store for app configuration and user preferences
+- Use `application-state` for ephemeral UI state that the agent and UI share
+- Use `oauth-tokens` for OAuth credentials
+- Use core DB scripts (`db-schema`, `db-query`, `db-exec`) for ad-hoc database operations
 
 ## Don't
 
-- Don't store structured app data (forms, bookings, records) as individual JSON files when you need querying
-- Don't store app state in localStorage, sessionStorage, or cookies
+- Don't store structured app data as JSON files
+- Don't store app state in localStorage, sessionStorage, or cookies (except for UI-only preferences like sidebar width)
 - Don't keep state only in memory (server variables, global stores)
 - Don't use Redis or any external state store for app data
-- Don't interpolate user input directly into file paths (see Security below)
-
-## Examples by Template
-
-| Template   | Files                                            | SQLite                             |
-| ---------- | ------------------------------------------------ | ---------------------------------- |
-| **Forms**  | `data/settings.json`                             | forms, responses                   |
-| **Calendar** | `data/settings.json`, `data/availability.json` | bookings                           |
-| **Slides** | `data/decks/*.json`                              | (not used — decks are JSON files)  |
-| **Content** | `content/projects/**/*.md`, `*.json`            | (not used — content is files)      |
-| **Videos** | compositions in registry                         | (not used — state in localStorage) |
+- Don't interpolate user input directly into SQL queries — use Drizzle ORM's query builder
 
 ## Security
 
-- **Path sanitization** — Always sanitize IDs from request params before constructing file paths. Use `id.replace(/[^a-zA-Z0-9_-]/g, "")` or the core utility `isValidPath()`. Without this, `../../.env` as an ID reads your environment file.
-- **Validate before writing** — Check data shape before writing files, especially for user-submitted data. A malformed write can break all subsequent reads.
-- **SQL injection** — Use Drizzle ORM's query builder, never raw string interpolation for SQL queries.
-
-## Route Loaders vs API Routes
-
-React Router route `loader` functions can fetch data server-side during SSR. However, the default pattern is **SSR shell + client rendering**: the server renders a loading spinner and the client fetches data from `/api/*` routes via React Query. Only use server `loader` when a page genuinely needs server-rendered content for SEO or og tags (e.g., public booking pages). For all app pages behind auth, stick with the client-side React Query pattern.
+- **SQL injection** — Use Drizzle ORM's query builder, never raw string interpolation for SQL queries
+- **Validate before writing** — Check data shape before writing, especially for user-submitted data
 
 ## Related Skills
 
-- **sse-file-watcher** — Set up real-time sync so the UI updates when data files change
-- **scripts** — Create scripts that read/write data files or query the database
-- **self-modifying-code** — The agent writes data files as Tier 1 (auto-apply) modifications
+- **real-time-sync** — Set up SSE so the UI updates when the database changes
+- **scripts** — Create scripts that query the database
+- **self-modifying-code** — The agent can also modify the app's source code
