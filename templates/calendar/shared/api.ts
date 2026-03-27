@@ -14,6 +14,30 @@ export interface CalendarEvent {
   color?: string;
   /** User's RSVP status from Google Calendar */
   responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
+  attendees?: Array<{
+    email: string;
+    displayName?: string;
+    photoUrl?: string;
+    responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
+    organizer?: boolean;
+    self?: boolean;
+  }>;
+  reminders?: Array<{ method: "popup" | "email"; minutes: number }>;
+  recurrence?: string[]; // RRULE strings from Google Calendar
+  recurringEventId?: string;
+  hangoutLink?: string; // Google Meet link
+  conferenceData?: {
+    entryPoints?: Array<{
+      entryPointType: string;
+      uri: string;
+      label?: string;
+      pin?: string;
+      passcode?: string;
+    }>;
+    conferenceSolution?: { name: string; iconUri?: string };
+  };
+  visibility?: "default" | "public" | "private" | "confidential";
+  status?: "confirmed" | "tentative" | "cancelled";
   createdAt: string;
   updatedAt: string;
 }

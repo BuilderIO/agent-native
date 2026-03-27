@@ -27,6 +27,43 @@ export interface ResourceMeta {
 
 let _initialized = false;
 
+const DEFAULT_AGENTS_MD = `# Agent Instructions
+
+This file customizes how the AI agent behaves in this app. Edit it to add your own instructions, preferences, and context.
+
+## What to put here
+
+- **Preferences** — Tone, style, verbosity, response format
+- **Context** — Domain knowledge, terminology, team conventions
+- **Rules** — Things the agent should always/never do
+- **Skills** — Reference skill files for specialized tasks (create them in the \`skills/\` folder)
+
+## Skills
+
+You can create skill files to give the agent specialized knowledge for specific tasks. Create resources under \`skills/\` (e.g., \`skills/data-analysis.md\`, \`skills/code-review.md\`) and reference them here:
+
+| Skill | Path | Description |
+|-------|------|-------------|
+| *(add your skills here)* | \`skills/example.md\` | What this skill teaches the agent |
+
+The agent will read the relevant skill file when performing that type of task.
+
+## Example
+
+\`\`\`markdown
+## Tone
+Be concise. Lead with the answer. Skip filler.
+
+## Code style
+- Use TypeScript, never JavaScript
+- Prefer named exports
+- Use early returns
+
+## Domain context
+We sell B2B SaaS. Our customers are enterprise engineering teams.
+\`\`\`
+`;
+
 async function ensureTable(): Promise<void> {
   if (_initialized) return;
   const client = getDbExec();
@@ -43,6 +80,30 @@ async function ensureTable(): Promise<void> {
       UNIQUE(path, owner)
     )
   `);
+
+  // Seed default shared AGENTS.md if it doesn't exist
+  const { rows } = await client.execute({
+    sql: `SELECT id FROM resources WHERE owner = ? AND path = ?`,
+    args: [SHARED_OWNER, "AGENTS.md"],
+  });
+  if (rows.length === 0) {
+    const now = Date.now();
+    const size = Buffer.byteLength(DEFAULT_AGENTS_MD, "utf8");
+    await client.execute({
+      sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        crypto.randomUUID(),
+        "AGENTS.md",
+        SHARED_OWNER,
+        DEFAULT_AGENTS_MD,
+        "text/markdown",
+        size,
+        now,
+        now,
+      ],
+    });
+  }
+
   _initialized = true;
 }
 

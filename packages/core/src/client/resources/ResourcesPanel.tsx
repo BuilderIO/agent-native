@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { cn } from "../utils.js";
+import { sendToAgentChat } from "../agent-chat.js";
 import { ResourceTree } from "./ResourceTree.js";
 import { ResourceEditor } from "./ResourceEditor.js";
 import {
@@ -80,6 +81,150 @@ function ArrowLeftIcon({ className }: { className?: string }) {
       <path d="m12 19-7-7 7-7" />
       <path d="M19 12H5" />
     </svg>
+  );
+}
+
+function SkillIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+    </svg>
+  );
+}
+
+// ─── New Skill Popover ──────────────────────────────────────────────────────
+
+function NewSkillPopover({
+  scope,
+  onCreated,
+}: {
+  scope: ResourceScope;
+  onCreated?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (open) {
+      setValue("");
+      const t = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(t);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (
+        popoverRef.current &&
+        !popoverRef.current.contains(e.target as Node) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [open]);
+
+  const submit = () => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+
+    const skillPath = `skills/${trimmed.toLowerCase().replace(/\s+/g, "-")}.md`;
+    sendToAgentChat({
+      message: `Create a new skill: ${trimmed}`,
+      context: `The user wants to create an agent skill called "${trimmed}". Write it as a ${scope} resource at path "${skillPath}" using the resource-write tool.
+
+A skill file should contain:
+- A title and brief description of what the skill covers
+- Specific instructions, rules, and patterns the agent should follow
+- Examples where helpful
+- Common pitfalls to avoid
+
+After creating the skill, update the shared AGENTS.md resource to reference the new skill in its skills table.
+
+Keep the skill concise and actionable.`,
+      submit: true,
+    });
+
+    setOpen(false);
+    onCreated?.();
+  };
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
+          open && "bg-accent/50 text-foreground",
+        )}
+        title="New skill (AI-generated)"
+      >
+        <SkillIcon className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <div
+          ref={popoverRef}
+          className="absolute right-0 top-full mt-1.5 z-[220] rounded-lg border border-border bg-popover p-3 shadow-lg"
+          style={{
+            width: 260,
+            fontSize: 13,
+            lineHeight: "normal",
+          }}
+        >
+          <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+            Skill name
+          </label>
+          <input
+            ref={inputRef}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submit();
+              if (e.key === "Escape") setOpen(false);
+            }}
+            className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+            placeholder="e.g. Code Review, Data Analysis"
+          />
+          <p className="mt-1.5 text-[10px] text-muted-foreground/60 leading-relaxed">
+            The agent will generate the skill and add it to AGENTS.md
+          </p>
+          <div className="mt-2.5 flex justify-end">
+            <button
+              onClick={submit}
+              disabled={!value.trim()}
+              className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
+            >
+              Create with AI
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -214,8 +359,28 @@ function PathBreadcrumb({ path }: { path: string }) {
 
 const CONTROL_STYLE = { fontSize: 12, lineHeight: 1 } as const;
 
+const DEFAULT_AGENTS_MD_CLIENT = `# Agent Instructions
+
+This file customizes how the AI agent behaves in this app. Edit it to add your own instructions, preferences, and context.
+
+## What to put here
+
+- **Preferences** — Tone, style, verbosity, response format
+- **Context** — Domain knowledge, terminology, team conventions
+- **Rules** — Things the agent should always/never do
+- **Skills** — Reference skill files for specialized tasks (create them in the \`skills/\` folder)
+
+## Skills
+
+Create skill files under \`skills/\` to give the agent specialized knowledge. Reference them here:
+
+| Skill | Path | Description |
+|-------|------|-------------|
+| *(use the skill button to create one)* | | |
+`;
+
 export function ResourcesPanel() {
-  const [scope, setScope] = useState<ResourceScope>("personal");
+  const [scope, setScope] = useState<ResourceScope>("shared");
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(
     null,
   );
@@ -228,6 +393,26 @@ export function ResourcesPanel() {
   const updateResource = useUpdateResource();
   const deleteResource = useDeleteResource();
   const uploadResource = useUploadResource();
+
+  // Ensure AGENTS.md exists in shared scope when panel opens
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current) return;
+    seededRef.current = true;
+    // Check if shared AGENTS.md exists, create if not
+    fetch("/api/resources?scope=shared&prefix=AGENTS.md")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((resources: any[]) => {
+        if (!resources.some((r: any) => r.path === "AGENTS.md")) {
+          createResource.mutate({
+            path: "AGENTS.md",
+            content: DEFAULT_AGENTS_MD_CLIENT,
+            shared: true,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Are we viewing a file (editor) or the tree?
   const isEditing = selectedResourceId !== null;
@@ -408,6 +593,7 @@ export function ResourcesPanel() {
               </button>
             </div>
             <div className="flex items-center gap-1">
+              <NewSkillPopover scope={scope} />
               <NewFilePopover onSubmit={handleCreateFromToolbar} />
               <button
                 onClick={() => fileInputRef.current?.click()}

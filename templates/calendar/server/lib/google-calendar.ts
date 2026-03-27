@@ -262,6 +262,44 @@ export async function listEvents(
             googleEventId: event.id || undefined,
             accountEmail: email,
             responseStatus: selfAttendee?.responseStatus,
+            attendees: event.attendees?.map((a: any) => ({
+              email: a.email,
+              displayName: a.displayName || undefined,
+              photoUrl: a.photoUrl || undefined,
+              responseStatus: a.responseStatus || undefined,
+              organizer: a.organizer || undefined,
+              self: a.self || undefined,
+            })),
+            reminders: event.reminders?.overrides?.map((r: any) => ({
+              method: r.method,
+              minutes: r.minutes,
+            })),
+            recurrence: event.recurrence || undefined,
+            recurringEventId: event.recurringEventId || undefined,
+            hangoutLink: event.hangoutLink || undefined,
+            conferenceData: event.conferenceData
+              ? {
+                  entryPoints: event.conferenceData.entryPoints?.map(
+                    (ep: any) => ({
+                      entryPointType: ep.entryPointType,
+                      uri: ep.uri,
+                      label: ep.label || undefined,
+                      pin: ep.pin || undefined,
+                      passcode: ep.passcode || undefined,
+                    }),
+                  ),
+                  conferenceSolution: event.conferenceData.conferenceSolution
+                    ? {
+                        name: event.conferenceData.conferenceSolution.name,
+                        iconUri:
+                          event.conferenceData.conferenceSolution.iconUri ||
+                          undefined,
+                      }
+                    : undefined,
+                }
+              : undefined,
+            visibility: event.visibility || undefined,
+            status: event.status || undefined,
             createdAt: event.created || new Date().toISOString(),
             updatedAt: event.updated || new Date().toISOString(),
           };

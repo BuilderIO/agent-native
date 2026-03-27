@@ -190,8 +190,14 @@ Be concise and helpful. Use the available tools to read data, make changes, and 
 You have access to a Resources system for persistent notes, learnings, and context files.
 Use resource-list, resource-read, resource-write, and resource-delete to manage resources.
 Resources can be personal (per-user) or shared (team-wide). By default, resources are personal.
-At the start of conversations, read the "learnings.md" resource for user preferences and context.
-When you learn something important (user corrections, preferences, patterns), update the "learnings.md" resource.`;
+
+At the start of conversations:
+1. Read the shared "AGENTS.md" resource — it contains custom instructions, preferences, and skill references for this app.
+2. Read the personal "learnings.md" resource for user-specific preferences and context.
+3. If AGENTS.md references skill files (e.g. "skills/data-analysis.md"), read the relevant skill before performing that type of task.
+
+When you learn something important (user corrections, preferences, patterns), update the "learnings.md" resource.
+When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource instead.`;
 
 const DEFAULT_DEV_PROMPT = `You are a development assistant with full access to the project filesystem, shell, and database.
 
