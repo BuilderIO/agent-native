@@ -1,11 +1,16 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { Plus, Search, Star, FileText } from "lucide-react";
+import { ArrowUp, Plus, Search, Star, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { AgentToggleButton } from "@agent-native/core/client";
+import { useSendToAgentChat } from "@agent-native/core/client";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { NotionButton } from "./NotionButton";
 import { DocumentTreeItem } from "./DocumentTreeItem";
 import {
@@ -27,11 +32,22 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
   const createDocument = useCreateDocument();
   const deleteDocument = useDeleteDocument();
   const updateDocument = useUpdateDocument();
+  const { send } = useSendToAgentChat();
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const tree = buildDocumentTree(documents);
   const favorites = documents.filter((d) => d.isFavorite);
+
+  useEffect(() => {
+    if (popoverOpen) {
+      setPrompt("");
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    }
+  }, [popoverOpen]);
 
   const handleCreatePage = useCallback(
     async (parentId?: string) => {
@@ -49,6 +65,21 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
     },
     [createDocument, navigate],
   );
+
+  function handleSkip() {
+    setPopoverOpen(false);
+    handleCreatePage();
+  }
+
+  function handleSubmitPrompt() {
+    if (!prompt.trim()) return;
+    setPopoverOpen(false);
+    send({
+      message: `Create a new document based on this description: ${prompt.trim()}`,
+      context:
+        "Create the document using db-exec to insert into the documents table with appropriate title and markdown content. After creating, tell the user the document title and a brief summary of what you created.",
+    });
+  }
 
   const handleDelete = useCallback(
     async (id: string) => {
@@ -73,11 +104,58 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
       )
     : null;
 
+  const newPagePopover = (
+    <PopoverContent
+      side="right"
+      align="start"
+      sideOffset={8}
+      className="w-80 p-0 rounded-xl"
+    >
+      <div className="p-4 pb-3">
+        <p className="text-sm font-semibold">New page</p>
+        <textarea
+          ref={textareaRef}
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmitPrompt();
+            }
+          }}
+          placeholder="Describe your page..."
+          className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
+          rows={4}
+        />
+      </div>
+      <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
+        <div />
+        <div className="flex items-center gap-3">
+          <button
+            className="text-xs text-blue-400 hover:text-blue-300"
+            onClick={handleSkip}
+          >
+            Skip prompt
+          </button>
+          <button
+            className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-accent disabled:opacity-30"
+            onClick={handleSubmitPrompt}
+            disabled={!prompt.trim()}
+          >
+            <ArrowUp size={14} />
+          </button>
+        </div>
+      </div>
+    </PopoverContent>
+  );
+
   return (
     <div className="flex flex-col h-full w-60 border-r border-border bg-muted/30">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-        <span className="text-sm font-semibold text-foreground">Documents</span>
+      <div className="flex items-center justify-between h-12 px-4 border-b border-border">
+        <span className="text-base font-semibold tracking-tight text-foreground">
+          Documents
+        </span>
         <div className="flex items-center gap-1">
           <button
             className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
@@ -85,13 +163,6 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
             title="Search"
           >
             <Search size={14} />
-          </button>
-          <button
-            className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
-            onClick={() => handleCreatePage()}
-            title="New page"
-          >
-            <Plus size={14} />
           </button>
           <AgentToggleButton />
         </div>
@@ -210,20 +281,22 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
               </div>
             </>
           )}
+
+          {/* New page button — under the list */}
+          <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+            <PopoverTrigger asChild>
+              <button className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground">
+                <Plus size={14} className="shrink-0" />
+                <span>New page</span>
+              </button>
+            </PopoverTrigger>
+            {newPagePopover}
+          </Popover>
         </div>
       </ScrollArea>
 
       {/* Footer */}
-      <div className="flex items-center justify-between px-3 py-2 border-t border-border">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 px-2 text-xs text-muted-foreground"
-          onClick={() => handleCreatePage()}
-        >
-          <Plus size={14} className="mr-1" />
-          New page
-        </Button>
+      <div className="flex items-center justify-end px-3 py-2 border-t border-border">
         <div className="flex items-center gap-0.5">
           <NotionButton />
           <ThemeToggle />

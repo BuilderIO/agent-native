@@ -8,4 +8,7 @@ export {
   type AgentMessage,
   type AgentChatRequest,
   type AgentChatEvent,
+  type AgentChatReference,
+  type MentionProvider,
+  type MentionProviderItem,
 } from "./types.js";

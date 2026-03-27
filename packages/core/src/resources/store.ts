@@ -1,4 +1,4 @@
-import { getDbExec, isPostgres, type DbExec } from "../db/client.js";
+import { getDbExec, isPostgres, intType, type DbExec } from "../db/client.js";
 import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 import crypto from "crypto";
 
@@ -74,9 +74,9 @@ async function ensureTable(): Promise<void> {
       owner TEXT NOT NULL,
       content TEXT NOT NULL DEFAULT '',
       mime_type TEXT NOT NULL DEFAULT 'text/markdown',
-      size INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
+      size ${intType()} NOT NULL DEFAULT 0,
+      created_at ${intType()} NOT NULL,
+      updated_at ${intType()} NOT NULL,
       UNIQUE(path, owner)
     )
   `);
