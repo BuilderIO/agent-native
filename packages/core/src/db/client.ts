@@ -105,7 +105,9 @@ async function initClient(): Promise<void> {
   // Postgres — dynamically import to avoid bundling in non-Postgres runtimes
   if (dialect === "postgres") {
     const { default: postgres } = await import("postgres");
-    _pgPool = postgres(url);
+    _pgPool = postgres(url, {
+      onnotice: () => {}, // Suppress CREATE TABLE IF NOT EXISTS notices
+    });
     const pool = _pgPool;
 
     _exec = {
