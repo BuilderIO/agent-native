@@ -5,6 +5,11 @@ import React, {
   useCallback,
   useMemo,
 } from "react";
+import {
+  ComposerPrimitive,
+  useComposer,
+  useComposerRuntime,
+} from "@assistant-ui/react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -28,6 +33,39 @@ type PopoverState = {
   query: string;
 } | null;
 
+function SendIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M22 2L11 13" />
+      <path d="M22 2L15 22L11 13L2 9L22 2Z" />
+    </svg>
+  );
+}
+
+function PaperclipIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M21.44 11.05L12.25 20.24C10.06 22.43 6.51 22.43 4.32 20.24C2.13 18.05 2.13 14.5 4.32 12.31L13.51 3.12C14.97 1.66 17.34 1.66 18.8 3.12C20.26 4.58 20.26 6.95 18.8 8.41L9.6 17.61C8.87 18.34 7.69 18.34 6.96 17.61C6.23 16.88 6.23 15.7 6.96 14.97L15.49 6.44" />
+    </svg>
+  );
+}
+
 export function TiptapComposer({
   onSubmit,
   placeholder = "Message agent...",
@@ -35,6 +73,9 @@ export function TiptapComposer({
 }: TiptapComposerProps) {
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
+  const composerRuntime = useComposerRuntime();
+  const canSend = useComposer((state) => !state.isEmpty);
+  const composerText = useComposer((state) => state.text);
 
   // Refs for values accessed in handleKeyDown (ProseMirror doesn't re-bind)
   const popoverStateRef = useRef<PopoverState>(null);
@@ -72,11 +113,6 @@ export function TiptapComposer({
   const closePopover = useCallback(() => {
     setPopover(null);
     popoverStateRef.current = null;
-  }, []);
-
-  const setPopoverState = useCallback((state: PopoverState) => {
-    setPopover(state);
-    popoverStateRef.current = state;
   }, []);
 
   const editor = useEditor({
@@ -156,7 +192,7 @@ export function TiptapComposer({
           !event.ctrlKey
         ) {
           event.preventDefault();
-          submitFromView(view);
+          submitComposer();
           return true;
         }
 
@@ -203,6 +239,58 @@ export function TiptapComposer({
       },
     },
   });
+
+  const extractComposerPayload = useCallback(() => {
+    const ed = editor;
+    if (!ed) {
+      return { text: "", references: [] as Reference[] };
+    }
+
+    const references: Reference[] = [];
+    const text = ed.getText();
+
+    ed.state.doc.descendants((node: any) => {
+      if (node.type.name === "fileReference") {
+        references.push({
+          type: "file",
+          path: node.attrs.path,
+          name: node.attrs.path?.split("/").pop() || node.attrs.path,
+          source: node.attrs.source || "codebase",
+        });
+      } else if (node.type.name === "skillReference") {
+        references.push({
+          type: "skill",
+          path: node.attrs.path,
+          name: node.attrs.name,
+          source: node.attrs.source || "codebase",
+        });
+      }
+    });
+
+    return { text, references };
+  }, [editor]);
+
+  const syncComposerState = useCallback(() => {
+    const { text, references } = extractComposerPayload();
+    composerRuntime.setText(text);
+    composerRuntime.setRunConfig(
+      references.length > 0 ? { custom: { references } } : {},
+    );
+    return { text, references };
+  }, [composerRuntime, extractComposerPayload]);
+
+  const submitComposer = useCallback(() => {
+    const ed = editor;
+    if (!ed) return;
+
+    const { text, references } = syncComposerState();
+    if (!text.trim() && references.length === 0) return;
+
+    onSubmitRef.current(text, references);
+    composerRuntime.reset();
+    ed.commands.clearContent();
+    closePopover();
+  }, [closePopover, composerRuntime, editor, syncComposerState]);
 
   // Helper functions that operate on the editor view directly
   // These are called from handleKeyDown which can't use React state
@@ -251,35 +339,6 @@ export function TiptapComposer({
     setPopover(null);
   }
 
-  function submitFromView(view: any) {
-    const ed = editor;
-    if (!ed) return;
-    const references: Reference[] = [];
-    const text = ed.getText();
-
-    ed.state.doc.descendants((node: any) => {
-      if (node.type.name === "fileReference") {
-        references.push({
-          type: "file",
-          path: node.attrs.path,
-          name: node.attrs.path?.split("/").pop() || node.attrs.path,
-          source: node.attrs.source || "codebase",
-        });
-      } else if (node.type.name === "skillReference") {
-        references.push({
-          type: "skill",
-          path: node.attrs.path,
-          name: node.attrs.name,
-          source: node.attrs.source || "codebase",
-        });
-      }
-    });
-
-    if (!text.trim() && references.length === 0) return;
-    onSubmitRef.current(text, references);
-    ed.commands.clearContent();
-  }
-
   // Popover select handlers for click-based selection (from MentionPopover)
   const handleSelectFile = useCallback(
     (file: FileResult) => {
@@ -326,6 +385,8 @@ export function TiptapComposer({
     if (!editor || !popover) return;
 
     const updateHandler = () => {
+      syncComposerState();
+
       const pop = popoverStateRef.current;
       if (!pop) return;
       const { from } = editor.state.selection;
@@ -364,7 +425,14 @@ export function TiptapComposer({
       editor.off("update", updateHandler);
       editor.off("selectionUpdate", updateHandler);
     };
-  }, [editor, popover, closePopover]);
+  }, [editor, popover, closePopover, syncComposerState]);
+
+  useEffect(() => {
+    if (!editor) return;
+    if (composerText !== "") return;
+    if (editor.isEmpty) return;
+    editor.commands.clearContent();
+  }, [composerText, editor]);
 
   return (
     <>
@@ -373,6 +441,24 @@ export function TiptapComposer({
           editor={editor}
           className="flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0"
         />
+        <ComposerPrimitive.AddAttachment asChild>
+          <button
+            type="button"
+            className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Attach files"
+          >
+            <PaperclipIcon className="h-4 w-4" />
+          </button>
+        </ComposerPrimitive.AddAttachment>
+        <button
+          type="button"
+          onClick={submitComposer}
+          disabled={!canSend}
+          className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
+          title="Send message"
+        >
+          <SendIcon className="h-3.5 w-3.5" />
+        </button>
       </div>
       <MentionPopover
         ref={popoverRef}

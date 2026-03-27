@@ -894,15 +894,13 @@ const AssistantChatInner = forwardRef<
             onStop={() => threadRuntime.cancelRun()}
           />
         ) : (
-          <div className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
+          <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
             {/* Attachment previews */}
-            <ComposerPrimitive.Root>
-              <ComposerPrimitive.Attachments
-                components={{
-                  Attachment: ComposerAttachmentPreview,
-                }}
-              />
-            </ComposerPrimitive.Root>
+            <ComposerPrimitive.Attachments
+              components={{
+                Attachment: ComposerAttachmentPreview,
+              }}
+            />
             <TiptapComposer
               onSubmit={(text, references) => {
                 threadRuntime.append({
@@ -915,7 +913,7 @@ const AssistantChatInner = forwardRef<
                 });
               }}
             />
-          </div>
+          </ComposerPrimitive.Root>
         )}
       </div>
     </div>
