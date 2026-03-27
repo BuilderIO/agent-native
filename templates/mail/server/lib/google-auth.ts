@@ -235,7 +235,8 @@ export async function getClients(
  * checks only that specific account.
  */
 export async function isConnected(forEmail?: string): Promise<boolean> {
-  if (forEmail) {
+  // In dev mode, check all accounts regardless of owner
+  if (forEmail && forEmail !== "local@localhost") {
     const accounts = await listOAuthAccountsByOwner("google", forEmail);
     return accounts.length > 0;
   }
@@ -263,7 +264,8 @@ export async function getAuthStatus(
     accountId: string;
     tokens: Record<string, unknown>;
   }>;
-  if (forEmail) {
+  // In dev mode (local@localhost), show all accounts regardless of owner
+  if (forEmail && forEmail !== "local@localhost") {
     oauthAccounts = await listOAuthAccountsByOwner("google", forEmail);
   } else {
     oauthAccounts = await listOAuthAccounts("google");
