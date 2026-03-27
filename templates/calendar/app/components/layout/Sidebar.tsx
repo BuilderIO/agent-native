@@ -5,9 +5,12 @@ import {
   Clock,
   Users,
   Settings,
+  Link2,
   ExternalLink,
   ChevronUp,
   ChevronDown,
+  Plus,
+  X,
 } from "lucide-react";
 import {
   startOfMonth,
@@ -25,12 +28,17 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useGoogleAuthStatus, useGoogleAuthUrl } from "@/hooks/use-google-auth";
+import {
+  useOverlayPeople,
+  useRemoveOverlayPerson,
+} from "@/hooks/use-overlay-people";
 import { useCalendarContext } from "./AppLayout";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 const navItems = [
   { path: "/", label: "Calendar", icon: CalendarDays },
   { path: "/availability", label: "Availability", icon: Clock },
+  { path: "/booking-links", label: "Booking Links", icon: Link2 },
   { path: "/bookings", label: "Bookings", icon: Users },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
@@ -185,8 +193,11 @@ function GoogleConnectSidebarButton() {
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation();
-  const { selectedDate, setSelectedDate } = useCalendarContext();
+  const { selectedDate, setSelectedDate, setPeopleSearchOpen } =
+    useCalendarContext();
   const googleStatus = useGoogleAuthStatus();
+  const { data: overlayPeople = [] } = useOverlayPeople();
+  const removePerson = useRemoveOverlayPerson();
   const isConnected = googleStatus.data?.connected ?? false;
 
   return (
@@ -206,10 +217,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         )}
       >
         {/* Logo */}
-        <div className="flex h-14 items-center gap-2.5 border-b border-border px-4">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/20">
-            <CalendarDays className="h-4 w-4 text-primary" />
-          </div>
+        <div className="flex h-14 items-center justify-between gap-2.5 border-b border-border px-4">
           <span className="text-base font-semibold tracking-tight">
             Calendar
           </span>
@@ -247,6 +255,52 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             );
           })}
         </nav>
+
+        {/* People overlay */}
+        <div className="border-t border-border px-3 py-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              People
+            </span>
+            <button
+              type="button"
+              onClick={() => setPeopleSearchOpen(true)}
+              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {overlayPeople.length > 0 && (
+            <div className="space-y-1">
+              {overlayPeople.map((person) => (
+                <div
+                  key={person.email}
+                  className="flex items-center gap-2 text-xs"
+                >
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: person.color }}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                    {person.name || person.email}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removePerson.mutate(person.email)}
+                    className="shrink-0 rounded p-0.5 text-muted-foreground/60 hover:text-foreground"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {overlayPeople.length === 0 && (
+            <p className="text-[11px] text-muted-foreground/60">
+              View teammates' calendars
+            </p>
+          )}
+        </div>
 
         {/* Google status / connect CTA */}
         {!googleStatus.isLoading && !isConnected && (

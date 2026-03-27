@@ -263,6 +263,25 @@ export function peopleListOtherContacts(
   return googleFetch(`${PEOPLE_BASE}/otherContacts${qs(params)}`, accessToken);
 }
 
+export function peopleSearchDirectoryPeople(
+  accessToken: string,
+  query: string,
+  params: {
+    pageSize?: number;
+    readMask?: string;
+  } = {},
+) {
+  return googleFetch(
+    `${PEOPLE_BASE}/people:searchDirectoryPeople${qs({
+      query,
+      readMask: params.readMask ?? "names,emailAddresses,photos",
+      sources: "DIRECTORY_SOURCE_TYPE_DOMAIN_PROFILE",
+      pageSize: params.pageSize ?? 20,
+    })}`,
+    accessToken,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Calendar API
 // ---------------------------------------------------------------------------

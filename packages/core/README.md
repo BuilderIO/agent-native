@@ -98,24 +98,25 @@ Or **[launch a template](https://agent-native.com/templates)** — no setup requ
 
 ## How It Works
 
-Agent-native apps follow five rules:
+Agent-native apps follow these rules:
 
-- **Files as database** — All state lives in files. The agent and UI share the same source of truth.
+- **Data lives in SQL** — All state lives in a SQL database (SQLite locally, cloud DB in production via `DATABASE_URL`). The agent and UI share the same database.
 - **AI through the agent** — No inline LLM calls. The UI delegates to the agent via a chat bridge. One AI, customizable with skills and instructions.
 - **Agent updates code** — The agent can modify the app itself. Your tools get better over time.
-- **Real-time sync** — File watcher streams changes via SSE. Agent edits appear instantly.
+- **Real-time sync** — SSE streams database changes to the UI. Agent writes appear instantly.
+- **Production ready** — Built-in auth, OAuth, cloud databases, and deployment presets. Same code runs locally and in production.
 - **Agent + UI + Computer** — The powerful trio. Everything the UI can do, the agent can do — and vice versa.
 
 ## Harnesses
 
 Agent-native apps run inside a **harness** — a host that provides the AI agent alongside your app UI.
 
-| | Local / Open Source | Builder Cloud |
+| | Open Source | Builder Cloud |
 |---|---|---|
-| **Run** | Claude Code CLI or any local harness | One-click launch from templates |
-| **Collaboration** | Solo | Real-time multiplayer |
-| **Features** | Full permissions, full control | Visual editing, roles & permissions |
-| **Best for** | Solo dev, local testing, OSS | Teams, production |
+| **Run** | CLI harness (Claude Code, Codex, Gemini, etc.) | One-click launch from templates |
+| **Database** | Local SQLite or cloud DB via `DATABASE_URL` | Managed cloud database |
+| **Auth** | Built-in (ACCESS_TOKEN) or bring your own | Managed auth + roles |
+| **Best for** | Development, self-hosted production, OSS | Teams, managed production |
 
 Your app code is identical regardless of harness. Start local, go to cloud when you need teams.
 

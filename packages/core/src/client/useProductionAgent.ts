@@ -48,7 +48,7 @@ export function useProductionAgent(
 
       // Notify any listeners that generation is running
       window.dispatchEvent(
-        new CustomEvent("builder.fusion.chatRunning", {
+        new CustomEvent("builder.chatRunning", {
           detail: { running: true },
         }),
       );
@@ -175,7 +175,7 @@ export function useProductionAgent(
       } finally {
         setIsGenerating(false);
         window.dispatchEvent(
-          new CustomEvent("builder.fusion.chatRunning", {
+          new CustomEvent("builder.chatRunning", {
             detail: { running: false },
           }),
         );

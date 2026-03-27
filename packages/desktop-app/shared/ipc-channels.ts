@@ -27,7 +27,13 @@ export const IPC = {
 
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
+  SET_ACTIVE_WEBVIEW: "webview:set-active-webview",
 } as const;
+
+export interface ActiveWebviewTarget {
+  appId: string;
+  webContentsId?: number;
+}
 
 export interface InterAppMessage {
   from: string;

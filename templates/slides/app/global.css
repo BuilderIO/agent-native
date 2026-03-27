@@ -5,6 +5,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Hide the sidebar's built-in collapsed tab strip — AgentToggleButton in the
+   toolbar serves this purpose instead, so we don't want a redundant bar. */
+button[title="Open agent sidebar"] {
+  display: none !important;
+}
+
 @layer base {
   :root {
     --background: 240 6% 4%;

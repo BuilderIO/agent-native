@@ -83,9 +83,7 @@ export const listForms = defineEventHandler(async (_event: H3Event) => {
   const rows = await db
     .select()
     .from(schema.forms)
-    .orderBy(schema.forms.updatedAt)
-    .all();
-
+    .orderBy(schema.forms.updatedAt);
   // Get response counts per form
   const counts = await db
     .select({
@@ -93,9 +91,7 @@ export const listForms = defineEventHandler(async (_event: H3Event) => {
       count: sql<number>`count(*)`,
     })
     .from(schema.responses)
-    .groupBy(schema.responses.formId)
-    .all();
-
+    .groupBy(schema.responses.formId);
   const countMap = new Map(counts.map((c) => [c.formId, c.count]));
   return rows.map((r) => rowToForm(r, countMap.get(r.id) ?? 0)).reverse();
 });
@@ -107,7 +103,8 @@ export const getForm = defineEventHandler(async (event: H3Event) => {
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.id, id))
-    .get();
+
+    .then((rows) => rows[0]);
 
   if (!row) {
     setResponseStatus(event, 404);
@@ -118,7 +115,8 @@ export const getForm = defineEventHandler(async (event: H3Event) => {
     .select({ count: sql<number>`count(*)` })
     .from(schema.responses)
     .where(eq(schema.responses.formId, id))
-    .get();
+
+    .then((rows) => rows[0]);
 
   return rowToForm(row, count?.count ?? 0);
 });
@@ -141,20 +139,17 @@ export const createForm = defineEventHandler(async (event: H3Event) => {
   };
 
   try {
-    await db
-      .insert(schema.forms)
-      .values({
-        id,
-        title: body.title || "Untitled Form",
-        description: body.description || null,
-        slug,
-        fields: JSON.stringify(body.fields || []),
-        settings: JSON.stringify(body.settings || defaultSettings),
-        status: body.status || "draft",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    await db.insert(schema.forms).values({
+      id,
+      title: body.title || "Untitled Form",
+      description: body.description || null,
+      slug,
+      fields: JSON.stringify(body.fields || []),
+      settings: JSON.stringify(body.settings || defaultSettings),
+      status: body.status || "draft",
+      createdAt: now,
+      updatedAt: now,
+    });
   } catch (err: any) {
     if (err?.message?.includes("UNIQUE constraint")) {
       setResponseStatus(event, 409);
@@ -167,7 +162,8 @@ export const createForm = defineEventHandler(async (event: H3Event) => {
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.id, id))
-    .get();
+
+    .then((rows) => rows[0]);
   return rowToForm(row!, 0);
 });
 
@@ -181,7 +177,8 @@ export const updateForm = defineEventHandler(async (event: H3Event) => {
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.id, id))
-    .get();
+
+    .then((rows) => rows[0]);
 
   if (!existing) {
     setResponseStatus(event, 404);
@@ -198,11 +195,7 @@ export const updateForm = defineEventHandler(async (event: H3Event) => {
   if (body.status !== undefined) updates.status = body.status;
 
   try {
-    await db
-      .update(schema.forms)
-      .set(updates)
-      .where(eq(schema.forms.id, id))
-      .run();
+    await db.update(schema.forms).set(updates).where(eq(schema.forms.id, id));
   } catch (err: any) {
     if (err?.message?.includes("UNIQUE constraint")) {
       setResponseStatus(event, 409);
@@ -221,7 +214,8 @@ export const updateForm = defineEventHandler(async (event: H3Event) => {
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.id, id))
-    .get();
+
+    .then((rows) => rows[0]);
   return rowToForm(row!);
 });
 
@@ -233,7 +227,8 @@ export const deleteForm = defineEventHandler(async (event: H3Event) => {
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.id, id))
-    .get();
+
+    .then((rows) => rows[0]);
 
   if (!existing) {
     setResponseStatus(event, 404);
@@ -241,11 +236,8 @@ export const deleteForm = defineEventHandler(async (event: H3Event) => {
   }
 
   // Delete responses first, then form
-  await db
-    .delete(schema.responses)
-    .where(eq(schema.responses.formId, id))
-    .run();
-  await db.delete(schema.forms).where(eq(schema.forms.id, id)).run();
+  await db.delete(schema.responses).where(eq(schema.responses.formId, id));
+  await db.delete(schema.forms).where(eq(schema.forms.id, id));
 
   // Invalidate cache
   invalidatePublicFormCache(existing.slug);
@@ -265,7 +257,8 @@ export const getPublicForm = defineEventHandler(async (event: H3Event) => {
     .select()
     .from(schema.forms)
     .where(eq(schema.forms.slug, slug))
-    .get();
+
+    .then((rows) => rows[0]);
 
   if (!row || row.status !== "published") {
     setResponseStatus(event, 404);

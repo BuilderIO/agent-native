@@ -1,12 +1,16 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DeckProvider } from "@/context/DeckContext";
 import {
   AgentSidebar,
-  AgentToggleButton,
+  ClientOnly,
+  CommandMenu,
+  DefaultSpinner,
   enterStyleEditing as coreEnterStyleEditing,
   enterTextEditing as coreEnterTextEditing,
   exitSelectionMode as coreExitSelectionMode,
+  useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import "./global.css";
 
@@ -87,33 +91,36 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 export default function Root() {
   useExitSelectionOnOutsideClick();
-  // AgentSidebar uses useLayoutEffect internally (via @assistant-ui),
-  // which errors during SSR. Only render on client.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const [queryClient] = useState(() => new QueryClient());
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
 
   return (
-    <DeckProvider key={DECK_KEY}>
-      {mounted ? (
-        <AgentSidebar
-          position="left"
-          defaultOpen
-          emptyStateText="Ask me anything about your presentations"
-          suggestions={[
-            "Create a new deck",
-            "Generate slides about AI",
-            "Add an image to this slide",
-          ]}
-        >
-          <div className="fixed top-3 left-3 z-50">
-            <AgentToggleButton />
-          </div>
-          <Outlet />
-        </AgentSidebar>
-      ) : (
-        <Outlet />
-      )}
-    </DeckProvider>
+    <ClientOnly fallback={<DefaultSpinner />}>
+      <QueryClientProvider client={queryClient}>
+        <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+          <CommandMenu.Group heading="Presentations">
+            <CommandMenu.Item onSelect={() => {}}>
+              Search decks
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>
+        <DeckProvider key={DECK_KEY}>
+          <AgentSidebar
+            position="right"
+            defaultOpen
+            emptyStateText="Ask me anything about your presentations"
+            suggestions={[
+              "Create a new deck",
+              "Generate slides about AI",
+              "Add an image to this slide",
+            ]}
+          >
+            <Outlet />
+          </AgentSidebar>
+        </DeckProvider>
+      </QueryClientProvider>
+    </ClientOnly>
   );
 }
 

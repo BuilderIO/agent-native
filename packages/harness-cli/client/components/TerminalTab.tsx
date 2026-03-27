@@ -98,7 +98,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(
     const notifyApp = useCallback(
       (isRunning: boolean) => {
         iframeRef.current?.contentWindow?.postMessage(
-          { type: "builder.fusion.chatRunning", detail: { isRunning } },
+          { type: "builder.chatRunning", detail: { isRunning } },
           "*",
         );
       },

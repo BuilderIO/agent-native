@@ -168,7 +168,7 @@ export const searchIndex: SearchEntry[] = [
     path: "/docs/harnesses",
     section: "Supported CLIs",
     sectionId: "supported-clis",
-    text: "Claude Code claude --dangerously-skip-permissions --resume --verbose. Codex codex --full-auto --quiet. Gemini CLI gemini --sandbox. OpenCode opencode. Builder.io fusion. Switch between CLIs at any time from the settings panel.",
+    text: "Claude Code claude --dangerously-skip-permissions --resume --verbose. Codex codex --full-auto --quiet. Gemini CLI gemini --sandbox. OpenCode opencode. Builder.io builder. Switch between CLIs at any time from the settings panel.",
   },
   {
     page: "Harnesses",
@@ -301,5 +301,41 @@ export const searchIndex: SearchEntry[] = [
     section: "AI-Native Video",
     sectionId: "",
     text: "Open source AI video editor and generator built on Remotion. Create and edit video compositions with an AI agent. Prompt-to-video scenes transitions text overlays timing. Agent-assisted editing speed up intro add fade change timing. Programmatic rendering batch personalized videos social content data-driven visualizations. Live preview real-time scrub timeline. npx @agent-native/core create my-app --template video",
+  },
+  // Resources & Skills
+  {
+    page: "Resources & Skills",
+    path: "/docs/resources",
+    section: "Overview",
+    sectionId: "overview",
+    text: "Resources are persistent SQL-backed files. Notes configs skills. Available to both UI and agent. Personal and shared scopes. Work in serverless edge and production.",
+  },
+  {
+    page: "Resources & Skills",
+    path: "/docs/resources",
+    section: "Skills",
+    sectionId: "skills",
+    text: "Skills are Markdown resource files that give the agent domain knowledge. Live under skills/ path prefix. Referenced in AGENTS.md. Create via Resources panel or .agents/skills/ directory.",
+  },
+  {
+    page: "Resources & Skills",
+    path: "/docs/resources",
+    section: "@ File Tagging",
+    sectionId: "at-file-tagging",
+    text: "Type @ in chat input to reference files. Dropdown shows matching files. Inline chip. Dev mode shows codebase and resources. Production shows resources only.",
+  },
+  {
+    page: "Resources & Skills",
+    path: "/docs/resources",
+    section: "/ Slash Commands",
+    sectionId: "slash-commands",
+    text: "Type / at start of line to invoke a skill. Dropdown shows available skills. Inline chip. Dev mode shows .agents/skills/ and resources. Production shows resource skills only.",
+  },
+  {
+    page: "Resources & Skills",
+    path: "/docs/resources",
+    section: "Resource API",
+    sectionId: "resource-api",
+    text: "REST endpoints for resources. resource-list resource-read resource-write resource-delete. Server API and script API. /api/resources endpoints.",
   },
 ];

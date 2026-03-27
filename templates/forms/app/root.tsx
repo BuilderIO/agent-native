@@ -1,12 +1,18 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   QueryClient,
   QueryClientProvider,
   useQueryClient,
 } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
-import { useFileWatcher } from "@agent-native/core/client";
+import {
+  useFileWatcher,
+  ClientOnly,
+  CommandMenu,
+  DefaultSpinner,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./global.css";
@@ -54,21 +60,32 @@ function FileWatcherSetup() {
 
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="system"
-        enableSystem
-        disableTransitionOnChange
-      >
-        <TooltipProvider>
-          <FileWatcherSetup />
-          <Toaster />
-          <Outlet />
-        </TooltipProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+    <ClientOnly fallback={<DefaultSpinner />}>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <TooltipProvider>
+            <FileWatcherSetup />
+            <Toaster position="bottom-left" />
+            <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+              <CommandMenu.Group heading="Forms">
+                <CommandMenu.Item onSelect={() => {}}>
+                  Search forms
+                </CommandMenu.Item>
+              </CommandMenu.Group>
+            </CommandMenu>
+            <Outlet />
+          </TooltipProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    </ClientOnly>
   );
 }
 
