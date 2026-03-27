@@ -161,14 +161,27 @@ async function initClient(): Promise<void> {
 export function getDbExec(): DbExec {
   if (_exec) return _exec;
 
+  // Sanitize args: replace undefined with null (libsql rejects undefined)
+  function sanitize(
+    sql: string | { sql: string; args: any[] },
+  ): string | { sql: string; args: any[] } {
+    if (typeof sql === "object" && sql.args) {
+      return { ...sql, args: sql.args.map((a: any) => a ?? null) };
+    }
+    return sql;
+  }
+
   // Return a proxy that lazy-inits on first call
   const proxy: DbExec = {
     async execute(sql) {
       if (!_initPromise) _initPromise = initClient();
       await _initPromise;
-      // After init, swap ourselves out so future calls skip the proxy
-      Object.assign(proxy, _exec!);
-      return _exec!.execute(sql);
+      // After init, swap to a sanitizing wrapper around the real client
+      const wrapper: DbExec = {
+        execute: (s) => _exec!.execute(sanitize(s)),
+      };
+      Object.assign(proxy, wrapper);
+      return _exec!.execute(sanitize(sql));
     },
   };
   return proxy;
