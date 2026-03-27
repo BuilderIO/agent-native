@@ -76,7 +76,7 @@ importers:
         specifier: ^7.3.0
         version: 7.3.0
       postgres:
-        specifier: ^3.4.8
+        specifier: '>=3'
         version: 3.4.8
       react-dom:
         specifier: '>=18'
