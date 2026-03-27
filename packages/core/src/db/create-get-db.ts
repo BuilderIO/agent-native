@@ -93,6 +93,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
       },
       apply(_target, _thisArg, args) {
         // Method call (e.g. .from(table)) — record args and return another proxy
+        if (chain.length === 0) return createLazyProxy(ready, []);
         const last = chain[chain.length - 1];
         const newChain = chain.slice(0, -1);
         newChain.push({ prop: last.prop, args });

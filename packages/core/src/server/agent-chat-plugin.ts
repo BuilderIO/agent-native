@@ -28,6 +28,15 @@ import nodePath from "node:path";
  * Wraps a core CLI script (that writes to console.log) as a ScriptEntry
  * by capturing stdout.
  */
+/** Sentinel thrown by our process.exit interceptor */
+class ExitIntercepted extends Error {
+  code: number;
+  constructor(code: number) {
+    super(`process.exit(${code})`);
+    this.code = code;
+  }
+}
+
 function wrapCliScript(
   tool: ScriptTool,
   cliDefault: (args: string[]) => Promise<void>,
@@ -41,15 +50,28 @@ function wrapCliScript(
       }
       const logs: string[] = [];
       const origLog = console.log;
+      const origError = console.error;
+      const origExit = process.exit;
       console.log = (...a: unknown[]) => {
         logs.push(a.map(String).join(" "));
       };
+      console.error = (...a: unknown[]) => {
+        logs.push(a.map(String).join(" "));
+      };
+      // Intercept process.exit so scripts don't kill the server
+      process.exit = ((code?: number) => {
+        throw new ExitIntercepted(code ?? 0);
+      }) as never;
       try {
         await cliDefault(cliArgs);
       } catch (err: any) {
-        logs.push(`Error: ${err?.message ?? String(err)}`);
+        if (!(err instanceof ExitIntercepted)) {
+          logs.push(`Error: ${err?.message ?? String(err)}`);
+        }
       } finally {
         console.log = origLog;
+        console.error = origError;
+        process.exit = origExit;
       }
       return logs.join("\n") || "(no output)";
     },
@@ -219,6 +241,8 @@ At the start of conversations:
 1. Read the shared "AGENTS.md" resource — it contains custom instructions, preferences, and skill references for this app.
 2. Read the personal "learnings.md" resource for user-specific preferences and context.
 3. If AGENTS.md references skill files (e.g. "skills/data-analysis.md"), read the relevant skill before performing that type of task.
+
+If a resource doesn't exist yet, that's fine — just skip it and continue helping the user. Don't treat missing resources as errors.
 
 When you learn something important (user corrections, preferences, patterns), update the "learnings.md" resource.
 When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource instead.`;
