@@ -1055,6 +1055,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         <SnoozeModal
           open={snoozeOpen}
           emailId={targetEmail?.id ?? null}
+          accountEmail={targetEmail?.accountEmail}
           onClose={() => setSnoozeOpen(false)}
           onSnoozed={() => setSnoozeOpen(false)}
         />

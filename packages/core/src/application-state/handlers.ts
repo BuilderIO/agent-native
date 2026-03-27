@@ -2,6 +2,7 @@ import {
   defineEventHandler,
   readBody,
   getRouterParam,
+  getHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -45,14 +46,16 @@ export const putState = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const key = safeKey(String(getRouterParam(event, "key")));
   const body = await readBody(event);
-  await appStatePut(sessionId, key, body);
+  const requestSource = getHeader(event, "x-request-source") || undefined;
+  await appStatePut(sessionId, key, body, { requestSource });
   return body;
 });
 
 export const deleteState = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const key = safeKey(String(getRouterParam(event, "key")));
-  await appStateDelete(sessionId, key);
+  const requestSource = getHeader(event, "x-request-source") || undefined;
+  await appStateDelete(sessionId, key, { requestSource });
   return { ok: true };
 });
 
@@ -90,7 +93,8 @@ export const putComposeDraft = defineEventHandler(async (event: H3Event) => {
   }
 
   const state = { ...body, id };
-  await appStatePut(sessionId, composeDraftKey(id), state);
+  const requestSource = getHeader(event, "x-request-source") || undefined;
+  await appStatePut(sessionId, composeDraftKey(id), state, { requestSource });
   return state;
 });
 
@@ -98,7 +102,8 @@ export const putComposeDraft = defineEventHandler(async (event: H3Event) => {
 export const deleteComposeDraft = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const id = getRouterParam(event, "id") as string;
-  await appStateDelete(sessionId, composeDraftKey(id));
+  const requestSource = getHeader(event, "x-request-source") || undefined;
+  await appStateDelete(sessionId, composeDraftKey(id), { requestSource });
   return { ok: true };
 });
 
@@ -106,7 +111,8 @@ export const deleteComposeDraft = defineEventHandler(async (event: H3Event) => {
 export const deleteAllComposeDrafts = defineEventHandler(
   async (event: H3Event) => {
     const sessionId = await getSessionId(event);
-    await appStateDeleteByPrefix(sessionId, "compose-");
+    const requestSource = getHeader(event, "x-request-source") || undefined;
+    await appStateDeleteByPrefix(sessionId, "compose-", { requestSource });
     return { ok: true };
   },
 );

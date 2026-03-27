@@ -6,6 +6,7 @@ export interface ResourceEvent {
   id: string;
   path: string;
   owner: string;
+  requestSource?: string;
 }
 
 /**
@@ -22,6 +23,7 @@ export function emitResourceChange(
   id: string,
   path: string,
   owner: string,
+  requestSource?: string,
 ): void {
   const event: ResourceEvent = {
     source: "resources",
@@ -29,6 +31,7 @@ export function emitResourceChange(
     id,
     path,
     owner,
+    ...(requestSource && { requestSource }),
   };
   _emitter.emit("resources", event);
 }
@@ -37,6 +40,7 @@ export function emitResourceDelete(
   id: string,
   path: string,
   owner: string,
+  requestSource?: string,
 ): void {
   const event: ResourceEvent = {
     source: "resources",
@@ -44,6 +48,7 @@ export function emitResourceDelete(
     id,
     path,
     owner,
+    ...(requestSource && { requestSource }),
   };
   _emitter.emit("resources", event);
 }

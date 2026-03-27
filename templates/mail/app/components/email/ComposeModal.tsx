@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useSendEmail } from "@/hooks/use-emails";
 import { useAliases } from "@/hooks/use-aliases";
-import { useCreateScheduledJob } from "@/hooks/use-scheduled-jobs";
+import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
 import { SendLaterButton } from "./SendLaterButton";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { useAgentChatGenerating } from "@agent-native/core";
@@ -87,7 +87,7 @@ export function ComposeModal({
 
   const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
-  const createJob = useCreateScheduledJob();
+  const scheduleEmail = useScheduleEmail();
   const { data: aliases = [] } = useAliases();
   const editorRef = useRef<ComposeEditorHandle>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -195,17 +195,15 @@ export function ComposeModal({
     const { savedDraftId } = activeDraft;
 
     try {
-      await createJob.mutateAsync({
-        type: "send_later",
-        payload: {
-          to: expandAliasTokens(draftSnapshot.to, aliases),
-          cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
-          bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
-          subject: draftSnapshot.subject,
-          body: draftSnapshot.body,
-          replyToId: draftSnapshot.replyToId,
-          accountEmail: draftSnapshot.accountEmail,
-        },
+      await scheduleEmail.mutateAsync({
+        to: expandAliasTokens(draftSnapshot.to, aliases),
+        cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
+        bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
+        subject: draftSnapshot.subject,
+        body: draftSnapshot.body,
+        replyToId: draftSnapshot.replyToId,
+        threadId: draftSnapshot.replyToThreadId,
+        accountEmail: draftSnapshot.accountEmail,
         runAt,
       });
 
