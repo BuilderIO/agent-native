@@ -3,7 +3,6 @@ import { useNavigate } from "react-router";
 import { Plus, Layers, Settings } from "lucide-react";
 import { useDecks } from "@/context/DeckContext";
 import DeckCard from "@/components/deck/DeckCard";
-import BuilderLogo from "@/components/deck/BuilderLogo";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
@@ -67,12 +66,9 @@ export default function Index() {
       {/* Header */}
       <header className="border-b border-white/[0.06]">
         <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <BuilderLogo className="w-5 h-5" />
-            <span className="text-sm font-semibold text-white/90 tracking-tight">
-              Deck Generator
-            </span>
-          </div>
+          <span className="text-base font-semibold text-white/90 tracking-tight">
+            Slides
+          </span>
           <div className="flex items-center gap-2">
             <FeedbackButton />
             <a

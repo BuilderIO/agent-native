@@ -121,6 +121,19 @@ export function createProductionAgentHandler(
             );
           }
 
+          const mentionRefs = references.filter((r) => r.type === "mention");
+          if (mentionRefs.length > 0) {
+            parts.push(
+              "Referenced items:\n" +
+                mentionRefs
+                  .map(
+                    (r) =>
+                      `- [${r.refType || "item"}] ${r.name}${r.refId ? ` (id: ${r.refId})` : ""}${r.path ? ` (path: ${r.path})` : ""}`,
+                  )
+                  .join("\n"),
+            );
+          }
+
           enrichedMessage = `${parts.join("\n\n")}\n\n${message}`;
         }
 

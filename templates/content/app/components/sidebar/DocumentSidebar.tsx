@@ -76,8 +76,10 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
   return (
     <div className="flex flex-col h-full w-60 border-r border-border bg-muted/30">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-        <span className="text-sm font-semibold text-foreground">Documents</span>
+      <div className="flex items-center justify-between h-12 px-4 border-b border-border">
+        <span className="text-base font-semibold tracking-tight text-foreground">
+          Documents
+        </span>
         <div className="flex items-center gap-1">
           <button
             className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"

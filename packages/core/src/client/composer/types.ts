@@ -12,9 +12,22 @@ export interface SkillResult {
   source: "codebase" | "resource";
 }
 
+export interface MentionItem {
+  id: string;
+  label: string;
+  description?: string;
+  icon?: string;
+  source: string;
+  refType: string;
+  refPath?: string;
+  refId?: string;
+}
+
 export interface Reference {
-  type: "file" | "skill";
+  type: "file" | "skill" | "mention";
   path: string;
   name: string;
-  source: "codebase" | "resource";
+  source: string;
+  refType?: string;
+  refId?: string;
 }

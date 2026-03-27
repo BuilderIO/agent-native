@@ -1,7 +1,7 @@
 import Settings from "@/pages/Settings";
 
 export function meta() {
-  return [{ title: "Settings — Deck Generator" }];
+  return [{ title: "Settings — Slides" }];
 }
 
 export function HydrateFallback() {

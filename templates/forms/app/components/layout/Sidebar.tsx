@@ -110,10 +110,10 @@ export function Sidebar() {
   return (
     <div className="flex h-screen w-60 flex-col border-r border-border bg-muted/30">
       {/* Header */}
-      <div className="flex items-center border-b border-border px-3 py-2">
+      <div className="flex h-12 items-center border-b border-border px-4">
         <Link
           to="/forms"
-          className="text-sm font-semibold text-foreground hover:text-foreground/80"
+          className="text-base font-semibold tracking-tight text-foreground hover:text-foreground/80"
         >
           Forms
         </Link>
