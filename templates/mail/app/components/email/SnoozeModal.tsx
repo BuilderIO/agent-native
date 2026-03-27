@@ -7,6 +7,7 @@ import { toast } from "sonner";
 interface SnoozeModalProps {
   open: boolean;
   emailId: string | null;
+  accountEmail?: string;
   onClose: () => void;
   onSnoozed?: (emailId: string) => void;
 }
@@ -66,6 +67,7 @@ function formatRight(date: Date, sublabel?: string): string {
 export function SnoozeModal({
   open,
   emailId,
+  accountEmail,
   onClose,
   onSnoozed,
 }: SnoozeModalProps) {
@@ -138,6 +140,7 @@ export function SnoozeModal({
         await snoozeEmail.mutateAsync({
           emailId,
           runAt: opt.date.getTime(),
+          accountEmail,
         });
         queryClient.invalidateQueries({ queryKey: ["emails"] });
         // Dispatch after successful archive so list advances selection
@@ -162,7 +165,7 @@ export function SnoozeModal({
         }
       }
     },
-    [emailId, snoozeEmail, queryClient, onSnoozed, onClose],
+    [accountEmail, emailId, snoozeEmail, queryClient, onSnoozed, onClose],
   );
 
   const handleKeyDown = useCallback(
