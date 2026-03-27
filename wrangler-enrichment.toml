@@ -1,0 +1,19 @@
+name = "agent-native-enrichment"
+main = "templates/enrichment/dist/_worker.js/index.js"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat_v2"]
+
+[assets]
+directory = "templates/enrichment/dist"
+
+# Stub native modules that can't run on Workers
+[alias]
+"better-sqlite3" = "./templates/enrichment/dist/_worker.js/stubs/empty.js"
+"node-pty" = "./templates/enrichment/dist/_worker.js/stubs/empty.js"
+"chokidar" = "./templates/enrichment/dist/_worker.js/stubs/empty.js"
+"fsevents" = "./templates/enrichment/dist/_worker.js/stubs/empty.js"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "agent-native-enrichment"
+database_id = "79915ce0-59d1-466c-9a82-a13173b4cc15"

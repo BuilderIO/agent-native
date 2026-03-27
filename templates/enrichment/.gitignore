@@ -1,0 +1,11 @@
+
+build
+
+# User data
+data/imports/*.json
+data/enrichments/*.json
+data/exports/*.csv
+
+# Secrets
+.env
+.env.local

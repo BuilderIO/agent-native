@@ -1,0 +1,7 @@
+{
+  "patterns": [
+    "data/imports/**/*.json",
+    "data/enrichments/**/*.json",
+    "data/exports/**/*.csv"
+  ]
+}
