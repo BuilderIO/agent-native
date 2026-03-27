@@ -229,6 +229,14 @@ export default function CalendarView() {
       if (isTypingInInput(e)) return;
       if (createDialogOpen || shortcutsHelpOpen) return;
 
+      // Delete/Backspace — delete the selected sidebar event
+      if ((e.key === "Delete" || e.key === "Backspace") && sidebarEvent) {
+        e.preventDefault();
+        handleDeleteEvent(sidebarEvent.id);
+        setSidebarEvent(null);
+        return;
+      }
+
       switch (e.key) {
         case "j":
         case "n":
@@ -271,7 +279,13 @@ export default function CalendarView() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [createDialogOpen, shortcutsHelpOpen, isTypingInInput, viewMode]);
+  }, [
+    createDialogOpen,
+    shortcutsHelpOpen,
+    isTypingInInput,
+    viewMode,
+    sidebarEvent,
+  ]);
 
   const headerLabel = (() => {
     switch (viewMode) {
