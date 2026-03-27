@@ -13,6 +13,7 @@ import {
   Check,
   HelpCircle,
   XCircle,
+  PanelRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,12 +21,19 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
 import type { CalendarEvent } from "@shared/api";
 import {
   AttendeeApolloPopover,
   ResearchMeetingButton,
 } from "@/components/calendar/ApolloPanel";
 import { useAttendeePhotos } from "@/hooks/use-attendee-photos";
+import { useCalendarContext } from "@/components/layout/AppLayout";
 
 function formatDuration(start: string, end: string): string {
   const totalMinutes = differenceInMinutes(parseISO(end), parseISO(start));
@@ -473,8 +481,28 @@ export function EventDetailPopover({
   onDelete,
 }: EventDetailPopoverProps) {
   const [open, setOpen] = useState(false);
+  const { eventDetailSidebar, setEventDetailSidebar, setSidebarEvent } =
+    useCalendarContext();
 
   const meetingLink = extractMeetingLink(event);
+
+  // If in sidebar mode, clicking the trigger opens the sidebar instead of popover
+  const handleTriggerClick = useCallback(() => {
+    if (eventDetailSidebar) {
+      setSidebarEvent(event);
+    }
+  }, [eventDetailSidebar, event, setSidebarEvent]);
+
+  const handlePinToSidebar = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setEventDetailSidebar(true);
+      setSidebarEvent(event);
+      setOpen(false);
+    },
+    [event, setEventDetailSidebar, setSidebarEvent],
+  );
 
   // Keyboard shortcut: Cmd+J to join meeting when popover is open
   const handleKeyDown = useCallback(
@@ -511,282 +539,312 @@ export function EventDetailPopover({
   const tzLabel = `GMT${offsetSign}${offsetHours}`;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>{children}</PopoverTrigger>
+    <Popover open={eventDetailSidebar ? false : open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild onClick={handleTriggerClick}>
+        {children}
+      </PopoverTrigger>
       <PopoverContent
         side="right"
         align="start"
         sideOffset={8}
         className="w-[420px] max-h-[90vh] p-0 overflow-hidden flex flex-col"
         onOpenAutoFocus={(e) => e.preventDefault()}
+        onInteractOutside={(e) => {
+          // Don't close if clicking inside an Apollo popover (portaled to body)
+          const target = e.target as HTMLElement;
+          if (target.closest("[data-apollo-popover]")) {
+            e.preventDefault();
+          }
+        }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
-          <div className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            <span>Event</span>
-            <ChevronRight className="h-3 w-3" />
+        <TooltipProvider>
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
+            <div className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <span>Event</span>
+              <ChevronRight className="h-3 w-3" />
+            </div>
+            <div className="flex items-center gap-0.5">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                    onClick={handlePinToSidebar}
+                  >
+                    <PanelRight className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>Open in sidebar</p>
+                </TooltipContent>
+              </Tooltip>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                onClick={() => setOpen(false)}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-muted-foreground hover:text-foreground"
-            onClick={() => setOpen(false)}
-          >
-            <X className="h-3.5 w-3.5" />
-          </Button>
-        </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="px-4 pt-4 pb-1">
-            {/* Title */}
-            <h2 className="text-lg font-semibold text-foreground leading-tight mb-4">
-              {event.title}
-            </h2>
-          </div>
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="px-4 pt-4 pb-1">
+              {/* Title */}
+              <h2 className="text-lg font-semibold text-foreground leading-tight mb-4">
+                {event.title}
+              </h2>
+            </div>
 
-          <div className="px-4 space-y-1">
-            {/* Time */}
-            <div className="flex items-start gap-3 py-1.5">
-              <Clock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              <div className="text-sm">
-                {event.allDay ? (
-                  <div>
-                    <span className="text-foreground">All day</span>
-                    <span className="text-muted-foreground ml-2 text-xs">
-                      {format(parseISO(event.start), "EEE MMM d")}
-                    </span>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-foreground font-medium">
-                        {formatTimeShort(event.start)}
-                      </span>
-                      <span className="text-muted-foreground/50 mx-0.5">
-                        &rarr;
-                      </span>
-                      <span className="text-foreground font-medium">
-                        {formatTimeShort(event.end)}
-                      </span>
-                      <span className="text-muted-foreground/50 text-xs ml-1">
-                        {formatDuration(event.start, event.end)}
+            <div className="px-4 space-y-1">
+              {/* Time */}
+              <div className="flex items-start gap-3 py-1.5">
+                <Clock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="text-sm">
+                  {event.allDay ? (
+                    <div>
+                      <span className="text-foreground">All day</span>
+                      <span className="text-muted-foreground ml-2 text-xs">
+                        {format(parseISO(event.start), "EEE MMM d")}
                       </span>
                     </div>
-                    <div className="text-muted-foreground text-xs mt-0.5">
-                      {format(parseISO(event.start), "EEE MMM d")}
-                    </div>
-                  </>
-                )}
+                  ) : (
+                    <>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-foreground font-medium">
+                          {formatTimeShort(event.start)}
+                        </span>
+                        <span className="text-muted-foreground/50 mx-0.5">
+                          &rarr;
+                        </span>
+                        <span className="text-foreground font-medium">
+                          {formatTimeShort(event.end)}
+                        </span>
+                        <span className="text-muted-foreground/50 text-xs ml-1">
+                          {formatDuration(event.start, event.end)}
+                        </span>
+                      </div>
+                      <div className="text-muted-foreground text-xs mt-0.5">
+                        {format(parseISO(event.start), "EEE MMM d")}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
 
-            {/* Timezone */}
-            <div className="flex items-center gap-3 py-1.5">
-              <Globe className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">{tzLabel}</span>
-            </div>
-
-            {/* Recurrence */}
-            {recurrenceText && (
+              {/* Timezone */}
               <div className="flex items-center gap-3 py-1.5">
-                <RefreshCw className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">
-                  {recurrenceText}
-                </span>
+                <Globe className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">{tzLabel}</span>
               </div>
-            )}
-          </div>
 
-          {/* Separator */}
-          <div className="mx-4 my-2 border-t border-border/50" />
-
-          {/* Attendees */}
-          {event.attendees && event.attendees.length > 0 && (
-            <AttendeesList attendees={event.attendees} />
-          )}
-
-          {/* Research Meeting button */}
-          {event.attendees && event.attendees.length > 0 && (
-            <>
-              <div className="mx-4 my-2 border-t border-border/50" />
-              <div className="px-4 py-1">
-                <ResearchMeetingButton event={event} />
-              </div>
-            </>
-          )}
-
-          {/* Meeting link */}
-          {meetingLink && (
-            <>
-              <div className="mx-4 my-2 border-t border-border/50" />
-              <div className="px-4 py-1.5">
-                <a
-                  href={meetingLink.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center w-full rounded-xl bg-[#4965E0] hover:bg-[#5A75F0] text-white font-semibold py-3 px-4 text-[15px] relative"
-                >
-                  <Video className="h-5 w-5 mr-2 opacity-80" />
-                  <span>{getMeetingLabel(meetingLink.type)}</span>
-                  <span className="absolute right-4 flex items-center gap-1 opacity-50">
-                    <kbd className="text-xs font-normal">⌘</kbd>
-                    <kbd className="inline-flex h-5 w-5 items-center justify-center rounded bg-white/20 text-[11px] font-medium">
-                      J
-                    </kbd>
+              {/* Recurrence */}
+              {recurrenceText && (
+                <div className="flex items-center gap-3 py-1.5">
+                  <RefreshCw className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
+                    {recurrenceText}
                   </span>
-                </a>
-                {(meetingLink.pin || meetingLink.passcode) && (
-                  <div className="mt-1.5 text-xs text-muted-foreground/60">
-                    {meetingLink.pin && <span>PIN: {meetingLink.pin}</span>}
-                    {meetingLink.pin && meetingLink.passcode && (
-                      <span className="mx-1">&middot;</span>
-                    )}
-                    {meetingLink.passcode && (
-                      <span>Passcode: {meetingLink.passcode}</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </>
-          )}
+                </div>
+              )}
+            </div>
 
-          {/* Location */}
-          {event.location && !locationIsMeetingLink && (
-            <>
-              <div className="mx-4 my-2 border-t border-border/50" />
-              <div className="flex items-start gap-3 px-4 py-1.5">
-                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                {locationIsUrl ? (
+            {/* Separator */}
+            <div className="mx-4 my-2 border-t border-border/50" />
+
+            {/* Attendees */}
+            {event.attendees && event.attendees.length > 0 && (
+              <AttendeesList attendees={event.attendees} />
+            )}
+
+            {/* Research Meeting button */}
+            {event.attendees && event.attendees.length > 0 && (
+              <>
+                <div className="mx-4 my-2 border-t border-border/50" />
+                <div className="px-4 py-1">
+                  <ResearchMeetingButton event={event} />
+                </div>
+              </>
+            )}
+
+            {/* Meeting link */}
+            {meetingLink && (
+              <>
+                <div className="mx-4 my-2 border-t border-border/50" />
+                <div className="px-4 py-1.5">
                   <a
-                    href={event.location}
+                    href={meetingLink.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm text-primary hover:underline truncate block max-w-full"
-                    title={event.location}
+                    className="flex items-center justify-center w-full rounded-xl bg-[#4965E0] hover:bg-[#5A75F0] text-white font-semibold py-3 px-4 text-[15px] relative"
                   >
-                    {event.location}
+                    <Video className="h-5 w-5 mr-2 opacity-80" />
+                    <span>{getMeetingLabel(meetingLink.type)}</span>
+                    <span className="absolute right-4 flex items-center gap-1 opacity-50">
+                      <kbd className="text-xs font-normal">⌘</kbd>
+                      <kbd className="inline-flex h-5 w-5 items-center justify-center rounded bg-white/20 text-[11px] font-medium">
+                        J
+                      </kbd>
+                    </span>
                   </a>
-                ) : (
-                  <span className="text-sm text-muted-foreground">
-                    {event.location}
-                  </span>
-                )}
-              </div>
-            </>
-          )}
-
-          {/* Description */}
-          {event.description && (
-            <>
-              <div className="mx-4 my-2 border-t border-border/50" />
-              <div className="px-4 py-1.5">
-                {descriptionIsHtml ? (
-                  <div
-                    className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80  prose prose-sm prose-invert prose-p:my-1 prose-a:text-primary"
-                    dangerouslySetInnerHTML={{
-                      __html: sanitizeHtml(event.description),
-                    }}
-                  />
-                ) : (
-                  <p className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80  whitespace-pre-wrap">
-                    {event.description}
-                  </p>
-                )}
-              </div>
-            </>
-          )}
-
-          {/* Reminders */}
-          {event.reminders && event.reminders.length > 0 && (
-            <>
-              <div className="mx-4 my-2 border-t border-border/50" />
-              <div className="flex items-start gap-3 px-4 py-1.5">
-                <Bell className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                <div className="space-y-0.5">
-                  {event.reminders.map((r, i) => (
-                    <div key={i} className="text-sm text-muted-foreground">
-                      {formatReminderText(r.minutes)}
+                  {(meetingLink.pin || meetingLink.passcode) && (
+                    <div className="mt-1.5 text-xs text-muted-foreground/60">
+                      {meetingLink.pin && <span>PIN: {meetingLink.pin}</span>}
+                      {meetingLink.pin && meetingLink.passcode && (
+                        <span className="mx-1">&middot;</span>
+                      )}
+                      {meetingLink.passcode && (
+                        <span>Passcode: {meetingLink.passcode}</span>
+                      )}
                     </div>
-                  ))}
+                  )}
                 </div>
-              </div>
-            </>
-          )}
+              </>
+            )}
 
-          {/* Status / Visibility */}
-          {(event.status || event.visibility) && (
-            <>
-              <div className="mx-4 my-2 border-t border-border/50" />
-              <div className="flex items-center gap-3 px-4 py-1.5 text-sm text-muted-foreground">
-                <div className="h-4 w-4 shrink-0" />
-                <div className="flex items-center gap-2">
-                  {event.status && event.status !== "cancelled" && (
-                    <span>
-                      {event.status === "confirmed" ? "Busy" : "Free"}
+            {/* Location */}
+            {event.location && !locationIsMeetingLink && (
+              <>
+                <div className="mx-4 my-2 border-t border-border/50" />
+                <div className="flex items-start gap-3 px-4 py-1.5">
+                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  {locationIsUrl ? (
+                    <a
+                      href={event.location}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-primary hover:underline truncate block max-w-full"
+                      title={event.location}
+                    >
+                      {event.location}
+                    </a>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">
+                      {event.location}
                     </span>
                   )}
-                  {event.status &&
-                    event.status !== "cancelled" &&
-                    event.visibility &&
-                    event.visibility !== "default" && (
-                      <span className="text-muted-foreground/40">&middot;</span>
+                </div>
+              </>
+            )}
+
+            {/* Description */}
+            {event.description && (
+              <>
+                <div className="mx-4 my-2 border-t border-border/50" />
+                <div className="px-4 py-1.5">
+                  {descriptionIsHtml ? (
+                    <div
+                      className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80  prose prose-sm prose-invert prose-p:my-1 prose-a:text-primary"
+                      dangerouslySetInnerHTML={{
+                        __html: sanitizeHtml(event.description),
+                      }}
+                    />
+                  ) : (
+                    <p className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80  whitespace-pre-wrap">
+                      {event.description}
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* Reminders */}
+            {event.reminders && event.reminders.length > 0 && (
+              <>
+                <div className="mx-4 my-2 border-t border-border/50" />
+                <div className="flex items-start gap-3 px-4 py-1.5">
+                  <Bell className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="space-y-0.5">
+                    {event.reminders.map((r, i) => (
+                      <div key={i} className="text-sm text-muted-foreground">
+                        {formatReminderText(r.minutes)}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Status / Visibility */}
+            {(event.status || event.visibility) && (
+              <>
+                <div className="mx-4 my-2 border-t border-border/50" />
+                <div className="flex items-center gap-3 px-4 py-1.5 text-sm text-muted-foreground">
+                  <div className="h-4 w-4 shrink-0" />
+                  <div className="flex items-center gap-2">
+                    {event.status && event.status !== "cancelled" && (
+                      <span>
+                        {event.status === "confirmed" ? "Busy" : "Free"}
+                      </span>
                     )}
-                  {event.visibility && event.visibility !== "default" && (
-                    <span className="capitalize">
-                      {event.visibility} visibility
-                    </span>
-                  )}
+                    {event.status &&
+                      event.status !== "cancelled" &&
+                      event.visibility &&
+                      event.visibility !== "default" && (
+                        <span className="text-muted-foreground/40">
+                          &middot;
+                        </span>
+                      )}
+                    {event.visibility && event.visibility !== "default" && (
+                      <span className="capitalize">
+                        {event.visibility} visibility
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </>
-          )}
+              </>
+            )}
 
-          {/* Overlay person badge */}
-          {event.overlayEmail && (
-            <>
-              <div className="mx-4 my-2 border-t border-border/50" />
-              <div className="flex items-center gap-3 px-4 py-1.5">
-                <User className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">
-                  {event.overlayEmail}
-                </span>
-              </div>
-            </>
-          )}
+            {/* Overlay person badge */}
+            {event.overlayEmail && (
+              <>
+                <div className="mx-4 my-2 border-t border-border/50" />
+                <div className="flex items-center gap-3 px-4 py-1.5">
+                  <User className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
+                    {event.overlayEmail}
+                  </span>
+                </div>
+              </>
+            )}
 
-          {/* Bottom padding */}
-          <div className="h-3" />
-        </div>
-
-        {/* Actions — only for local events */}
-        {event.source !== "google" && !event.overlayEmail && (
-          <div className="shrink-0 border-t border-border px-4 py-2.5 flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive hover:bg-destructive/10 text-xs"
-              onClick={() => {
-                onDelete(event.id);
-                setOpen(false);
-              }}
-            >
-              Delete
-            </Button>
-            <div className="flex-1" />
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs"
-              onClick={() => {
-                onEdit(event);
-                setOpen(false);
-              }}
-            >
-              Edit
-            </Button>
+            {/* Bottom padding */}
+            <div className="h-3" />
           </div>
-        )}
+
+          {/* Actions — only for local events */}
+          {event.source !== "google" && !event.overlayEmail && (
+            <div className="shrink-0 border-t border-border px-4 py-2.5 flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive hover:bg-destructive/10 text-xs"
+                onClick={() => {
+                  onDelete(event.id);
+                  setOpen(false);
+                }}
+              >
+                Delete
+              </Button>
+              <div className="flex-1" />
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                onClick={() => {
+                  onEdit(event);
+                  setOpen(false);
+                }}
+              >
+                Edit
+              </Button>
+            </div>
+          )}
+        </TooltipProvider>
       </PopoverContent>
     </Popover>
   );

@@ -1,14 +1,23 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useState, useEffect } from "react";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AgentSidebar } from "@agent-native/core/client";
 import { Sidebar } from "./Sidebar";
+import type { CalendarEvent } from "@shared/api";
+
+const EVENT_DETAIL_MODE_KEY = "calendar-event-detail-mode";
 
 interface CalendarContextValue {
   selectedDate: Date;
   setSelectedDate: (date: Date) => void;
   peopleSearchOpen: boolean;
   setPeopleSearchOpen: (open: boolean) => void;
+  /** Whether to show event details in sidebar instead of popover */
+  eventDetailSidebar: boolean;
+  setEventDetailSidebar: (sidebar: boolean) => void;
+  /** The currently selected event for the sidebar panel */
+  sidebarEvent: CalendarEvent | null;
+  setSidebarEvent: (event: CalendarEvent | null) => void;
 }
 
 const CalendarContext = createContext<CalendarContextValue>({
@@ -16,6 +25,10 @@ const CalendarContext = createContext<CalendarContextValue>({
   setSelectedDate: () => {},
   peopleSearchOpen: false,
   setPeopleSearchOpen: () => {},
+  eventDetailSidebar: false,
+  setEventDetailSidebar: () => {},
+  sidebarEvent: null,
+  setSidebarEvent: () => {},
 });
 
 export function useCalendarContext() {
@@ -30,6 +43,26 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [peopleSearchOpen, setPeopleSearchOpen] = useState(false);
+  const [eventDetailSidebar, setEventDetailSidebarState] = useState(false);
+  const [sidebarEvent, setSidebarEvent] = useState<CalendarEvent | null>(null);
+
+  // Load preference from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(EVENT_DETAIL_MODE_KEY);
+      if (saved === "sidebar") setEventDetailSidebarState(true);
+    } catch {}
+  }, []);
+
+  const setEventDetailSidebar = (sidebar: boolean) => {
+    setEventDetailSidebarState(sidebar);
+    try {
+      localStorage.setItem(
+        EVENT_DETAIL_MODE_KEY,
+        sidebar ? "sidebar" : "popover",
+      );
+    } catch {}
+  };
 
   return (
     <CalendarContext.Provider
@@ -38,6 +71,10 @@ export function AppLayout({ children }: AppLayoutProps) {
         setSelectedDate,
         peopleSearchOpen,
         setPeopleSearchOpen,
+        eventDetailSidebar,
+        setEventDetailSidebar,
+        sidebarEvent,
+        setSidebarEvent,
       }}
     >
       <div className="flex h-screen overflow-hidden bg-background">
@@ -66,7 +103,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               <span className="ml-2 text-sm font-semibold">Calendar</span>
             </div>
 
-            <main className="flex-1 overflow-hidden">{children}</main>
+            <main className="flex-1 overflow-y-auto">{children}</main>
           </div>
         </AgentSidebar>
       </div>

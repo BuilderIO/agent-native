@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   useApolloStatus,
   useApolloConnect,
@@ -8,6 +9,7 @@ import {
 import type { ApolloPersonResult } from "@shared/api";
 import type { CalendarEvent } from "@shared/api";
 import { useSendToAgentChat } from "@agent-native/core/client";
+import { IntegrationsSidebar } from "./IntegrationsSidebar";
 
 // ─── Apollo logo SVG ────────────────────────────────────────────────────────
 
@@ -263,10 +265,6 @@ export function AttendeeApolloPopover({
   );
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const { connected } = useApolloStatus();
-  const { data: person, isLoading } = useApolloPerson(
-    open ? attendee.email : undefined,
-  );
 
   // Close on outside click
   useEffect(() => {
@@ -289,7 +287,7 @@ export function AttendeeApolloPopover({
     if (!open && triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
       // Position to the left of the trigger; if not enough space, position to the right
-      const popoverWidth = 280;
+      const popoverWidth = 320;
       const left =
         rect.left - popoverWidth - 8 > 0
           ? rect.left - popoverWidth - 8
@@ -305,41 +303,36 @@ export function AttendeeApolloPopover({
     <>
       <button
         ref={triggerRef}
-        onClick={handleClick}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleClick();
+        }}
         className="text-left w-full"
       >
         {children}
       </button>
 
-      {open && (
-        <div
-          ref={popoverRef}
-          className="fixed z-[200] rounded-lg border border-border bg-popover shadow-xl overflow-hidden"
-          style={{
-            top: anchor ? `${anchor.top}px` : "50%",
-            left: anchor ? `${anchor.left}px` : "50%",
-            width: "280px",
-          }}
-        >
-          {!connected ? (
-            <div className="p-3">
-              <ApolloSetupPrompt onDone={() => setOpen(false)} />
-            </div>
-          ) : isLoading ? (
-            <div className="flex items-center justify-center py-6 px-4">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
-            </div>
-          ) : person ? (
-            <ApolloPersonCard person={person} />
-          ) : (
-            <div className="px-3 py-3 text-center">
-              <p className="text-[11px] text-muted-foreground/60">
-                No Apollo data for {attendee.email}
-              </p>
-            </div>
-          )}
-        </div>
-      )}
+      {open &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            data-apollo-popover
+            className="fixed z-[9999] rounded-lg border border-border bg-popover shadow-xl overflow-hidden max-h-[80vh]"
+            style={{
+              top: anchor ? `${anchor.top}px` : "50%",
+              left: anchor ? `${anchor.left}px` : "50%",
+              width: "320px",
+            }}
+            onPointerDownCapture={(e) => e.stopPropagation()}
+          >
+            <IntegrationsSidebar
+              email={attendee.email}
+              displayName={attendee.displayName || attendee.email}
+              recentEmails={[]}
+            />
+          </div>,
+          document.body,
+        )}
     </>
   );
 }

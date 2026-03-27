@@ -89,6 +89,18 @@ export interface Booking {
   createdAt: string;
 }
 
+export interface BookingLink {
+  id: string;
+  slug: string;
+  title: string;
+  description?: string;
+  duration: number;
+  color?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface GoogleAuthStatus {
   connected: boolean;
   accounts: Array<{ email: string; expiresAt?: string }>;

@@ -51,6 +51,7 @@ function FileWatcherSetup() {
     queryKeys: [
       "events",
       "bookings",
+      "booking-links",
       "availability",
       "settings",
       "google-status",

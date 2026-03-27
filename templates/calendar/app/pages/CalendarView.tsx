@@ -42,6 +42,7 @@ import { CommandPalette } from "@/components/calendar/CommandPalette";
 import { KeyboardShortcutsHelp } from "@/components/calendar/KeyboardShortcutsHelp";
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
 import { PeopleSearchDialog } from "@/components/calendar/PeopleSearchDialog";
+import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import { useEvents, useUpdateEvent, useDeleteEvent } from "@/hooks/use-events";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
@@ -64,6 +65,9 @@ export default function CalendarView() {
     setSelectedDate,
     peopleSearchOpen,
     setPeopleSearchOpen,
+    eventDetailSidebar,
+    sidebarEvent,
+    setSidebarEvent,
   } = useCalendarContext();
   const [viewMode, setViewMode] = useState<ViewMode>("week");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -492,6 +496,16 @@ export default function CalendarView() {
               />
             )}
           </div>
+
+          {/* Event detail sidebar - shown when preference is set */}
+          {eventDetailSidebar && (
+            <EventDetailPanel
+              event={sidebarEvent}
+              onClose={() => setSidebarEvent(null)}
+              onEdit={handleEditEvent}
+              onDelete={handleDeleteEvent}
+            />
+          )}
         </div>
 
         {/* Dialogs */}
