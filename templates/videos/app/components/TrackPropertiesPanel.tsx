@@ -8,7 +8,7 @@ import {
   Copy,
   Check,
   Braces,
-  Sparkles,
+  Zap,
 } from "lucide-react";
 import type { AnimationTrack, AnimatedProp, EasingKey } from "@/types";
 import { COMMON_PROP_TEMPLATES } from "@/types";
@@ -292,10 +292,7 @@ function ExpressionPropRow({
           {prop.description && (
             <div className="pt-2 space-y-1">
               <div className="flex items-center gap-1">
-                <Sparkles
-                  size={9}
-                  style={{ color: EXPR_COLOR, opacity: 0.7 }}
-                />
+                <Zap size={9} style={{ color: EXPR_COLOR, opacity: 0.7 }} />
                 <span
                   className="text-[10px] uppercase tracking-wider font-semibold"
                   style={{ color: `${EXPR_COLOR}80` }}
@@ -563,10 +560,7 @@ function AnimatedPropRow({
           {prop.description && (
             <div className="space-y-1">
               <div className="flex items-center gap-1">
-                <Sparkles
-                  size={9}
-                  style={{ color: accentColor, opacity: 0.6 }}
-                />
+                <Zap size={9} style={{ color: accentColor, opacity: 0.6 }} />
                 <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground/50">
                   How it works
                 </span>

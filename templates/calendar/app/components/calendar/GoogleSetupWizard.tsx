@@ -50,7 +50,7 @@ export function GoogleSetupWizard() {
   const [error, setError] = useState<string | null>(null);
   const [envStatus, setEnvStatus] = useState<EnvKeyStatus[]>([]);
 
-  const redirectUri = `${window.location.origin}/api/google/callback`;
+  const redirectUri = `${typeof window !== "undefined" ? window.location.origin : ""}/api/google/callback`;
 
   const fetchStatus = useCallback(async () => {
     try {

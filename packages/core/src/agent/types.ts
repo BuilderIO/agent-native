@@ -19,9 +19,17 @@ export interface AgentMessage {
   content: string;
 }
 
+export interface AgentChatReference {
+  type: "file" | "skill";
+  path: string;
+  name: string;
+  source: "codebase" | "resource";
+}
+
 export interface AgentChatRequest {
   message: string;
   history?: AgentMessage[];
+  references?: AgentChatReference[];
 }
 
 export type AgentChatEvent =

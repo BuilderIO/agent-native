@@ -8,97 +8,40 @@ This is an **agent-native** app built with `@agent-native/core`. See `.agents/sk
 - **real-time-sync** — UI stays in sync with agent changes via SSE (streams DB change events).
 - **frontend-design** — Build distinctive, production-grade UI. Read this skill before creating or restyling any component, page, or layout.
 
+For code editing and development guidance, read `DEVELOPING.md`.
+
 ---
 
-## Learnings & Preferences
+## Resources
 
-**Always read `learnings.md` at the start of every conversation.** This file is the app's memory — it contains user preferences, corrections, important context, and patterns learned from past interactions.
+Resources are SQL-backed persistent files for notes, learnings, and context. They replace the old `learnings.md` file approach.
 
-**Update `learnings.md` when you learn something important:**
+**Always read the `learnings.md` resource at the start of every conversation.** It contains user preferences, corrections, and patterns from past interactions.
+
+**Update the `learnings.md` resource when you learn something important:**
 
 - User corrects your tone, style, or approach
-- User shares personal info relevant to the app (contacts, preferences, habits)
+- User shares personal info relevant to the app
 - You discover a non-obvious pattern or gotcha
 - User gives feedback that should apply to future conversations
 
-Keep entries concise and actionable. Group by category. This file is gitignored so personal data stays local.
+Resources can be **personal** (per-user, default) or **shared** (team-wide).
 
-## Framework Basics (Nitro + @agent-native/core)
+| Script            | Args                                                        | Purpose                 |
+| ----------------- | ----------------------------------------------------------- | ----------------------- |
+| `resource-read`   | `--path <path> [--scope personal\|shared]`                  | Read a resource         |
+| `resource-write`  | `--path <path> --content <text> [--scope personal\|shared]` | Write/update a resource |
+| `resource-list`   | `[--prefix <path>] [--scope personal\|shared\|all]`         | List resources          |
+| `resource-delete` | `--path <path> [--scope personal\|shared]`                  | Delete a resource       |
 
-This app uses **Nitro** (via `@agent-native/core`) for the server. All server code lives in `server/`.
-
-### Server Directory
-
-```
-server/
-  routes/     # File-based API routes (auto-discovered by Nitro)
-  handlers/   # Route handler logic modules
-  plugins/    # Server plugins — run at startup (SSE, auth)
-  lib/        # Shared server modules (helpers)
-```
-
-### Adding an API Route
-
-Create a file in `server/routes/api/`. The filename determines the URL path and HTTP method:
-
-```
-server/routes/api/items/index.get.ts    → GET  /api/items
-server/routes/api/items/index.post.ts   → POST /api/items
-server/routes/api/items/[id].get.ts     → GET  /api/items/:id
-server/routes/api/items/[id].patch.ts   → PATCH /api/items/:id
-```
-
-Each file exports a default `defineEventHandler`:
-
-```ts
-export default defineEventHandler(async (event) => {
-  const body = await readBody(event);
-  return { ok: true };
-});
-```
-
-### Server Plugins
-
-Startup logic (SSE, auth) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
-
-```ts
-import { defineNitroPlugin } from "@agent-native/core";
-
-export default defineNitroPlugin(async (nitroApp) => {
-  // Runs once at server startup
-});
-```
-
-### Key Imports from `@agent-native/core`
-
-| Import                                       | Purpose                                           |
-| -------------------------------------------- | ------------------------------------------------- |
-| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)   |
-| `createSSEHandler`                           | Create SSE endpoint for real-time updates         |
-| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)          |
-| `sendToAgentChat`                            | Send messages to agent from UI (client-side)      |
-| `agentChat`                                  | Send messages to agent from scripts (server-side) |
-
-| Import (settings)             | Purpose                              |
-| ----------------------------- | ------------------------------------ |
-| `getSetting` / `putSetting`   | Read/write app settings in SQL       |
-| `getAppState` / `putAppState` | Read/write ephemeral UI state in SQL |
-
-### Build & Dev Commands
-
-```bash
-pnpm dev        # Vite dev server + Nitro plugin (single process)
-pnpm build      # Single Vite build (client SPA + Nitro server)
-pnpm start      # node .output/server/index.mjs (production)
-pnpm typecheck  # TypeScript validation
-```
+Resources are stored in SQL, not files. They persist across sessions and are not in git.
 
 ---
 
-> **CRITICAL: Before doing ANY work, read [docs/learnings.md](docs/learnings.md) first.**
+> **CRITICAL: Before doing ANY work, read the `learnings.md` resource first.**
 > It contains essential cross-cutting knowledge about agent behavior, customer data, user preferences, and UI patterns.
 > **Provider-specific knowledge** (BigQuery tables, API quirks, auth, script usage) lives in `.builder/skills/<provider>/SKILL.md`.
-> Read the relevant skill before querying any provider. After completing work, **update the relevant skill or learnings.md** with new discoveries.
+> Read the relevant skill before querying any provider. After completing work, **update the relevant skill or learnings.md resource** with new discoveries.
 
 Analytics dashboard template. Built with React + Nitro + TypeScript.
 
@@ -126,7 +69,7 @@ Provider-specific knowledge is organized as modular skill files in `.builder/ski
   learn/SKILL.md        # /learn command — extract & save learnings from threads
 ```
 
-Skills should be **continuously improved** based on learnings and feedback. When you discover a new gotcha, pattern, or API quirk for a provider, update that provider's SKILL.md directly. Generic cross-cutting learnings (agent behavior rules, customer data, user preferences) go in `docs/learnings.md`.
+Skills should be **continuously improved** based on learnings and feedback. When you discover a new gotcha, pattern, or API quirk for a provider, update that provider's SKILL.md directly. Generic cross-cutting learnings (agent behavior rules, customer data, user preferences) go in the `learnings.md` resource.
 
 ## Architecture
 
@@ -173,49 +116,6 @@ Use `getSetting(key)` / `putSetting(key, value)` from `@agent-native/core/settin
 ### Multi-User Collaboration
 
 For multi-user access, set `DATABASE_URL` to a cloud database provider (Turso, Neon, etc.). The SQL database handles remote access natively — no separate file sync system needed.
-
-## Tech Stack
-
-- **Frontend**: React 18 + React Router 6 (SPA) + TypeScript + Vite + TailwindCSS 3
-- **Backend**: Nitro (via @agent-native/core) — file-based API routing
-- **Database**: SQLite via Drizzle ORM + @libsql/client (local by default, cloud upgrade via `DATABASE_URL`)
-- **Testing**: Vitest
-- **UI Components**: Radix UI + TailwindCSS 3 + Lucide React icons
-- **Package Manager**: pnpm
-
-## Project Structure
-
-```
-app/                      # React SPA frontend
-├── pages/                # Route components
-├── components/ui/        # Pre-built UI component library
-├── lib/                  # Client utilities (auth, query helpers)
-├── root.tsx               # HTML shell + global providers
-└── global.css            # TailwindCSS 3 theming and global styles
-
-server/                   # Nitro API server
-├── routes/               # File-based API routes (auto-discovered by Nitro)
-├── handlers/             # Route handler modules (BigQuery, HubSpot, etc.)
-├── plugins/              # Server plugins (startup logic)
-├── db/                   # Drizzle schema + DB connection
-└── lib/                  # Shared server libraries
-
-scripts/                  # CLI scripts for backend automation
-├── run.ts                # Universal script runner
-├── helpers.ts            # Shared arg parsing & output utilities
-└── *.ts                  # Individual scripts (auto-discovered by filename)
-
-shared/                   # Types shared between client & server
-└── api.ts                # Shared API interfaces
-
-docs/                     # Documentation and accumulated knowledge
-└── learnings.md          # Cross-cutting patterns, customer data, user prefs
-
-.builder/skills/          # Provider-specific knowledge (one per integration)
-└── <provider>/SKILL.md   # Connection, functions, scripts, gotchas
-```
-
-Path aliases: `@/*` → `app/`, `@shared/*` → `shared/`
 
 ## Agent Chat Bridge
 
@@ -286,27 +186,6 @@ pnpm script hubspot-deals --grep="enterprise" --fields=dealname,amount,stageLabe
 pnpm script seo-top-keywords --grep=remix --fields=keyword,rank_absolute,etv
 ```
 
-### Creating Scripts
-
-```typescript
-#!/usr/bin/env tsx
-import { parseArgs, output, fatal } from "./helpers";
-
-const args = parseArgs();
-if (!args.myArg) fatal("--myArg is required");
-
-const result = await doSomething(args.myArg);
-output(result);
-```
-
-Conventions:
-
-- Import `parseArgs`, `output`, `fatal` from `./helpers`
-- Import server libs directly (e.g., `../server/lib/bigquery`)
-- Output JSON via `output()` for automatic `--grep`/`--fields` support
-- Use `fatal()` for required arg validation
-- `helpers.ts` loads `dotenv/config` so env vars are available
-
 ### AI Agent Script Usage
 
 The AI agent should:
@@ -317,103 +196,32 @@ The AI agent should:
 4. For one-off tasks, generate a script, run it, and clean it up
 5. For reusable tasks, generate a script and keep it
 
-## Development
-
-```bash
-pnpm dev        # Start dev server (frontend + backend, port 8080)
-pnpm build      # Production build
-pnpm typecheck  # TypeScript validation
-pnpm test       # Run Vitest tests
-```
-
-## Routing
-
-Routes are file-based in `app/routes/` via `flatRoutes()`. Create a file to add a route (e.g. `app/routes/settings.tsx` → `/settings`).
-
-- `app/routes/_index.tsx` — home/overview page (`/`)
-- `app/routes/adhoc.$id.tsx` — dashboard router (`/adhoc/:id`)
-- `app/pages/adhoc/` — dashboard page components, registered in `registry.ts`
-
-### Tools vs Dashboards
-
-The sidebar has two sections: **Dashboards** and **Tools**. Use the right one:
-
-- **Dashboards** — data visualizations, charts, metrics, time-series. Things people look at to understand trends. Add to `dashboards` array in `registry.ts` and `dashboardComponents` map.
-- **Tools** — functional utilities with inputs/actions (e.g. look up a customer, search Stripe, run a query). Things people _use_ to get specific answers. Add to the `defaultTools` array in `app/components/layout/Sidebar.tsx`.
-
-When a user asks for a **new feature, lookup tool, or interactive utility** → add it to **Tools**.
-When a user asks for a **chart, metrics view, or data breakdown** → add it to **Dashboards**.
-
-### Adding a Dashboard
-
-**IMPORTANT**: When creating a new dashboard, YOU (the creator) must provide your name or email as the author. Do NOT pull this from git logs or other sources.
-
-1. Create component in `app/pages/adhoc/my-dashboard/index.tsx` (these are regular components, not route files)
-2. Use `<DashboardHeader />` component at the top to display metadata
-3. Add entry to `dashboards` array in `app/pages/adhoc/registry.ts` with **REQUIRED fields**:
-   - `id`: kebab-case identifier
-   - `name`: Display name
-   - `author`: **YOUR name or email** - the person creating this dashboard (e.g., "jane@example.com" or "Jane Doe")
-   - `lastUpdated`: Today's date in YYYY-MM-DD format
-4. Add lazy import to `dashboardComponents` in the same file
-
-**Example:**
-
-```typescript
-{
-  id: "my-dashboard",
-  name: "My Dashboard",
-  author: "jane@example.com",  // REQUIRED: Your name/email as the creator
-  lastUpdated: "2026-03-12"    // REQUIRED: Today's date
-}
-```
-
-**The UI will prompt for author name when using "New Dashboard" button.**
-
-### Adding a Tool
-
-**IMPORTANT**: When creating a new tool, YOU (the creator) must provide your name or email as the author.
-
-1. Create component in `app/pages/adhoc/my-tool/index.tsx` (these are regular components, not route files)
-2. Use `<DashboardHeader />` component at the top to display metadata
-3. Add entry to `dashboards` array in `app/pages/adhoc/registry.ts` (for routing) with **REQUIRED fields**:
-   - `author`: **YOUR name or email** - the person creating this tool
-   - `lastUpdated`: Today's date in YYYY-MM-DD format
-4. Add lazy import to `dashboardComponents` in the same file (for routing)
-5. Add entry to `defaultTools` array in `app/components/layout/Sidebar.tsx` (for sidebar placement)
-
-## Styling
-
-- **TailwindCSS 3** utility classes for all styling
-- **Theme tokens** in `app/global.css`
-- **`cn()`** utility combines `clsx` + `tailwind-merge` for conditional classes
-
 ## Learnings & Skills (MANDATORY)
 
-Knowledge is stored in three places:
+Knowledge is stored in two places:
 
 1. **`.builder/skills/<provider>/SKILL.md`** — provider-specific knowledge (tables, API quirks, auth, scripts, gotchas). This is the primary knowledge store for each integration. Read the relevant skill before querying any provider.
 
-2. **[docs/learnings.md](docs/learnings.md)** — cross-cutting knowledge (agent behavior rules, customer data, user preferences, UI patterns). Read this before doing any work.
+2. **`learnings.md` resource** — cross-cutting knowledge (agent behavior rules, customer data, user preferences, UI patterns). Read this before doing any work.
 
 ### Rules
 
-1. **ALWAYS read learnings.md first.** Non-negotiable. Before any work.
+1. **ALWAYS read learnings.md resource first.** Non-negotiable. Before any work.
 2. **Read the relevant skill** before querying a provider. It tells you table names, column names, join paths, auth, and patterns.
 3. **Update skills directly.** When you discover something new about a provider, update that provider's SKILL.md. Skills should be continuously improved.
-4. **Learn from corrections.** If the user corrects you, capture it in the relevant skill or learnings.md.
+4. **Learn from corrections.** If the user corrects you, capture it in the relevant skill or learnings.md resource.
 5. **Keep it concise.** Each learning should be actionable — what to do, what not to do, and why.
 
 ### What belongs where
 
-| Content                                             | Location              |
-| --------------------------------------------------- | --------------------- |
-| BigQuery table names, column mappings, SQL patterns | `bigquery/SKILL.md`   |
-| API quirks for a specific provider                  | `<provider>/SKILL.md` |
-| Customer data (IDs, deal info, stakeholders)        | `docs/learnings.md`   |
-| User preferences, UI patterns                       | `docs/learnings.md`   |
-| Agent behavior rules                                | `docs/learnings.md`   |
-| Chart styling preferences                           | `charts/SKILL.md`     |
+| Content                                             | Location                |
+| --------------------------------------------------- | ----------------------- |
+| BigQuery table names, column mappings, SQL patterns | `bigquery/SKILL.md`     |
+| API quirks for a specific provider                  | `<provider>/SKILL.md`   |
+| Customer data (IDs, deal info, stakeholders)        | `learnings.md` resource |
+| User preferences, UI patterns                       | `learnings.md` resource |
+| Agent behavior rules                                | `learnings.md` resource |
+| Chart styling preferences                           | `charts/SKILL.md`       |
 
 ## Answering Data Questions in Chat
 

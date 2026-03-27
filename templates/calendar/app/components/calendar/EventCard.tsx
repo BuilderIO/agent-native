@@ -33,16 +33,18 @@ export function EventCard({
     onDragStart?.(event.id);
   };
 
+  const canDrag = draggable && !event.overlayEmail;
+
   if (compact) {
     return (
       <button
         onClick={onClick}
-        draggable={draggable}
-        onDragStart={draggable ? handleDragStart : undefined}
-        onDragEnd={draggable ? onDragEnd : undefined}
+        draggable={canDrag}
+        onDragStart={canDrag ? handleDragStart : undefined}
+        onDragEnd={canDrag ? onDragEnd : undefined}
         className={cn(
           "flex w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-xs text-foreground transition-all hover:brightness-110",
-          draggable && "cursor-grab active:cursor-grabbing",
+          canDrag && "cursor-grab active:cursor-grabbing",
           dimmed && "opacity-40",
         )}
         style={{
@@ -61,12 +63,12 @@ export function EventCard({
   return (
     <button
       onClick={onClick}
-      draggable={draggable}
-      onDragStart={draggable ? handleDragStart : undefined}
-      onDragEnd={draggable ? onDragEnd : undefined}
+      draggable={canDrag}
+      onDragStart={canDrag ? handleDragStart : undefined}
+      onDragEnd={canDrag ? onDragEnd : undefined}
       className={cn(
         "flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-all hover:brightness-110",
-        draggable && "cursor-grab active:cursor-grabbing",
+        canDrag && "cursor-grab active:cursor-grabbing",
         dimmed && "opacity-40",
       )}
       style={{

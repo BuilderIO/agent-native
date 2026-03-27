@@ -10,7 +10,11 @@ import {
 } from "electron";
 import path from "path";
 import { autoUpdater } from "electron-updater";
-import { IPC, type InterAppMessage } from "@shared/ipc-channels";
+import {
+  IPC,
+  type ActiveWebviewTarget,
+  type InterAppMessage,
+} from "@shared/ipc-channels";
 import { HARNESS_PORT } from "@shared/app-registry";
 import type { AppConfig } from "@shared/app-registry";
 import * as AppStore from "./app-store";
@@ -67,7 +71,7 @@ function createWindow(): BrowserWindow {
   // In dev, load from the Vite dev server; in prod, load built files
   if (IS_DEV && process.env["ELECTRON_RENDERER_URL"]) {
     win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
-    // DevTools will be opened for the active webview via Cmd+Option+I
+    // DevTools will be opened for the active webview via Cmd+Shift+I
   } else {
     win.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
@@ -78,10 +82,19 @@ function createWindow(): BrowserWindow {
 // ---------- DevTools: target the active app webview ----------
 
 let activeAppId = "";
+let activeWebviewContentsId: number | undefined;
 
 ipcMain.on(IPC.SET_ACTIVE_APP, (_event: IpcMainEvent, appId: string) => {
   activeAppId = appId;
 });
+
+ipcMain.on(
+  IPC.SET_ACTIVE_WEBVIEW,
+  (_event: IpcMainEvent, target: ActiveWebviewTarget) => {
+    activeAppId = target.appId;
+    activeWebviewContentsId = target.webContentsId;
+  },
+);
 
 function toggleWebviewDevTools() {
   const allContents = webContents.getAllWebContents();
@@ -89,8 +102,15 @@ function toggleWebviewDevTools() {
     (wc) => wc.getType() === "webview",
   );
 
-  // Find the webview matching the active app by URL (e.g. ?app=mail)
+  const activeTarget =
+    activeWebviewContentsId &&
+    webContents.fromId(activeWebviewContentsId)?.getType() === "webview"
+      ? webContents.fromId(activeWebviewContentsId)
+      : undefined;
+
+  // Fall back to the currently focused guest, then to the active app by URL.
   const target =
+    activeTarget ||
     webviewContents.find((wc) => wc.isFocused()) ||
     (activeAppId &&
       webviewContents.find((wc) => {
@@ -208,14 +228,10 @@ app.on("web-contents-created", (_event, contents) => {
 
     const key = input.key.toLowerCase();
 
-    // Cmd+Option+I — toggle devtools for this webview
-    if (key === "i" && input.alt) {
+    // Cmd+Option+I (and legacy Cmd+Shift+I) — toggle devtools for the active app webview
+    if (key === "i" && (input.alt || input.shift)) {
       event.preventDefault();
-      if (contents.isDevToolsOpened()) {
-        contents.closeDevTools();
-      } else {
-        contents.openDevTools({ mode: "detach" });
-      }
+      toggleWebviewDevTools();
       return;
     }
 
@@ -288,8 +304,8 @@ app.whenReady().then(() => {
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
     const key = input.key.toLowerCase();
 
-    // Cmd+Option+I — open devtools for the active webview, not the shell
-    if (key === "i" && input.alt) {
+    // Cmd+Option+I (and legacy Cmd+Shift+I) — open devtools for the active webview, not the shell
+    if (key === "i" && (input.alt || input.shift)) {
       _event.preventDefault();
       toggleWebviewDevTools();
       return;

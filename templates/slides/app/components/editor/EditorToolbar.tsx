@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import type { Slide, SlideLayout } from "@/context/DeckContext";
 import { FeedbackButton } from "@/components/FeedbackButton";
+import { AgentToggleButton } from "@agent-native/core/client";
 
 interface EditorToolbarProps {
   deckId: string;
@@ -374,6 +375,7 @@ export default function EditorToolbar({
         <Play className="w-3 h-3" />
         <span className="hidden sm:inline">Present</span>
       </Link>
+      <AgentToggleButton className="flex-shrink-0 text-white/40 hover:text-white/70 hover:bg-white/[0.06]" />
     </div>
   );
 }

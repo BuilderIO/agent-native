@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation, useSearchParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "./CommandPalette";
 import { ComposeModal } from "@/components/email/ComposeModal";
@@ -327,7 +328,10 @@ export function AppLayout({ children }: AppLayoutProps) {
       return;
     }
     dismissEmail(targetEmail.id);
-    reportSpam.mutate(targetEmail.id);
+    reportSpam.mutate({
+      id: targetEmail.id,
+      threadId: targetEmail.threadId || targetEmail.id,
+    });
     toast("Reported as spam.");
   }, [targetEmail, reportSpam, dismissEmail]);
 
@@ -339,6 +343,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     dismissEmail(targetEmail.id);
     blockSender.mutate({
       id: targetEmail.id,
+      threadId: targetEmail.threadId || targetEmail.id,
       senderEmail: targetEmail.from.email,
     });
     toast(`Reported as spam & blocked ${targetEmail.from.email}.`);
@@ -433,8 +438,16 @@ export function AppLayout({ children }: AppLayoutProps) {
   ]);
 
   // Sequence shortcuts (g + key = go to view)
+  const qc = useQueryClient();
   useSequenceShortcuts([
-    { keys: ["g", "i"], handler: () => navigate("/inbox") },
+    {
+      keys: ["g", "i"],
+      handler: () => {
+        navigate("/inbox");
+        qc.invalidateQueries({ queryKey: ["emails"] });
+        qc.invalidateQueries({ queryKey: ["labels"] });
+      },
+    },
     { keys: ["g", "s"], handler: () => navigate("/starred") },
     { keys: ["g", "t"], handler: () => navigate("/sent") },
     { keys: ["g", "d"], handler: () => navigate("/drafts") },
@@ -460,155 +473,24 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <AccountFilterContext.Provider value={accountFilterValue}>
       <div className="flex h-screen overflow-hidden bg-background">
-        {/* Main content area */}
-        <div className="relative flex flex-1 flex-col overflow-hidden">
-          {/* Top nav bar */}
-          <header className="relative z-20 flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2 inbox-zero-header">
-            {/* Hamburger menu */}
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
-              title="Menu"
-            >
-              <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                <path
-                  fillRule="evenodd"
-                  d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75Zm0 5A.75.75 0 0 1 2.75 9h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 9.75Zm0 5a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </button>
-
-            {/* Agent chat toggle */}
-            <AgentToggleButton />
-
-            {/* Visible tabs */}
-            {tabsLoading ? (
-              <nav className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
-                {[1, 2, 3].map((i) => (
-                  <span
-                    key={i}
-                    className="h-4 rounded bg-muted animate-pulse"
-                    style={{ width: `${48 + i * 12}px` }}
-                  />
-                ))}
-              </nav>
-            ) : (
-              <nav className="flex items-center gap-0.5 overflow-x-auto hide-scrollbar">
-                {visibleTabs.map((tab) => {
-                  const count = getTotalCount(tab.id);
-                  return (
-                    <Link
-                      key={tab.id}
-                      to={tab.href}
-                      className={cn(
-                        "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px]",
-                        tab.isActive
-                          ? "text-foreground font-semibold"
-                          : "text-muted-foreground font-medium hover:text-foreground/80",
-                      )}
-                    >
-                      {tab.color && (
-                        <span
-                          className="h-1.5 w-1.5 rounded-full shrink-0"
-                          style={{ backgroundColor: tab.color }}
-                        />
-                      )}
-                      {tab.label}
-                      {count > 0 && (
-                        <span
-                          className={cn(
-                            "text-[11px] tabular-nums",
-                            tab.isActive
-                              ? "text-foreground/60"
-                              : "text-muted-foreground/70",
-                          )}
-                        >
-                          {count}
-                        </span>
-                      )}
-                    </Link>
-                  );
-                })}
-
-                {/* If navigated to an unpinned view (e.g. via keyboard shortcut), show it */}
-                {currentInHidden && (
-                  <span className="flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
-                    {collapsibleViews.find((v) => v.id === view)?.label}
-                  </span>
-                )}
-              </nav>
-            )}
-
-            {/* Tab settings cog */}
-            <div
-              className={cn("relative", tabsLoading && "invisible")}
-              ref={tabSettingsRef}
-            >
+        <AgentSidebar
+          position="right"
+          defaultOpen={!isMobile}
+          emptyStateText="Ask me anything about your emails"
+          suggestions={[
+            "What's in my inbox?",
+            "Summarize my unread emails",
+            "Show me the database schema",
+          ]}
+        >
+          <div className="relative flex flex-1 flex-col overflow-hidden">
+            {/* Top nav bar */}
+            <header className="relative z-20 flex h-11 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2 inbox-zero-header">
+              {/* Hamburger menu */}
               <button
-                onClick={() => setTabSettingsOpen(!tabSettingsOpen)}
-                className={cn(
-                  "flex h-6 w-6 items-center justify-center rounded transition-colors",
-                  tabSettingsOpen
-                    ? "text-foreground bg-accent/50"
-                    : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30",
-                )}
-                title="Configure tabs"
-              >
-                <svg
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  className="h-3.5 w-3.5"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M7.84 1.804A1 1 0 0 1 8.82 1h2.36a1 1 0 0 1 .98.804l.331 1.652a6.993 6.993 0 0 1 1.929 1.115l1.598-.54a1 1 0 0 1 1.186.447l1.18 2.044a1 1 0 0 1-.205 1.251l-1.267 1.113a7.047 7.047 0 0 1 0 2.228l1.267 1.113a1 1 0 0 1 .206 1.25l-1.18 2.045a1 1 0 0 1-1.187.447l-1.598-.54a6.993 6.993 0 0 1-1.929 1.115l-.33 1.652a1 1 0 0 1-.98.804H8.82a1 1 0 0 1-.98-.804l-.331-1.652a6.993 6.993 0 0 1-1.929-1.115l-1.598.54a1 1 0 0 1-1.186-.447l-1.18-2.044a1 1 0 0 1 .205-1.251l1.267-1.114a7.05 7.05 0 0 1 0-2.227L1.821 7.773a1 1 0 0 1-.206-1.25l1.18-2.045a1 1 0 0 1 1.187-.447l1.598.54A6.992 6.992 0 0 1 7.51 3.456l.33-1.652ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-
-              {tabSettingsOpen && (
-                <TabSettingsPopover
-                  systemViews={collapsibleViews}
-                  userLabels={userLabels}
-                  pinnedLabels={pinnedLabels}
-                  search={labelSearch}
-                  onSearchChange={setLabelSearch}
-                  onToggle={togglePinned}
-                />
-              )}
-            </div>
-
-            <div className="flex-1" />
-
-            {/* Search */}
-            {searchFocused ? (
-              <div className="flex items-center gap-1.5">
-                <input
-                  id="mail-search"
-                  autoFocus
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleSearch(searchQuery);
-                    if (e.key === "Escape") {
-                      setSearchQuery("");
-                      setSearchFocused(false);
-                    }
-                  }}
-                  onBlur={() => {
-                    if (!searchQuery) setSearchFocused(false);
-                  }}
-                  placeholder="Search..."
-                  className="h-7 w-48 rounded bg-accent/80 border-none px-2.5 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none focus:ring-1 focus:ring-primary/40"
-                />
-              </div>
-            ) : (
-              <button
-                onClick={() => setSearchFocused(true)}
-                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-                title="Search (/)"
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+                title="Menu"
               >
                 <svg
                   viewBox="0 0 20 20"
@@ -617,311 +499,448 @@ export function AppLayout({ children }: AppLayoutProps) {
                 >
                   <path
                     fillRule="evenodd"
-                    d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9z"
+                    d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75Zm0 5A.75.75 0 0 1 2.75 9h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 9.75Zm0 5a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z"
                     clipRule="evenodd"
                   />
                 </svg>
               </button>
-            )}
 
-            {/* Hidden input for keyboard shortcut target */}
-            {!searchFocused && (
-              <input
-                id="mail-search"
-                className="sr-only"
-                tabIndex={-1}
-                onFocus={() => setSearchFocused(true)}
-              />
-            )}
+              {/* Visible tabs */}
+              {tabsLoading ? (
+                <nav className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
+                  {[1, 2, 3].map((i) => (
+                    <span
+                      key={i}
+                      className="h-4 rounded bg-muted animate-pulse"
+                      style={{ width: `${48 + i * 12}px` }}
+                    />
+                  ))}
+                </nav>
+              ) : (
+                <nav className="flex items-center gap-0.5 overflow-x-auto hide-scrollbar">
+                  {visibleTabs.map((tab) => {
+                    const count = getTotalCount(tab.id);
+                    return (
+                      <Link
+                        key={tab.id}
+                        to={tab.href}
+                        className={cn(
+                          "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px]",
+                          tab.isActive
+                            ? "text-foreground font-semibold"
+                            : "text-muted-foreground font-medium hover:text-foreground/80",
+                        )}
+                      >
+                        {tab.color && (
+                          <span
+                            className="h-1.5 w-1.5 rounded-full shrink-0"
+                            style={{ backgroundColor: tab.color }}
+                          />
+                        )}
+                        {tab.label}
+                        {count > 0 && (
+                          <span
+                            className={cn(
+                              "text-[11px] tabular-nums",
+                              tab.isActive
+                                ? "text-foreground/60"
+                                : "text-muted-foreground/70",
+                            )}
+                          >
+                            {count}
+                          </span>
+                        )}
+                      </Link>
+                    );
+                  })}
 
-            {/* Theme toggle */}
-            <ThemeToggle />
+                  {/* If navigated to an unpinned view (e.g. via keyboard shortcut), show it */}
+                  {currentInHidden && (
+                    <span className="flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
+                      {collapsibleViews.find((v) => v.id === view)?.label}
+                    </span>
+                  )}
+                </nav>
+              )}
 
-            {/* Compose (pen) icon */}
-            <button
-              onClick={handleCompose}
-              className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-              title="Compose (C)"
-            >
-              <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                <path d="M2.695 14.763l-1.262 3.154a.5.5 0 0 0 .65.65l3.155-1.262a4 4 0 0 0 1.343-.885L17.5 5.5a2.121 2.121 0 0 0-3-3L3.58 13.42a4 4 0 0 0-.885 1.343z" />
-              </svg>
-            </button>
-
-            {/* Account avatars — overlapping stack like Figma */}
-            {hasAccounts && (
-              <div className="relative ml-1" ref={popoverRef}>
+              {/* Tab settings cog */}
+              <div
+                className={cn("relative", tabsLoading && "invisible")}
+                ref={tabSettingsRef}
+              >
                 <button
-                  onClick={() => setAccountPopoverOpen(!accountPopoverOpen)}
-                  className="flex items-center hover:opacity-90 transition-opacity"
-                  title="Accounts"
+                  onClick={() => setTabSettingsOpen(!tabSettingsOpen)}
+                  className={cn(
+                    "flex h-6 w-6 items-center justify-center rounded transition-colors",
+                    tabSettingsOpen
+                      ? "text-foreground bg-accent/50"
+                      : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30",
+                  )}
+                  title="Configure tabs"
                 >
-                  <div
-                    className="flex items-center"
-                    style={{
-                      marginRight: accounts.length > 1 ? 0 : undefined,
-                    }}
+                  <svg
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-3.5 w-3.5"
                   >
-                    {accounts.map((account, i) => {
-                      const isActive =
-                        activeAccounts.size === 0 ||
-                        activeAccounts.has(account.email);
-                      return (
-                        <div
-                          key={account.email}
-                          className={cn(
-                            "relative rounded-full ring-2 ring-card transition-opacity",
-                            !isActive && "opacity-30",
-                          )}
-                          style={{
-                            marginLeft: i === 0 ? 0 : -8,
-                            zIndex: accounts.length - i,
-                          }}
-                        >
-                          {account.photoUrl ? (
-                            <img
-                              src={account.photoUrl}
-                              alt=""
-                              className="h-7 w-7 rounded-full object-cover"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : (
-                            <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center text-[11px] font-semibold text-primary">
-                              {account.email[0]?.toUpperCase()}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                    <path
+                      fillRule="evenodd"
+                      d="M7.84 1.804A1 1 0 0 1 8.82 1h2.36a1 1 0 0 1 .98.804l.331 1.652a6.993 6.993 0 0 1 1.929 1.115l1.598-.54a1 1 0 0 1 1.186.447l1.18 2.044a1 1 0 0 1-.205 1.251l-1.267 1.113a7.047 7.047 0 0 1 0 2.228l1.267 1.113a1 1 0 0 1 .206 1.25l-1.18 2.045a1 1 0 0 1-1.187.447l-1.598-.54a6.993 6.993 0 0 1-1.929 1.115l-.33 1.652a1 1 0 0 1-.98.804H8.82a1 1 0 0 1-.98-.804l-.331-1.652a6.993 6.993 0 0 1-1.929-1.115l-1.598.54a1 1 0 0 1-1.186-.447l-1.18-2.044a1 1 0 0 1 .205-1.251l1.267-1.114a7.05 7.05 0 0 1 0-2.227L1.821 7.773a1 1 0 0 1-.206-1.25l1.18-2.045a1 1 0 0 1 1.187-.447l1.598.54A6.992 6.992 0 0 1 7.51 3.456l.33-1.652ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
                 </button>
 
-                {accountPopoverOpen && (
-                  <AccountPopover
-                    accounts={accounts}
-                    activeAccounts={activeAccounts}
-                    onToggleAccount={(email) => {
-                      setActiveAccounts((prev) => {
-                        const next = new Set(prev);
-                        if (next.size === 0) {
-                          // Switching from "all" → deselect this one (keep others)
-                          for (const a of accounts) {
-                            if (a.email !== email) next.add(a.email);
-                          }
-                        } else if (next.has(email)) {
-                          next.delete(email);
-                          // If nothing left, reset to "all"
-                          if (next.size === 0) return new Set();
-                        } else {
-                          next.add(email);
-                          // If all are now checked, reset to "all" (empty set)
-                          if (next.size === accounts.length) return new Set();
-                        }
-                        return next;
-                      });
-                    }}
-                    onRemoveAccount={(email) => {
-                      setActiveAccounts((prev) => {
-                        const next = new Set(prev);
-                        next.delete(email);
-                        return next;
-                      });
-                    }}
-                    onClose={() => setAccountPopoverOpen(false)}
+                {tabSettingsOpen && (
+                  <TabSettingsPopover
+                    systemViews={collapsibleViews}
+                    userLabels={userLabels}
+                    pinnedLabels={pinnedLabels}
+                    search={labelSearch}
+                    onSearchChange={setLabelSearch}
+                    onToggle={togglePinned}
                   />
                 )}
               </div>
-            )}
-          </header>
 
-          {/* Sidebar overlay */}
-          {sidebarOpen && (
-            <>
-              <div
-                className="fixed inset-0 z-30 bg-black/20"
-                onClick={() => setSidebarOpen(false)}
-              />
-              <div className="fixed left-0 top-0 bottom-0 z-40 w-64 bg-background/70 backdrop-blur-2xl border-r border-border/30 shadow-2xl overflow-y-auto">
-                {/* Accounts */}
-                {hasAccounts && (
-                  <div className="px-4 pt-5 pb-4 border-b border-border/20">
-                    <div className="space-y-2">
-                      {accounts.map((account) => {
+              <div className="flex-1" />
+
+              {/* Search */}
+              {searchFocused ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    id="mail-search"
+                    autoFocus
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSearch(searchQuery);
+                      if (e.key === "Escape") {
+                        setSearchQuery("");
+                        setSearchFocused(false);
+                      }
+                    }}
+                    onBlur={() => {
+                      if (!searchQuery) setSearchFocused(false);
+                    }}
+                    placeholder="Search..."
+                    className="h-7 w-48 rounded bg-accent/80 border-none px-2.5 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none focus:ring-1 focus:ring-primary/40"
+                  />
+                </div>
+              ) : (
+                <button
+                  onClick={() => setSearchFocused(true)}
+                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                  title="Search (/)"
+                >
+                  <svg
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-4 w-4"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+              )}
+
+              {/* Hidden input for keyboard shortcut target */}
+              {!searchFocused && (
+                <input
+                  id="mail-search"
+                  className="sr-only"
+                  tabIndex={-1}
+                  onFocus={() => setSearchFocused(true)}
+                />
+              )}
+
+              {/* Theme toggle */}
+              <ThemeToggle />
+
+              {/* Compose (pen) icon */}
+              <button
+                onClick={handleCompose}
+                className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                title="Compose (C)"
+              >
+                <svg
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  className="h-4 w-4"
+                >
+                  <path d="M2.695 14.763l-1.262 3.154a.5.5 0 0 0 .65.65l3.155-1.262a4 4 0 0 0 1.343-.885L17.5 5.5a2.121 2.121 0 0 0-3-3L3.58 13.42a4 4 0 0 0-.885 1.343z" />
+                </svg>
+              </button>
+
+              {/* Account avatars — overlapping stack like Figma */}
+              {hasAccounts && (
+                <div className="relative ml-1" ref={popoverRef}>
+                  <button
+                    onClick={() => setAccountPopoverOpen(!accountPopoverOpen)}
+                    className="flex items-center hover:opacity-90 transition-opacity"
+                    title="Accounts"
+                  >
+                    <div
+                      className="flex items-center"
+                      style={{
+                        marginRight: accounts.length > 1 ? 0 : undefined,
+                      }}
+                    >
+                      {accounts.map((account, i) => {
                         const isActive =
                           activeAccounts.size === 0 ||
                           activeAccounts.has(account.email);
                         return (
-                          <button
+                          <div
                             key={account.email}
-                            onClick={() => {
-                              setActiveAccounts((prev) => {
-                                const next = new Set(prev);
-                                if (next.size === 0) {
-                                  for (const a of accounts) {
-                                    if (a.email !== account.email)
-                                      next.add(a.email);
-                                  }
-                                } else if (next.has(account.email)) {
-                                  next.delete(account.email);
-                                  if (next.size === 0) return new Set();
-                                } else {
-                                  next.add(account.email);
-                                  if (next.size === accounts.length)
-                                    return new Set();
-                                }
-                                return next;
-                              });
-                            }}
                             className={cn(
-                              "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-all",
-                              isActive ? "opacity-100" : "opacity-30",
+                              "relative rounded-full ring-2 ring-card transition-opacity",
+                              !isActive && "opacity-30",
                             )}
+                            style={{
+                              marginLeft: i === 0 ? 0 : -8,
+                              zIndex: accounts.length - i,
+                            }}
                           >
                             {account.photoUrl ? (
                               <img
                                 src={account.photoUrl}
                                 alt=""
-                                className="h-8 w-8 rounded-full object-cover shrink-0"
+                                className="h-7 w-7 rounded-full object-cover"
                                 referrerPolicy="no-referrer"
                               />
                             ) : (
-                              <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-[12px] font-semibold text-primary shrink-0">
+                              <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center text-[11px] font-semibold text-primary">
                                 {account.email[0]?.toUpperCase()}
                               </div>
                             )}
-                            <span className="text-[13px] text-foreground truncate">
-                              {account.email}
-                            </span>
-                          </button>
+                          </div>
                         );
                       })}
                     </div>
-                  </div>
-                )}
+                  </button>
 
-                <div className="p-4">
-                  <div className="space-y-0.5">
-                    {[
-                      { id: "inbox", label: "Inbox", href: "/inbox" },
-                      { id: "starred", label: "Starred", href: "/starred" },
-                      { id: "snoozed", label: "Snoozed", href: "/snoozed" },
-                      { id: "sent", label: "Sent", href: "/sent" },
-                      {
-                        id: "scheduled",
-                        label: "Scheduled",
-                        href: "/scheduled",
-                      },
-                      { id: "drafts", label: "Drafts", href: "/drafts" },
-                      { id: "archive", label: "Done", href: "/archive" },
-                      { id: "trash", label: "Trash", href: "/trash" },
-                    ].map((item) => (
-                      <Link
-                        key={item.id}
-                        to={item.href}
-                        onClick={() => setSidebarOpen(false)}
-                        className={cn(
-                          "flex items-center justify-between rounded-md px-3 py-2 text-[14px] transition-colors",
-                          view === item.id
-                            ? "bg-accent/60 text-foreground font-medium"
-                            : "text-foreground/70 hover:bg-accent/30",
-                        )}
-                      >
-                        <span>{item.label}</span>
-                        {item.id === "inbox" && labelCounts["inbox"] > 0 && (
-                          <span className="text-[12px] text-muted-foreground/50 tabular-nums">
-                            {labelCounts["inbox"]}
-                          </span>
-                        )}
-                      </Link>
-                    ))}
-                    <div className="mt-2 pt-2 border-t border-border/20">
-                      <Link
-                        to="/settings"
-                        onClick={() => setSidebarOpen(false)}
-                        className={cn(
-                          "flex items-center rounded-md px-3 py-2 text-[14px] transition-colors",
-                          location.pathname === "/settings"
-                            ? "bg-accent/60 text-foreground font-medium"
-                            : "text-foreground/70 hover:bg-accent/30",
-                        )}
-                      >
-                        Settings
-                      </Link>
-                    </div>
-                  </div>
-
-                  {/* Pinned labels */}
-                  {pinnedLabels.filter(
-                    (l) => !collapsibleViews.some((v) => v.id === l),
-                  ).length > 0 && (
-                    <>
-                      <h2 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mt-5 mb-3">
-                        Labels
-                      </h2>
-                      <div className="space-y-0.5">
-                        {visibleTabs
-                          .filter(
-                            (t) =>
-                              t.id !== "inbox" &&
-                              !collapsibleViews.some((v) => v.id === t.id),
-                          )
-                          .map((tab) => {
-                            const count = getTotalCount(tab.id);
-                            return (
-                              <Link
-                                key={tab.id}
-                                to={tab.href}
-                                onClick={() => setSidebarOpen(false)}
-                                className={cn(
-                                  "flex items-center justify-between rounded-md px-3 py-2 text-[14px] transition-colors",
-                                  tab.isActive
-                                    ? "bg-accent/60 text-foreground font-medium"
-                                    : "text-foreground/70 hover:bg-accent/30",
-                                )}
-                              >
-                                <span className="flex items-center gap-2">
-                                  {tab.color && (
-                                    <span
-                                      className="h-2 w-2 rounded-full shrink-0"
-                                      style={{ backgroundColor: tab.color }}
-                                    />
-                                  )}
-                                  {tab.label}
-                                </span>
-                                {count > 0 && (
-                                  <span className="text-[12px] text-muted-foreground/50 tabular-nums">
-                                    {count}
-                                  </span>
-                                )}
-                              </Link>
-                            );
-                          })}
-                      </div>
-                    </>
+                  {accountPopoverOpen && (
+                    <AccountPopover
+                      accounts={accounts}
+                      activeAccounts={activeAccounts}
+                      onToggleAccount={(email) => {
+                        setActiveAccounts((prev) => {
+                          const next = new Set(prev);
+                          if (next.size === 0) {
+                            // Switching from "all" → deselect this one (keep others)
+                            for (const a of accounts) {
+                              if (a.email !== email) next.add(a.email);
+                            }
+                          } else if (next.has(email)) {
+                            next.delete(email);
+                            // If nothing left, reset to "all"
+                            if (next.size === 0) return new Set();
+                          } else {
+                            next.add(email);
+                            // If all are now checked, reset to "all" (empty set)
+                            if (next.size === accounts.length) return new Set();
+                          }
+                          return next;
+                        });
+                      }}
+                      onRemoveAccount={(email) => {
+                        setActiveAccounts((prev) => {
+                          const next = new Set(prev);
+                          next.delete(email);
+                          return next;
+                        });
+                      }}
+                      onClose={() => setAccountPopoverOpen(false)}
+                    />
                   )}
                 </div>
-              </div>
-            </>
-          )}
+              )}
 
-          {/* Show full-page takeover when no accounts connected, otherwise content */}
-          <AgentSidebar
-            position="left"
-            defaultOpen={!isMobile}
-            emptyStateText="Ask me anything about your emails"
-            suggestions={[
-              "What's in my inbox?",
-              "Summarize my unread emails",
-              "Show me the database schema",
-            ]}
-          >
+              <AgentToggleButton />
+            </header>
+
+            {/* Sidebar overlay */}
+            {sidebarOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-30 bg-black/20"
+                  onClick={() => setSidebarOpen(false)}
+                />
+                <div className="fixed left-0 top-0 bottom-0 z-40 w-64 bg-background/70 backdrop-blur-2xl border-r border-border/30 shadow-2xl overflow-y-auto">
+                  {/* Accounts */}
+                  {hasAccounts && (
+                    <div className="px-4 pt-5 pb-4 border-b border-border/20">
+                      <div className="space-y-2">
+                        {accounts.map((account) => {
+                          const isActive =
+                            activeAccounts.size === 0 ||
+                            activeAccounts.has(account.email);
+                          return (
+                            <button
+                              key={account.email}
+                              onClick={() => {
+                                setActiveAccounts((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.size === 0) {
+                                    for (const a of accounts) {
+                                      if (a.email !== account.email)
+                                        next.add(a.email);
+                                    }
+                                  } else if (next.has(account.email)) {
+                                    next.delete(account.email);
+                                    if (next.size === 0) return new Set();
+                                  } else {
+                                    next.add(account.email);
+                                    if (next.size === accounts.length)
+                                      return new Set();
+                                  }
+                                  return next;
+                                });
+                              }}
+                              className={cn(
+                                "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-all",
+                                isActive ? "opacity-100" : "opacity-30",
+                              )}
+                            >
+                              {account.photoUrl ? (
+                                <img
+                                  src={account.photoUrl}
+                                  alt=""
+                                  className="h-8 w-8 rounded-full object-cover shrink-0"
+                                  referrerPolicy="no-referrer"
+                                />
+                              ) : (
+                                <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-[12px] font-semibold text-primary shrink-0">
+                                  {account.email[0]?.toUpperCase()}
+                                </div>
+                              )}
+                              <span className="text-[13px] text-foreground truncate">
+                                {account.email}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="p-4">
+                    <div className="space-y-0.5">
+                      {[
+                        { id: "inbox", label: "Inbox", href: "/inbox" },
+                        { id: "starred", label: "Starred", href: "/starred" },
+                        { id: "snoozed", label: "Snoozed", href: "/snoozed" },
+                        { id: "sent", label: "Sent", href: "/sent" },
+                        {
+                          id: "scheduled",
+                          label: "Scheduled",
+                          href: "/scheduled",
+                        },
+                        { id: "drafts", label: "Drafts", href: "/drafts" },
+                        { id: "archive", label: "Done", href: "/archive" },
+                        { id: "trash", label: "Trash", href: "/trash" },
+                      ].map((item) => (
+                        <Link
+                          key={item.id}
+                          to={item.href}
+                          onClick={() => setSidebarOpen(false)}
+                          className={cn(
+                            "flex items-center justify-between rounded-md px-3 py-2 text-[14px] transition-colors",
+                            view === item.id
+                              ? "bg-accent/60 text-foreground font-medium"
+                              : "text-foreground/70 hover:bg-accent/30",
+                          )}
+                        >
+                          <span>{item.label}</span>
+                          {item.id === "inbox" && labelCounts["inbox"] > 0 && (
+                            <span className="text-[12px] text-muted-foreground/50 tabular-nums">
+                              {labelCounts["inbox"]}
+                            </span>
+                          )}
+                        </Link>
+                      ))}
+                      <div className="mt-2 pt-2 border-t border-border/20">
+                        <Link
+                          to="/settings"
+                          onClick={() => setSidebarOpen(false)}
+                          className={cn(
+                            "flex items-center rounded-md px-3 py-2 text-[14px] transition-colors",
+                            location.pathname === "/settings"
+                              ? "bg-accent/60 text-foreground font-medium"
+                              : "text-foreground/70 hover:bg-accent/30",
+                          )}
+                        >
+                          Settings
+                        </Link>
+                      </div>
+                    </div>
+
+                    {/* Pinned labels */}
+                    {pinnedLabels.filter(
+                      (l) => !collapsibleViews.some((v) => v.id === l),
+                    ).length > 0 && (
+                      <>
+                        <h2 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mt-5 mb-3">
+                          Labels
+                        </h2>
+                        <div className="space-y-0.5">
+                          {visibleTabs
+                            .filter(
+                              (t) =>
+                                t.id !== "inbox" &&
+                                !collapsibleViews.some((v) => v.id === t.id),
+                            )
+                            .map((tab) => {
+                              const count = getTotalCount(tab.id);
+                              return (
+                                <Link
+                                  key={tab.id}
+                                  to={tab.href}
+                                  onClick={() => setSidebarOpen(false)}
+                                  className={cn(
+                                    "flex items-center justify-between rounded-md px-3 py-2 text-[14px] transition-colors",
+                                    tab.isActive
+                                      ? "bg-accent/60 text-foreground font-medium"
+                                      : "text-foreground/70 hover:bg-accent/30",
+                                  )}
+                                >
+                                  <span className="flex items-center gap-2">
+                                    {tab.color && (
+                                      <span
+                                        className="h-2 w-2 rounded-full shrink-0"
+                                        style={{ backgroundColor: tab.color }}
+                                      />
+                                    )}
+                                    {tab.label}
+                                  </span>
+                                  {count > 0 && (
+                                    <span className="text-[12px] text-muted-foreground/50 tabular-nums">
+                                      {count}
+                                    </span>
+                                  )}
+                                </Link>
+                              );
+                            })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Show full-page takeover when no accounts connected, otherwise content */}
             {!googleStatus.isLoading && !hasAccounts ? (
               <GoogleConnectBanner variant="hero" />
             ) : (
               <main className="flex flex-1 overflow-hidden">{children}</main>
             )}
-          </AgentSidebar>
-        </div>
+          </div>
+        </AgentSidebar>
 
         {(() => {
           // Filter out inline drafts (rendered in thread view, not the popout composer)

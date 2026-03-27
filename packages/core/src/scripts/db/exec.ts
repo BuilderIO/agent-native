@@ -2,7 +2,7 @@
  * Core script: db-exec
  *
  * Execute a write SQL statement (INSERT, UPDATE, DELETE, etc.)
- * against a SQLite database.
+ * against a SQLite or Postgres database.
  *
  * Usage:
  *   pnpm script db-exec --sql "UPDATE forms SET status='published' WHERE id='abc'" [--db path]
@@ -11,6 +11,10 @@
 import path from "path";
 import { createClient } from "@libsql/client";
 import { parseArgs, fail } from "../utils.js";
+
+function isPostgresUrl(url: string): boolean {
+  return url.startsWith("postgres://") || url.startsWith("postgresql://");
+}
 
 export default async function dbExec(args: string[]): Promise<void> {
   const parsed = parseArgs(args);
@@ -64,15 +68,60 @@ Options:
     url = "file:" + path.resolve(process.cwd(), "data", "app.db");
   }
 
+  // Detect if the SQL has a RETURNING clause — those produce rows
+  const hasReturning = /\bRETURNING\b/i.test(stripped);
+
+  // Postgres path
+  if (isPostgresUrl(url)) {
+    const { default: pg } = await import("postgres");
+    const pgSql = pg(url);
+    try {
+      const result = await pgSql.unsafe(sql);
+
+      if (hasReturning && result.length > 0) {
+        const rows: Record<string, unknown>[] = Array.from(result);
+
+        if (parsed.format === "json") {
+          console.log(
+            JSON.stringify({ sql, rows, count: rows.length }, null, 2),
+          );
+          return;
+        }
+        console.log(`Executed: ${sql}`);
+        console.log(`Returned ${rows.length} row(s):`);
+        if (rows.length > 0) {
+          console.log(JSON.stringify(rows, null, 2));
+        }
+      } else {
+        if (parsed.format === "json") {
+          console.log(
+            JSON.stringify(
+              {
+                sql,
+                changes: result.count ?? 0,
+              },
+              null,
+              2,
+            ),
+          );
+          return;
+        }
+        console.log(`Executed: ${sql}`);
+        console.log(`Changes: ${result.count ?? 0}`);
+      }
+    } finally {
+      await pgSql.end();
+    }
+    return;
+  }
+
+  // libsql / SQLite path
   const client = createClient({
     url,
     authToken: process.env.DATABASE_AUTH_TOKEN,
   });
 
   try {
-    // Detect if the SQL has a RETURNING clause — those produce rows
-    const hasReturning = /\bRETURNING\b/i.test(stripped);
-
     const result = await client.execute(sql);
 
     if (hasReturning && result.rows.length > 0) {

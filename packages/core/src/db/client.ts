@@ -1,0 +1,198 @@
+/**
+ * Central database client abstraction.
+ *
+ * Detects the database backend from the environment (D1, Postgres, or SQLite/libsql)
+ * and returns a unified `DbExec` interface that all core stores use.
+ *
+ * Imports for postgres and @libsql/client are lazy (dynamic import) so this
+ * module can be loaded in any runtime (Node.js, Cloudflare Workers, edge)
+ * without failing on missing native deps.
+ */
+import fs from "fs";
+import path from "path";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type Dialect = "sqlite" | "postgres" | "d1";
+
+export interface DbExec {
+  execute(
+    sql: string | { sql: string; args: any[] },
+  ): Promise<{ rows: any[]; rowsAffected: number }>;
+}
+
+// ---------------------------------------------------------------------------
+// Dialect detection
+// ---------------------------------------------------------------------------
+
+let _dialect: Dialect | undefined;
+
+export function getDialect(): Dialect {
+  if (_dialect !== undefined) return _dialect;
+
+  const d1 = (globalThis as any).__cf_env?.DB;
+  if (d1) {
+    _dialect = "d1";
+    return _dialect;
+  }
+
+  const url = process.env.DATABASE_URL || "";
+  if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
+    _dialect = "postgres";
+  } else {
+    _dialect = "sqlite";
+  }
+  return _dialect;
+}
+
+export function isPostgres(): boolean {
+  return getDialect() === "postgres";
+}
+
+// ---------------------------------------------------------------------------
+// Parameter conversion: ? -> $1, $2, $3
+// ---------------------------------------------------------------------------
+
+function sqliteToPostgresParams(sql: string): string {
+  let i = 0;
+  return sql.replace(/\?/g, () => `$${++i}`);
+}
+
+// ---------------------------------------------------------------------------
+// Singleton client — lazy-initialized on first execute() call
+// ---------------------------------------------------------------------------
+
+let _exec: DbExec | undefined;
+let _pgPool: any;
+let _initPromise: Promise<void> | undefined;
+
+async function initClient(): Promise<void> {
+  if (_exec) return;
+
+  const dialect = getDialect();
+
+  // Cloudflare D1
+  if (dialect === "d1") {
+    const d1 = (globalThis as any).__cf_env?.DB;
+    _exec = {
+      async execute(sql) {
+        if (typeof sql === "string") {
+          const r = await d1.prepare(sql).all();
+          return {
+            rows: r.results || [],
+            rowsAffected: r.meta?.changes ?? 0,
+          };
+        }
+        const r = await d1
+          .prepare(sql.sql)
+          .bind(...sql.args)
+          .all();
+        return { rows: r.results || [], rowsAffected: r.meta?.changes ?? 0 };
+      },
+    };
+    return;
+  }
+
+  const url = process.env.DATABASE_URL || "file:./data/app.db";
+
+  // Postgres — dynamically import to avoid bundling in non-Postgres runtimes
+  if (dialect === "postgres") {
+    const { default: postgres } = await import("postgres");
+    _pgPool = postgres(url);
+    const pool = _pgPool;
+
+    _exec = {
+      async execute(sql) {
+        const rawSql = typeof sql === "string" ? sql : sql.sql;
+        const args = typeof sql === "string" ? [] : sql.args || [];
+        const pgSql = sqliteToPostgresParams(rawSql);
+        const result = await pool.unsafe(pgSql, args as any[]);
+        return {
+          rows: Array.from(result),
+          rowsAffected: result.count ?? 0,
+        };
+      },
+    };
+    return;
+  }
+
+  // SQLite / libsql (default)
+  if (url.startsWith("file:")) {
+    try {
+      fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
+    } catch {
+      // Edge runtime — no filesystem
+    }
+  }
+
+  const { createClient } = await import("@libsql/client");
+  const client = createClient({
+    url,
+    authToken: process.env.DATABASE_AUTH_TOKEN,
+  });
+
+  _exec = {
+    async execute(sql) {
+      if (typeof sql === "string") {
+        const r = await client.execute(sql);
+        return {
+          rows: r.rows as any[],
+          rowsAffected: r.rowsAffected,
+        };
+      }
+      const r = await client.execute({
+        sql: sql.sql,
+        args: sql.args as any[],
+      });
+      return {
+        rows: r.rows as any[],
+        rowsAffected: r.rowsAffected,
+      };
+    },
+  };
+}
+
+/**
+ * Get the singleton database client. Returns a `DbExec` whose first
+ * `execute()` call lazily initializes the underlying driver.
+ */
+export function getDbExec(): DbExec {
+  if (_exec) return _exec;
+
+  // Sanitize args: replace undefined with null (libsql rejects undefined)
+  function sanitize(
+    sql: string | { sql: string; args: any[] },
+  ): string | { sql: string; args: any[] } {
+    if (typeof sql === "object" && sql.args) {
+      return { ...sql, args: sql.args.map((a: any) => a ?? null) };
+    }
+    return sql;
+  }
+
+  // Return a proxy that lazy-inits on first call
+  const proxy: DbExec = {
+    async execute(sql) {
+      if (!_initPromise) _initPromise = initClient();
+      await _initPromise;
+      // After init, swap to a sanitizing wrapper around the real client
+      const wrapper: DbExec = {
+        execute: (s) => _exec!.execute(sanitize(s)),
+      };
+      Object.assign(proxy, wrapper);
+      return _exec!.execute(sanitize(sql));
+    },
+  };
+  return proxy;
+}
+
+/** Close the database connection (for scripts that need cleanup). */
+export async function closeDbExec(): Promise<void> {
+  if (_pgPool) {
+    await _pgPool.end();
+    _pgPool = undefined;
+  }
+  _exec = undefined;
+  _initPromise = undefined;
+}

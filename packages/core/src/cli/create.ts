@@ -107,7 +107,7 @@ export function createApp(name?: string): void {
   );
   console.log(``);
   console.log(
-    `Need multi-user collaboration? See: https://agent-native.dev/docs/file-sync`,
+    `Need multi-user collaboration? See: https://agent-native.com/docs/file-sync`,
   );
 }
 

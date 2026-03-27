@@ -6,7 +6,7 @@ export default defineConfig({
   main: {
     plugins: [
       externalizeDepsPlugin({
-        exclude: ["@agent-native/shared-app-config"],
+        exclude: ["@agent-native/shared-app-config", "electron-updater"],
       }),
     ],
     resolve: {

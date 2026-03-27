@@ -38,13 +38,8 @@ function StudioContent() {
 
   return (
     <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
-      <StudioHeader
-        sidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-      />
-
       <AgentSidebar
-        position="left"
+        position="right"
         defaultOpen
         emptyStateText="Ask me anything about your videos"
         suggestions={[
@@ -53,21 +48,27 @@ function StudioContent() {
           "Adjust the animation timing",
         ]}
       >
-        <div className="flex flex-1 min-h-0">
-          <Sidebar
-            open={sidebarOpen}
-            cameraControlsTrigger={cameraControlsTrigger}
-            cursorControlsTrigger={cursorControlsTrigger}
-            compSettingsTrigger={compSettingsTrigger}
-            onGeneratingChange={setGeneratingComposition}
+        <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+          <StudioHeader
+            sidebarOpen={sidebarOpen}
+            onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           />
-
-          <div className="flex-1 min-w-0 overflow-y-auto">
-            <CompositionView
-              onCameraKeyframeClick={handleCameraKeyframeClick}
-              onCompSettingsClick={handleCompSettingsClick}
-              isGenerating={generatingComposition}
+          <div className="flex flex-1 min-h-0">
+            <Sidebar
+              open={sidebarOpen}
+              cameraControlsTrigger={cameraControlsTrigger}
+              cursorControlsTrigger={cursorControlsTrigger}
+              compSettingsTrigger={compSettingsTrigger}
+              onGeneratingChange={setGeneratingComposition}
             />
+
+            <div className="flex-1 min-w-0 overflow-y-auto">
+              <CompositionView
+                onCameraKeyframeClick={handleCameraKeyframeClick}
+                onCompSettingsClick={handleCompSettingsClick}
+                isGenerating={generatingComposition}
+              />
+            </div>
           </div>
         </div>
       </AgentSidebar>
@@ -109,20 +110,33 @@ export default function Studio() {
         <CompositionProvider compositionId="new">
           <TimelineProvider>
             <PlaybackProvider>
-              <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
-                <StudioHeader sidebarOpen onToggleSidebar={() => {}} />
-                <div className="flex flex-1 min-h-0">
-                  <Sidebar
-                    open
-                    cameraControlsTrigger={0}
-                    cursorControlsTrigger={0}
-                    compSettingsTrigger={0}
-                    onGeneratingChange={() => {}}
-                  />
-                  <div className="flex-1 min-w-0 overflow-y-auto">
-                    <NewComposition isGenerating={false} />
+              <div className="h-screen flex bg-background text-foreground overflow-hidden">
+                <AgentSidebar
+                  position="right"
+                  defaultOpen
+                  emptyStateText="Ask me anything about your videos"
+                  suggestions={[
+                    "Create a new composition",
+                    "Add a camera pan effect",
+                    "Adjust the animation timing",
+                  ]}
+                >
+                  <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+                    <StudioHeader sidebarOpen onToggleSidebar={() => {}} />
+                    <div className="flex flex-1 min-h-0">
+                      <Sidebar
+                        open
+                        cameraControlsTrigger={0}
+                        cursorControlsTrigger={0}
+                        compSettingsTrigger={0}
+                        onGeneratingChange={() => {}}
+                      />
+                      <div className="flex-1 min-w-0 overflow-y-auto">
+                        <NewComposition isGenerating={false} />
+                      </div>
+                    </div>
                   </div>
-                </div>
+                </AgentSidebar>
               </div>
             </PlaybackProvider>
           </TimelineProvider>

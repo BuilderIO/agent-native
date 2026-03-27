@@ -5,14 +5,18 @@ interface QueryClient {
 }
 
 /**
- * Hook that opens an EventSource connection to /api/events and invalidates
- * react-query caches when file changes are detected.
+ * Hook that polls /api/poll for DB change events and invalidates
+ * react-query caches when changes are detected.
  *
- * @param options.queryClient - The react-query QueryClient instance (from useQueryClient())
+ * Replaces the old SSE-based useFileWatcher. Works in all deployment
+ * environments (serverless, edge, long-lived server).
+ *
+ * @param options.queryClient - The react-query QueryClient instance
  * @param options.queryKeys - Array of query key prefixes to invalidate on change.
  *   Default: ["file", "fileTree"]
- * @param options.eventsUrl - SSE endpoint URL. Default: "/api/events"
- * @param options.onEvent - Optional callback for each SSE event
+ * @param options.eventsUrl - Poll endpoint URL. Default: "/api/poll"
+ * @param options.onEvent - Optional callback for each change event
+ * @param options.interval - Poll interval in ms. Default: 2000
  */
 export function useFileWatcher(
   options: {
@@ -20,17 +24,16 @@ export function useFileWatcher(
     queryKeys?: string[];
     eventsUrl?: string;
     onEvent?: (data: any) => void;
+    interval?: number;
   } = {},
 ): void {
   const {
     queryClient,
     queryKeys = ["file", "fileTree"],
-    eventsUrl = "/api/events",
+    eventsUrl = "/api/poll",
+    interval = 2000,
   } = options;
 
-  const url = eventsUrl;
-
-  // Stable refs — updated every render, read inside the effect
   const onEventRef = useRef(options.onEvent);
   onEventRef.current = options.onEvent;
 
@@ -38,35 +41,45 @@ export function useFileWatcher(
   keysRef.current = queryKeys;
 
   useEffect(() => {
-    const eventSource = new EventSource(url);
+    let versionRef = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let stopped = false;
 
-    eventSource.onopen = () => {
-      // Invalidate all keys on reconnection to catch events missed during downtime
-      if (queryClient) {
-        for (const key of keysRef.current) {
-          queryClient.invalidateQueries({ queryKey: [key] });
-        }
-      }
-    };
-
-    eventSource.onmessage = (event) => {
+    async function poll() {
+      if (stopped) return;
       try {
-        const data = JSON.parse(event.data);
-        if (queryClient) {
+        const res = await fetch(`${eventsUrl}?since=${versionRef}`);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        const { version, events } = data as {
+          version: number;
+          events: Array<{ source: string; type: string; key?: string }>;
+        };
+
+        if (events.length > 0 && queryClient) {
           for (const key of keysRef.current) {
             queryClient.invalidateQueries({ queryKey: [key] });
           }
+          for (const evt of events) {
+            onEventRef.current?.(evt);
+          }
         }
-        onEventRef.current?.(data);
-      } catch (e) {
-        console.warn("[useFileWatcher] Failed to parse SSE event:", e);
+
+        versionRef = version;
+      } catch {
+        // Network error — will retry on next interval
       }
-    };
+      if (!stopped) {
+        timer = setTimeout(poll, interval);
+      }
+    }
 
-    eventSource.onerror = () => {
-      console.warn("[useFileWatcher] EventSource error, will reconnect");
-    };
+    // Initial poll immediately
+    poll();
 
-    return () => eventSource.close();
-  }, [url, queryClient]); // only reconnect on genuine config changes
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [eventsUrl, queryClient, interval]);
 }

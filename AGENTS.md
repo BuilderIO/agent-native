@@ -36,9 +36,9 @@ When the agent needs to do something — query data, call APIs, process informat
 **Do:** Create focused scripts for discrete operations. Parse args with `parseArgs()`. Use scripts to list, search, create, and manage data — not just for background tasks.
 **Don't:** Put complex logic inline in agent chat. Keep scripts small and composable. Don't say "I don't have access" — check the scripts and database first.
 
-### 4. SSE keeps the UI in sync
+### 4. Polling keeps the UI in sync
 
-Server-Sent Events stream database changes to the UI in real-time. When the agent writes to the database (application state, settings, or domain data), the SSE handler broadcasts the change. The client `useFileWatcher()` hook invalidates React Query caches on changes. SSE events have a `source` field: `"app-state"` or `"settings"`.
+Database changes are synced to the UI via lightweight polling. When the agent writes to the database (application state, settings, or domain data), a version counter increments. The client `useFileWatcher()` hook polls `/api/poll` every 2 seconds and invalidates React Query caches when changes are detected. Events have a `source` field: `"app-state"`, `"settings"`, or `"resources"`. This works in all deployment environments including serverless and edge.
 
 ### 5. The agent can modify code
 
@@ -46,7 +46,7 @@ The agent can edit the app's own source code — components, routes, styles, scr
 
 ### 6. Application state in SQL
 
-Ephemeral UI state lives in the `application_state` SQL table, keyed by session ID and key. Both the agent and the UI can read and write application state. When the agent writes state (e.g., a compose draft), the UI reacts via SSE and updates accordingly. When the user interacts with the UI, changes are written back so the agent can read them.
+Ephemeral UI state lives in the `application_state` SQL table, keyed by session ID and key. Both the agent and the UI can read and write application state. When the agent writes state (e.g., a compose draft), the UI reacts via polling and updates accordingly. When the user interacts with the UI, changes are written back so the agent can read them.
 
 **Do:** Use `writeAppState(key, value)` from scripts, `appStatePut(sessionId, key, value)` from server code. Use `readAppState(key)` to read state.
 **Don't:** Use application-state for persistent data — use the `settings` store instead. Don't store secrets here.
@@ -54,8 +54,8 @@ Ephemeral UI state lives in the `application_state` SQL table, keyed by session 
 **Script helpers** (from `@agent-native/core/application-state`):
 
 - `readAppState(key)` — read state for current session
-- `writeAppState(key, value)` — write state (triggers SSE)
-- `deleteAppState(key)` — delete state (triggers SSE)
+- `writeAppState(key, value)` — write state (triggers UI sync)
+- `deleteAppState(key)` — delete state (triggers UI sync)
 - `listAppState(prefix)` — list state by key prefix
 
 ## Authentication
@@ -100,6 +100,29 @@ scripts/               # Agent-callable scripts
 data/                  # App data (SQLite DB at data/app.db)
 react-router.config.ts # React Router framework config
 ```
+
+## Client-Side-First Rendering
+
+All app content renders **client-side only**. The server renders only the HTML shell (`<html>`, `<head>` with meta tags, `<body>` with scripts) plus a loading spinner. This is enforced by the `ClientOnly` wrapper in every template's `root.tsx`:
+
+```tsx
+import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
+
+export default function Root() {
+  return (
+    <ClientOnly fallback={<DefaultSpinner />}>
+      {/* All providers and <Outlet /> go inside ClientOnly */}
+    </ClientOnly>
+  );
+}
+```
+
+**Why:** This prevents hydration mismatches. The server never renders app components, so `window`, `localStorage`, `new Date()`, `next-themes`, and any browser API are safe to use anywhere in app code.
+
+**Do:** Keep the `ClientOnly` wrapper in `root.tsx`. Use `window`, `localStorage`, browser APIs freely in components.
+**Don't:** Remove `ClientOnly` from `root.tsx`. Don't add server-side data fetching in route loaders (use React Query client-side instead).
+
+Route `meta()` functions still work for SEO — they're resolved at the `Layout` level which is server-rendered.
 
 ## Scripts
 
@@ -154,12 +177,13 @@ Agent skills in `.agents/skills/` provide detailed guidance for architectural ru
 | Skill                 | When to use                                          |
 | --------------------- | ---------------------------------------------------- |
 | `storing-data`        | Adding data models, reading/writing config or state  |
-| `real-time-sync`      | Wiring SSE, debugging UI not updating                |
+| `real-time-sync`      | Wiring polling sync, debugging UI not updating       |
 | `delegate-to-agent`   | Delegating AI work from UI or scripts to the agent   |
 | `scripts`             | Creating or running agent scripts                    |
 | `self-modifying-code` | Editing app source, components, or styles            |
 | `create-skill`        | Adding new skills for the agent                      |
 | `capture-learnings`   | Recording corrections and patterns                   |
 | `frontend-design`     | Building or styling any web UI, components, or pages |
+| `ship`                | Commit, prep, push, check CI, fix PR feedback        |
 
 The **`frontend-design`** skill (sourced from [Anthropic's skills library](https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md)) applies whenever the agent generates or modifies UI. It enforces distinctive, production-grade aesthetics — avoiding generic AI-generated design patterns like purple gradients, overused fonts, and cookie-cutter layouts.

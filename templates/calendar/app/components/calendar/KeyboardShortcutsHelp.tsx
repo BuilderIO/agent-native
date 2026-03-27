@@ -18,7 +18,7 @@ const SHORTCUT_GROUPS = [
       { keys: ["K"], description: "Previous period" },
       { keys: ["T"], description: "Go to today" },
       { keys: ["N"], description: "Next week" },
-      { keys: ["P"], description: "Previous week" },
+      { keys: ["P"], description: "Show teammate calendars" },
     ],
   },
   {

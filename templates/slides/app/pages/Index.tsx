@@ -9,6 +9,7 @@ import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { FeedbackButton } from "@/components/FeedbackButton";
 import { Button } from "@/components/ui/button";
+import { AgentToggleButton } from "@agent-native/core/client";
 
 export default function Index() {
   const { decks, createDeck, deleteDeck, loading } = useDecks();
@@ -85,6 +86,7 @@ export default function Index() {
               <Plus className="w-3.5 h-3.5" />
               New Deck
             </Button>
+            <AgentToggleButton />
           </div>
         </div>
       </header>
