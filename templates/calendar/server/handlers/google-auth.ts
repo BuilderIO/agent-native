@@ -112,6 +112,19 @@ export const handleGoogleCallback = defineEventHandler(
         maxAge: 60 * 60 * 24 * 30, // 30 days
       });
 
+      // If this looks like a mobile request, redirect via the native app scheme
+      const ua = getHeader(event, "user-agent") || "";
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
+      if (isMobile) {
+        return new Response(
+          `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href="agentnative://oauth-complete";setTimeout(function(){window.close()},2000)</script></body></html>`,
+          {
+            status: 200,
+            headers: { "Content-Type": "text/html; charset=utf-8" },
+          },
+        );
+      }
+
       return sendRedirect(event, "/");
     } catch (error: any) {
       const msg = error.message || "Unknown error";
