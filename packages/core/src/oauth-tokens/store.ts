@@ -60,18 +60,9 @@ export async function saveOAuthTokens(
   const client = getDbExec();
   const resolvedOwner = owner ?? accountId;
 
-  // Check if this account is already owned by a different user
-  const { rows: existing } = await client.execute({
-    sql: `SELECT owner FROM oauth_tokens WHERE provider = ? AND account_id = ?`,
-    args: [provider, accountId],
-  });
-  if (
-    existing.length > 0 &&
-    existing[0].owner &&
-    existing[0].owner !== resolvedOwner
-  ) {
-    throw new Error(`This Google account is already linked to another user.`);
-  }
+  // If this account was previously linked to a different session identity
+  // (e.g. local@localhost in dev vs real email in production), just re-link it.
+  // These are single-user apps — no need to guard against cross-user linking.
 
   await client.execute({
     sql: isPostgres()
