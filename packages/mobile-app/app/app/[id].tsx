@@ -34,7 +34,7 @@ export default function AppScreen() {
     );
   }
 
-  const url = __DEV__ && app.devUrl ? app.devUrl : app.url;
+  const url = app.mode === "dev" && app.devUrl ? app.devUrl : app.url;
 
   return (
     <>
