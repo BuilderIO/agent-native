@@ -113,7 +113,7 @@ export const handleGoogleCallback = defineEventHandler(
       const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
       if (isMobile) {
         return new Response(
-          `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href="agentnative://oauth-complete";setTimeout(function(){window.close()},2000)</script></body></html>`,
+          `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href="agentnative://oauth-complete";setTimeout(function(){window.location.href="/"},1500)</script></body></html>`,
           {
             status: 200,
             headers: { "Content-Type": "text/html; charset=utf-8" },

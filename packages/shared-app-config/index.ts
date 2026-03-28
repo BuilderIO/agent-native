@@ -35,8 +35,8 @@ export interface AppConfig {
   isBuiltIn: boolean;
   /** Whether the app is enabled/visible */
   enabled: boolean;
-  /** Whether to load the app through the CLI harness (default: true) */
-  useCliHarness?: boolean;
+  /** Whether to load the dev or production URL. Default: "prod" */
+  mode?: "dev" | "prod";
 }
 
 /** Harness UI port — must match dev-all.ts UI_PORT */
@@ -55,7 +55,7 @@ export const DEFAULT_APPS: AppConfig[] = [
     colorRgb: "59 130 246",
     isBuiltIn: true,
     enabled: true,
-    useCliHarness: false,
+    mode: "prod",
   },
   {
     id: "calendar",
@@ -69,7 +69,7 @@ export const DEFAULT_APPS: AppConfig[] = [
     colorRgb: "139 92 246",
     isBuiltIn: true,
     enabled: true,
-    useCliHarness: false,
+    mode: "prod",
   },
   {
     id: "content",
@@ -83,7 +83,7 @@ export const DEFAULT_APPS: AppConfig[] = [
     colorRgb: "16 185 129",
     isBuiltIn: true,
     enabled: true,
-    useCliHarness: false,
+    mode: "prod",
   },
   {
     id: "analytics",
@@ -97,7 +97,7 @@ export const DEFAULT_APPS: AppConfig[] = [
     colorRgb: "245 158 11",
     isBuiltIn: true,
     enabled: true,
-    useCliHarness: false,
+    mode: "prod",
   },
   {
     id: "slides",
@@ -111,7 +111,7 @@ export const DEFAULT_APPS: AppConfig[] = [
     colorRgb: "236 72 153",
     isBuiltIn: true,
     enabled: true,
-    useCliHarness: false,
+    mode: "prod",
   },
   {
     id: "videos",
@@ -125,7 +125,7 @@ export const DEFAULT_APPS: AppConfig[] = [
     colorRgb: "239 68 68",
     isBuiltIn: true,
     enabled: true,
-    useCliHarness: false,
+    mode: "prod",
   },
   {
     id: "forms",
@@ -139,7 +139,7 @@ export const DEFAULT_APPS: AppConfig[] = [
     colorRgb: "6 182 212",
     isBuiltIn: true,
     enabled: true,
-    useCliHarness: false,
+    mode: "prod",
   },
   {
     id: "starter",
@@ -153,7 +153,7 @@ export const DEFAULT_APPS: AppConfig[] = [
     colorRgb: "113 113 122",
     isBuiltIn: true,
     enabled: true,
-    useCliHarness: false,
+    mode: "prod",
   },
 ];
 

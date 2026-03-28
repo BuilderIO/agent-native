@@ -613,6 +613,37 @@ body {
   background: rgba(59, 130, 246, 0.1);
 }
 
+/* Dev/Prod mode toggle */
+.settings-mode-toggle {
+  display: flex;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.settings-mode-btn {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  transition:
+    color var(--ease),
+    background var(--ease);
+}
+
+.settings-mode-btn:hover {
+  color: #aaa;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.settings-mode-btn--active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
 /* Toggle switch */
 .settings-toggle {
   position: relative;
