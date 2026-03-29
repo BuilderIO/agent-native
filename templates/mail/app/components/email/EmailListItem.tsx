@@ -122,7 +122,7 @@ export function EmailListItem({
       {/* Sender name — fixed width column */}
       <span
         className={cn(
-          "w-[160px] shrink-0 text-[13px] truncate mr-3",
+          "w-[160px] shrink-0 text-sm sm:text-[13px] truncate mr-3",
           isUnread
             ? "font-semibold text-foreground"
             : "font-normal text-foreground/70",
@@ -156,7 +156,7 @@ export function EmailListItem({
       <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">
         <span
           className={cn(
-            "text-[13px] truncate shrink-0 max-w-[45%]",
+            "text-sm sm:text-[13px] truncate shrink-0 max-w-[45%]",
             isUnread
               ? "font-medium text-foreground"
               : "font-normal text-foreground/70",
@@ -164,13 +164,13 @@ export function EmailListItem({
         >
           {email.subject}
         </span>
-        <span className="text-[13px] text-muted-foreground truncate">
+        <span className="text-sm sm:text-[13px] text-muted-foreground truncate">
           {email.snippet}
         </span>
       </div>
 
       {/* Time — right aligned, hidden on hover */}
-      <span className="row-time shrink-0 ml-3 text-[12px] text-muted-foreground tabular-nums">
+      <span className="row-time shrink-0 ml-3 text-xs sm:text-[12px] text-muted-foreground tabular-nums">
         {formatEmailDate(email.date)}
       </span>
 
