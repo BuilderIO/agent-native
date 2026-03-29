@@ -158,22 +158,36 @@ export async function handleGetResource(event: any) {
     return { error: "Resource not found" };
   }
 
-  // Serve raw binary only when ?raw query param is set (used by <img> tags etc.)
+  // Serve raw binary when ?raw query param is set (used by <img> tags etc.)
   const query = getQuery(event);
   const wantsRaw = query.raw !== undefined;
 
   if (wantsRaw && resource.content) {
-    const isBase64 =
-      !resource.mimeType.startsWith("text/") &&
-      resource.mimeType !== "application/json";
-    const body = isBase64
-      ? Buffer.from(resource.content, "base64")
-      : Buffer.from(resource.content, "utf-8");
+    const isText =
+      resource.mimeType.startsWith("text/") ||
+      resource.mimeType === "application/json";
+    const buf = isText
+      ? Buffer.from(resource.content, "utf-8")
+      : Buffer.from(resource.content, "base64");
 
     event.node.res.setHeader("Content-Type", resource.mimeType);
-    event.node.res.setHeader("Content-Length", body.length);
-    event.node.res.end(body);
+    event.node.res.setHeader("Content-Length", buf.length);
+    event.node.res.end(buf);
     return;
+  }
+
+  // For binary resources (images, audio, video), omit the content field from
+  // the JSON response — it can be megabytes of base64. The client fetches
+  // the actual bytes via ?raw when it needs to display them.
+  const isBinary =
+    resource.mimeType.startsWith("image/") ||
+    resource.mimeType.startsWith("audio/") ||
+    resource.mimeType.startsWith("video/") ||
+    resource.mimeType === "application/octet-stream";
+
+  if (isBinary) {
+    const { content: _content, ...meta } = resource;
+    return { ...meta, content: "" };
   }
 
   return resource;

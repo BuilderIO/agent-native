@@ -29,6 +29,7 @@ import React, {
   useCallback,
   lazy,
   Suspense,
+  startTransition,
 } from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
@@ -550,6 +551,9 @@ export function AgentPanel({
       localStorage.setItem("agent-native-panel-mode", mode);
     } catch {}
   }, [mode]);
+  const switchMode = useCallback((m: "chat" | "cli" | "resources") => {
+    startTransition(() => setMode(m));
+  }, []);
   // CLI terminal tabs (ephemeral — not persisted to SQL)
   const [cliTabs, setCliTabs] = useState<string[]>(["cli-1"]);
   const [activeCliTab, setActiveCliTab] = useState("cli-1");
@@ -593,7 +597,7 @@ export function AgentPanel({
     (activeMode: "chat" | "cli" | "resources") => (
       <div className="flex shrink-0 items-center gap-1">
         <button
-          onClick={() => setMode("chat")}
+          onClick={() => switchMode("chat")}
           className={cn(
             "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
             activeMode === "chat"
@@ -608,7 +612,7 @@ export function AgentPanel({
         </button>
         {isDevMode && (
           <button
-            onClick={() => setMode("cli")}
+            onClick={() => switchMode("cli")}
             className={cn(
               "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
               activeMode === "cli"
@@ -623,7 +627,7 @@ export function AgentPanel({
           </button>
         )}
         <button
-          onClick={() => setMode("resources")}
+          onClick={() => switchMode("resources")}
           className={cn(
             "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
             activeMode === "resources"
@@ -846,7 +850,7 @@ export function AgentPanel({
             contentHidden={mode !== "chat"}
             emptyStateText={emptyStateText}
             suggestions={suggestions}
-            onSwitchToCli={isDevMode ? () => setMode("cli") : undefined}
+            onSwitchToCli={isDevMode ? () => switchMode("cli") : undefined}
           />
         )}
       </div>
@@ -882,8 +886,13 @@ export function AgentPanel({
         <div className="flex-1 min-h-0">
           <Suspense
             fallback={
-              <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                Loading resources...
+              <div className="flex h-full flex-col min-h-0">
+                <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5">
+                  <div className="flex items-center gap-1">
+                    <div className="h-5 w-16 rounded bg-muted animate-pulse" />
+                    <div className="h-5 w-14 rounded bg-muted animate-pulse" />
+                  </div>
+                </div>
               </div>
             }
           >
@@ -912,65 +921,69 @@ function ResizeHandle({
   const ref = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const lastX = useRef(0);
-  const GRAB_ZONE = 4; // px on each side of the border
+  const onDragRef = useRef(onDrag);
+  onDragRef.current = onDrag;
+  const GRAB_ZONE = 5; // px on each side of the border
 
-  const onPointerDown = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    dragging.current = true;
-    lastX.current = e.clientX;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-  }, []);
-
-  const onPointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!dragging.current) return;
-      const delta = e.clientX - lastX.current;
-      lastX.current = e.clientX;
-      onDrag(position === "left" ? delta : -delta);
-    },
-    [onDrag, position],
-  );
-
-  const onPointerUp = useCallback(() => {
-    dragging.current = false;
-    document.body.style.cursor = "";
-    document.body.style.userSelect = "";
-  }, []);
-
-  // Adjacent overflow-hidden siblings create stacking contexts that eat
-  // CSS cursor on the handle. Use a document-level mousemove to set the
-  // cursor when the pointer is within GRAB_ZONE px of the border.
+  // All drag logic runs via document-level listeners so the 1px-wide
+  // element doesn't need to capture pointer events itself.
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    let active = false;
-    function onMove(e: MouseEvent) {
+    let cursorActive = false;
+
+    function onMouseDown(e: MouseEvent) {
+      const rect = el!.getBoundingClientRect();
+      const dist = Math.abs(e.clientX - (rect.left + rect.width / 2));
+      if (dist > GRAB_ZONE) return;
+      e.preventDefault();
+      dragging.current = true;
+      lastX.current = e.clientX;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    }
+
+    function onMouseMove(e: MouseEvent) {
+      if (dragging.current) {
+        const delta = e.clientX - lastX.current;
+        lastX.current = e.clientX;
+        onDragRef.current(position === "left" ? delta : -delta);
+        return;
+      }
+      // Hover cursor
       const rect = el!.getBoundingClientRect();
       const dist = Math.abs(e.clientX - (rect.left + rect.width / 2));
       const near = dist <= GRAB_ZONE;
-      if (near && !active) {
-        active = true;
+      if (near && !cursorActive) {
+        cursorActive = true;
         document.body.style.cursor = "col-resize";
-      } else if (!near && active && !dragging.current) {
-        active = false;
+      } else if (!near && cursorActive) {
+        cursorActive = false;
         document.body.style.cursor = "";
       }
     }
-    document.addEventListener("mousemove", onMove);
+
+    function onMouseUp() {
+      if (!dragging.current) return;
+      dragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
     return () => {
-      document.removeEventListener("mousemove", onMove);
-      if (active) document.body.style.cursor = "";
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      if (cursorActive) document.body.style.cursor = "";
     };
-  }, []);
+  }, [position]);
 
   return (
     <div
       ref={ref}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
       className={cn(
         "relative z-20 shrink-0 w-px touch-none select-none transition-colors",
         "bg-border hover:bg-accent active:bg-accent",
