@@ -251,7 +251,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       const redirectUri =
         (query.redirect_uri as string) ||
         `${getOrigin(event)}/api/google/callback`;
-      const state = encodeState(redirectUri, session.email);
+      const state = encodeState(redirectUri, session.email, undefined, true);
       const url = getAuthUrl(undefined, redirectUri, state);
       return { url };
     } catch (error: any) {
