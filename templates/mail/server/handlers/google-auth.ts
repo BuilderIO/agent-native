@@ -64,9 +64,20 @@ function decodeState(
   return { redirectUri: fallbackUri };
 }
 
-/** HTML page shown after OAuth completes in the system browser (desktop app flow). */
-function desktopSuccessPage(email?: string): Response {
+/** HTML page shown after OAuth completes in the system browser (desktop app flow).
+ *  When a session token is provided, redirects via the `agentnative://` deep link
+ *  so the Electron app can inject the session cookie into its webview. */
+function desktopSuccessPage(email?: string, sessionToken?: string): Response {
   const msg = email ? `Connected ${email}!` : "Connected!";
+  // When we have a session token, redirect to the desktop app via deep link
+  // (same mechanism mobile uses) so Electron can set the cookie in its webview.
+  if (sessionToken) {
+    const deepLink = `agentnative://oauth-complete?token=${sessionToken}`;
+    return new Response(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">Returning to Agent Native\u2026</p><script>window.location.href=${JSON.stringify(deepLink)};setTimeout(function(){document.getElementById("f").style.display="block"},2000)</script><p id="f" style="display:none;font-size:12px;color:#666;margin-top:16px">You can close this tab and return to Agent Native.</p></body></html>`,
+      { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
+    );
+  }
   return new Response(
     `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`,
     { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
@@ -175,8 +186,8 @@ export const handleGoogleCallback = defineEventHandler(
         );
       }
 
-      // Desktop: show "return to app" page (system browser can't redirect back)
-      if (desktop) return desktopSuccessPage(email);
+      // Desktop: redirect via deep link so Electron can inject the session cookie
+      if (desktop) return desktopSuccessPage(email, sessionToken);
 
       // Web: redirect to app home
       return sendRedirect(event, "/");

@@ -22,6 +22,80 @@ import * as AppStore from "./app-store";
 
 const IS_DEV = !app.isPackaged;
 
+// ---------- Deep link protocol (agentnative://) ----------
+// Register before app is ready so macOS associates the scheme with this app.
+
+const DEEP_LINK_PROTOCOL = "agentnative";
+if (IS_DEV) {
+  app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [
+    path.resolve(process.argv[1]),
+  ]);
+} else {
+  app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
+}
+
+let pendingDeepLink: string | null = null;
+
+async function handleDeepLink(url: string) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.host === "oauth-complete") {
+      const token = parsed.searchParams.get("token");
+      if (token) {
+        await injectSessionAndReload(token);
+      } else {
+        reloadAllWebviews();
+      }
+    }
+  } catch {
+    // Malformed URL — ignore
+  }
+}
+
+async function injectSessionAndReload(token: string) {
+  const allContents = webContents.getAllWebContents();
+  const origins = new Set<string>();
+  for (const wc of allContents) {
+    if (wc.getType() === "webview") {
+      try {
+        origins.add(new URL(wc.getURL()).origin);
+      } catch {}
+    }
+  }
+  for (const origin of origins) {
+    await session.defaultSession.cookies.set({
+      url: origin,
+      name: "an_session",
+      value: token,
+      httpOnly: true,
+      path: "/",
+      expirationDate: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
+    });
+  }
+  reloadAllWebviews();
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
+}
+
+function reloadAllWebviews() {
+  for (const wc of webContents.getAllWebContents()) {
+    if (wc.getType() === "webview") wc.reload();
+  }
+}
+
+// macOS: deep links arrive via open-url (both when app is running and on cold launch)
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  if (app.isReady()) {
+    handleDeepLink(url);
+  } else {
+    pendingDeepLink = url;
+  }
+});
+
 // ---------- Auto-updates (production only) ----------
 
 if (!IS_DEV) {
@@ -300,6 +374,12 @@ app.on("web-contents-created", (_event, contents) => {
 // ---------- App lifecycle ----------
 
 app.whenReady().then(() => {
+  // Process any deep link that arrived before the app was ready
+  if (pendingDeepLink) {
+    handleDeepLink(pendingDeepLink);
+    pendingDeepLink = null;
+  }
+
   // Allow webviews to load any localhost URL during development
   if (IS_DEV) {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {

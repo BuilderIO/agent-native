@@ -815,8 +815,10 @@ function ResizeHandle({
   position: "left" | "right";
   onDrag: (delta: number) => void;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const lastX = useRef(0);
+  const GRAB_ZONE = 4; // px on each side of the border
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
@@ -832,8 +834,6 @@ function ResizeHandle({
       if (!dragging.current) return;
       const delta = e.clientX - lastX.current;
       lastX.current = e.clientX;
-      // For a left sidebar, dragging right = wider (positive delta)
-      // For a right sidebar, dragging left = wider (negative delta)
       onDrag(position === "left" ? delta : -delta);
     },
     [onDrag, position],
@@ -845,18 +845,41 @@ function ResizeHandle({
     document.body.style.userSelect = "";
   }, []);
 
-  // 5px wide in layout — thin enough to look like a divider, wide enough
-  // to grab. Border on the sidebar-facing edge is the visible 1px line.
+  // Adjacent overflow-hidden siblings create stacking contexts that eat
+  // CSS cursor on the handle. Use a document-level mousemove to set the
+  // cursor when the pointer is within GRAB_ZONE px of the border.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let active = false;
+    function onMove(e: MouseEvent) {
+      const rect = el!.getBoundingClientRect();
+      const dist = Math.abs(e.clientX - (rect.left + rect.width / 2));
+      const near = dist <= GRAB_ZONE;
+      if (near && !active) {
+        active = true;
+        document.body.style.cursor = "col-resize";
+      } else if (!near && active && !dragging.current) {
+        active = false;
+        document.body.style.cursor = "";
+      }
+    }
+    document.addEventListener("mousemove", onMove);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      if (active) document.body.style.cursor = "";
+    };
+  }, []);
+
   return (
     <div
+      ref={ref}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       className={cn(
-        "relative z-20 shrink-0 w-[5px] touch-none select-none transition-colors",
-        position === "left"
-          ? "border-l border-border hover:border-accent active:border-accent"
-          : "border-r border-border hover:border-accent active:border-accent",
+        "relative z-20 shrink-0 w-px touch-none select-none transition-colors",
+        "bg-border hover:bg-accent active:bg-accent",
       )}
       style={{ cursor: "col-resize" }}
     />

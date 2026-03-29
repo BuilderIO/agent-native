@@ -532,7 +532,7 @@ export function WeekView({
                       >
                         <button
                           className={cn(
-                            "absolute overflow-hidden rounded-md px-1.5 py-0.5 text-left text-xs flex flex-col justify-start transition-all hover:z-30 hover:brightness-110 hover:shadow-md",
+                            "absolute overflow-hidden rounded-md px-1.5 py-1 text-left text-[11px] flex flex-col justify-start transition-all hover:z-30 hover:brightness-110 hover:shadow-md",
                             isDeclined && "saturate-[0.3]",
                           )}
                           style={{
@@ -551,7 +551,7 @@ export function WeekView({
                           }}
                         >
                           {durationMin <= 30 ? (
-                            <div className="flex items-baseline gap-1 truncate">
+                            <div className="mt-0.5 flex items-baseline gap-1 truncate">
                               <span
                                 className={cn(
                                   "truncate leading-tight",
@@ -582,7 +582,7 @@ export function WeekView({
                             <>
                               <div
                                 className={cn(
-                                  "truncate leading-tight",
+                                  "mt-0.5 truncate leading-tight",
                                   isPast || isDeclined
                                     ? "text-muted-foreground"
                                     : "text-foreground",
@@ -594,7 +594,7 @@ export function WeekView({
                               </div>
                               <div
                                 className={cn(
-                                  "truncate text-[10px] leading-tight",
+                                  "mt-0.5 truncate text-[9px] leading-tight",
                                   isPast || isDeclined
                                     ? "text-muted-foreground/50"
                                     : "text-foreground/60",
