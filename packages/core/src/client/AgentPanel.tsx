@@ -81,8 +81,8 @@ interface AvailableCli {
 function useAvailableClis() {
   const [clis, setClis] = useState<AvailableCli[]>([]);
   useEffect(() => {
-    // Only fetch in dev mode — this endpoint is provided by the terminal plugin
-    if (!IS_DEV) return;
+    // Try to fetch available CLIs — endpoint is provided by the terminal plugin.
+    // Returns 404 gracefully when the plugin isn't loaded.
     fetch("/api/available-clis")
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => setClis(data))
@@ -231,22 +231,6 @@ function PlusIcon({ className }: { className?: string }) {
   );
 }
 
-function TrashIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.85}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    </svg>
-  );
-}
-
 function FolderIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -318,14 +302,14 @@ function SettingsSelect({
           <SelectPrimitive.Content
             position="popper"
             sideOffset={6}
-            className="z-[220] w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
+            className="z-[9999] w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
           >
             <SelectPrimitive.Viewport className="p-1">
               {options.map((option) => (
                 <SelectPrimitive.Item
                   key={option.value}
                   value={option.value}
-                  className="relative flex w-full cursor-default select-none items-start gap-2 rounded-md px-8 py-2.5 text-[12px] outline-none transition-colors data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40"
+                  className="relative flex w-full cursor-pointer select-none items-start gap-2 rounded-md px-8 py-2.5 text-[12px] outline-none data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40"
                   style={AGENT_PANEL_CONTROL_STYLE}
                 >
                   <span className="absolute left-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
@@ -402,14 +386,18 @@ function AgentSettingsPopover({
   useEffect(() => {
     if (!open) return;
     function handleClick(e: MouseEvent) {
+      const target = e.target as Node;
+      // Ignore clicks inside the popover itself or its trigger button
+      if (popoverRef.current?.contains(target)) return;
+      if (buttonRef.current?.contains(target)) return;
+      // Ignore clicks inside portaled Radix Select content (rendered outside the popover DOM)
       if (
-        popoverRef.current &&
-        !popoverRef.current.contains(e.target as Node) &&
-        buttonRef.current &&
-        !buttonRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
+        (target as Element).closest?.(
+          "[data-radix-popper-content-wrapper], [data-radix-select-viewport], [role='listbox']",
+        )
+      )
+        return;
+      setOpen(false);
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -485,7 +473,7 @@ function AgentSettingsPopover({
                   if (nextIsDev !== isDevMode) onToggle();
                 }}
               />
-              {IS_DEV && cliOptions.length > 0 && (
+              {isDevMode && cliOptions.length > 0 && (
                 <SettingsSelect
                   label="CLI Agent"
                   value={selectedCli}
@@ -531,7 +519,19 @@ export function AgentPanel({
   onCollapse,
 }: AgentPanelProps) {
   const mounted = useClientOnly();
-  const [mode, setMode] = useState<"chat" | "cli" | "resources">(defaultMode);
+  const [mode, setMode] = useState<"chat" | "cli" | "resources">(() => {
+    try {
+      const saved = localStorage.getItem("agent-native-panel-mode");
+      if (saved === "chat" || saved === "cli" || saved === "resources")
+        return saved;
+    } catch {}
+    return defaultMode;
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("agent-native-panel-mode", mode);
+    } catch {}
+  }, [mode]);
   const availableClis = useAvailableClis();
   const [selectedCli, selectCli] = useCliSelection();
   const selectedLabel =
@@ -562,7 +562,7 @@ export function AgentPanel({
           <ChatBubbleIcon className="h-3.5 w-3.5" />
           Chat
         </button>
-        {IS_DEV && (
+        {isDevMode && (
           <button
             onClick={() => setMode("cli")}
             className={cn(
@@ -580,7 +580,7 @@ export function AgentPanel({
         )}
       </div>
     ),
-    [],
+    [isDevMode],
   );
 
   const renderHeaderActions = useCallback(
@@ -707,18 +707,15 @@ export function AgentPanel({
   );
 
   const renderChatOverlay = useCallback(
-    ({
-      activeTabMessageCount,
-      clearActiveTab,
-    }: MultiTabAssistantChatHeaderProps) =>
+    ({ activeTabMessageCount, addTab }: MultiTabAssistantChatHeaderProps) =>
       activeTabMessageCount > 0 ? (
         <div className="pointer-events-none absolute right-2 top-2 z-20">
-          <IconTooltip content="Clear chat">
+          <IconTooltip content="New chat">
             <button
-              onClick={clearActiveTab}
+              onClick={addTab}
               className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded text-muted-foreground/50 hover:bg-accent/40 hover:text-muted-foreground"
             >
-              <TrashIcon className="h-3.5 w-3.5" />
+              <PlusIcon className="h-3.5 w-3.5" />
             </button>
           </IconTooltip>
         </div>
@@ -761,13 +758,13 @@ export function AgentPanel({
             contentHidden={mode !== "chat"}
             emptyStateText={emptyStateText}
             suggestions={suggestions}
-            onSwitchToCli={IS_DEV ? () => setMode("cli") : undefined}
+            onSwitchToCli={isDevMode ? () => setMode("cli") : undefined}
           />
         )}
       </div>
 
       {/* CLI terminal — only rendered in dev mode */}
-      {IS_DEV && mode === "cli" && (
+      {isDevMode && mode === "cli" && (
         <div className="flex-1 min-h-0 relative">
           <Suspense
             fallback={
@@ -848,12 +845,19 @@ function ResizeHandle({
     document.body.style.userSelect = "";
   }, []);
 
+  // 5px wide in layout — thin enough to look like a divider, wide enough
+  // to grab. Border on the sidebar-facing edge is the visible 1px line.
   return (
     <div
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      className="group relative z-20 shrink-0 w-px bg-border touch-none select-none transition-colors hover:bg-accent active:bg-accent before:absolute before:inset-y-0 before:-left-[3px] before:w-[7px] before:content-[''] before:cursor-col-resize"
+      className={cn(
+        "relative z-20 shrink-0 w-[5px] touch-none select-none transition-colors",
+        position === "left"
+          ? "border-l border-border hover:border-accent active:border-accent"
+          : "border-r border-border hover:border-accent active:border-accent",
+      )}
       style={{ cursor: "col-resize" }}
     />
   );

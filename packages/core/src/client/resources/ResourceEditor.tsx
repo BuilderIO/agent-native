@@ -36,6 +36,188 @@ function setViewPref(v: "visual" | "code") {
   } catch {}
 }
 
+// --- Frontmatter parsing ---
+
+interface Frontmatter {
+  raw: string; // The full frontmatter block including --- delimiters
+  fields: Array<{ key: string; value: string }>;
+}
+
+function parseFrontmatter(content: string): {
+  frontmatter: Frontmatter | null;
+  body: string;
+} {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (!match) return { frontmatter: null, body: content };
+
+  const raw = match[0];
+  const yamlBlock = match[1];
+  const body = content.slice(raw.length);
+
+  // Parse simple key: value pairs (handles multiline >- syntax)
+  const fields: Array<{ key: string; value: string }> = [];
+  const lines = yamlBlock.split("\n");
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const kvMatch = line.match(/^(\w[\w-]*):\s*(.*)/);
+    if (kvMatch) {
+      let value = kvMatch[2].trim();
+      // Handle YAML multiline indicators (>- or |)
+      if (value === ">-" || value === ">" || value === "|" || value === "|-") {
+        const multiLines: string[] = [];
+        i++;
+        while (i < lines.length && /^\s+/.test(lines[i])) {
+          multiLines.push(lines[i].trim());
+          i++;
+        }
+        value = multiLines.join(" ");
+      } else {
+        i++;
+      }
+      fields.push({ key: kvMatch[1], value });
+    } else {
+      i++;
+    }
+  }
+
+  return { frontmatter: { raw, fields }, body };
+}
+
+function serializeFrontmatter(fields: Frontmatter["fields"]): string {
+  const lines = fields.map(({ key, value }) => {
+    // Use multiline >- for long descriptions
+    if (key === "description" && value.length > 60) {
+      const words = value.split(" ");
+      const wrapped: string[] = [];
+      let line = "";
+      for (const w of words) {
+        if (line && line.length + w.length + 1 > 72) {
+          wrapped.push("  " + line);
+          line = w;
+        } else {
+          line = line ? line + " " + w : w;
+        }
+      }
+      if (line) wrapped.push("  " + line);
+      return `${key}: >-\n${wrapped.join("\n")}`;
+    }
+    return `${key}: ${value}`;
+  });
+  return "---\n" + lines.join("\n") + "\n---\n";
+}
+
+const FM_INPUT_STYLE: React.CSSProperties = {
+  background: "transparent",
+  border: "none",
+  outline: "none",
+  color: "inherit",
+  fontSize: "inherit",
+  fontFamily: "inherit",
+  width: "100%",
+  padding: 0,
+};
+
+function FrontmatterBar({
+  frontmatter,
+  onChange,
+}: {
+  frontmatter: Frontmatter;
+  onChange: (updated: Frontmatter) => void;
+}) {
+  const getField = (key: string) =>
+    frontmatter.fields.find((f) => f.key === key)?.value ?? "";
+
+  const updateField = (key: string, value: string) => {
+    const exists = frontmatter.fields.some((f) => f.key === key);
+    const newFields = exists
+      ? frontmatter.fields.map((f) => (f.key === key ? { ...f, value } : f))
+      : [...frontmatter.fields, { key, value }];
+    const updated: Frontmatter = {
+      ...frontmatter,
+      raw: serializeFrontmatter(newFields),
+      fields: newFields,
+    };
+    onChange(updated);
+  };
+
+  const name = getField("name");
+  const description = getField("description");
+  const isUserInvocable = getField("user-invocable") === "true";
+
+  return (
+    <div
+      style={{
+        padding: "8px 12px",
+        marginBottom: 8,
+        borderRadius: 6,
+        background: "hsl(var(--muted) / 0.5)",
+        border: "1px solid hsl(var(--border) / 0.5)",
+        fontSize: 12,
+        lineHeight: 1.5,
+        color: "hsl(var(--muted-foreground))",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <input
+          value={name}
+          onChange={(e) => updateField("name", e.target.value)}
+          placeholder="Skill name"
+          style={{
+            ...FM_INPUT_STYLE,
+            fontWeight: 600,
+            color: "hsl(var(--foreground))",
+            fontSize: 13,
+            flex: 1,
+          }}
+        />
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            fontSize: 10,
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+            userSelect: "none",
+            padding: "1px 5px",
+            borderRadius: 3,
+            background: isUserInvocable
+              ? "hsl(var(--primary) / 0.15)"
+              : "transparent",
+            color: isUserInvocable
+              ? "hsl(var(--primary))"
+              : "hsl(var(--muted-foreground))",
+            border: isUserInvocable ? "none" : "1px dashed hsl(var(--border))",
+            fontWeight: 500,
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={isUserInvocable}
+            onChange={(e) =>
+              updateField("user-invocable", e.target.checked ? "true" : "false")
+            }
+            style={{ display: "none" }}
+          />
+          /{name || "command"}
+        </label>
+      </div>
+      <input
+        value={description}
+        onChange={(e) => updateField("description", e.target.value)}
+        placeholder="Description — what this skill does"
+        style={{
+          ...FM_INPUT_STYLE,
+          marginTop: 2,
+          opacity: 0.8,
+          color: "hsl(var(--muted-foreground))",
+        }}
+      />
+    </div>
+  );
+}
+
 // --- Slash Command Menu ---
 
 interface CommandItem {
@@ -112,8 +294,10 @@ function SlashMenu({ editor }: { editor: any }) {
   const [position, setPosition] = useState<{
     top: number;
     left: number;
+    flipUp: boolean;
   } | null>(null);
   const slashPosRef = useRef<number | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const filteredCommands = useMemo(
     () =>
@@ -194,15 +378,16 @@ function SlashMenu({ editor }: { editor: any }) {
         setSelectedIndex(0);
 
         const coords = editor.view.coordsAtPos(from);
-        const editorRect = editor.view.dom
-          .closest(".re-editor-wrapper")
-          ?.getBoundingClientRect();
-        if (editorRect) {
-          setPosition({
-            top: coords.bottom - editorRect.top + 4,
-            left: Math.min(coords.left - editorRect.left, 300),
-          });
-        }
+        // Estimate menu height (~320px max) and check if it fits below
+        const menuHeight = 320;
+        const spaceBelow = window.innerHeight - coords.bottom;
+        const flipUp = spaceBelow < menuHeight && coords.top > menuHeight;
+
+        setPosition({
+          top: flipUp ? coords.top : coords.bottom + 4,
+          left: Math.min(coords.left, window.innerWidth - 240),
+          flipUp,
+        });
         setIsOpen(true);
       } else {
         if (isOpen) {
@@ -223,11 +408,14 @@ function SlashMenu({ editor }: { editor: any }) {
 
   return (
     <div
+      ref={menuRef}
       style={{
-        position: "absolute",
-        top: position.top,
+        position: "fixed",
+        ...(position.flipUp
+          ? { bottom: window.innerHeight - position.top + 4 }
+          : { top: position.top }),
         left: position.left,
-        zIndex: 50,
+        zIndex: 9999,
       }}
       className="re-slash-menu"
     >
@@ -294,17 +482,24 @@ function InlineBubbleToolbar({ editor }: { editor: any }) {
         setVisible(false);
         return;
       }
+      // Use fixed positioning with viewport coordinates
       setCoords({
-        top: rect.top + window.scrollY - 8,
-        left: rect.left + window.scrollX + rect.width / 2,
+        top: rect.top - 8,
+        left: rect.left + rect.width / 2,
       });
       setVisible(true);
     };
     editor.on("selectionUpdate", update);
-    editor.on("blur", () => setVisible(false));
+    const onBlur = () => {
+      // Delay so clicks on toolbar buttons register before hiding
+      setTimeout(() => {
+        if (!editor.isFocused) setVisible(false);
+      }, 150);
+    };
+    editor.on("blur", onBlur);
     return () => {
       editor.off("selectionUpdate", update);
-      editor.off("blur", () => setVisible(false));
+      editor.off("blur", onBlur);
     };
   }, [editor]);
 
@@ -396,12 +591,13 @@ function InlineBubbleToolbar({ editor }: { editor: any }) {
     <div
       ref={toolbarRef}
       className="re-bubble-toolbar"
+      onMouseDown={(e) => e.preventDefault()}
       style={{
-        position: "absolute",
+        position: "fixed",
         top: coords.top,
         left: coords.left,
         transform: "translate(-50%, -100%)",
-        zIndex: 50,
+        zIndex: 9999,
       }}
     >
       {showLinkInput ? (
@@ -509,6 +705,11 @@ function VisualMarkdownEditor({
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
+  // Parse frontmatter — strip it from tiptap content, re-prepend on save
+  const parsed = useMemo(() => parseFrontmatter(content), [content]);
+  const frontmatterRef = useRef(parsed.frontmatter);
+  frontmatterRef.current = parsed.frontmatter;
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -539,7 +740,7 @@ function VisualMarkdownEditor({
         transformCopiedText: true,
       }),
     ],
-    content,
+    content: parsed.body,
     editorProps: {
       attributes: {
         class: "re-prose",
@@ -549,7 +750,10 @@ function VisualMarkdownEditor({
       if (isSettingContent.current) return;
       try {
         const md = (editor.storage as any).markdown.getMarkdown();
-        onChangeRef.current(md);
+        // Re-prepend frontmatter if it existed
+        const fm = frontmatterRef.current;
+        const full = fm ? fm.raw + md : md;
+        onChangeRef.current(full);
       } catch (err) {
         console.error("Markdown serialization error:", err);
       }
@@ -559,13 +763,13 @@ function VisualMarkdownEditor({
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const currentMd = (editor.storage as any).markdown.getMarkdown();
-    if (currentMd !== content) {
+    if (currentMd !== parsed.body) {
       if (editor.isFocused) return;
       isSettingContent.current = true;
-      editor.commands.setContent(content);
+      editor.commands.setContent(parsed.body);
       isSettingContent.current = false;
     }
-  }, [content, editor]);
+  }, [parsed.body, editor]);
 
   useEffect(() => {
     return () => {
@@ -592,6 +796,21 @@ function VisualMarkdownEditor({
       onClick={handleWrapperClick}
       style={{ position: "relative", minHeight: "100%", cursor: "text" }}
     >
+      {parsed.frontmatter && (
+        <FrontmatterBar
+          frontmatter={parsed.frontmatter}
+          onChange={(updated) => {
+            frontmatterRef.current = updated;
+            // Get current body and combine with updated frontmatter
+            try {
+              const md = (editor.storage as any).markdown.getMarkdown();
+              onChangeRef.current(updated.raw + md);
+            } catch {
+              // fallback
+            }
+          }}
+        />
+      )}
       <InlineBubbleToolbar editor={editor} />
       <SlashMenu editor={editor} />
       <EditorContent editor={editor} />

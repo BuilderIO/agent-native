@@ -3,11 +3,10 @@ import {
   AssistantChat,
   type AssistantChatProps,
   type AssistantChatHandle,
-  CHAT_STORAGE_PREFIX,
 } from "./AssistantChat.js";
-import { generateTabId } from "./agent-chat.js";
 import { getHarnessOrigin } from "./harness.js";
 import { cn } from "./utils.js";
+import { useChatThreads } from "./use-chat-threads.js";
 
 // ─── Inline Icons ───────────────────────────────────────────────────────────
 
@@ -45,23 +44,6 @@ function IconPlus({ size = 12 }: { size?: number }) {
   );
 }
 
-function IconTrash({ size = 12 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-    </svg>
-  );
-}
-
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 interface ChatTab {
@@ -80,71 +62,12 @@ export interface MultiTabAssistantChatHeaderProps {
   clearActiveTab: () => void;
 }
 
-const TABS_STORAGE_KEY = "agent-chat-tabs";
-const ACTIVE_TAB_STORAGE_KEY = "agent-chat-tabs:active";
-
-function createChatTab(label: string): ChatTab {
-  return {
-    id: generateTabId(),
-    label,
-    status: "idle",
-  };
-}
-
-function getNextLabel(tabs: ChatTab[]): string {
-  const numericLabels = tabs
-    .map((t) => parseInt(t.label, 10))
-    .filter((n) => !isNaN(n));
-  const maxNum = numericLabels.length > 0 ? Math.max(...numericLabels) : 0;
-  return String(maxNum + 1);
-}
-
-function loadTabs(): { tabs: ChatTab[]; activeId: string } | null {
-  try {
-    const saved = localStorage.getItem(TABS_STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        // Reset status on restore (nothing is running after refresh)
-        const restored: ChatTab[] = parsed.map((t: ChatTab) => ({
-          ...t,
-          status: "idle" as const,
-        }));
-        const activeId = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
-        const validActive =
-          activeId && restored.find((t) => t.id === activeId)
-            ? activeId
-            : restored[0].id;
-        return { tabs: restored, activeId: validActive };
-      }
-    }
-  } catch {}
-  return null;
-}
-
-function saveTabs(tabs: ChatTab[], activeId: string) {
-  try {
-    // Only persist id and label, not status
-    const toSave = tabs.map(({ id, label }) => ({ id, label }));
-    localStorage.setItem(TABS_STORAGE_KEY, JSON.stringify(toSave));
-    localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeId);
-  } catch {}
-}
-
-function getPersistedMessageCount(tabId: string): number {
-  try {
-    const saved = sessionStorage.getItem(`${CHAT_STORAGE_PREFIX}${tabId}`);
-    if (!saved) return 0;
-    const repo = JSON.parse(saved);
-    return Array.isArray(repo?.messages) ? repo.messages.length : 0;
-  } catch {
-    return 0;
-  }
-}
-
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export type MultiTabAssistantChatProps = Omit<AssistantChatProps, "tabId"> & {
+export type MultiTabAssistantChatProps = Omit<
+  AssistantChatProps,
+  "tabId" | "threadId"
+> & {
   /** Show the tab bar. Default: true */
   showTabBar?: boolean;
   /** Optional custom single-row header renderer */
@@ -160,31 +83,42 @@ export function MultiTabAssistantChat({
   renderHeader,
   renderOverlay,
   contentHidden = false,
+  apiUrl = "/api/agent-chat",
   ...props
 }: MultiTabAssistantChatProps) {
-  const [tabs, setTabs] = useState<ChatTab[]>(() => {
-    const loaded = loadTabs();
-    return loaded ? loaded.tabs : [createChatTab("1")];
-  });
-  const [activeTabId, setActiveTabId] = useState(() => {
-    const loaded = loadTabs();
-    return loaded ? loaded.activeId : tabs[0].id;
-  });
-  const activeTabIdRef = useRef(activeTabId);
-  activeTabIdRef.current = activeTabId;
-  const chatRefs = useRef<Map<string, AssistantChatHandle>>(new Map());
-  const pendingSends = useRef<Map<string, string>>(new Map());
+  const {
+    threads,
+    activeThreadId,
+    isLoading,
+    createThread,
+    switchThread,
+    deleteThread,
+    saveThreadData,
+  } = useChatThreads(apiUrl);
+
+  const activeThreadIdRef = useRef(activeThreadId);
+  activeThreadIdRef.current = activeThreadId;
+  const chatRef = useRef<AssistantChatHandle | null>(null);
+  const pendingSend = useRef<string | null>(null);
+  const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   const [messageCounts, setMessageCounts] = useState<Record<string, number>>(
-    () =>
-      Object.fromEntries(
-        tabs.map((tab) => [tab.id, getPersistedMessageCount(tab.id)]),
-      ),
+    () => Object.fromEntries(threads.map((t) => [t.id, t.messageCount ?? 0])),
   );
 
-  // Persist tabs to localStorage
+  // Sync message counts from threads when they load
   useEffect(() => {
-    saveTabs(tabs, activeTabId);
-  }, [tabs, activeTabId]);
+    if (threads.length > 0) {
+      setMessageCounts((prev) => {
+        const next = { ...prev };
+        for (const t of threads) {
+          if (!(t.id in next)) {
+            next[t.id] = t.messageCount ?? 0;
+          }
+        }
+        return next;
+      });
+    }
+  }, [threads]);
 
   // Listen for builder.submitChat postMessages
   useEffect(() => {
@@ -199,29 +133,24 @@ export function MultiTabAssistantChat({
       const message = event.data.data?.message as string;
       if (!message) return;
 
-      const currentTabId = activeTabIdRef.current;
-      const activeRef = chatRefs.current.get(currentTabId);
-
-      if (activeRef) {
-        activeRef.sendMessage(message);
+      if (chatRef.current) {
+        chatRef.current.sendMessage(message);
       } else {
-        pendingSends.current.set(currentTabId, message);
+        pendingSend.current = message;
       }
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
   }, []);
 
-  // Process pending sends when refs mount
+  // Process pending send when ref mounts
   useEffect(() => {
-    for (const [tabId, message] of pendingSends.current) {
-      const ref = chatRefs.current.get(tabId);
-      if (ref) {
-        setTimeout(() => ref.sendMessage(message), 50);
-        pendingSends.current.delete(tabId);
-      }
+    if (chatRef.current && pendingSend.current) {
+      const msg = pendingSend.current;
+      pendingSend.current = null;
+      setTimeout(() => chatRef.current?.sendMessage(msg), 50);
     }
-  }, [tabs]);
+  }, [activeThreadId]);
 
   // Listen for chatRunning completion events
   useEffect(() => {
@@ -231,89 +160,76 @@ export function MultiTabAssistantChat({
       const { isRunning, tabId } = detail;
       if (!tabId) return;
 
-      setTabs((prev) =>
-        prev.map((t) => {
-          if (t.id !== tabId) return t;
-          if (isRunning === false) return { ...t, status: "completed" };
-          if (isRunning === true) return { ...t, status: "running" };
-          return t;
-        }),
-      );
+      setRunningThreads((prev) => {
+        const next = new Set(prev);
+        if (isRunning) {
+          next.add(tabId);
+        } else {
+          next.delete(tabId);
+        }
+        return next;
+      });
     };
     window.addEventListener("builder.chatRunning", handler);
     return () => window.removeEventListener("builder.chatRunning", handler);
   }, []);
 
   const addTab = useCallback(() => {
-    setTabs((prev) => {
-      // When going from 1 → 2 tabs, relabel the existing tab as "1"
-      const renumbered =
-        prev.length === 1 ? [{ ...prev[0], label: "1" }] : prev;
-      const label = getNextLabel(renumbered);
-      const tab = createChatTab(label);
-      setMessageCounts((p) => ({ ...p, [tab.id]: 0 }));
-      setActiveTabId(tab.id);
-      return [...renumbered, tab];
-    });
-  }, []);
+    createThread();
+  }, [createThread]);
 
   const closeTab = useCallback(
     (tabId: string) => {
-      setTabs((prev) => {
-        if (prev.length <= 1) return prev;
-        const idx = prev.findIndex((t) => t.id === tabId);
-        const next = prev.filter((t) => t.id !== tabId);
-        if (tabId === activeTabId) {
-          const newIdx = Math.min(idx, next.length - 1);
-          setActiveTabId(next[newIdx].id);
-        }
-        return next;
-      });
-      chatRefs.current.delete(tabId);
-      pendingSends.current.delete(tabId);
-      setMessageCounts((prev) => {
-        const next = { ...prev };
-        delete next[tabId];
-        return next;
-      });
-      // Clean up persisted messages
-      try {
-        sessionStorage.removeItem(`agent-chat:${tabId}`);
-      } catch {}
+      deleteThread(tabId);
     },
-    [activeTabId],
+    [deleteThread],
   );
 
   const clearActiveTab = useCallback(() => {
-    const currentId = activeTabId;
-    // Remove persisted messages for the current tab
-    try {
-      sessionStorage.removeItem(`agent-chat:${currentId}`);
-    } catch {}
-    // Replace with a fresh tab in the same position
-    const newTab = createChatTab(
-      tabs.find((t) => t.id === currentId)?.label || "1",
-    );
-    setTabs((prev) => prev.map((t) => (t.id === currentId ? newTab : t)));
-    setMessageCounts((prev) => {
-      const next = { ...prev };
-      delete next[currentId];
-      next[newTab.id] = 0;
-      return next;
-    });
-    setActiveTabId(newTab.id);
-    chatRefs.current.delete(currentId);
-  }, [activeTabId, tabs]);
+    // Create a new thread (old one stays in history)
+    createThread();
+  }, [createThread]);
+
+  const handleSaveThread = useCallback(
+    (data: {
+      threadData: string;
+      title: string;
+      preview: string;
+      messageCount: number;
+    }) => {
+      if (activeThreadId) {
+        saveThreadData(activeThreadId, data);
+      }
+    },
+    [activeThreadId, saveThreadData],
+  );
+
+  // Build backward-compatible tabs array from threads
+  const tabs: ChatTab[] = threads.map((t) => ({
+    id: t.id,
+    label: t.title || t.preview?.slice(0, 20) || "New chat",
+    status: runningThreads.has(t.id)
+      ? "running"
+      : (messageCounts[t.id] ?? t.messageCount) > 0
+        ? "completed"
+        : "idle",
+  }));
 
   const headerProps: MultiTabAssistantChatHeaderProps = {
     tabs,
-    activeTabId,
-    activeTabMessageCount: messageCounts[activeTabId] ?? 0,
-    setActiveTabId,
+    activeTabId: activeThreadId ?? "",
+    activeTabMessageCount: activeThreadId
+      ? (messageCounts[activeThreadId] ?? 0)
+      : 0,
+    setActiveTabId: switchThread,
     addTab,
     closeTab,
     clearActiveTab,
   };
+
+  if (isLoading) {
+    return <div className="flex flex-1 flex-col h-full min-h-0" />;
+  }
 
   return (
     <div className="flex flex-1 flex-col h-full min-h-0">
@@ -332,20 +248,17 @@ export function MultiTabAssistantChat({
             {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTabId(tab.id)}
+                onClick={() => switchThread(tab.id)}
                 className={cn(
-                  "agent-tab flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-[11px] font-medium shrink-0",
-                  tab.id === activeTabId
+                  "agent-tab flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-[11px] font-medium shrink-0 max-w-[120px]",
+                  tab.id === activeThreadId
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
                 )}
               >
-                <span>{tab.label}</span>
+                <span className="truncate">{tab.label}</span>
                 {tab.status === "running" && (
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 animate-pulse" />
-                )}
-                {tab.status === "completed" && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
                 )}
                 {tabs.length > 1 && (
                   <span
@@ -364,13 +277,6 @@ export function MultiTabAssistantChat({
           </div>
           <div className="flex items-center gap-px shrink-0 ml-auto">
             <button
-              onClick={clearActiveTab}
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50"
-              title="Clear chat"
-            >
-              <IconTrash size={11} />
-            </button>
-            <button
               onClick={addTab}
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50"
               title="New chat"
@@ -385,34 +291,32 @@ export function MultiTabAssistantChat({
       <div className="relative flex-1 flex flex-col min-h-0">
         {renderOverlay ? renderOverlay(headerProps) : null}
 
-        {/* Render all tabs, hide inactive ones to preserve state */}
-        {tabs.map((tab) => (
+        {/* Render only the active thread — keyed so React remounts on switch */}
+        {activeThreadId && (
           <div
-            key={tab.id}
             className="flex-1 min-h-0"
-            style={{
-              display:
-                contentHidden || tab.id !== activeTabId ? "none" : "flex",
-            }}
+            style={{ display: contentHidden ? "none" : "flex" }}
           >
             <AssistantChat
+              key={activeThreadId}
               ref={(handle) => {
-                if (handle) {
-                  chatRefs.current.set(tab.id, handle);
-                } else {
-                  chatRefs.current.delete(tab.id);
-                }
+                chatRef.current = handle;
               }}
-              tabId={tab.id}
+              threadId={activeThreadId}
+              tabId={activeThreadId}
+              apiUrl={apiUrl}
               onMessageCountChange={(count) =>
                 setMessageCounts((prev) =>
-                  prev[tab.id] === count ? prev : { ...prev, [tab.id]: count },
+                  prev[activeThreadId] === count
+                    ? prev
+                    : { ...prev, [activeThreadId]: count },
                 )
               }
+              onSaveThread={handleSaveThread}
               {...props}
             />
           </div>
-        ))}
+        )}
       </div>
     </div>
   );

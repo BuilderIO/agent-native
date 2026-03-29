@@ -82,7 +82,7 @@ function decodeState(
   return { redirectUri: fallbackUri };
 }
 
-export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
+export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
     setResponseStatus(event, 422);
     return {
@@ -96,7 +96,12 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
     const redirectUri =
       (query.redirect_uri as string) ||
       `${getOrigin(event)}/api/google/callback`;
-    const state = encodeState(redirectUri, undefined, isElectron(event));
+    const session = await getSession(event);
+    const owner =
+      session?.email && session.email !== "local@localhost"
+        ? session.email
+        : undefined;
+    const state = encodeState(redirectUri, owner, isElectron(event));
     const url = getAuthUrl(undefined, redirectUri, state);
     return { url };
   } catch (error: any) {
@@ -116,15 +121,19 @@ export const handleGoogleCallback = defineEventHandler(
         return { error: "Missing authorization code" };
       }
 
-      const { redirectUri, desktop } = decodeState(
-        stateParam,
-        `${getOrigin(event)}/api/google/callback`,
-      );
+      const {
+        redirectUri,
+        owner: stateOwner,
+        desktop,
+      } = decodeState(stateParam, `${getOrigin(event)}/api/google/callback`);
       const existingSession = await getSession(event);
-      const owner =
-        existingSession?.email !== "local@localhost"
-          ? undefined
-          : "local@localhost";
+      const isDevSession = existingSession?.email === "local@localhost";
+      const hasProductionSession = existingSession?.email && !isDevSession;
+      const owner = isDevSession
+        ? "local@localhost"
+        : hasProductionSession
+          ? existingSession.email
+          : stateOwner || undefined;
       const email = await exchangeCode(code, undefined, redirectUri, owner);
 
       // Create a session tied to this Google email

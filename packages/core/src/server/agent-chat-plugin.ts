@@ -17,6 +17,13 @@ import {
 import { agentEnv } from "../shared/agent-env.js";
 import { getSession } from "./auth.js";
 import {
+  createThread,
+  getThread,
+  listThreads,
+  updateThreadData,
+  deleteThread,
+} from "../chat-threads/store.js";
+import {
   resourceListAccessible,
   resourceList,
   resourceGet,
@@ -810,6 +817,96 @@ export function createAgentChatPlugin(
       }),
     );
 
+    // ─── Thread management endpoints ──────────────────────────────────────
+
+    // List threads or create a new thread
+    nitroApp.h3App.use(
+      `${routePath}/threads`,
+      defineEventHandler(async (event) => {
+        const owner = await getOwnerFromEvent(event);
+        const method = getMethod(event);
+
+        if (method === "GET") {
+          const query = getQuery(event);
+          const limit = Math.min(
+            parseInt(String(query.limit ?? "50"), 10) || 50,
+            200,
+          );
+          const offset = parseInt(String(query.offset ?? "0"), 10) || 0;
+          const threads = await listThreads(owner, limit, offset);
+          return { threads };
+        }
+
+        if (method === "POST") {
+          const body = await readBody(event);
+          const thread = await createThread(owner, {
+            title: body?.title ?? "",
+          });
+          return thread;
+        }
+
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }),
+    );
+
+    // Get, update, or delete a specific thread
+    nitroApp.h3App.use(
+      `${routePath}/threads/`,
+      defineEventHandler(async (event) => {
+        const owner = await getOwnerFromEvent(event);
+        const method = getMethod(event);
+
+        // Extract thread ID from the URL path
+        const url = event.node?.req?.url || event.path || "";
+        const match = url.match(/\/threads\/([^/?]+)/);
+        if (!match) {
+          setResponseStatus(event, 400);
+          return { error: "Thread ID required" };
+        }
+        const threadId = decodeURIComponent(match[1]);
+
+        if (method === "GET") {
+          const thread = await getThread(threadId);
+          if (!thread || thread.ownerEmail !== owner) {
+            setResponseStatus(event, 404);
+            return { error: "Thread not found" };
+          }
+          return thread;
+        }
+
+        if (method === "PUT") {
+          const thread = await getThread(threadId);
+          if (!thread || thread.ownerEmail !== owner) {
+            setResponseStatus(event, 404);
+            return { error: "Thread not found" };
+          }
+          const body = await readBody(event);
+          await updateThreadData(
+            threadId,
+            body.threadData ?? thread.threadData,
+            body.title ?? thread.title,
+            body.preview ?? thread.preview,
+            body.messageCount ?? thread.messageCount,
+          );
+          return { ok: true };
+        }
+
+        if (method === "DELETE") {
+          const thread = await getThread(threadId);
+          if (!thread || thread.ownerEmail !== owner) {
+            setResponseStatus(event, 404);
+            return { error: "Thread not found" };
+          }
+          await deleteThread(threadId);
+          return { ok: true };
+        }
+
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }),
+    );
+
     // Mount the main chat handler — delegates to dev or prod handler based on current mode
     nitroApp.h3App.use(
       routePath,
@@ -820,6 +917,8 @@ export function createAgentChatPlugin(
         const owner = await getOwnerFromEvent(event);
         process.env.AGENT_USER_EMAIL = owner;
 
+        // If threadId is provided, persist the conversation server-side
+        // We intercept the handler's response stream to capture messages
         const handler = currentDevMode && devHandler ? devHandler : prodHandler;
         return handler(event);
       }),

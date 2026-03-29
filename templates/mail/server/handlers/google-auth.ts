@@ -73,7 +73,7 @@ function desktopSuccessPage(email?: string): Response {
   );
 }
 
-export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
+export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
     setResponseStatus(event, 422);
     return {
@@ -86,7 +86,15 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
     const redirectUri =
       (getQuery(event).redirect_uri as string) ||
       `${getOrigin(event)}/api/google/callback`;
-    const state = encodeState(redirectUri, undefined, isElectron(event));
+    // Pass current session owner through state so the callback can
+    // associate the new account with the correct user even when the
+    // callback runs in a different context (system browser, no cookies).
+    const session = await getSession(event);
+    const owner =
+      session?.email && session.email !== "local@localhost"
+        ? session.email
+        : undefined;
+    const state = encodeState(redirectUri, owner, isElectron(event));
     const url = getAuthUrl(undefined, redirectUri, state);
     return { url };
   } catch (error: any) {
@@ -106,16 +114,20 @@ export const handleGoogleCallback = defineEventHandler(
       }
 
       const stateParam = query.state as string | undefined;
-      const { redirectUri, desktop } = decodeState(
-        stateParam,
-        `${getOrigin(event)}/api/google/callback`,
-      );
+      const {
+        redirectUri,
+        owner: stateOwner,
+        desktop,
+      } = decodeState(stateParam, `${getOrigin(event)}/api/google/callback`);
 
       // Determine the owner for this OAuth account:
       // - Dev mode ("local@localhost"): always use "local@localhost" so all
       //   accounts are grouped under the dev session.
       // - Production with existing session: use the existing session email as
       //   owner so this account is added alongside existing accounts.
+      // - State owner (desktop/mobile flows): the session cookie isn't
+      //   available in the system browser, so the owner is passed through
+      //   the OAuth state parameter instead.
       // - Production without session (first login): owner defaults to the
       //   Google email itself (becomes both owner and session identity).
       const existingSession = await getSession(event);
@@ -125,7 +137,7 @@ export const handleGoogleCallback = defineEventHandler(
         ? "local@localhost"
         : hasProductionSession
           ? existingSession.email
-          : undefined;
+          : stateOwner || undefined;
       const email = await exchangeCode(code, undefined, redirectUri, owner);
 
       // Only create a new session when there isn't one already.

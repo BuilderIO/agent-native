@@ -550,29 +550,59 @@ export function WeekView({
                             }`,
                           }}
                         >
-                          <div
-                            className={cn(
-                              "truncate leading-tight",
-                              isPast || isDeclined
-                                ? "text-muted-foreground"
-                                : "text-foreground",
-                              isDeclined && "line-through",
-                              !isPast && !isDeclined && "font-semibold",
-                            )}
-                          >
-                            {event.title}
-                          </div>
-                          {durationMin > 25 && (
-                            <div
-                              className={cn(
-                                "truncate text-[10px] leading-tight",
-                                isPast || isDeclined
-                                  ? "text-muted-foreground/50"
-                                  : "text-foreground/60",
-                              )}
-                            >
-                              {formatEventTime(start, end)}
+                          {durationMin <= 30 ? (
+                            <div className="flex items-baseline gap-1 truncate">
+                              <span
+                                className={cn(
+                                  "truncate leading-tight",
+                                  isPast || isDeclined
+                                    ? "text-muted-foreground"
+                                    : "text-foreground",
+                                  isDeclined && "line-through",
+                                  !isPast && !isDeclined && "font-semibold",
+                                )}
+                              >
+                                {event.title}
+                              </span>
+                              <span
+                                className={cn(
+                                  "shrink-0 text-[10px] leading-tight",
+                                  isPast || isDeclined
+                                    ? "text-muted-foreground/50"
+                                    : "text-foreground/60",
+                                )}
+                              >
+                                {format(
+                                  start,
+                                  start.getMinutes() === 0 ? "h a" : "h:mm a",
+                                )}
+                              </span>
                             </div>
+                          ) : (
+                            <>
+                              <div
+                                className={cn(
+                                  "truncate leading-tight",
+                                  isPast || isDeclined
+                                    ? "text-muted-foreground"
+                                    : "text-foreground",
+                                  isDeclined && "line-through",
+                                  !isPast && !isDeclined && "font-semibold",
+                                )}
+                              >
+                                {event.title}
+                              </div>
+                              <div
+                                className={cn(
+                                  "truncate text-[10px] leading-tight",
+                                  isPast || isDeclined
+                                    ? "text-muted-foreground/50"
+                                    : "text-foreground/60",
+                                )}
+                              >
+                                {formatEventTime(start, end)}
+                              </div>
+                            </>
                           )}
                         </button>
                       </EventDetailPopover>

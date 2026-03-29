@@ -38,14 +38,18 @@ export default function AppScreen() {
 
   // When the app returns to foreground after external OAuth, re-read the token
   // (it may have been set by oauth-complete) and reload the WebView.
+  // Use a short delay to let oauth-complete store the token in AsyncStorage
+  // before we read it — the deep link handler and AppState listener race.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active" && openedExternal.current) {
         openedExternal.current = false;
-        AsyncStorage.getItem(SESSION_TOKEN_KEY).then((t) => {
-          setSessionToken(t);
-          webviewRef.current?.reload();
-        });
+        setTimeout(() => {
+          AsyncStorage.getItem(SESSION_TOKEN_KEY).then((t) => {
+            setSessionToken(t);
+            webviewRef.current?.reload();
+          });
+        }, 500);
       }
     });
     return () => sub.remove();

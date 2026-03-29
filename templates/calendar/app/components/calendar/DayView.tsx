@@ -302,33 +302,67 @@ export function DayView({
                       }`,
                     }}
                   >
-                    <div
-                      className={cn(
-                        "truncate leading-tight",
-                        isPast || isDeclined
-                          ? "text-muted-foreground"
-                          : "text-foreground",
-                        isDeclined && "line-through",
-                        !isPast && !isDeclined && "font-semibold",
-                      )}
-                    >
-                      {event.title}
-                    </div>
-                    <div
-                      className={cn(
-                        "truncate text-[11px] leading-tight",
-                        isPast || isDeclined
-                          ? "text-muted-foreground/50"
-                          : "text-foreground/60",
-                      )}
-                    >
-                      {format(parseISO(event.start), "h:mm a")} –{" "}
-                      {format(parseISO(event.end), "h:mm a")}
-                    </div>
-                    {durationMin >= 45 && event.location && (
-                      <div className="truncate text-[11px] leading-tight text-foreground/50">
-                        {event.location}
+                    {durationMin <= 30 ? (
+                      <div className="flex items-baseline gap-1.5 truncate">
+                        <span
+                          className={cn(
+                            "truncate leading-tight",
+                            isPast || isDeclined
+                              ? "text-muted-foreground"
+                              : "text-foreground",
+                            isDeclined && "line-through",
+                            !isPast && !isDeclined && "font-semibold",
+                          )}
+                        >
+                          {event.title}
+                        </span>
+                        <span
+                          className={cn(
+                            "shrink-0 text-[11px] leading-tight",
+                            isPast || isDeclined
+                              ? "text-muted-foreground/50"
+                              : "text-foreground/60",
+                          )}
+                        >
+                          {format(
+                            parseISO(event.start),
+                            parseISO(event.start).getMinutes() === 0
+                              ? "h a"
+                              : "h:mm a",
+                          )}
+                        </span>
                       </div>
+                    ) : (
+                      <>
+                        <div
+                          className={cn(
+                            "truncate leading-tight",
+                            isPast || isDeclined
+                              ? "text-muted-foreground"
+                              : "text-foreground",
+                            isDeclined && "line-through",
+                            !isPast && !isDeclined && "font-semibold",
+                          )}
+                        >
+                          {event.title}
+                        </div>
+                        <div
+                          className={cn(
+                            "truncate text-[11px] leading-tight",
+                            isPast || isDeclined
+                              ? "text-muted-foreground/50"
+                              : "text-foreground/60",
+                          )}
+                        >
+                          {format(parseISO(event.start), "h:mm a")} –{" "}
+                          {format(parseISO(event.end), "h:mm a")}
+                        </div>
+                        {durationMin >= 45 && event.location && (
+                          <div className="truncate text-[11px] leading-tight text-foreground/50">
+                            {event.location}
+                          </div>
+                        )}
+                      </>
                     )}
                   </button>
                 </EventDetailPopover>
