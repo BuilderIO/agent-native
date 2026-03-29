@@ -1,6 +1,6 @@
 /**
  * CLI Registry — known AI coding CLIs and their metadata.
- * Shared between the embedded terminal and the harness-cli.
+ * Used by the embedded terminal in the agent panel.
  */
 
 import { spawnSync } from "child_process";

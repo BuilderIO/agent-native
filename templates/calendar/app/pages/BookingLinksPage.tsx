@@ -213,10 +213,14 @@ export default function BookingLinksPage() {
     );
   }
 
+  // Clear selection if the selected link was deleted
   useEffect(() => {
-    if (!bookingLinks.length) return;
-    if (!selectedId || !bookingLinks.some((link) => link.id === selectedId)) {
-      setSelectedId(bookingLinks[0].id);
+    if (
+      selectedId &&
+      bookingLinks.length > 0 &&
+      !bookingLinks.some((link) => link.id === selectedId)
+    ) {
+      setSelectedId(null);
     }
   }, [bookingLinks, selectedId]);
 
@@ -310,6 +314,7 @@ export default function BookingLinksPage() {
         durations: draft.durations.length > 1 ? draft.durations : undefined,
         isActive: draft.isActive,
       });
+      setSelectedId(null);
       toast.success("Booking link updated");
     } catch {
       toast.error("Failed to update booking link");
@@ -341,6 +346,236 @@ export default function BookingLinksPage() {
   }
 
   const hasLinks = bookingLinks.length > 0;
+
+  // If a link is selected, show the detail/edit view
+  if (selectedId) {
+    return (
+      <div className="mx-auto max-w-6xl space-y-6 px-4 py-8">
+        {/* Top bar: back + save */}
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => setSelectedId(null)}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Back
+          </button>
+          {selectedLink && (
+            <Button type="button" onClick={handleSave}>
+              Save changes
+            </Button>
+          )}
+        </div>
+
+        {/* Two-column layout: form left, preview right */}
+        <div className="grid gap-6 lg:grid-cols-2">
+          {/* Left — Edit form */}
+          <div className="space-y-5">
+            {!selectedLink ? (
+              <Card>
+                <CardContent className="py-12">
+                  <p className="text-center text-sm text-muted-foreground">
+                    Loading...
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                {/* Title */}
+                <div className="space-y-2">
+                  <Label htmlFor="booking-link-title">Meeting name</Label>
+                  <Input
+                    id="booking-link-title"
+                    value={draft.title}
+                    onChange={(e) => {
+                      const title = e.target.value;
+                      setDraft((prev) => ({
+                        ...prev,
+                        title,
+                        slug: prev.slugManuallyEdited
+                          ? prev.slug
+                          : slugify(title),
+                      }));
+                    }}
+                    placeholder="Quick Chat"
+                  />
+                </div>
+
+                {/* Description */}
+                <div className="space-y-2">
+                  <Label htmlFor="booking-link-description">
+                    Description{" "}
+                    <span className="text-muted-foreground font-normal">
+                      (optional)
+                    </span>
+                  </Label>
+                  <Textarea
+                    id="booking-link-description"
+                    rows={2}
+                    value={draft.description}
+                    onChange={(e) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        description: e.target.value,
+                      }))
+                    }
+                    placeholder="Shown on the booking page"
+                  />
+                </div>
+
+                {/* Duration options — multi-select */}
+                <div className="space-y-3">
+                  <Label>Duration options</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Select one or more — bookers will choose when scheduling.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {DURATION_PRESETS.map((minutes) => {
+                      const isSelected = draft.durations.includes(minutes);
+                      return (
+                        <button
+                          key={minutes}
+                          type="button"
+                          onClick={() =>
+                            setDraft((prev) => {
+                              const next = isSelected
+                                ? prev.durations.filter((d) => d !== minutes)
+                                : [...prev.durations, minutes].sort(
+                                    (a, b) => a - b,
+                                  );
+                              // Must keep at least one
+                              if (next.length === 0) return prev;
+                              return {
+                                ...prev,
+                                durations: next,
+                                duration: next[0],
+                              };
+                            })
+                          }
+                          className={cn(
+                            "rounded-full border px-3 py-1.5 text-sm",
+                            isSelected
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border text-muted-foreground hover:text-foreground hover:bg-accent/60",
+                          )}
+                        >
+                          {minutes} min
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {draft.durations.length > 1 && (
+                    <p className="text-xs text-muted-foreground">
+                      Bookers will choose between:{" "}
+                      {draft.durations.map((d) => `${d} min`).join(", ")}
+                    </p>
+                  )}
+                </div>
+
+                {/* Visibility toggle */}
+                <div className="flex items-center justify-between rounded-2xl border border-border px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium">Link visibility</p>
+                    <p className="text-xs text-muted-foreground">
+                      Turn this off to disable the public booking page.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={draft.isActive}
+                    onCheckedChange={(checked) =>
+                      setDraft((prev) => ({ ...prev, isActive: checked }))
+                    }
+                  />
+                </div>
+
+                {/* Interactive booking link */}
+                <EditableBookingUrl
+                  username={
+                    bookingUsername || usernameInput || suggestedUsername || ""
+                  }
+                  slug={draft.slug}
+                  onUsernameChange={(val) => {
+                    const clean = val.toLowerCase().replace(/[^a-z0-9-]/g, "");
+                    setUsernameInput(clean);
+                    // Persist username to availability config
+                    if (clean) {
+                      updateAvailability.mutate({
+                        timezone,
+                        weeklySchedule: schedule,
+                        bufferMinutes,
+                        minNoticeHours,
+                        maxAdvanceDays,
+                        slotDurationMinutes: slotDuration,
+                        bookingPageSlug: bookingSlug,
+                        bookingUsername: clean,
+                      });
+                    }
+                  }}
+                  onSlugChange={(val) => {
+                    const clean = slugify(val);
+                    setDraft((prev) => ({
+                      ...prev,
+                      slug: clean,
+                      slugManuallyEdited: true,
+                    }));
+                  }}
+                  onCopy={() => void copyPreviewUrl(draft.slug)}
+                  onOpen={() => openPreview(draft.slug)}
+                />
+
+                {/* Actions */}
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
+                      </button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete booking link</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will permanently remove{" "}
+                          <span className="font-medium text-foreground">
+                            {draft.title}
+                          </span>{" "}
+                          and its public booking page. This can't be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete}>
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Right — Live booking page preview */}
+          {selectedLink && (
+            <div className="lg:sticky lg:top-8 lg:self-start">
+              <BookingPreview
+                title={draft.title}
+                description={draft.description}
+                durations={draft.durations}
+                isActive={draft.isActive}
+                availability={availability ?? undefined}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-8">
@@ -409,258 +644,41 @@ export default function BookingLinksPage() {
               </Button>
             </div>
           ) : (
-            <div className="space-y-5">
-              {/* Meeting type selector — horizontal pills */}
-              {bookingLinks.length > 1 && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  {bookingLinks.map((link) => (
-                    <button
-                      key={link.id}
-                      type="button"
-                      onClick={() => setSelectedId(link.id)}
-                      className={cn(
-                        "flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm",
-                        link.id === selectedId
-                          ? "border-primary bg-primary/10 text-foreground"
-                          : "border-border text-muted-foreground hover:text-foreground hover:bg-accent/60",
-                      )}
-                    >
-                      <span className="truncate max-w-[180px]">
-                        {link.title}
-                      </span>
-                      <Badge
-                        variant={link.isActive ? "default" : "secondary"}
-                        className="text-[10px] px-1.5 py-0"
-                      >
-                        {link.isActive ? "Live" : "Hidden"}
-                      </Badge>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Two-column layout: form left, preview right */}
-              <div className="grid gap-6 lg:grid-cols-2">
-                {/* Left — Edit form */}
-                <div className="space-y-5">
-                  {!selectedLink ? (
-                    <Card>
-                      <CardContent className="py-12">
-                        <p className="text-center text-sm text-muted-foreground">
-                          {isLoading
-                            ? "Loading links..."
-                            : "Select a meeting type above to configure it."}
-                        </p>
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <>
-                      {/* Title */}
-                      <div className="space-y-2">
-                        <Label htmlFor="booking-link-title">Meeting name</Label>
-                        <Input
-                          id="booking-link-title"
-                          value={draft.title}
-                          onChange={(e) => {
-                            const title = e.target.value;
-                            setDraft((prev) => ({
-                              ...prev,
-                              title,
-                              slug: prev.slugManuallyEdited
-                                ? prev.slug
-                                : slugify(title),
-                            }));
-                          }}
-                          placeholder="Quick Chat"
-                        />
+            <div className="space-y-3">
+              {bookingLinks.map((link) => {
+                const linkUrl = getBookingUrl(link.slug);
+                return (
+                  <button
+                    key={link.id}
+                    type="button"
+                    onClick={() => setSelectedId(link.id)}
+                    className="flex w-full items-center justify-between rounded-lg border border-border px-4 py-3 text-left hover:bg-accent/40"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                        <Link2 className="h-4 w-4 text-primary" />
                       </div>
-
-                      {/* Description */}
-                      <div className="space-y-2">
-                        <Label htmlFor="booking-link-description">
-                          Description{" "}
-                          <span className="text-muted-foreground font-normal">
-                            (optional)
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium truncate">
+                            {link.title}
                           </span>
-                        </Label>
-                        <Textarea
-                          id="booking-link-description"
-                          rows={2}
-                          value={draft.description}
-                          onChange={(e) =>
-                            setDraft((prev) => ({
-                              ...prev,
-                              description: e.target.value,
-                            }))
-                          }
-                          placeholder="Shown on the booking page"
-                        />
-                      </div>
-
-                      {/* Duration options — multi-select */}
-                      <div className="space-y-3">
-                        <Label>Duration options</Label>
-                        <p className="text-xs text-muted-foreground">
-                          Select one or more — bookers will choose when
-                          scheduling.
+                          <Badge
+                            variant={link.isActive ? "default" : "secondary"}
+                            className="text-[10px] px-1.5 py-0"
+                          >
+                            {link.isActive ? "Live" : "Hidden"}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {linkUrl.replace(/^https?:\/\//, "")}
                         </p>
-                        <div className="flex flex-wrap gap-2">
-                          {DURATION_PRESETS.map((minutes) => {
-                            const isSelected =
-                              draft.durations.includes(minutes);
-                            return (
-                              <button
-                                key={minutes}
-                                type="button"
-                                onClick={() =>
-                                  setDraft((prev) => {
-                                    const next = isSelected
-                                      ? prev.durations.filter(
-                                          (d) => d !== minutes,
-                                        )
-                                      : [...prev.durations, minutes].sort(
-                                          (a, b) => a - b,
-                                        );
-                                    // Must keep at least one
-                                    if (next.length === 0) return prev;
-                                    return {
-                                      ...prev,
-                                      durations: next,
-                                      duration: next[0],
-                                    };
-                                  })
-                                }
-                                className={cn(
-                                  "rounded-full border px-3 py-1.5 text-sm",
-                                  isSelected
-                                    ? "border-primary bg-primary/10 text-primary"
-                                    : "border-border text-muted-foreground hover:text-foreground hover:bg-accent/60",
-                                )}
-                              >
-                                {minutes} min
-                              </button>
-                            );
-                          })}
-                        </div>
-                        {draft.durations.length > 1 && (
-                          <p className="text-xs text-muted-foreground">
-                            Bookers will choose between:{" "}
-                            {draft.durations.map((d) => `${d} min`).join(", ")}
-                          </p>
-                        )}
                       </div>
-
-                      {/* Visibility toggle */}
-                      <div className="flex items-center justify-between rounded-2xl border border-border px-4 py-3">
-                        <div>
-                          <p className="text-sm font-medium">Link visibility</p>
-                          <p className="text-xs text-muted-foreground">
-                            Turn this off to disable the public booking page.
-                          </p>
-                        </div>
-                        <Switch
-                          checked={draft.isActive}
-                          onCheckedChange={(checked) =>
-                            setDraft((prev) => ({ ...prev, isActive: checked }))
-                          }
-                        />
-                      </div>
-
-                      {/* Interactive booking link */}
-                      <EditableBookingUrl
-                        username={
-                          bookingUsername ||
-                          usernameInput ||
-                          suggestedUsername ||
-                          ""
-                        }
-                        slug={draft.slug}
-                        onUsernameChange={(val) => {
-                          const clean = val
-                            .toLowerCase()
-                            .replace(/[^a-z0-9-]/g, "");
-                          setUsernameInput(clean);
-                          // Persist username to availability config
-                          if (clean) {
-                            updateAvailability.mutate({
-                              timezone,
-                              weeklySchedule: schedule,
-                              bufferMinutes,
-                              minNoticeHours,
-                              maxAdvanceDays,
-                              slotDurationMinutes: slotDuration,
-                              bookingPageSlug: bookingSlug,
-                              bookingUsername: clean,
-                            });
-                          }
-                        }}
-                        onSlugChange={(val) => {
-                          const clean = slugify(val);
-                          setDraft((prev) => ({
-                            ...prev,
-                            slug: clean,
-                            slugManuallyEdited: true,
-                          }));
-                        }}
-                        onCopy={() => void copyPreviewUrl(draft.slug)}
-                        onOpen={() => openPreview(draft.slug)}
-                      />
-
-                      {/* Actions */}
-                      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <button
-                              type="button"
-                              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              Delete
-                            </button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>
-                                Delete booking link
-                              </AlertDialogTitle>
-                              <AlertDialogDescription>
-                                This will permanently remove{" "}
-                                <span className="font-medium text-foreground">
-                                  {draft.title}
-                                </span>{" "}
-                                and its public booking page. This can't be
-                                undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction onClick={handleDelete}>
-                                Delete
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                        <Button type="button" onClick={handleSave}>
-                          Save changes
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {/* Right — Live booking page preview */}
-                {selectedLink && (
-                  <div className="lg:sticky lg:top-8 lg:self-start">
-                    <BookingPreview
-                      title={draft.title}
-                      description={draft.description}
-                      durations={draft.durations}
-                      isActive={draft.isActive}
-                      availability={availability ?? undefined}
-                    />
-                  </div>
-                )}
-              </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </button>
+                );
+              })}
             </div>
           )}
         </>

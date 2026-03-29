@@ -11,7 +11,7 @@ import { spawn, execSync } from "child_process";
 import path from "path";
 
 // ── App port assignments (must match shared/app-registry.ts) ──
-// Must match dev-all.ts: alphabetical sort of templates starting at 8081
+// Alphabetical sort of templates starting at 8081
 const PORT_MAP: Record<string, number> = {
   analytics: 8081,
   calendar: 8082,
@@ -60,7 +60,7 @@ requestedApps.forEach((appName, i) => {
     return;
   }
   names.push(appName);
-  // Run the Vite dev server directly (same approach as dev-all.ts).
+  // Run the Vite dev server directly.
   // The templates' vite.config.ts uses @agent-native/core/vite which integrates
   // the Express API server as Vite middleware — so this single command starts
   // both the frontend and all /api/* routes on the one port.

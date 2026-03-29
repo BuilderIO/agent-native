@@ -685,6 +685,7 @@ const AssistantChatInner = forwardRef<
 
   // ─── Chat persistence ──────────────────────────────────────────────
   const hasRestoredRef = useRef(false);
+  const [isRestoring, setIsRestoring] = useState(!!threadId);
   const onSaveThreadRef = useRef(onSaveThread);
   onSaveThreadRef.current = onSaveThread;
 
@@ -713,6 +714,8 @@ const AssistantChatInner = forwardRef<
           }
         } catch {
           // Start fresh
+        } finally {
+          setIsRestoring(false);
         }
       })();
     } else {
@@ -727,6 +730,7 @@ const AssistantChatInner = forwardRef<
           }
         }
       } catch {}
+      setIsRestoring(false);
     }
   }, [threadId, tabId, apiUrl, threadRuntime]);
 
@@ -886,6 +890,17 @@ const AssistantChatInner = forwardRef<
         {missingApiKey ? (
           <div className="flex flex-col items-center justify-center h-full px-2">
             <ApiKeySetupCard apiUrl={apiUrl} />
+          </div>
+        ) : isRestoring ? (
+          <div className="flex flex-col gap-3 p-4">
+            <div className="flex justify-end">
+              <div className="h-8 w-32 rounded-lg bg-muted animate-pulse" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <div className="h-4 w-48 rounded bg-muted animate-pulse" />
+              <div className="h-4 w-64 rounded bg-muted animate-pulse" />
+              <div className="h-4 w-40 rounded bg-muted animate-pulse" />
+            </div>
           </div>
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-4 py-16 px-4 h-full">

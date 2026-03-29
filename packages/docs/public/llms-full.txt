@@ -500,12 +500,12 @@ npx wrangler deploy
 
 # Harnesses
 
-Apps run inside a **harness** — a host that provides the AI agent alongside your app UI.
+Every agent-native app includes an embedded agent panel with chat and optional CLI terminal.
 
-## CLI Harness (Local, Open Source)
+## Embedded Agent Panel
 
-- Open source, ships with `@agent-native/harness-cli`
-- Runs locally — xterm.js terminal + app iframe
+- Ships with `@agent-native/core` — no separate package needed
+- Agent panel embedded directly in your app with chat and optional CLI terminal
 - Supports multiple AI coding CLIs — switch between them from the settings panel
 
 | CLI | Command |
@@ -516,8 +516,8 @@ Apps run inside a **harness** — a host that provides the AI agent alongside yo
 | OpenCode | `opencode` |
 | Builder.io | `builder` |
 
-- Auto-installs missing CLIs on first use
-- Best for: solo development, testing
+- Toggle between production mode (app tools only) and development mode (full access)
+- Best for: local development, self-hosted production, OSS
 
 ## Builder.io Cloud Harness
 
@@ -533,7 +533,7 @@ Apps run inside a **harness** — a host that provides the AI agent alongside yo
 3. **File watching** — SSE keeps UI in sync
 4. **Script system** — `pnpm script <name>` dispatches to scripts
 
-App code is identical regardless of harness or CLI.
+App code is identical regardless of how the agent is provided.
 
 ---
 

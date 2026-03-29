@@ -6,7 +6,7 @@ import {
 } from "./AssistantChat.js";
 import { getHarnessOrigin } from "./harness.js";
 import { cn } from "./utils.js";
-import { useChatThreads } from "./use-chat-threads.js";
+import { useChatThreads, type ChatThreadSummary } from "./use-chat-threads.js";
 
 // ─── Inline Icons ───────────────────────────────────────────────────────────
 
@@ -44,6 +44,170 @@ function IconPlus({ size = 12 }: { size?: number }) {
   );
 }
 
+function IconHistory({ size = 12 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M12 7v5l4 2" />
+    </svg>
+  );
+}
+
+function IconSearch({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.3-4.3" />
+    </svg>
+  );
+}
+
+// ─── Skeleton Loader ─────────────────────────────────────────────────────────
+
+function ChatSkeleton() {
+  return (
+    <div className="flex flex-1 flex-col h-full min-h-0">
+      <div className="flex items-center h-8 px-2 border-b border-border shrink-0 gap-2">
+        <div className="h-4 w-12 rounded bg-muted animate-pulse" />
+        <div className="ml-auto flex gap-1">
+          <div className="h-5 w-5 rounded bg-muted animate-pulse" />
+          <div className="h-5 w-5 rounded bg-muted animate-pulse" />
+        </div>
+      </div>
+      <div className="flex-1 flex flex-col gap-3 p-4">
+        <div className="flex justify-center py-8">
+          <div className="h-10 w-10 rounded-full bg-muted animate-pulse" />
+        </div>
+        <div className="h-3 w-32 rounded bg-muted animate-pulse mx-auto" />
+      </div>
+    </div>
+  );
+}
+
+// ─── History Popover ─────────────────────────────────────────────────────────
+
+function HistoryPopover({
+  threads,
+  openTabIds,
+  onSelect,
+  onClose,
+}: {
+  threads: ChatThreadSummary[];
+  openTabIds: Set<string>;
+  onSelect: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  // Only show threads not currently open as tabs
+  const closedThreads = threads.filter(
+    (t) => !openTabIds.has(t.id) && t.messageCount > 0,
+  );
+
+  const filtered = search.trim()
+    ? closedThreads.filter(
+        (t) =>
+          t.title.toLowerCase().includes(search.toLowerCase()) ||
+          t.preview.toLowerCase().includes(search.toLowerCase()),
+      )
+    : closedThreads;
+
+  const formatTime = (ts: number) => {
+    const d = new Date(ts);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffDays === 0)
+      return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7) return d.toLocaleDateString([], { weekday: "short" });
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  };
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="absolute right-2 top-0 z-50 w-72 rounded-lg border border-border bg-popover shadow-lg">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+          <IconSearch size={13} />
+          <input
+            ref={inputRef}
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search past chats..."
+            className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
+          />
+        </div>
+        <div className="max-h-64 overflow-y-auto py-1">
+          {filtered.length === 0 ? (
+            <div className="px-3 py-4 text-xs text-muted-foreground text-center">
+              {search ? "No matching chats" : "No past chats"}
+            </div>
+          ) : (
+            filtered.map((thread) => (
+              <button
+                key={thread.id}
+                onClick={() => {
+                  onSelect(thread.id);
+                  onClose();
+                }}
+                className="w-full px-3 py-2 text-left hover:bg-accent/50"
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-xs font-medium text-foreground truncate">
+                    {thread.title || thread.preview || "Chat"}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground shrink-0">
+                    {formatTime(thread.updatedAt)}
+                  </span>
+                </div>
+                {thread.preview && thread.title !== thread.preview && (
+                  <div className="text-[11px] text-muted-foreground truncate mt-0.5">
+                    {thread.preview}
+                  </div>
+                )}
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 interface ChatTab {
@@ -60,6 +224,9 @@ export interface MultiTabAssistantChatHeaderProps {
   addTab: () => void;
   closeTab: (tabId: string) => void;
   clearActiveTab: () => void;
+  /** Open the history popover */
+  showHistory?: boolean;
+  toggleHistory?: () => void;
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -98,9 +265,31 @@ export function MultiTabAssistantChat({
 
   const activeThreadIdRef = useRef(activeThreadId);
   activeThreadIdRef.current = activeThreadId;
-  const chatRef = useRef<AssistantChatHandle | null>(null);
-  const pendingSend = useRef<string | null>(null);
+  const chatRefs = useRef<Map<string, AssistantChatHandle>>(new Map());
+  const pendingSends = useRef<Map<string, string>>(new Map());
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
+  const [showHistory, setShowHistory] = useState(false);
+
+  // Open tabs — a subset of all threads that are currently visible as tabs.
+  // On initial load, only the active thread is open. Users can open more from history.
+  const [openTabIds, setOpenTabIds] = useState<string[]>([]);
+  const initializedRef = useRef(false);
+
+  // Initialize open tabs once threads load
+  useEffect(() => {
+    if (initializedRef.current || !activeThreadId || threads.length === 0)
+      return;
+    initializedRef.current = true;
+    setOpenTabIds([activeThreadId]);
+  }, [activeThreadId, threads]);
+
+  // Ensure active thread is always in open tabs
+  useEffect(() => {
+    if (activeThreadId && !openTabIds.includes(activeThreadId)) {
+      setOpenTabIds((prev) => [...prev, activeThreadId]);
+    }
+  }, [activeThreadId, openTabIds]);
+
   const [messageCounts, setMessageCounts] = useState<Record<string, number>>(
     () => Object.fromEntries(threads.map((t) => [t.id, t.messageCount ?? 0])),
   );
@@ -133,24 +322,29 @@ export function MultiTabAssistantChat({
       const message = event.data.data?.message as string;
       if (!message) return;
 
-      if (chatRef.current) {
-        chatRef.current.sendMessage(message);
+      const currentTabId = activeThreadIdRef.current;
+      if (!currentTabId) return;
+      const activeRef = chatRefs.current.get(currentTabId);
+      if (activeRef) {
+        activeRef.sendMessage(message);
       } else {
-        pendingSend.current = message;
+        pendingSends.current.set(currentTabId, message);
       }
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
   }, []);
 
-  // Process pending send when ref mounts
+  // Process pending sends when refs mount
   useEffect(() => {
-    if (chatRef.current && pendingSend.current) {
-      const msg = pendingSend.current;
-      pendingSend.current = null;
-      setTimeout(() => chatRef.current?.sendMessage(msg), 50);
+    for (const [tabId, message] of pendingSends.current) {
+      const ref = chatRefs.current.get(tabId);
+      if (ref) {
+        setTimeout(() => ref.sendMessage(message), 50);
+        pendingSends.current.delete(tabId);
+      }
     }
-  }, [activeThreadId]);
+  }, [openTabIds]);
 
   // Listen for chatRunning completion events
   useEffect(() => {
@@ -174,21 +368,43 @@ export function MultiTabAssistantChat({
     return () => window.removeEventListener("builder.chatRunning", handler);
   }, []);
 
-  const addTab = useCallback(() => {
-    createThread();
+  const addTab = useCallback(async () => {
+    const id = await createThread();
+    if (id) {
+      setOpenTabIds((prev) => [...prev, id]);
+    }
   }, [createThread]);
 
   const closeTab = useCallback(
     (tabId: string) => {
-      deleteThread(tabId);
+      setOpenTabIds((prev) => {
+        if (prev.length <= 1) return prev;
+        const next = prev.filter((id) => id !== tabId);
+        if (tabId === activeThreadIdRef.current && next.length > 0) {
+          const idx = prev.indexOf(tabId);
+          switchThread(next[Math.min(idx, next.length - 1)]);
+        }
+        return next;
+      });
+      chatRefs.current.delete(tabId);
+      pendingSends.current.delete(tabId);
     },
-    [deleteThread],
+    [switchThread],
   );
 
   const clearActiveTab = useCallback(() => {
-    // Create a new thread (old one stays in history)
-    createThread();
-  }, [createThread]);
+    addTab();
+  }, [addTab]);
+
+  const openFromHistory = useCallback(
+    (threadId: string) => {
+      if (!openTabIds.includes(threadId)) {
+        setOpenTabIds((prev) => [...prev, threadId]);
+      }
+      switchThread(threadId);
+    },
+    [openTabIds, switchThread],
+  );
 
   const handleSaveThread = useCallback(
     (data: {
@@ -204,16 +420,22 @@ export function MultiTabAssistantChat({
     [activeThreadId, saveThreadData],
   );
 
-  // Build backward-compatible tabs array from threads
-  const tabs: ChatTab[] = threads.map((t) => ({
-    id: t.id,
-    label: t.title || t.preview?.slice(0, 20) || "New chat",
-    status: runningThreads.has(t.id)
-      ? "running"
-      : (messageCounts[t.id] ?? t.messageCount) > 0
-        ? "completed"
-        : "idle",
-  }));
+  // Build tabs from open thread IDs
+  const threadMap = new Map(threads.map((t) => [t.id, t]));
+  const tabs: ChatTab[] = openTabIds
+    .filter((id) => threadMap.has(id) || id === activeThreadId)
+    .map((id) => {
+      const t = threadMap.get(id);
+      return {
+        id,
+        label: t?.title || t?.preview?.slice(0, 20) || "New chat",
+        status: runningThreads.has(id)
+          ? ("running" as const)
+          : (messageCounts[id] ?? t?.messageCount ?? 0) > 0
+            ? ("completed" as const)
+            : ("idle" as const),
+      };
+    });
 
   const headerProps: MultiTabAssistantChatHeaderProps = {
     tabs,
@@ -225,10 +447,12 @@ export function MultiTabAssistantChat({
     addTab,
     closeTab,
     clearActiveTab,
+    showHistory,
+    toggleHistory: () => setShowHistory((v) => !v),
   };
 
   if (isLoading) {
-    return <div className="flex flex-1 flex-col h-full min-h-0" />;
+    return <ChatSkeleton />;
   }
 
   return (
@@ -260,7 +484,7 @@ export function MultiTabAssistantChat({
                 {tab.status === "running" && (
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 animate-pulse" />
                 )}
-                {tabs.length > 1 && (
+                {openTabIds.length > 1 && (
                   <span
                     role="button"
                     onClick={(e) => {
@@ -283,6 +507,16 @@ export function MultiTabAssistantChat({
             >
               <IconPlus size={12} />
             </button>
+            <button
+              onClick={() => setShowHistory(!showHistory)}
+              className={cn(
+                "flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50",
+                showHistory && "bg-accent text-foreground",
+              )}
+              title="Chat history"
+            >
+              <IconHistory size={12} />
+            </button>
           </div>
         </div>
       ) : null}
@@ -291,32 +525,49 @@ export function MultiTabAssistantChat({
       <div className="relative flex-1 flex flex-col min-h-0">
         {renderOverlay ? renderOverlay(headerProps) : null}
 
-        {/* Render only the active thread — keyed so React remounts on switch */}
-        {activeThreadId && (
+        {/* History popover — rendered inside relative container so positioning works */}
+        {showHistory && (
+          <HistoryPopover
+            threads={threads}
+            openTabIds={new Set(openTabIds)}
+            onSelect={openFromHistory}
+            onClose={() => setShowHistory(false)}
+          />
+        )}
+
+        {/* Render all open tabs, hide inactive ones to preserve state */}
+        {openTabIds.map((tabId) => (
           <div
+            key={tabId}
             className="flex-1 min-h-0"
-            style={{ display: contentHidden ? "none" : "flex" }}
+            style={{
+              display:
+                contentHidden || tabId !== activeThreadId ? "none" : "flex",
+            }}
           >
             <AssistantChat
               {...props}
-              key={activeThreadId}
               ref={(handle) => {
-                chatRef.current = handle;
+                if (handle) {
+                  chatRefs.current.set(tabId, handle);
+                } else {
+                  chatRefs.current.delete(tabId);
+                }
               }}
-              threadId={activeThreadId}
-              tabId={activeThreadId}
+              threadId={tabId}
+              tabId={tabId}
               apiUrl={apiUrl}
               onMessageCountChange={(count) =>
                 setMessageCounts((prev) =>
-                  prev[activeThreadId] === count
-                    ? prev
-                    : { ...prev, [activeThreadId]: count },
+                  prev[tabId] === count ? prev : { ...prev, [tabId]: count },
                 )
               }
-              onSaveThread={handleSaveThread}
+              onSaveThread={
+                tabId === activeThreadId ? handleSaveThread : undefined
+              }
             />
           </div>
-        )}
+        ))}
       </div>
     </div>
   );

@@ -263,6 +263,24 @@ function XIcon({ className }: { className?: string }) {
   );
 }
 
+function HistoryIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M12 7v5l4 2" />
+    </svg>
+  );
+}
+
 interface SettingsSelectOption {
   value: string;
   label: string;
@@ -578,6 +596,20 @@ export function AgentPanel({
             CLI
           </button>
         )}
+        <button
+          onClick={() => setMode("resources")}
+          className={cn(
+            "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+            activeMode === "resources"
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          )}
+          title="Files & resources"
+          style={AGENT_PANEL_CONTROL_STYLE}
+        >
+          <FolderIcon className="h-3.5 w-3.5" />
+          Files
+        </button>
       </div>
     ),
     [isDevMode],
@@ -586,17 +618,6 @@ export function AgentPanel({
   const renderHeaderActions = useCallback(
     () => (
       <div className="flex shrink-0 items-center gap-1.5">
-        <IconTooltip content="Resources">
-          <button
-            onClick={() => setMode(mode === "resources" ? "chat" : "resources")}
-            className={cn(
-              "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
-              mode === "resources" && "bg-accent/50 text-foreground",
-            )}
-          >
-            <FolderIcon className="h-3.5 w-3.5" />
-          </button>
-        </IconTooltip>
         {showDevToggle && (
           <IconTooltip content="Agent settings">
             <div>
@@ -641,86 +662,89 @@ export function AgentPanel({
       setActiveTabId,
       addTab,
       closeTab,
+      showHistory,
+      toggleHistory,
     }: MultiTabAssistantChatHeaderProps) => (
-      <div
-        className={AGENT_PANEL_HEADER_CLASS}
-        style={AGENT_PANEL_HEADER_STYLE}
-      >
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
-          {renderModeButtons(mode)}
-          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
-            {tabs.length > 1 &&
-              tabs.map((tab) => (
-                <div
-                  key={tab.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setActiveTabId(tab.id)}
-                  className={cn(
-                    "agent-tab flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium leading-none cursor-pointer",
-                    tab.id === activeTabId
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                  )}
-                  style={AGENT_PANEL_CONTROL_STYLE}
-                >
-                  <span>{tab.label}</span>
-                  {tab.status === "running" && (
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 animate-pulse" />
-                  )}
-                  {tab.status === "completed" && (
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
-                  )}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      closeTab(tab.id);
-                    }}
-                    className={cn(
-                      "agent-tab-close ml-0.5 flex h-3 w-3 items-center justify-center rounded-sm",
-                      tab.id === activeTabId
-                        ? "text-foreground/55 hover:bg-background/60 hover:text-foreground"
-                        : "text-muted-foreground/65 hover:bg-accent hover:text-foreground",
-                    )}
-                    title={`Close chat ${tab.label}`}
-                    aria-label={`Close chat ${tab.label}`}
-                  >
-                    <XIcon className="h-2.5 w-2.5" />
-                  </button>
-                </div>
-              ))}
-            <IconTooltip content="New chat">
-              <button
-                onClick={addTab}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:bg-accent/40 hover:text-muted-foreground"
+      <div className="flex flex-col shrink-0">
+        {/* Top bar: mode buttons + actions */}
+        <div
+          className={AGENT_PANEL_HEADER_CLASS}
+          style={AGENT_PANEL_HEADER_STYLE}
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+            {renderModeButtons(mode)}
+          </div>
+          <div className="flex items-center gap-0.5">
+            {mode !== "resources" && (
+              <IconTooltip
+                content={mode === "cli" ? "New terminal" : "New chat"}
               >
-                <PlusIcon className="h-3.5 w-3.5" />
-              </button>
-            </IconTooltip>
+                <button
+                  onClick={addTab}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                >
+                  <PlusIcon className="h-3.5 w-3.5" />
+                </button>
+              </IconTooltip>
+            )}
+            {mode === "chat" && toggleHistory && (
+              <IconTooltip content="Chat history">
+                <button
+                  onClick={toggleHistory}
+                  className={cn(
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                    showHistory && "bg-accent text-foreground",
+                  )}
+                >
+                  <HistoryIcon className="h-3.5 w-3.5" />
+                </button>
+              </IconTooltip>
+            )}
+            {renderHeaderActions()}
           </div>
         </div>
-        {renderHeaderActions()}
+        {/* Tab bar: only when multiple chat tabs are open */}
+        {mode === "chat" && tabs.length > 1 && (
+          <div className="flex items-center h-7 px-1 border-b border-border gap-px overflow-x-auto scrollbar-none">
+            {tabs.map((tab) => (
+              <div
+                key={tab.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => setActiveTabId(tab.id)}
+                className={cn(
+                  "agent-tab flex shrink-0 items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium leading-none cursor-pointer max-w-[120px]",
+                  tab.id === activeTabId
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                )}
+              >
+                <span className="truncate">{tab.label}</span>
+                {tab.status === "running" && (
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 animate-pulse" />
+                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeTab(tab.id);
+                  }}
+                  className={cn(
+                    "agent-tab-close ml-0.5 flex h-3 w-3 items-center justify-center rounded-sm",
+                    tab.id === activeTabId
+                      ? "text-foreground/55 hover:bg-background/60 hover:text-foreground"
+                      : "text-muted-foreground/65 hover:bg-accent hover:text-foreground",
+                  )}
+                >
+                  <XIcon className="h-2.5 w-2.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     ),
     [mode, renderHeaderActions, renderModeButtons],
-  );
-
-  const renderChatOverlay = useCallback(
-    ({ activeTabMessageCount, addTab }: MultiTabAssistantChatHeaderProps) =>
-      activeTabMessageCount > 0 ? (
-        <div className="pointer-events-none absolute right-2 top-2 z-20">
-          <IconTooltip content="New chat">
-            <button
-              onClick={addTab}
-              className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded text-muted-foreground/50 hover:bg-accent/40 hover:text-muted-foreground"
-            >
-              <PlusIcon className="h-3.5 w-3.5" />
-            </button>
-          </IconTooltip>
-        </div>
-      ) : null,
-    [],
   );
 
   return (
@@ -754,7 +778,7 @@ export function AgentPanel({
             apiUrl={apiUrl}
             showHeader={false}
             renderHeader={showHeader ? renderChatHeader : undefined}
-            renderOverlay={showHeader ? renderChatOverlay : undefined}
+            renderOverlay={undefined}
             contentHidden={mode !== "chat"}
             emptyStateText={emptyStateText}
             suggestions={suggestions}
