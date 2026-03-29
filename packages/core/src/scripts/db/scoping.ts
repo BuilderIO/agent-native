@@ -79,6 +79,11 @@ async function discoverColumnsSqlite(client: any): Promise<TableColumn[]> {
 
 // ─── View generation ────────────────────────────────────────────────────────
 
+/** Escape a string for safe inclusion in a SQL single-quoted literal. */
+function escapeSqlString(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
 function buildScopedTables(
   allColumns: TableColumn[],
   userEmail: string,
@@ -94,6 +99,7 @@ function buildScopedTables(
 
   const scoped: ScopedTable[] = [];
   const qualifiedPrefix = isPostgres ? "public." : "main.";
+  const safeEmail = escapeSqlString(userEmail);
 
   for (const [table, columns] of columnsByTable) {
     // Check core table scoping
@@ -103,10 +109,12 @@ function buildScopedTables(
       let whereSql: string;
       if (coreScoping.mode === "prefix") {
         // settings: key starts with u:<email>:
-        const prefix = `u:${userEmail}:`;
-        whereSql = `"${coreScoping.column}" LIKE '${prefix}%'`;
+        // Escape % and _ in the email so LIKE treats them literally.
+        const likeEmail = safeEmail.replace(/%/g, "\\%").replace(/_/g, "\\_");
+        const prefix = `u:${likeEmail}:`;
+        whereSql = `"${coreScoping.column}" LIKE '${prefix}%' ESCAPE '\\'`;
       } else {
-        whereSql = `"${coreScoping.column}" = '${userEmail}'`;
+        whereSql = `"${coreScoping.column}" = '${safeEmail}'`;
       }
       scoped.push({
         name: table,
@@ -120,7 +128,7 @@ function buildScopedTables(
       const realTable = `${qualifiedPrefix}"${table}"`;
       scoped.push({
         name: table,
-        viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE "${OWNER_COLUMN}" = '${userEmail}'`,
+        viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE "${OWNER_COLUMN}" = '${safeEmail}'`,
       });
     }
   }
