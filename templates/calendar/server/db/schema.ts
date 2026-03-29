@@ -21,6 +21,8 @@ export const bookingLinks = sqliteTable("booking_links", {
   title: text("title").notNull(),
   description: text("description"),
   duration: integer("duration").notNull().default(30),
+  /** JSON array of additional duration options, e.g. [15, 30, 60] */
+  durations: text("durations"),
   color: text("color"),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").notNull(),

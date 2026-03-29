@@ -433,7 +433,14 @@ Create skill files under \`skills/\` to give the agent specialized knowledge. Re
 `;
 
 export function ResourcesPanel() {
-  const [scope, setScope] = useState<ResourceScope>("shared");
+  const [scope, setScope] = useState<ResourceScope>(
+    () =>
+      (localStorage.getItem("an:resources-scope") as ResourceScope) || "shared",
+  );
+  const handleSetScope = (s: ResourceScope) => {
+    setScope(s);
+    localStorage.setItem("an:resources-scope", s);
+  };
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(
     null,
   );
@@ -619,7 +626,7 @@ export function ResourcesPanel() {
           <>
             <div className="flex items-center gap-1">
               <button
-                onClick={() => setScope("personal")}
+                onClick={() => handleSetScope("personal")}
                 className={cn(
                   "rounded-md px-2 py-1 text-[12px] leading-none",
                   scope === "personal"
@@ -631,7 +638,7 @@ export function ResourcesPanel() {
                 Personal
               </button>
               <button
-                onClick={() => setScope("shared")}
+                onClick={() => handleSetScope("shared")}
                 className={cn(
                   "rounded-md px-2 py-1 text-[12px] leading-none",
                   scope === "shared"
@@ -688,8 +695,22 @@ export function ResourcesPanel() {
           )
         ) : /* Tree view */
         treeQuery.isLoading ? (
-          <div className="flex flex-1 items-center justify-center text-[12px] text-muted-foreground/50">
-            Loading...
+          <div className="flex-1 min-h-0 overflow-y-auto px-2 py-1.5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-2 px-2 py-1.5">
+                <div
+                  className="h-3.5 w-3.5 rounded bg-muted-foreground/10 animate-pulse"
+                  style={{ animationDelay: `${i * 75}ms` }}
+                />
+                <div
+                  className="h-3 rounded bg-muted-foreground/10 animate-pulse"
+                  style={{
+                    width: `${50 + ((i * 37) % 40)}%`,
+                    animationDelay: `${i * 75}ms`,
+                  }}
+                />
+              </div>
+            ))}
           </div>
         ) : treeQuery.error ? (
           <div className="flex flex-1 items-center justify-center text-[12px] text-destructive/70">

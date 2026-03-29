@@ -14,11 +14,14 @@ For code editing and development guidance, read `DEVELOPING.md`.
 
 ## Resources
 
-Resources are SQL-backed persistent files for notes, learnings, and context. They replace the old `learnings.md` file approach.
+Resources are SQL-backed persistent files for notes, learnings, and context. They replace the old `LEARNINGS.md` file approach.
 
-**Always read the `learnings.md` resource at the start of every conversation.** It contains user preferences, corrections, and patterns from past interactions.
+**At the start of every conversation, read these resources (both personal and shared scopes):**
 
-**Update the `learnings.md` resource when you learn something important:**
+1. **`AGENTS.md`** — contains user-specific context like contacts, nicknames, and preferences that help you act on vague requests. Read both `--scope personal` and `--scope shared`.
+2. **`LEARNINGS.md`** — user preferences, corrections, and patterns from past interactions. Read both `--scope personal` and `--scope shared`.
+
+**Update the `LEARNINGS.md` resource when you learn something important:**
 
 - User corrects your tone, style, or approach
 - User shares personal info relevant to the app

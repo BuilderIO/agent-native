@@ -41,6 +41,7 @@ export {
   AgentPanel,
   AgentSidebar,
   AgentToggleButton,
+  focusAgentChat,
   type AgentPanelProps,
   type AgentSidebarProps,
 } from "./AgentPanel.js";

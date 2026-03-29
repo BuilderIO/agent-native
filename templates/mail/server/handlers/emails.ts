@@ -25,6 +25,7 @@ import {
   gmailListLabels,
   gmailModifyMessage,
   gmailTrashMessage,
+  gmailUntrashMessage,
   googleFetch,
   peopleListConnections,
   peopleListOtherContacts,
@@ -680,6 +681,58 @@ export const trashEmail = defineEventHandler(async (event: H3Event) => {
   await writeLabels(email, labels, { requestSource: reqSource(event) });
 
   return { id: getRouterParam(event, "id"), threadId, isTrashed: true };
+});
+
+// ─── Untrash ─────────────────────────────────────────────────────────────────
+
+export const untrashEmail = defineEventHandler(async (event: H3Event) => {
+  const email = await userEmail(event);
+  const body = await readBody(event);
+  if (await isConnected(email)) {
+    const acct = body?.accountEmail || email;
+    const accessToken = await getAccessToken(acct);
+    if (!accessToken) {
+      setResponseStatus(event, 401);
+      return { error: "No valid access token for account" };
+    }
+    try {
+      const id = getRouterParam(event, "id") as string;
+      await gmailUntrashMessage(accessToken, id);
+      return { id, isTrashed: false };
+    } catch (error: any) {
+      console.error("[untrashEmail] Gmail error:", error.message);
+      setResponseStatus(event, 500);
+      return { error: error.message };
+    }
+  }
+
+  const emails = await readEmails(email);
+  const target = emails.find((e) => e.id === getRouterParam(event, "id"));
+  if (!target) {
+    setResponseStatus(event, 404);
+    return { error: "Email not found" };
+  }
+
+  // Untrash all messages in the thread
+  const threadId = target.threadId || target.id;
+  for (let i = 0; i < emails.length; i++) {
+    const eid = emails[i].threadId || emails[i].id;
+    if (eid === threadId) {
+      emails[i] = {
+        ...emails[i],
+        isTrashed: false,
+        labelIds: emails[i].labelIds.includes("inbox")
+          ? emails[i].labelIds
+          : ["inbox", ...emails[i].labelIds],
+      };
+    }
+  }
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
+
+  const labels = recomputeUnreadCounts(emails, await readLabels(email));
+  await writeLabels(email, labels, { requestSource: reqSource(event) });
+
+  return { id: getRouterParam(event, "id"), threadId, isTrashed: false };
 });
 
 // ─── Report spam ──────────────────────────────────────────────────────────────

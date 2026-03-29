@@ -16,7 +16,10 @@ import {
 } from "./store.js";
 
 function getScriptSessionId(): string {
-  return process.env.AGENT_USER_EMAIL ?? "local";
+  const email = process.env.AGENT_USER_EMAIL;
+  // Map "local@localhost" → "local" to match the server handler convention
+  if (!email || email === "local@localhost") return "local";
+  return email;
 }
 
 export async function readAppState(

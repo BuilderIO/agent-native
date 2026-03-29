@@ -516,7 +516,28 @@ export async function getDocumentOwnerEmail(event: H3Event): Promise<string> {
   return session?.email ?? "local@localhost";
 }
 
+/**
+ * Returns the Notion API key if configured (internal integration).
+ * This is the simple setup path — no OAuth needed.
+ */
+export function getNotionApiKey(): string | null {
+  return process.env.NOTION_API_KEY || null;
+}
+
 export async function getNotionConnectionForOwner(owner: string) {
+  // Simple path: internal integration API key
+  const apiKey = getNotionApiKey();
+  if (apiKey) {
+    return {
+      accountId: "__api_key__",
+      tokens: { access_token: apiKey } as NotionTokens,
+      accessToken: apiKey,
+      workspaceName: "API Key",
+      workspaceId: null,
+    };
+  }
+
+  // OAuth path: check stored tokens
   const accounts = await listOAuthAccountsByOwner(NOTION_PROVIDER, owner);
   if (accounts.length === 0) return null;
   const account = accounts[0];
@@ -535,6 +556,26 @@ export async function getNotionConnectionForOwner(owner: string) {
 }
 
 export async function disconnectNotionForOwner(owner: string) {
+  // Clear API key if that's how we're connected
+  if (process.env.NOTION_API_KEY) {
+    delete process.env.NOTION_API_KEY;
+    // Also remove from .env file
+    try {
+      const path = await import("path");
+      const { upsertEnvFile } = await import(
+        "@agent-native/core/server" as string
+      );
+      const envPath = path.join(process.cwd(), ".env");
+      (upsertEnvFile as Function)(envPath, [
+        { key: "NOTION_API_KEY", value: "" },
+      ]);
+    } catch {
+      // Edge runtime — skip file write
+    }
+    return 1;
+  }
+
+  // Clear OAuth tokens
   const accounts = await listOAuthAccountsByOwner(NOTION_PROVIDER, owner);
   let deleted = 0;
   for (const account of accounts) {

@@ -7,6 +7,9 @@ import {
   Upload,
   Unplug,
   RefreshCw,
+  Key,
+  Globe,
+  ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,9 +35,9 @@ function NotionIcon({ className }: { className?: string }) {
   );
 }
 
-// ─── Setup wizard steps ─────────────────────────────────────────────────────
+// ─── OAuth wizard steps ─────────────────────────────────────────────────────
 
-const STEPS = [
+const OAUTH_STEPS = [
   {
     title: "Create a Notion integration",
     description:
@@ -69,6 +72,8 @@ interface EnvKeyStatus {
   configured: boolean;
 }
 
+type SetupMode = null | "api_key" | "oauth";
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function NotionButton() {
@@ -76,9 +81,11 @@ export function NotionButton() {
   const disconnectNotion = useDisconnectNotion();
   const [open, setOpen] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
+  const [setupMode, setSetupMode] = useState<SetupMode>(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [envStatus, setEnvStatus] = useState<EnvKeyStatus[]>([]);
+  const [apiKeyInput, setApiKeyInput] = useState("");
 
   const isConnected = connection?.connected ?? false;
   const needsCredentials = connection?.error === "missing_credentials";
@@ -94,8 +101,11 @@ export function NotionButton() {
     if (showWizard) fetchEnvStatus();
   }, [showWizard, fetchEnvStatus]);
 
-  const allConfigured =
-    envStatus.length > 0 && envStatus.every((k) => k.configured);
+  const oauthConfigured =
+    envStatus.filter((k) => k.key.startsWith("NOTION_CLIENT")).length > 0 &&
+    envStatus
+      .filter((k) => k.key.startsWith("NOTION_CLIENT"))
+      .every((k) => k.configured);
 
   const redirectUri =
     typeof window !== "undefined"
@@ -159,6 +169,34 @@ export function NotionButton() {
     }
   }
 
+  async function handleSaveApiKey() {
+    const key = apiKeyInput.trim();
+    if (!key) {
+      toast.error("Paste your integration token.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/env-vars", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vars: [{ key: "NOTION_API_KEY", value: key }],
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to save");
+      }
+      toast.success("Connected! Reloading...");
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save key");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleJsonUpload(file: File) {
     setSaving(true);
     try {
@@ -216,174 +254,321 @@ export function NotionButton() {
         >
           <div className="p-4 border-b border-border">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold">Connect Notion</h3>
+              <div className="flex items-center gap-2">
+                {setupMode && (
+                  <button
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => setSetupMode(null)}
+                  >
+                    <ArrowLeft size={14} />
+                  </button>
+                )}
+                <h3 className="text-sm font-semibold">Connect Notion</h3>
+              </div>
               <button
                 className="text-xs text-muted-foreground hover:text-foreground"
                 onClick={() => {
                   setShowWizard(false);
+                  setSetupMode(null);
                   setOpen(false);
                 }}
               >
                 Cancel
               </button>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Set up a Notion integration to sync documents.
-            </p>
+            {!setupMode && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Choose how to connect your Notion workspace.
+              </p>
+            )}
           </div>
 
-          <div className="p-4 space-y-3">
-            {STEPS.map((step, i) => {
-              const completed = i < currentStep || (i === 2 && allConfigured);
-              const active = i === currentStep;
-
-              return (
-                <div
-                  key={i}
-                  className={cn(
-                    "rounded-lg border px-3 py-2.5",
-                    active ? "border-border bg-muted/50" : "border-transparent",
-                  )}
-                >
-                  <button
-                    className="flex items-start gap-2 w-full text-left"
-                    onClick={() => setCurrentStep(i)}
-                  >
-                    <span className="mt-0.5 shrink-0">
-                      {completed ? (
-                        <Check size={14} className="text-emerald-500" />
-                      ) : active ? (
-                        <Circle
-                          size={14}
-                          className="text-foreground"
-                          fill="currentColor"
-                        />
-                      ) : (
-                        <Circle size={14} className="text-muted-foreground" />
-                      )}
-                    </span>
-                    <span
-                      className={cn(
-                        "text-xs font-medium",
-                        active
-                          ? "text-foreground"
-                          : completed
-                            ? "text-muted-foreground"
-                            : "text-muted-foreground",
-                      )}
-                    >
-                      {step.title}
-                    </span>
-                  </button>
-
-                  {active && (
-                    <div className="mt-2 ml-5 space-y-2">
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        {step.description}
-                      </p>
-
-                      {step.url && (
-                        <a
-                          href={step.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                        >
-                          <ExternalLink size={11} />
-                          {step.linkText}
-                        </a>
-                      )}
-
-                      {step.showRedirectUri && (
-                        <div className="flex items-center gap-1">
-                          <code className="flex-1 rounded bg-muted px-2 py-1 text-[10px] font-mono text-foreground break-all">
-                            {redirectUri}
-                          </code>
-                          <button
-                            className="shrink-0 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent"
-                            onClick={() => {
-                              navigator.clipboard.writeText(redirectUri);
-                              toast.success("Copied!");
-                            }}
-                          >
-                            Copy
-                          </button>
-                        </div>
-                      )}
-
-                      {step.showUpload && (
-                        <div className="space-y-2">
-                          <label className="flex items-center gap-2 cursor-pointer rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:border-foreground/30 hover:text-foreground">
-                            <Upload size={14} />
-                            {saving ? "Saving..." : "Upload credentials JSON"}
-                            <input
-                              type="file"
-                              accept=".json"
-                              className="hidden"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) handleJsonUpload(file);
-                              }}
-                            />
-                          </label>
-                          {envStatus.map((k) => (
-                            <div
-                              key={k.key}
-                              className="flex items-center gap-2 text-[10px]"
-                            >
-                              {k.configured ? (
-                                <Check size={10} className="text-emerald-500" />
-                              ) : (
-                                <Circle
-                                  size={10}
-                                  className="text-muted-foreground"
-                                />
-                              )}
-                              <span className="text-muted-foreground">
-                                {k.label}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {step.showConnect && (
-                        <Button
-                          size="sm"
-                          onClick={handleConnect}
-                          disabled={!allConfigured}
-                          className="w-full"
-                        >
-                          {allConfigured ? (
-                            "Connect Notion Workspace"
-                          ) : (
-                            <>
-                              <Loader2
-                                size={12}
-                                className="mr-1 animate-spin"
-                              />
-                              Complete steps above first
-                            </>
-                          )}
-                        </Button>
-                      )}
-
-                      {i < STEPS.length - 1 && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-xs"
-                          onClick={() => setCurrentStep(i + 1)}
-                        >
-                          Next step
-                        </Button>
-                      )}
-                    </div>
-                  )}
+          {/* ─── Mode picker ─────────────────────────────────── */}
+          {!setupMode && (
+            <div className="p-3 space-y-2">
+              <button
+                className="w-full flex items-start gap-3 rounded-lg border border-border p-3 text-left hover:bg-muted/50"
+                onClick={() => setSetupMode("api_key")}
+              >
+                <Key size={16} className="mt-0.5 shrink-0 text-foreground" />
+                <div>
+                  <p className="text-xs font-medium">API Key</p>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
+                    Paste a token from a Notion internal integration. Simplest
+                    setup — takes 2 minutes.
+                  </p>
                 </div>
-              );
-            })}
-          </div>
+              </button>
+              <button
+                className="w-full flex items-start gap-3 rounded-lg border border-border p-3 text-left hover:bg-muted/50"
+                onClick={() => setSetupMode("oauth")}
+              >
+                <Globe size={16} className="mt-0.5 shrink-0 text-foreground" />
+                <div>
+                  <p className="text-xs font-medium">OAuth Integration</p>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
+                    Create a public Notion app with OAuth. Supports multi-user
+                    access.
+                  </p>
+                </div>
+              </button>
+            </div>
+          )}
+
+          {/* ─── API Key setup ──────────────────────────────── */}
+          {setupMode === "api_key" && (
+            <div className="p-4 space-y-3">
+              <div className="rounded-lg border border-border p-3 space-y-2">
+                <div className="flex items-start gap-2">
+                  <span className="mt-0.5 shrink-0 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-background text-[10px] font-bold">
+                    1
+                  </span>
+                  <div>
+                    <p className="text-xs font-medium">
+                      Create an internal integration
+                    </p>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed mt-1">
+                      Go to Notion's integrations page, click "New integration",
+                      name it, and select your workspace.
+                    </p>
+                    <a
+                      href="https://www.notion.so/profile/integrations"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
+                    >
+                      <ExternalLink size={11} />
+                      Open Notion Integrations
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border p-3 space-y-2">
+                <div className="flex items-start gap-2">
+                  <span className="mt-0.5 shrink-0 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-background text-[10px] font-bold">
+                    2
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium">
+                      Share pages with the integration
+                    </p>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed mt-1">
+                      Open a Notion page, click "..." → "Connections" → add your
+                      integration. Repeat for each page you want to sync.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border p-3 space-y-2">
+                <div className="flex items-start gap-2">
+                  <span className="mt-0.5 shrink-0 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-background text-[10px] font-bold">
+                    3
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium">
+                      Paste your integration token
+                    </p>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed mt-1">
+                      Copy the "Internal Integration Secret" from the
+                      integration's settings page.
+                    </p>
+                    <input
+                      type="password"
+                      value={apiKeyInput}
+                      onChange={(e) => setApiKeyInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleSaveApiKey();
+                      }}
+                      placeholder="ntn_..."
+                      className="mt-2 w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs font-mono placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-ring"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <Button
+                size="sm"
+                className="w-full"
+                disabled={!apiKeyInput.trim() || saving}
+                onClick={handleSaveApiKey}
+              >
+                {saving ? (
+                  <>
+                    <Loader2 size={12} className="mr-1 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Connect"
+                )}
+              </Button>
+            </div>
+          )}
+
+          {/* ─── OAuth setup ────────────────────────────────── */}
+          {setupMode === "oauth" && (
+            <div className="p-4 space-y-3">
+              {OAUTH_STEPS.map((step, i) => {
+                const completed =
+                  i < currentStep || (i === 2 && oauthConfigured);
+                const active = i === currentStep;
+
+                return (
+                  <div
+                    key={i}
+                    className={cn(
+                      "rounded-lg border px-3 py-2.5",
+                      active
+                        ? "border-border bg-muted/50"
+                        : "border-transparent",
+                    )}
+                  >
+                    <button
+                      className="flex items-start gap-2 w-full text-left"
+                      onClick={() => setCurrentStep(i)}
+                    >
+                      <span className="mt-0.5 shrink-0">
+                        {completed ? (
+                          <Check size={14} className="text-emerald-500" />
+                        ) : active ? (
+                          <Circle
+                            size={14}
+                            className="text-foreground"
+                            fill="currentColor"
+                          />
+                        ) : (
+                          <Circle size={14} className="text-muted-foreground" />
+                        )}
+                      </span>
+                      <span
+                        className={cn(
+                          "text-xs font-medium",
+                          active
+                            ? "text-foreground"
+                            : completed
+                              ? "text-muted-foreground"
+                              : "text-muted-foreground",
+                        )}
+                      >
+                        {step.title}
+                      </span>
+                    </button>
+
+                    {active && (
+                      <div className="mt-2 ml-5 space-y-2">
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          {step.description}
+                        </p>
+
+                        {step.url && (
+                          <a
+                            href={step.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                          >
+                            <ExternalLink size={11} />
+                            {step.linkText}
+                          </a>
+                        )}
+
+                        {step.showRedirectUri && (
+                          <div className="flex items-center gap-1">
+                            <code className="flex-1 rounded bg-muted px-2 py-1 text-[10px] font-mono text-foreground break-all">
+                              {redirectUri}
+                            </code>
+                            <button
+                              className="shrink-0 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent"
+                              onClick={() => {
+                                navigator.clipboard.writeText(redirectUri);
+                                toast.success("Copied!");
+                              }}
+                            >
+                              Copy
+                            </button>
+                          </div>
+                        )}
+
+                        {step.showUpload && (
+                          <div className="space-y-2">
+                            <label className="flex items-center gap-2 cursor-pointer rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:border-foreground/30 hover:text-foreground">
+                              <Upload size={14} />
+                              {saving ? "Saving..." : "Upload credentials JSON"}
+                              <input
+                                type="file"
+                                accept=".json"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleJsonUpload(file);
+                                }}
+                              />
+                            </label>
+                            {envStatus
+                              .filter((k) => k.key.startsWith("NOTION_CLIENT"))
+                              .map((k) => (
+                                <div
+                                  key={k.key}
+                                  className="flex items-center gap-2 text-[10px]"
+                                >
+                                  {k.configured ? (
+                                    <Check
+                                      size={10}
+                                      className="text-emerald-500"
+                                    />
+                                  ) : (
+                                    <Circle
+                                      size={10}
+                                      className="text-muted-foreground"
+                                    />
+                                  )}
+                                  <span className="text-muted-foreground">
+                                    {k.label}
+                                  </span>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+
+                        {step.showConnect && (
+                          <Button
+                            size="sm"
+                            onClick={handleConnect}
+                            disabled={!oauthConfigured}
+                            className="w-full"
+                          >
+                            {oauthConfigured ? (
+                              "Connect Notion Workspace"
+                            ) : (
+                              <>
+                                <Loader2
+                                  size={12}
+                                  className="mr-1 animate-spin"
+                                />
+                                Complete steps above first
+                              </>
+                            )}
+                          </Button>
+                        )}
+
+                        {i < OAUTH_STEPS.length - 1 && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-xs"
+                            onClick={() => setCurrentStep(i + 1)}
+                          >
+                            Next step
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </PopoverContent>
       </Popover>
     );
@@ -426,7 +611,10 @@ export function NotionButton() {
                   <p className="text-sm font-medium truncate">
                     {connection?.workspaceName ?? "Notion"}
                   </p>
-                  <p className="text-[10px] text-muted-foreground">Connected</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    Connected
+                    {connection?.mode === "api_key" ? " via API key" : ""}
+                  </p>
                 </div>
               </div>
             </div>

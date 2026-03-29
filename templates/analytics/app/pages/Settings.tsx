@@ -43,12 +43,13 @@ export default function Settings() {
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
             <p>
-              Analytics Dashboard is a tool for querying your organization's
-              metrics stored in BigQuery.
+              Analytics is a tool for connecting data sources and building
+              custom dashboards. Connect Google Analytics, BigQuery, Stripe, and
+              more — then ask the agent to create dashboards.
             </p>
             <p>
-              Queries run directly against BigQuery. Use the Query Explorer to
-              run arbitrary SQL against any table in the project.
+              Use the Data Sources page to manage connections. Use the Query
+              Explorer for ad-hoc BigQuery SQL.
             </p>
           </CardContent>
         </Card>

@@ -15,10 +15,13 @@ import {
   getQuery,
 } from "h3";
 import { agentEnv } from "../shared/agent-env.js";
+import { getSession } from "./auth.js";
 import {
   resourceListAccessible,
   resourceList,
   resourceGet,
+  resourceGetByPath,
+  ensurePersonalDefaults,
   SHARED_OWNER,
 } from "../resources/store.js";
 import fs from "node:fs";
@@ -129,7 +132,7 @@ async function createResourceScriptEntries(): Promise<
               path: {
                 type: "string",
                 description:
-                  "Resource path (e.g. 'learnings.md', 'notes/ideas.md')",
+                  "Resource path (e.g. 'LEARNINGS.md', 'notes/ideas.md')",
               },
               scope: {
                 type: "string",
@@ -153,7 +156,7 @@ async function createResourceScriptEntries(): Promise<
               path: {
                 type: "string",
                 description:
-                  "Resource path (e.g. 'learnings.md', 'notes/ideas.md')",
+                  "Resource path (e.g. 'LEARNINGS.md', 'notes/ideas.md')",
               },
               content: {
                 type: "string",
@@ -237,15 +240,49 @@ You have access to a Resources system for persistent notes, learnings, and conte
 Use resource-list, resource-read, resource-write, and resource-delete to manage resources.
 Resources can be personal (per-user) or shared (team-wide). By default, resources are personal.
 
-At the start of conversations:
-1. Read the shared "AGENTS.md" resource — it contains custom instructions, preferences, and skill references for this app.
-2. Read the personal "learnings.md" resource for user-specific preferences and context.
-3. If AGENTS.md references skill files (e.g. "skills/data-analysis.md"), read the relevant skill before performing that type of task.
-
-If a resource doesn't exist yet, that's fine — just skip it and continue helping the user. Don't treat missing resources as errors.
-
-When you learn something important (user corrections, preferences, patterns), update the "learnings.md" resource. Keep it tidy — revise, consolidate, and remove outdated entries rather than only appending. The file should stay concise and scannable.
+When you learn something important (user corrections, preferences, patterns), update the "LEARNINGS.md" resource. Keep it tidy — revise, consolidate, and remove outdated entries rather than only appending. The file should stay concise and scannable.
 When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource instead.`;
+
+/**
+ * Pre-load AGENTS.md and LEARNINGS.md (personal + shared) and append to the system prompt.
+ * This ensures the agent always has the user's context without needing to call tools first.
+ */
+async function loadResourcesForPrompt(owner: string): Promise<string> {
+  await ensurePersonalDefaults(owner);
+
+  const resourceNames = ["AGENTS.md", "LEARNINGS.md"];
+  const sections: string[] = [];
+
+  for (const name of resourceNames) {
+    // Read shared
+    try {
+      const shared = await resourceGetByPath(SHARED_OWNER, name);
+      if (shared?.content?.trim()) {
+        sections.push(
+          `<resource name="${name}" scope="shared">\n${shared.content.trim()}\n</resource>`,
+        );
+      }
+    } catch {}
+
+    // Read personal (skip if owner is the shared sentinel)
+    if (owner !== SHARED_OWNER) {
+      try {
+        const personal = await resourceGetByPath(owner, name);
+        if (personal?.content?.trim()) {
+          sections.push(
+            `<resource name="${name}" scope="personal">\n${personal.content.trim()}\n</resource>`,
+          );
+        }
+      } catch {}
+    }
+  }
+
+  if (sections.length === 0) return "";
+  return (
+    "\n\nThe following resources were pre-loaded for context. Use the information in them to help the user (e.g., contacts, preferences, instructions). You can update them with resource-write if needed.\n\n" +
+    sections.join("\n\n")
+  );
+}
 
 const DEFAULT_DEV_PROMPT = `You are a development assistant with full access to the project filesystem, shell, and database.
 
@@ -362,14 +399,28 @@ export function createAgentChatPlugin(
     // Resource scripts are available in both prod and dev modes
     const resourceScripts = await createResourceScriptEntries();
 
-    // Build system prompts
+    // Build system prompts — dynamic functions that pre-load resources per-request
     const basePrompt = options?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     const devPrefix = options?.devSystemPrompt ?? DEFAULT_DEV_PROMPT;
+
+    // Resolve owner from the H3 event's session — matches how resources are created
+    const getOwnerFromEvent = async (event: any): Promise<string> => {
+      try {
+        const session = await getSession(event);
+        return session?.email || "local@localhost";
+      } catch {
+        return "local@localhost";
+      }
+    };
 
     // Always build the production handler (includes resource tools)
     const prodHandler = createProductionAgentHandler({
       scripts: { ...templateScripts, ...resourceScripts },
-      systemPrompt: basePrompt,
+      systemPrompt: async (event: any) => {
+        const owner = await getOwnerFromEvent(event);
+        const resources = await loadResourcesForPrompt(owner);
+        return basePrompt + resources;
+      },
       model: options?.model,
       apiKey: options?.apiKey,
     });
@@ -387,7 +438,11 @@ export function createAgentChatPlugin(
       };
       devHandler = createProductionAgentHandler({
         scripts: devScripts,
-        systemPrompt: devPrefix + basePrompt,
+        systemPrompt: async (event: any) => {
+          const owner = await getOwnerFromEvent(event);
+          const resources = await loadResourcesForPrompt(owner);
+          return devPrefix + basePrompt + resources;
+        },
         model: options?.model,
         apiKey: options?.apiKey,
       });
@@ -745,7 +800,13 @@ export function createAgentChatPlugin(
     // Mount the main chat handler — delegates to dev or prod handler based on current mode
     nitroApp.h3App.use(
       routePath,
-      defineEventHandler((event) => {
+      defineEventHandler(async (event) => {
+        // Set AGENT_USER_EMAIL so scripts resolve the same owner as the session.
+        // Without this, scripts default to "local@localhost" and miss resources
+        // created by users who authenticated via OAuth (e.g., Gmail).
+        const owner = await getOwnerFromEvent(event);
+        process.env.AGENT_USER_EMAIL = owner;
+
         const handler = currentDevMode && devHandler ? devHandler : prodHandler;
         return handler(event);
       }),

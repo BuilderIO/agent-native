@@ -23,28 +23,54 @@ function getOrigin(event: H3Event): string {
   return `${proto}://${host}`;
 }
 
-/** Encode a redirect URI into the OAuth state param so the callback can recover it across proxies. */
-function encodeState(redirectUri: string): string {
-  const nonce = crypto.randomBytes(8).toString("hex");
-  return Buffer.from(JSON.stringify({ n: nonce, r: redirectUri })).toString(
-    "base64url",
-  );
+/** Detect requests from the Electron desktop app webview. */
+function isElectron(event: H3Event): boolean {
+  return /Electron/i.test(getHeader(event, "user-agent") || "");
 }
 
-/** Recover the redirect URI from the state param, falling back to origin-based computation. */
-function decodeRedirectUri(
-  stateParam: string | undefined,
-  fallback: string,
+/** Encode a redirect URI (and optional owner) into the OAuth state param so the callback can recover them across proxies and cookie-less flows (e.g. desktop app system browser). */
+function encodeState(
+  redirectUri: string,
+  owner?: string,
+  desktop?: boolean,
 ): string {
+  const nonce = crypto.randomBytes(8).toString("hex");
+  const payload: Record<string, string | boolean> = {
+    n: nonce,
+    r: redirectUri,
+  };
+  if (owner) payload.o = owner;
+  if (desktop) payload.d = true;
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
+
+/** Recover the redirect URI, optional owner, and desktop flag from the state param. */
+function decodeState(
+  stateParam: string | undefined,
+  fallbackUri: string,
+): { redirectUri: string; owner?: string; desktop?: boolean } {
   if (stateParam) {
     try {
       const parsed = JSON.parse(
         Buffer.from(stateParam, "base64url").toString(),
       );
-      if (parsed.r) return parsed.r;
+      return {
+        redirectUri: parsed.r || fallbackUri,
+        owner: parsed.o || undefined,
+        desktop: !!parsed.d,
+      };
     } catch {}
   }
-  return fallback;
+  return { redirectUri: fallbackUri };
+}
+
+/** HTML page shown after OAuth completes in the system browser (desktop app flow). */
+function desktopSuccessPage(email?: string): Response {
+  const msg = email ? `Connected ${email}!` : "Connected!";
+  return new Response(
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`,
+    { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
+  );
 }
 
 export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
@@ -60,7 +86,7 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
     const redirectUri =
       (getQuery(event).redirect_uri as string) ||
       `${getOrigin(event)}/api/google/callback`;
-    const state = encodeState(redirectUri);
+    const state = encodeState(redirectUri, undefined, isElectron(event));
     const url = getAuthUrl(undefined, redirectUri, state);
     return { url };
   } catch (error: any) {
@@ -80,46 +106,65 @@ export const handleGoogleCallback = defineEventHandler(
       }
 
       const stateParam = query.state as string | undefined;
-      const redirectUri = decodeRedirectUri(
+      const { redirectUri, desktop } = decodeState(
         stateParam,
         `${getOrigin(event)}/api/google/callback`,
       );
 
-      // In dev mode, getSession returns "local@localhost" — use that as owner
-      // so getAuthStatus("local@localhost") finds the tokens.
-      // In production, session is null here (user isn't logged in yet),
-      // so owner defaults to the Google email (which becomes the session email).
+      // Determine the owner for this OAuth account:
+      // - Dev mode ("local@localhost"): always use "local@localhost" so all
+      //   accounts are grouped under the dev session.
+      // - Production with existing session: use the existing session email as
+      //   owner so this account is added alongside existing accounts.
+      // - Production without session (first login): owner defaults to the
+      //   Google email itself (becomes both owner and session identity).
       const existingSession = await getSession(event);
-      const owner =
-        existingSession?.email !== "local@localhost"
-          ? undefined // production: owner = google email (default)
-          : "local@localhost"; // dev: owner = dev session
+      const isDevSession = existingSession?.email === "local@localhost";
+      const hasProductionSession = existingSession?.email && !isDevSession;
+      const owner = isDevSession
+        ? "local@localhost"
+        : hasProductionSession
+          ? existingSession.email
+          : undefined;
       const email = await exchangeCode(code, undefined, redirectUri, owner);
 
-      // Create a session tied to this Google email
-      const sessionToken = crypto.randomBytes(32).toString("hex");
-      await addSession(sessionToken, email);
-      setCookie(event, "an_session", sessionToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: 60 * 60 * 24 * 30, // 30 days
-      });
+      // Only create a new session when there isn't one already.
+      // If the user already has a session (adding another account via this
+      // flow), keep the existing session so the owner stays consistent.
+      let sessionToken: string | undefined;
+      if (!hasProductionSession) {
+        sessionToken = crypto.randomBytes(32).toString("hex");
+        await addSession(sessionToken, email);
+        setCookie(event, "an_session", sessionToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 60 * 60 * 24 * 30, // 30 days
+        });
+      }
 
       // If this looks like a mobile request, redirect via the native app scheme
       // so Safari bounces back to the app instead of staying on the web page.
+      // Pass the session token in the deep link so the app can inject it as a
+      // cookie into its WebView (Safari and WKWebView have separate cookie jars).
       const ua = getHeader(event, "user-agent") || "";
       const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
       if (isMobile) {
+        const deepLink = sessionToken
+          ? `agentnative://oauth-complete?token=${sessionToken}`
+          : `agentnative://oauth-complete`;
         return new Response(
-          `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href="agentnative://oauth-complete";setTimeout(function(){window.close()},2000)</script></body></html>`,
+          `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href=${JSON.stringify(deepLink)};setTimeout(function(){window.location.href="/"},1500)</script></body></html>`,
           {
             status: 200,
             headers: { "Content-Type": "text/html; charset=utf-8" },
           },
         );
       }
+
+      // Desktop: show "return to app" page (system browser can't redirect back)
+      if (desktop) return desktopSuccessPage(email);
 
       // Web: redirect to app home
       return sendRedirect(event, "/");
@@ -164,7 +209,10 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       const redirectUri =
         (getQuery(event).redirect_uri as string) ||
         `${getOrigin(event)}/api/google/add-account/callback`;
-      const state = encodeState(redirectUri);
+      // Encode the owner into state so the callback can identify the user
+      // even when the OAuth flow happens in a cookie-less context (e.g.
+      // desktop app opening the system browser).
+      const state = encodeState(redirectUri, session.email, isElectron(event));
       const url = getAuthUrl(undefined, redirectUri, state);
       return { url };
     } catch (error: any) {
@@ -178,32 +226,42 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
   async (event: H3Event) => {
     try {
       const session = await getSession(event);
-      if (!session?.email) {
+      const query = getQuery(event);
+      const stateParam = query.state as string | undefined;
+      const {
+        redirectUri,
+        owner: stateOwner,
+        desktop,
+      } = decodeState(
+        stateParam,
+        `${getOrigin(event)}/api/google/add-account/callback`,
+      );
+
+      // Use session cookie if available, otherwise fall back to the owner
+      // encoded in the OAuth state (for cookie-less flows like desktop app
+      // opening the system browser for OAuth).
+      const ownerEmail = session?.email || stateOwner;
+      if (!ownerEmail) {
         return errorPage("Session expired. Please log in again.");
       }
 
-      const query = getQuery(event);
       const code = query.code as string;
       if (!code) {
         setResponseStatus(event, 400);
         return errorPage("Missing authorization code.");
       }
 
-      const stateParam = query.state as string | undefined;
-      const redirectUri = decodeRedirectUri(
-        stateParam,
-        `${getOrigin(event)}/api/google/add-account/callback`,
-      );
-
       // Exchange code, passing the logged-in user as the owner
       const addedEmail = await exchangeCode(
         code,
         undefined,
         redirectUri,
-        session.email,
+        ownerEmail,
       );
 
       // Do NOT create a new session — user stays logged in
+      if (desktop) return desktopSuccessPage(addedEmail);
+
       // Return a close-tab page (UI opens this in a new tab and polls for status)
       const safeEmail = JSON.stringify(addedEmail);
       return `<!DOCTYPE html><html><body><script>

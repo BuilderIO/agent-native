@@ -199,6 +199,12 @@ export function gmailTrashMessage(accessToken: string, id: string) {
   });
 }
 
+export function gmailUntrashMessage(accessToken: string, id: string) {
+  return googleFetch(`${GMAIL_BASE}/messages/${id}/untrash`, accessToken, {
+    method: "POST",
+  });
+}
+
 export function gmailGetAttachment(
   accessToken: string,
   messageId: string,

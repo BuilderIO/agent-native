@@ -62,7 +62,9 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
 
   const handleConnect = () => {
     if (!connection?.authUrl) {
-      toast.error("Notion OAuth is not configured on this server.");
+      toast.error(
+        "Set up Notion first — click the Notion icon in the sidebar.",
+      );
       return;
     }
     window.location.href = connection.authUrl;

@@ -3,6 +3,7 @@ import {
   defineEventHandler,
   readBody,
   getMethod,
+  getQuery,
   setResponseHeader,
   setResponseStatus,
   getCookie,
@@ -225,6 +226,26 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     const email = await getSessionEmail(cookie);
     if (email) return { email, token: cookie };
   }
+
+  // Mobile WebViews have a separate cookie jar from Safari, so after OAuth
+  // completes in Safari the WebView won't have the session cookie.  The mobile
+  // app passes the token as a query parameter; if it's valid we promote it to
+  // an httpOnly cookie so subsequent requests work normally.
+  const qToken = getQuery(event)?._session as string | undefined;
+  if (qToken) {
+    const email = await getSessionEmail(qToken);
+    if (email) {
+      setCookie(event, COOKIE_NAME, qToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: sessionMaxAge,
+      });
+      return { email, token: qToken };
+    }
+  }
+
   return null;
 }
 

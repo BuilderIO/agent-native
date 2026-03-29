@@ -11,6 +11,7 @@ import {
   useToggleStar,
   useArchiveEmail,
   useTrashEmail,
+  useUntrashEmail,
 } from "@/hooks/use-emails";
 import { useQueryClient } from "@tanstack/react-query";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
@@ -154,6 +155,7 @@ export function EmailList({
   const toggleStar = useToggleStar();
   const archiveEmail = useArchiveEmail();
   const trashEmail = useTrashEmail();
+  const untrashEmail = useUntrashEmail();
   const queryClient = useQueryClient();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -165,29 +167,37 @@ export function EmailList({
     (t) => t.latestMessage.id === focusedId,
   );
 
+  // Refs so keyboard handlers always read the latest values without stale closures.
+  // Without this, rapid j/k presses fire before React re-renders, causing the
+  // second press to compute the same next index as the first (appears to "skip").
+  const focusedIndexRef = useRef(focusedIndex);
+  focusedIndexRef.current = focusedIndex;
+  const focusedIdRef = useRef(focusedId);
+  focusedIdRef.current = focusedId;
+
   const moveFocus = useCallback(
     (delta: number) => {
       if (threads.length === 0) return;
+      const current = focusedIndexRef.current;
       const next = Math.max(
         0,
-        Math.min(
-          threads.length - 1,
-          (focusedIndex === -1 ? 0 : focusedIndex) + delta,
-        ),
+        Math.min(threads.length - 1, (current === -1 ? 0 : current) + delta),
       );
       setFocusedId(threads[next].latestMessage.id);
+      focusedIndexRef.current = next;
       // Scroll focused row into view
       const rows = containerRef.current?.querySelectorAll("[role='row']");
       rows?.[next]?.scrollIntoView({ block: "nearest" });
     },
-    [threads, focusedIndex, setFocusedId],
+    [threads, setFocusedId],
   );
 
   const openFocused = useCallback(() => {
-    if (!focusedId) return;
-    const thread = threads.find((t) => t.latestMessage.id === focusedId);
+    const id = focusedIdRef.current;
+    if (!id) return;
+    const thread = threads.find((t) => t.latestMessage.id === id);
     if (!thread) return;
-    const targetThreadId = thread.latestMessage.threadId || focusedId;
+    const targetThreadId = thread.latestMessage.threadId || id;
     if (thread.hasUnread) {
       markThreadRead.mutate(targetThreadId);
     }
@@ -197,19 +207,11 @@ export function EmailList({
       staleTime: 30_000,
     });
     navigate(`/${view}/${targetThreadId}${labelSuffix}`);
-  }, [
-    focusedId,
-    threads,
-    view,
-    navigate,
-    markThreadRead,
-    labelSuffix,
-    queryClient,
-  ]);
+  }, [threads, view, navigate, markThreadRead, labelSuffix, queryClient]);
 
   const archiveFocused = useCallback(() => {
-    if (!focusedId) return;
-    const id = focusedId;
+    const id = focusedIdRef.current;
+    if (!id) return;
     const idx = threads.findIndex((t) => t.latestMessage.id === id);
 
     // Move focus to the next email (or previous if at end)
@@ -234,11 +236,11 @@ export function EmailList({
       id,
       accountEmail: thread?.latestMessage.accountEmail,
     });
-  }, [focusedId, threads, archiveEmail, onArchived, undoArchive, setFocusedId]);
+  }, [threads, archiveEmail, onArchived, undoArchive, setFocusedId]);
 
   const trashFocused = useCallback(() => {
-    if (!focusedId) return;
-    const id = focusedId;
+    const id = focusedIdRef.current;
+    if (!id) return;
     const idx = threads.findIndex((t) => t.latestMessage.id === id);
 
     if (threads.length > 1) {
@@ -248,48 +250,61 @@ export function EmailList({
       setFocusedId(null);
     }
 
-    toast("Moved to Trash.");
+    const undo = () => untrashEmail.mutate(id);
+    setUndoAction(undo);
+    toast("Moved to Trash.", {
+      action: {
+        label: "UNDO",
+        onClick: undo,
+      },
+    });
     trashEmail.mutate(id);
-  }, [focusedId, threads, trashEmail, setFocusedId]);
+  }, [threads, trashEmail, untrashEmail, setFocusedId]);
 
   const toggleFocusedRead = useCallback(() => {
-    if (!focusedId) return;
-    const thread = threads.find((t) => t.latestMessage.id === focusedId);
+    const id = focusedIdRef.current;
+    if (!id) return;
+    const thread = threads.find((t) => t.latestMessage.id === id);
     if (!thread) return;
-    markRead.mutate({ id: focusedId, isRead: !thread.latestMessage.isRead });
-  }, [focusedId, threads, markRead]);
+    markRead.mutate({ id, isRead: !thread.latestMessage.isRead });
+  }, [threads, markRead]);
 
   const markFocusedRead = useCallback(() => {
-    if (!focusedId) return;
-    markRead.mutate({ id: focusedId, isRead: true });
-  }, [focusedId, markRead]);
+    const id = focusedIdRef.current;
+    if (!id) return;
+    markRead.mutate({ id, isRead: true });
+  }, [markRead]);
 
   const markFocusedUnread = useCallback(() => {
-    if (!focusedId) return;
-    markRead.mutate({ id: focusedId, isRead: false });
-  }, [focusedId, markRead]);
+    const id = focusedIdRef.current;
+    if (!id) return;
+    markRead.mutate({ id, isRead: false });
+  }, [markRead]);
 
   const starFocused = useCallback(() => {
-    if (!focusedId) return;
-    const thread = threads.find((t) => t.latestMessage.id === focusedId);
+    const id = focusedIdRef.current;
+    if (!id) return;
+    const thread = threads.find((t) => t.latestMessage.id === id);
     if (!thread) return;
     toggleStar.mutate({
-      id: focusedId,
+      id,
       isStarred: !thread.latestMessage.isStarred,
     });
-  }, [focusedId, threads, toggleStar]);
+  }, [threads, toggleStar]);
 
   const replyFocused = useCallback(() => {
-    if (!focusedId || !onCompose) return;
-    const thread = threads.find((t) => t.latestMessage.id === focusedId);
+    const id = focusedIdRef.current;
+    if (!id || !onCompose) return;
+    const thread = threads.find((t) => t.latestMessage.id === id);
     if (thread) onCompose(thread.latestMessage, "reply");
-  }, [focusedId, threads, onCompose]);
+  }, [threads, onCompose]);
 
   const forwardFocused = useCallback(() => {
-    if (!focusedId || !onCompose) return;
-    const thread = threads.find((t) => t.latestMessage.id === focusedId);
+    const id = focusedIdRef.current;
+    if (!id || !onCompose) return;
+    const thread = threads.find((t) => t.latestMessage.id === id);
     if (thread) onCompose(thread.latestMessage, "forward");
-  }, [focusedId, threads, onCompose]);
+  }, [threads, onCompose]);
 
   // Keyboard navigation — Gmail / Superhuman standard shortcuts
   useKeyboardShortcuts([
@@ -300,8 +315,6 @@ export function EmailList({
     { key: "Enter", handler: openFocused },
     { key: "o", handler: openFocused },
     { key: "e", handler: archiveFocused },
-    { key: "d", handler: trashFocused },
-    { key: "#", handler: trashFocused, shift: true },
     { key: "u", handler: toggleFocusedRead },
     { key: "I", handler: markFocusedRead, shift: true },
     { key: "U", handler: markFocusedUnread, shift: true },

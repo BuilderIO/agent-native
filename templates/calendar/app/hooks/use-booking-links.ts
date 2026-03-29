@@ -16,7 +16,9 @@ export function useCreateBookingLink() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (
-      data: Pick<BookingLink, "title" | "slug" | "description" | "duration"> & {
+      data: Pick<BookingLink, "title" | "slug" | "duration"> & {
+        description?: string;
+        durations?: number[];
         color?: string;
         isActive?: boolean;
       },
@@ -41,8 +43,12 @@ export function useUpdateBookingLink() {
     mutationFn: async (
       data: Pick<
         BookingLink,
-        "id" | "title" | "slug" | "description" | "duration" | "isActive"
-      > & { color?: string },
+        "id" | "title" | "slug" | "duration" | "isActive"
+      > & {
+        description?: string;
+        durations?: number[];
+        color?: string;
+      },
     ) => {
       const res = await fetch(`/api/booking-links/${data.id}`, {
         method: "PUT",

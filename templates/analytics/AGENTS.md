@@ -14,11 +14,14 @@ For code editing and development guidance, read `DEVELOPING.md`.
 
 ## Resources
 
-Resources are SQL-backed persistent files for notes, learnings, and context. They replace the old `learnings.md` file approach.
+Resources are SQL-backed persistent files for notes, learnings, and context. They replace the old `LEARNINGS.md` file approach.
 
-**Always read the `learnings.md` resource at the start of every conversation.** It contains user preferences, corrections, and patterns from past interactions.
+**At the start of every conversation, read these resources (both personal and shared scopes):**
 
-**Update the `learnings.md` resource when you learn something important:**
+1. **`AGENTS.md`** — contains user-specific context like contacts, nicknames, and preferences that help you act on vague requests. Read both `--scope personal` and `--scope shared`.
+2. **`LEARNINGS.md`** — user preferences, corrections, and patterns from past interactions. Read both `--scope personal` and `--scope shared`.
+
+**Update the `LEARNINGS.md` resource when you learn something important:**
 
 - User corrects your tone, style, or approach
 - User shares personal info relevant to the app
@@ -38,10 +41,10 @@ Resources are stored in SQL, not files. They persist across sessions and are not
 
 ---
 
-> **CRITICAL: Before doing ANY work, read the `learnings.md` resource first.**
-> It contains essential cross-cutting knowledge about agent behavior, customer data, user preferences, and UI patterns.
+> **CRITICAL: Before doing ANY work, read `AGENTS.md` and `LEARNINGS.md` resources first (both personal and shared scopes).**
+> They contain essential context: contacts, preferences, agent behavior rules, customer data, and UI patterns.
 > **Provider-specific knowledge** (BigQuery tables, API quirks, auth, script usage) lives in `.builder/skills/<provider>/SKILL.md`.
-> Read the relevant skill before querying any provider. After completing work, **update the relevant skill or learnings.md resource** with new discoveries.
+> Read the relevant skill before querying any provider. After completing work, **update the relevant skill or LEARNINGS.md resource** with new discoveries.
 
 Analytics dashboard template. Built with React + Nitro + TypeScript.
 
@@ -69,7 +72,7 @@ Provider-specific knowledge is organized as modular skill files in `.builder/ski
   learn/SKILL.md        # /learn command — extract & save learnings from threads
 ```
 
-Skills should be **continuously improved** based on learnings and feedback. When you discover a new gotcha, pattern, or API quirk for a provider, update that provider's SKILL.md directly. Generic cross-cutting learnings (agent behavior rules, customer data, user preferences) go in the `learnings.md` resource.
+Skills should be **continuously improved** based on learnings and feedback. When you discover a new gotcha, pattern, or API quirk for a provider, update that provider's SKILL.md directly. Generic cross-cutting learnings (agent behavior rules, customer data, user preferences) go in the `LEARNINGS.md` resource.
 
 ## Architecture
 
@@ -202,14 +205,14 @@ Knowledge is stored in two places:
 
 1. **`.builder/skills/<provider>/SKILL.md`** — provider-specific knowledge (tables, API quirks, auth, scripts, gotchas). This is the primary knowledge store for each integration. Read the relevant skill before querying any provider.
 
-2. **`learnings.md` resource** — cross-cutting knowledge (agent behavior rules, customer data, user preferences, UI patterns). Read this before doing any work.
+2. **`AGENTS.md` + `LEARNINGS.md` resources** — cross-cutting knowledge (contacts, preferences, agent behavior rules, customer data, UI patterns). Read both (personal and shared scopes) before doing any work.
 
 ### Rules
 
-1. **ALWAYS read learnings.md resource first.** Non-negotiable. Before any work.
+1. **ALWAYS read `AGENTS.md` and `LEARNINGS.md` resources first (both scopes).** Non-negotiable. Before any work.
 2. **Read the relevant skill** before querying a provider. It tells you table names, column names, join paths, auth, and patterns.
 3. **Update skills directly.** When you discover something new about a provider, update that provider's SKILL.md. Skills should be continuously improved.
-4. **Learn from corrections.** If the user corrects you, capture it in the relevant skill or learnings.md resource.
+4. **Learn from corrections.** If the user corrects you, capture it in the relevant skill or LEARNINGS.md resource.
 5. **Keep it concise.** Each learning should be actionable — what to do, what not to do, and why.
 
 ### What belongs where
@@ -218,9 +221,9 @@ Knowledge is stored in two places:
 | --------------------------------------------------- | ----------------------- |
 | BigQuery table names, column mappings, SQL patterns | `bigquery/SKILL.md`     |
 | API quirks for a specific provider                  | `<provider>/SKILL.md`   |
-| Customer data (IDs, deal info, stakeholders)        | `learnings.md` resource |
-| User preferences, UI patterns                       | `learnings.md` resource |
-| Agent behavior rules                                | `learnings.md` resource |
+| Customer data (IDs, deal info, stakeholders)        | `LEARNINGS.md` resource |
+| User preferences, UI patterns                       | `LEARNINGS.md` resource |
+| Agent behavior rules                                | `LEARNINGS.md` resource |
 | Chart styling preferences                           | `charts/SKILL.md`       |
 
 ## Answering Data Questions in Chat

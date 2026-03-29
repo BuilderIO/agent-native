@@ -6,7 +6,6 @@ import {
   Edit2,
   RotateCcw,
   Check,
-  Terminal,
   type LucideProps,
 } from "lucide-react";
 import type { AppConfig } from "@shared/app-registry";
@@ -58,11 +57,11 @@ export default function AppSettings({
     [onAppsChanged],
   );
 
-  const handleHarnessToggle = useCallback(
-    async (id: string, useCliHarness: boolean) => {
+  const handleModeToggle = useCallback(
+    async (id: string, mode: "dev" | "prod") => {
       if (window.electronAPI?.appConfig) {
         const updated = await window.electronAPI.appConfig.update(id, {
-          useCliHarness,
+          mode,
         });
         onAppsChanged(updated);
       }
@@ -130,19 +129,20 @@ export default function AppSettings({
                   <span className="settings-app-url">{app.url}</span>
                 </div>
                 <div className="settings-app-actions">
-                  <button
-                    className={`settings-icon-btn${app.useCliHarness ? " settings-icon-btn--active" : ""}`}
-                    onClick={() =>
-                      handleHarnessToggle(app.id, !app.useCliHarness)
-                    }
-                    title={
-                      app.useCliHarness
-                        ? "Dev Mode: ON (localhost)"
-                        : "Dev Mode: OFF (production)"
-                    }
-                  >
-                    <Terminal size={14} />
-                  </button>
+                  <div className="settings-mode-toggle">
+                    <button
+                      className={`settings-mode-btn${(app.mode ?? "prod") === "prod" ? " settings-mode-btn--active" : ""}`}
+                      onClick={() => handleModeToggle(app.id, "prod")}
+                    >
+                      Prod
+                    </button>
+                    <button
+                      className={`settings-mode-btn${app.mode === "dev" ? " settings-mode-btn--active" : ""}`}
+                      onClick={() => handleModeToggle(app.id, "dev")}
+                    >
+                      Dev
+                    </button>
+                  </div>
                   <button
                     className="settings-icon-btn"
                     onClick={() => setEditingId(app.id)}
@@ -243,7 +243,7 @@ function AppEditForm({
       colorRgb: hexToRgb(color),
       isBuiltIn: app?.isBuiltIn ?? false,
       enabled: app?.enabled ?? true,
-      useCliHarness: app?.useCliHarness ?? true,
+      mode: app?.mode ?? "dev",
     });
   }
 

@@ -106,7 +106,7 @@ export function ComponentLibraryView({
 
     const relativeZones: Record<string, Zone> = JSON.parse(storedZones);
 
-    // Calculate absolute positions (matching ProjectsInteractive layout)
+    // Calculate absolute positions (matching the composition layout)
     const outerPadding = 100;
     const sidebarWidth = 73;
     const screenPadding = 83;
@@ -131,7 +131,7 @@ export function ComponentLibraryView({
     // Log coordinates
     console.log("=== ZONE COORDINATES TO UPDATE ===");
     console.log(
-      "Copy these values and let me know - I'll update ProjectsInteractive.tsx:",
+      "Copy these values and let me know - I'll update the composition.tsx:",
     );
     console.log("");
     Object.entries(absoluteZones).forEach(([key, zone]) => {
@@ -142,7 +142,7 @@ export function ComponentLibraryView({
     console.log("===================================");
 
     alert(
-      `✅ Zone coordinates logged to console!\n\nShare them with me and I'll update ProjectsInteractive.tsx automatically.`,
+      `✅ Zone coordinates logged to console!\n\nShare them with me and I'll update the composition.tsx automatically.`,
     );
   }, [component.width]);
 

@@ -65,6 +65,7 @@ export function useThreadMessages(threadId: string | undefined) {
     queryKey: ["thread-messages", threadId],
     queryFn: () => fetchThreadMessages(threadId!),
     enabled: !!threadId,
+    staleTime: 30_000,
   });
 }
 
@@ -201,6 +202,34 @@ export function useUnarchiveEmail() {
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.map((e) =>
           (e.threadId || e.id) === threadId ? { ...e, isArchived: false } : e,
+        ),
+      );
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+  });
+}
+
+export function useUntrashEmail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/api/emails/${id}/untrash`, { method: "PATCH" }),
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: ["emails"] });
+      const previous = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["emails"],
+      });
+      const target = previous
+        .flatMap(([, data]) => data ?? [])
+        .find((e) => e.id === id);
+      const threadId = target?.threadId || id;
+      qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
+        old?.map((e) =>
+          (e.threadId || e.id) === threadId ? { ...e, isTrashed: false } : e,
         ),
       );
       return { previous };

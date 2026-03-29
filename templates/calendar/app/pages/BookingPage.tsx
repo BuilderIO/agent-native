@@ -18,10 +18,10 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import type { Booking } from "@shared/api";
 
-type Step = "date" | "time" | "info" | "confirmed";
+type Step = "duration" | "date" | "time" | "info" | "confirmed";
 
 export default function BookingPage() {
-  const { slug } = useParams<{ slug: string }>();
+  const { slug, username } = useParams<{ slug: string; username?: string }>();
   const { data: settings, isLoading: settingsLoading } = usePublicSettings();
   const { data: availability, isLoading: availabilityLoading } =
     usePublicAvailability();
@@ -32,14 +32,22 @@ export default function BookingPage() {
   } = usePublicBookingLink(slug);
 
   const [step, setStep] = useState<Step>("date");
+  const hasDurationChoice =
+    bookingLink?.durations && bookingLink.durations.length > 1;
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [confirmedBooking, setConfirmedBooking] = useState<Booking | null>(
     null,
   );
+  const [selectedDuration, setSelectedDuration] = useState<number | null>(null);
 
   const dateStr = selectedDate ? format(selectedDate, "yyyy-MM-dd") : "";
+  const durationOptions =
+    bookingLink?.durations && bookingLink.durations.length > 0
+      ? bookingLink.durations
+      : null;
   const duration =
+    selectedDuration ??
     bookingLink?.duration ??
     availability?.slotDurationMinutes ??
     settings?.defaultEventDuration ??
@@ -93,9 +101,10 @@ export default function BookingPage() {
   }
 
   function handleReset() {
-    setStep("date");
+    setStep(hasDurationChoice ? "duration" : "date");
     setSelectedDate(null);
     setSelectedSlot(null);
+    setSelectedDuration(null);
     setConfirmedBooking(null);
   }
 
@@ -142,32 +151,65 @@ export default function BookingPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             {pageDescription}
           </p>
-          <p className="mt-3 inline-flex rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground">
-            {duration} minute meeting
-          </p>
+          {!hasDurationChoice && (
+            <p className="mt-3 inline-flex rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground">
+              {duration} minute meeting
+            </p>
+          )}
         </div>
 
         {/* Steps */}
         <div className="rounded-xl border border-border bg-card p-6">
           {/* Step indicators */}
-          {step !== "confirmed" && (
-            <div className="mb-6 flex items-center justify-center gap-2">
-              {(["date", "time", "info"] as const).map((s, i) => (
-                <div key={s} className="flex items-center gap-2">
-                  <div
-                    className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium ${
-                      step === s
-                        ? "bg-primary text-primary-foreground"
-                        : ["date", "time", "info"].indexOf(step) > i
-                          ? "bg-primary/20 text-primary"
-                          : "bg-muted text-muted-foreground"
-                    }`}
-                  >
-                    {i + 1}
-                  </div>
-                  {i < 2 && <div className="h-px w-8 bg-border" />}
+          {step !== "confirmed" &&
+            (() => {
+              const steps = hasDurationChoice
+                ? (["duration", "date", "time", "info"] as const)
+                : (["date", "time", "info"] as const);
+              return (
+                <div className="mb-6 flex items-center justify-center gap-2">
+                  {steps.map((s, i) => (
+                    <div key={s} className="flex items-center gap-2">
+                      <div
+                        className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium ${
+                          step === s
+                            ? "bg-primary text-primary-foreground"
+                            : (steps as readonly string[]).indexOf(step) > i
+                              ? "bg-primary/20 text-primary"
+                              : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {i + 1}
+                      </div>
+                      {i < steps.length - 1 && (
+                        <div className="h-px w-8 bg-border" />
+                      )}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              );
+            })()}
+
+          {step === "duration" && durationOptions && (
+            <div>
+              <h3 className="mb-4 text-sm font-medium text-center">
+                Choose a Duration
+              </h3>
+              <div className="grid gap-3">
+                {durationOptions.map((mins) => (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => {
+                      setSelectedDuration(mins);
+                      setStep("date");
+                    }}
+                    className="rounded-xl border border-border px-4 py-3 text-left hover:bg-accent/60 hover:border-primary/30"
+                  >
+                    <p className="text-sm font-medium">{mins} minutes</p>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 

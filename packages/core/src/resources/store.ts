@@ -28,7 +28,7 @@ export interface ResourceMeta {
 
 let _initialized = false;
 
-const DEFAULT_LEARNINGS_MD = `# Learnings
+const DEFAULT_LEARNINGS_SHARED_MD = `# Learnings
 
 User preferences, corrections, and patterns. The agent reads this at the start of every conversation.
 
@@ -41,7 +41,89 @@ Keep this file tidy — revise, consolidate, and remove outdated entries. Don't 
 ## Patterns
 `;
 
-const DEFAULT_AGENTS_MD = `# Agent Instructions
+const DEFAULT_LEARNINGS_PERSONAL_MD = `# My Learnings
+
+Personal preferences, corrections, and patterns — only visible to you.
+
+## Preferences
+
+## Corrections
+
+## Patterns
+`;
+
+const DEFAULT_SKILL_LEARN_MD = `---
+name: learn
+description: >-
+  Update your personal LEARNINGS.md with preferences, corrections, and patterns
+  from this session.
+user-invocable: true
+---
+
+# Learn
+
+Review the current conversation and update your personal \`LEARNINGS.md\` resource with anything worth remembering for future sessions.
+
+## What to capture
+
+- **Preferences** — tone, style, workflow habits, personal context
+- **Corrections** — "no, do it this way" → capture the right way
+- **Patterns** — recurring approaches, decisions, API quirks
+- **Contacts** — names, emails, relationships mentioned
+
+## What NOT to capture
+
+- Things obvious from reading the code
+- Standard language/framework behavior
+- Temporary debugging notes
+- Anything already in AGENTS.md or other skills
+
+## Steps
+
+1. Read your personal learnings: \`pnpm script resource-read --path LEARNINGS.md\`
+2. Review the conversation for new insights
+3. Merge new learnings with existing ones — don't duplicate, refine existing entries
+4. Write back: \`pnpm script resource-write --path LEARNINGS.md --content "..."\`
+
+Keep entries concise — one line per learning, grouped by category (Preferences, Corrections, Patterns).
+`;
+
+const DEFAULT_SKILL_LEARN_SHARED_MD = `---
+name: learn-shared
+description: >-
+  Update the shared LEARNINGS.md with team-wide preferences, corrections, and
+  patterns from this session.
+user-invocable: true
+---
+
+# Learn (Shared)
+
+Review the current conversation and update the shared \`LEARNINGS.md\` resource with anything the whole team should know.
+
+## What to capture
+
+- **Team conventions** — agreed-upon approaches, code style decisions
+- **Technical learnings** — API quirks, library gotchas, surprising behavior
+- **Architectural decisions** — why something is done a certain way
+- **Corrections** — mistakes that any team member's agent should avoid
+
+## What NOT to capture
+
+- Personal preferences (use \`/learn\` for those)
+- Things obvious from reading the code
+- Standard language/framework behavior
+
+## Steps
+
+1. Read shared learnings: \`pnpm script resource-read --path LEARNINGS.md --scope shared\`
+2. Review the conversation for team-relevant insights
+3. Merge new learnings with existing ones — don't duplicate, refine existing entries
+4. Write back: \`pnpm script resource-write --path LEARNINGS.md --scope shared --content "..."\`
+
+Keep entries concise — one line per learning, grouped by category (Conventions, Technical, Patterns).
+`;
+
+const DEFAULT_AGENTS_SHARED_MD = `# Agent Instructions
 
 This file customizes how the AI agent behaves in this app. Edit it to add your own instructions, preferences, and context.
 
@@ -78,6 +160,23 @@ We sell B2B SaaS. Our customers are enterprise engineering teams.
 \`\`\`
 `;
 
+const DEFAULT_AGENTS_PERSONAL_MD = `# My Agent Instructions
+
+Personal agent instructions — only visible to you. Use this for your own contacts, preferences, and context.
+
+## Contacts
+
+Add people you frequently interact with so the agent can resolve names like "email my wife" or "message John":
+
+| Name | Email | Notes |
+|------|-------|-------|
+| *(add your contacts here)* | | |
+
+## Preferences
+
+## Context
+`;
+
 async function ensureTable(): Promise<void> {
   if (_initialized) return;
   const client = getDbExec();
@@ -102,14 +201,14 @@ async function ensureTable(): Promise<void> {
     : `INSERT OR IGNORE INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
 
   // AGENTS.md — shared agent instructions
-  const agentsSize = Buffer.byteLength(DEFAULT_AGENTS_MD, "utf8");
+  const agentsSize = Buffer.byteLength(DEFAULT_AGENTS_SHARED_MD, "utf8");
   await client.execute({
     sql: seedSql,
     args: [
       crypto.randomUUID(),
       "AGENTS.md",
       SHARED_OWNER,
-      DEFAULT_AGENTS_MD,
+      DEFAULT_AGENTS_SHARED_MD,
       "text/markdown",
       agentsSize,
       now,
@@ -118,14 +217,14 @@ async function ensureTable(): Promise<void> {
   });
 
   // LEARNINGS.md — shared learnings (preferences, corrections, patterns)
-  const learningsSize = Buffer.byteLength(DEFAULT_LEARNINGS_MD, "utf8");
+  const learningsSize = Buffer.byteLength(DEFAULT_LEARNINGS_SHARED_MD, "utf8");
   await client.execute({
     sql: seedSql,
     args: [
       crypto.randomUUID(),
       "LEARNINGS.md",
       SHARED_OWNER,
-      DEFAULT_LEARNINGS_MD,
+      DEFAULT_LEARNINGS_SHARED_MD,
       "text/markdown",
       learningsSize,
       now,
@@ -133,7 +232,93 @@ async function ensureTable(): Promise<void> {
     ],
   });
 
+  // skills/learn-shared.md — shared skill for updating shared LEARNINGS.md
+  const learnSharedSize = Buffer.byteLength(
+    DEFAULT_SKILL_LEARN_SHARED_MD,
+    "utf8",
+  );
+  await client.execute({
+    sql: seedSql,
+    args: [
+      crypto.randomUUID(),
+      "skills/learn-shared.md",
+      SHARED_OWNER,
+      DEFAULT_SKILL_LEARN_SHARED_MD,
+      "text/markdown",
+      learnSharedSize,
+      now,
+      now,
+    ],
+  });
+
   _initialized = true;
+}
+
+const _personalSeeded = new Set<string>();
+
+/**
+ * Seed personal AGENTS.md and LEARNINGS.md for a user if they don't exist.
+ * Called when listing resources or from the agent chat plugin.
+ */
+export async function ensurePersonalDefaults(owner: string): Promise<void> {
+  if (owner === SHARED_OWNER || _personalSeeded.has(owner)) return;
+  _personalSeeded.add(owner);
+  await ensureTable();
+
+  const client = getDbExec();
+  const now = Date.now();
+  const seedSql = isPostgres()
+    ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`
+    : `INSERT OR IGNORE INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+
+  const agentsSize = Buffer.byteLength(DEFAULT_AGENTS_PERSONAL_MD, "utf8");
+  await client.execute({
+    sql: seedSql,
+    args: [
+      crypto.randomUUID(),
+      "AGENTS.md",
+      owner,
+      DEFAULT_AGENTS_PERSONAL_MD,
+      "text/markdown",
+      agentsSize,
+      now,
+      now,
+    ],
+  });
+
+  const learningsSize = Buffer.byteLength(
+    DEFAULT_LEARNINGS_PERSONAL_MD,
+    "utf8",
+  );
+  await client.execute({
+    sql: seedSql,
+    args: [
+      crypto.randomUUID(),
+      "LEARNINGS.md",
+      owner,
+      DEFAULT_LEARNINGS_PERSONAL_MD,
+      "text/markdown",
+      learningsSize,
+      now,
+      now,
+    ],
+  });
+
+  // skills/learn.md — personal skill for updating personal LEARNINGS.md
+  const learnSize = Buffer.byteLength(DEFAULT_SKILL_LEARN_MD, "utf8");
+  await client.execute({
+    sql: seedSql,
+    args: [
+      crypto.randomUUID(),
+      "skills/learn.md",
+      owner,
+      DEFAULT_SKILL_LEARN_MD,
+      "text/markdown",
+      learnSize,
+      now,
+      now,
+    ],
+  });
 }
 
 function rowToResource(row: any): Resource {

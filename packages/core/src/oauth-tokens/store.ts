@@ -58,11 +58,19 @@ export async function saveOAuthTokens(
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
-  const resolvedOwner = owner ?? accountId;
 
-  // If this account was previously linked to a different session identity
-  // (e.g. local@localhost in dev vs real email in production), just re-link it.
-  // These are single-user apps — no need to guard against cross-user linking.
+  // When owner is not provided (e.g. during token refresh), preserve the existing
+  // owner so secondary accounts don't get silently re-assigned to accountId.
+  let resolvedOwner = owner ?? accountId;
+  if (!owner) {
+    const { rows: existing } = await client.execute({
+      sql: `SELECT owner FROM oauth_tokens WHERE provider = ? AND account_id = ?`,
+      args: [provider, accountId],
+    });
+    if (existing.length > 0 && existing[0].owner) {
+      resolvedOwner = existing[0].owner as string;
+    }
+  }
 
   await client.execute({
     sql: isPostgres()

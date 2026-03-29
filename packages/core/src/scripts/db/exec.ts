@@ -4,6 +4,10 @@
  * Execute a write SQL statement (INSERT, UPDATE, DELETE, etc.)
  * against a SQLite or Postgres database.
  *
+ * In production mode, temporary views scope UPDATE/DELETE to the current
+ * user's data (AGENT_USER_EMAIL). For INSERT, the `owner_email` column
+ * is auto-injected if the target table uses the ownership convention.
+ *
  * Usage:
  *   pnpm script db-exec --sql "UPDATE forms SET status='published' WHERE id='abc'" [--db path]
  */
@@ -11,9 +15,106 @@
 import path from "path";
 import { createClient } from "@libsql/client";
 import { parseArgs, fail } from "../utils.js";
+import {
+  buildScopingPostgres,
+  buildScopingSqlite,
+  type ScopingContext,
+} from "./scoping.js";
 
 function isPostgresUrl(url: string): boolean {
   return url.startsWith("postgres://") || url.startsWith("postgresql://");
+}
+
+/**
+ * For INSERT statements targeting a table with an owner_email column,
+ * auto-inject the current user's email if not already present.
+ *
+ * Handles both forms:
+ *   INSERT INTO table (col1, col2) VALUES (?, ?)
+ *   INSERT INTO table VALUES (...)
+ */
+function injectOwnerEmail(sql: string, scoping: ScopingContext): string {
+  if (!scoping.active || !scoping.userEmail) return sql;
+
+  const upper = sql
+    .replace(/^\s*--[^\n]*\n/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .trim()
+    .toUpperCase();
+  if (!upper.startsWith("INSERT")) return sql;
+
+  // Extract table name: INSERT INTO <table> ...
+  const match = sql.match(/INSERT\s+INTO\s+["']?(\w+)["']?/i);
+  if (!match) return sql;
+
+  const tableName = match[1];
+  if (!scoping.ownerEmailTables.has(tableName)) return sql;
+
+  // Check if owner_email is already in the column list
+  if (/owner_email/i.test(sql)) return sql;
+
+  // Try to inject into explicit column list: INSERT INTO t (cols) VALUES (vals)
+  const colListMatch = sql.match(
+    /(INSERT\s+INTO\s+["']?\w+["']?\s*)\(([^)]+)\)(\s*VALUES\s*)\(([^)]+)\)/i,
+  );
+  if (colListMatch) {
+    const [, prefix, cols, valueKeyword, vals] = colListMatch;
+    const escaped = scoping.userEmail.replace(/'/g, "''");
+    return `${prefix}(${cols}, owner_email)${valueKeyword}(${vals}, '${escaped}')`;
+  }
+
+  return sql;
+}
+
+function printResult(
+  sql: string,
+  result: {
+    count?: number;
+    rowsAffected?: number;
+    lastInsertRowid?: bigint | number;
+    rows?: Record<string, unknown>[];
+  },
+  hasReturning: boolean,
+  format?: string,
+) {
+  if (hasReturning && result.rows && result.rows.length > 0) {
+    if (format === "json") {
+      console.log(
+        JSON.stringify(
+          { sql, rows: result.rows, count: result.rows.length },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+    console.log(`Executed: ${sql}`);
+    console.log(`Returned ${result.rows.length} row(s):`);
+    console.log(JSON.stringify(result.rows, null, 2));
+  } else {
+    const changes = result.count ?? result.rowsAffected ?? 0;
+    if (format === "json") {
+      console.log(
+        JSON.stringify(
+          {
+            sql,
+            changes,
+            ...(result.lastInsertRowid && changes > 0
+              ? { lastInsertRowid: Number(result.lastInsertRowid) }
+              : {}),
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+    console.log(`Executed: ${sql}`);
+    console.log(`Changes: ${changes}`);
+    if (result.lastInsertRowid && changes > 0) {
+      console.log(`Last Insert Row ID: ${result.lastInsertRowid}`);
+    }
+  }
 }
 
 export default async function dbExec(args: string[]): Promise<void> {
@@ -68,7 +169,6 @@ Options:
     url = "file:" + path.resolve(process.cwd(), "data", "app.db");
   }
 
-  // Detect if the SQL has a RETURNING clause — those produce rows
   const hasReturning = /\bRETURNING\b/i.test(stripped);
 
   // Postgres path
@@ -76,38 +176,30 @@ Options:
     const { default: pg } = await import("postgres");
     const pgSql = pg(url);
     try {
-      const result = await pgSql.unsafe(sql);
+      // Set up user-scoped temp views in production
+      const scoping = await buildScopingPostgres(pgSql);
 
-      if (hasReturning && result.length > 0) {
-        const rows: Record<string, unknown>[] = Array.from(result);
+      // For UPDATE/DELETE: temp views scope to current user's rows
+      for (const stmt of scoping.setup) {
+        await pgSql.unsafe(stmt);
+      }
 
-        if (parsed.format === "json") {
-          console.log(
-            JSON.stringify({ sql, rows, count: rows.length }, null, 2),
-          );
-          return;
-        }
-        console.log(`Executed: ${sql}`);
-        console.log(`Returned ${rows.length} row(s):`);
-        if (rows.length > 0) {
-          console.log(JSON.stringify(rows, null, 2));
-        }
-      } else {
-        if (parsed.format === "json") {
-          console.log(
-            JSON.stringify(
-              {
-                sql,
-                changes: result.count ?? 0,
-              },
-              null,
-              2,
-            ),
-          );
-          return;
-        }
-        console.log(`Executed: ${sql}`);
-        console.log(`Changes: ${result.count ?? 0}`);
+      // For INSERT: auto-inject owner_email
+      const finalSql = injectOwnerEmail(sql, scoping);
+
+      const result = await pgSql.unsafe(finalSql);
+      const rows: Record<string, unknown>[] =
+        hasReturning && result.length > 0 ? Array.from(result) : [];
+
+      printResult(
+        finalSql,
+        { count: result.count ?? 0, rows },
+        hasReturning,
+        parsed.format,
+      );
+
+      for (const stmt of scoping.teardown) {
+        await pgSql.unsafe(stmt).catch(() => {});
       }
     } finally {
       await pgSql.end();
@@ -122,46 +214,41 @@ Options:
   });
 
   try {
-    const result = await client.execute(sql);
+    // Set up user-scoped temp views in production
+    const scoping = await buildScopingSqlite(client);
+    for (const stmt of scoping.setup) {
+      await client.execute(stmt);
+    }
 
-    if (hasReturning && result.rows.length > 0) {
-      const rows: Record<string, unknown>[] = result.rows.map((row) => {
-        const obj: Record<string, unknown> = {};
-        for (let i = 0; i < result.columns.length; i++) {
-          obj[result.columns[i]] = row[i];
-        }
-        return obj;
-      });
+    // For INSERT: auto-inject owner_email
+    const finalSql = injectOwnerEmail(sql, scoping);
 
-      if (parsed.format === "json") {
-        console.log(JSON.stringify({ sql, rows, count: rows.length }, null, 2));
-        return;
-      }
-      console.log(`Executed: ${sql}`);
-      console.log(`Returned ${rows.length} row(s):`);
-      if (rows.length > 0) {
-        console.log(JSON.stringify(rows, null, 2));
-      }
-    } else {
-      if (parsed.format === "json") {
-        console.log(
-          JSON.stringify(
-            {
-              sql,
-              changes: result.rowsAffected,
-              lastInsertRowid: Number(result.lastInsertRowid ?? 0),
-            },
-            null,
-            2,
-          ),
-        );
-        return;
-      }
-      console.log(`Executed: ${sql}`);
-      console.log(`Changes: ${result.rowsAffected}`);
-      if (result.lastInsertRowid && result.rowsAffected > 0) {
-        console.log(`Last Insert Row ID: ${result.lastInsertRowid}`);
-      }
+    const result = await client.execute(finalSql);
+
+    const rows: Record<string, unknown>[] =
+      hasReturning && result.rows.length > 0
+        ? result.rows.map((row) => {
+            const obj: Record<string, unknown> = {};
+            for (let i = 0; i < result.columns.length; i++) {
+              obj[result.columns[i]] = row[i];
+            }
+            return obj;
+          })
+        : [];
+
+    printResult(
+      finalSql,
+      {
+        rowsAffected: result.rowsAffected,
+        lastInsertRowid: result.lastInsertRowid,
+        rows,
+      },
+      hasReturning,
+      parsed.format,
+    );
+
+    for (const stmt of scoping.teardown) {
+      await client.execute(stmt).catch(() => {});
     }
   } finally {
     client.close();

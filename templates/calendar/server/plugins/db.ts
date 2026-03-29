@@ -30,4 +30,8 @@ export default runMigrations([
     updated_at TEXT NOT NULL
   )`,
   },
+  {
+    version: 3,
+    sql: `ALTER TABLE booking_links ADD COLUMN durations TEXT`,
+  },
 ]);
