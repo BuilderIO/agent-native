@@ -19,7 +19,8 @@ export function useAvailableSlots(date: string, duration: number) {
       const params = new URLSearchParams({ date, duration: String(duration) });
       const res = await fetch(`/api/bookings/available-slots?${params}`);
       if (!res.ok) throw new Error("Failed to fetch available slots");
-      return res.json();
+      const data = await res.json();
+      return Array.isArray(data) ? data : (data.slots ?? []);
     },
     enabled: !!date,
   });

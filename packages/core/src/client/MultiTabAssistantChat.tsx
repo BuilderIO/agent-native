@@ -298,6 +298,7 @@ export function MultiTabAssistantChat({
             style={{ display: contentHidden ? "none" : "flex" }}
           >
             <AssistantChat
+              {...props}
               key={activeThreadId}
               ref={(handle) => {
                 chatRef.current = handle;
@@ -313,7 +314,6 @@ export function MultiTabAssistantChat({
                 )
               }
               onSaveThread={handleSaveThread}
-              {...props}
             />
           </div>
         )}

@@ -24,6 +24,8 @@ import {
   isToday,
   isBefore,
   addDays,
+  addMonths,
+  subMonths,
   format,
   startOfDay,
   getDay,
@@ -990,14 +992,27 @@ function BookingPreview({
   const hasDurationChoice = durations.length > 1;
   const primaryDuration = durations[0] ?? 30;
 
-  // Mini calendar data for the current month
   const today = startOfDay(new Date());
-  const monthStart = startOfMonth(today);
-  const monthEnd = endOfMonth(today);
+  const maxDate = addDays(today, availability?.maxAdvanceDays ?? 60);
+
+  // Interactive state
+  const [viewMonth, setViewMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [selectedDuration, setSelectedDuration] = useState<number | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+
+  // Reset selections when durations change
+  useEffect(() => {
+    setSelectedDuration(null);
+    setSelectedSlot(null);
+  }, [durations.join(",")]);
+
+  // Calendar data for viewed month
+  const monthStart = startOfMonth(viewMonth);
+  const monthEnd = endOfMonth(viewMonth);
   const calStart = startOfWeek(monthStart);
   const calEnd = endOfWeek(monthEnd);
   const calDays = eachDayOfInterval({ start: calStart, end: calEnd });
-  const maxDate = addDays(today, availability?.maxAdvanceDays ?? 60);
 
   function isDayDisabled(day: Date) {
     if (isBefore(day, today)) return true;
@@ -1009,8 +1024,44 @@ function BookingPreview({
     return false;
   }
 
-  // Fake time slots for the preview
-  const fakeSlots = ["9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM"];
+  // Generate realistic time slots based on availability
+  const timeSlots = useMemo(() => {
+    if (!selectedDate || !availability) {
+      return ["9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM"];
+    }
+    const dayName = DAY_MAP[getDay(selectedDate)];
+    const daySchedule = availability.weeklySchedule[dayName];
+    if (!daySchedule?.enabled) return [];
+    const slot = daySchedule.slots[0];
+    if (!slot) return [];
+
+    const dur = selectedDuration ?? primaryDuration;
+    const [startH, startM] = slot.start.split(":").map(Number);
+    const [endH, endM] = slot.end.split(":").map(Number);
+    const startMin = startH * 60 + startM;
+    const endMin = endH * 60 + endM;
+    const slots: string[] = [];
+    for (let m = startMin; m + dur <= endMin; m += dur) {
+      const h = Math.floor(m / 60);
+      const mm = m % 60;
+      const ampm = h >= 12 ? "PM" : "AM";
+      const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+      slots.push(`${h12}:${mm.toString().padStart(2, "0")} ${ampm}`);
+    }
+    return slots;
+  }, [selectedDate, selectedDuration, primaryDuration, availability]);
+
+  // Determine which step to show
+  type Step = "duration" | "date" | "time" | "info";
+  let step: Step = "date";
+  if (hasDurationChoice && selectedDuration === null) step = "duration";
+  else if (!selectedDate) step = "date";
+  else if (!selectedSlot) step = "time";
+  else step = "info";
+
+  const steps: Step[] = hasDurationChoice
+    ? ["duration", "date", "time", "info"]
+    : ["date", "time", "info"];
 
   return (
     <div className="rounded-2xl border border-border overflow-hidden bg-card">
@@ -1026,7 +1077,7 @@ function BookingPreview({
         )}
       </div>
 
-      {/* Simulated booking page */}
+      {/* Interactive booking page preview */}
       <div
         className={cn(
           "p-6 space-y-5",
@@ -1053,103 +1104,214 @@ function BookingPreview({
           )}
         </div>
 
-        {/* Duration choice step (when multiple durations) */}
-        {hasDurationChoice && (
+        {/* Step indicators */}
+        <div className="flex items-center justify-center gap-2">
+          {steps.map((s, i) => (
+            <div key={s} className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  // Allow clicking back to previous steps
+                  if (s === "duration") {
+                    setSelectedDuration(null);
+                    setSelectedDate(null);
+                    setSelectedSlot(null);
+                  } else if (s === "date") {
+                    setSelectedDate(null);
+                    setSelectedSlot(null);
+                  } else if (s === "time") {
+                    setSelectedSlot(null);
+                  }
+                }}
+                className={cn(
+                  "flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-medium",
+                  step === s
+                    ? "bg-primary text-primary-foreground"
+                    : steps.indexOf(step) > i
+                      ? "bg-primary/20 text-primary cursor-pointer hover:bg-primary/30"
+                      : "bg-muted text-muted-foreground",
+                )}
+              >
+                {i + 1}
+              </button>
+              {i < steps.length - 1 && <div className="h-px w-6 bg-border" />}
+            </div>
+          ))}
+        </div>
+
+        {/* Duration step */}
+        {step === "duration" && (
           <div className="space-y-2">
             <p className="text-xs font-medium text-center text-muted-foreground">
               Choose a Duration
             </p>
             <div className="space-y-1.5">
               {durations.map((mins) => (
-                <div
+                <button
                   key={mins}
-                  className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground"
+                  type="button"
+                  onClick={() => setSelectedDuration(mins)}
+                  className="w-full rounded-lg border border-border px-3 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-accent/60 hover:border-primary/30"
                 >
                   {mins} minutes
-                </div>
+                </button>
               ))}
             </div>
           </div>
         )}
 
-        {/* Separator */}
-        {hasDurationChoice && (
-          <div className="border-t border-dashed border-border/60" />
+        {/* Date step */}
+        {step === "date" && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-center text-muted-foreground">
+              Select a Date
+            </p>
+            <div className="rounded-lg border border-border/60 p-3">
+              {/* Month navigation */}
+              <div className="flex items-center justify-between mb-2">
+                <button
+                  type="button"
+                  onClick={() => setViewMonth((m) => subMonths(m, 1))}
+                  className="p-1 rounded hover:bg-accent/60"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+                <span className="text-xs font-medium">
+                  {format(viewMonth, "MMMM yyyy")}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setViewMonth((m) => addMonths(m, 1))}
+                  className="p-1 rounded hover:bg-accent/60"
+                >
+                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </div>
+
+              {/* Weekday headers */}
+              <div className="grid grid-cols-7 mb-0.5">
+                {WEEKDAY_HEADERS.map((d) => (
+                  <div
+                    key={d}
+                    className="py-0.5 text-center text-[10px] font-medium text-muted-foreground/60"
+                  >
+                    {d}
+                  </div>
+                ))}
+              </div>
+
+              {/* Days grid */}
+              <div className="grid grid-cols-7 gap-px">
+                {calDays.map((day) => {
+                  const inMonth = isSameMonth(day, viewMonth);
+                  const disabled = isDayDisabled(day);
+                  const isTodayMark = isToday(day);
+
+                  return (
+                    <button
+                      key={day.toISOString()}
+                      type="button"
+                      disabled={!inMonth || disabled}
+                      onClick={() => {
+                        setSelectedDate(day);
+                        setSelectedSlot(null);
+                      }}
+                      className={cn(
+                        "flex h-7 items-center justify-center rounded text-[11px]",
+                        !inMonth && "opacity-0 pointer-events-none",
+                        inMonth && disabled && "text-muted-foreground/30",
+                        inMonth &&
+                          !disabled &&
+                          "text-muted-foreground cursor-pointer hover:bg-accent/60",
+                        isTodayMark &&
+                          !disabled &&
+                          "border border-primary/40 text-foreground font-medium",
+                      )}
+                    >
+                      {format(day, "d")}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         )}
 
-        {/* Date picker preview */}
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-center text-muted-foreground">
-            Select a Date
-          </p>
-          <div className="rounded-lg border border-border/60 p-3">
-            {/* Month header */}
-            <div className="flex items-center justify-between mb-2">
-              <ChevronLeft className="h-3.5 w-3.5 text-muted-foreground/50" />
-              <span className="text-xs font-medium">
-                {format(today, "MMMM yyyy")}
-              </span>
-              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50" />
+        {/* Time step */}
+        {step === "time" && selectedDate && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-muted-foreground">
+                {format(selectedDate, "EEEE, MMM d")}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedDate(null);
+                  setSelectedSlot(null);
+                }}
+                className="text-[11px] text-primary hover:underline"
+              >
+                Change date
+              </button>
             </div>
-
-            {/* Weekday headers */}
-            <div className="grid grid-cols-7 mb-0.5">
-              {WEEKDAY_HEADERS.map((d) => (
-                <div
-                  key={d}
-                  className="py-0.5 text-center text-[10px] font-medium text-muted-foreground/60"
-                >
-                  {d}
-                </div>
-              ))}
-            </div>
-
-            {/* Days grid */}
-            <div className="grid grid-cols-7 gap-px">
-              {calDays.map((day) => {
-                const inMonth = isSameMonth(day, today);
-                const disabled = isDayDisabled(day);
-                const isTodayMark = isToday(day);
-
-                return (
-                  <div
-                    key={day.toISOString()}
+            {timeSlots.length > 0 ? (
+              <div className="grid grid-cols-3 gap-1.5">
+                {timeSlots.map((slot) => (
+                  <button
+                    key={slot}
+                    type="button"
+                    onClick={() => setSelectedSlot(slot)}
                     className={cn(
-                      "flex h-7 items-center justify-center rounded text-[11px]",
-                      !inMonth && "opacity-0",
-                      inMonth && disabled && "text-muted-foreground/30",
-                      inMonth &&
-                        !disabled &&
-                        "text-muted-foreground hover:bg-accent/40",
-                      isTodayMark &&
-                        !disabled &&
-                        "border border-primary/40 text-foreground font-medium",
+                      "rounded-md border px-2 py-1.5 text-center text-[11px] cursor-pointer",
+                      selectedSlot === slot
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border/60 text-muted-foreground hover:bg-accent/60 hover:border-primary/30",
                     )}
                   >
-                    {format(day, "d")}
-                  </div>
-                );
-              })}
+                    {slot}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-center text-xs text-muted-foreground py-4">
+                No availability on this day
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Info step (preview only — just shows the form shape) */}
+        {step === "info" && selectedDate && selectedSlot && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-muted-foreground">
+                {format(selectedDate, "EEEE, MMM d")} at {selectedSlot}
+              </p>
+              <button
+                type="button"
+                onClick={() => setSelectedSlot(null)}
+                className="text-[11px] text-primary hover:underline"
+              >
+                Change time
+              </button>
+            </div>
+            <div className="space-y-2">
+              <div className="rounded-md border border-border/60 px-3 py-2 text-[11px] text-muted-foreground/50">
+                Name
+              </div>
+              <div className="rounded-md border border-border/60 px-3 py-2 text-[11px] text-muted-foreground/50">
+                Email
+              </div>
+              <div className="rounded-md border border-border/60 px-3 py-2 text-[11px] text-muted-foreground/50 h-14">
+                Notes (optional)
+              </div>
+            </div>
+            <div className="rounded-md bg-primary/10 border border-primary/20 px-3 py-2 text-center text-[11px] font-medium text-primary">
+              Confirm Booking
             </div>
           </div>
-        </div>
-
-        {/* Fake time slots */}
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-center text-muted-foreground">
-            Available Times
-          </p>
-          <div className="grid grid-cols-3 gap-1.5">
-            {fakeSlots.map((slot) => (
-              <div
-                key={slot}
-                className="rounded-md border border-border/60 px-2 py-1.5 text-center text-[11px] text-muted-foreground"
-              >
-                {slot}
-              </div>
-            ))}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
