@@ -85,27 +85,37 @@ export const handleGoogleCallback = defineEventHandler(
         `${getOrigin(event)}/api/google/callback`,
       );
 
-      // In dev mode, getSession returns "local@localhost" — use that as owner
-      // so getAuthStatus("local@localhost") finds the tokens.
-      // In production, session is null here (user isn't logged in yet),
-      // so owner defaults to the Google email (which becomes the session email).
+      // Determine the owner for this OAuth account:
+      // - Dev mode ("local@localhost"): always use "local@localhost" so all
+      //   accounts are grouped under the dev session.
+      // - Production with existing session: use the existing session email as
+      //   owner so this account is added alongside existing accounts.
+      // - Production without session (first login): owner defaults to the
+      //   Google email itself (becomes both owner and session identity).
       const existingSession = await getSession(event);
-      const owner =
-        existingSession?.email !== "local@localhost"
-          ? undefined // production: owner = google email (default)
-          : "local@localhost"; // dev: owner = dev session
+      const isDevSession = existingSession?.email === "local@localhost";
+      const hasProductionSession = existingSession?.email && !isDevSession;
+      const owner = isDevSession
+        ? "local@localhost"
+        : hasProductionSession
+          ? existingSession.email
+          : undefined;
       const email = await exchangeCode(code, undefined, redirectUri, owner);
 
-      // Create a session tied to this Google email
-      const sessionToken = crypto.randomBytes(32).toString("hex");
-      await addSession(sessionToken, email);
-      setCookie(event, "an_session", sessionToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: 60 * 60 * 24 * 30, // 30 days
-      });
+      // Only create a new session when there isn't one already.
+      // If the user already has a session (adding another account via this
+      // flow), keep the existing session so the owner stays consistent.
+      if (!hasProductionSession) {
+        const sessionToken = crypto.randomBytes(32).toString("hex");
+        await addSession(sessionToken, email);
+        setCookie(event, "an_session", sessionToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 60 * 60 * 24 * 30, // 30 days
+        });
+      }
 
       // If this looks like a mobile request, redirect via the native app scheme
       // so Safari bounces back to the app instead of staying on the web page.

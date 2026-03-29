@@ -246,8 +246,8 @@ export function CommandMenu({
     items.forEach((item, i) => {
       const el = item as HTMLElement;
       if (i === selectedIndex) {
-        el.style.backgroundColor = "var(--accent)";
-        el.style.color = "var(--accent-foreground)";
+        el.style.backgroundColor = "hsl(var(--accent))";
+        el.style.color = "hsl(var(--accent-foreground))";
       } else {
         el.style.backgroundColor = "";
         el.style.color = "";
