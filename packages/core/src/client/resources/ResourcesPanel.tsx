@@ -688,6 +688,10 @@ export function ResourcesPanel() {
                 onSave={handleSave}
               />
             </div>
+          ) : resourceQuery.isError ? (
+            <div className="flex flex-1 items-center justify-center text-[12px] text-destructive/70">
+              Failed to load resource
+            </div>
           ) : (
             <div className="flex flex-1 items-center justify-center text-[12px] text-muted-foreground/50">
               Loading...

@@ -107,18 +107,18 @@ Agent-native apps follow these rules:
 - **Production ready** — Built-in auth, OAuth, cloud databases, and deployment presets. Same code runs locally and in production.
 - **Agent + UI + Computer** — The powerful trio. Everything the UI can do, the agent can do — and vice versa.
 
-## Harnesses
+## Run Anywhere
 
-Agent-native apps run inside a **harness** — a host that provides the AI agent alongside your app UI.
+Every agent-native app includes an embedded agent panel with chat and optional CLI terminal.
 
-| | Open Source | Builder Cloud |
+| | Local | Builder Cloud |
 |---|---|---|
-| **Run** | CLI harness (Claude Code, Codex, Gemini, etc.) | One-click launch from templates |
+| **Run** | `pnpm dev` — agent panel embedded in app | One-click launch from templates |
 | **Database** | Local SQLite or cloud DB via `DATABASE_URL` | Managed cloud database |
 | **Auth** | Built-in (ACCESS_TOKEN) or bring your own | Managed auth + roles |
 | **Best for** | Development, self-hosted production, OSS | Teams, managed production |
 
-Your app code is identical regardless of harness. Start local, go to cloud when you need teams.
+Your app code is identical regardless of environment. Start local, go to cloud when you need teams.
 
 ## Docs
 

@@ -60,6 +60,15 @@ export {
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
 export {
+  createThread,
+  getThread,
+  listThreads,
+  updateThreadData,
+  deleteThread,
+  type ChatThread,
+  type ChatThreadSummary,
+} from "../chat-threads/store.js";
+export {
   createFileSyncPlugin,
   defaultFileSyncPlugin,
 } from "./file-sync-plugin.js";

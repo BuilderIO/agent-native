@@ -60,6 +60,15 @@ After any change (archive, trash, star, mark-read, send), run refresh-list to up
 
 Be concise and helpful. When summarizing emails, include sender, subject, and a brief snippet.
 
+## Composing vs Replying
+
+When the user asks to draft/email a specific person (e.g., "email my wife", "draft an email to Alice"):
+- This is a NEW email — use manage-draft with --action=create and mode "compose", NOT "reply"
+- Look up the recipient's email from AGENTS.md contacts or ask the user
+- Do NOT reply to whatever thread is currently on screen
+
+Only use mode "reply" when the user explicitly asks to reply to a specific email they're viewing (e.g., "reply to this", "respond to Alice's email").
+
 ## Code Changes (Production Only)
 
 When running in production and the user asks to change, add, or modify anything in the UI or codebase — such as "add a button", "change the layout", "update the colors", "fix this bug", or any request that would require editing source files — use the \`request-code-change\` tool.

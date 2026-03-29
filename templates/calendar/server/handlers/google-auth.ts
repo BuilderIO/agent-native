@@ -37,9 +37,18 @@ function errorPage(message: string): string {
   </body></html>`;
 }
 
-/** HTML page shown after OAuth completes in the system browser (desktop app flow). */
-function desktopSuccessPage(email?: string): Response {
+/** HTML page shown after OAuth completes in the system browser (desktop app flow).
+ *  When a session token is provided, redirects via the `agentnative://` deep link
+ *  so the Electron app can inject the session cookie into its webview. */
+function desktopSuccessPage(email?: string, sessionToken?: string): Response {
   const msg = email ? `Connected ${email}!` : "Connected!";
+  if (sessionToken) {
+    const deepLink = `agentnative://oauth-complete?token=${sessionToken}`;
+    return new Response(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:12px"><p style="font-size:16px">${msg}</p><a href=${JSON.stringify(deepLink)} style="display:inline-block;margin-top:8px;padding:10px 24px;background:#fff;color:#000;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">Open Agent Native</a><p style="font-size:12px;color:#666;margin-top:4px">If the app didn\u2019t open automatically, click the button above.</p><script>window.location.href=${JSON.stringify(deepLink)}</script></body></html>`,
+      { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
+    );
+  }
   return new Response(
     `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`,
     { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
@@ -51,6 +60,7 @@ function encodeState(
   redirectUri: string,
   owner?: string,
   desktop?: boolean,
+  addAccount?: boolean,
 ): string {
   const nonce = crypto.randomBytes(8).toString("hex");
   const payload: Record<string, string | boolean> = {
@@ -59,14 +69,20 @@ function encodeState(
   };
   if (owner) payload.o = owner;
   if (desktop) payload.d = true;
+  if (addAccount) payload.a = true;
   return Buffer.from(JSON.stringify(payload)).toString("base64url");
 }
 
-/** Recover the redirect URI and optional owner from the state param. */
+/** Recover the redirect URI, optional owner, and flags from the state param. */
 function decodeState(
   stateParam: string | undefined,
   fallbackUri: string,
-): { redirectUri: string; owner?: string; desktop?: boolean } {
+): {
+  redirectUri: string;
+  owner?: string;
+  desktop?: boolean;
+  addAccount?: boolean;
+} {
   if (stateParam) {
     try {
       const parsed = JSON.parse(
@@ -76,13 +92,14 @@ function decodeState(
         redirectUri: parsed.r || fallbackUri,
         owner: parsed.o || undefined,
         desktop: !!parsed.d,
+        addAccount: !!parsed.a,
       };
     } catch {}
   }
   return { redirectUri: fallbackUri };
 }
 
-export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
+export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
     setResponseStatus(event, 422);
     return {
@@ -96,7 +113,12 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
     const redirectUri =
       (query.redirect_uri as string) ||
       `${getOrigin(event)}/api/google/callback`;
-    const state = encodeState(redirectUri, undefined, isElectron(event));
+    const session = await getSession(event);
+    const owner =
+      session?.email && session.email !== "local@localhost"
+        ? session.email
+        : undefined;
+    const state = encodeState(redirectUri, owner);
     const url = getAuthUrl(undefined, redirectUri, state);
     return { url };
   } catch (error: any) {
@@ -116,27 +138,38 @@ export const handleGoogleCallback = defineEventHandler(
         return { error: "Missing authorization code" };
       }
 
-      const { redirectUri, desktop } = decodeState(
-        stateParam,
-        `${getOrigin(event)}/api/google/callback`,
-      );
+      const {
+        redirectUri,
+        owner: stateOwner,
+        desktop,
+        addAccount,
+      } = decodeState(stateParam, `${getOrigin(event)}/api/google/callback`);
       const existingSession = await getSession(event);
-      const owner =
-        existingSession?.email !== "local@localhost"
-          ? undefined
-          : "local@localhost";
+      const isDevSession = existingSession?.email === "local@localhost";
+      const hasProductionSession = existingSession?.email && !isDevSession;
+      const owner = isDevSession
+        ? "local@localhost"
+        : hasProductionSession
+          ? existingSession.email
+          : stateOwner || undefined;
       const email = await exchangeCode(code, undefined, redirectUri, owner);
 
-      // Create a session tied to this Google email
-      const sessionToken = crypto.randomBytes(32).toString("hex");
-      await addSession(sessionToken, email);
-      setCookie(event, "an_session", sessionToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: 60 * 60 * 24 * 30, // 30 days
-      });
+      // Only create a new session when there isn't one already AND this
+      // is not an add-account flow.  When adding a secondary account the
+      // user already has a session — the state owner carries their
+      // identity through cookie-less contexts (e.g. system browser).
+      let sessionToken: string | undefined;
+      if (!hasProductionSession && !addAccount) {
+        sessionToken = crypto.randomBytes(32).toString("hex");
+        await addSession(sessionToken, email);
+        setCookie(event, "an_session", sessionToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          path: "/",
+          maxAge: 60 * 60 * 24 * 30, // 30 days
+        });
+      }
 
       // If this looks like a mobile request, redirect via the native app scheme.
       // Pass the session token in the deep link so the app can inject it as a
@@ -144,7 +177,9 @@ export const handleGoogleCallback = defineEventHandler(
       const ua = getHeader(event, "user-agent") || "";
       const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
       if (isMobile) {
-        const deepLink = `agentnative://oauth-complete?token=${sessionToken}`;
+        const deepLink = sessionToken
+          ? `agentnative://oauth-complete?token=${sessionToken}`
+          : `agentnative://oauth-complete`;
         return new Response(
           `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href=${JSON.stringify(deepLink)};setTimeout(function(){window.location.href="/"},1500)</script></body></html>`,
           {
@@ -154,7 +189,20 @@ export const handleGoogleCallback = defineEventHandler(
         );
       }
 
-      if (desktop) return desktopSuccessPage(email);
+      if (desktop) return desktopSuccessPage(email, sessionToken);
+
+      // Add-account web flow: show close-tab page (main tab polls for status)
+      if (addAccount) {
+        const safeEmail = JSON.stringify(email);
+        return `<!DOCTYPE html><html><body><script>
+          window.close();
+          var p = document.createElement('p');
+          p.style.cssText = 'font-family:system-ui;text-align:center;margin-top:40vh';
+          p.textContent = 'Connected ' + ${safeEmail} + '! You can close this tab.';
+          document.body.appendChild(p);
+        </script></body></html>`;
+      }
+
       return sendRedirect(event, "/");
     } catch (error: any) {
       const msg = error.message || "Unknown error";
@@ -196,11 +244,14 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       };
     }
     try {
+      // Use the MAIN callback URL so only one redirect URI needs to be
+      // registered in Google Cloud Console.  The `addAccount` flag in the
+      // state tells the callback not to create a new session.
       const query = getQuery(event);
       const redirectUri =
         (query.redirect_uri as string) ||
-        `${getOrigin(event)}/api/google/add-account/callback`;
-      const state = encodeState(redirectUri, session.email, isElectron(event));
+        `${getOrigin(event)}/api/google/callback`;
+      const state = encodeState(redirectUri, session.email, undefined, true);
       const url = getAuthUrl(undefined, redirectUri, state);
       return { url };
     } catch (error: any) {

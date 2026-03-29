@@ -1,4 +1,5 @@
 import { useSyncExternalStore, useCallback } from "react";
+import { toast } from "sonner";
 
 type UndoAction = (() => void) | null;
 
@@ -35,6 +36,7 @@ export function runUndo() {
   if (currentUndo) {
     currentUndo();
     clearUndoAction();
+    toast.dismiss();
   }
 }
 

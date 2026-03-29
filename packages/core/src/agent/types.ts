@@ -50,6 +50,7 @@ export interface AgentChatRequest {
   message: string;
   history?: AgentMessage[];
   references?: AgentChatReference[];
+  threadId?: string;
 }
 
 export type AgentChatEvent =

@@ -95,11 +95,10 @@ export default function KeyConceptsDocs() {
         </div>
       </div>
       <p>
-        The app runs inside a <strong>harness</strong> — a host environment that
-        provides the agent alongside the app UI. The simplest harness is a
-        terminal on the left (running Claude Code) and your app iframe on the
-        right. Cloud harnesses add collaboration, visual editing, and managed
-        infrastructure for teams.
+        Every app includes an embedded agent panel with chat and optional CLI
+        terminal. Locally, you run <code>pnpm dev</code> and the agent is right
+        there. In the cloud, Builder.io provides a managed harness with
+        collaboration, visual editing, and managed infrastructure for teams.
       </p>
       <p>Five rules govern the architecture:</p>
       <ol className="list-decimal space-y-2 pl-5">
@@ -208,10 +207,9 @@ sendToAgentChat({
         </li>
       </ul>
       <p>
-        The transport is simple: <code>window.parent.postMessage()</code> in the
-        browser. The harness (Claude Code wrapper or Builder) receives the
-        message and types it into the agent. From scripts, the same bridge works
-        via stdout (<code>BUILDER_PARENT_MESSAGE:</code> prefix).
+        The transport is simple: the embedded agent panel receives the message
+        directly. From scripts, the same bridge works via stdout (
+        <code>BUILDER_PARENT_MESSAGE:</code> prefix).
       </p>
 
       <h2 id="scripts-system">Scripts system</h2>
@@ -297,21 +295,18 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`}
 
       <h2 id="harnesses">Harnesses</h2>
       <p>
-        Agent-native apps don't run standalone — they run inside a{" "}
-        <strong>harness</strong> that provides the AI agent alongside the app
-        UI. This is what makes the architecture work: the agent needs a computer
-        (file system, browser, code execution), and the app needs the agent for
-        AI work.
+        Agent-native apps include an embedded agent panel that provides the AI
+        agent alongside the app UI. This is what makes the architecture work:
+        the agent needs a computer (file system, browser, code execution), and
+        the app needs the agent for AI work.
       </p>
       <div className="my-4 grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl border border-[var(--border)] p-5">
-          <div className="mb-2 text-sm font-semibold">
-            CLI Harness (Open Source)
-          </div>
+          <div className="mb-2 text-sm font-semibold">Embedded Agent Panel</div>
           <p className="m-0 text-sm text-[var(--fg-secondary)]">
-            Terminal on the left running your choice of AI CLI (Claude Code,
-            Codex, Gemini, OpenCode, Builder.io), your app iframe on the right.
-            Runs locally. Free. Best for solo development.
+            Chat and optional CLI terminal built into every app. Supports Claude
+            Code, Codex, Gemini, OpenCode, and Builder.io. Runs locally. Free
+            and open source.
           </p>
         </div>
         <div className="rounded-xl border border-[var(--border)] p-5">
@@ -323,9 +318,9 @@ useFileWatcher({ queryClient, queryKeys: ["dashboards", "projects"] });`}
         </div>
       </div>
       <p>
-        Both harnesses support the same protocol: <code>postMessage</code>{" "}
-        bridge for chat, SSE for file sync, and the script system. Your app code
-        is identical regardless of harness.
+        Both approaches support the same protocol: agent chat bridge, polling
+        sync, and the script system. Your app code is identical regardless of
+        how the agent is provided.
       </p>
 
       <h2 id="file-sync">File Sync</h2>
@@ -423,7 +418,7 @@ export const meta = () => [
       {
         name: "description",
         content:
-          "How agent-native apps work: files as database, agent chat bridge, SSE sync, scripts, and harnesses.",
+          "How agent-native apps work: files as database, agent chat bridge, SSE sync, scripts, and embedded agent panel.",
       },
     ];
 

@@ -18,9 +18,11 @@ type ContentPart =
 export function createAgentChatAdapter(options?: {
   apiUrl?: string;
   tabId?: string;
+  threadId?: string;
 }): ChatModelAdapter {
   const apiUrl = options?.apiUrl ?? "/api/agent-chat";
   const tabId = options?.tabId;
+  const threadId = options?.threadId;
 
   return {
     async *run({ messages, abortSignal, runConfig }) {
@@ -103,6 +105,7 @@ export function createAgentChatAdapter(options?: {
           body: JSON.stringify({
             message: messageText,
             history,
+            ...(threadId ? { threadId } : {}),
             ...(attachments.length > 0 ? { attachments } : {}),
             ...(runConfig?.custom?.references
               ? { references: runConfig.custom.references }

@@ -8,7 +8,7 @@ const content = DEFAULT_APPS.find((a) => a.id === "content")!;
 export default function ContentTab() {
   return (
     <SafeAreaView style={styles.container}>
-      <AppWebView url={getAppUrl(content)} color={content.color} />
+      <AppWebView url={getAppUrl(content)} />
     </SafeAreaView>
   );
 }

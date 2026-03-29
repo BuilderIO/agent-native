@@ -10,6 +10,7 @@ import {
   ChevronDown,
   Plus,
   X,
+  Palette,
 } from "lucide-react";
 import {
   startOfMonth,
@@ -26,7 +27,12 @@ import {
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { useGoogleAuthStatus, useGoogleAuthUrl } from "@/hooks/use-google-auth";
+import {
+  useGoogleAuthStatus,
+  useGoogleAuthUrl,
+  useGoogleAddAccountUrl,
+} from "@/hooks/use-google-auth";
+import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
 import {
   useOverlayPeople,
   useRemoveOverlayPerson,
@@ -189,6 +195,176 @@ function GoogleConnectSidebarButton() {
   );
 }
 
+const CALENDAR_COLORS = [
+  "#5B9BD5", // blue
+  "#7C9C6B", // sage
+  "#B07CC6", // purple
+  "#D4A053", // amber
+  "#CD6B6B", // coral
+  "#4ECDC4", // teal
+  "#8B8FA3", // slate
+];
+
+const COLOR_MODE_KEY = "calendar-color-mode";
+const CALENDAR_COLOR_KEY = "calendar-single-color";
+
+function GoogleAccountsSection({
+  accounts,
+}: {
+  accounts: Array<{ email: string }>;
+}) {
+  const [wantAddAccount, setWantAddAccount] = useState(false);
+  const addAccountUrl = useGoogleAddAccountUrl(wantAddAccount);
+  const [colorMode, setColorMode] = useState<"multi" | "single">(() => {
+    try {
+      return (
+        (localStorage.getItem(COLOR_MODE_KEY) as "multi" | "single") || "multi"
+      );
+    } catch {
+      return "multi";
+    }
+  });
+  const [singleColor, setSingleColor] = useState(() => {
+    try {
+      return localStorage.getItem(CALENDAR_COLOR_KEY) || CALENDAR_COLORS[0];
+    } catch {
+      return CALENDAR_COLORS[0];
+    }
+  });
+  const [showColors, setShowColors] = useState(false);
+
+  useEffect(() => {
+    if (!wantAddAccount || !addAccountUrl.data?.url) return;
+    window.open(addAccountUrl.data.url, "_blank");
+    setWantAddAccount(false);
+  }, [wantAddAccount, addAccountUrl.data]);
+
+  function handleColorModeToggle() {
+    const next = colorMode === "multi" ? "single" : "multi";
+    setColorMode(next);
+    try {
+      localStorage.setItem(COLOR_MODE_KEY, next);
+    } catch {}
+  }
+
+  function handlePickColor(color: string) {
+    setSingleColor(color);
+    try {
+      localStorage.setItem(CALENDAR_COLOR_KEY, color);
+    } catch {}
+  }
+
+  return (
+    <div className="border-t border-border px-3 py-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          My Calendars
+        </span>
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => setShowColors((p) => !p)}
+            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+            title="Color settings"
+          >
+            <Palette className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setWantAddAccount(true)}
+            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+            title="Add Google account"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {accounts.map((account) => (
+        <div key={account.email} className="flex items-center gap-2 py-0.5">
+          <div
+            className="h-2 w-2 shrink-0 rounded-full"
+            style={{
+              backgroundColor:
+                colorMode === "single"
+                  ? singleColor
+                  : EVENT_CATEGORY_COLORS.fallback,
+            }}
+          />
+          <p className="truncate text-xs text-muted-foreground">
+            {account.email}
+          </p>
+        </div>
+      ))}
+
+      {showColors && (
+        <div className="mt-2 space-y-2 rounded-lg border border-border bg-muted/30 p-2">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleColorModeToggle}
+              className={cn(
+                "rounded px-2 py-0.5 text-[10px] font-medium",
+                colorMode === "multi"
+                  ? "bg-primary/15 text-primary"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              By type
+            </button>
+            <button
+              type="button"
+              onClick={handleColorModeToggle}
+              className={cn(
+                "rounded px-2 py-0.5 text-[10px] font-medium",
+                colorMode === "single"
+                  ? "bg-primary/15 text-primary"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Single color
+            </button>
+          </div>
+          {colorMode === "multi" ? (
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(EVENT_CATEGORY_COLORS)
+                .filter(([k]) => k !== "fallback")
+                .map(([key, color]) => (
+                  <div key={key} className="flex items-center gap-1">
+                    <span
+                      className="h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: color }}
+                    />
+                    <span className="text-[10px] text-muted-foreground capitalize">
+                      {key.replace(/([A-Z])/g, " $1").trim()}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          ) : (
+            <div className="flex gap-1.5">
+              {CALENDAR_COLORS.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  onClick={() => handlePickColor(color)}
+                  className={cn(
+                    "h-5 w-5 rounded-full border-2",
+                    singleColor === color
+                      ? "border-foreground"
+                      : "border-transparent hover:border-foreground/30",
+                  )}
+                  style={{ backgroundColor: color }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation();
   const { selectedDate, setSelectedDate, setPeopleSearchOpen } =
@@ -306,16 +482,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         )}
 
         {isConnected && googleStatus.data?.accounts?.length > 0 && (
-          <div className="border-t border-border px-3 py-3">
-            {googleStatus.data.accounts.map((account) => (
-              <div key={account.email} className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-foreground/40" />
-                <p className="truncate text-xs text-muted-foreground">
-                  {account.email}
-                </p>
-              </div>
-            ))}
-          </div>
+          <GoogleAccountsSection accounts={googleStatus.data.accounts} />
         )}
 
         {/* Theme toggle */}

@@ -368,8 +368,24 @@ export function EmailThread({
   const handleArchive = useCallback(() => {
     if (!email) return;
     const id = email.id;
+    const tid = threadId || id;
+    // Snapshot thread emails from cache so undo can restore them instantly
+    const cached = queryClient
+      .getQueriesData<EmailMessage[]>({ queryKey: ["emails"] })
+      .flatMap(([, data]) => data ?? []);
+    const snapshot = cached.filter((e) => (e.threadId || e.id) === tid);
+
     onArchived?.(id);
-    const undo = () => unarchiveEmail.mutate(id);
+    const undo = () => {
+      queryClient.setQueriesData<EmailMessage[]>(
+        { queryKey: ["emails"] },
+        (old) =>
+          [...(old ?? []), ...snapshot].sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+          ),
+      );
+      unarchiveEmail.mutate(id);
+    };
     setUndoAction(undo);
     toast("Marked as Done.", {
       action: {
@@ -379,12 +395,35 @@ export function EmailThread({
     });
     advanceOrGoBack();
     archiveEmail.mutate({ id, accountEmail: email.accountEmail });
-  }, [email, archiveEmail, unarchiveEmail, advanceOrGoBack, onArchived]);
+  }, [
+    email,
+    threadId,
+    archiveEmail,
+    unarchiveEmail,
+    advanceOrGoBack,
+    onArchived,
+    queryClient,
+  ]);
 
   const handleTrash = useCallback(() => {
     if (!email) return;
     const id = email.id;
-    const undo = () => untrashEmail.mutate(id);
+    const tid = threadId || id;
+    const cached = queryClient
+      .getQueriesData<EmailMessage[]>({ queryKey: ["emails"] })
+      .flatMap(([, data]) => data ?? []);
+    const snapshot = cached.filter((e) => (e.threadId || e.id) === tid);
+
+    const undo = () => {
+      queryClient.setQueriesData<EmailMessage[]>(
+        { queryKey: ["emails"] },
+        (old) =>
+          [...(old ?? []), ...snapshot].sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+          ),
+      );
+      untrashEmail.mutate(id);
+    };
     setUndoAction(undo);
     toast("Moved to Trash.", {
       action: {
@@ -394,7 +433,7 @@ export function EmailThread({
     });
     advanceOrGoBack();
     trashEmail.mutate(id);
-  }, [email, trashEmail, untrashEmail, advanceOrGoBack]);
+  }, [email, threadId, trashEmail, untrashEmail, advanceOrGoBack, queryClient]);
 
   const handleStar = useCallback(() => {
     if (!email) return;

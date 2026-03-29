@@ -466,9 +466,9 @@ export default function Home() {
               Run anywhere
             </h2>
             <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              Agent-native apps run inside a harness — a host that provides the
-              AI agent alongside your app UI. Run locally with open-source CLI
-              tools, or in the cloud with Builder.io.
+              Every agent-native app includes an embedded agent panel with chat
+              and optional CLI terminal. Run locally or deploy to the cloud with
+              Builder.io.
             </p>
           </div>
 
@@ -489,7 +489,9 @@ export default function Home() {
                   <line x1="8" y1="21" x2="16" y2="21" />
                   <line x1="12" y1="17" x2="12" y2="21" />
                 </svg>
-                <h3 className="text-base font-semibold">CLI Harness</h3>
+                <h3 className="text-base font-semibold">
+                  Embedded Agent Panel
+                </h3>
               </div>
               <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
                 <li>Runs locally on your machine</li>
@@ -534,7 +536,7 @@ export default function Home() {
           </div>
 
           <p className="mt-6 text-center text-sm text-[var(--fg-secondary)]">
-            Your app code is identical regardless of harness.
+            Your app code is identical regardless of how the agent is provided.
           </p>
         </section>
 

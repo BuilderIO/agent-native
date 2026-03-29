@@ -328,14 +328,19 @@ export const MentionPopover = forwardRef<
                       )}
                     </span>
                     {item.source !== "codebase" &&
-                      item.source !== "resource" && (
+                      !item.source.startsWith("resource:") && (
                         <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
                           {item.source}
                         </span>
                       )}
-                    {item.source === "resource" && (
+                    {item.source === "resource:shared" && (
                       <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
-                        resource
+                        shared
+                      </span>
+                    )}
+                    {item.source === "resource:private" && (
+                      <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+                        private
                       </span>
                     )}
                   </button>

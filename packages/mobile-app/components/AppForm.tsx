@@ -245,7 +245,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   saveText: {
-    color: "#3B82F6",
+    color: "#ffffff",
     fontSize: 16,
     fontWeight: "600",
   },
