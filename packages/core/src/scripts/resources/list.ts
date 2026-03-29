@@ -11,6 +11,7 @@ import { parseArgs } from "../utils.js";
 import {
   resourceList,
   resourceListAccessible,
+  ensurePersonalDefaults,
   SHARED_OWNER,
 } from "../../resources/store.js";
 
@@ -34,6 +35,11 @@ Options:
   const scope = parsed.scope ?? "all";
   const format = parsed.format ?? "text";
   const owner = process.env.AGENT_USER_EMAIL ?? "local@localhost";
+
+  // Seed personal AGENTS.md + LEARNINGS.md on first access
+  if (scope !== "shared") {
+    await ensurePersonalDefaults(owner);
+  }
 
   let resources;
   if (scope === "personal") {
