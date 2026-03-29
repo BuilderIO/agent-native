@@ -80,7 +80,8 @@
     "react-markdown": "^10.1.0",
     "react-router": "^7.13.1",
     "remark-gfm": "^4.0.1",
-    "tailwind-merge": "^2.6.0"
+    "tailwind-merge": "^2.6.0",
+    "tiptap-markdown": "^0.8.10"
   },
   "peerDependencies": {
     "@assistant-ui/react": ">=0.12",

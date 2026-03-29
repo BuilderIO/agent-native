@@ -744,7 +744,7 @@ export function AgentPanel({
 
       {/* CLI terminal — only rendered in dev mode */}
       {IS_DEV && mode === "cli" && (
-        <div className="flex-1 min-h-0 relative z-0">
+        <div className="flex-1 min-h-0 relative">
           <Suspense
             fallback={
               <div className="flex items-center justify-center h-full text-muted-foreground text-sm">

@@ -112,7 +112,19 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
       </div>
 
       {/* Editor */}
-      <div className="flex-1 px-16 pb-16 min-h-0 overflow-auto">
+      <div
+        className="flex-1 px-16 pb-16 min-h-0 overflow-auto cursor-text"
+        onClick={(e) => {
+          // If click is on the wrapper itself (empty space below content),
+          // focus the editor at the end — like Notion/Google Docs
+          if (e.target === e.currentTarget) {
+            const pm = e.currentTarget.querySelector(
+              ".ProseMirror",
+            ) as HTMLElement | null;
+            pm?.focus();
+          }
+        }}
+      >
         <VisualEditor
           content={localContent}
           onChange={handleContentChange}

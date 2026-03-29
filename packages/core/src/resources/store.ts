@@ -52,6 +52,77 @@ Personal preferences, corrections, and patterns — only visible to you.
 ## Patterns
 `;
 
+const DEFAULT_SKILL_LEARN_MD = `---
+name: learn
+description: >-
+  Update your personal LEARNINGS.md with preferences, corrections, and patterns
+  from this session.
+user-invocable: true
+---
+
+# Learn
+
+Review the current conversation and update your personal \`LEARNINGS.md\` resource with anything worth remembering for future sessions.
+
+## What to capture
+
+- **Preferences** — tone, style, workflow habits, personal context
+- **Corrections** — "no, do it this way" → capture the right way
+- **Patterns** — recurring approaches, decisions, API quirks
+- **Contacts** — names, emails, relationships mentioned
+
+## What NOT to capture
+
+- Things obvious from reading the code
+- Standard language/framework behavior
+- Temporary debugging notes
+- Anything already in AGENTS.md or other skills
+
+## Steps
+
+1. Read your personal learnings: \`pnpm script resource-read --path LEARNINGS.md\`
+2. Review the conversation for new insights
+3. Merge new learnings with existing ones — don't duplicate, refine existing entries
+4. Write back: \`pnpm script resource-write --path LEARNINGS.md --content "..."\`
+
+Keep entries concise — one line per learning, grouped by category (Preferences, Corrections, Patterns).
+`;
+
+const DEFAULT_SKILL_LEARN_SHARED_MD = `---
+name: learn-shared
+description: >-
+  Update the shared LEARNINGS.md with team-wide preferences, corrections, and
+  patterns from this session.
+user-invocable: true
+---
+
+# Learn (Shared)
+
+Review the current conversation and update the shared \`LEARNINGS.md\` resource with anything the whole team should know.
+
+## What to capture
+
+- **Team conventions** — agreed-upon approaches, code style decisions
+- **Technical learnings** — API quirks, library gotchas, surprising behavior
+- **Architectural decisions** — why something is done a certain way
+- **Corrections** — mistakes that any team member's agent should avoid
+
+## What NOT to capture
+
+- Personal preferences (use \`/learn\` for those)
+- Things obvious from reading the code
+- Standard language/framework behavior
+
+## Steps
+
+1. Read shared learnings: \`pnpm script resource-read --path LEARNINGS.md --scope shared\`
+2. Review the conversation for team-relevant insights
+3. Merge new learnings with existing ones — don't duplicate, refine existing entries
+4. Write back: \`pnpm script resource-write --path LEARNINGS.md --scope shared --content "..."\`
+
+Keep entries concise — one line per learning, grouped by category (Conventions, Technical, Patterns).
+`;
+
 const DEFAULT_AGENTS_SHARED_MD = `# Agent Instructions
 
 This file customizes how the AI agent behaves in this app. Edit it to add your own instructions, preferences, and context.
@@ -161,6 +232,25 @@ async function ensureTable(): Promise<void> {
     ],
   });
 
+  // skills/learn-shared.md — shared skill for updating shared LEARNINGS.md
+  const learnSharedSize = Buffer.byteLength(
+    DEFAULT_SKILL_LEARN_SHARED_MD,
+    "utf8",
+  );
+  await client.execute({
+    sql: seedSql,
+    args: [
+      crypto.randomUUID(),
+      "skills/learn-shared.md",
+      SHARED_OWNER,
+      DEFAULT_SKILL_LEARN_SHARED_MD,
+      "text/markdown",
+      learnSharedSize,
+      now,
+      now,
+    ],
+  });
+
   _initialized = true;
 }
 
@@ -209,6 +299,22 @@ export async function ensurePersonalDefaults(owner: string): Promise<void> {
       DEFAULT_LEARNINGS_PERSONAL_MD,
       "text/markdown",
       learningsSize,
+      now,
+      now,
+    ],
+  });
+
+  // skills/learn.md — personal skill for updating personal LEARNINGS.md
+  const learnSize = Buffer.byteLength(DEFAULT_SKILL_LEARN_MD, "utf8");
+  await client.execute({
+    sql: seedSql,
+    args: [
+      crypto.randomUUID(),
+      "skills/learn.md",
+      owner,
+      DEFAULT_SKILL_LEARN_MD,
+      "text/markdown",
+      learnSize,
       now,
       now,
     ],

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  ChevronDown,
   Copy,
   ExternalLink,
   Link2,
@@ -7,6 +8,7 @@ import {
   TimerReset,
   Trash2,
   Clock,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -47,13 +49,18 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
+const PRODUCTION_DOMAIN = "calendar.agent-native.com";
+
 type DraftLink = {
   id?: string;
   title: string;
   slug: string;
   description: string;
   duration: number;
+  durations: number[];
   isActive: boolean;
+  /** Whether the user has manually edited the slug (vs auto-generated) */
+  slugManuallyEdited: boolean;
 };
 
 type DayName = keyof AvailabilityConfig["weeklySchedule"];
@@ -87,8 +94,11 @@ export default function BookingLinksPage() {
     slug: "",
     description: "",
     duration: 30,
+    durations: [30],
     isActive: true,
+    slugManuallyEdited: false,
   });
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Availability state
   const { data: availability } = useAvailability();
@@ -110,6 +120,7 @@ export default function BookingLinksPage() {
   const [slotDuration, setSlotDuration] = useState(30);
   const [bookingSlug, setBookingSlug] = useState("meeting");
   const [timezone, setTimezone] = useState("America/New_York");
+  const [usernameInput, setUsernameInput] = useState("");
   const { isLocal } = useDbStatus();
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
 
@@ -122,6 +133,7 @@ export default function BookingLinksPage() {
       setSlotDuration(availability.slotDurationMinutes);
       setBookingSlug(availability.bookingPageSlug);
       setTimezone(availability.timezone);
+      setUsernameInput(availability.bookingUsername ?? "");
     }
   }, [availability]);
 
@@ -152,6 +164,7 @@ export default function BookingLinksPage() {
         maxAdvanceDays,
         slotDurationMinutes: slotDuration,
         bookingPageSlug: bookingSlug,
+        bookingUsername: usernameInput.trim() || undefined,
       },
       {
         onSuccess: () => toast.success("Availability saved"),
@@ -179,25 +192,49 @@ export default function BookingLinksPage() {
         slug: "",
         description: "",
         duration: 30,
+        durations: [30],
         isActive: true,
+        slugManuallyEdited: false,
       });
+      setShowAdvanced(false);
       return;
     }
 
+    const durations =
+      selectedLink.durations && selectedLink.durations.length > 0
+        ? selectedLink.durations
+        : [selectedLink.duration];
     setDraft({
       id: selectedLink.id,
       title: selectedLink.title,
       slug: selectedLink.slug,
       description: selectedLink.description || "",
       duration: selectedLink.duration,
+      durations,
       isActive: selectedLink.isActive,
+      slugManuallyEdited: true, // existing links have established slugs
     });
+    // Show advanced section if link has a description or custom slug
+    setShowAdvanced(!!selectedLink.description);
   }, [selectedLink]);
 
-  const previewUrl =
-    typeof window === "undefined"
-      ? ""
-      : `${window.location.origin}/book/${draft.slug}`;
+  const bookingUsername = availability?.bookingUsername;
+
+  function getBookingUrl(slug: string) {
+    if (bookingUsername) {
+      const host =
+        typeof window !== "undefined" &&
+        window.location.hostname !== "localhost"
+          ? window.location.origin
+          : `https://${PRODUCTION_DOMAIN}`;
+      return `${host}/meet/${bookingUsername}/${slug}`;
+    }
+    // Fallback for no username set
+    if (typeof window === "undefined") return `/book/${slug}`;
+    return `${window.location.origin}/book/${slug}`;
+  }
+
+  const previewUrl = getBookingUrl(draft.slug);
 
   async function handleCreate() {
     const baseTitle = `New ${bookingLinks.length + 1 > 1 ? "Meeting Link" : "Meeting"}`;
@@ -206,7 +243,6 @@ export default function BookingLinksPage() {
       const created = await createBookingLink.mutateAsync({
         title: baseTitle,
         slug: baseSlug,
-        description: "A new public booking page.",
         duration: 30,
         isActive: true,
       });
@@ -225,8 +261,9 @@ export default function BookingLinksPage() {
         id: draft.id,
         title: draft.title.trim(),
         slug: slugify(draft.slug),
-        description: draft.description.trim(),
-        duration: draft.duration,
+        description: draft.description.trim() || undefined,
+        duration: draft.durations[0] ?? draft.duration,
+        durations: draft.durations.length > 1 ? draft.durations : undefined,
         isActive: draft.isActive,
       });
       toast.success("Booking link updated");
@@ -248,13 +285,16 @@ export default function BookingLinksPage() {
   }
 
   async function copyPreviewUrl(slug: string) {
-    const url = `${window.location.origin}/book/${slug}`;
-    await navigator.clipboard.writeText(url);
+    await navigator.clipboard.writeText(getBookingUrl(slug));
     toast.success("Booking link copied");
   }
 
   function openPreview(slug: string) {
-    window.open(`/book/${slug}`, "_blank", "noopener,noreferrer");
+    // For local preview, use the local path
+    const localPath = bookingUsername
+      ? `/meet/${bookingUsername}/${slug}`
+      : `/book/${slug}`;
+    window.open(localPath, "_blank", "noopener,noreferrer");
   }
 
   const hasLinks = bookingLinks.length > 0;
@@ -372,7 +412,9 @@ export default function BookingLinksPage() {
                                     {link.title}
                                   </p>
                                   <p className="truncate text-xs text-muted-foreground">
-                                    /book/{link.slug}
+                                    {bookingUsername
+                                      ? `/meet/${bookingUsername}/${link.slug}`
+                                      : `/book/${link.slug}`}
                                   </p>
                                 </div>
                               </div>
@@ -426,8 +468,7 @@ export default function BookingLinksPage() {
                 <CardHeader className="border-b border-border/60 bg-muted/20">
                   <CardTitle className="text-lg">Configure Link</CardTitle>
                   <CardDescription>
-                    Give the link a public name, choose its duration, and
-                    preview the exact URL people will use to book you.
+                    Set the meeting name, choose durations, and share the link.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6 p-6">
@@ -437,104 +478,80 @@ export default function BookingLinksPage() {
                     </p>
                   ) : (
                     <>
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-2">
-                          <Label htmlFor="booking-link-title">Link name</Label>
-                          <Input
-                            id="booking-link-title"
-                            value={draft.title}
-                            onChange={(e) => {
-                              const title = e.target.value;
-                              setDraft((prev) => ({
-                                ...prev,
-                                title,
-                                slug:
-                                  prev.slug === slugify(prev.title)
-                                    ? slugify(title)
-                                    : prev.slug,
-                              }));
-                            }}
-                            placeholder="30 Minute Intro"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="booking-link-slug">URL slug</Label>
-                          <Input
-                            id="booking-link-slug"
-                            value={draft.slug}
-                            onChange={(e) =>
-                              setDraft((prev) => ({
-                                ...prev,
-                                slug: slugify(e.target.value),
-                              }))
-                            }
-                            placeholder="intro-call"
-                          />
-                        </div>
-                      </div>
-
+                      {/* Title */}
                       <div className="space-y-2">
-                        <Label htmlFor="booking-link-description">
-                          Description
-                        </Label>
-                        <Textarea
-                          id="booking-link-description"
-                          rows={3}
-                          value={draft.description}
-                          onChange={(e) =>
+                        <Label htmlFor="booking-link-title">Meeting name</Label>
+                        <Input
+                          id="booking-link-title"
+                          value={draft.title}
+                          onChange={(e) => {
+                            const title = e.target.value;
                             setDraft((prev) => ({
                               ...prev,
-                              description: e.target.value,
-                            }))
-                          }
-                          placeholder="A quick intro call to learn about your goals."
+                              title,
+                              slug: prev.slugManuallyEdited
+                                ? prev.slug
+                                : slugify(title),
+                            }));
+                          }}
+                          placeholder="Quick Chat"
                         />
                       </div>
 
+                      {/* Duration options — multi-select */}
                       <div className="space-y-3">
-                        <Label>Meeting duration</Label>
+                        <Label>Duration options</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Select one or more — bookers will choose when
+                          scheduling.
+                        </p>
                         <div className="flex flex-wrap gap-2">
-                          {DURATION_PRESETS.map((minutes) => (
-                            <button
-                              key={minutes}
-                              type="button"
-                              onClick={() =>
-                                setDraft((prev) => ({
-                                  ...prev,
-                                  duration: minutes,
-                                }))
-                              }
-                              className={cn(
-                                "rounded-full border px-3 py-1.5 text-sm transition-colors",
-                                draft.duration === minutes
-                                  ? "border-primary bg-primary/10 text-primary"
-                                  : "border-border text-muted-foreground hover:text-foreground hover:bg-accent/60",
-                              )}
-                            >
-                              {minutes} min
-                            </button>
-                          ))}
-                          <div className="flex items-center gap-2 rounded-full border border-border px-3 py-1.5">
-                            <span className="text-sm text-muted-foreground">
-                              Custom
-                            </span>
-                            <Input
-                              type="number"
-                              min={5}
-                              max={240}
-                              value={draft.duration}
-                              onChange={(e) =>
-                                setDraft((prev) => ({
-                                  ...prev,
-                                  duration: Number(e.target.value),
-                                }))
-                              }
-                              className="h-7 w-20 border-none bg-transparent px-0 text-sm focus-visible:ring-0"
-                            />
-                          </div>
+                          {DURATION_PRESETS.map((minutes) => {
+                            const isSelected =
+                              draft.durations.includes(minutes);
+                            return (
+                              <button
+                                key={minutes}
+                                type="button"
+                                onClick={() =>
+                                  setDraft((prev) => {
+                                    const next = isSelected
+                                      ? prev.durations.filter(
+                                          (d) => d !== minutes,
+                                        )
+                                      : [...prev.durations, minutes].sort(
+                                          (a, b) => a - b,
+                                        );
+                                    // Must keep at least one
+                                    if (next.length === 0) return prev;
+                                    return {
+                                      ...prev,
+                                      durations: next,
+                                      duration: next[0],
+                                    };
+                                  })
+                                }
+                                className={cn(
+                                  "rounded-full border px-3 py-1.5 text-sm",
+                                  isSelected
+                                    ? "border-primary bg-primary/10 text-primary"
+                                    : "border-border text-muted-foreground hover:text-foreground hover:bg-accent/60",
+                                )}
+                              >
+                                {minutes} min
+                              </button>
+                            );
+                          })}
                         </div>
+                        {draft.durations.length > 1 && (
+                          <p className="text-xs text-muted-foreground">
+                            Bookers will choose between:{" "}
+                            {draft.durations.map((d) => `${d} min`).join(", ")}
+                          </p>
+                        )}
                       </div>
 
+                      {/* Visibility toggle */}
                       <div className="flex items-center justify-between rounded-2xl border border-border px-4 py-3">
                         <div>
                           <p className="text-sm font-medium">Link visibility</p>
@@ -550,21 +567,18 @@ export default function BookingLinksPage() {
                         />
                       </div>
 
+                      {/* Preview link */}
                       <div className="rounded-2xl border border-border bg-muted/20 p-4">
                         <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                          Preview link
+                          Booking link
                         </p>
                         <p className="mt-2 break-all text-sm font-medium">
-                          {previewUrl || `/book/${draft.slug}`}
-                        </p>
-                        <p className="mt-2 text-sm text-muted-foreground">
-                          This public page will show "
-                          {draft.title || "Your meeting"}" and offer{" "}
-                          {draft.duration}-minute slots.
+                          {previewUrl}
                         </p>
                         <div className="mt-4 flex flex-wrap gap-2">
                           <Button
                             type="button"
+                            size="sm"
                             className="gap-2"
                             onClick={() => openPreview(draft.slug)}
                           >
@@ -573,6 +587,7 @@ export default function BookingLinksPage() {
                           </Button>
                           <Button
                             type="button"
+                            size="sm"
                             variant="outline"
                             className="gap-2"
                             onClick={() => void copyPreviewUrl(draft.slug)}
@@ -583,6 +598,74 @@ export default function BookingLinksPage() {
                         </div>
                       </div>
 
+                      {/* Advanced section (slug, description) */}
+                      <button
+                        type="button"
+                        onClick={() => setShowAdvanced((v) => !v)}
+                        className="flex w-full items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+                      >
+                        <ChevronDown
+                          className={cn(
+                            "h-4 w-4",
+                            showAdvanced && "rotate-180",
+                          )}
+                        />
+                        Advanced options
+                      </button>
+
+                      {showAdvanced && (
+                        <div className="space-y-4 rounded-xl border border-border/60 bg-muted/10 p-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="booking-link-slug">URL slug</Label>
+                            {draft.id &&
+                              selectedLink &&
+                              selectedLink.slug !== slugify(draft.slug) && (
+                                <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+                                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                                    Changing the slug will break any existing
+                                    shared links.
+                                  </p>
+                                </div>
+                              )}
+                            <Input
+                              id="booking-link-slug"
+                              value={draft.slug}
+                              onChange={(e) =>
+                                setDraft((prev) => ({
+                                  ...prev,
+                                  slug: slugify(e.target.value),
+                                  slugManuallyEdited: true,
+                                }))
+                              }
+                              placeholder="intro-call"
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor="booking-link-description">
+                              Description{" "}
+                              <span className="text-muted-foreground font-normal">
+                                (optional)
+                              </span>
+                            </Label>
+                            <Textarea
+                              id="booking-link-description"
+                              rows={2}
+                              value={draft.description}
+                              onChange={(e) =>
+                                setDraft((prev) => ({
+                                  ...prev,
+                                  description: e.target.value,
+                                }))
+                              }
+                              placeholder="Shown on the booking page"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Actions */}
                       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-2">
                         <Button
                           type="button"
@@ -718,34 +801,21 @@ export default function BookingLinksPage() {
               </div>
 
               <div className="space-y-2">
-                <Label>Booking page slug</Label>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">/book/</span>
-                  <Input
-                    value={bookingSlug}
-                    onChange={(e) => setBookingSlug(e.target.value)}
-                    placeholder="meeting"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Share booking link</Label>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    if (isLocal) {
-                      setShowCloudUpgrade(true);
-                      return;
-                    }
-                    const url = `${window.location.origin}/book/${bookingSlug}`;
-                    navigator.clipboard.writeText(url);
-                    toast.success("Booking link copied to clipboard");
-                  }}
-                >
-                  Copy Booking Link
-                </Button>
+                <Label>Booking username</Label>
+                <p className="text-xs text-muted-foreground">
+                  Your unique handle for booking URLs, e.g. {PRODUCTION_DOMAIN}
+                  /meet/
+                  <strong>{usernameInput || "your-name"}</strong>/meeting-slug
+                </p>
+                <Input
+                  value={usernameInput}
+                  onChange={(e) =>
+                    setUsernameInput(
+                      e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""),
+                    )
+                  }
+                  placeholder="your-name"
+                />
               </div>
             </CardContent>
           </Card>

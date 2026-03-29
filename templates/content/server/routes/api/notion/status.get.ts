@@ -1,4 +1,4 @@
-import { defineEventHandler, setResponseStatus } from "h3";
+import { defineEventHandler } from "h3";
 import {
   buildNotionAuthUrl,
   getDocumentOwnerEmail,
@@ -10,7 +10,6 @@ export default defineEventHandler(async (event) => {
   const connection = await getNotionConnectionForOwner(owner);
 
   if (!process.env.NOTION_CLIENT_ID || !process.env.NOTION_CLIENT_SECRET) {
-    setResponseStatus(event, 422);
     return {
       connected: false,
       workspaceName: null,

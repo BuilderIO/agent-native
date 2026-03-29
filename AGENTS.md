@@ -10,7 +10,7 @@ Every agent-native app follows these rules. Violating them breaks the architectu
 
 ### 1. Data lives in SQL
 
-All app state lives in SQLite (`data/app.db`) via Drizzle ORM or the core SQL stores. SQLite works locally out of the box and can be upgraded to a cloud database (Turso, Neon, Supabase, D1) by setting `DATABASE_URL`. Local and production behave identically — no filesystem dependency for data.
+All app state lives in SQL via Drizzle ORM or the core SQL stores. In local dev, SQLite (`data/app.db`) is the default. In production, users set `DATABASE_URL` to any supported provider (Neon, Turso, Supabase, D1, or plain Postgres/SQLite). The framework is multi-tenant — multiple users share the same database, with data isolation handled by user-scoped keys and `AGENT_USER_EMAIL`.
 
 **Core SQL stores** (auto-created, available in all templates):
 
