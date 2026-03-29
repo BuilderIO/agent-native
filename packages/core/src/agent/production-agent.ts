@@ -93,10 +93,20 @@ export function createProductionAgentHandler(
         const client = new Anthropic({ apiKey });
 
         // Resolve system prompt (may be async function receiving the H3 event)
-        const systemPrompt =
-          typeof options.systemPrompt === "function"
-            ? await options.systemPrompt(event)
-            : options.systemPrompt;
+        let systemPrompt: string;
+        try {
+          systemPrompt =
+            typeof options.systemPrompt === "function"
+              ? await options.systemPrompt(event)
+              : options.systemPrompt;
+        } catch (err: any) {
+          send({
+            type: "error",
+            error: `Failed to load system prompt: ${err?.message ?? String(err)}`,
+          });
+          controller.close();
+          return;
+        }
 
         // Build enriched user message with references
         let enrichedMessage = message;
