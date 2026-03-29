@@ -23,19 +23,32 @@ function getOrigin(event: H3Event): string {
   return `${proto}://${host}`;
 }
 
+/** Detect requests from the Electron desktop app webview. */
+function isElectron(event: H3Event): boolean {
+  return /Electron/i.test(getHeader(event, "user-agent") || "");
+}
+
 /** Encode a redirect URI (and optional owner) into the OAuth state param so the callback can recover them across proxies and cookie-less flows (e.g. desktop app system browser). */
-function encodeState(redirectUri: string, owner?: string): string {
+function encodeState(
+  redirectUri: string,
+  owner?: string,
+  desktop?: boolean,
+): string {
   const nonce = crypto.randomBytes(8).toString("hex");
-  const payload: Record<string, string> = { n: nonce, r: redirectUri };
+  const payload: Record<string, string | boolean> = {
+    n: nonce,
+    r: redirectUri,
+  };
   if (owner) payload.o = owner;
+  if (desktop) payload.d = true;
   return Buffer.from(JSON.stringify(payload)).toString("base64url");
 }
 
-/** Recover the redirect URI and optional owner from the state param. */
+/** Recover the redirect URI, optional owner, and desktop flag from the state param. */
 function decodeState(
   stateParam: string | undefined,
   fallbackUri: string,
-): { redirectUri: string; owner?: string } {
+): { redirectUri: string; owner?: string; desktop?: boolean } {
   if (stateParam) {
     try {
       const parsed = JSON.parse(
@@ -44,10 +57,20 @@ function decodeState(
       return {
         redirectUri: parsed.r || fallbackUri,
         owner: parsed.o || undefined,
+        desktop: !!parsed.d,
       };
     } catch {}
   }
   return { redirectUri: fallbackUri };
+}
+
+/** HTML page shown after OAuth completes in the system browser (desktop app flow). */
+function desktopSuccessPage(email?: string): Response {
+  const msg = email ? `Connected ${email}!` : "Connected!";
+  return new Response(
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`,
+    { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
+  );
 }
 
 export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
@@ -63,7 +86,7 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
     const redirectUri =
       (getQuery(event).redirect_uri as string) ||
       `${getOrigin(event)}/api/google/callback`;
-    const state = encodeState(redirectUri);
+    const state = encodeState(redirectUri, undefined, isElectron(event));
     const url = getAuthUrl(undefined, redirectUri, state);
     return { url };
   } catch (error: any) {
@@ -83,7 +106,7 @@ export const handleGoogleCallback = defineEventHandler(
       }
 
       const stateParam = query.state as string | undefined;
-      const { redirectUri } = decodeState(
+      const { redirectUri, desktop } = decodeState(
         stateParam,
         `${getOrigin(event)}/api/google/callback`,
       );
@@ -140,6 +163,9 @@ export const handleGoogleCallback = defineEventHandler(
         );
       }
 
+      // Desktop: show "return to app" page (system browser can't redirect back)
+      if (desktop) return desktopSuccessPage(email);
+
       // Web: redirect to app home
       return sendRedirect(event, "/");
     } catch (error: any) {
@@ -186,7 +212,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       // Encode the owner into state so the callback can identify the user
       // even when the OAuth flow happens in a cookie-less context (e.g.
       // desktop app opening the system browser).
-      const state = encodeState(redirectUri, session.email);
+      const state = encodeState(redirectUri, session.email, isElectron(event));
       const url = getAuthUrl(undefined, redirectUri, state);
       return { url };
     } catch (error: any) {
@@ -202,7 +228,11 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
       const session = await getSession(event);
       const query = getQuery(event);
       const stateParam = query.state as string | undefined;
-      const { redirectUri, owner: stateOwner } = decodeState(
+      const {
+        redirectUri,
+        owner: stateOwner,
+        desktop,
+      } = decodeState(
         stateParam,
         `${getOrigin(event)}/api/google/add-account/callback`,
       );
@@ -230,6 +260,8 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
       );
 
       // Do NOT create a new session — user stays logged in
+      if (desktop) return desktopSuccessPage(addedEmail);
+
       // Return a close-tab page (UI opens this in a new tab and polls for status)
       const safeEmail = JSON.stringify(addedEmail);
       return `<!DOCTYPE html><html><body><script>

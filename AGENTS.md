@@ -140,7 +140,7 @@ Run with: `pnpm script my-script --name foo`
 
 ## Database Scripts (Core)
 
-Most templates use SQLite via Drizzle ORM. These core scripts are available automatically — no local script files needed:
+These core scripts are available automatically — no local script files needed:
 
 | Script      | Purpose                         | Example                                            |
 | ----------- | ------------------------------- | -------------------------------------------------- |
@@ -149,6 +149,25 @@ Most templates use SQLite via Drizzle ORM. These core scripts are available auto
 | `db-exec`   | Run INSERT/UPDATE/DELETE        | `pnpm script db-exec --sql "UPDATE forms SET ..."` |
 
 Use `db-schema` first to understand the data model, then `db-query` and `db-exec` to read and write data. Scripts read `DATABASE_URL` from env (defaults to `file:./data/app.db`). Use `--db <path>` to override, and `--format json` for structured output.
+
+### Multi-tenant data scoping
+
+In production mode, `db-query` and `db-exec` automatically scope data to the current user (`AGENT_USER_EMAIL`). This is transparent — the agent's SQL runs unmodified, but only sees/affects the current user's rows.
+
+**How it works:** Before running the agent's SQL, temporary views are created that shadow real tables with a `WHERE` filter on the user's identity. Temp views take precedence over real tables in both SQLite and Postgres, so the SQL runs against filtered data.
+
+**Convention for template tables:** Add an `owner_email TEXT` column to any table that stores per-user data. The scoping system will automatically detect it and filter.
+
+**Core tables** are handled automatically with their existing scoping patterns:
+
+- `settings` — filtered by key prefix (`u:<email>:`)
+- `application_state` — filtered by `session_id`
+- `oauth_tokens` — filtered by `owner`
+- `sessions` — filtered by `email`
+
+For `db-exec` INSERTs, `owner_email` is auto-injected if the target table uses the convention and the column isn't already in the statement.
+
+In dev mode, no scoping is applied — all data is visible.
 
 Local scripts in `scripts/` always take priority over core scripts. Run `pnpm script --help` to see all available scripts.
 

@@ -16,8 +16,8 @@ export interface ScriptEntry {
 
 export interface ProductionAgentOptions {
   scripts: Record<string, ScriptEntry>;
-  /** Static system prompt string, or async function called per-request */
-  systemPrompt: string | (() => string | Promise<string>);
+  /** Static system prompt string, or async function called per-request with the H3 event */
+  systemPrompt: string | ((event: any) => string | Promise<string>);
   /** Falls back to ANTHROPIC_API_KEY env var */
   apiKey?: string;
   /** Model to use. Default: claude-sonnet-4-6 */
@@ -92,10 +92,10 @@ export function createProductionAgentHandler(
 
         const client = new Anthropic({ apiKey });
 
-        // Resolve system prompt (may be async function)
+        // Resolve system prompt (may be async function receiving the H3 event)
         const systemPrompt =
           typeof options.systemPrompt === "function"
-            ? await options.systemPrompt()
+            ? await options.systemPrompt(event)
             : options.systemPrompt;
 
         // Build enriched user message with references

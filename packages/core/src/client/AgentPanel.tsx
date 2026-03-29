@@ -21,6 +21,7 @@
  *   <AgentPanel className="h-screen" />
  */
 
+import ReactDOM from "react-dom";
 import React, {
   useState,
   useEffect,
@@ -441,6 +442,18 @@ function AgentSettingsPopover({
     label: cli.label,
   }));
 
+  // Compute fixed position from the button so the popover escapes all
+  // stacking contexts (the CLI terminal otherwise paints over it).
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  useEffect(() => {
+    if (!open || !buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    setPos({
+      top: rect.bottom + 6,
+      right: window.innerWidth - rect.right,
+    });
+  }, [open]);
+
   return (
     <div className="relative">
       <button
@@ -454,32 +467,36 @@ function AgentSettingsPopover({
       >
         <CogIcon className="h-3.5 w-3.5" />
       </button>
-      {open && (
-        <div
-          ref={popoverRef}
-          className="absolute right-0 top-full mt-1.5 z-[260] w-72 rounded-lg border border-border bg-popover shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
-        >
-          <div className="space-y-3 p-3">
-            <SettingsSelect
-              label="Environment"
-              value={isDevMode ? "development" : "production"}
-              options={environmentOptions}
-              onValueChange={(next) => {
-                const nextIsDev = next === "development";
-                if (nextIsDev !== isDevMode) onToggle();
-              }}
-            />
-            {IS_DEV && cliOptions.length > 0 && (
+      {open &&
+        pos &&
+        ReactDOM.createPortal(
+          <div
+            ref={popoverRef}
+            className="fixed z-[9990] w-72 rounded-lg border border-border bg-popover shadow-md animate-in fade-in-0 zoom-in-95 duration-100"
+            style={{ top: pos.top, right: pos.right }}
+          >
+            <div className="space-y-3 p-3">
               <SettingsSelect
-                label="CLI Agent"
-                value={selectedCli}
-                options={cliOptions}
-                onValueChange={onSelectCli}
+                label="Environment"
+                value={isDevMode ? "development" : "production"}
+                options={environmentOptions}
+                onValueChange={(next) => {
+                  const nextIsDev = next === "development";
+                  if (nextIsDev !== isDevMode) onToggle();
+                }}
               />
-            )}
-          </div>
-        </div>
-      )}
+              {IS_DEV && cliOptions.length > 0 && (
+                <SettingsSelect
+                  label="CLI Agent"
+                  value={selectedCli}
+                  options={cliOptions}
+                  onValueChange={onSelectCli}
+                />
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

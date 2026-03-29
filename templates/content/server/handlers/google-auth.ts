@@ -16,26 +16,46 @@ function getOrigin(event: H3Event): string {
   return `${proto}://${host}`;
 }
 
-function encodeState(redirectUri: string): string {
-  const nonce = crypto.randomBytes(8).toString("hex");
-  return Buffer.from(JSON.stringify({ n: nonce, r: redirectUri })).toString(
-    "base64url",
-  );
+/** Detect requests from the Electron desktop app webview. */
+function isElectron(event: H3Event): boolean {
+  return /Electron/i.test(getHeader(event, "user-agent") || "");
 }
 
-function decodeRedirectUri(
+function encodeState(redirectUri: string, desktop?: boolean): string {
+  const nonce = crypto.randomBytes(8).toString("hex");
+  const payload: Record<string, string | boolean> = {
+    n: nonce,
+    r: redirectUri,
+  };
+  if (desktop) payload.d = true;
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
+
+function decodeState(
   stateParam: string | undefined,
   fallback: string,
-): string {
+): { redirectUri: string; desktop?: boolean } {
   if (stateParam) {
     try {
       const parsed = JSON.parse(
         Buffer.from(stateParam, "base64url").toString(),
       );
-      if (parsed.r) return parsed.r;
+      return {
+        redirectUri: parsed.r || fallback,
+        desktop: !!parsed.d,
+      };
     } catch {}
   }
-  return fallback;
+  return { redirectUri: fallback };
+}
+
+/** HTML page shown after OAuth completes in the system browser (desktop app flow). */
+function desktopSuccessPage(email?: string): Response {
+  const msg = email ? `Connected ${email}!` : "Connected!";
+  return new Response(
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`,
+    { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
+  );
 }
 
 const SCOPES = [
@@ -56,7 +76,7 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
   const redirectUri =
     (getQuery(event).redirect_uri as string) ||
     `${getOrigin(event)}/api/google/callback`;
-  const state = encodeState(redirectUri);
+  const state = encodeState(redirectUri, isElectron(event));
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID,
     redirect_uri: redirectUri,
@@ -80,7 +100,7 @@ export const handleGoogleCallback = defineEventHandler(
         return { error: "Missing authorization code" };
       }
 
-      const redirectUri = decodeRedirectUri(
+      const { redirectUri, desktop } = decodeState(
         stateParam,
         `${getOrigin(event)}/api/google/callback`,
       );
@@ -124,6 +144,7 @@ export const handleGoogleCallback = defineEventHandler(
         maxAge: 60 * 60 * 24 * 30,
       });
 
+      if (desktop) return desktopSuccessPage(email);
       return sendRedirect(event, "/");
     } catch (error: any) {
       const msg = error.message || "Unknown error";

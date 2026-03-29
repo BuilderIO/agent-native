@@ -15,6 +15,7 @@ import {
   getQuery,
 } from "h3";
 import { agentEnv } from "../shared/agent-env.js";
+import { getSession } from "./auth.js";
 import {
   resourceListAccessible,
   resourceList,
@@ -398,21 +399,26 @@ export function createAgentChatPlugin(
     // Resource scripts are available in both prod and dev modes
     const resourceScripts = await createResourceScriptEntries();
 
-    // Build system prompts — dynamic functions that pre-load resources
+    // Build system prompts — dynamic functions that pre-load resources per-request
     const basePrompt = options?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     const devPrefix = options?.devSystemPrompt ?? DEFAULT_DEV_PROMPT;
 
-    // Owner for resource loading — in dev mode always "local@localhost"
-    const getOwner = () =>
-      process.env.NODE_ENV === "production"
-        ? (process.env.AGENT_USER_EMAIL ?? "local@localhost")
-        : "local@localhost";
+    // Resolve owner from the H3 event's session — matches how resources are created
+    const getOwnerFromEvent = async (event: any): Promise<string> => {
+      try {
+        const session = await getSession(event);
+        return session?.email || "local@localhost";
+      } catch {
+        return "local@localhost";
+      }
+    };
 
     // Always build the production handler (includes resource tools)
     const prodHandler = createProductionAgentHandler({
       scripts: { ...templateScripts, ...resourceScripts },
-      systemPrompt: async () => {
-        const resources = await loadResourcesForPrompt(getOwner());
+      systemPrompt: async (event: any) => {
+        const owner = await getOwnerFromEvent(event);
+        const resources = await loadResourcesForPrompt(owner);
         return basePrompt + resources;
       },
       model: options?.model,
@@ -432,8 +438,9 @@ export function createAgentChatPlugin(
       };
       devHandler = createProductionAgentHandler({
         scripts: devScripts,
-        systemPrompt: async () => {
-          const resources = await loadResourcesForPrompt(getOwner());
+        systemPrompt: async (event: any) => {
+          const owner = await getOwnerFromEvent(event);
+          const resources = await loadResourcesForPrompt(owner);
           return devPrefix + basePrompt + resources;
         },
         model: options?.model,
@@ -793,7 +800,13 @@ export function createAgentChatPlugin(
     // Mount the main chat handler — delegates to dev or prod handler based on current mode
     nitroApp.h3App.use(
       routePath,
-      defineEventHandler((event) => {
+      defineEventHandler(async (event) => {
+        // Set AGENT_USER_EMAIL so scripts resolve the same owner as the session.
+        // Without this, scripts default to "local@localhost" and miss resources
+        // created by users who authenticated via OAuth (e.g., Gmail).
+        const owner = await getOwnerFromEvent(event);
+        process.env.AGENT_USER_EMAIL = owner;
+
         const handler = currentDevMode && devHandler ? devHandler : prodHandler;
         return handler(event);
       }),
