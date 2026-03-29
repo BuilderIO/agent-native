@@ -332,7 +332,7 @@ This is **automatic** - no special code needed in compositions. Just set `startF
 ✅ **Consistency** — All animations follow the same pattern
 ✅ **No Mysteries** — No hidden hardcoded behaviors
 
-**See:** `UIShowcase.tsx` for a complete example of track-based state management
+**See:** `BlankComposition.tsx` for an example of track-based composition setup
 
 ---
 
@@ -463,7 +463,7 @@ When building UI mockups in showcase compositions:
 - Toolbars should align to content edge (not centered over content)
 - Ensure spacing between overlapping elements (toolbar vs video: 12px minimum)
 
-**See:** `UICameraToolbar.tsx` and `UISidebar.tsx` for examples
+**See:** `CameraToolbar.tsx` and `CameraControls.tsx` for examples
 
 ---
 
@@ -501,7 +501,7 @@ Examples of correctly documented expression props in the registry:
   from: "", to: "", unit: "",
   programmatic: true,
   description:
-    "24 particles are placed evenly around 360° using trigonometry. Each launches 2 frames after the previous, creating a ripple. The count and stagger are baked in code — edit LogoReveal.tsx to change them.",
+    "24 particles are placed evenly around 360° using trigonometry. Each launches 2 frames after the previous, creating a ripple. The count and stagger are baked in code — edit the composition source to change them.",
   codeSnippet:
 `Array.from({ length: 24 }).map((_, i) => {
   const angle = (i / 24) * Math.PI * 2;
@@ -568,7 +568,7 @@ style={{
 - Programmatic animations become more flexible and composable
 - UI remains consistent — all tracks support the same property set
 
-**See:** `KineticText.tsx` for a complete example of this pattern
+**See:** `BlankComposition.tsx` for an example of composition setup
 
 ---
 
@@ -764,7 +764,7 @@ const distance = myProp?.parameterValues?.distance ?? 100;
 const position = interpolate(progress, [0, 1], [0, distance * speed]);
 ```
 
-**See:** `app/remotion/registry.ts` (kt-title track) and `app/remotion/compositions/KineticText.tsx` for a complete implementation
+**See:** `app/remotion/registry.ts` for composition registration examples
 
 ---
 
@@ -1075,9 +1075,7 @@ interface AnimatedProp {
 
 **Camera track is already integrated in:**
 
-- ✅ KineticText
-- ✅ LogoReveal
-- ✅ Slideshow
+- ✅ BlankComposition
 
 ---
 
@@ -1092,14 +1090,14 @@ The cursor system enables hover detection, cursor type changes, and click animat
 - **80% code reduction** vs manual pattern (145 lines vs 729 lines)
 - Zero boilerplate - automatic cursor history, track setup, CameraHost wrapping
 - Pre-built card components with animation variants
-- See: `ModernPlayground.tsx`
+- See: `BlankComposition.tsx`
 
 **2. Helper Hook Pattern: `useInteractiveComponent()` + `InteractiveCard`**
 
 - **76% code reduction** vs manual pattern (177 lines vs 729 lines)
 - Automatic cursor type management with reactivity
 - Pre-built card components
-- See: `SimplifiedPlayground.tsx`
+- See: `InteractiveCard.tsx`
 
 **3. Manual Registration Pattern** — ⚠️ **REMOVED**
 
@@ -1271,8 +1269,7 @@ interface HoverAnimationResult {
 
 **See also:**
 
-- `ModernPlayground.tsx` — Ultimate pattern example (145 lines, 80% reduction)
-- `SimplifiedPlayground.tsx` — Helper hook pattern example (177 lines, 76% reduction)
+- `BlankComposition.tsx` — Example using `createInteractiveComposition()` with `InteractiveCard` and `InteractiveButton`
 
 ---
 
@@ -1373,9 +1370,3 @@ From scripts (Node.js context):
 import { agentChat } from "@agent-native/core";
 agentChat.submit("Processing complete", "Optional context...");
 ```
-
-### Brand Assets
-
-| Asset                                   | Path                       | Notes                                             |
-| --------------------------------------- | -------------------------- | ------------------------------------------------- |
-| Builder.io logo (white, on transparent) | `/builder-logo-white.webp` | Use when users request Builder.io logo animations |

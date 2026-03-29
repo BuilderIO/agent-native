@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   ipcMain,
+  Menu,
   session,
   shell,
   webContents,
@@ -127,7 +128,7 @@ function toggleWebviewDevTools() {
     if (target.isDevToolsOpened()) {
       target.closeDevTools();
     } else {
-      target.openDevTools({ mode: "detach" });
+      target.openDevTools({ mode: "right" });
     }
   }
 }
@@ -348,6 +349,41 @@ app.whenReady().then(() => {
       }
     },
   );
+
+  // Replace the default app menu so Cmd+Option+I doesn't open shell DevTools.
+  // We handle this shortcut ourselves via before-input-event → toggleWebviewDevTools().
+  const isMac = process.platform === "darwin";
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac
+      ? [
+          {
+            role: "appMenu" as const,
+          },
+        ]
+      : []),
+    { role: "fileMenu" as const },
+    { role: "editMenu" as const },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" as const },
+        { role: "forceReload" as const },
+        {
+          label: "Toggle Developer Tools",
+          accelerator: "CmdOrCtrl+Option+I",
+          click: () => toggleWebviewDevTools(),
+        },
+        { type: "separator" as const },
+        { role: "resetZoom" as const },
+        { role: "zoomIn" as const },
+        { role: "zoomOut" as const },
+        { type: "separator" as const },
+        { role: "togglefullscreen" as const },
+      ],
+    },
+    { role: "windowMenu" as const },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 
   const win = createWindow();
 

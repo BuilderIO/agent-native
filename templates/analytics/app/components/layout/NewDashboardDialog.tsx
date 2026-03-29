@@ -24,11 +24,12 @@ export function NewDashboardDialog() {
       context:
         "The user wants to create a new analytics dashboard. " +
         `REQUIRED: Set lastUpdated="${today}" in the registry entry. ` +
-        "Create a new dashboard page in client/pages/adhoc/ with the appropriate charts and data. " +
-        "Register it in client/pages/adhoc/registry.ts (both the dashboards array and dashboardComponents map). " +
-        "Use DashboardHeader component at the top. " +
-        "Use the existing patterns: useMetricsQuery for BigQuery data, KpiChart or Recharts for charts, " +
-        "and the Card component for layout. Refer to AGENTS.md and docs/learnings.md for table mappings and query patterns.",
+        "First check /api/env-status to see which data sources are connected. " +
+        "Create a new dashboard page in app/pages/adhoc/ with the appropriate charts and data. " +
+        "Register it in app/pages/adhoc/registry.ts (both the dashboards array and dashboardComponents map). " +
+        "Use the existing chart components from app/components/dashboard/ and Recharts. " +
+        "Use the existing server libs in server/lib/ for the relevant data source. " +
+        "Refer to .builder/skills/<provider>/SKILL.md for query patterns.",
       submit: true,
       requiresCode: true,
     });

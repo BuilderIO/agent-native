@@ -1,7 +1,7 @@
-import Index from "@/pages/Index";
+import DataSources from "@/pages/DataSources";
 
 export function meta() {
-  return [{ title: "Analytics" }];
+  return [{ title: "Data Sources — Analytics" }];
 }
 
 export function HydrateFallback() {
@@ -12,6 +12,6 @@ export function HydrateFallback() {
   );
 }
 
-export default function IndexRoute() {
-  return <Index />;
+export default function DataSourcesRoute() {
+  return <DataSources />;
 }

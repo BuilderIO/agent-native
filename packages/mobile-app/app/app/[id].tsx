@@ -1,15 +1,22 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  Linking,
+  AppState,
 } from "react-native";
 import { useLocalSearchParams, Stack } from "expo-router";
 import { WebView } from "react-native-webview";
 import { Feather } from "@expo/vector-icons";
 import { useApps } from "@/lib/use-apps";
+import { useEffect } from "react";
+
+// Google blocks OAuth in embedded WebViews. Open Google auth URLs in the
+// system browser (Safari) instead.
+const EXTERNAL_HOSTS = ["accounts.google.com", "oauth2.googleapis.com"];
 
 export default function AppScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -17,13 +24,40 @@ export default function AppScreen() {
   const webviewRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const openedExternal = useRef(false);
 
   const app = apps.find((a) => a.id === id);
+
+  // When the app returns to foreground after external OAuth, reload the WebView
+  // to pick up the new session cookie.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active" && openedExternal.current) {
+        openedExternal.current = false;
+        webviewRef.current?.reload();
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   const handleReload = useCallback(() => {
     setError(false);
     setLoading(true);
     webviewRef.current?.reload();
+  }, []);
+
+  const handleShouldStartLoad = useCallback((event: { url: string }) => {
+    try {
+      const parsed = new URL(event.url);
+      if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
+        openedExternal.current = true;
+        Linking.openURL(event.url);
+        return false;
+      }
+    } catch {
+      // Invalid URL — let WebView handle it
+    }
+    return true;
   }, []);
 
   if (!app) {
@@ -82,8 +116,11 @@ export default function AppScreen() {
                 setError(true);
               }
             }}
+            onShouldStartLoadWithRequest={handleShouldStartLoad}
             javaScriptEnabled
             domStorageEnabled
+            sharedCookiesEnabled
+            thirdPartyCookiesEnabled
             startInLoadingState={false}
             allowsBackForwardNavigationGestures
             pullToRefreshEnabled
