@@ -85,7 +85,7 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
   const redirectUri =
     (getQuery(event).redirect_uri as string) ||
     `${getOrigin(event)}/api/google/callback`;
-  const state = encodeState(redirectUri, isElectron(event));
+  const state = encodeState(redirectUri);
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID,
     redirect_uri: redirectUri,

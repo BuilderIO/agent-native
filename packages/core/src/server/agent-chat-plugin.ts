@@ -818,74 +818,71 @@ export function createAgentChatPlugin(
     );
 
     // ─── Thread management endpoints ──────────────────────────────────────
-    // NOTE: The specific-thread handler (with trailing slash) must be mounted
-    // BEFORE the list handler, because h3's use() does prefix matching —
-    // otherwise GET /threads/thread-123 would match the /threads handler first.
-
-    // Get, update, or delete a specific thread
-    nitroApp.h3App.use(
-      `${routePath}/threads/`,
-      defineEventHandler(async (event) => {
-        const owner = await getOwnerFromEvent(event);
-        const method = getMethod(event);
-
-        // Extract thread ID from the URL path
-        const url = event.node?.req?.url || event.path || "";
-        const match = url.match(/\/threads\/([^/?]+)/);
-        if (!match) {
-          setResponseStatus(event, 400);
-          return { error: "Thread ID required" };
-        }
-        const threadId = decodeURIComponent(match[1]);
-
-        if (method === "GET") {
-          const thread = await getThread(threadId);
-          if (!thread || thread.ownerEmail !== owner) {
-            setResponseStatus(event, 404);
-            return { error: "Thread not found" };
-          }
-          return thread;
-        }
-
-        if (method === "PUT") {
-          const thread = await getThread(threadId);
-          if (!thread || thread.ownerEmail !== owner) {
-            setResponseStatus(event, 404);
-            return { error: "Thread not found" };
-          }
-          const body = await readBody(event);
-          await updateThreadData(
-            threadId,
-            body.threadData ?? thread.threadData,
-            body.title ?? thread.title,
-            body.preview ?? thread.preview,
-            body.messageCount ?? thread.messageCount,
-          );
-          return { ok: true };
-        }
-
-        if (method === "DELETE") {
-          const thread = await getThread(threadId);
-          if (!thread || thread.ownerEmail !== owner) {
-            setResponseStatus(event, 404);
-            return { error: "Thread not found" };
-          }
-          await deleteThread(threadId);
-          return { ok: true };
-        }
-
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }),
-    );
-
-    // List threads or create a new thread
+    // Single handler for /threads and /threads/:id — h3's use() does prefix
+    // matching so we can't reliably split them into separate handlers.
     nitroApp.h3App.use(
       `${routePath}/threads`,
       defineEventHandler(async (event) => {
         const owner = await getOwnerFromEvent(event);
         const method = getMethod(event);
 
+        // Determine if this is a specific-thread request.
+        // h3's use() strips the mount prefix, so event.path contains
+        // only the remainder after /threads — e.g., "/thread-abc" or "/".
+        // We also check the original URL as a fallback.
+        const remainder = (event.path || "").replace(/^\/+/, "");
+        const fromUrl = (event.node?.req?.url || "").match(
+          /\/threads\/([^/?]+)/,
+        );
+        const threadId = remainder
+          ? decodeURIComponent(remainder.split("?")[0].split("/")[0])
+          : fromUrl
+            ? decodeURIComponent(fromUrl[1])
+            : null;
+
+        // ── Specific thread: GET/PUT/DELETE /threads/:id ──
+        if (threadId) {
+          if (method === "GET") {
+            const thread = await getThread(threadId);
+            if (!thread || thread.ownerEmail !== owner) {
+              setResponseStatus(event, 404);
+              return { error: "Thread not found" };
+            }
+            return thread;
+          }
+
+          if (method === "PUT") {
+            const thread = await getThread(threadId);
+            if (!thread || thread.ownerEmail !== owner) {
+              setResponseStatus(event, 404);
+              return { error: "Thread not found" };
+            }
+            const body = await readBody(event);
+            await updateThreadData(
+              threadId,
+              body.threadData ?? thread.threadData,
+              body.title ?? thread.title,
+              body.preview ?? thread.preview,
+              body.messageCount ?? thread.messageCount,
+            );
+            return { ok: true };
+          }
+
+          if (method === "DELETE") {
+            const thread = await getThread(threadId);
+            if (!thread || thread.ownerEmail !== owner) {
+              setResponseStatus(event, 404);
+              return { error: "Thread not found" };
+            }
+            await deleteThread(threadId);
+            return { ok: true };
+          }
+
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+
+        // ── Thread list: GET/POST /threads ──
         if (method === "GET") {
           const query = getQuery(event);
           const limit = Math.min(
@@ -910,18 +907,28 @@ export function createAgentChatPlugin(
       }),
     );
 
-    // Mount the main chat handler — delegates to dev or prod handler based on current mode
+    // Mount the main chat handler — delegates to dev or prod handler based on current mode.
+    // This is mounted last because h3's use() is prefix-based, meaning /api/agent-chat
+    // also matches /api/agent-chat/threads/... — we skip sub-path requests here so the
+    // earlier-mounted handlers (mode, save-key, files, skills, mentions, threads) handle them.
     nitroApp.h3App.use(
       routePath,
       defineEventHandler(async (event) => {
+        // Skip sub-path requests — they're handled by earlier-mounted handlers
+        const url = event.node?.req?.url || event.path || "";
+        const afterBase = url.slice(url.indexOf(routePath) + routePath.length);
+        if (afterBase && afterBase !== "/" && !afterBase.startsWith("?")) {
+          // Not for us — return 404 so h3 doesn't swallow the request
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        }
+
         // Set AGENT_USER_EMAIL so scripts resolve the same owner as the session.
         // Without this, scripts default to "local@localhost" and miss resources
         // created by users who authenticated via OAuth (e.g., Gmail).
         const owner = await getOwnerFromEvent(event);
         process.env.AGENT_USER_EMAIL = owner;
 
-        // If threadId is provided, persist the conversation server-side
-        // We intercept the handler's response stream to capture messages
         const handler = currentDevMode && devHandler ? devHandler : prodHandler;
         return handler(event);
       }),

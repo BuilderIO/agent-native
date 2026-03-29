@@ -275,36 +275,59 @@ ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
 });
 
 // ---------- OAuth handling ----------
-// Open OAuth flows in the system browser so the user can use their
-// existing logged-in session. The callback still hits the local server
-// (localhost) which stores tokens in SQL. When the user switches back
-// to the app, we reload webviews to pick up the new auth state.
+// Open OAuth in an Electron BrowserWindow (not the system browser) so
+// the callback sets the session cookie in the same Electron session as
+// the app webviews. After the callback completes, auto-close the OAuth
+// window and reload webviews to pick up the new auth state.
 
 const OAUTH_HOSTS = ["accounts.google.com"];
-let oauthExpiresAt = 0;
 
-function openAuthExternal(url: string) {
-  // Keep the OAuth flag active for 5 minutes so premature focus events
-  // (alt-tab, notification click) don't consume it before the user
-  // finishes the consent screen.
-  oauthExpiresAt = Date.now() + 5 * 60 * 1000;
-  shell.openExternal(url);
-}
+function openOAuthWindow(url: string) {
+  const mainWin = BrowserWindow.getAllWindows()[0];
 
-// When the app regains focus after an external OAuth flow, reload
-// webviews so they pick up the new auth state (same approach as mobile).
-app.on("browser-window-focus", () => {
-  if (Date.now() > oauthExpiresAt) return;
-  // Give the callback handler a moment to finish storing tokens
-  setTimeout(() => {
-    const allContents = webContents.getAllWebContents();
-    for (const wc of allContents) {
-      if (wc.getType() === "webview") {
-        wc.reload();
+  const oauthWin = new BrowserWindow({
+    width: 500,
+    height: 700,
+    title: "Sign in",
+    backgroundColor: "#111111",
+    parent: mainWin || undefined,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  oauthWin.loadURL(url);
+
+  // Detect when the OAuth callback URL is reached — the server has set
+  // the session cookie in this Electron session by this point.
+  const onNavigate = (_event: Electron.Event, navUrl: string) => {
+    try {
+      const parsed = new URL(navUrl);
+      if (
+        parsed.pathname.startsWith("/api/google/callback") ||
+        parsed.pathname.startsWith("/api/google/add-account/callback")
+      ) {
+        // Wait for the page to finish loading (cookie is set in the response)
+        oauthWin.webContents.once("did-finish-load", () => {
+          setTimeout(() => {
+            if (!oauthWin.isDestroyed()) oauthWin.close();
+          }, 600);
+        });
       }
+    } catch {
+      // Malformed URL — ignore
     }
-  }, 500);
-});
+  };
+
+  oauthWin.webContents.on("did-navigate", onNavigate);
+  oauthWin.webContents.on("did-redirect-navigation", onNavigate);
+
+  // Reload webviews when the OAuth window closes (whether auto or manual)
+  oauthWin.on("closed", () => {
+    reloadAllWebviews();
+  });
+}
 
 // ---------- Webview popup handling ----------
 
@@ -319,7 +342,7 @@ app.on("web-contents-created", (_event, contents) => {
         return { action: "deny" };
       }
       if (OAUTH_HOSTS.includes(parsed.hostname)) {
-        openAuthExternal(url);
+        openOAuthWindow(url);
       } else {
         shell.openExternal(url);
       }

@@ -118,7 +118,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       session?.email && session.email !== "local@localhost"
         ? session.email
         : undefined;
-    const state = encodeState(redirectUri, owner, isElectron(event));
+    const state = encodeState(redirectUri, owner);
     const url = getAuthUrl(undefined, redirectUri, state);
     return { url };
   } catch (error: any) {
@@ -251,12 +251,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       const redirectUri =
         (query.redirect_uri as string) ||
         `${getOrigin(event)}/api/google/callback`;
-      const state = encodeState(
-        redirectUri,
-        session.email,
-        isElectron(event),
-        true, // addAccount flag
-      );
+      const state = encodeState(redirectUri, session.email);
       const url = getAuthUrl(undefined, redirectUri, state);
       return { url };
     } catch (error: any) {
