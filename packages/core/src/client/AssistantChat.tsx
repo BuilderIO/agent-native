@@ -243,7 +243,7 @@ function ToolCallFallback({
     .join(", ");
 
   return (
-    <div className="my-1">
+    <div className="my-1 overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
         className={cn(
@@ -273,7 +273,7 @@ function ToolCallFallback({
             <CheckIcon className="h-3 w-3 text-emerald-500" />
           )}
         </span>
-        <span className="truncate">
+        <span className="truncate min-w-0">
           <span className="font-medium">{toolName}</span>
           {argsStr && <span className="opacity-60 ml-1">({argsStr})</span>}
         </span>

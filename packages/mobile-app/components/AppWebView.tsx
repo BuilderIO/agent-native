@@ -19,7 +19,7 @@ const EXTERNAL_HOSTS = ["accounts.google.com", "oauth2.googleapis.com"];
 
 export default function AppWebView({
   url,
-  color = "#3B82F6",
+  color = "#ffffff",
 }: AppWebViewProps) {
   const webviewRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);

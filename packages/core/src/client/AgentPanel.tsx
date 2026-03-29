@@ -657,7 +657,7 @@ export function AgentPanel({
                   tabIndex={0}
                   onClick={() => setActiveTabId(tab.id)}
                   className={cn(
-                    "group/tab flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium leading-none cursor-pointer",
+                    "agent-tab flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium leading-none cursor-pointer",
                     tab.id === activeTabId
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -678,7 +678,7 @@ export function AgentPanel({
                       closeTab(tab.id);
                     }}
                     className={cn(
-                      "ml-0.5 flex h-3 w-3 items-center justify-center rounded-sm opacity-0 group-hover/tab:opacity-100",
+                      "agent-tab-close ml-0.5 flex h-3 w-3 items-center justify-center rounded-sm",
                       tab.id === activeTabId
                         ? "text-foreground/55 hover:bg-background/60 hover:text-foreground"
                         : "text-muted-foreground/65 hover:bg-accent hover:text-foreground",
@@ -734,6 +734,13 @@ export function AgentPanel({
       )}
       style={AGENT_PANEL_ROOT_STYLE}
     >
+      {/* Tailwind group-hover/tab doesn't work in core package — inject directly */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html:
+            ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}",
+        }}
+      />
       {/* Chat view — always mounted to preserve state.
           Header (with tabs + mode buttons) is always visible.
           Chat content is hidden when CLI or resources mode is active.
@@ -846,21 +853,9 @@ function ResizeHandle({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      className="group relative z-10 shrink-0 w-px touch-none"
-    >
-      <div
-        className={cn(
-          "absolute inset-y-0 cursor-col-resize",
-          position === "left" ? "-left-1.5 w-4" : "-right-1.5 w-4",
-        )}
-      />
-      <div
-        className={cn(
-          "absolute inset-y-0 top-0 w-px bg-border transition-colors group-hover:bg-accent group-active:bg-accent",
-          position === "left" ? "left-0" : "right-0",
-        )}
-      />
-    </div>
+      className="group relative z-20 shrink-0 w-px bg-border touch-none select-none transition-colors hover:bg-accent active:bg-accent before:absolute before:inset-y-0 before:-left-[3px] before:w-[7px] before:content-[''] before:cursor-col-resize"
+      style={{ cursor: "col-resize" }}
+    />
   );
 }
 

@@ -146,7 +146,7 @@ export default function AppScreen() {
 
         {loading && !error && (
           <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color={app.color} />
+            <ActivityIndicator size="large" color="#ffffff" />
           </View>
         )}
       </View>
@@ -194,14 +194,14 @@ const styles = StyleSheet.create({
   retryButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#3B82F6",
+    backgroundColor: "#ffffff",
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 8,
     gap: 8,
   },
   retryText: {
-    color: "#ffffff",
+    color: "#111111",
     fontSize: 15,
     fontWeight: "600",
   },

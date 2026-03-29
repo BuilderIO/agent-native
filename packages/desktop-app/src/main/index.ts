@@ -128,7 +128,7 @@ function toggleWebviewDevTools() {
     if (target.isDevToolsOpened()) {
       target.closeDevTools();
     } else {
-      target.openDevTools({ mode: "right" });
+      target.openDevTools();
     }
   }
 }

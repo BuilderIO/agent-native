@@ -472,9 +472,19 @@ export function TiptapComposer({
             <PaperclipIcon className="h-4 w-4" />
           </button>
         </ComposerPrimitive.AddAttachment>
+        <style>{`
+          .aui-composer .ProseMirror p.is-editor-empty:first-child::before {
+            content: attr(data-placeholder);
+            color: var(--color-muted-foreground);
+            opacity: 0.5;
+            float: left;
+            height: 0;
+            pointer-events: none;
+          }
+        `}</style>
         <EditorContent
           editor={editor}
-          className="flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0"
+          className="aui-composer flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0"
         />
         <button
           type="button"

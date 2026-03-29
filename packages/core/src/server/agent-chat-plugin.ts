@@ -54,6 +54,7 @@ function wrapCliScript(
       const logs: string[] = [];
       const origLog = console.log;
       const origError = console.error;
+      const origStdoutWrite = process.stdout.write;
       const origExit = process.exit;
       console.log = (...a: unknown[]) => {
         logs.push(a.map(String).join(" "));
@@ -61,6 +62,16 @@ function wrapCliScript(
       console.error = (...a: unknown[]) => {
         logs.push(a.map(String).join(" "));
       };
+      // Intercept process.stdout.write so scripts that write directly
+      // (e.g. resource-read) have their output captured
+      process.stdout.write = ((chunk: any, ...rest: any[]) => {
+        if (typeof chunk === "string") {
+          logs.push(chunk);
+        } else if (Buffer.isBuffer(chunk)) {
+          logs.push(chunk.toString());
+        }
+        return true;
+      }) as any;
       // Intercept process.exit so scripts don't kill the server
       process.exit = ((code?: number) => {
         throw new ExitIntercepted(code ?? 0);
@@ -74,6 +85,7 @@ function wrapCliScript(
       } finally {
         console.log = origLog;
         console.error = origError;
+        process.stdout.write = origStdoutWrite;
         process.exit = origExit;
       }
       return logs.join("\n") || "(no output)";
@@ -748,12 +760,13 @@ export function createAgentChatPlugin(
             ? await resourceListAccessible("local@localhost")
             : await resourceList(SHARED_OWNER);
           for (const r of resources) {
+            const isShared = r.owner === SHARED_OWNER;
             items.push({
               id: `resource:${r.path}`,
               label: r.path.split("/").pop() || r.path,
               description: r.path,
               icon: "file",
-              source: "resource",
+              source: isShared ? "resource:shared" : "resource:private",
               refType: "file",
               refPath: r.path,
             });

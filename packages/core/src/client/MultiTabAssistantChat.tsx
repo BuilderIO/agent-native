@@ -317,6 +317,13 @@ export function MultiTabAssistantChat({
 
   return (
     <div className="flex flex-1 flex-col h-full min-h-0">
+      {/* Tailwind group-hover/tab doesn't work in core package — inject directly */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html:
+            ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}",
+        }}
+      />
       {renderHeader ? (
         renderHeader(headerProps)
       ) : showTabBar ? (
@@ -327,7 +334,7 @@ export function MultiTabAssistantChat({
                 key={tab.id}
                 onClick={() => setActiveTabId(tab.id)}
                 className={cn(
-                  "group/tab flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-[11px] font-medium shrink-0",
+                  "agent-tab flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-[11px] font-medium shrink-0",
                   tab.id === activeTabId
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
@@ -347,7 +354,7 @@ export function MultiTabAssistantChat({
                       e.stopPropagation();
                       closeTab(tab.id);
                     }}
-                    className="rounded p-px opacity-0 group-hover/tab:opacity-100 text-muted-foreground/50 hover:!text-foreground hover:!bg-accent"
+                    className="agent-tab-close rounded p-px text-muted-foreground/50 hover:!text-foreground hover:!bg-accent"
                   >
                     <IconX size={8} />
                   </span>
