@@ -109,8 +109,11 @@ function buildScopedTables(
       let whereSql: string;
       if (coreScoping.mode === "prefix") {
         // settings: key starts with u:<email>:
-        // Escape % and _ in the email so LIKE treats them literally.
-        const likeEmail = safeEmail.replace(/%/g, "\\%").replace(/_/g, "\\_");
+        // Escape \, % and _ in the email so LIKE treats them literally.
+        const likeEmail = safeEmail
+          .replace(/\\/g, "\\\\")
+          .replace(/%/g, "\\%")
+          .replace(/_/g, "\\_");
         const prefix = `u:${likeEmail}:`;
         whereSql = `"${coreScoping.column}" LIKE '${prefix}%' ESCAPE '\\'`;
       } else {
