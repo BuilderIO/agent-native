@@ -1,18 +1,48 @@
 import { defineNitroPlugin } from "@agent-native/core/server";
 import { defineEventHandler, readBody, setResponseStatus, getMethod } from "h3";
 
-const ALLOWED_KEYS = new Set([
-  "DATABASE_URL",
-  "DATABASE_AUTH_TOKEN",
-  "TURNSTILE_SECRET_KEY",
-  "VITE_TURNSTILE_SITE_KEY",
-]);
+const ENV_KEYS = [
+  {
+    key: "DATABASE_URL",
+    label: "Database URL",
+    required: false,
+  },
+  {
+    key: "DATABASE_AUTH_TOKEN",
+    label: "Database Auth Token",
+    required: false,
+  },
+  {
+    key: "TURNSTILE_SECRET_KEY",
+    label: "Turnstile Secret Key",
+    required: false,
+  },
+  {
+    key: "VITE_TURNSTILE_SITE_KEY",
+    label: "Turnstile Site Key",
+    required: false,
+  },
+];
+
+const ALLOWED_KEYS = new Set(ENV_KEYS.map((k) => k.key));
 
 /**
- * Registers /api/env-vars endpoint so the CloudUpgrade UI
- * can save database credentials to .env and process.env.
+ * Registers /api/env-status and /api/env-vars endpoints so the UI
+ * can check env key status and save credentials to .env and process.env.
  */
 export default defineNitroPlugin((nitroApp) => {
+  nitroApp.h3App.use(
+    "/api/env-status",
+    defineEventHandler(() => {
+      return ENV_KEYS.map((cfg) => ({
+        key: cfg.key,
+        label: cfg.label,
+        required: cfg.required,
+        configured: !!process.env[cfg.key],
+      }));
+    }),
+  );
+
   nitroApp.h3App.use(
     "/api/env-vars",
     defineEventHandler(async (event) => {
@@ -31,7 +61,9 @@ export default defineNitroPlugin((nitroApp) => {
         return { error: "vars array required" };
       }
 
-      const filtered = vars.filter((v) => ALLOWED_KEYS.has(v.key));
+      const filtered = vars.filter(
+        (v) => typeof v.key === "string" && ALLOWED_KEYS.has(v.key),
+      );
       if (filtered.length === 0) {
         setResponseStatus(event, 400);
         return { error: "No recognized env keys in request" };
