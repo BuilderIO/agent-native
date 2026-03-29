@@ -6,11 +6,14 @@ This is an **agent-native** email client built with `@agent-native/core`.
 
 ## Resources
 
-Resources are SQL-backed persistent files for storing notes, learnings, and context. They replace the old `learnings.md` file approach — resources are stored in the database, not the filesystem.
+Resources are SQL-backed persistent files for storing notes, learnings, and context. They replace the old `LEARNINGS.md` file approach — resources are stored in the database, not the filesystem.
 
-**At the start of every conversation, read the `learnings.md` resource.** This is the app's memory — it contains user preferences, corrections, important context, and patterns learned from past interactions.
+**At the start of every conversation, read these resources (both personal and shared scopes):**
 
-**Update the `learnings.md` resource when you learn something important:**
+1. **`AGENTS.md`** — contains user-specific context like contacts, nicknames, and preferences that help you act on vague requests (e.g., "email my wife"). Read both `--scope personal` and `--scope shared`.
+2. **`LEARNINGS.md`** — the app's memory with user preferences, corrections, important context, and patterns learned from past interactions. Read both `--scope personal` and `--scope shared`.
+
+**Update the `LEARNINGS.md` resource when you learn something important:**
 
 - User corrects your tone, style, or approach
 - User shares personal info relevant to the app (contacts, preferences, habits)

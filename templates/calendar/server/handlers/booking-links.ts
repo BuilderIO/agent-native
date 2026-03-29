@@ -13,12 +13,19 @@ import { getDb, schema } from "../db/index.js";
 function rowToBookingLink(
   row: typeof schema.bookingLinks.$inferSelect,
 ): BookingLink {
+  let durations: number[] | undefined;
+  if (row.durations) {
+    try {
+      durations = JSON.parse(row.durations);
+    } catch {}
+  }
   return {
     id: row.id,
     slug: row.slug,
     title: row.title,
     description: row.description ?? undefined,
     duration: row.duration,
+    durations,
     color: row.color ?? undefined,
     isActive: row.isActive,
     createdAt: row.createdAt,
@@ -69,6 +76,7 @@ export const createBookingLink = defineEventHandler(async (event: H3Event) => {
         title: String(body.title).trim(),
         description: body.description ? String(body.description).trim() : null,
         duration: Number(body.duration),
+        durations: body.durations ? JSON.stringify(body.durations) : null,
         color: body.color ? String(body.color).trim() : null,
         isActive: body.isActive ?? true,
         createdAt: now,
@@ -121,6 +129,7 @@ export const updateBookingLink = defineEventHandler(async (event: H3Event) => {
         title: String(body.title).trim(),
         description: body.description ? String(body.description).trim() : null,
         duration: Number(body.duration),
+        durations: body.durations ? JSON.stringify(body.durations) : null,
         color: body.color ? String(body.color).trim() : null,
         isActive: body.isActive ?? true,
         updatedAt: new Date().toISOString(),

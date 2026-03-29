@@ -23,6 +23,11 @@ function getOrigin(event: H3Event): string {
   return `${proto}://${host}`;
 }
 
+/** Detect requests from the Electron desktop app webview. */
+function isElectron(event: H3Event): boolean {
+  return /Electron/i.test(getHeader(event, "user-agent") || "");
+}
+
 function errorPage(message: string): string {
   return `<!DOCTYPE html><html><body>
     <div style="font-family:system-ui;max-width:420px;margin:30vh auto;text-align:center">
@@ -32,28 +37,49 @@ function errorPage(message: string): string {
   </body></html>`;
 }
 
-/** Encode a redirect URI into the OAuth state param so the callback can recover it across proxies. */
-function encodeState(redirectUri: string): string {
-  const nonce = crypto.randomBytes(8).toString("hex");
-  return Buffer.from(JSON.stringify({ n: nonce, r: redirectUri })).toString(
-    "base64url",
+/** HTML page shown after OAuth completes in the system browser (desktop app flow). */
+function desktopSuccessPage(email?: string): Response {
+  const msg = email ? `Connected ${email}!` : "Connected!";
+  return new Response(
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`,
+    { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
   );
 }
 
-/** Recover the redirect URI from the state param, falling back to origin-based computation. */
-function decodeRedirectUri(
-  stateParam: string | undefined,
-  fallback: string,
+/** Encode a redirect URI (and optional owner) into the OAuth state param so the callback can recover them across proxies and cookie-less flows (e.g. desktop app system browser). */
+function encodeState(
+  redirectUri: string,
+  owner?: string,
+  desktop?: boolean,
 ): string {
+  const nonce = crypto.randomBytes(8).toString("hex");
+  const payload: Record<string, string | boolean> = {
+    n: nonce,
+    r: redirectUri,
+  };
+  if (owner) payload.o = owner;
+  if (desktop) payload.d = true;
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
+
+/** Recover the redirect URI and optional owner from the state param. */
+function decodeState(
+  stateParam: string | undefined,
+  fallbackUri: string,
+): { redirectUri: string; owner?: string; desktop?: boolean } {
   if (stateParam) {
     try {
       const parsed = JSON.parse(
         Buffer.from(stateParam, "base64url").toString(),
       );
-      if (parsed.r) return parsed.r;
+      return {
+        redirectUri: parsed.r || fallbackUri,
+        owner: parsed.o || undefined,
+        desktop: !!parsed.d,
+      };
     } catch {}
   }
-  return fallback;
+  return { redirectUri: fallbackUri };
 }
 
 export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
@@ -70,7 +96,7 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
     const redirectUri =
       (query.redirect_uri as string) ||
       `${getOrigin(event)}/api/google/callback`;
-    const state = encodeState(redirectUri);
+    const state = encodeState(redirectUri, undefined, isElectron(event));
     const url = getAuthUrl(undefined, redirectUri, state);
     return { url };
   } catch (error: any) {
@@ -90,7 +116,7 @@ export const handleGoogleCallback = defineEventHandler(
         return { error: "Missing authorization code" };
       }
 
-      const redirectUri = decodeRedirectUri(
+      const { redirectUri, desktop } = decodeState(
         stateParam,
         `${getOrigin(event)}/api/google/callback`,
       );
@@ -112,12 +138,15 @@ export const handleGoogleCallback = defineEventHandler(
         maxAge: 60 * 60 * 24 * 30, // 30 days
       });
 
-      // If this looks like a mobile request, redirect via the native app scheme
+      // If this looks like a mobile request, redirect via the native app scheme.
+      // Pass the session token in the deep link so the app can inject it as a
+      // cookie into its WebView (Safari and WKWebView have separate cookie jars).
       const ua = getHeader(event, "user-agent") || "";
       const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
       if (isMobile) {
+        const deepLink = `agentnative://oauth-complete?token=${sessionToken}`;
         return new Response(
-          `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href="agentnative://oauth-complete";setTimeout(function(){window.close()},2000)</script></body></html>`,
+          `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href=${JSON.stringify(deepLink)};setTimeout(function(){window.location.href="/"},1500)</script></body></html>`,
           {
             status: 200,
             headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -125,6 +154,7 @@ export const handleGoogleCallback = defineEventHandler(
         );
       }
 
+      if (desktop) return desktopSuccessPage(email);
       return sendRedirect(event, "/");
     } catch (error: any) {
       const msg = error.message || "Unknown error";
@@ -170,7 +200,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       const redirectUri =
         (query.redirect_uri as string) ||
         `${getOrigin(event)}/api/google/add-account/callback`;
-      const state = encodeState(redirectUri);
+      const state = encodeState(redirectUri, session.email, isElectron(event));
       const url = getAuthUrl(undefined, redirectUri, state);
       return { url };
     } catch (error: any) {
@@ -184,29 +214,36 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
   async (event: H3Event) => {
     try {
       const session = await getSession(event);
-      if (!session?.email) {
+      const query = getQuery(event);
+      const stateParam = query.state as string | undefined;
+      const {
+        redirectUri,
+        owner: stateOwner,
+        desktop,
+      } = decodeState(
+        stateParam,
+        `${getOrigin(event)}/api/google/add-account/callback`,
+      );
+
+      const ownerEmail = session?.email || stateOwner;
+      if (!ownerEmail) {
         return errorPage("Session expired. Please log in again.");
       }
 
-      const query = getQuery(event);
       const code = query.code as string;
-      const stateParam = query.state as string | undefined;
       if (!code) {
         setResponseStatus(event, 400);
         return errorPage("Missing authorization code.");
       }
 
-      const redirectUri = decodeRedirectUri(
-        stateParam,
-        `${getOrigin(event)}/api/google/add-account/callback`,
-      );
-
       const addedEmail = await exchangeCode(
         code,
         undefined,
         redirectUri,
-        session.email,
+        ownerEmail,
       );
+
+      if (desktop) return desktopSuccessPage(addedEmail);
 
       // Return a close-tab page (UI opens this in a new tab and polls for status)
       const safeEmail = JSON.stringify(addedEmail);

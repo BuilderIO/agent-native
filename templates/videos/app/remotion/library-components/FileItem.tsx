@@ -86,7 +86,7 @@ export const FileItem = createInteractiveComposition<FileItemProps>({
   render: ({ cursorHistory, registerForCursor }, props) => {
     const {
       icon = "https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/10ff8b681a169f3c2b0c90b4fd672a0e7173771b?placeholderIfAbsent=true",
-      name = "KineticText.tsx",
+      name = "MyComponent.tsx",
       lineCount = "+ 42",
       path = "client/remotion/compositions",
       x = 760,

@@ -16,6 +16,7 @@ import {
   resourceList,
   resourceListAccessible,
   resourceMove,
+  ensurePersonalDefaults,
   SHARED_OWNER,
   type Resource,
   type ResourceMeta,
@@ -100,6 +101,9 @@ export async function handleListResources(event: any) {
   const scope = (query.scope as string) || "all";
   const email = await resolveEmail(event);
 
+  // Seed personal AGENTS.md + LEARNINGS.md on first access
+  await ensurePersonalDefaults(email);
+
   let resources: ResourceMeta[];
 
   if (scope === "personal") {
@@ -119,6 +123,9 @@ export async function handleGetResourceTree(event: any) {
   const query = getQuery(event);
   const scope = (query.scope as string) || "all";
   const email = await resolveEmail(event);
+
+  // Seed personal AGENTS.md + LEARNINGS.md on first access
+  await ensurePersonalDefaults(email);
 
   let resources: ResourceMeta[];
 

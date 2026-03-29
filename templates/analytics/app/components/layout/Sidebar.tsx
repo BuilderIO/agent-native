@@ -23,6 +23,7 @@ import {
   Home,
   BarChart3,
   LayoutDashboard,
+  Database,
 } from "lucide-react";
 import { getIdToken } from "@/lib/auth";
 import {
@@ -90,18 +91,6 @@ interface ToolItem {
 
 const defaultTools: ToolItem[] = [
   { id: "explorer", name: "Explorer", href: "/adhoc/explorer" },
-  {
-    id: "customer-health",
-    name: "Customer Health",
-    href: "/adhoc/customer-health",
-  },
-  { id: "stripe", name: "Stripe Billing", href: "/adhoc/stripe" },
-  {
-    id: "slack-feedback",
-    name: "Slack Feedback",
-    href: "/adhoc/slack-feedback",
-  },
-  { id: "query-explorer", name: "Query Explorer", href: "/query" },
 ];
 
 function applyOrder<T extends { id: string }>(
@@ -620,10 +609,7 @@ export function Sidebar() {
         className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-10"
       />
       <div className="flex h-14 items-center justify-between border-b border-border px-4 lg:h-[60px] lg:px-6">
-        <Link
-          to="/adhoc/overview"
-          className="flex items-center gap-2 font-semibold"
-        >
+        <Link to="/" className="flex items-center gap-2 font-semibold">
           <svg
             width="14"
             height="14"
@@ -656,21 +642,21 @@ export function Sidebar() {
             )}
           >
             <Home className="h-4 w-4" />
-            Guidelines
+            Home
           </Link>
 
-          {/* Overview link */}
+          {/* Data Sources link */}
           <Link
-            to="/overview"
+            to="/data-sources"
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-              location.pathname === "/overview"
+              location.pathname === "/data-sources"
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
                 : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
-            <BarChart3 className="h-4 w-4" />
-            Overview
+            <Database className="h-4 w-4" />
+            Data Sources
           </Link>
 
           {/* Dashboards section */}
@@ -728,9 +714,7 @@ export function Sidebar() {
             onClick={() => setToolsOpen(!toolsOpen)}
             className={cn(
               "flex w-full items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary text-left",
-              location.pathname.startsWith("/adhoc/customer-health") ||
-                location.pathname.startsWith("/adhoc/explorer") ||
-                location.pathname === "/query"
+              location.pathname.startsWith("/adhoc/explorer")
                 ? "text-sidebar-accent-foreground"
                 : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}

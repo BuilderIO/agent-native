@@ -21,6 +21,7 @@ export default function RootLayout() {
             headerBackTitle: "Apps",
           }}
         />
+        <Stack.Screen name="oauth-complete" options={{ headerShown: false }} />
       </Stack>
     </>
   );

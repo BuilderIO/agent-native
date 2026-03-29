@@ -5,11 +5,20 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  Linking,
+  AppState,
 } from "react-native";
 import { useLocalSearchParams, Stack } from "expo-router";
 import { WebView } from "react-native-webview";
 import { Feather } from "@expo/vector-icons";
 import { useApps } from "@/lib/use-apps";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const SESSION_TOKEN_KEY = "agent-native:session-token";
+
+// Google blocks OAuth in embedded WebViews. Open Google auth URLs in the
+// system browser (Safari) instead.
+const EXTERNAL_HOSTS = ["accounts.google.com", "oauth2.googleapis.com"];
 
 export default function AppScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -17,13 +26,49 @@ export default function AppScreen() {
   const webviewRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const openedExternal = useRef(false);
 
   const app = apps.find((a) => a.id === id);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+
+  // Load stored session token on mount
+  useEffect(() => {
+    AsyncStorage.getItem(SESSION_TOKEN_KEY).then((t) => setSessionToken(t));
+  }, []);
+
+  // When the app returns to foreground after external OAuth, re-read the token
+  // (it may have been set by oauth-complete) and reload the WebView.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active" && openedExternal.current) {
+        openedExternal.current = false;
+        AsyncStorage.getItem(SESSION_TOKEN_KEY).then((t) => {
+          setSessionToken(t);
+          webviewRef.current?.reload();
+        });
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   const handleReload = useCallback(() => {
     setError(false);
     setLoading(true);
     webviewRef.current?.reload();
+  }, []);
+
+  const handleShouldStartLoad = useCallback((event: { url: string }) => {
+    try {
+      const parsed = new URL(event.url);
+      if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
+        openedExternal.current = true;
+        Linking.openURL(event.url);
+        return false;
+      }
+    } catch {
+      // Invalid URL — let WebView handle it
+    }
+    return true;
   }, []);
 
   if (!app) {
@@ -34,7 +79,13 @@ export default function AppScreen() {
     );
   }
 
-  const url = app.url;
+  const baseUrl = app.mode === "dev" && app.devUrl ? app.devUrl : app.url;
+
+  // Append the session token as a query param so the server can promote it to
+  // an httpOnly cookie. This bridges the Safari/WKWebView cookie jar gap.
+  const url = sessionToken
+    ? `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}_session=${sessionToken}`
+    : baseUrl;
 
   return (
     <>
@@ -82,8 +133,11 @@ export default function AppScreen() {
                 setError(true);
               }
             }}
+            onShouldStartLoadWithRequest={handleShouldStartLoad}
             javaScriptEnabled
             domStorageEnabled
+            sharedCookiesEnabled
+            thirdPartyCookiesEnabled
             startInLoadingState={false}
             allowsBackForwardNavigationGestures
             pullToRefreshEnabled

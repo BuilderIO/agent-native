@@ -1,4 +1,4 @@
-import Welcome from "@/pages/Welcome";
+import Index from "@/pages/Index";
 
 export function meta() {
   return [{ title: "Analytics" }];
@@ -13,5 +13,5 @@ export function HydrateFallback() {
 }
 
 export default function IndexRoute() {
-  return <Welcome />;
+  return <Index />;
 }

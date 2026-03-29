@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   ipcMain,
+  Menu,
   session,
   shell,
   webContents,
@@ -127,7 +128,7 @@ function toggleWebviewDevTools() {
     if (target.isDevToolsOpened()) {
       target.closeDevTools();
     } else {
-      target.openDevTools({ mode: "detach" });
+      target.openDevTools({ mode: "right" });
     }
   }
 }
@@ -199,48 +200,37 @@ ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
   });
 });
 
-// ---------- OAuth popup handling ----------
-// Open OAuth flows in an Electron BrowserWindow so the callback stays
-// inside the app. Other popups still open in the system browser.
+// ---------- OAuth handling ----------
+// Open OAuth flows in the system browser so the user can use their
+// existing logged-in session. The callback still hits the local server
+// (localhost) which stores tokens in SQL. When the user switches back
+// to the app, we reload webviews to pick up the new auth state.
 
 const OAUTH_HOSTS = ["accounts.google.com"];
+let oauthExpiresAt = 0;
 
-function openAuthWindow(url: string) {
-  const authWin = new BrowserWindow({
-    width: 500,
-    height: 680,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-    },
-  });
-
-  authWin.loadURL(url);
-
-  // After the OAuth provider redirects to localhost (the callback),
-  // let the request complete, reload the webview, then close the popup.
-  authWin.webContents.on("did-navigate", (_event, navUrl) => {
-    try {
-      const parsed = new URL(navUrl);
-      if (parsed.hostname === "localhost") {
-        // Give the callback handler time to store tokens
-        setTimeout(() => {
-          // Reload all webviews so they pick up the new auth state
-          const allContents = webContents.getAllWebContents();
-          for (const wc of allContents) {
-            if (wc.getType() === "webview") {
-              wc.reload();
-            }
-          }
-          // Close the auth popup
-          if (!authWin.isDestroyed()) authWin.close();
-        }, 1500);
-      }
-    } catch {
-      // ignore
-    }
-  });
+function openAuthExternal(url: string) {
+  // Keep the OAuth flag active for 5 minutes so premature focus events
+  // (alt-tab, notification click) don't consume it before the user
+  // finishes the consent screen.
+  oauthExpiresAt = Date.now() + 5 * 60 * 1000;
+  shell.openExternal(url);
 }
+
+// When the app regains focus after an external OAuth flow, reload
+// webviews so they pick up the new auth state (same approach as mobile).
+app.on("browser-window-focus", () => {
+  if (Date.now() > oauthExpiresAt) return;
+  // Give the callback handler a moment to finish storing tokens
+  setTimeout(() => {
+    const allContents = webContents.getAllWebContents();
+    for (const wc of allContents) {
+      if (wc.getType() === "webview") {
+        wc.reload();
+      }
+    }
+  }, 500);
+});
 
 // ---------- Webview popup handling ----------
 
@@ -254,9 +244,8 @@ app.on("web-contents-created", (_event, contents) => {
       if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
         return { action: "deny" };
       }
-      // OAuth flows stay in Electron so the callback redirect works
       if (OAUTH_HOSTS.includes(parsed.hostname)) {
-        openAuthWindow(url);
+        openAuthExternal(url);
       } else {
         shell.openExternal(url);
       }
@@ -348,6 +337,41 @@ app.whenReady().then(() => {
       }
     },
   );
+
+  // Replace the default app menu so Cmd+Option+I doesn't open shell DevTools.
+  // We handle this shortcut ourselves via before-input-event → toggleWebviewDevTools().
+  const isMac = process.platform === "darwin";
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac
+      ? [
+          {
+            role: "appMenu" as const,
+          },
+        ]
+      : []),
+    { role: "fileMenu" as const },
+    { role: "editMenu" as const },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" as const },
+        { role: "forceReload" as const },
+        {
+          label: "Toggle Developer Tools",
+          accelerator: "CmdOrCtrl+Option+I",
+          click: () => toggleWebviewDevTools(),
+        },
+        { type: "separator" as const },
+        { role: "resetZoom" as const },
+        { role: "zoomIn" as const },
+        { role: "zoomOut" as const },
+        { type: "separator" as const },
+        { role: "togglefullscreen" as const },
+      ],
+    },
+    { role: "windowMenu" as const },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 
   const win = createWindow();
 

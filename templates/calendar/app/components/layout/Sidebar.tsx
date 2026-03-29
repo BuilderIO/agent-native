@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router";
 import {
   CalendarDays,
-  Clock,
   Users,
   Settings,
   Link2,
@@ -37,7 +36,6 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 
 const navItems = [
   { path: "/", label: "Calendar", icon: CalendarDays },
-  { path: "/availability", label: "Availability", icon: Clock },
   { path: "/booking-links", label: "Booking Links", icon: Link2 },
   { path: "/bookings", label: "Bookings", icon: Users },
   { path: "/settings", label: "Settings", icon: Settings },

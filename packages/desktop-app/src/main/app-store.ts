@@ -13,12 +13,35 @@ export function loadApps(): AppConfig[] {
   try {
     const raw = fs.readFileSync(getStorePath(), "utf-8");
     const apps = JSON.parse(raw) as AppConfig[];
-    // Migrate: default useCliHarness to false (production mode) for existing configs
+    // Migrations
     let migrated = false;
+
+    // Build a lookup of canonical built-in app defaults by id
+    const defaultsById = new Map(DEFAULT_APPS.map((d) => [d.id, d]));
+
     for (const app of apps) {
-      if (app.useCliHarness === undefined) {
-        app.useCliHarness = false;
+      // Migrate: useCliHarness → mode
+      if ((app as any).useCliHarness !== undefined) {
+        app.mode = (app as any).useCliHarness ? "dev" : "prod";
+        delete (app as any).useCliHarness;
         migrated = true;
+      }
+      if (app.mode === undefined) {
+        app.mode = "prod";
+        migrated = true;
+      }
+
+      // Sync built-in app URLs with latest defaults (handles domain changes)
+      const def = defaultsById.get(app.id);
+      if (def && app.isBuiltIn) {
+        if (def.url && app.url !== def.url) {
+          app.url = def.url;
+          migrated = true;
+        }
+        if (def.devUrl && app.devUrl !== def.devUrl) {
+          app.devUrl = def.devUrl;
+          migrated = true;
+        }
       }
     }
     if (migrated) saveApps(apps);

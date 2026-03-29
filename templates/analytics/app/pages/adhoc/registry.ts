@@ -25,9 +25,9 @@ function validateDashboard(dashboard: DashboardMeta): void {
 
   if (errors.length > 0) {
     console.error(
-      `❌ Dashboard '${dashboard.id}' (${dashboard.name}) is missing required metadata:\n` +
+      `Dashboard '${dashboard.id}' (${dashboard.name}) is missing required metadata:\n` +
         errors.map((e) => `  - ${e}`).join("\n") +
-        "\n\n⚠️  REQUIRED: Provide author name manually when creating dashboards." +
+        "\n\nREQUIRED: Provide author name manually when creating dashboards." +
         "\n   Update the dashboard entry in app/pages/adhoc/registry.ts",
     );
   }
@@ -65,58 +65,11 @@ export interface DashboardMeta {
 // REQUIRED FIELDS: id, name, author, lastUpdated
 export const dashboards: DashboardMeta[] = [
   {
-    id: "key-metrics",
-    name: "Key Metrics",
+    id: "google-analytics",
+    name: "Google Analytics",
+    description: "GA4 website and app metrics",
     author: "Template",
-    lastUpdated: "2025-01-15",
-  },
-  {
-    id: "content-calendar",
-    name: "Content SEO",
-    author: "Template",
-    lastUpdated: "2025-02-15",
-  },
-  {
-    id: "hubspot",
-    name: "HubSpot Sales",
-    author: "Template",
-    lastUpdated: "2025-01-30",
-  },
-  {
-    id: "sentry",
-    name: "Sentry Error Health",
-    author: "Template",
-    lastUpdated: "2025-02-25",
-  },
-  {
-    id: "gcloud",
-    name: "Google Cloud Health",
-    author: "Template",
-    lastUpdated: "2025-02-28",
-  },
-  {
-    id: "jira",
-    name: "Jira Tickets",
-    author: "Template",
-    lastUpdated: "2025-03-02",
-  },
-  {
-    id: "stripe",
-    name: "Stripe Billing",
-    author: "Template",
-    lastUpdated: "2025-03-04",
-  },
-  {
-    id: "onboarding-funnel",
-    name: "Onboarding Funnel Analysis",
-    author: "Template",
-    lastUpdated: "2025-03-06",
-  },
-  {
-    id: "pr-review-bot",
-    name: "PR Review Bot",
-    author: "Template",
-    lastUpdated: "2025-03-10",
+    lastUpdated: "2026-03-29",
   },
 ];
 
@@ -196,20 +149,9 @@ export const dashboardComponents: Record<
   string,
   React.LazyExoticComponent<ComponentType>
 > = {
-  "key-metrics": lazy(() => import("./key-metrics")),
-  "content-calendar": lazy(() => import("./content-calendar")),
-  hubspot: lazy(() => import("./hubspot")),
-  "customer-health": lazy(() => import("./customer-health")),
-  sentry: lazy(() => import("./sentry")),
-  gcloud: lazy(() => import("./gcloud")),
-  "slack-feedback": lazy(() => import("./slack-feedback")),
-  jira: lazy(() => import("./jira")),
-  stripe: lazy(() => import("./stripe")),
-  "onboarding-funnel": lazy(() => import("./onboarding-funnel")),
-
+  "google-analytics": lazy(() => import("./google-analytics")),
   explorer: lazy(() => import("./explorer")),
   "explorer-dashboard": lazy(() => import("./explorer-dashboard")),
-  "pr-review-bot": lazy(() => import("./pr-review-bot")),
 };
 
 // Validate all dashboards at module load time

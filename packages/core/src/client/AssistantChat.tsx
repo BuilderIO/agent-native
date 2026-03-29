@@ -247,7 +247,7 @@ function ToolCallFallback({
       <button
         onClick={() => setExpanded(!expanded)}
         className={cn(
-          "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left",
+          "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
           isRunning
             ? "bg-amber-500/10 text-amber-400"
             : "bg-muted text-muted-foreground hover:bg-accent",
@@ -817,7 +817,10 @@ const AssistantChatInner = forwardRef<
       )}
 
       {/* Messages area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto overflow-x-hidden min-h-0"
+      >
         {missingApiKey ? (
           <div className="flex flex-col items-center justify-center h-full px-2">
             <ApiKeySetupCard apiUrl={apiUrl} />

@@ -1,73 +1,37 @@
 import { Layout } from "@/components/layout/Layout";
 import {
-  Database,
   BarChart3,
   MessageSquare,
   PencilLine,
   LayoutDashboard,
-  Globe,
-  TrendingUp,
-  Users,
-  ShoppingCart,
-  FileText,
-  Twitter,
-  Search,
-  Headset,
-  Phone,
-  UserSearch,
-  Bug,
-  Activity,
-  Cloud,
-  Ticket,
-  GitPullRequest,
-  CreditCard,
+  Database,
 } from "lucide-react";
-
-const dataSources = [
-  { name: "BigQuery Analytics", icon: Database },
-  { name: "Product & Revenue", icon: TrendingUp },
-  { name: "CRM & Sales (HubSpot)", icon: ShoppingCart },
-  { name: "Amplitude (via BigQuery)", icon: Users },
-  { name: "Content & SEO", icon: FileText },
-  { name: "SEO Metrics (DataForSEO)", icon: Search },
-  { name: "Social (Twitter/X)", icon: Twitter },
-  { name: "Engineering Metrics", icon: Globe },
-  { name: "GitHub (PRs & Issues)", icon: GitPullRequest },
-  { name: "Support Tickets (Pylon)", icon: Headset },
-  { name: "Sales Calls (Gong)", icon: Phone },
-  { name: "Contact Enrichment (Apollo)", icon: UserSearch },
-  { name: "Error Tracking (Sentry)", icon: Bug },
-  { name: "Monitoring (Grafana)", icon: Activity },
-  { name: "Google Cloud", icon: Cloud },
-  { name: "Slack", icon: MessageSquare },
-  { name: "Jira Tickets", icon: Ticket },
-  { name: "Billing (Stripe)", icon: CreditCard },
-];
+import { dataSources, categoryLabels, categoryOrder } from "@/lib/data-sources";
 
 const capabilities = [
   {
-    icon: LayoutDashboard,
-    title: "Pre-built Dashboards",
+    icon: Database,
+    title: "Connect Data Sources",
     description:
-      "Browse ready-made dashboards covering top-funnel acquisition, product KPIs, revenue, signup growth, content SEO, HubSpot sales, and more.",
+      "Connect any of 20+ data sources — from Google Analytics and BigQuery to Stripe, HubSpot, and PostgreSQL. Each source includes a step-by-step setup guide.",
   },
   {
-    icon: PencilLine,
-    title: "Create & Edit Dashboards",
+    icon: LayoutDashboard,
+    title: "Create Custom Dashboards",
     description:
-      "Build your own custom dashboards with charts, tables, and metrics. Edit existing ones to tailor the view to your needs.",
+      "Describe the dashboard you want and the agent builds it — charts, tables, metrics, and all. A Google Analytics example is included to show what's possible.",
   },
   {
     icon: BarChart3,
-    title: "Custom Charts & Queries",
+    title: "Query Explorer",
     description:
-      "Use the Query Explorer to write arbitrary BigQuery SQL and visualize results as charts or tables instantly.",
+      "Use the Explorer tool to write arbitrary SQL against BigQuery and visualize results as charts or tables instantly.",
   },
   {
     icon: MessageSquare,
     title: "Ask Questions in Chat",
     description:
-      "Ask natural-language questions about any of the connected data sources directly in the chat. Get answers, charts, and insights without writing SQL.",
+      "Ask natural-language questions about any connected data source. Get answers, charts, and insights without writing SQL.",
   },
 ];
 
@@ -78,8 +42,8 @@ export default function About() {
         <header>
           <h1 className="text-3xl font-bold tracking-tight">About This App</h1>
           <p className="mt-2 text-muted-foreground text-lg">
-            Analytics gives you a single place to explore, visualize, and ask
-            questions across all of your key data sources.
+            Analytics gives you a single place to connect data sources, build
+            custom dashboards, and ask questions across all of your key metrics.
           </p>
         </header>
 
@@ -106,27 +70,38 @@ export default function About() {
           </div>
         </section>
 
-        {/* Data Sources */}
+        {/* Available Data Sources */}
         <section>
-          <h2 className="text-xl font-semibold mb-4">
-            Connected Data & Sources
-          </h2>
-          <div className="grid gap-2 sm:grid-cols-3">
-            {dataSources.map((source) => {
-              const Icon = source.icon;
-              return (
-                <div
-                  key={source.name}
-                  className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5"
-                >
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                    <Icon className="h-4 w-4" />
-                  </div>
-                  <span className="text-sm font-medium">{source.name}</span>
+          <h2 className="text-xl font-semibold mb-4">Available Data Sources</h2>
+          {categoryOrder.map((category) => {
+            const sources = dataSources.filter((s) => s.category === category);
+            if (sources.length === 0) return null;
+            return (
+              <div key={category} className="mb-4">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  {categoryLabels[category]}
+                </h3>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {sources.map((source) => {
+                    const Icon = source.icon;
+                    return (
+                      <div
+                        key={source.id}
+                        className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5"
+                      >
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                          <Icon className="h-4 w-4" />
+                        </div>
+                        <span className="text-sm font-medium">
+                          {source.name}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            );
+          })}
         </section>
 
         <footer className="text-xs text-muted-foreground pt-4 border-t border-border">

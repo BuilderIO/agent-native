@@ -666,7 +666,7 @@ export const CodePanel = createInteractiveComposition<CodePanelProps>({
               />
               <InternalFileItem
                 icon="https://api.builder.io/api/v1/image/assets/YJIGb4i01jvw0SRdL5Bt/10ff8b681a169f3c2b0c90b4fd672a0e7173771b?placeholderIfAbsent=true"
-                name="KineticText.tsx"
+                name="MyComponent.tsx"
                 lineCount="+ 2"
                 path="client/remotion/comp..."
                 x={padding + 15}

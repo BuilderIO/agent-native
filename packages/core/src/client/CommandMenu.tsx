@@ -32,6 +32,8 @@ import { cn } from "./utils.js";
 interface CommandMenuContextValue {
   search: string;
   onOpenChange: (open: boolean) => void;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  setSelectedIndex: (index: number) => void;
 }
 
 const CommandMenuContext = createContext<CommandMenuContextValue | null>(null);
@@ -127,7 +129,9 @@ function CommandItem({
   keywords: _keywords,
   className,
 }: CommandItemProps) {
-  const { onOpenChange } = useCommandMenuContext();
+  const { onOpenChange, containerRef, setSelectedIndex } =
+    useCommandMenuContext();
+  const itemRef = useRef<HTMLDivElement>(null);
 
   const handleSelect = () => {
     onOpenChange(false);
@@ -135,15 +139,22 @@ function CommandItem({
     setTimeout(onSelect, 50);
   };
 
+  const handleMouseEnter = () => {
+    if (!containerRef.current || !itemRef.current) return;
+    const items = containerRef.current.querySelectorAll('[role="option"]');
+    const index = Array.from(items).indexOf(itemRef.current);
+    if (index >= 0) setSelectedIndex(index);
+  };
+
   return (
     <div
+      ref={itemRef}
       className={cn(
         "relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none",
-        "hover:bg-accent hover:text-accent-foreground",
-        "data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
         className,
       )}
       onClick={handleSelect}
+      onMouseEnter={handleMouseEnter}
       role="option"
     >
       {children}
@@ -199,6 +210,7 @@ export function CommandMenu({
   className,
 }: CommandMenuProps) {
   const [search, setSearch] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -206,12 +218,42 @@ export function CommandMenu({
   useEffect(() => {
     if (open) {
       setSearch("");
+      setSelectedIndex(0);
       // Wait for render then focus
       requestAnimationFrame(() => {
         inputRef.current?.focus();
       });
     }
   }, [open]);
+
+  // Reset selection when search changes
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [search]);
+
+  // Keep selected item scrolled into view
+  useEffect(() => {
+    const items = containerRef.current?.querySelectorAll('[role="option"]');
+    if (items && items[selectedIndex]) {
+      items[selectedIndex].scrollIntoView({ block: "nearest" });
+    }
+  }, [selectedIndex]);
+
+  // Apply selected styling directly (can't rely on Tailwind scanning core package)
+  useEffect(() => {
+    const items = containerRef.current?.querySelectorAll('[role="option"]');
+    if (!items) return;
+    items.forEach((item, i) => {
+      const el = item as HTMLElement;
+      if (i === selectedIndex) {
+        el.style.backgroundColor = "hsl(var(--accent))";
+        el.style.color = "hsl(var(--accent-foreground))";
+      } else {
+        el.style.backgroundColor = "";
+        el.style.color = "";
+      }
+    });
+  });
 
   // Close on escape
   useEffect(() => {
@@ -249,16 +291,19 @@ export function CommandMenu({
   }, [search, onOpenChange]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && search.trim()) {
-      // Check if any items are visible; if not, submit to agent
-      const items = containerRef.current?.querySelectorAll('[role="option"]');
-      const hasVisibleItems = items && items.length > 0;
+    const items = containerRef.current?.querySelectorAll('[role="option"]');
+    const itemCount = items?.length ?? 0;
 
-      // For now, Enter with text always goes to agent if showAgentFallback is true
-      // Commands are selected by clicking or arrow keys
-      if (showAgentFallback && !hasVisibleItems) {
-        e.preventDefault();
-        handleSubmitToAgent();
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev + 1) % itemCount || 0);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev - 1 + itemCount) % itemCount || 0);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (items && items[selectedIndex]) {
+        (items[selectedIndex] as HTMLElement).click();
       }
     }
   };
@@ -317,7 +362,9 @@ export function CommandMenu({
           className,
         )}
       >
-        <CommandMenuContext.Provider value={{ search, onOpenChange }}>
+        <CommandMenuContext.Provider
+          value={{ search, onOpenChange, containerRef, setSelectedIndex }}
+        >
           {/* Search input */}
           <div className="flex items-center border-b px-3">
             <SearchIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />
@@ -341,8 +388,17 @@ export function CommandMenu({
                 {hasResults && <CommandSeparator />}
                 <div className="p-1">
                   <div
-                    className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+                    className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none"
                     onClick={handleSubmitToAgent}
+                    onMouseEnter={(e) => {
+                      const items =
+                        containerRef.current?.querySelectorAll(
+                          '[role="option"]',
+                        );
+                      if (!items) return;
+                      const index = Array.from(items).indexOf(e.currentTarget);
+                      if (index >= 0) setSelectedIndex(index);
+                    }}
                     role="option"
                   >
                     <MessageIcon className="h-4 w-4 text-muted-foreground" />

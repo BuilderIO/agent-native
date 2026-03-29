@@ -16,6 +16,7 @@ import {
   useThreadMessages,
   useArchiveEmail,
   useTrashEmail,
+  useUntrashEmail,
   useToggleStar,
   useMarkRead,
   useMarkThreadRead,
@@ -243,6 +244,7 @@ export function EmailThread({
   const archiveEmail = useArchiveEmail();
   const unarchiveEmail = useUnarchiveEmail();
   const trashEmail = useTrashEmail();
+  const untrashEmail = useUntrashEmail();
   const toggleStar = useToggleStar();
   const markRead = useMarkRead();
   const markThreadRead = useMarkThreadRead();
@@ -381,10 +383,18 @@ export function EmailThread({
 
   const handleTrash = useCallback(() => {
     if (!email) return;
-    toast("Moved to Trash.");
+    const id = email.id;
+    const undo = () => untrashEmail.mutate(id);
+    setUndoAction(undo);
+    toast("Moved to Trash.", {
+      action: {
+        label: "UNDO",
+        onClick: undo,
+      },
+    });
     advanceOrGoBack();
-    trashEmail.mutate(email.id);
-  }, [email, trashEmail, advanceOrGoBack]);
+    trashEmail.mutate(id);
+  }, [email, trashEmail, untrashEmail, advanceOrGoBack]);
 
   const handleStar = useCallback(() => {
     if (!email) return;
@@ -555,8 +565,6 @@ export function EmailThread({
         },
       },
       { key: "e", handler: handleArchive },
-      { key: "d", handler: handleTrash },
-      { key: "#", handler: handleTrash, shift: true },
       { key: "s", handler: handleStar },
       { key: "r", handler: () => handleReply() },
       { key: "a", handler: () => handleReplyAll() },

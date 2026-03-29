@@ -8,7 +8,11 @@
  */
 
 import { parseArgs, fail } from "../utils.js";
-import { resourceGetByPath, SHARED_OWNER } from "../../resources/store.js";
+import {
+  resourceGetByPath,
+  ensurePersonalDefaults,
+  SHARED_OWNER,
+} from "../../resources/store.js";
 
 export default async function resourceReadScript(
   args: string[],
@@ -27,11 +31,16 @@ Options:
 
   const resourcePath = parsed.path;
   if (!resourcePath) {
-    fail("--path is required. Example: --path learnings.md");
+    fail("--path is required. Example: --path LEARNINGS.md");
   }
 
   const scope = parsed.scope;
   const owner = process.env.AGENT_USER_EMAIL ?? "local@localhost";
+
+  // Seed personal AGENTS.md + LEARNINGS.md on first access
+  if (scope !== "shared") {
+    await ensurePersonalDefaults(owner);
+  }
 
   if (scope === "shared") {
     const resource = await resourceGetByPath(SHARED_OWNER, resourcePath);
