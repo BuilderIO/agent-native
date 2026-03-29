@@ -19,9 +19,37 @@ export interface AgentMessage {
   content: string;
 }
 
+export interface AgentChatReference {
+  type: "file" | "skill" | "mention";
+  path: string;
+  name: string;
+  source: string;
+  refType?: string;
+  refId?: string;
+}
+
+export interface MentionProviderItem {
+  id: string;
+  label: string;
+  description?: string;
+  icon?: string;
+  refType: string;
+  refId?: string;
+  refPath?: string;
+}
+
+export interface MentionProvider {
+  label: string;
+  icon?: string;
+  search: (
+    query: string,
+  ) => MentionProviderItem[] | Promise<MentionProviderItem[]>;
+}
+
 export interface AgentChatRequest {
   message: string;
   history?: AgentMessage[];
+  references?: AgentChatReference[];
 }
 
 export type AgentChatEvent =

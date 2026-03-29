@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   eachHourOfInterval,
   format,
@@ -9,24 +9,89 @@ import {
   isToday,
 } from "date-fns";
 import { cn } from "@/lib/utils";
+import { getEventAutoColor } from "@/lib/event-colors";
+import { EventDetailPopover } from "./EventDetailPopover";
 import type { CalendarEvent } from "@shared/api";
 
 interface DayViewProps {
   events: CalendarEvent[];
   date: Date;
-  onEventClick: (event: CalendarEvent) => void;
+  onEditEvent: (event: CalendarEvent) => void;
+  onDeleteEvent: (eventId: string) => void;
+  isLoading?: boolean;
 }
+
+// [startHour, startMin, durationMin, widthPct]
+const DAY_SKELETONS: [number, number, number, number][] = [
+  [9, 0, 60, 82],
+  [11, 0, 45, 68],
+  [14, 0, 90, 76],
+  [16, 30, 30, 60],
+];
 
 const START_HOUR = 6;
 const END_HOUR = 23;
 const HOUR_HEIGHT = 72;
 
 function getEventColor(event: CalendarEvent) {
-  if (event.color) return event.color;
-  return event.source === "google" ? "#5085C0" : null;
+  return getEventAutoColor(event);
 }
 
-export function DayView({ events, date, onEventClick }: DayViewProps) {
+interface LayoutInfo {
+  left: number; // percentage 0-100
+  width: number; // percentage 0-100
+  col: number;
+  totalCols: number;
+}
+
+function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
+  const result = new Map<string, LayoutInfo>();
+  if (dayEvents.length === 0) return result;
+
+  const sorted = [...dayEvents].sort((a, b) => {
+    const aStart = parseISO(a.start).getTime();
+    const bStart = parseISO(b.start).getTime();
+    if (aStart !== bStart) return aStart - bStart;
+    return parseISO(b.end).getTime() - parseISO(a.end).getTime();
+  });
+
+  const times = new Map<string, { start: number; end: number }>();
+  for (const ev of sorted) {
+    times.set(ev.id, {
+      start: parseISO(ev.start).getTime(),
+      end: parseISO(ev.end).getTime(),
+    });
+  }
+
+  const INDENT_PX = 20; // DayView has wider columns, more indent room
+
+  for (const ev of sorted) {
+    let depth = 0;
+    for (const other of sorted) {
+      if (other.id === ev.id) break;
+      const ta = times.get(other.id)!;
+      const tb = times.get(ev.id)!;
+      if (ta.start < tb.end && tb.start < ta.end) depth++;
+    }
+
+    result.set(ev.id, {
+      left: depth * INDENT_PX,
+      width: 0,
+      col: depth,
+      totalCols: depth + 1,
+    });
+  }
+
+  return result;
+}
+
+export function DayView({
+  events,
+  date,
+  onEditEvent,
+  onDeleteEvent,
+  isLoading = false,
+}: DayViewProps) {
   const [now, setNow] = useState(new Date());
   const currentTimeRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -68,8 +133,9 @@ export function DayView({ events, date, onEventClick }: DayViewProps) {
     };
   }
 
-  const allDayEvents = events.filter((e) => e.allDay);
-  const timedEvents = events.filter((e) => !e.allDay);
+  const allDayEvents = useMemo(() => events.filter((e) => e.allDay), [events]);
+  const timedEvents = useMemo(() => events.filter((e) => !e.allDay), [events]);
+  const layout = useMemo(() => computeLayout(timedEvents), [timedEvents]);
 
   const today = isToday(date);
   const nowMinutes = (now.getHours() - START_HOUR) * 60 + now.getMinutes();
@@ -104,24 +170,29 @@ export function DayView({ events, date, onEventClick }: DayViewProps) {
             {allDayEvents.map((event) => {
               const color = getEventColor(event);
               return (
-                <button
+                <EventDetailPopover
                   key={event.id}
-                  onClick={() => onEventClick(event)}
-                  className="block w-full rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground transition-all hover:brightness-110"
-                  style={
-                    color
-                      ? {
-                          backgroundColor: `${color}30`,
-                          borderLeft: `3px solid ${color}`,
-                        }
-                      : {
-                          backgroundColor: "hsl(var(--primary) / 0.15)",
-                          borderLeft: "3px solid hsl(var(--primary))",
-                        }
-                  }
+                  event={event}
+                  onEdit={onEditEvent}
+                  onDelete={onDeleteEvent}
                 >
-                  {event.title}
-                </button>
+                  <button
+                    className="block w-full rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground transition-all hover:brightness-110"
+                    style={
+                      color
+                        ? {
+                            backgroundColor: `${color}30`,
+                            borderLeft: `3px solid ${color}`,
+                          }
+                        : {
+                            backgroundColor: "hsl(var(--primary) / 0.15)",
+                            borderLeft: "3px solid hsl(var(--primary))",
+                          }
+                    }
+                  >
+                    {event.title}
+                  </button>
+                </EventDetailPopover>
               );
             })}
           </div>
@@ -164,38 +235,105 @@ export function DayView({ events, date, onEventClick }: DayViewProps) {
             </div>
           )}
 
+          {/* Skeleton events when loading */}
+          {isLoading &&
+            DAY_SKELETONS.map(
+              ([startHour, startMin, duration, widthPct], i) => {
+                const topPx =
+                  ((startHour - START_HOUR) * 60 + startMin) *
+                  (HOUR_HEIGHT / 60);
+                const heightPx = Math.max((duration / 60) * HOUR_HEIGHT, 20);
+                return (
+                  <div
+                    key={i}
+                    className="absolute animate-pulse rounded-lg bg-muted"
+                    style={{
+                      top: `${topPx}px`,
+                      height: `${heightPx}px`,
+                      left: "2px",
+                      width: `calc(${widthPct}% - 4px)`,
+                    }}
+                  />
+                );
+              },
+            )}
+
           {/* Timed events */}
-          {timedEvents.map((event) => {
-            const style = getEventStyle(event);
-            const color = getEventColor(event);
-            return (
-              <button
-                key={event.id}
-                onClick={() => onEventClick(event)}
-                className="absolute left-0 right-0 overflow-hidden rounded-lg px-3 py-2 text-left text-sm transition-all hover:brightness-110 hover:shadow-lg"
-                style={{
-                  ...style,
-                  backgroundColor: color
-                    ? `${color}30`
-                    : "hsl(var(--primary) / 0.15)",
-                  borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
-                }}
-              >
-                <div className="truncate font-semibold leading-tight text-foreground">
-                  {event.title}
-                </div>
-                <div className="truncate mt-0.5 text-[11px] text-foreground/60">
-                  {format(parseISO(event.start), "h:mm a")} –{" "}
-                  {format(parseISO(event.end), "h:mm a")}
-                </div>
-                {event.location && (
-                  <div className="truncate mt-0.5 text-[11px] text-foreground/50">
-                    📍 {event.location}
-                  </div>
-                )}
-              </button>
-            );
-          })}
+          {!isLoading &&
+            timedEvents.map((event) => {
+              const posStyle = getEventStyle(event);
+              const li = layout.get(event.id) ?? {
+                left: 0,
+                width: 100,
+                col: 0,
+                totalCols: 1,
+              };
+              const color = getEventColor(event);
+              const durationMin = differenceInMinutes(
+                parseISO(event.end),
+                parseISO(event.start),
+              );
+              const isPast = parseISO(event.end) < now;
+              const isDeclined = event.responseStatus === "declined";
+              return (
+                <EventDetailPopover
+                  key={event.id}
+                  event={event}
+                  onEdit={onEditEvent}
+                  onDelete={onDeleteEvent}
+                >
+                  <button
+                    className={cn(
+                      "absolute overflow-hidden rounded-lg px-2 py-1 text-left text-sm flex flex-col justify-start transition-all hover:z-30 hover:brightness-110 hover:shadow-lg",
+                      isDeclined && "saturate-[0.3]",
+                    )}
+                    style={{
+                      ...posStyle,
+                      left: `${li.left}px`,
+                      width: `calc(100% - ${li.left + 2}px)`,
+                      zIndex: li.col + 1,
+                      backgroundColor: color
+                        ? `color-mix(in srgb, ${color} ${isPast || isDeclined ? 8 : 18}%, hsl(var(--background)))`
+                        : `color-mix(in srgb, hsl(var(--primary)) ${isPast || isDeclined ? 5 : 12}%, hsl(var(--background)))`,
+                      borderLeft: `3px solid ${
+                        isPast || isDeclined
+                          ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
+                          : (color ?? "hsl(var(--primary))")
+                      }`,
+                    }}
+                  >
+                    <div
+                      className={cn(
+                        "truncate leading-tight",
+                        isPast || isDeclined
+                          ? "text-muted-foreground"
+                          : "text-foreground",
+                        isDeclined && "line-through",
+                        !isPast && !isDeclined && "font-semibold",
+                      )}
+                    >
+                      {event.title}
+                    </div>
+                    <div
+                      className={cn(
+                        "truncate text-[11px] leading-tight",
+                        isPast || isDeclined
+                          ? "text-muted-foreground/50"
+                          : "text-foreground/60",
+                      )}
+                    >
+                      {format(parseISO(event.start), "h:mm a")} –{" "}
+                      {format(parseISO(event.end), "h:mm a")}
+                    </div>
+                    {durationMin >= 45 && event.location && (
+                      <div className="truncate text-[11px] leading-tight text-foreground/50">
+                        {event.location}
+                      </div>
+                    )}
+                  </button>
+                </EventDetailPopover>
+              );
+            })}
         </div>
       </div>
     </div>

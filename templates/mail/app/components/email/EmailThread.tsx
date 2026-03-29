@@ -12,6 +12,7 @@ import { useTheme } from "next-themes";
 import { useComposeState } from "@/hooks/use-compose-state";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import {
+  fetchThreadMessages,
   useThreadMessages,
   useArchiveEmail,
   useTrashEmail,
@@ -27,6 +28,7 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
 import type { EmailMessage } from "@shared/types";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   InlineReplyComposer,
   type InlineReplyHandle,
@@ -81,10 +83,16 @@ export function EmailThread({
   }, [threadId, queryClient]);
 
   // Fetch all messages in the thread (URL param is the real threadId)
-  const { data: threadMessages } = useThreadMessages(threadId);
+  const {
+    data: threadMessages,
+    isLoading: isThreadLoading,
+    isFetching: isThreadFetching,
+  } = useThreadMessages(threadId);
 
   // Use full thread when loaded, otherwise show what we have from the list cache
   const messages = threadMessages ?? cachedMessages;
+  const isHydratingThread =
+    !!threadId && !threadMessages && (isThreadLoading || isThreadFetching);
 
   // Use the latest message as the "primary" email for actions/metadata
   const email = messages.length > 0 ? messages[messages.length - 1] : undefined;
@@ -266,6 +274,25 @@ export function EmailThread({
     },
     [threadId, emailIds, view, navigate, labelSuffix],
   );
+
+  useEffect(() => {
+    if (!threadId || emailIds.length === 0) return;
+    const idx = emailIds.indexOf(threadId);
+    if (idx === -1) return;
+
+    const threadIdsToWarm = new Set<string>();
+    for (const candidate of [emailIds[idx - 1], emailIds[idx + 1]]) {
+      if (candidate) threadIdsToWarm.add(candidate);
+    }
+
+    threadIdsToWarm.forEach((candidateThreadId) => {
+      void queryClient.prefetchQuery({
+        queryKey: ["thread-messages", candidateThreadId],
+        queryFn: () => fetchThreadMessages(candidateThreadId),
+        staleTime: 30_000,
+      });
+    });
+  }, [threadId, emailIds, queryClient]);
 
   const advanceOrGoBack = useCallback(() => {
     if (!threadId || emailIds.length === 0) {
@@ -574,16 +601,6 @@ export function EmailThread({
     !!threadId,
   );
 
-  if (!threadId) return null;
-
-  if (!email) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <p className="text-muted-foreground text-sm">Email not found</p>
-      </div>
-    );
-  }
-
   // Extract GitHub PR URL from any message in the thread
   const githubPrUrl = useMemo(() => {
     for (const msg of messages) {
@@ -595,6 +612,19 @@ export function EmailThread({
     }
     return null;
   }, [messages]);
+
+  if (!threadId) return null;
+
+  if (!email) {
+    if (isHydratingThread) {
+      return <ThreadLoadingState onBack={goBack} />;
+    }
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <p className="text-muted-foreground text-sm">Email not found</p>
+      </div>
+    );
+  }
 
   // Filter to user labels for display
   const systemLabels = new Set([
@@ -674,6 +704,9 @@ export function EmailThread({
               <h1 className="text-lg font-semibold leading-tight text-foreground">
                 {threadSubject}
               </h1>
+              {isHydratingThread && (
+                <Skeleton className="mt-0.5 h-5 w-28 rounded-full" />
+              )}
               {displayLabels.map((labelId) => (
                 <span
                   key={labelId}
@@ -766,6 +799,18 @@ export function EmailThread({
         className="flex-1 overflow-y-auto px-5 pb-4"
       >
         <div className="max-w-3xl mx-auto pt-1.5 space-y-1.5">
+          {isHydratingThread && messages.length > 0 && (
+            <div className="sticky top-0 z-10 pb-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-border/50 bg-background/90 px-3 py-1.5 shadow-sm backdrop-blur">
+                <Skeleton className="h-2 w-2 rounded-full" />
+                <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                  Loading full thread
+                </span>
+                <Skeleton className="h-2 w-16 rounded-full" />
+              </div>
+            </div>
+          )}
+
           {messages.map((msg, idx) => {
             const isExpanded = expandedIds.has(msg.id);
             const isFocused = idx === focusedIndex;
@@ -811,6 +856,13 @@ export function EmailThread({
               />
             );
           })}
+
+          {isHydratingThread && (
+            <>
+              <ThreadMessageSkeleton compact />
+              <ThreadMessageSkeleton />
+            </>
+          )}
 
           {/* Inline reply composer */}
           {inlineDraft ? (
@@ -868,6 +920,87 @@ export function EmailThread({
               </span>
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ThreadLoadingState({ onBack }: { onBack: () => void }) {
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="shrink-0 px-5 pt-5 pb-3">
+        <div className="flex items-start gap-3">
+          <button
+            onClick={onBack}
+            className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            title="Back (Esc)"
+          >
+            <svg
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="h-[14px] w-[14px]"
+            >
+              <path
+                fillRule="evenodd"
+                d="M17 10a.75.75 0 0 1-.75.75H5.612l4.158 3.96a.75.75 0 1 1-1.04 1.08l-5.5-5.25a.75.75 0 0 1 0-1.08l5.5-5.25a.75.75 0 1 1 1.04 1.08L5.612 9.25H16.25A.75.75 0 0 1 17 10z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+
+          <div className="flex-1 min-w-0 space-y-3 pt-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Skeleton className="h-7 w-80 max-w-[70%]" />
+              <Skeleton className="h-5 w-24 rounded-full" />
+            </div>
+            <div className="flex items-center gap-1">
+              <Skeleton className="h-7 w-7 rounded" />
+              <Skeleton className="h-7 w-7 rounded" />
+              <Skeleton className="h-7 w-7 rounded" />
+              <Skeleton className="h-7 w-7 rounded" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-5 pb-4">
+        <div className="mx-auto max-w-3xl space-y-3 pt-1.5">
+          <ThreadMessageSkeleton />
+          <ThreadMessageSkeleton compact />
+          <ThreadMessageSkeleton />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ThreadMessageSkeleton({ compact = false }: { compact?: boolean }) {
+  if (compact) {
+    return (
+      <div className="flex items-center gap-3 rounded-lg px-3 py-3">
+        <Skeleton className="h-4 w-20 shrink-0" />
+        <Skeleton className="h-4 flex-1" />
+        <Skeleton className="h-4 w-14 shrink-0" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg bg-card dark:bg-[hsl(220,5%,10%)] overflow-hidden px-4 py-4">
+      <div className="flex items-start gap-3">
+        <Skeleton className="h-9 w-9 rounded-full shrink-0" />
+        <div className="flex-1 space-y-3">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-4 w-36" />
+            <Skeleton className="h-3 w-20" />
+          </div>
+          <Skeleton className="h-3 w-56" />
+          <div className="space-y-2 pt-1">
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-[92%]" />
+            <Skeleton className="h-3 w-[76%]" />
+          </div>
         </div>
       </div>
     </div>
@@ -1406,6 +1539,45 @@ function isTrackingUrl(src: string): boolean {
   }
 }
 
+type SanitizedEmailHtml = {
+  headHtml: string;
+  bodyHtml: string;
+};
+
+function sanitizeEmailHtml(html: string): SanitizedEmailHtml {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+
+  doc
+    .querySelectorAll(
+      "script, noscript, iframe, frame, object, embed, base, meta[http-equiv='refresh']",
+    )
+    .forEach((node) => node.remove());
+
+  const elements = doc.querySelectorAll<HTMLElement>("*");
+  elements.forEach((el) => {
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim().toLowerCase();
+      if (name.startsWith("on")) {
+        el.removeAttribute(attr.name);
+        continue;
+      }
+      if (
+        (name === "href" || name === "src" || name === "xlink:href") &&
+        value.startsWith("javascript:")
+      ) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  });
+
+  return {
+    headHtml: doc.head.innerHTML,
+    bodyHtml: doc.body.innerHTML,
+  };
+}
+
 /** Strip images from HTML based on policy. Returns [processedHtml, imageCount]. */
 function processHtmlImages(
   html: string,
@@ -1470,6 +1642,7 @@ function HtmlEmailBody({
   const [height, setHeight] = useState(200);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+  const sanitizedHtml = useMemo(() => sanitizeEmailHtml(html), [html]);
   const isCustomStyled = useMemo(() => emailHasCustomStyling(html), [html]);
   const IFRAME_BG =
     isCustomStyled || !isDark ? IFRAME_BG_LIGHT : IFRAME_BG_DARK;
@@ -1495,8 +1668,8 @@ function HtmlEmailBody({
       : imagePolicy;
 
   const [processedHtml, blockedCount] = useMemo(
-    () => processHtmlImages(html, effectivePolicy),
-    [html, effectivePolicy],
+    () => processHtmlImages(sanitizedHtml.bodyHtml, effectivePolicy),
+    [sanitizedHtml.bodyHtml, effectivePolicy],
   );
 
   const handleAlwaysTrust = () => {
@@ -1578,6 +1751,7 @@ function HtmlEmailBody({
 <html>
 <head>
   <meta charset="utf-8">
+  ${sanitizedHtml.headHtml}
   <style>${iframeCss}  </style>
 </head>
 <body>${processedHtml}</body>
@@ -1785,7 +1959,14 @@ function HtmlEmailBody({
       clearTimeout(timer2);
       images.forEach((img) => img.removeEventListener("load", resize));
     };
-  }, [processedHtml, isCustomStyled, isDark, useDarkIframeCss, IFRAME_BG]);
+  }, [
+    processedHtml,
+    sanitizedHtml.headHtml,
+    isCustomStyled,
+    isDark,
+    useDarkIframeCss,
+    IFRAME_BG,
+  ]);
 
   // Inject / clear search highlights in the iframe whenever searchTerm or content changes
   useEffect(() => {

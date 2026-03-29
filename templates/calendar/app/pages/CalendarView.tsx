@@ -37,14 +37,17 @@ import {
 import { MonthView } from "@/components/calendar/MonthView";
 import { WeekView } from "@/components/calendar/WeekView";
 import { DayView } from "@/components/calendar/DayView";
-import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
 import { CreateEventPopover } from "@/components/calendar/CreateEventDialog";
 import { CommandPalette } from "@/components/calendar/CommandPalette";
 import { KeyboardShortcutsHelp } from "@/components/calendar/KeyboardShortcutsHelp";
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
+import { PeopleSearchDialog } from "@/components/calendar/PeopleSearchDialog";
+import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import { useEvents, useUpdateEvent, useDeleteEvent } from "@/hooks/use-events";
+import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { AgentToggleButton } from "@agent-native/core/client";
 import { toast } from "sonner";
 import type { CalendarEvent } from "@shared/api";
 
@@ -57,16 +60,26 @@ const viewModeLabels: Record<ViewMode, string> = {
 };
 
 export default function CalendarView() {
-  const { selectedDate, setSelectedDate } = useCalendarContext();
+  const {
+    selectedDate,
+    setSelectedDate,
+    peopleSearchOpen,
+    setPeopleSearchOpen,
+    eventDetailSidebar,
+    sidebarEvent,
+    setSidebarEvent,
+  } = useCalendarContext();
   const [viewMode, setViewMode] = useState<ViewMode>("week");
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(
-    null,
-  );
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
 
   const googleStatus = useGoogleAuthStatus();
+  const { data: overlayPeople = [] } = useOverlayPeople();
+  const overlayEmails = useMemo(
+    () => overlayPeople.map((p) => p.email),
+    [overlayPeople],
+  );
   const isGoogleConnected = googleStatus.data?.connected ?? false;
   const updateEvent = useUpdateEvent();
   const deleteEvent = useDeleteEvent();
@@ -98,7 +111,22 @@ export default function CalendarView() {
     }
   }, [viewMode, selectedDate]);
 
-  const { data: events = [], error: eventsError } = useEvents(from, to);
+  const {
+    data: rawEvents = [],
+    error: eventsError,
+    isLoading: eventsLoading,
+  } = useEvents(from, to, overlayEmails);
+
+  // Apply overlay colors to events
+  const events = useMemo(() => {
+    const colorMap = new Map(overlayPeople.map((p) => [p.email, p.color]));
+    return rawEvents.map((e) => {
+      if (e.overlayEmail && colorMap.has(e.overlayEmail)) {
+        return { ...e, color: colorMap.get(e.overlayEmail) };
+      }
+      return e;
+    });
+  }, [rawEvents, overlayPeople]);
 
   // Filter events for day view
   const dayEvents = useMemo(
@@ -121,10 +149,6 @@ export default function CalendarView() {
     setSelectedDate(new Date());
   }
 
-  function handleEventClick(event: CalendarEvent) {
-    setSelectedEvent(event);
-  }
-
   function handleDateSelect(date: Date) {
     setSelectedDate(date);
     if (viewMode === "month") {
@@ -137,23 +161,13 @@ export default function CalendarView() {
     setViewMode("day");
   }
 
-  function handleCloseDetail() {
-    setSelectedEvent(null);
-  }
-
-  function handleEditEvent(event: CalendarEvent) {
-    // Close detail panel and open create dialog with event data
-    // For now, keep as a simple close — the CreateEventDialog can be extended for editing
-    setSelectedEvent(null);
+  function handleEditEvent(_event: CalendarEvent) {
     setCreateDialogOpen(true);
   }
 
   function handleDeleteEvent(eventId: string) {
     deleteEvent.mutate(eventId, {
-      onSuccess: () => {
-        toast.success("Event deleted");
-        setSelectedEvent(null);
-      },
+      onSuccess: () => toast.success("Event deleted"),
       onError: () => toast.error("Failed to delete event"),
     });
   }
@@ -215,6 +229,14 @@ export default function CalendarView() {
       if (isTypingInInput(e)) return;
       if (createDialogOpen || shortcutsHelpOpen) return;
 
+      // Delete/Backspace — delete the selected sidebar event
+      if ((e.key === "Delete" || e.key === "Backspace") && sidebarEvent) {
+        e.preventDefault();
+        handleDeleteEvent(sidebarEvent.id);
+        setSidebarEvent(null);
+        return;
+      }
+
       switch (e.key) {
         case "j":
         case "n":
@@ -222,9 +244,12 @@ export default function CalendarView() {
           handleNavigate("next");
           break;
         case "k":
-        case "p":
           e.preventDefault();
           handleNavigate("prev");
+          break;
+        case "p":
+          e.preventDefault();
+          setPeopleSearchOpen(true);
           break;
         case "t":
           handleToday();
@@ -239,6 +264,7 @@ export default function CalendarView() {
           setViewMode("day");
           break;
         case "c":
+          e.preventDefault();
           setCreateDialogOpen(true);
           break;
         case "/":
@@ -248,11 +274,6 @@ export default function CalendarView() {
         case "?":
           setShortcutsHelpOpen(true);
           break;
-        case "Escape":
-          if (selectedEvent) {
-            setSelectedEvent(null);
-          }
-          break;
       }
     }
 
@@ -261,9 +282,9 @@ export default function CalendarView() {
   }, [
     createDialogOpen,
     shortcutsHelpOpen,
-    selectedEvent,
     isTypingInInput,
     viewMode,
+    sidebarEvent,
   ]);
 
   const headerLabel = (() => {
@@ -282,180 +303,183 @@ export default function CalendarView() {
 
   return (
     <TooltipProvider delayDuration={500}>
-      <div className="flex h-full flex-col">
-        {/* Google Calendar connect banner — show when not connected OR when there's a credentials error */}
-        {(!googleStatus.isLoading && googleStatus.data && !isGoogleConnected) ||
-        eventsError ? (
-          <GoogleConnectBanner />
-        ) : null}
+      <div className="flex h-full">
+        {/* Left: calendar area (header + grid) */}
+        <div className="flex flex-1 flex-col overflow-hidden">
+          {/* Google Calendar connect banner — show when not connected OR when there's a credentials error */}
+          {(!googleStatus.isLoading &&
+            googleStatus.data &&
+            !isGoogleConnected) ||
+          eventsError ? (
+            <GoogleConnectBanner />
+          ) : null}
 
-        {/* Error detail */}
-        {eventsError && (
-          <div className="shrink-0 border-b border-destructive/20 bg-destructive/[0.06] px-4 py-1.5 text-xs text-destructive/70">
-            {eventsError.message}
+          {/* Error detail */}
+          {eventsError && (
+            <div className="shrink-0 border-b border-destructive/20 bg-destructive/[0.06] px-4 py-1.5 text-xs text-destructive/70">
+              {eventsError.message}
+            </div>
+          )}
+
+          {/* Top bar */}
+          <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
+            {/* Left: view mode dropdown */}
+            <div className="flex items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 gap-1 px-2.5 text-sm font-semibold"
+                  >
+                    {viewModeLabels[viewMode]}
+                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onClick={() => setViewMode("day")}>
+                    Day
+                    <kbd className="ml-auto text-[10px] text-muted-foreground">
+                      D
+                    </kbd>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setViewMode("week")}>
+                    Week
+                    <kbd className="ml-auto text-[10px] text-muted-foreground">
+                      W
+                    </kbd>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setViewMode("month")}>
+                    Month
+                    <kbd className="ml-auto text-[10px] text-muted-foreground">
+                      M
+                    </kbd>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
+            {/* Center: today, nav arrows, date label */}
+            <div className="flex items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleToday}
+                    className="h-7 px-2.5 text-xs font-medium"
+                  >
+                    Today
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>
+                    Go to today{" "}
+                    <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                      T
+                    </kbd>
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleNavigate("prev")}
+                    className="h-7 w-7"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>
+                    Previous{" "}
+                    <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                      K
+                    </kbd>
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleNavigate("next")}
+                    className="h-7 w-7"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>
+                    Next{" "}
+                    <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                      J
+                    </kbd>
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+
+              <span className="ml-1 text-sm font-semibold">{headerLabel}</span>
+            </div>
+
+            {/* Right: search, shortcuts, new event */}
+            <div className="flex items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => setCommandPaletteOpen(true)}
+                  >
+                    <Search className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>
+                    Search{" "}
+                    <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                      /
+                    </kbd>
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => setShortcutsHelpOpen(true)}
+                  >
+                    <Keyboard className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>
+                    Keyboard shortcuts{" "}
+                    <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                      ?
+                    </kbd>
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+
+              <CreateEventPopover
+                open={createDialogOpen}
+                onOpenChange={setCreateDialogOpen}
+                defaultDate={selectedDate}
+              />
+              <AgentToggleButton />
+            </div>
           </div>
-        )}
 
-        {/* Top bar */}
-        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
-          {/* Left: view mode dropdown */}
-          <div className="flex items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 gap-1 px-2.5 text-sm font-semibold"
-                >
-                  {viewModeLabels[viewMode]}
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                <DropdownMenuItem onClick={() => setViewMode("day")}>
-                  Day
-                  <kbd className="ml-auto text-[10px] text-muted-foreground">
-                    D
-                  </kbd>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setViewMode("week")}>
-                  Week
-                  <kbd className="ml-auto text-[10px] text-muted-foreground">
-                    W
-                  </kbd>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setViewMode("month")}>
-                  Month
-                  <kbd className="ml-auto text-[10px] text-muted-foreground">
-                    M
-                  </kbd>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          {/* Center: today, nav arrows, date label */}
-          <div className="flex items-center gap-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleToday}
-                  className="h-7 px-2.5 text-xs font-medium"
-                >
-                  Today
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                <p>
-                  Go to today{" "}
-                  <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                    T
-                  </kbd>
-                </p>
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => handleNavigate("prev")}
-                  className="h-7 w-7"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                <p>
-                  Previous{" "}
-                  <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                    K
-                  </kbd>
-                </p>
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => handleNavigate("next")}
-                  className="h-7 w-7"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                <p>
-                  Next{" "}
-                  <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                    J
-                  </kbd>
-                </p>
-              </TooltipContent>
-            </Tooltip>
-
-            <span className="ml-1 text-sm font-semibold">{headerLabel}</span>
-          </div>
-
-          {/* Right: search, shortcuts, new event */}
-          <div className="flex items-center gap-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={() => setCommandPaletteOpen(true)}
-                >
-                  <Search className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                <p>
-                  Search{" "}
-                  <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                    /
-                  </kbd>
-                </p>
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={() => setShortcutsHelpOpen(true)}
-                >
-                  <Keyboard className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                <p>
-                  Keyboard shortcuts{" "}
-                  <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                    ?
-                  </kbd>
-                </p>
-              </TooltipContent>
-            </Tooltip>
-
-            <CreateEventPopover
-              open={createDialogOpen}
-              onOpenChange={setCreateDialogOpen}
-              defaultDate={selectedDate}
-            />
-          </div>
-        </div>
-
-        {/* Main content: calendar grid + detail panel */}
-        <div className="flex flex-1 overflow-hidden">
           {/* Calendar grid */}
           <div className="flex-1 overflow-hidden">
             {viewMode === "month" && (
@@ -463,8 +487,10 @@ export default function CalendarView() {
                 events={events}
                 selectedDate={selectedDate}
                 onDateSelect={handleDateSelect}
-                onEventClick={handleEventClick}
+                onEditEvent={handleEditEvent}
+                onDeleteEvent={handleDeleteEvent}
                 onEventDrop={handleEventDrop}
+                isLoading={eventsLoading}
               />
             )}
             {viewMode === "week" && (
@@ -472,26 +498,32 @@ export default function CalendarView() {
                 events={events}
                 selectedDate={selectedDate}
                 onDateSelect={handleDateSelect}
-                onEventClick={handleEventClick}
+                onEditEvent={handleEditEvent}
+                onDeleteEvent={handleDeleteEvent}
+                isLoading={eventsLoading}
               />
             )}
             {viewMode === "day" && (
               <DayView
                 events={dayEvents}
                 date={selectedDate}
-                onEventClick={handleEventClick}
+                onEditEvent={handleEditEvent}
+                onDeleteEvent={handleDeleteEvent}
+                isLoading={eventsLoading}
               />
             )}
           </div>
+        </div>
 
-          {/* Event detail side panel */}
+        {/* Event detail sidebar — full height, outside the calendar column */}
+        {eventDetailSidebar && (
           <EventDetailPanel
-            event={selectedEvent}
-            onClose={handleCloseDetail}
+            event={sidebarEvent}
+            onClose={() => setSidebarEvent(null)}
             onEdit={handleEditEvent}
             onDelete={handleDeleteEvent}
           />
-        </div>
+        )}
 
         {/* Dialogs */}
         <CommandPalette
@@ -501,7 +533,7 @@ export default function CalendarView() {
           onGoToDate={handleGoToDate}
           onEventClick={(event) => {
             setCommandPaletteOpen(false);
-            handleEventClick(event);
+            handleGoToDate(parseISO(event.start));
           }}
           onCreateEvent={() => {
             setCommandPaletteOpen(false);
@@ -513,6 +545,10 @@ export default function CalendarView() {
         <KeyboardShortcutsHelp
           open={shortcutsHelpOpen}
           onClose={() => setShortcutsHelpOpen(false)}
+        />
+        <PeopleSearchDialog
+          open={peopleSearchOpen}
+          onOpenChange={setPeopleSearchOpen}
         />
       </div>
     </TooltipProvider>

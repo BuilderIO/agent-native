@@ -5,11 +5,17 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { eq, inArray } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { eq } from "drizzle-orm";
 import { db, schema } from "../db/index.js";
 import { getSession } from "@agent-native/core/server";
 import * as chrono from "chrono-node";
+import {
+  createScheduledJobRecord,
+  listPendingJobs,
+  scheduleEmailSend,
+  scheduleSnooze,
+  type SendLaterPayload,
+} from "../lib/jobs.js";
 
 // ─── NL Date Parsing ──────────────────────────────────────────────────────────
 
@@ -33,13 +39,18 @@ function ianaToOffsetMinutes(iana: string, ref: Date): number {
 
 export function parseNlDate(input: string, timezone: string): Date | null {
   const ref = new Date();
-  const result = chrono.parseDate(input, ref, {
+  const opts = {
     timezone: ianaToOffsetMinutes(timezone, ref),
     forwardDate: true,
-  } as any);
-  if (!result) return null;
-  // Default to 8am when no time component present
-  if (!input.match(/\d{1,2}[:.]\d{2}|[ap]m/i)) {
+  } as any;
+  const parsed = chrono.parse(input, ref, opts);
+  if (!parsed.length) return null;
+  const result = parsed[0].start.date();
+  // Default to 8am only when chrono didn't extract an explicit time component
+  // (e.g. "tomorrow" → 8am, but "1 hour" or "3pm" keep their parsed time)
+  const hasTime =
+    parsed[0].start.isCertain("hour") || parsed[0].start.isCertain("minute");
+  if (!hasTime) {
     result.setHours(8, 0, 0, 0);
   }
   return result;
@@ -50,26 +61,18 @@ export function parseNlDate(input: string, timezone: string): Date | null {
 /** GET /api/scheduled-jobs — list pending/processing jobs */
 export const listScheduledJobs = defineEventHandler(async (event: H3Event) => {
   const session = await getSession(event);
-  const jobs = await db
-    .select()
-    .from(schema.scheduledJobs)
-    .where(inArray(schema.scheduledJobs.status, ["pending", "processing"]));
-  // Filter to the current user's jobs
-  if (session?.email && session.email !== "local@localhost") {
-    return jobs.filter(
-      (j) => !j.accountEmail || j.accountEmail === session.email,
-    );
-  }
-  return jobs;
+  return listPendingJobs(session?.email ?? "local@localhost");
 });
 
 /** POST /api/scheduled-jobs — create a new job */
 export const createScheduledJob = defineEventHandler(async (event: H3Event) => {
   const session = await getSession(event);
   const body = await readBody(event);
-  const { type, emailId, payload, runAt } = body as {
+  const { type, emailId, threadId, accountEmail, payload, runAt } = body as {
     type: "snooze" | "send_later";
     emailId?: string;
+    threadId?: string;
+    accountEmail?: string;
     payload?: Record<string, unknown>;
     runAt: number;
   };
@@ -89,18 +92,16 @@ export const createScheduledJob = defineEventHandler(async (event: H3Event) => {
     return { error: "runAt must be a future timestamp" };
   }
 
-  const job = {
-    id: nanoid(12),
+  const ownerEmail = session?.email ?? "local@localhost";
+  const job = await createScheduledJobRecord({
     type,
+    ownerEmail,
     emailId: emailId ?? null,
-    accountEmail: session?.email ?? null,
-    payload: JSON.stringify(payload ?? {}),
+    threadId: threadId ?? null,
+    accountEmail: accountEmail ?? (payload as any)?.accountEmail ?? null,
+    payload,
     runAt,
-    status: "pending" as const,
-    createdAt: Date.now(),
-  };
-
-  await db.insert(schema.scheduledJobs).values(job);
+  });
   setResponseStatus(event, 201);
   return job;
 });
@@ -186,4 +187,77 @@ export const parseDateNl = defineEventHandler(async (event: H3Event) => {
       minute: "2-digit",
     }),
   };
+});
+
+export const snoozeEmail = defineEventHandler(async (event: H3Event) => {
+  const session = await getSession(event);
+  const ownerEmail = session?.email ?? "local@localhost";
+  const emailId = getRouterParam(event, "id");
+  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
+    runAt?: number;
+    accountEmail?: string;
+  };
+
+  if (!emailId) {
+    setResponseStatus(event, 400);
+    return { error: "id required" };
+  }
+
+  if (!body.runAt || !Number.isFinite(body.runAt) || body.runAt <= Date.now()) {
+    setResponseStatus(event, 400);
+    return { error: "runAt must be a future timestamp" };
+  }
+
+  try {
+    const job = await scheduleSnooze({
+      ownerEmail,
+      emailId,
+      runAt: body.runAt,
+      accountEmail: body.accountEmail,
+    });
+    setResponseStatus(event, 201);
+    return job;
+  } catch (error: any) {
+    const message = error?.message || "Failed to snooze email";
+    setResponseStatus(event, message === "Email not found" ? 404 : 500);
+    return { error: message };
+  }
+});
+
+export const scheduleEmail = defineEventHandler(async (event: H3Event) => {
+  const session = await getSession(event);
+  const ownerEmail = session?.email ?? "local@localhost";
+  const body = ((await readBody(event).catch(() => ({}))) ??
+    {}) as SendLaterPayload & {
+    runAt?: number;
+  };
+
+  if (!body.to || body.subject === undefined || body.body === undefined) {
+    setResponseStatus(event, 400);
+    return { error: "Missing required fields: to, subject, body" };
+  }
+
+  if (!body.runAt || !Number.isFinite(body.runAt) || body.runAt <= Date.now()) {
+    setResponseStatus(event, 400);
+    return { error: "runAt must be a future timestamp" };
+  }
+
+  const job = await scheduleEmailSend({
+    ownerEmail,
+    runAt: body.runAt,
+    payload: {
+      to: body.to,
+      cc: body.cc,
+      bcc: body.bcc,
+      subject: body.subject,
+      body: body.body,
+      from: body.from,
+      accountEmail: body.accountEmail,
+      replyToId: body.replyToId,
+      threadId: body.threadId,
+    },
+  });
+
+  setResponseStatus(event, 201);
+  return job;
 });

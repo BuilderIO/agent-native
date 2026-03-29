@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { ApiKeySettings } from "@agent-native/core/client";
+import { ApiKeySettings, AgentToggleButton } from "@agent-native/core/client";
 
 export default function Settings() {
   return (
@@ -32,6 +32,9 @@ export default function Settings() {
           &larr; Back
         </Link>
         <span style={{ fontSize: 15, fontWeight: 600 }}>Settings</span>
+        <div style={{ marginLeft: "auto" }}>
+          <AgentToggleButton />
+        </div>
       </header>
       <main style={{ maxWidth: 640, margin: "0 auto", padding: "32px 24px" }}>
         <ApiKeySettings />

@@ -108,7 +108,7 @@ export default function AvailabilitySettings() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="mx-auto max-w-2xl space-y-6 px-4 py-8 pb-12">
       <div>
         <h1 className="text-2xl font-semibold">Availability</h1>
         <p className="text-sm text-muted-foreground mt-1">

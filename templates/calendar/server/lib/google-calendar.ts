@@ -20,6 +20,9 @@ const SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/directory.readonly",
+  "https://www.googleapis.com/auth/contacts.readonly",
+  "https://www.googleapis.com/auth/contacts.other.readonly",
 ];
 
 interface GoogleTokens {
@@ -244,9 +247,109 @@ export async function listEvents(
         });
 
         const events = response.items || [];
+        return events.map((event: any) => {
+          // Find the current user's RSVP status from attendees
+          const selfAttendee = event.attendees?.find(
+            (a: any) => a.self === true,
+          );
+          return {
+            id: `google-${event.id}`,
+            title: event.summary || "Untitled",
+            description: event.description || "",
+            start: event.start?.dateTime || event.start?.date || "",
+            end: event.end?.dateTime || event.end?.date || "",
+            location: event.location || "",
+            allDay: !event.start?.dateTime,
+            source: "google" as const,
+            googleEventId: event.id || undefined,
+            accountEmail: email,
+            responseStatus: selfAttendee?.responseStatus,
+            attendees: event.attendees?.map((a: any) => ({
+              email: a.email,
+              displayName: a.displayName || undefined,
+              photoUrl: a.photoUrl || undefined,
+              responseStatus: a.responseStatus || undefined,
+              organizer: a.organizer || undefined,
+              self: a.self || undefined,
+            })),
+            reminders: event.reminders?.overrides?.map((r: any) => ({
+              method: r.method,
+              minutes: r.minutes,
+            })),
+            recurrence: event.recurrence || undefined,
+            recurringEventId: event.recurringEventId || undefined,
+            hangoutLink: event.hangoutLink || undefined,
+            conferenceData: event.conferenceData
+              ? {
+                  entryPoints: event.conferenceData.entryPoints?.map(
+                    (ep: any) => ({
+                      entryPointType: ep.entryPointType,
+                      uri: ep.uri,
+                      label: ep.label || undefined,
+                      pin: ep.pin || undefined,
+                      passcode: ep.passcode || undefined,
+                    }),
+                  ),
+                  conferenceSolution: event.conferenceData.conferenceSolution
+                    ? {
+                        name: event.conferenceData.conferenceSolution.name,
+                        iconUri:
+                          event.conferenceData.conferenceSolution.iconUri ||
+                          undefined,
+                      }
+                    : undefined,
+                }
+              : undefined,
+            visibility: event.visibility || undefined,
+            status: event.status || undefined,
+            createdAt: event.created || new Date().toISOString(),
+            updatedAt: event.updated || new Date().toISOString(),
+          };
+        });
+      } catch (error: any) {
+        console.error(
+          `[listEvents] Error fetching from ${email}:`,
+          error.message,
+        );
+        errors.push({ email, error: error.message });
+        return [];
+      }
+    }),
+  );
+
+  return { events: allResults.flat(), errors };
+}
+
+export async function listOverlayEvents(
+  timeMin: string,
+  timeMax: string,
+  overlayEmails: string[],
+  forEmail?: string,
+): Promise<{
+  events: CalendarEvent[];
+  errors: Array<{ email: string; error: string }>;
+}> {
+  const clients = await getClients(forEmail);
+  if (clients.length === 0) return { events: [], errors: [] };
+
+  // Use the first available token to query other people's calendars
+  const { accessToken } = clients[0];
+  const errors: Array<{ email: string; error: string }> = [];
+
+  const allResults = await Promise.all(
+    overlayEmails.map(async (overlayEmail) => {
+      try {
+        const response = await calendarListEvents(accessToken, overlayEmail, {
+          timeMin,
+          timeMax,
+          singleEvents: true,
+          orderBy: "startTime",
+        });
+
+        const events = response.items || [];
         return events.map((event: any) => ({
-          id: `google-${event.id}`,
-          title: event.summary || "Untitled",
+          id: `overlay-${overlayEmail}-${event.id}`,
+          title: event.summary || "Busy",
           description: event.description || "",
           start: event.start?.dateTime || event.start?.date || "",
           end: event.end?.dateTime || event.end?.date || "",
@@ -254,16 +357,17 @@ export async function listEvents(
           allDay: !event.start?.dateTime,
           source: "google" as const,
           googleEventId: event.id || undefined,
-          accountEmail: email,
+          accountEmail: undefined,
+          overlayEmail,
           createdAt: event.created || new Date().toISOString(),
           updatedAt: event.updated || new Date().toISOString(),
         }));
       } catch (error: any) {
         console.error(
-          `[listEvents] Error fetching from ${email}:`,
+          `[listOverlayEvents] Error fetching ${overlayEmail}:`,
           error.message,
         );
-        errors.push({ email, error: error.message });
+        errors.push({ email: overlayEmail, error: error.message });
         return [];
       }
     }),

@@ -3,12 +3,12 @@ import { useNavigate } from "react-router";
 import { Plus, Layers, Settings } from "lucide-react";
 import { useDecks } from "@/context/DeckContext";
 import DeckCard from "@/components/deck/DeckCard";
-import BuilderLogo from "@/components/deck/BuilderLogo";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { FeedbackButton } from "@/components/FeedbackButton";
 import { Button } from "@/components/ui/button";
+import { AgentToggleButton } from "@agent-native/core/client";
 
 export default function Index() {
   const { decks, createDeck, deleteDeck, loading } = useDecks();
@@ -66,12 +66,9 @@ export default function Index() {
       {/* Header */}
       <header className="border-b border-white/[0.06]">
         <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <BuilderLogo className="w-5 h-5" />
-            <span className="text-sm font-semibold text-white/90 tracking-tight">
-              Deck Generator
-            </span>
-          </div>
+          <span className="text-base font-semibold text-white/90 tracking-tight">
+            Slides
+          </span>
           <div className="flex items-center gap-2">
             <FeedbackButton />
             <a
@@ -85,6 +82,7 @@ export default function Index() {
               <Plus className="w-3.5 h-3.5" />
               New Deck
             </Button>
+            <AgentToggleButton />
           </div>
         </div>
       </header>
@@ -108,17 +106,27 @@ export default function Index() {
               </span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {/* New deck card */}
-              <Button
-                variant="outline"
+              {/* New deck card - matches DeckCard structure */}
+              <button
                 onClick={openNewDeck}
-                className="aspect-[4/3] rounded-xl border-dashed flex flex-col items-center justify-center gap-3 h-auto"
+                className="group relative rounded-xl border border-dashed border-white/[0.08] bg-[hsl(240,5%,8%)] hover:border-white/[0.15] transition-all duration-200 overflow-hidden text-left"
               >
-                <div className="w-10 h-10 rounded-xl bg-white/[0.04] flex items-center justify-center">
-                  <Plus className="w-5 h-5 text-white/30" />
+                {/* Slide preview area - matches DeckCard aspect-video */}
+                <div className="aspect-video flex items-center justify-center bg-white/[0.02]">
+                  <div className="w-12 h-12 rounded-xl bg-white/[0.04] flex items-center justify-center group-hover:bg-white/[0.06] transition-colors">
+                    <Plus className="w-6 h-6 text-white/30 group-hover:text-white/50 transition-colors" />
+                  </div>
                 </div>
-                <span className="text-xs text-white/30">New Deck</span>
-              </Button>
+                {/* Info area - matches DeckCard p-4 */}
+                <div className="p-4">
+                  <h3 className="font-medium text-sm text-white/50 group-hover:text-white/70 transition-colors">
+                    New Deck
+                  </h3>
+                  <div className="text-xs text-white/30 mt-1">
+                    Create a deck
+                  </div>
+                </div>
+              </button>
 
               {/* Deck cards */}
               {[...decks].reverse().map((deck) => (

@@ -9,10 +9,11 @@ import {
   GripVertical,
   Plus,
   ChevronDown,
-  Sparkles,
   ExternalLink,
   Copy,
   Check,
+  ArrowUp,
+  MessageCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,7 +41,20 @@ import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel"
 import { useForm, useUpdateForm } from "@/hooks/use-forms";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
-import { sendToAgentChat } from "@agent-native/core/client";
+import {
+  AgentToggleButton,
+  useSendToAgentChat,
+} from "@agent-native/core/client";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { FormField, FormFieldType, FormSettings } from "@shared/types";
@@ -91,6 +105,28 @@ export function FormBuilderPage() {
   const [copied, setCopied] = useState(false);
   const { isLocal } = useDbStatus();
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
+  const [agentPopoverOpen, setAgentPopoverOpen] = useState(false);
+  const [agentPrompt, setAgentPrompt] = useState("");
+  const agentPromptRef = useRef<HTMLTextAreaElement>(null);
+  const { send, codeRequiredDialog } = useSendToAgentChat();
+
+  // Local state for text inputs — prevents polling-driven refetches from
+  // resetting input values while the user is typing.
+  const [localTitle, setLocalTitle] = useState(form?.title ?? "");
+  const [localDescription, setLocalDescription] = useState(
+    form?.description ?? "",
+  );
+  const titleFocused = useRef(false);
+  const descriptionFocused = useRef(false);
+
+  // Sync from server when not focused (e.g. agent updates the title)
+  useEffect(() => {
+    if (form && !titleFocused.current) setLocalTitle(form.title);
+  }, [form?.title]);
+  useEffect(() => {
+    if (form && !descriptionFocused.current)
+      setLocalDescription(form.description || "");
+  }, [form?.description]);
 
   // Debounced save
   const saveTimeout = useRef<ReturnType<typeof setTimeout>>();
@@ -172,11 +208,13 @@ export function FormBuilderPage() {
     setDragIdx(null);
   }
 
-  function handleAskAgent() {
-    sendToAgentChat({
-      message: `Help me improve this form. Here's the current form definition:\n\nTitle: ${form.title}\nDescription: ${form.description || "None"}\nFields: ${JSON.stringify(fields, null, 2)}\n\nSuggest improvements, add missing fields, or help me restyle the form to better match my brand.`,
-      submit: true,
-    });
+  function submitAgentPrompt() {
+    if (!agentPrompt.trim()) return;
+    const context = `Current form:\nTitle: ${form.title}\nDescription: ${form.description || "None"}\nFields: ${JSON.stringify(fields, null, 2)}`;
+    const result = send({ message: agentPrompt.trim(), context, submit: true });
+    if (result === null) return;
+    setAgentPopoverOpen(false);
+    setAgentPrompt("");
   }
 
   function handleTogglePublish() {
@@ -210,13 +248,20 @@ export function FormBuilderPage() {
 
   return (
     <div className="flex flex-col h-full">
+      {codeRequiredDialog}
       {/* Top bar */}
       <div className="flex items-center justify-between border-b border-border px-4 h-14 shrink-0">
         <div className="flex items-center gap-3">
           <Input
-            value={form.title}
-            onChange={(e) => save({ id: form.id, title: e.target.value })}
-            className="h-8 text-sm font-medium border-none bg-transparent px-0 focus-visible:ring-0 w-64"
+            value={localTitle}
+            onChange={(e) => {
+              setLocalTitle(e.target.value);
+              save({ id: form.id, title: e.target.value });
+            }}
+            onFocus={() => (titleFocused.current = true)}
+            onBlur={() => (titleFocused.current = false)}
+            style={{ width: `${Math.max(localTitle.length + 1, 8)}ch` }}
+            className="h-8 text-sm font-medium border-none bg-transparent px-0 focus-visible:ring-0 max-w-80"
           />
           <Badge
             variant="outline"
@@ -231,56 +276,67 @@ export function FormBuilderPage() {
           </Badge>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-1.5 text-xs"
-            onClick={() => navigate(`/forms/${form.id}/responses`)}
-          >
-            <BarChart3 className="h-3.5 w-3.5" />
-            Responses
-            {(form.responseCount ?? 0) > 0 && (
-              <Badge variant="secondary" className="text-[10px] px-1.5 ml-1">
-                {form.responseCount}
-              </Badge>
-            )}
-          </Button>
+        <div className="flex items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="relative h-8 w-8"
+                onClick={() => navigate(`/forms/${form.id}/responses`)}
+              >
+                <BarChart3 className="h-4 w-4" />
+                {(form.responseCount ?? 0) > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-medium text-primary-foreground">
+                    {form.responseCount}
+                  </span>
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Responses</TooltipContent>
+          </Tooltip>
 
           {form.status === "published" && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-1.5 text-xs"
-              asChild
-            >
-              <a href={`/f/${form.slug}`} target="_blank" rel="noopener">
-                <Eye className="h-3.5 w-3.5" />
-                Preview
-              </a>
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                  <a href={`/f/${form.slug}`} target="_blank" rel="noopener">
+                    <Eye className="h-4 w-4" />
+                  </a>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Preview</TooltipContent>
+            </Tooltip>
           )}
 
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-1.5 text-xs"
-            onClick={copyShareLink}
-          >
-            {copied ? (
-              <Check className="h-3.5 w-3.5" />
-            ) : (
-              <Share2 className="h-3.5 w-3.5" />
-            )}
-            Share
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={copyShareLink}
+              >
+                {copied ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Share2 className="h-4 w-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{copied ? "Copied!" : "Share"}</TooltipContent>
+          </Tooltip>
 
           <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
             <DialogTrigger asChild>
-              <Button variant="ghost" size="sm" className="gap-1.5 text-xs">
-                <Settings className="h-3.5 w-3.5" />
-                Settings
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <Settings className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Settings</TooltipContent>
+              </Tooltip>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
@@ -300,6 +356,7 @@ export function FormBuilderPage() {
           <Button size="sm" className="text-xs" onClick={handleTogglePublish}>
             {form.status === "published" ? "Unpublish" : "Publish"}
           </Button>
+          <AgentToggleButton />
         </div>
       </div>
 
@@ -311,16 +368,24 @@ export function FormBuilderPage() {
             {/* Form header */}
             <div className="mb-6">
               <Input
-                value={form.title}
-                onChange={(e) => save({ id: form.id, title: e.target.value })}
+                value={localTitle}
+                onChange={(e) => {
+                  setLocalTitle(e.target.value);
+                  save({ id: form.id, title: e.target.value });
+                }}
+                onFocus={() => (titleFocused.current = true)}
+                onBlur={() => (titleFocused.current = false)}
                 className="text-2xl font-semibold border-none bg-transparent px-0 focus-visible:ring-0 h-auto"
                 placeholder="Form Title"
               />
               <Textarea
-                value={form.description || ""}
-                onChange={(e) =>
-                  save({ id: form.id, description: e.target.value })
-                }
+                value={localDescription}
+                onChange={(e) => {
+                  setLocalDescription(e.target.value);
+                  save({ id: form.id, description: e.target.value });
+                }}
+                onFocus={() => (descriptionFocused.current = true)}
+                onBlur={() => (descriptionFocused.current = false)}
                 className="mt-1 text-sm text-muted-foreground border-none bg-transparent px-0 focus-visible:ring-0 resize-none"
                 placeholder="Add a description..."
                 rows={1}
@@ -375,14 +440,53 @@ export function FormBuilderPage() {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <Button
-                variant="outline"
-                className="gap-2"
-                onClick={handleAskAgent}
+              <Popover
+                open={agentPopoverOpen}
+                onOpenChange={setAgentPopoverOpen}
               >
-                <Sparkles className="h-4 w-4" />
-                Ask Agent to Help
-              </Button>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="icon">
+                    <MessageCircle className="h-4 w-4" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="top"
+                  align="end"
+                  sideOffset={8}
+                  className="w-80 p-0 rounded-xl"
+                  onOpenAutoFocus={(e) => {
+                    e.preventDefault();
+                    agentPromptRef.current?.focus();
+                  }}
+                >
+                  <div className="p-4 pb-3">
+                    <p className="text-sm font-semibold">Edit form</p>
+                    <textarea
+                      ref={agentPromptRef}
+                      value={agentPrompt}
+                      onChange={(e) => setAgentPrompt(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          submitAgentPrompt();
+                        }
+                      }}
+                      placeholder="Add missing fields, change the layout..."
+                      rows={4}
+                      className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex items-center justify-end border-t border-border px-4 py-2.5">
+                    <button
+                      className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-accent disabled:opacity-30"
+                      onClick={submitAgentPrompt}
+                      disabled={!agentPrompt.trim()}
+                    >
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
         </div>

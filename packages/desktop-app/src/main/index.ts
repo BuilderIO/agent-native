@@ -10,7 +10,11 @@ import {
 } from "electron";
 import path from "path";
 import { autoUpdater } from "electron-updater";
-import { IPC, type InterAppMessage } from "@shared/ipc-channels";
+import {
+  IPC,
+  type ActiveWebviewTarget,
+  type InterAppMessage,
+} from "@shared/ipc-channels";
 import { HARNESS_PORT } from "@shared/app-registry";
 import type { AppConfig } from "@shared/app-registry";
 import * as AppStore from "./app-store";
@@ -67,7 +71,7 @@ function createWindow(): BrowserWindow {
   // In dev, load from the Vite dev server; in prod, load built files
   if (IS_DEV && process.env["ELECTRON_RENDERER_URL"]) {
     win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
-    // DevTools will be opened for the active webview via Cmd+Option+I
+    // DevTools will be opened for the active webview via Cmd+Shift+I
   } else {
     win.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
@@ -78,10 +82,19 @@ function createWindow(): BrowserWindow {
 // ---------- DevTools: target the active app webview ----------
 
 let activeAppId = "";
+let activeWebviewContentsId: number | undefined;
 
 ipcMain.on(IPC.SET_ACTIVE_APP, (_event: IpcMainEvent, appId: string) => {
   activeAppId = appId;
 });
+
+ipcMain.on(
+  IPC.SET_ACTIVE_WEBVIEW,
+  (_event: IpcMainEvent, target: ActiveWebviewTarget) => {
+    activeAppId = target.appId;
+    activeWebviewContentsId = target.webContentsId;
+  },
+);
 
 function toggleWebviewDevTools() {
   const allContents = webContents.getAllWebContents();
@@ -89,8 +102,15 @@ function toggleWebviewDevTools() {
     (wc) => wc.getType() === "webview",
   );
 
-  // Find the webview matching the active app by URL (e.g. ?app=mail)
+  const activeTarget =
+    activeWebviewContentsId &&
+    webContents.fromId(activeWebviewContentsId)?.getType() === "webview"
+      ? webContents.fromId(activeWebviewContentsId)
+      : undefined;
+
+  // Fall back to the currently focused guest, then to the active app by URL.
   const target =
+    activeTarget ||
     webviewContents.find((wc) => wc.isFocused()) ||
     (activeAppId &&
       webviewContents.find((wc) => {
@@ -179,20 +199,65 @@ ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
   });
 });
 
+// ---------- OAuth popup handling ----------
+// Open OAuth flows in an Electron BrowserWindow so the callback stays
+// inside the app. Other popups still open in the system browser.
+
+const OAUTH_HOSTS = ["accounts.google.com"];
+
+function openAuthWindow(url: string) {
+  const authWin = new BrowserWindow({
+    width: 500,
+    height: 680,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  authWin.loadURL(url);
+
+  // After the OAuth provider redirects to localhost (the callback),
+  // let the request complete, reload the webview, then close the popup.
+  authWin.webContents.on("did-navigate", (_event, navUrl) => {
+    try {
+      const parsed = new URL(navUrl);
+      if (parsed.hostname === "localhost") {
+        // Give the callback handler time to store tokens
+        setTimeout(() => {
+          // Reload all webviews so they pick up the new auth state
+          const allContents = webContents.getAllWebContents();
+          for (const wc of allContents) {
+            if (wc.getType() === "webview") {
+              wc.reload();
+            }
+          }
+          // Close the auth popup
+          if (!authWin.isDestroyed()) authWin.close();
+        }, 1500);
+      }
+    } catch {
+      // ignore
+    }
+  });
+}
+
 // ---------- Webview popup handling ----------
-// Open popups from webviews (e.g. OAuth flows) in the system browser
-// instead of creating broken Electron popup windows.
 
 app.on("web-contents-created", (_event, contents) => {
   // Only intercept webview guest contents
   if (contents.getType() !== "webview") return;
 
   contents.setWindowOpenHandler(({ url }) => {
-    // Only allow http/https URLs to prevent protocol-handler attacks
-    // (e.g. ms-msdt:, file://, etc.)
     try {
       const parsed = new URL(url);
-      if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        return { action: "deny" };
+      }
+      // OAuth flows stay in Electron so the callback redirect works
+      if (OAUTH_HOSTS.includes(parsed.hostname)) {
+        openAuthWindow(url);
+      } else {
         shell.openExternal(url);
       }
     } catch {
@@ -208,14 +273,10 @@ app.on("web-contents-created", (_event, contents) => {
 
     const key = input.key.toLowerCase();
 
-    // Cmd+Option+I — toggle devtools for this webview
-    if (key === "i" && input.alt) {
+    // Cmd+Option+I (and legacy Cmd+Shift+I) — toggle devtools for the active app webview
+    if (key === "i" && (input.alt || input.shift)) {
       event.preventDefault();
-      if (contents.isDevToolsOpened()) {
-        contents.closeDevTools();
-      } else {
-        contents.openDevTools({ mode: "detach" });
-      }
+      toggleWebviewDevTools();
       return;
     }
 
@@ -229,9 +290,13 @@ app.on("web-contents-created", (_event, contents) => {
       return;
     }
 
-    // Forward other Cmd+ shortcuts: T, Shift+T, 1-9, [, ]
+    // Forward other Cmd+ shortcuts: R, T, Shift+T, 1-9, [, ]
     const isShortcut =
-      key === "t" || key === "[" || key === "]" || (key >= "1" && key <= "9");
+      key === "r" ||
+      key === "t" ||
+      key === "[" ||
+      key === "]" ||
+      (key >= "1" && key <= "9");
 
     if (isShortcut) {
       event.preventDefault();
@@ -261,18 +326,21 @@ app.whenReady().then(() => {
   }
 
   // Intercept OAuth callbacks on the harness port and redirect to the app's server.
-  // Google redirects to localhost:3334/api/google/callback but the harness doesn't
+  // Google redirects to localhost:3334/api/google/... but the harness doesn't
   // serve API routes — the actual app server runs on a different port.
   session.defaultSession.webRequest.onBeforeRequest(
-    { urls: [`http://localhost:${HARNESS_PORT}/api/google/callback*`] },
+    { urls: [`http://localhost:${HARNESS_PORT}/api/google/*`] },
     (details, callback) => {
-      // Find which app handles this callback (currently only mail has Google auth)
+      // Route to the correct app's server based on the callback path
       const apps = AppStore.loadApps();
-      const mailApp = apps.find((a) => a.id === "mail");
-      if (mailApp) {
+      // Try mail first, then calendar — both have Google OAuth
+      const app =
+        apps.find((a) => a.id === "mail") ||
+        apps.find((a) => a.id === "calendar");
+      if (app) {
         const appUrl = details.url.replace(
           `http://localhost:${HARNESS_PORT}`,
-          `http://localhost:${mailApp.devPort}`,
+          `http://localhost:${app.devPort}`,
         );
         callback({ redirectURL: appUrl });
       } else {
@@ -288,10 +356,20 @@ app.whenReady().then(() => {
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
     const key = input.key.toLowerCase();
 
-    // Cmd+Option+I — open devtools for the active webview, not the shell
-    if (key === "i" && input.alt) {
+    // Cmd+Option+I (and legacy Cmd+Shift+I) — open devtools for the active webview, not the shell
+    if (key === "i" && (input.alt || input.shift)) {
       _event.preventDefault();
       toggleWebviewDevTools();
+      return;
+    }
+
+    // Cmd+R — refresh active webview, not the shell
+    if (key === "r") {
+      _event.preventDefault();
+      win.webContents.send("shortcut:keydown", {
+        key: "r",
+        shiftKey: input.shift,
+      });
       return;
     }
 

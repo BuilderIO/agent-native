@@ -2,6 +2,7 @@ import {
   defineEventHandler,
   readBody,
   getRouterParam,
+  getHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -38,25 +39,23 @@ export const getState = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const key = safeKey(String(getRouterParam(event, "key")));
   const value = await appStateGet(sessionId, key);
-  if (!value) {
-    setResponseStatus(event, 404);
-    return { error: `No state for ${key}` };
-  }
-  return value;
+  return value ?? null;
 });
 
 export const putState = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const key = safeKey(String(getRouterParam(event, "key")));
   const body = await readBody(event);
-  await appStatePut(sessionId, key, body);
+  const requestSource = getHeader(event, "x-request-source") || undefined;
+  await appStatePut(sessionId, key, body, { requestSource });
   return body;
 });
 
 export const deleteState = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const key = safeKey(String(getRouterParam(event, "key")));
-  await appStateDelete(sessionId, key);
+  const requestSource = getHeader(event, "x-request-source") || undefined;
+  await appStateDelete(sessionId, key, { requestSource });
   return { ok: true };
 });
 
@@ -78,11 +77,7 @@ export const getComposeDraft = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const id = getRouterParam(event, "id") as string;
   const value = await appStateGet(sessionId, composeDraftKey(id));
-  if (!value) {
-    setResponseStatus(event, 404);
-    return { error: "Draft not found" };
-  }
-  return value;
+  return value ?? null;
 });
 
 /** Create or update a compose draft */
@@ -98,7 +93,8 @@ export const putComposeDraft = defineEventHandler(async (event: H3Event) => {
   }
 
   const state = { ...body, id };
-  await appStatePut(sessionId, composeDraftKey(id), state);
+  const requestSource = getHeader(event, "x-request-source") || undefined;
+  await appStatePut(sessionId, composeDraftKey(id), state, { requestSource });
   return state;
 });
 
@@ -106,7 +102,8 @@ export const putComposeDraft = defineEventHandler(async (event: H3Event) => {
 export const deleteComposeDraft = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const id = getRouterParam(event, "id") as string;
-  await appStateDelete(sessionId, composeDraftKey(id));
+  const requestSource = getHeader(event, "x-request-source") || undefined;
+  await appStateDelete(sessionId, composeDraftKey(id), { requestSource });
   return { ok: true };
 });
 
@@ -114,7 +111,8 @@ export const deleteComposeDraft = defineEventHandler(async (event: H3Event) => {
 export const deleteAllComposeDrafts = defineEventHandler(
   async (event: H3Event) => {
     const sessionId = await getSessionId(event);
-    await appStateDeleteByPrefix(sessionId, "compose-");
+    const requestSource = getHeader(event, "x-request-source") || undefined;
+    await appStateDeleteByPrefix(sessionId, "compose-", { requestSource });
     return { ok: true };
   },
 );

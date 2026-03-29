@@ -10,6 +10,41 @@ export interface Document {
   updatedAt: string;
 }
 
+export type SyncState = "idle" | "linked" | "syncing" | "error" | "conflict";
+
+export interface DocumentSyncStatus {
+  provider: "notion";
+  connected: boolean;
+  documentId: string;
+  pageId: string | null;
+  pageUrl: string | null;
+  state: SyncState;
+  lastSyncedAt: string | null;
+  lastKnownRemoteUpdatedAt: string | null;
+  lastPushedLocalUpdatedAt: string | null;
+  hasConflict: boolean;
+  remoteChanged: boolean;
+  localChanged: boolean;
+  lastError: string | null;
+  warnings: string[];
+}
+
+export interface NotionConnectionStatus {
+  connected: boolean;
+  workspaceName: string | null;
+  workspaceId: string | null;
+  authUrl: string | null;
+  error?: "missing_credentials";
+}
+
+export interface LinkNotionPageRequest {
+  pageIdOrUrl: string;
+}
+
+export interface ResolveDocumentSyncConflictRequest {
+  direction: "pull" | "push";
+}
+
 export interface DocumentCreateRequest {
   title?: string;
   parentId?: string | null;

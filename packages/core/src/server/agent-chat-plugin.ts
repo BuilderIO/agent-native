@@ -2,8 +2,205 @@ import {
   createProductionAgentHandler,
   type ScriptEntry,
 } from "../agent/production-agent.js";
-import { defineEventHandler, readBody, setResponseStatus, getMethod } from "h3";
+import type {
+  ScriptTool,
+  MentionProvider,
+  MentionProviderItem,
+} from "../agent/types.js";
+import {
+  defineEventHandler,
+  readBody,
+  setResponseStatus,
+  getMethod,
+  getQuery,
+} from "h3";
 import { agentEnv } from "../shared/agent-env.js";
+import {
+  resourceListAccessible,
+  resourceList,
+  resourceGet,
+  SHARED_OWNER,
+} from "../resources/store.js";
+import fs from "node:fs";
+import nodePath from "node:path";
+
+/**
+ * Wraps a core CLI script (that writes to console.log) as a ScriptEntry
+ * by capturing stdout.
+ */
+/** Sentinel thrown by our process.exit interceptor */
+class ExitIntercepted extends Error {
+  code: number;
+  constructor(code: number) {
+    super(`process.exit(${code})`);
+    this.code = code;
+  }
+}
+
+function wrapCliScript(
+  tool: ScriptTool,
+  cliDefault: (args: string[]) => Promise<void>,
+): ScriptEntry {
+  return {
+    tool,
+    run: async (args: Record<string, string>): Promise<string> => {
+      const cliArgs: string[] = [];
+      for (const [k, v] of Object.entries(args)) {
+        cliArgs.push(`--${k}`, v);
+      }
+      const logs: string[] = [];
+      const origLog = console.log;
+      const origError = console.error;
+      const origExit = process.exit;
+      console.log = (...a: unknown[]) => {
+        logs.push(a.map(String).join(" "));
+      };
+      console.error = (...a: unknown[]) => {
+        logs.push(a.map(String).join(" "));
+      };
+      // Intercept process.exit so scripts don't kill the server
+      process.exit = ((code?: number) => {
+        throw new ExitIntercepted(code ?? 0);
+      }) as never;
+      try {
+        await cliDefault(cliArgs);
+      } catch (err: any) {
+        if (!(err instanceof ExitIntercepted)) {
+          logs.push(`Error: ${err?.message ?? String(err)}`);
+        }
+      } finally {
+        console.log = origLog;
+        console.error = origError;
+        process.exit = origExit;
+      }
+      return logs.join("\n") || "(no output)";
+    },
+  };
+}
+
+/**
+ * Creates resource ScriptEntries available in both prod and dev modes.
+ */
+async function createResourceScriptEntries(): Promise<
+  Record<string, ScriptEntry>
+> {
+  try {
+    const [list, read, write, del] = await Promise.all([
+      import("../scripts/resources/list.js"),
+      import("../scripts/resources/read.js"),
+      import("../scripts/resources/write.js"),
+      import("../scripts/resources/delete.js"),
+    ]);
+
+    return {
+      "resource-list": wrapCliScript(
+        {
+          description:
+            "List resources (persistent files/notes). Returns file paths, sizes, and metadata.",
+          parameters: {
+            type: "object",
+            properties: {
+              prefix: {
+                type: "string",
+                description: "Filter by path prefix (e.g. 'notes/')",
+              },
+              scope: {
+                type: "string",
+                description:
+                  "Which resources to list: personal, shared, or all (default: all)",
+                enum: ["personal", "shared", "all"],
+              },
+              format: {
+                type: "string",
+                description: 'Output format: "json" or "text" (default: text)',
+                enum: ["json", "text"],
+              },
+            },
+          },
+        },
+        list.default,
+      ),
+      "resource-read": wrapCliScript(
+        {
+          description: "Read a resource by path. Returns the file contents.",
+          parameters: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description:
+                  "Resource path (e.g. 'learnings.md', 'notes/ideas.md')",
+              },
+              scope: {
+                type: "string",
+                description:
+                  "personal or shared (default: personal, falls back to shared)",
+                enum: ["personal", "shared"],
+              },
+            },
+            required: ["path"],
+          },
+        },
+        read.default,
+      ),
+      "resource-write": wrapCliScript(
+        {
+          description:
+            "Write or update a resource. Creates the resource if it doesn't exist.",
+          parameters: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description:
+                  "Resource path (e.g. 'learnings.md', 'notes/ideas.md')",
+              },
+              content: {
+                type: "string",
+                description: "The content to write",
+              },
+              scope: {
+                type: "string",
+                description: "personal or shared (default: personal)",
+                enum: ["personal", "shared"],
+              },
+              mime: {
+                type: "string",
+                description: "MIME type (default: inferred from extension)",
+              },
+            },
+            required: ["path", "content"],
+          },
+        },
+        write.default,
+      ),
+      "resource-delete": wrapCliScript(
+        {
+          description: "Delete a resource by path.",
+          parameters: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description: "Resource path to delete",
+              },
+              scope: {
+                type: "string",
+                description: "personal or shared (default: personal)",
+                enum: ["personal", "shared"],
+              },
+            },
+            required: ["path"],
+          },
+        },
+        del.default,
+      ),
+    };
+  } catch {
+    // Resources not available — skip silently
+    return {};
+  }
+}
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -24,11 +221,31 @@ export interface AgentChatPluginOptions {
   apiKey?: string;
   /** Route path. Default: /api/agent-chat */
   path?: string;
+  /** Custom mention providers for @-tagging template entities */
+  mentionProviders?:
+    | Record<string, MentionProvider>
+    | (() =>
+        | Record<string, MentionProvider>
+        | Promise<Record<string, MentionProvider>>);
 }
 
 const DEFAULT_SYSTEM_PROMPT = `You are an AI assistant for this application. You can help users by running available tools and answering questions.
 
-Be concise and helpful. Use the available tools to read data, make changes, and assist the user.`;
+Be concise and helpful. Use the available tools to read data, make changes, and assist the user.
+
+You have access to a Resources system for persistent notes, learnings, and context files.
+Use resource-list, resource-read, resource-write, and resource-delete to manage resources.
+Resources can be personal (per-user) or shared (team-wide). By default, resources are personal.
+
+At the start of conversations:
+1. Read the shared "AGENTS.md" resource — it contains custom instructions, preferences, and skill references for this app.
+2. Read the personal "learnings.md" resource for user-specific preferences and context.
+3. If AGENTS.md references skill files (e.g. "skills/data-analysis.md"), read the relevant skill before performing that type of task.
+
+If a resource doesn't exist yet, that's fine — just skip it and continue helping the user. Don't treat missing resources as errors.
+
+When you learn something important (user corrections, preferences, patterns), update the "learnings.md" resource. Keep it tidy — revise, consolidate, and remove outdated entries rather than only appending. The file should stay concise and scannable.
+When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource instead.`;
 
 const DEFAULT_DEV_PROMPT = `You are a development assistant with full access to the project filesystem, shell, and database.
 
@@ -61,13 +278,76 @@ When editing code, maintain existing patterns and conventions. After writing fil
  * });
  * ```
  */
+function collectFiles(
+  dir: string,
+  prefix: string,
+  depth: number,
+  results: Array<{ path: string; name: string; type: "file" | "folder" }>,
+): void {
+  if (depth > 4 || results.length >= 500) return;
+  const skip = new Set([
+    "node_modules",
+    ".git",
+    ".next",
+    ".output",
+    "dist",
+    ".cache",
+    ".turbo",
+    "data",
+  ]);
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (results.length >= 500) return;
+    if (skip.has(entry.name) || entry.name.startsWith(".")) continue;
+    const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const isDir = entry.isDirectory();
+    results.push({
+      path: relPath,
+      name: entry.name,
+      type: isDir ? "folder" : "file",
+    });
+    if (isDir)
+      collectFiles(nodePath.join(dir, entry.name), relPath, depth + 1, results);
+  }
+}
+
+function parseSkillFrontmatter(content: string): {
+  name?: string;
+  description?: string;
+} {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return {};
+  const fm = match[1];
+  const name = fm.match(/^name:\s*(.+)$/m)?.[1]?.trim();
+  const description = fm.match(/^description:\s*(.+)$/m)?.[1]?.trim();
+  return { name, description };
+}
+
+function isLocalhost(event: any): boolean {
+  try {
+    const host =
+      event.node?.req?.headers?.host || event.headers?.get?.("host") || "";
+    const hostname = host.split(":")[0];
+    return (
+      hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
   return async (nitroApp: any) => {
     const env = process.env.NODE_ENV;
     // AGENT_MODE=production forces production agent constraints even in dev
-    const isDev =
+    const canToggle =
       (env === "development" || env === "test") &&
       process.env.AGENT_MODE !== "production";
     const routePath = options?.path ?? "/api/agent-chat";
@@ -78,29 +358,74 @@ export function createAgentChatPlugin(
       typeof rawScripts === "function"
         ? await rawScripts()
         : (rawScripts ?? {});
-    let scripts = templateScripts;
-    if (isDev) {
-      const { createDevScriptRegistry } =
-        await import("../scripts/dev/index.js");
-      scripts = { ...templateScripts, ...(await createDevScriptRegistry()) };
-    }
 
-    // Build system prompt
+    // Resource scripts are available in both prod and dev modes
+    const resourceScripts = await createResourceScriptEntries();
+
+    // Build system prompts
     const basePrompt = options?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     const devPrefix = options?.devSystemPrompt ?? DEFAULT_DEV_PROMPT;
-    const systemPrompt = isDev ? devPrefix + basePrompt : basePrompt;
 
-    const handler = createProductionAgentHandler({
-      scripts,
-      systemPrompt,
+    // Always build the production handler (includes resource tools)
+    const prodHandler = createProductionAgentHandler({
+      scripts: { ...templateScripts, ...resourceScripts },
+      systemPrompt: basePrompt,
       model: options?.model,
       apiKey: options?.apiKey,
     });
 
-    // Mount mode endpoint — lets clients detect dev vs production
+    // Build the dev handler (with filesystem/shell/db tools) if environment allows toggling
+    let devHandler: ReturnType<typeof createProductionAgentHandler> | null =
+      null;
+    if (canToggle) {
+      const { createDevScriptRegistry } =
+        await import("../scripts/dev/index.js");
+      const devScripts = {
+        ...templateScripts,
+        ...resourceScripts,
+        ...(await createDevScriptRegistry()),
+      };
+      devHandler = createProductionAgentHandler({
+        scripts: devScripts,
+        systemPrompt: devPrefix + basePrompt,
+        model: options?.model,
+        apiKey: options?.apiKey,
+      });
+    }
+
+    // Resolve mention providers
+    const rawProviders = options?.mentionProviders;
+    const mentionProviders: Record<string, MentionProvider> =
+      typeof rawProviders === "function"
+        ? await rawProviders()
+        : (rawProviders ?? {});
+
+    // Mutable mode flag — starts in dev if environment allows
+    let currentDevMode = canToggle;
+
+    // Mount mode endpoint — GET returns current mode, POST toggles it (localhost only)
     nitroApp.h3App.use(
       `${routePath}/mode`,
-      defineEventHandler(() => ({ devMode: isDev })),
+      defineEventHandler(async (event) => {
+        if (getMethod(event) === "POST") {
+          if (!canToggle) {
+            setResponseStatus(event, 403);
+            return { error: "Mode switching not available in production" };
+          }
+          if (!isLocalhost(event)) {
+            setResponseStatus(event, 403);
+            return { error: "Mode switching only available on localhost" };
+          }
+          const body = await readBody(event);
+          if (typeof body?.devMode === "boolean") {
+            currentDevMode = body.devMode;
+          } else {
+            currentDevMode = !currentDevMode;
+          }
+          return { devMode: currentDevMode, canToggle };
+        }
+        return { devMode: currentDevMode, canToggle };
+      }),
     );
 
     // Mount save-key BEFORE the prefix handler so it isn't shadowed
@@ -141,8 +466,290 @@ export function createAgentChatPlugin(
       }),
     );
 
-    // Mount the main chat handler — must come AFTER save-key to avoid prefix shadowing
-    nitroApp.h3App.use(routePath, handler);
+    // Mount file search endpoint
+    nitroApp.h3App.use(
+      `${routePath}/files`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+
+        const query = getQuery(event);
+        const q = typeof query.q === "string" ? query.q.toLowerCase() : "";
+
+        const files: Array<{
+          path: string;
+          name: string;
+          source: "codebase" | "resource";
+          type: string;
+        }> = [];
+        const seen = new Set<string>();
+
+        // In dev mode, walk the filesystem
+        if (currentDevMode) {
+          const codebaseFiles: Array<{
+            path: string;
+            name: string;
+            type: "file" | "folder";
+          }> = [];
+          try {
+            collectFiles(process.cwd(), "", 0, codebaseFiles);
+          } catch {
+            // Filesystem access failed — skip
+          }
+          for (const f of codebaseFiles) {
+            if (!seen.has(f.path)) {
+              seen.add(f.path);
+              files.push({
+                path: f.path,
+                name: f.name,
+                source: "codebase",
+                type: f.type,
+              });
+            }
+          }
+        }
+
+        // Query resources
+        try {
+          const resources = currentDevMode
+            ? await resourceListAccessible("local@localhost")
+            : await resourceList(SHARED_OWNER);
+          for (const r of resources) {
+            if (!seen.has(r.path)) {
+              seen.add(r.path);
+              files.push({
+                path: r.path,
+                name: r.path.split("/").pop() || r.path,
+                source: "resource",
+                type: "file",
+              });
+            }
+          }
+        } catch {
+          // Resources not available — skip
+        }
+
+        // Filter by query and limit
+        const filtered = q
+          ? files.filter((f) => f.path.toLowerCase().includes(q))
+          : files;
+
+        return { files: filtered.slice(0, 30) };
+      }),
+    );
+
+    // Mount skills listing endpoint
+    nitroApp.h3App.use(
+      `${routePath}/skills`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+
+        const skills: Array<{
+          name: string;
+          description?: string;
+          path: string;
+          source: "codebase" | "resource";
+        }> = [];
+        const seenNames = new Set<string>();
+
+        // In dev mode, scan .agents/skills/ directory
+        if (currentDevMode) {
+          try {
+            const skillsDir = nodePath.join(process.cwd(), ".agents", "skills");
+            const entries = fs.readdirSync(skillsDir, {
+              withFileTypes: true,
+            });
+            for (const entry of entries) {
+              if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+              try {
+                const content = fs.readFileSync(
+                  nodePath.join(skillsDir, entry.name),
+                  "utf-8",
+                );
+                const fm = parseSkillFrontmatter(content);
+                const skillName = fm.name || entry.name.replace(/\.md$/, "");
+                if (!seenNames.has(skillName)) {
+                  seenNames.add(skillName);
+                  skills.push({
+                    name: skillName,
+                    description: fm.description,
+                    path: `.agents/skills/${entry.name}`,
+                    source: "codebase",
+                  });
+                }
+              } catch {
+                // Could not read individual skill file — skip
+              }
+            }
+          } catch {
+            // .agents/skills/ directory doesn't exist or not readable — skip
+          }
+        }
+
+        // Query resources with skills/ prefix
+        try {
+          const resourceSkills = currentDevMode
+            ? await resourceListAccessible("local@localhost", "skills/")
+            : await resourceList(SHARED_OWNER, "skills/");
+          for (const r of resourceSkills) {
+            // Try to get content to parse frontmatter
+            let skillName =
+              r.path.split("/").pop()?.replace(/\.md$/, "") || r.path;
+            let description: string | undefined;
+            try {
+              const full = await resourceGet(r.id);
+              if (full) {
+                const fm = parseSkillFrontmatter(full.content);
+                if (fm.name) skillName = fm.name;
+                description = fm.description;
+              }
+            } catch {
+              // Could not read resource content — use path-based name
+            }
+            if (!seenNames.has(skillName)) {
+              seenNames.add(skillName);
+              skills.push({
+                name: skillName,
+                description,
+                path: r.path,
+                source: "resource",
+              });
+            }
+          }
+        } catch {
+          // Resources not available — skip
+        }
+
+        const result: {
+          skills: typeof skills;
+          hint?: string;
+        } = { skills };
+
+        if (skills.length === 0) {
+          result.hint =
+            "No skills found. Add skill files under skills/ in Resources. Learn more: https://agent-native.com/docs/resources#skills";
+        }
+
+        return result;
+      }),
+    );
+
+    // Mount unified mentions endpoint (files + resources + custom providers)
+    nitroApp.h3App.use(
+      `${routePath}/mentions`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+
+        const query = getQuery(event);
+        const q = typeof query.q === "string" ? query.q.toLowerCase() : "";
+
+        interface MentionItemResponse {
+          id: string;
+          label: string;
+          description?: string;
+          icon?: string;
+          source: string;
+          refType: string;
+          refPath?: string;
+          refId?: string;
+        }
+
+        const items: MentionItemResponse[] = [];
+
+        // 1. Built-in: files from codebase (dev mode only)
+        if (currentDevMode) {
+          const codebaseFiles: Array<{
+            path: string;
+            name: string;
+            type: "file" | "folder";
+          }> = [];
+          try {
+            collectFiles(process.cwd(), "", 0, codebaseFiles);
+          } catch {}
+          for (const f of codebaseFiles) {
+            items.push({
+              id: `codebase:${f.path}`,
+              label: f.name,
+              description: f.path !== f.name ? f.path : undefined,
+              icon: f.type,
+              source: "codebase",
+              refType: "file",
+              refPath: f.path,
+            });
+          }
+        }
+
+        // 2. Built-in: resources from SQL
+        try {
+          const resources = currentDevMode
+            ? await resourceListAccessible("local@localhost")
+            : await resourceList(SHARED_OWNER);
+          for (const r of resources) {
+            items.push({
+              id: `resource:${r.path}`,
+              label: r.path.split("/").pop() || r.path,
+              description: r.path,
+              icon: "file",
+              source: "resource",
+              refType: "file",
+              refPath: r.path,
+            });
+          }
+        } catch {}
+
+        // 3. Custom mention providers
+        const providerResults = await Promise.all(
+          Object.entries(mentionProviders).map(async ([key, provider]) => {
+            try {
+              const providerItems = await provider.search(q);
+              return providerItems.map((item) => ({
+                id: item.id,
+                label: item.label,
+                description: item.description,
+                icon: item.icon || provider.icon || "file",
+                source: key,
+                refType: item.refType,
+                refPath: item.refPath,
+                refId: item.refId,
+              }));
+            } catch {
+              return [];
+            }
+          }),
+        );
+        for (const batch of providerResults) {
+          items.push(...batch);
+        }
+
+        // Filter by query and limit
+        const filtered = q
+          ? items.filter(
+              (item) =>
+                item.label.toLowerCase().includes(q) ||
+                (item.description?.toLowerCase().includes(q) ?? false),
+            )
+          : items;
+
+        return { items: filtered.slice(0, 30) };
+      }),
+    );
+
+    // Mount the main chat handler — delegates to dev or prod handler based on current mode
+    nitroApp.h3App.use(
+      routePath,
+      defineEventHandler((event) => {
+        const handler = currentDevMode && devHandler ? devHandler : prodHandler;
+        return handler(event);
+      }),
+    );
   };
 }
 

@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { useFileWatcher } from "@agent-native/core/client";
+import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./global.css";
@@ -43,6 +44,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+const TAB_ID = Math.random().toString(36).slice(2, 10);
+
 function FileWatcherSetup() {
   const qc = useQueryClient();
   useFileWatcher({
@@ -50,10 +53,12 @@ function FileWatcherSetup() {
     queryKeys: [
       "events",
       "bookings",
+      "booking-links",
       "availability",
       "settings",
       "google-status",
     ],
+    ignoreSource: TAB_ID,
   });
   return null;
 }
@@ -61,20 +66,22 @@ function FileWatcherSetup() {
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="system"
-        enableSystem
-        disableTransitionOnChange
-      >
-        <TooltipProvider>
-          <FileWatcherSetup />
-          <Toaster />
-          <Outlet />
-        </TooltipProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+    <ClientOnly fallback={<DefaultSpinner />}>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <TooltipProvider>
+            <FileWatcherSetup />
+            <Toaster position="bottom-left" />
+            <Outlet />
+          </TooltipProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    </ClientOnly>
   );
 }
 

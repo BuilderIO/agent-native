@@ -58,7 +58,7 @@ export function createProductionAgentHandler(
       return { error: "Invalid request body" };
     }
 
-    const { message, history = [] } = body;
+    const { message, history = [], references = [] } = body;
     if (!message) {
       setResponseStatus(event, 400);
       return { error: "message is required" };
@@ -91,6 +91,52 @@ export function createProductionAgentHandler(
 
         const client = new Anthropic({ apiKey });
 
+        // Build enriched user message with references
+        let enrichedMessage = message;
+        if (references.length > 0) {
+          const fileRefs = references.filter((r) => r.type === "file");
+          const skillRefs = references.filter((r) => r.type === "skill");
+
+          const parts: string[] = [];
+          if (fileRefs.length > 0) {
+            parts.push(
+              "Referenced files:\n" +
+                fileRefs
+                  .map(
+                    (r) =>
+                      `- ${r.path}${r.source === "resource" ? " (resource)" : ""}`,
+                  )
+                  .join("\n"),
+            );
+          }
+          if (skillRefs.length > 0) {
+            parts.push(
+              "Applied skills:\n" +
+                skillRefs
+                  .map(
+                    (r) =>
+                      `- ${r.name} (${r.path})${r.source === "resource" ? " — read with resource-read" : " — read with read-file"}`,
+                  )
+                  .join("\n"),
+            );
+          }
+
+          const mentionRefs = references.filter((r) => r.type === "mention");
+          if (mentionRefs.length > 0) {
+            parts.push(
+              "Referenced items:\n" +
+                mentionRefs
+                  .map(
+                    (r) =>
+                      `- [${r.refType || "item"}] ${r.name}${r.refId ? ` (id: ${r.refId})` : ""}${r.path ? ` (path: ${r.path})` : ""}`,
+                  )
+                  .join("\n"),
+            );
+          }
+
+          enrichedMessage = `${parts.join("\n\n")}\n\n${message}`;
+        }
+
         // Build messages for Anthropic API — skip empty-content history entries
         // (assistant turns with only tool calls have content="" in the client history)
         const messages: Anthropic.MessageParam[] = [
@@ -100,7 +146,7 @@ export function createProductionAgentHandler(
               role: m.role as "user" | "assistant",
               content: m.content,
             })),
-          { role: "user" as const, content: message },
+          { role: "user" as const, content: enrichedMessage },
         ];
 
         try {

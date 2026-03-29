@@ -1,11 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { EmailMessage, Label, UserSettings } from "@shared/types";
+import { TAB_ID } from "@/lib/tab-id";
 
 // ─── API helpers ─────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Request-Source": TAB_ID,
+    },
     ...options,
   });
   if (!res.ok) {
@@ -13,6 +17,22 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
     throw new Error(body?.error || `Request failed (${res.status})`);
   }
   return res.json();
+}
+
+export function fetchThreadMessages(threadId: string): Promise<EmailMessage[]> {
+  return apiFetch(`/api/threads/${threadId}/messages`);
+}
+
+function parseRecipients(value?: string): EmailMessage["to"] {
+  return (value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((email) => ({ name: email, email }));
+}
+
+function makeTempId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 // ─── Emails ──────────────────────────────────────────────────────────────────
@@ -26,6 +46,8 @@ export function useEmails(view: string = "inbox", search?: string) {
       return apiFetch(`/api/emails?${params}`);
     },
     staleTime: 15_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
     retry: false,
   });
 }
@@ -41,7 +63,7 @@ export function useEmail(id: string | undefined) {
 export function useThreadMessages(threadId: string | undefined) {
   return useQuery<EmailMessage[]>({
     queryKey: ["thread-messages", threadId],
-    queryFn: () => apiFetch(`/api/threads/${threadId}/messages`),
+    queryFn: () => fetchThreadMessages(threadId!),
     enabled: !!threadId,
   });
 }
@@ -76,10 +98,21 @@ export function useMarkRead() {
 
 export function useMarkThreadRead() {
   const qc = useQueryClient();
+  // Stash unread IDs between onMutate (which computes them before the
+  // optimistic update) and mutationFn (which sends the actual API calls).
+  let pendingUnreadIds: string[] = [];
   return useMutation({
-    mutationFn: async (threadId: string) => {
-      // Actual API calls happen in onMutate (before optimistic update)
-      // This is intentionally empty — the work is done in onMutate
+    mutationFn: async (_threadId: string) => {
+      if (pendingUnreadIds.length > 0) {
+        await Promise.all(
+          pendingUnreadIds.map((id) =>
+            apiFetch(`/api/emails/${id}/read`, {
+              method: "PATCH",
+              body: JSON.stringify({ isRead: true }),
+            }),
+          ),
+        );
+      }
     },
     onMutate: async (threadId) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
@@ -88,22 +121,9 @@ export function useMarkThreadRead() {
       });
       // Capture unread IDs BEFORE optimistic update
       const allEmails = previous.flatMap(([, data]) => data ?? []) ?? [];
-      const unreadIds = allEmails
+      pendingUnreadIds = allEmails
         .filter((e) => (e.threadId || e.id) === threadId && !e.isRead)
         .map((e) => e.id);
-      // Fire API calls for the unread emails
-      if (unreadIds.length > 0) {
-        Promise.all(
-          unreadIds.map((id) =>
-            apiFetch(`/api/emails/${id}/read`, {
-              method: "PATCH",
-              body: JSON.stringify({ isRead: true }),
-            }),
-          ),
-        ).catch(() => {
-          /* errors handled by onError rollback */
-        });
-      }
       // Optimistic update
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.map((e) =>
@@ -262,11 +282,84 @@ export function useSendEmail() {
       replyToId?: string;
       accountEmail?: string;
     }) =>
-      apiFetch("/api/emails/send", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-    onSuccess: () => {
+      apiFetch<{ id: string; threadId?: string; labelIds?: string[] }>(
+        "/api/emails/send",
+        {
+          method: "POST",
+          body: JSON.stringify(data),
+        },
+      ),
+    onMutate: async (data) => {
+      await qc.cancelQueries({ queryKey: ["thread-messages"] });
+
+      const previousThreads = qc.getQueriesData<EmailMessage[]>({
+        queryKey: ["thread-messages"],
+      });
+      const settings = qc.getQueryData<UserSettings>(["settings"]);
+      const cachedEmails = qc
+        .getQueriesData<EmailMessage[]>({ queryKey: ["emails"] })
+        .flatMap(([, emails]) => emails ?? []);
+      const replyTarget = data.replyToId
+        ? cachedEmails.find((email) => email.id === data.replyToId)
+        : undefined;
+      const threadId =
+        replyTarget?.threadId || data.replyToId || makeTempId("thread");
+      const optimisticMessage: EmailMessage = {
+        id: makeTempId("sent"),
+        threadId,
+        from: {
+          name: settings?.name || settings?.email || data.accountEmail || "Me",
+          email: data.accountEmail || settings?.email || "",
+        },
+        to: parseRecipients(data.to),
+        ...(data.cc ? { cc: parseRecipients(data.cc) } : {}),
+        ...(data.bcc ? { bcc: parseRecipients(data.bcc) } : {}),
+        subject: data.subject || "(no subject)",
+        snippet: data.body.slice(0, 120).replace(/\n/g, " "),
+        body: data.body,
+        date: new Date().toISOString(),
+        isRead: true,
+        isStarred: false,
+        isSent: true,
+        isArchived: false,
+        isTrashed: false,
+        labelIds: ["sent"],
+        ...(data.accountEmail ? { accountEmail: data.accountEmail } : {}),
+      };
+
+      qc.setQueryData<EmailMessage[]>(["thread-messages", threadId], (old) =>
+        [...(old ?? []), optimisticMessage].sort(
+          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+        ),
+      );
+
+      return { previousThreads, optimisticMessage, threadId };
+    },
+    onError: (_err, _vars, context) => {
+      context?.previousThreads.forEach(([key, thread]) => {
+        qc.setQueryData(key, thread);
+      });
+    },
+    onSuccess: (result, _vars, context) => {
+      const threadId = result.threadId || context?.threadId;
+      if (!threadId || !context?.optimisticMessage) return;
+
+      qc.setQueryData<EmailMessage[]>(["thread-messages", threadId], (old) =>
+        (old ?? []).map((message) =>
+          message.id === context.optimisticMessage.id
+            ? {
+                ...message,
+                id: result.id || message.id,
+                threadId,
+                labelIds: result.labelIds?.map((id) => id.toLowerCase()) || [
+                  "sent",
+                ],
+              }
+            : message,
+        ),
+      );
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["emails"] });
       qc.invalidateQueries({ queryKey: ["thread-messages"] });
     },
@@ -285,19 +378,20 @@ export function useDeleteEmail() {
 export function useReportSpam() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
+    mutationFn: ({ id, threadId }: { id: string; threadId: string }) =>
       apiFetch(`/api/emails/${id}/spam`, { method: "POST" }),
-    onMutate: async (id: string) => {
+    onMutate: async ({ threadId }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],
       });
+      // Filter out entire thread, not just the single message
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
-        old?.filter((e) => e.id !== id),
+        old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
       return { previous };
     },
-    onError: (_err, _id, context) => {
+    onError: (_err, _vars, context) => {
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
@@ -307,18 +401,27 @@ export function useReportSpam() {
 export function useBlockSender() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, senderEmail }: { id: string; senderEmail: string }) =>
+    mutationFn: ({
+      id,
+      threadId,
+      senderEmail,
+    }: {
+      id: string;
+      threadId: string;
+      senderEmail: string;
+    }) =>
       apiFetch(`/api/emails/${id}/block-sender`, {
         method: "POST",
         body: JSON.stringify({ senderEmail }),
       }),
-    onMutate: async ({ id }) => {
+    onMutate: async ({ threadId }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],
       });
+      // Filter out entire thread, not just the single message
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
-        old?.filter((e) => e.id !== id),
+        old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
       return { previous };
     },

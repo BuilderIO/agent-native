@@ -30,6 +30,9 @@ export {
   type AgentMessage,
   type AgentChatRequest,
   type AgentChatEvent,
+  type AgentChatReference,
+  type MentionProvider,
+  type MentionProviderItem,
 } from "../agent/index.js";
 export { createDevScriptRegistry } from "../scripts/dev/index.js";
 
@@ -37,8 +40,15 @@ export {
   getDefaultSSEEmitters,
   setDefaultSyncResult,
   createDefaultSSEHandler,
+  createDefaultPollHandler,
   defaultSyncStatusHandler,
 } from "./default-watcher.js";
+export {
+  createPollHandler,
+  recordChange,
+  getVersion,
+  getChangesSince,
+} from "./poll.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
 export {
   createGoogleAuthPlugin,
@@ -53,6 +63,10 @@ export {
   createFileSyncPlugin,
   defaultFileSyncPlugin,
 } from "./file-sync-plugin.js";
+export {
+  createResourcesPlugin,
+  defaultResourcesPlugin,
+} from "./resources-plugin.js";
 export {
   createTerminalPlugin,
   defaultTerminalPlugin,

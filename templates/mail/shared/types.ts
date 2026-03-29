@@ -90,6 +90,8 @@ export type MailboxView =
   | "starred"
   | "sent"
   | "drafts"
+  | "snoozed"
+  | "scheduled"
   | "archive"
   | "trash"
   | "all"
@@ -106,6 +108,8 @@ export type UserSettings = {
   sendAndArchive: boolean;
   undoSendDelay: number;
   pinnedLabels?: string[];
+  /** Display aliases for label tabs — maps label ID to custom short name */
+  labelAliases?: Record<string, string>;
   /** "show" = load all images, "block-trackers" = block known trackers only, "block-all" = block all remote images */
   imagePolicy?: "show" | "block-trackers" | "block-all";
   /** Senders whose images are always loaded even when imagePolicy is "block-all" */

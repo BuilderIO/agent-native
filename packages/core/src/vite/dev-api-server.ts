@@ -176,6 +176,17 @@ export function devApiServer(): Plugin {
 
       // Add middleware DIRECTLY (not via return) so it runs BEFORE
       // Vite's internal middleware and React Router's SSR handler.
+      // Reject /.well-known/ requests (Chrome DevTools probes, etc.)
+      // before React Router's SSR handler sees them and throws.
+      server.middlewares.use((req, res, next) => {
+        if (req.url?.startsWith("/.well-known/")) {
+          res.statusCode = 404;
+          res.end();
+          return;
+        }
+        return next();
+      });
+
       server.middlewares.use((req, res, next) => {
         if (!req.url?.startsWith("/api/")) {
           return next();

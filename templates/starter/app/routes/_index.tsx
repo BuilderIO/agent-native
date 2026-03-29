@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useTheme } from "next-themes";
-import { AgentTerminal } from "@agent-native/core/terminal";
-import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  AgentToggleButton,
+  sendToAgentChat,
+} from "@agent-native/core/client";
 
 export function meta() {
   return [{ title: "Agent Native App" }];
@@ -17,17 +20,24 @@ export function HydrateFallback() {
 
 export default function IndexPage() {
   const { theme, setTheme } = useTheme();
-  const [showTerminal, setShowTerminal] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+
+  function submit() {
+    const text = prompt.trim();
+    if (!text) return;
+    sendToAgentChat({ message: text });
+    setPrompt("");
+  }
 
   return (
     <div className="flex flex-col h-screen">
-      <header className="flex items-center justify-between px-4 py-2 border-b border-border">
-        <h2 className="text-sm font-medium text-foreground">Agent Native</h2>
-        <AgentToggleButton />
-      </header>
-
       <AgentSidebar
-        position="left"
+        position="right"
         defaultOpen
         emptyStateText="How can I help?"
         suggestions={[
@@ -36,61 +46,109 @@ export default function IndexPage() {
           "Create something cool",
         ]}
       >
-        <div className="flex flex-col items-center justify-center flex-1 px-6">
-          <div className="max-w-md w-full space-y-8 text-center">
-            <div className="space-y-3">
-              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                Your app is running
+        <div className="flex h-full flex-col">
+          <header className="flex items-center justify-between px-4 py-2 border-b border-border">
+            <h2 className="text-sm font-medium text-foreground">
+              Agent Native
+            </h2>
+            <AgentToggleButton />
+          </header>
+
+          <div className="flex flex-1 flex-col items-center justify-center px-6">
+            <div className="w-full max-w-xl space-y-6">
+              <h1 className="text-center text-3xl font-semibold tracking-tight text-foreground">
+                What do you want to build?
               </h1>
-              <p className="text-[14px] text-muted-foreground leading-relaxed">
-                Start building by editing{" "}
-                <code className="text-[13px] bg-muted px-1.5 py-0.5 rounded font-mono">
-                  app/routes/_index.tsx
-                </code>
-              </p>
+
+              <div className="rounded-xl border border-border bg-card shadow-sm">
+                <textarea
+                  ref={textareaRef}
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      submit();
+                    }
+                  }}
+                  placeholder="Describe what you'd like the agent to build..."
+                  rows={4}
+                  className="w-full resize-none rounded-t-xl bg-transparent px-4 pt-4 pb-2 text-sm text-foreground placeholder:text-muted-foreground/60 outline-none"
+                />
+                <div className="flex items-center justify-between px-4 pb-3">
+                  <span className="text-[11px] text-muted-foreground/50">
+                    Enter to submit
+                  </span>
+                  <button
+                    onClick={submit}
+                    disabled={!prompt.trim()}
+                    className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground text-background disabled:opacity-20"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="h-3.5 w-3.5"
+                    >
+                      <path d="M5 12h14M12 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {[
+                  "A dashboard with charts",
+                  "A todo app",
+                  "A blog with markdown",
+                  "A chat interface",
+                ].map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    onClick={() => {
+                      sendToAgentChat({ message: suggestion });
+                    }}
+                    className="rounded-full border border-border/60 px-3.5 py-1.5 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+
+              <div className="h-px bg-border" />
+
+              <div className="grid grid-cols-2 gap-3 text-left">
+                <a
+                  href="https://agent-native.com/docs"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50"
+                >
+                  <p className="text-[13px] font-medium text-foreground">
+                    Documentation
+                  </p>
+                  <p className="text-[12px] text-muted-foreground mt-0.5">
+                    Learn the framework
+                  </p>
+                </a>
+                <button
+                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                  className="rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 text-left"
+                >
+                  <p className="text-[13px] font-medium text-foreground">
+                    Theme
+                  </p>
+                  <p className="text-[12px] text-muted-foreground mt-0.5">
+                    Toggle dark / light
+                  </p>
+                </button>
+              </div>
             </div>
-
-            <div className="h-px bg-border" />
-
-            <div className="grid grid-cols-2 gap-3 text-left">
-              <a
-                href="https://agent-native.dev/docs"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50"
-              >
-                <p className="text-[13px] font-medium text-foreground">
-                  Documentation
-                </p>
-                <p className="text-[12px] text-muted-foreground mt-0.5">
-                  Learn the framework
-                </p>
-              </a>
-              <button
-                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                className="rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 text-left"
-              >
-                <p className="text-[13px] font-medium text-foreground">Theme</p>
-                <p className="text-[12px] text-muted-foreground mt-0.5">
-                  Toggle dark / light
-                </p>
-              </button>
-            </div>
-
-            <button
-              onClick={() => setShowTerminal(!showTerminal)}
-              className="text-[13px] text-muted-foreground hover:text-foreground"
-            >
-              {showTerminal ? "Hide" : "Show"} Agent Terminal
-            </button>
           </div>
         </div>
-
-        {showTerminal && (
-          <div className="h-[350px] border-t border-border">
-            <AgentTerminal />
-          </div>
-        )}
       </AgentSidebar>
     </div>
   );

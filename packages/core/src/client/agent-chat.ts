@@ -34,9 +34,9 @@ const AGENT_CHAT_MESSAGE_TYPE = "builder.submitChat";
  */
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event) => {
-    if (event.data?.type === "builder.fusion.chatRunning") {
+    if (event.data?.type === "builder.chatRunning") {
       window.dispatchEvent(
-        new CustomEvent("builder.fusion.chatRunning", {
+        new CustomEvent("builder.chatRunning", {
           detail: event.data.detail,
         }),
       );

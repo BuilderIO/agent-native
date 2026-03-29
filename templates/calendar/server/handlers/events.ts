@@ -64,6 +64,8 @@ export const listEvents = defineEventHandler(async (event: H3Event) => {
       return [];
     }
 
+    const overlayEmailsParam = query.overlayEmails as string | undefined;
+
     const { events: googleEvents, errors } = await googleCalendar.listEvents(
       from,
       to,
@@ -77,7 +79,26 @@ export const listEvents = defineEventHandler(async (event: H3Event) => {
       };
     }
 
-    let events = googleEvents;
+    // Fetch overlay people's events in parallel
+    let allEvents = googleEvents;
+    if (overlayEmailsParam) {
+      const overlayEmails = overlayEmailsParam
+        .split(",")
+        .filter(Boolean)
+        .slice(0, 10);
+      if (overlayEmails.length > 0) {
+        const { events: overlayEvents } =
+          await googleCalendar.listOverlayEvents(
+            from,
+            to,
+            overlayEmails,
+            email,
+          );
+        allEvents = [...googleEvents, ...overlayEvents];
+      }
+    }
+
+    let events = allEvents;
     if (from) {
       const fromDate = new Date(from);
       events = events.filter((e) => new Date(e.end) >= fromDate);

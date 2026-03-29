@@ -3,7 +3,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 export interface ScheduledJob {
   id: string;
   type: "snooze" | "send_later";
+  ownerEmail?: string | null;
   emailId: string | null;
+  threadId?: string | null;
+  accountEmail?: string | null;
   payload: string; // JSON string
   runAt: number; // epoch ms
   status: "pending" | "processing" | "done" | "cancelled";
@@ -40,6 +43,69 @@ export function useCreateScheduledJob() {
       return res.json() as Promise<ScheduledJob>;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["scheduled-jobs"] }),
+  });
+}
+
+export function useSnoozeEmail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      emailId: string;
+      runAt: number;
+      accountEmail?: string;
+    }) => {
+      const res = await fetch(`/api/emails/${data.emailId}/snooze`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          runAt: data.runAt,
+          accountEmail: data.accountEmail,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || "Failed to snooze email");
+      }
+      return res.json() as Promise<ScheduledJob>;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      qc.invalidateQueries({ queryKey: ["emails"] });
+      qc.invalidateQueries({ queryKey: ["labels"] });
+    },
+  });
+}
+
+export function useScheduleEmail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      to: string;
+      cc?: string;
+      bcc?: string;
+      subject: string;
+      body: string;
+      runAt: number;
+      accountEmail?: string;
+      from?: string;
+      replyToId?: string;
+      threadId?: string;
+    }) => {
+      const res = await fetch("/api/emails/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || "Failed to schedule email");
+      }
+      return res.json() as Promise<ScheduledJob>;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+      qc.invalidateQueries({ queryKey: ["emails"] });
+    },
   });
 }
 

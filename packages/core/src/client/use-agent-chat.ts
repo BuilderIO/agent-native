@@ -6,7 +6,7 @@ import { sendToAgentChat, type AgentChatMessage } from "./agent-chat.js";
  *
  * Returns [isGenerating, send] where:
  * - isGenerating: true after send() is called, false when the
- *   builder.fusion.chatRunning event fires with detail.isRunning === false
+ *   builder.chatRunning event fires with detail.isRunning === false
  * - send: wrapper around sendToAgentChat that sets isGenerating to true
  */
 export function useAgentChatGenerating(): [
@@ -22,9 +22,8 @@ export function useAgentChatGenerating(): [
         setIsGenerating(false);
       }
     };
-    window.addEventListener("builder.fusion.chatRunning", handler);
-    return () =>
-      window.removeEventListener("builder.fusion.chatRunning", handler);
+    window.addEventListener("builder.chatRunning", handler);
+    return () => window.removeEventListener("builder.chatRunning", handler);
   }, []);
 
   const send = useCallback((opts: AgentChatMessage): string => {

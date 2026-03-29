@@ -1,10 +1,16 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
+import {
+  ClientOnly,
+  DefaultSpinner,
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client";
 import { useFileWatcher } from "./hooks/use-file-watcher";
 import "./global.css";
 
@@ -42,17 +48,28 @@ function FileWatcherSetup() {
 
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
-      <QueryClientProvider client={queryClient}>
-        <FileWatcherSetup />
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <Outlet />
-        </TooltipProvider>
-      </QueryClientProvider>
-    </ThemeProvider>
+    <ClientOnly fallback={<DefaultSpinner />}>
+      <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+        <QueryClientProvider client={queryClient}>
+          <FileWatcherSetup />
+          <TooltipProvider>
+            <Toaster />
+            <Sonner position="bottom-left" />
+            <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+              <CommandMenu.Group heading="Documents">
+                <CommandMenu.Item onSelect={() => {}}>
+                  Search documents
+                </CommandMenu.Item>
+              </CommandMenu.Group>
+            </CommandMenu>
+            <Outlet />
+          </TooltipProvider>
+        </QueryClientProvider>
+      </ThemeProvider>
+    </ClientOnly>
   );
 }
 

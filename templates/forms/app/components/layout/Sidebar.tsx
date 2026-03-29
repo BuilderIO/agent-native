@@ -1,17 +1,21 @@
+import { useState, useRef, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { FileText, Plus, LayoutDashboard } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ArrowUp, FileText, Plus } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
-import { useForms, useCreateForm } from "@/hooks/use-forms";
-import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { AgentToggleButton } from "@agent-native/core/client";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { useForms, useCreateForm } from "@/hooks/use-forms";
+import { useSendToAgentChat } from "@agent-native/core/client";
+import { cn } from "@/lib/utils";
 
 const statusColors: Record<string, string> = {
-  draft: "bg-amber-600/10 text-amber-600 dark:text-amber-400",
-  published: "bg-emerald-600/10 text-emerald-600 dark:text-emerald-400",
-  closed: "bg-destructive/10 text-destructive",
+  draft: "text-amber-500",
+  published: "text-emerald-500",
+  closed: "text-muted-foreground/50",
 };
 
 export function Sidebar() {
@@ -19,47 +23,104 @@ export function Sidebar() {
   const navigate = useNavigate();
   const { data: forms = [] } = useForms();
   const createForm = useCreateForm();
+  const { send } = useSendToAgentChat();
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  function handleCreate() {
+  useEffect(() => {
+    if (popoverOpen) {
+      setPrompt("");
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    }
+  }, [popoverOpen]);
+
+  function handleSkip() {
+    setPopoverOpen(false);
     createForm.mutate(
       { title: "Untitled Form" },
-      {
-        onSuccess: (form) => navigate(`/forms/${form.id}`),
-      },
+      { onSuccess: (form) => navigate(`/forms/${form.id}`) },
     );
   }
 
-  return (
-    <div className="flex h-screen w-64 flex-col border-r border-border bg-sidebar">
-      {/* Header */}
-      <div className="flex h-14 items-center justify-between border-b border-sidebar-border px-4">
-        <div className="flex items-center gap-2">
-          <AgentToggleButton />
-          <Link
-            to="/forms"
-            className="flex items-center gap-2 font-semibold text-sidebar-foreground"
+  function handleSubmitPrompt() {
+    if (!prompt.trim()) return;
+    setPopoverOpen(false);
+    send({
+      message: `Create a new form based on this description: ${prompt.trim()}`,
+      context:
+        "Create the form using the create-form script with appropriate title, description, and fields. After creating, tell the user the form name and a summary of the fields.",
+    });
+  }
+
+  const newFormButton = (
+    <PopoverTrigger asChild>
+      <button className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground">
+        <Plus size={14} className="shrink-0" />
+        <span>New form</span>
+      </button>
+    </PopoverTrigger>
+  );
+
+  const newFormPopover = (
+    <PopoverContent
+      side="right"
+      align="start"
+      sideOffset={8}
+      className="w-80 p-0 rounded-xl"
+    >
+      <div className="p-4 pb-3">
+        <p className="text-sm font-semibold">New form</p>
+        <textarea
+          ref={textareaRef}
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmitPrompt();
+            }
+          }}
+          placeholder="Describe your form..."
+          className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
+          rows={4}
+        />
+      </div>
+      <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
+        <div />
+        <div className="flex items-center gap-3">
+          <button
+            className="text-xs text-blue-400 hover:text-blue-300"
+            onClick={handleSkip}
           >
-            <LayoutDashboard className="h-5 w-5" />
-            <span>Forms</span>
-          </Link>
+            Skip prompt
+          </button>
+          <button
+            className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-accent disabled:opacity-30"
+            onClick={handleSubmitPrompt}
+            disabled={!prompt.trim()}
+          >
+            <ArrowUp size={14} />
+          </button>
         </div>
       </div>
+    </PopoverContent>
+  );
 
-      {/* New form button */}
-      <div className="px-3 py-3">
-        <Button
-          onClick={handleCreate}
-          className="w-full justify-start gap-2"
-          size="sm"
+  return (
+    <div className="flex h-screen w-60 flex-col border-r border-border bg-muted/30">
+      {/* Header */}
+      <div className="flex h-12 items-center border-b border-border px-4">
+        <Link
+          to="/forms"
+          className="text-base font-semibold tracking-tight text-foreground hover:text-foreground/80"
         >
-          <Plus className="h-4 w-4" />
-          New Form
-        </Button>
+          Forms
+        </Link>
       </div>
 
-      {/* Forms list */}
-      <ScrollArea className="flex-1 px-3">
-        <div className="space-y-1 pb-4">
+      <ScrollArea className="flex-1">
+        <div className="py-2">
           {forms.map((form) => {
             const isActive =
               location.pathname === `/forms/${form.id}` ||
@@ -69,37 +130,38 @@ export function Sidebar() {
                 key={form.id}
                 to={`/forms/${form.id}`}
                 className={cn(
-                  "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+                  "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm",
                   isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground",
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                 )}
               >
-                <FileText className="h-4 w-4 shrink-0" />
-                <span className="truncate flex-1">{form.title}</span>
-                <Badge
-                  variant="secondary"
+                <FileText
+                  size={14}
                   className={cn(
-                    "text-[10px] px-1.5 py-0",
-                    statusColors[form.status],
+                    "shrink-0",
+                    isActive
+                      ? "text-accent-foreground"
+                      : statusColors[form.status],
                   )}
-                >
-                  {form.status}
-                </Badge>
+                />
+                <span className="truncate">
+                  {form.title || "Untitled Form"}
+                </span>
               </Link>
             );
           })}
 
-          {forms.length === 0 && (
-            <p className="px-3 py-8 text-center text-xs text-muted-foreground">
-              No forms yet. Create your first form above.
-            </p>
-          )}
+          {/* New form button — under the list */}
+          <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+            {newFormButton}
+            {newFormPopover}
+          </Popover>
         </div>
       </ScrollArea>
 
-      {/* Theme toggle */}
-      <div className="border-t border-sidebar-border px-3 py-2 flex items-center">
+      {/* Footer */}
+      <div className="flex items-center justify-end border-t border-border px-3 py-2">
         <ThemeToggle />
       </div>
     </div>

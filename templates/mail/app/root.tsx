@@ -11,6 +11,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useFileWatcher } from "@agent-native/core";
+import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
+import { TAB_ID } from "@/lib/tab-id";
 import "./global.css";
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -65,30 +67,41 @@ function AutoFocus() {
 
 function FileWatcherSetup() {
   const qc = useQueryClient();
+
   useFileWatcher({
     queryClient: qc,
     queryKeys: [],
+    // Skip events this tab caused — our mutations already handle cache updates
+    ignoreSource: TAB_ID,
     onEvent: (data: {
       source?: string;
       type: string;
       path?: string;
       key?: string;
+      requestSource?: string;
     }) => {
+      // Ignore events we caused — the mutation's onSettled handles our own updates
+      const isOwnEvent = data.requestSource === TAB_ID;
+
       if (data.source === "app-state") {
-        if (data.key?.startsWith("compose-")) {
+        if (data.key?.startsWith("compose-") && !isOwnEvent) {
           qc.invalidateQueries({
             queryKey: ["compose-drafts"],
             refetchType: "all",
           });
         }
-        qc.invalidateQueries({ queryKey: ["navigate-command"] });
+        if (!isOwnEvent) {
+          qc.invalidateQueries({ queryKey: ["navigate-command"] });
+        }
       } else if (data.source === "settings") {
-        qc.invalidateQueries({ queryKey: ["settings"] });
-        qc.invalidateQueries({ queryKey: ["aliases"] });
-        qc.invalidateQueries({ queryKey: ["labels"] });
-        qc.invalidateQueries({ queryKey: ["emails"] });
-        qc.invalidateQueries({ queryKey: ["email"] });
-      } else {
+        if (!isOwnEvent) {
+          qc.invalidateQueries({ queryKey: ["settings"] });
+          qc.invalidateQueries({ queryKey: ["aliases"] });
+          qc.invalidateQueries({ queryKey: ["labels"] });
+          qc.invalidateQueries({ queryKey: ["emails"] });
+          qc.invalidateQueries({ queryKey: ["email"] });
+        }
+      } else if (!isOwnEvent) {
         qc.invalidateQueries({ queryKey: ["emails"] });
         qc.invalidateQueries({ queryKey: ["email"] });
         qc.invalidateQueries({ queryKey: ["labels"] });
@@ -105,28 +118,34 @@ export default function Root() {
     () =>
       new QueryClient({
         defaultOptions: {
-          queries: { staleTime: 30_000, retry: 1 },
+          queries: {
+            staleTime: 30_000,
+            retry: 1,
+            refetchOnWindowFocus: true,
+          },
         },
       }),
   );
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="system"
-        enableSystem
-        disableTransitionOnChange
-      >
-        <TooltipProvider delayDuration={300}>
-          <Toaster richColors position="bottom-right" />
-          <AutoFocus />
-          <FileWatcherSetup />
-          <AppLayout>
-            <Outlet />
-          </AppLayout>
-        </TooltipProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+    <ClientOnly fallback={<DefaultSpinner />}>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <TooltipProvider delayDuration={300}>
+            <Toaster richColors position="bottom-left" />
+            <AutoFocus />
+            <FileWatcherSetup />
+            <AppLayout>
+              <Outlet />
+            </AppLayout>
+          </TooltipProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    </ClientOnly>
   );
 }
 

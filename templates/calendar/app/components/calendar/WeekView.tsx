@@ -14,14 +14,38 @@ import {
   addDays,
 } from "date-fns";
 import { cn } from "@/lib/utils";
+import { getEventAutoColor } from "@/lib/event-colors";
+import { EventDetailPopover } from "./EventDetailPopover";
 import type { CalendarEvent } from "@shared/api";
 
 interface WeekViewProps {
   events: CalendarEvent[];
   selectedDate: Date;
   onDateSelect: (date: Date) => void;
-  onEventClick: (event: CalendarEvent) => void;
+  onEditEvent: (event: CalendarEvent) => void;
+  onDeleteEvent: (eventId: string) => void;
+  isLoading?: boolean;
 }
+
+// [startHour, startMin, durationMin, widthPct] per day column (Sun–Sat)
+const WEEK_SKELETONS: [number, number, number, number][][] = [
+  [
+    [9, 0, 60, 78],
+    [14, 0, 30, 62],
+  ],
+  [[10, 0, 90, 82]],
+  [
+    [8, 30, 45, 74],
+    [15, 0, 60, 68],
+  ],
+  [[10, 0, 60, 80]],
+  [
+    [9, 0, 45, 70],
+    [13, 0, 90, 78],
+  ],
+  [[11, 0, 30, 65]],
+  [[9, 30, 60, 72]],
+];
 
 const START_HOUR = 0;
 const END_HOUR = 24;
@@ -29,8 +53,7 @@ const HOUR_HEIGHT = 60;
 const GUTTER_WIDTH = 60;
 
 function getEventColor(event: CalendarEvent) {
-  if (event.color) return event.color;
-  return event.source === "google" ? "#5085C0" : null;
+  return getEventAutoColor(event);
 }
 
 /** Format an event's time range in compact Notion style: "8–10:30 AM" or "9 AM" */
@@ -56,78 +79,56 @@ function formatEventTime(start: Date, end: Date): string {
 interface LayoutInfo {
   left: number; // percentage 0-100
   width: number; // percentage 0-100
+  col: number;
+  totalCols: number;
 }
 
 /**
- * Google Calendar-style overlap layout.
- * Events are assigned columns. Each event spans from its column to the right
- * edge unless a later-starting event needs the space. Events cascade/overlap
- * rather than being squeezed into tiny equal-width slots.
+ * Stacking layout — like the user's drawing and Google Cal.
+ *
+ * Every event is nearly full width. Overlapping events get a small left
+ * indent per nesting depth and stack on top with opaque backgrounds.
+ * Text at the top stays readable; the card beneath is covered.
  */
 function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
   const result = new Map<string, LayoutInfo>();
   if (dayEvents.length === 0) return result;
 
+  // Sort: earliest start first, then longest duration first (background)
   const sorted = [...dayEvents].sort((a, b) => {
     const aStart = parseISO(a.start).getTime();
     const bStart = parseISO(b.start).getTime();
     if (aStart !== bStart) return aStart - bStart;
-    // Longer events first so they form the "background"
     return parseISO(b.end).getTime() - parseISO(a.end).getTime();
   });
 
-  // For each event, track its column and the events it directly collides with
-  const columns: { id: string; end: number }[][] = [];
-  const eventCol = new Map<string, number>();
-
+  const times = new Map<string, { start: number; end: number }>();
   for (const ev of sorted) {
-    const evStart = parseISO(ev.start).getTime();
-    const evEnd = parseISO(ev.end).getTime();
-
-    // Find the first column where no event overlaps
-    let placed = false;
-    for (let c = 0; c < columns.length; c++) {
-      // Column is free if all events in it have ended
-      const isFree = columns[c].every((slot) => slot.end <= evStart);
-      if (isFree) {
-        columns[c].push({ id: ev.id, end: evEnd });
-        eventCol.set(ev.id, c);
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) {
-      columns.push([{ id: ev.id, end: evEnd }]);
-      eventCol.set(ev.id, columns.length - 1);
-    }
+    times.set(ev.id, {
+      start: parseISO(ev.start).getTime(),
+      end: parseISO(ev.end).getTime(),
+    });
   }
 
-  // Now compute layout: each event starts at its column and expands right
-  // as far as possible (until it hits another event that starts at the same time
-  // or a column that's occupied at the same time)
-  for (const ev of sorted) {
-    const col = eventCol.get(ev.id)!;
-    const evStart = parseISO(ev.start).getTime();
-    const evEnd = parseISO(ev.end).getTime();
-    const totalCols = columns.length;
+  // Each event is full-width minus a small indent per overlap depth.
+  // Depth = how many earlier events in the sorted list overlap with this one.
+  const INDENT_PX = 16; // pixels per nesting level
 
-    // How far right can this event expand?
-    let span = 1;
-    for (let c = col + 1; c < totalCols; c++) {
-      const isBlocked = columns[c].some((slot) => {
-        const slotEv = sorted.find((e) => e.id === slot.id)!;
-        const slotStart = parseISO(slotEv.start).getTime();
-        const slotEnd = parseISO(slotEv.end).getTime();
-        return slotStart < evEnd && slotEnd > evStart;
-      });
-      if (isBlocked) break;
-      span++;
+  for (const ev of sorted) {
+    let depth = 0;
+    for (const other of sorted) {
+      if (other.id === ev.id) break;
+      const ta = times.get(other.id)!;
+      const tb = times.get(ev.id)!;
+      if (ta.start < tb.end && tb.start < ta.end) depth++;
     }
 
-    const leftPct = (col / totalCols) * 100;
-    const widthPct = (span / totalCols) * 100;
-
-    result.set(ev.id, { left: leftPct, width: widthPct });
+    result.set(ev.id, {
+      left: depth * INDENT_PX, // pixels, not percentage
+      width: 0, // signal to use calc(100% - left)
+      col: depth,
+      totalCols: depth + 1,
+    });
   }
 
   return result;
@@ -162,7 +163,9 @@ export function WeekView({
   events,
   selectedDate,
   onDateSelect,
-  onEventClick,
+  onEditEvent,
+  onDeleteEvent,
+  isLoading = false,
 }: WeekViewProps) {
   const [now, setNow] = useState(new Date());
   const currentTimeRef = useRef<HTMLDivElement>(null);
@@ -220,7 +223,7 @@ export function WeekView({
     });
   }, [days, timedEvents]);
 
-  function getEventStyle(event: CalendarEvent, layoutInfo: LayoutInfo) {
+  function getEventStyle(event: CalendarEvent) {
     const start = parseISO(event.start);
     const end = parseISO(event.end);
     const dayStart = set(startOfDay(start), { hours: START_HOUR });
@@ -230,8 +233,6 @@ export function WeekView({
     return {
       top: `${(topMinutes / 60) * HOUR_HEIGHT}px`,
       height: `${(durationMinutes / 60) * HOUR_HEIGHT}px`,
-      left: `${layoutInfo.left}%`,
-      width: `calc(${layoutInfo.width}% - 2px)`,
     };
   }
 
@@ -393,24 +394,29 @@ export function WeekView({
                 const widthPct = ((endCol - startCol + 1) / colCount) * 100;
 
                 return (
-                  <button
+                  <EventDetailPopover
                     key={event.id}
-                    onClick={() => onEventClick(event)}
-                    className="absolute truncate rounded px-2 py-0.5 text-left text-xs font-medium text-foreground transition-opacity hover:opacity-80"
-                    style={{
-                      top: `${rowIdx * allDayRowHeight + 4}px`,
-                      left: `${leftPct}%`,
-                      width: `calc(${widthPct}% - 4px)`,
-                      height: `${allDayRowHeight - 4}px`,
-                      backgroundColor: color
-                        ? `${color}30`
-                        : "hsl(var(--primary) / 0.15)",
-                      borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
-                      marginLeft: "2px",
-                    }}
+                    event={event}
+                    onEdit={onEditEvent}
+                    onDelete={onDeleteEvent}
                   >
-                    {event.title}
-                  </button>
+                    <button
+                      className="absolute truncate rounded px-2 py-0.5 text-left text-xs font-medium text-foreground transition-opacity hover:opacity-80"
+                      style={{
+                        top: `${rowIdx * allDayRowHeight + 4}px`,
+                        left: `${leftPct}%`,
+                        width: `calc(${widthPct}% - 4px)`,
+                        height: `${allDayRowHeight - 4}px`,
+                        backgroundColor: color
+                          ? `${color}30`
+                          : "hsl(var(--primary) / 0.15)",
+                        borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
+                        marginLeft: "2px",
+                      }}
+                    >
+                      {event.title}
+                    </button>
+                  </EventDetailPopover>
                 );
               })}
             </div>
@@ -442,7 +448,7 @@ export function WeekView({
           </div>
 
           {/* Day columns */}
-          {dayData.map(({ day, events: dayEvents, layout }) => {
+          {dayData.map(({ day, events: dayEvents, layout }, dayIndex) => {
             const isCurrentDay = isToday(day);
 
             return (
@@ -474,54 +480,104 @@ export function WeekView({
                   </div>
                 )}
 
-                {/* Timed events */}
-                {dayEvents.map((event) => {
-                  const li = layout.get(event.id) ?? {
-                    left: 0,
-                    width: 100,
-                  };
-                  const style = getEventStyle(event, li);
-                  const color = getEventColor(event);
-                  const start = parseISO(event.start);
-                  const end = parseISO(event.end);
-                  const durationMin = differenceInMinutes(end, start);
+                {/* Skeleton events when loading */}
+                {isLoading &&
+                  WEEK_SKELETONS[dayIndex]?.map(
+                    ([startHour, startMin, duration, widthPct], i) => {
+                      const topPx =
+                        ((startHour - START_HOUR) * 60 + startMin) *
+                        (HOUR_HEIGHT / 60);
+                      const heightPx = Math.max(
+                        (duration / 60) * HOUR_HEIGHT,
+                        20,
+                      );
+                      return (
+                        <div
+                          key={i}
+                          className="absolute animate-pulse rounded-md bg-muted"
+                          style={{
+                            top: `${topPx}px`,
+                            height: `${heightPx}px`,
+                            left: "2px",
+                            width: `calc(${widthPct}% - 4px)`,
+                          }}
+                        />
+                      );
+                    },
+                  )}
 
-                  return (
-                    <button
-                      key={event.id}
-                      onClick={() => onEventClick(event)}
-                      className="absolute overflow-hidden rounded-md px-2 py-1 text-left text-xs transition-all hover:z-30 hover:brightness-110 hover:shadow-md"
-                      style={{
-                        ...style,
-                        zIndex: li.left > 0 ? Math.round(li.left) + 1 : 1,
-                        backgroundColor: color
-                          ? `${color}30`
-                          : "hsl(var(--primary) / 0.2)",
-                        borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
-                      }}
-                    >
-                      <div
-                        className={cn(
-                          "font-semibold leading-tight text-foreground",
-                          durationMin < 90 && "truncate",
-                        )}
+                {/* Timed events */}
+                {!isLoading &&
+                  dayEvents.map((event) => {
+                    const li = layout.get(event.id) ?? {
+                      left: 0,
+                      width: 0,
+                      col: 0,
+                      totalCols: 1,
+                    };
+                    const style = getEventStyle(event);
+                    const color = getEventColor(event);
+                    const start = parseISO(event.start);
+                    const end = parseISO(event.end);
+                    const durationMin = differenceInMinutes(end, start);
+                    const isPast = end < now;
+                    const isDeclined = event.responseStatus === "declined";
+
+                    return (
+                      <EventDetailPopover
+                        key={event.id}
+                        event={event}
+                        onEdit={onEditEvent}
+                        onDelete={onDeleteEvent}
                       >
-                        {event.title}
-                        {durationMin < 45 && (
-                          <span className="font-normal text-foreground/60">
-                            {" "}
-                            {format(start, "h:mm a")}
-                          </span>
-                        )}
-                      </div>
-                      {durationMin >= 45 && (
-                        <div className="truncate text-[10px] text-foreground/60">
-                          {formatEventTime(start, end)}
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
+                        <button
+                          className={cn(
+                            "absolute overflow-hidden rounded-md px-1.5 py-0.5 text-left text-xs flex flex-col justify-start transition-all hover:z-30 hover:brightness-110 hover:shadow-md",
+                            isDeclined && "saturate-[0.3]",
+                          )}
+                          style={{
+                            ...style,
+                            left: `${li.left}px`,
+                            width: `calc(100% - ${li.left + 2}px)`,
+                            zIndex: li.col + 1,
+                            backgroundColor: color
+                              ? `color-mix(in srgb, ${color} ${isPast || isDeclined ? 8 : 18}%, hsl(var(--background)))`
+                              : `color-mix(in srgb, hsl(var(--primary)) ${isPast || isDeclined ? 5 : 12}%, hsl(var(--background)))`,
+                            borderLeft: `3px solid ${
+                              isPast || isDeclined
+                                ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
+                                : (color ?? "hsl(var(--primary))")
+                            }`,
+                          }}
+                        >
+                          <div
+                            className={cn(
+                              "truncate leading-tight",
+                              isPast || isDeclined
+                                ? "text-muted-foreground"
+                                : "text-foreground",
+                              isDeclined && "line-through",
+                              !isPast && !isDeclined && "font-semibold",
+                            )}
+                          >
+                            {event.title}
+                          </div>
+                          {durationMin > 25 && (
+                            <div
+                              className={cn(
+                                "truncate text-[10px] leading-tight",
+                                isPast || isDeclined
+                                  ? "text-muted-foreground/50"
+                                  : "text-foreground/60",
+                              )}
+                            >
+                              {formatEventTime(start, end)}
+                            </div>
+                          )}
+                        </button>
+                      </EventDetailPopover>
+                    );
+                  })}
               </div>
             );
           })}

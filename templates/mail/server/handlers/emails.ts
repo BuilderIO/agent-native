@@ -3,18 +3,14 @@ import {
   getQuery,
   readBody,
   getRouterParam,
+  getHeader,
   setResponseStatus,
   setResponseHeader,
   type H3Event,
 } from "h3";
 import { nanoid } from "nanoid";
 import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
-import {
-  getUserSetting,
-  putUserSetting,
-  getSetting,
-  putSetting,
-} from "@agent-native/core/settings";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { getSession } from "@agent-native/core/server";
 import {
   getOAuthTokens,
@@ -40,6 +36,7 @@ import {
   listGmailMessages,
   gmailToEmailMessage,
 } from "../lib/google-auth.js";
+import { getSyntheticEmailsForView } from "../lib/jobs.js";
 
 // ---------------------------------------------------------------------------
 // Token helper — get a valid access token, refreshing if needed
@@ -139,30 +136,39 @@ const DEFAULT_SETTINGS: UserSettings = {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function readEmails(email: string): Promise<EmailMessage[]> {
-  const data = await getSetting("local-emails");
+  const data = await getUserSetting(email, "local-emails");
   if (data && Array.isArray((data as any).emails)) {
     return (data as any).emails;
   }
   return [];
 }
 
+function reqSource(event: H3Event) {
+  return getHeader(event, "x-request-source") || undefined;
+}
+
 async function writeEmails(
   email: string,
   emails: EmailMessage[],
+  options?: { requestSource?: string },
 ): Promise<void> {
-  await putSetting("local-emails", { emails });
+  await putUserSetting(email, "local-emails", { emails }, options);
 }
 
 async function readLabels(email: string): Promise<Label[]> {
-  const data = await getSetting("labels");
+  const data = await getUserSetting(email, "labels");
   if (data && Array.isArray((data as any).labels)) {
     return (data as any).labels;
   }
   return [];
 }
 
-async function writeLabels(email: string, labels: Label[]): Promise<void> {
-  await putSetting("labels", { labels });
+async function writeLabels(
+  email: string,
+  labels: Label[],
+  options?: { requestSource?: string },
+): Promise<void> {
+  await putUserSetting(email, "labels", { labels }, options);
 }
 
 async function readSettings(email: string): Promise<UserSettings> {
@@ -194,6 +200,22 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     view?: string;
     q?: string;
   };
+
+  if (view === "snoozed" || view === "scheduled") {
+    let emails = await getSyntheticEmailsForView(email, view);
+    if (q) {
+      const query = q.toLowerCase();
+      emails = emails.filter(
+        (message) =>
+          message.subject.toLowerCase().includes(query) ||
+          message.snippet.toLowerCase().includes(query) ||
+          message.from.name.toLowerCase().includes(query) ||
+          message.from.email.toLowerCase().includes(query) ||
+          message.body.toLowerCase().includes(query),
+      );
+    }
+    return emails;
+  }
 
   // If Google is connected, fetch from Gmail directly (skip demo data)
   if (await isConnected(email)) {
@@ -447,22 +469,28 @@ export const getEmail = defineEventHandler(async (event: H3Event) => {
 
 export const markRead = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
-  const { isRead, accountEmail } = await readBody(event);
+  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
+    isRead?: boolean;
+    accountEmail?: string;
+  };
+  const { isRead, accountEmail } = body;
 
   if (await isConnected(email)) {
+    const acct = accountEmail || email;
+    const accessToken = await getAccessToken(acct);
+    if (!accessToken) {
+      setResponseStatus(event, 401);
+      return { error: "No valid access token for account" };
+    }
     try {
-      const acct = accountEmail || email;
-      const accessToken = await getAccessToken(acct);
-      if (accessToken) {
-        const id = getRouterParam(event, "id") as string;
-        await gmailModifyMessage(
-          accessToken,
-          id,
-          isRead ? undefined : ["UNREAD"],
-          isRead ? ["UNREAD"] : undefined,
-        );
-        return { id, isRead };
-      }
+      const id = getRouterParam(event, "id") as string;
+      await gmailModifyMessage(
+        accessToken,
+        id,
+        isRead ? undefined : ["UNREAD"],
+        isRead ? ["UNREAD"] : undefined,
+      );
+      return { id, isRead };
     } catch (error: any) {
       console.error("[markRead] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -478,10 +506,10 @@ export const markRead = defineEventHandler(async (event: H3Event) => {
   }
 
   emails[idx] = { ...emails[idx], isRead };
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
 
   const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels);
+  await writeLabels(email, labels, { requestSource: reqSource(event) });
 
   return emails[idx];
 });
@@ -490,7 +518,10 @@ export const markRead = defineEventHandler(async (event: H3Event) => {
 
 export const toggleStar = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
-  const { isStarred } = await readBody(event);
+  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
+    isStarred?: boolean;
+  };
+  const { isStarred } = body;
   const emails = await readEmails(email);
   const idx = emails.findIndex((e) => e.id === getRouterParam(event, "id"));
   if (idx === -1) {
@@ -499,7 +530,7 @@ export const toggleStar = defineEventHandler(async (event: H3Event) => {
   }
 
   emails[idx] = { ...emails[idx], isStarred };
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
   return emails[idx];
 });
 
@@ -509,14 +540,16 @@ export const archiveEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const body = await readBody(event);
   if (await isConnected(email)) {
+    const acct = body?.accountEmail || email;
+    const accessToken = await getAccessToken(acct);
+    if (!accessToken) {
+      setResponseStatus(event, 401);
+      return { error: "No valid access token for account" };
+    }
     try {
-      const acct = body?.accountEmail || email;
-      const accessToken = await getAccessToken(acct);
-      if (accessToken) {
-        const id = getRouterParam(event, "id") as string;
-        await gmailModifyMessage(accessToken, id, undefined, ["INBOX"]);
-        return { id, isArchived: true };
-      }
+      const id = getRouterParam(event, "id") as string;
+      await gmailModifyMessage(accessToken, id, undefined, ["INBOX"]);
+      return { id, isArchived: true };
     } catch (error: any) {
       console.error("[archiveEmail] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -543,10 +576,10 @@ export const archiveEmail = defineEventHandler(async (event: H3Event) => {
       };
     }
   }
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
 
   const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels);
+  await writeLabels(email, labels, { requestSource: reqSource(event) });
 
   return { id: getRouterParam(event, "id"), threadId, isArchived: true };
 });
@@ -557,14 +590,16 @@ export const unarchiveEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const body = await readBody(event);
   if (await isConnected(email)) {
+    const acct = body?.accountEmail || email;
+    const accessToken = await getAccessToken(acct);
+    if (!accessToken) {
+      setResponseStatus(event, 401);
+      return { error: "No valid access token for account" };
+    }
     try {
-      const acct = body?.accountEmail || email;
-      const accessToken = await getAccessToken(acct);
-      if (accessToken) {
-        const id = getRouterParam(event, "id") as string;
-        await gmailModifyMessage(accessToken, id, ["INBOX"]);
-        return { id, isArchived: false };
-      }
+      const id = getRouterParam(event, "id") as string;
+      await gmailModifyMessage(accessToken, id, ["INBOX"]);
+      return { id, isArchived: false };
     } catch (error: any) {
       console.error("[unarchiveEmail] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -593,10 +628,10 @@ export const unarchiveEmail = defineEventHandler(async (event: H3Event) => {
       };
     }
   }
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
 
   const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels);
+  await writeLabels(email, labels, { requestSource: reqSource(event) });
 
   return { id: getRouterParam(event, "id"), threadId, isArchived: false };
 });
@@ -607,14 +642,16 @@ export const trashEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const body = await readBody(event);
   if (await isConnected(email)) {
+    const acct = body?.accountEmail || email;
+    const accessToken = await getAccessToken(acct);
+    if (!accessToken) {
+      setResponseStatus(event, 401);
+      return { error: "No valid access token for account" };
+    }
     try {
-      const acct = body?.accountEmail || email;
-      const accessToken = await getAccessToken(acct);
-      if (accessToken) {
-        const id = getRouterParam(event, "id") as string;
-        await gmailTrashMessage(accessToken, id);
-        return { id, isTrashed: true };
-      }
+      const id = getRouterParam(event, "id") as string;
+      await gmailTrashMessage(accessToken, id);
+      return { id, isTrashed: true };
     } catch (error: any) {
       console.error("[trashEmail] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -637,10 +674,10 @@ export const trashEmail = defineEventHandler(async (event: H3Event) => {
       emails[i] = { ...emails[i], isTrashed: true, isArchived: false };
     }
   }
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
 
   const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels);
+  await writeLabels(email, labels, { requestSource: reqSource(event) });
 
   return { id: getRouterParam(event, "id"), threadId, isTrashed: true };
 });
@@ -649,17 +686,44 @@ export const trashEmail = defineEventHandler(async (event: H3Event) => {
 
 export const reportSpam = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
-  const { accountEmail } = await readBody(event);
+  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
+    accountEmail?: string;
+    threadId?: string;
+  };
+  const { accountEmail, threadId: bodyThreadId } = body;
 
   if (await isConnected(email)) {
+    const acct = accountEmail || email;
+    const accessToken = await getAccessToken(acct);
+    if (!accessToken) {
+      setResponseStatus(event, 401);
+      return { error: "No valid access token for account" };
+    }
     try {
-      const acct = accountEmail || email;
-      const accessToken = await getAccessToken(acct);
-      if (accessToken) {
-        const id = getRouterParam(event, "id") as string;
-        await gmailModifyMessage(accessToken, id, ["SPAM"], ["INBOX"]);
-        return { id, spam: true };
+      const id = getRouterParam(event, "id") as string;
+      // Get the threadId from the message if not provided
+      let threadId = bodyThreadId;
+      if (!threadId) {
+        const msg = await googleFetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=minimal`,
+          accessToken,
+        );
+        threadId = msg.threadId;
       }
+      // Report spam on entire thread (like mute)
+      await googleFetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}/modify`,
+        accessToken,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            addLabelIds: ["SPAM"],
+            removeLabelIds: ["INBOX"],
+          }),
+        },
+      );
+      return { id, threadId, spam: true };
     } catch (error: any) {
       console.error("[reportSpam] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -685,9 +749,9 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
       };
     }
   }
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
   const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels);
+  await writeLabels(email, labels, { requestSource: reqSource(event) });
   return { id: getRouterParam(event, "id"), threadId, spam: true };
 });
 
@@ -704,13 +768,18 @@ async function readBlockedSenders(email: string): Promise<string[]> {
 async function writeBlockedSenders(
   email: string,
   senders: string[],
+  options?: { requestSource?: string },
 ): Promise<void> {
-  await putUserSetting(email, "blocked-senders", { senders });
+  await putUserSetting(email, "blocked-senders", { senders }, options);
 }
 
 export const blockSender = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
-  const { senderEmail, accountEmail } = await readBody(event);
+  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
+    senderEmail?: string;
+    accountEmail?: string;
+  };
+  const { senderEmail, accountEmail } = body;
 
   if (!senderEmail) {
     setResponseStatus(event, 400);
@@ -719,39 +788,41 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
 
   // If Gmail is connected, create a filter to auto-delete + report spam
   if (await isConnected(email)) {
+    const acct = accountEmail || email;
+    const accessToken = await getAccessToken(acct);
+    if (!accessToken) {
+      setResponseStatus(event, 401);
+      return { error: "No valid access token for account" };
+    }
     try {
-      const acct = accountEmail || email;
-      const accessToken = await getAccessToken(acct);
-      if (accessToken) {
-        const id = getRouterParam(event, "id") as string;
+      const id = getRouterParam(event, "id") as string;
 
-        // Also report the current message as spam
-        await gmailModifyMessage(accessToken, id, ["SPAM"], ["INBOX"]);
+      // Also report the current message as spam
+      await gmailModifyMessage(accessToken, id, ["SPAM"], ["INBOX"]);
 
-        // Create a filter to auto-delete future emails from this sender
-        try {
-          await googleFetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/settings/filters`,
-            accessToken,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                criteria: { from: senderEmail },
-                action: { removeLabelIds: ["INBOX"], addLabelIds: ["TRASH"] },
-              }),
-            },
-          );
-        } catch (filterErr: any) {
-          // Filter creation may fail (permissions), but spam report still worked
-          console.error(
-            "[blockSender] filter creation failed:",
-            filterErr.message,
-          );
-        }
-
-        return { id, blocked: senderEmail };
+      // Create a filter to auto-delete future emails from this sender
+      try {
+        await googleFetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/settings/filters`,
+          accessToken,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              criteria: { from: senderEmail },
+              action: { removeLabelIds: ["INBOX"], addLabelIds: ["TRASH"] },
+            }),
+          },
+        );
+      } catch (filterErr: any) {
+        // Filter creation may fail (permissions), but spam report still worked
+        console.error(
+          "[blockSender] filter creation failed:",
+          filterErr.message,
+        );
       }
+
+      return { id, blocked: senderEmail };
     } catch (error: any) {
       console.error("[blockSender] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -763,7 +834,9 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
   const blocked = await readBlockedSenders(email);
   if (!blocked.includes(senderEmail.toLowerCase())) {
     blocked.push(senderEmail.toLowerCase());
-    await writeBlockedSenders(email, blocked);
+    await writeBlockedSenders(email, blocked, {
+      requestSource: reqSource(event),
+    });
   }
 
   const emails = await readEmails(email);
@@ -783,9 +856,9 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
       };
     }
   }
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
   const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels);
+  await writeLabels(email, labels, { requestSource: reqSource(event) });
   return { id: getRouterParam(event, "id"), threadId, blocked: senderEmail };
 });
 
@@ -802,35 +875,41 @@ async function readMutedThreads(email: string): Promise<string[]> {
 async function writeMutedThreads(
   email: string,
   threads: string[],
+  options?: { requestSource?: string },
 ): Promise<void> {
-  await putUserSetting(email, "muted-threads", { threads });
+  await putUserSetting(email, "muted-threads", { threads }, options);
 }
 
 export const muteThread = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
-  const { accountEmail } = await readBody(event);
+  const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
+    accountEmail?: string;
+  };
+  const { accountEmail } = body;
 
   if (await isConnected(email)) {
+    const acct = accountEmail || email;
+    const accessToken = await getAccessToken(acct);
+    if (!accessToken) {
+      setResponseStatus(event, 401);
+      return { error: "No valid access token for account" };
+    }
     try {
-      const acct = accountEmail || email;
-      const accessToken = await getAccessToken(acct);
-      if (accessToken) {
-        const threadId = getRouterParam(event, "threadId") as string;
-        // Gmail "mute" = remove from inbox; future replies also skip inbox
-        // Use threads.modify endpoint
-        await googleFetch(
-          `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}/modify`,
-          accessToken,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              removeLabelIds: ["INBOX"],
-            }),
-          },
-        );
-        return { threadId, muted: true };
-      }
+      const threadId = getRouterParam(event, "threadId") as string;
+      // Gmail "mute" = remove from inbox; future replies also skip inbox
+      // Use threads.modify endpoint
+      await googleFetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}/modify`,
+        accessToken,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            removeLabelIds: ["INBOX"],
+          }),
+        },
+      );
+      return { threadId, muted: true };
     } catch (error: any) {
       console.error("[muteThread] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -843,7 +922,7 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
   const muted = await readMutedThreads(email);
   if (!muted.includes(threadId)) {
     muted.push(threadId);
-    await writeMutedThreads(email, muted);
+    await writeMutedThreads(email, muted, { requestSource: reqSource(event) });
   }
 
   const emails = await readEmails(email);
@@ -857,9 +936,9 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
       };
     }
   }
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
   const labels = recomputeUnreadCounts(emails, await readLabels(email));
-  await writeLabels(email, labels);
+  await writeLabels(email, labels, { requestSource: reqSource(event) });
   return { threadId, muted: true };
 });
 
@@ -873,7 +952,7 @@ export const deleteEmail = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 404);
     return { error: "Email not found" };
   }
-  await writeEmails(email, filtered);
+  await writeEmails(email, filtered, { requestSource: reqSource(event) });
   return { ok: true };
 });
 
@@ -1009,6 +1088,7 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
     subject,
     snippet: body.slice(0, 120).replace(/\n/g, " "),
     body,
+    bodyHtml: markdownToHtml(body),
     date: new Date().toISOString(),
     isRead: true,
     isStarred: false,
@@ -1019,7 +1099,7 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
   };
 
   emails.push(newEmail);
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
 
   setResponseStatus(event, 201);
   return newEmail;
@@ -1036,52 +1116,55 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
 
   // If Gmail is connected, create/update a Gmail draft
   if (await isConnected(email)) {
+    const acct = reqBody?.accountEmail || email;
+    const accessToken = await getAccessToken(acct);
+    if (!accessToken) {
+      setResponseStatus(event, 401);
+      return { error: "No valid access token for account" };
+    }
     try {
-      const acct = reqBody?.accountEmail || email;
-      const accessToken = await getAccessToken(acct);
-      if (accessToken) {
-        const draftFrom = reqBody?.accountEmail || "me";
-        const raw = buildRawEmail({
-          from: draftFrom,
-          to: to || "",
-          cc: cc || "",
-          bcc: bcc || "",
-          subject: subject || "(no subject)",
-          body: body || "",
-        });
+      const draftFrom = reqBody?.accountEmail || "me";
+      const raw = buildRawEmail({
+        from: draftFrom,
+        to: to || "",
+        cc: cc || "",
+        bcc: bcc || "",
+        subject: subject || "(no subject)",
+        body: body || "",
+      });
 
-        if (draftId) {
-          // Update existing Gmail draft
-          try {
-            const updated = await googleFetch(
-              `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${draftId}`,
-              accessToken,
-              {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message: { raw } }),
-              },
-            );
-            return { draftId: updated.id, updated: true };
-          } catch {
-            // Draft may have been deleted; create new
-          }
+      if (draftId) {
+        // Update existing Gmail draft
+        try {
+          const updated = await googleFetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${draftId}`,
+            accessToken,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ message: { raw } }),
+            },
+          );
+          return { draftId: updated.id, updated: true };
+        } catch {
+          // Draft may have been deleted; create new
         }
-        // Create new Gmail draft
-        const created = await googleFetch(
-          `https://gmail.googleapis.com/gmail/v1/users/me/drafts`,
-          accessToken,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: { raw } }),
-          },
-        );
-        return { draftId: created.id, created: true };
       }
+      // Create new Gmail draft
+      const created = await googleFetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/drafts`,
+        accessToken,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: { raw } }),
+        },
+      );
+      return { draftId: created.id, created: true };
     } catch (error: any) {
       console.error("[saveDraft] Gmail error:", error.message);
-      // Fall through to local storage
+      setResponseStatus(event, 500);
+      return { error: error.message };
     }
   }
 
@@ -1126,6 +1209,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     subject: subject || "(no subject)",
     snippet: (body || "").slice(0, 120).replace(/\n/g, " "),
     body: body || "",
+    bodyHtml: markdownToHtml(body || ""),
     date: new Date().toISOString(),
     isRead: true,
     isStarred: false,
@@ -1142,7 +1226,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
   } else {
     emails.push(draftEmail);
   }
-  await writeEmails(email, emails);
+  await writeEmails(email, emails, { requestSource: reqSource(event) });
 
   return {
     draftId: draftEmail.id,
@@ -1161,6 +1245,9 @@ function buildRawEmail(opts: {
   inReplyTo?: string;
   references?: string;
 }): string {
+  const boundary = `agent-native-${nanoid(12)}`;
+  const textBody = markdownToPlainText(opts.body);
+  const htmlBody = markdownToHtml(opts.body);
   const lines = [
     `From: ${opts.from}`,
     `To: ${opts.to}`,
@@ -1169,9 +1256,20 @@ function buildRawEmail(opts: {
     `Subject: ${opts.subject}`,
     ...(opts.inReplyTo ? [`In-Reply-To: ${opts.inReplyTo}`] : []),
     ...(opts.references ? [`References: ${opts.references}`] : []),
+    `MIME-Version: 1.0`,
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
     `Content-Type: text/plain; charset="UTF-8"`,
     "",
-    opts.body,
+    textBody,
+    "",
+    `--${boundary}`,
+    `Content-Type: text/html; charset="UTF-8"`,
+    "",
+    htmlBody,
+    "",
+    `--${boundary}--`,
   ];
   // Gmail API expects URL-safe base64
   return Buffer.from(lines.join("\r\n"))
@@ -1181,6 +1279,89 @@ function buildRawEmail(opts: {
     .replace(/=+$/, "");
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function applyInlineMarkdown(text: string): string {
+  return text
+    .replace(
+      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      (_match, label, url) =>
+        `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`,
+    )
+    .replace(
+      /(?<!["(>])(https?:\/\/[^\s<]+)/g,
+      (url) =>
+        `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`,
+    )
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, "$1<em>$2</em>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+function markdownToHtml(markdown: string): string {
+  const normalized = markdown.replace(/\r\n/g, "\n").trim();
+  if (!normalized) return "<div></div>";
+
+  const blocks = normalized.split(/\n{2,}/).map((block) => block.trim());
+  const html = blocks
+    .map((block) => {
+      if (block.startsWith("```") && block.endsWith("```")) {
+        const code = block.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "");
+        return `<pre><code>${escapeHtml(code)}</code></pre>`;
+      }
+
+      const heading = block.match(/^(#{1,3})\s+(.+)$/);
+      if (heading) {
+        const level = heading[1].length;
+        return `<h${level}>${applyInlineMarkdown(escapeHtml(heading[2]))}</h${level}>`;
+      }
+
+      if (/^(\-|\*|\+)\s+/m.test(block)) {
+        const items = block
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => line.replace(/^(\-|\*|\+)\s+/, ""))
+          .map((line) => `<li>${applyInlineMarkdown(escapeHtml(line))}</li>`)
+          .join("");
+        return `<ul>${items}</ul>`;
+      }
+
+      if (/^\d+\.\s+/m.test(block)) {
+        const items = block
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => line.replace(/^\d+\.\s+/, ""))
+          .map((line) => `<li>${applyInlineMarkdown(escapeHtml(line))}</li>`)
+          .join("");
+        return `<ol>${items}</ol>`;
+      }
+
+      return `<p>${applyInlineMarkdown(escapeHtml(block)).replace(/\n/g, "<br />")}</p>`;
+    })
+    .join("");
+
+  return `<div>${html}</div>`;
+}
+
+function markdownToPlainText(markdown: string): string {
+  return markdown
+    .replace(/\r\n/g, "\n")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1 ($2)")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, "$1$2")
+    .trim();
+}
+
 // ─── Delete draft ─────────────────────────────────────────────────────────────
 
 export const deleteDraft = defineEventHandler(async (event: H3Event) => {
@@ -1188,40 +1369,55 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
   const id = getRouterParam(event, "id") as string;
 
   if (await isConnected(email)) {
-    try {
-      const body = await readBody(event).catch(() => ({}));
-      const acct = body?.accountEmail || email;
-      const accessToken = await getAccessToken(acct);
-      if (accessToken) {
-        try {
-          await googleFetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${id}`,
-            accessToken,
-            { method: "DELETE" },
-          );
-        } catch {
-          // Draft may not exist in Gmail
-        }
-        return { ok: true };
-      }
-    } catch (error: any) {
-      console.error("[deleteDraft] Gmail error:", error.message);
+    const body = await readBody(event).catch(() => ({}));
+    const acct = body?.accountEmail || email;
+    const accessToken = await getAccessToken(acct);
+    if (!accessToken) {
+      setResponseStatus(event, 401);
+      return { error: "No valid access token for account" };
     }
+    try {
+      await googleFetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${id}`,
+        accessToken,
+        { method: "DELETE" },
+      );
+    } catch {
+      // Draft may not exist in Gmail
+    }
+    return { ok: true };
   }
 
   // Local fallback
   const emails = await readEmails(email);
   const filtered = emails.filter((e) => !(e.id === id && e.isDraft));
   if (filtered.length !== emails.length) {
-    await writeEmails(email, filtered);
+    await writeEmails(email, filtered, { requestSource: reqSource(event) });
   }
   return { ok: true };
 });
 
 // ─── Contacts (extracted from email history) ─────────────────────────────────
 
+// Contact cache: keyed by user email, TTL 10 minutes
+const contactCache = new Map<
+  string,
+  {
+    data: Array<{ name: string; email: string; count: number }>;
+    expiresAt: number;
+  }
+>();
+const CONTACT_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
 export const listContacts = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
+
+  // Return cached contacts if fresh
+  const cached = contactCache.get(email);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.data;
+  }
+
   if (await isConnected(email)) {
     try {
       const accountTokens = await getAccountTokens(email);
@@ -1354,6 +1550,10 @@ export const listContacts = defineEventHandler(async (event: H3Event) => {
       const contacts = Array.from(contactMap.values()).sort(
         (a, b) => b.count - a.count,
       );
+      contactCache.set(email, {
+        data: contacts,
+        expiresAt: Date.now() + CONTACT_CACHE_TTL,
+      });
       return contacts;
     } catch (error: any) {
       console.error("[listContacts] error:", error.message);
@@ -1400,6 +1600,10 @@ export const listContacts = defineEventHandler(async (event: H3Event) => {
   const contacts = Array.from(contactMap.values()).sort(
     (a, b) => b.count - a.count,
   );
+  contactCache.set(email, {
+    data: contacts,
+    expiresAt: Date.now() + CONTACT_CACHE_TTL,
+  });
   return contacts;
 });
 
@@ -1467,6 +1671,7 @@ export const updateSettings = defineEventHandler(async (event: H3Event) => {
     email,
     "mail-settings",
     updated as Record<string, unknown>,
+    { requestSource: reqSource(event) },
   );
   return updated;
 });
