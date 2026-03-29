@@ -10,6 +10,7 @@ import {
   useMarkThreadRead,
   useToggleStar,
   useArchiveEmail,
+  useUnarchiveEmail,
   useTrashEmail,
   useUntrashEmail,
 } from "@/hooks/use-emails";
@@ -26,7 +27,6 @@ interface EmailListProps {
   setFocusedId: (id: string | null) => void;
   onCompose?: (email: EmailMessage, mode: "reply" | "forward") => void;
   onArchived?: (id: string) => void;
-  undoArchive?: (id: string) => void;
   onDraftOpen?: (email: EmailMessage) => void;
 }
 
@@ -127,7 +127,6 @@ export function EmailList({
   setFocusedId,
   onCompose,
   onArchived,
-  undoArchive,
   onDraftOpen,
 }: EmailListProps) {
   const navigate = useNavigate();
@@ -154,6 +153,7 @@ export function EmailList({
   const markThreadRead = useMarkThreadRead();
   const toggleStar = useToggleStar();
   const archiveEmail = useArchiveEmail();
+  const unarchiveEmail = useUnarchiveEmail();
   const trashEmail = useTrashEmail();
   const untrashEmail = useUntrashEmail();
   const queryClient = useQueryClient();
@@ -222,8 +222,23 @@ export function EmailList({
       setFocusedId(null);
     }
 
+    // Snapshot removed thread emails so undo can restore them instantly
+    const thread = threads.find((t) => t.latestMessage.id === id);
+    const threadId = thread?.latestMessage.threadId || id;
+    const snapshot = emails.filter((e) => (e.threadId || e.id) === threadId);
+
     onArchived?.(id);
-    const undo = () => undoArchive?.(id);
+    const undo = () => {
+      // Restore emails into cache immediately, then call API
+      queryClient.setQueriesData<EmailMessage[]>(
+        { queryKey: ["emails"] },
+        (old) =>
+          [...(old ?? []), ...snapshot].sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+          ),
+      );
+      unarchiveEmail.mutate(id);
+    };
     setUndoAction(undo);
     toast("Marked as Done.", {
       action: {
@@ -231,12 +246,19 @@ export function EmailList({
         onClick: undo,
       },
     });
-    const thread = threads.find((t) => t.latestMessage.id === id);
     archiveEmail.mutate({
       id,
       accountEmail: thread?.latestMessage.accountEmail,
     });
-  }, [threads, archiveEmail, onArchived, undoArchive, setFocusedId]);
+  }, [
+    threads,
+    emails,
+    archiveEmail,
+    unarchiveEmail,
+    onArchived,
+    setFocusedId,
+    queryClient,
+  ]);
 
   const trashFocused = useCallback(() => {
     const id = focusedIdRef.current;
@@ -250,7 +272,21 @@ export function EmailList({
       setFocusedId(null);
     }
 
-    const undo = () => untrashEmail.mutate(id);
+    // Snapshot removed thread emails so undo can restore them instantly
+    const thread = threads.find((t) => t.latestMessage.id === id);
+    const threadId = thread?.latestMessage.threadId || id;
+    const snapshot = emails.filter((e) => (e.threadId || e.id) === threadId);
+
+    const undo = () => {
+      queryClient.setQueriesData<EmailMessage[]>(
+        { queryKey: ["emails"] },
+        (old) =>
+          [...(old ?? []), ...snapshot].sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+          ),
+      );
+      untrashEmail.mutate(id);
+    };
     setUndoAction(undo);
     toast("Moved to Trash.", {
       action: {
@@ -259,7 +295,7 @@ export function EmailList({
       },
     });
     trashEmail.mutate(id);
-  }, [threads, trashEmail, untrashEmail, setFocusedId]);
+  }, [threads, emails, trashEmail, untrashEmail, setFocusedId, queryClient]);
 
   const toggleFocusedRead = useCallback(() => {
     const id = focusedIdRef.current;

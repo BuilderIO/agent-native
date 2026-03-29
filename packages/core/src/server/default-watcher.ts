@@ -3,6 +3,7 @@ import type { SSEHandlerOptions } from "./sse.js";
 import { getAppStateEmitter } from "../application-state/emitter.js";
 import { getSettingsEmitter } from "../settings/store.js";
 import { getResourcesEmitter } from "../resources/emitter.js";
+import { getChatThreadsEmitter } from "../chat-threads/emitter.js";
 import { recordChange, createPollHandler } from "./poll.js";
 
 const _emitters: NonNullable<SSEHandlerOptions["extraEmitters"]> = [];
@@ -16,10 +17,12 @@ function ensureEmitters() {
   const appState = getAppStateEmitter();
   const settings = getSettingsEmitter();
   const resources = getResourcesEmitter();
+  const chatThreads = getChatThreadsEmitter();
 
   _emitters.push({ emitter: appState, event: "app-state" });
   _emitters.push({ emitter: settings, event: "settings" });
   _emitters.push({ emitter: resources, event: "resources" });
+  _emitters.push({ emitter: chatThreads, event: "chat-threads" });
 
   // Also record changes for the polling endpoint
   appState.on("app-state", (data: any) =>
@@ -30,6 +33,9 @@ function ensureEmitters() {
   );
   resources.on("resources", (data: any) =>
     recordChange({ source: "resources", ...data }),
+  );
+  chatThreads.on("chat-threads", (data: any) =>
+    recordChange({ source: "chat-threads", ...data }),
   );
 }
 

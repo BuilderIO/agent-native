@@ -52,8 +52,10 @@ export function useGoogleAddAccountUrl(enabled = false) {
     queryKey: ["google-add-account-url"],
     queryFn: async () => {
       const { getCallbackOrigin } = await import("@agent-native/core/client");
+      // Use the main callback URL — the server-side state param carries the
+      // add-account flag so only one redirect URI needs Google Console registration.
       const res = await fetch(
-        `/api/google/add-account/auth-url?redirect_uri=${encodeURIComponent(getCallbackOrigin() + "/api/google/add-account/callback")}`,
+        `/api/google/add-account/auth-url?redirect_uri=${encodeURIComponent(getCallbackOrigin() + "/api/google/callback")}`,
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));

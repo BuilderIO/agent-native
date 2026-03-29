@@ -8,7 +8,7 @@ const forms = DEFAULT_APPS.find((a) => a.id === "forms")!;
 export default function FormsTab() {
   return (
     <SafeAreaView style={styles.container}>
-      <AppWebView url={getAppUrl(forms)} color={forms.color} />
+      <AppWebView url={getAppUrl(forms)} />
     </SafeAreaView>
   );
 }

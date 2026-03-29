@@ -49,9 +49,18 @@ function decodeState(
   return { redirectUri: fallback };
 }
 
-/** HTML page shown after OAuth completes in the system browser (desktop app flow). */
-function desktopSuccessPage(email?: string): Response {
+/** HTML page shown after OAuth completes in the system browser (desktop app flow).
+ *  When a session token is provided, redirects via the `agentnative://` deep link
+ *  so the Electron app can inject the session cookie into its webview. */
+function desktopSuccessPage(email?: string, sessionToken?: string): Response {
   const msg = email ? `Connected ${email}!` : "Connected!";
+  if (sessionToken) {
+    const deepLink = `agentnative://oauth-complete?token=${sessionToken}`;
+    return new Response(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:12px"><p style="font-size:16px">${msg}</p><a href=${JSON.stringify(deepLink)} style="display:inline-block;margin-top:8px;padding:10px 24px;background:#fff;color:#000;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">Open Agent Native</a><p style="font-size:12px;color:#666;margin-top:4px">If the app didn\u2019t open automatically, click the button above.</p><script>window.location.href=${JSON.stringify(deepLink)}</script></body></html>`,
+      { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
+    );
+  }
   return new Response(
     `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`,
     { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
@@ -76,7 +85,7 @@ export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
   const redirectUri =
     (getQuery(event).redirect_uri as string) ||
     `${getOrigin(event)}/api/google/callback`;
-  const state = encodeState(redirectUri, isElectron(event));
+  const state = encodeState(redirectUri);
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID,
     redirect_uri: redirectUri,
@@ -144,7 +153,7 @@ export const handleGoogleCallback = defineEventHandler(
         maxAge: 60 * 60 * 24 * 30,
       });
 
-      if (desktop) return desktopSuccessPage(email);
+      if (desktop) return desktopSuccessPage(email, sessionToken);
       return sendRedirect(event, "/");
     } catch (error: any) {
       const msg = error.message || "Unknown error";

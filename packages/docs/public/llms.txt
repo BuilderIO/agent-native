@@ -12,7 +12,7 @@ Agent-Native is an open source framework for building full-featured applications
 - **Real-time Sync**: SSE streams database changes to the UI. When the agent writes to the database, the UI updates instantly.
 - **Scripts System**: Agent-callable scripts via `pnpm script <name>` for complex operations.
 - **Production Ready**: Built-in auth, OAuth, cloud database support, and deployment presets. Apps work locally in dev and deploy to production with the same code.
-- **Harnesses**: Apps run inside a harness (CLI harness supporting Claude Code, Codex, Gemini CLI, OpenCode, Builder.io — or Builder.io Cloud) that provides the AI agent alongside your UI.
+- **Embedded Agent Panel**: Every app includes an agent panel with chat and optional CLI terminal supporting Claude Code, Codex, Gemini CLI, OpenCode, and Builder.io. Deploy to Builder.io Cloud for collaboration and visual editing.
 
 ## Quick Start
 

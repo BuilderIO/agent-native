@@ -1,12 +1,14 @@
 #!/usr/bin/env node
+/**
+ * Run all template dev servers, core TypeScript watch, and docs concurrently.
+ * Each template gets its own port starting at APP_BASE_PORT.
+ */
 import { spawn, execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 
 const TEMPLATES_DIR = path.resolve("templates");
 const APP_BASE_PORT = 8081;
-const WS_BASE_PORT = 3341;
-const UI_PORT = 3334;
 const DOCS_PORT = 3000;
 
 // Discover templates
@@ -16,10 +18,9 @@ const templates = fs
   .sort();
 
 // Kill any stale processes on our ports
-const allPorts = [UI_PORT, DOCS_PORT];
+const allPorts = [DOCS_PORT];
 templates.forEach((_, i) => {
   allPorts.push(APP_BASE_PORT + i);
-  allPorts.push(WS_BASE_PORT + i);
 });
 
 function killPortProcesses(): boolean {
@@ -48,7 +49,6 @@ if (killPortProcesses()) {
 console.log(
   `\x1b[36m[dev-all]\x1b[0m Found templates: ${templates.join(", ")}`,
 );
-console.log(`\x1b[36m[dev-all]\x1b[0m Harness UI: http://localhost:${UI_PORT}`);
 console.log(`\x1b[36m[dev-all]\x1b[0m Docs: http://localhost:${DOCS_PORT}`);
 
 const names: string[] = [];
@@ -56,30 +56,11 @@ const commands: string[] = [];
 
 templates.forEach((name, i) => {
   const appPort = APP_BASE_PORT + i;
-  const wsPort = WS_BASE_PORT + i;
-  const templateDir = path.resolve(TEMPLATES_DIR, name);
+  console.log(`\x1b[36m[dev-all]\x1b[0m ${name}: http://localhost:${appPort}`);
 
-  console.log(
-    `\x1b[36m[dev-all]\x1b[0m ${name}: app=:${appPort} ws=:${wsPort}`,
-  );
-
-  // App dev server
   names.push(name);
   commands.push(`pnpm --filter ${name} exec vite --port ${appPort}`);
-
-  // Harness WS server for this app
-  names.push(`ws:${name}`);
-  commands.push(
-    `pnpm --filter @agent-native/harness-cli dev:server -- --app-dir ${templateDir} --port ${wsPort}`,
-  );
 });
-
-// Build app config for harness UI
-const appConfig = templates.map((name, i) => ({
-  name,
-  appPort: APP_BASE_PORT + i,
-  wsPort: WS_BASE_PORT + i,
-}));
 
 // Core TypeScript watch
 names.push("core");
@@ -91,13 +72,6 @@ commands.push(
 names.push("docs");
 commands.push(`pnpm --filter @agent-native/docs dev`);
 
-// Harness UI
-names.push("ui");
-commands.push(
-  `VITE_APP_CONFIG='${JSON.stringify(appConfig)}' PORT=${UI_PORT} pnpm --filter @agent-native/harness-cli dev:client`,
-);
-
-// Use concurrently directly (no shell: true) — pass each command as a separate arg
 const proc = spawn(
   "npx",
   [

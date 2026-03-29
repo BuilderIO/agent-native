@@ -10,7 +10,11 @@ Every agent-native app follows these rules. Violating them breaks the architectu
 
 ### 1. Data lives in SQL
 
-All app state lives in SQL via Drizzle ORM or the core SQL stores. In local dev, SQLite (`data/app.db`) is the default. In production, users set `DATABASE_URL` to any supported provider (Neon, Turso, Supabase, D1, or plain Postgres/SQLite). The framework is multi-tenant — multiple users share the same database, with data isolation handled by user-scoped keys and `AGENT_USER_EMAIL`.
+All app state lives in SQL via Drizzle ORM or the core SQL stores. **The database is NOT always SQLite.** Users configure `DATABASE_URL` to any supported provider — Neon Postgres, Turso, Supabase, Cloudflare D1, plain Postgres, or SQLite. In local dev without `DATABASE_URL`, SQLite (`data/app.db`) is used as a fallback, but **never assume SQLite**. Many users (including the project maintainer) use Neon Postgres in both dev and production.
+
+**All SQL must be dialect-agnostic.** Use the `getDbExec()` abstraction from `@agent-native/core/db/client` which handles parameter conversion (`?` → `$1`) and dialect differences automatically. For syntax that differs between SQLite and Postgres (e.g., `INSERT OR REPLACE` vs `ON CONFLICT DO UPDATE`, `INTEGER` vs `BIGINT`), use the helpers: `isPostgres()`, `intType()`. Never write raw SQLite-only syntax.
+
+The framework is multi-tenant — multiple users share the same database, with data isolation handled by user-scoped keys and `AGENT_USER_EMAIL`.
 
 **Core SQL stores** (auto-created, available in all templates):
 
@@ -19,8 +23,8 @@ All app state lives in SQL via Drizzle ORM or the core SQL stores. In local dev,
 - `oauth_tokens` — OAuth credentials (via `@agent-native/core/oauth-tokens`)
 - `sessions` — auth sessions
 
-**Do:** Use Drizzle for structured domain data (forms, bookings, compositions). Use the `settings` store for app config. Use `application-state` for ephemeral UI state. Use `oauth-tokens` for credentials.
-**Don't:** Use JSON files for data storage. Don't use localStorage for app state. Don't store state only in memory.
+**Do:** Use Drizzle for structured domain data (forms, bookings, compositions). Use the `settings` store for app config. Use `application-state` for ephemeral UI state. Use `oauth-tokens` for credentials. Use `isPostgres()` to branch SQL when dialects differ.
+**Don't:** Use JSON files for data storage. Don't use localStorage for app state. Don't store state only in memory. **Don't assume SQLite** — always write SQL that works on both SQLite and Postgres.
 
 ### 2. All AI goes through the agent chat
 
@@ -97,7 +101,7 @@ server/                # Nitro API server
   handlers/            # Route handler modules (for larger apps)
 shared/                # Isomorphic code (client + server)
 scripts/               # Agent-callable scripts
-data/                  # App data (SQLite DB at data/app.db)
+data/                  # App data (local SQLite fallback at data/app.db)
 react-router.config.ts # React Router framework config
 ```
 
@@ -148,7 +152,7 @@ These core scripts are available automatically — no local script files needed:
 | `db-query`  | Run a SELECT query              | `pnpm script db-query --sql "SELECT * FROM forms"` |
 | `db-exec`   | Run INSERT/UPDATE/DELETE        | `pnpm script db-exec --sql "UPDATE forms SET ..."` |
 
-Use `db-schema` first to understand the data model, then `db-query` and `db-exec` to read and write data. Scripts read `DATABASE_URL` from env (defaults to `file:./data/app.db`). Use `--db <path>` to override, and `--format json` for structured output.
+Use `db-schema` first to understand the data model, then `db-query` and `db-exec` to read and write data. Scripts read `DATABASE_URL` from env (Postgres, Turso, or SQLite — falls back to `file:./data/app.db` only when unset). Use `--db <path>` to override, and `--format json` for structured output.
 
 ### Multi-tenant data scoping
 

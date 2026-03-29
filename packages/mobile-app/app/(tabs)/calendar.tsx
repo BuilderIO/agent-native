@@ -8,7 +8,7 @@ const calendar = DEFAULT_APPS.find((a) => a.id === "calendar")!;
 export default function CalendarTab() {
   return (
     <SafeAreaView style={styles.container}>
-      <AppWebView url={getAppUrl(calendar)} color={calendar.color} />
+      <AppWebView url={getAppUrl(calendar)} />
     </SafeAreaView>
   );
 }

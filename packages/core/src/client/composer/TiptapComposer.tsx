@@ -77,6 +77,9 @@ export function TiptapComposer({
   const composerRuntime = useComposerRuntime();
   const canSend = useComposer((state) => !state.isEmpty);
   const composerText = useComposer((state) => state.text);
+  const isMac =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.userAgent);
 
   // Refs for values accessed in handleKeyDown (ProseMirror doesn't re-bind)
   const popoverStateRef = useRef<PopoverState>(null);
@@ -472,10 +475,25 @@ export function TiptapComposer({
             <PaperclipIcon className="h-4 w-4" />
           </button>
         </ComposerPrimitive.AddAttachment>
+        <style>{`
+          .aui-composer .ProseMirror p.is-editor-empty:first-child::before {
+            content: attr(data-placeholder);
+            color: var(--color-muted-foreground);
+            opacity: 0.5;
+            float: left;
+            height: 0;
+            pointer-events: none;
+          }
+        `}</style>
         <EditorContent
           editor={editor}
-          className="flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0"
+          className="aui-composer flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0"
         />
+        {!canSend && (
+          <kbd className="shrink-0 text-[11px] text-muted-foreground/40 font-medium border border-border/50 rounded px-1.5 py-0.5 leading-none pointer-events-none">
+            {isMac ? "⌘I" : "Ctrl+I"}
+          </kbd>
+        )}
         <button
           type="button"
           onClick={submitComposer}

@@ -8,7 +8,7 @@ const mail = DEFAULT_APPS.find((a) => a.id === "mail")!;
 export default function MailTab() {
   return (
     <SafeAreaView style={styles.container}>
-      <AppWebView url={getAppUrl(mail)} color={mail.color} />
+      <AppWebView url={getAppUrl(mail)} />
     </SafeAreaView>
   );
 }

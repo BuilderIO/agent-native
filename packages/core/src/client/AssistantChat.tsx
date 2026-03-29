@@ -243,7 +243,7 @@ function ToolCallFallback({
     .join(", ");
 
   return (
-    <div className="my-1">
+    <div className="my-1 overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
         className={cn(
@@ -273,7 +273,7 @@ function ToolCallFallback({
             <CheckIcon className="h-3 w-3 text-emerald-500" />
           )}
         </span>
-        <span className="truncate">
+        <span className="truncate min-w-0">
           <span className="font-medium">{toolName}</span>
           {argsStr && <span className="opacity-60 ml-1">({argsStr})</span>}
         </span>
@@ -525,6 +525,8 @@ export interface AssistantChatProps {
   apiUrl?: string;
   /** Stable tab identifier passed to the adapter for event correlation */
   tabId?: string;
+  /** Thread ID for SQL-backed persistence. When set, messages are loaded from and saved to the server. */
+  threadId?: string;
   /** Placeholder text for empty state */
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
@@ -537,6 +539,13 @@ export interface AssistantChatProps {
   onSwitchToCli?: () => void;
   /** Callback when message count changes */
   onMessageCountChange?: (count: number) => void;
+  /** Callback to save thread data to the server (provided by useChatThreads) */
+  onSaveThread?: (data: {
+    threadData: string;
+    title: string;
+    preview: string;
+    messageCount: number;
+  }) => void;
 }
 
 // ─── Queue Composer ──────────────────────────────────────────────────────────
@@ -619,6 +628,33 @@ export function clearChatStorage(tabId?: string) {
   } catch {}
 }
 
+/** Extract title and preview from a thread runtime export */
+function extractThreadMeta(repo: any): { title: string; preview: string } {
+  const msgs = repo?.messages;
+  if (!Array.isArray(msgs) || msgs.length === 0)
+    return { title: "", preview: "" };
+
+  // Find the first user message for the title
+  let title = "";
+  let preview = "";
+  for (const msg of msgs) {
+    if (msg.role !== "user") continue;
+    const textParts = Array.isArray(msg.content)
+      ? msg.content
+          .filter((p: any) => p.type === "text")
+          .map((p: any) => p.text)
+          .join(" ")
+      : typeof msg.content === "string"
+        ? msg.content
+        : "";
+    if (textParts.trim()) {
+      if (!title) title = textParts.trim().slice(0, 80);
+      preview = textParts.trim().slice(0, 120);
+    }
+  }
+  return { title, preview };
+}
+
 const AssistantChatInner = forwardRef<
   AssistantChatHandle,
   AssistantChatProps & { apiUrl: string }
@@ -631,7 +667,9 @@ const AssistantChatInner = forwardRef<
     className,
     apiUrl,
     tabId,
+    threadId,
     onMessageCountChange,
+    onSaveThread,
   },
   ref,
 ) {
@@ -646,49 +684,85 @@ const AssistantChatInner = forwardRef<
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
   // ─── Chat persistence ──────────────────────────────────────────────
-  const storageKey = `${CHAT_STORAGE_PREFIX}${tabId || "default"}`;
   const hasRestoredRef = useRef(false);
+  const [isRestoring, setIsRestoring] = useState(!!threadId);
+  const onSaveThreadRef = useRef(onSaveThread);
+  onSaveThreadRef.current = onSaveThread;
 
-  // Restore messages from sessionStorage on mount
+  // Restore messages from server on mount (when threadId is set)
   useEffect(() => {
     if (hasRestoredRef.current) return;
     hasRestoredRef.current = true;
-    try {
-      const saved = sessionStorage.getItem(storageKey);
-      if (saved) {
-        const repo = JSON.parse(saved);
-        if (repo?.messages?.length > 0) {
-          threadRuntime.import(repo);
-        }
-      }
-    } catch {
-      // Ignore — start fresh
-    }
-  }, [storageKey, threadRuntime]);
 
-  // Persist messages to sessionStorage after each completed response
+    if (threadId) {
+      // Load from server
+      (async () => {
+        try {
+          const res = await fetch(
+            `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+          );
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data.threadData) {
+            const repo =
+              typeof data.threadData === "string"
+                ? JSON.parse(data.threadData)
+                : data.threadData;
+            if (repo?.messages?.length > 0) {
+              threadRuntime.import(repo);
+            }
+          }
+        } catch {
+          // Start fresh
+        } finally {
+          setIsRestoring(false);
+        }
+      })();
+    } else {
+      // Legacy: restore from sessionStorage
+      const storageKey = `${CHAT_STORAGE_PREFIX}${tabId || "default"}`;
+      try {
+        const saved = sessionStorage.getItem(storageKey);
+        if (saved) {
+          const repo = JSON.parse(saved);
+          if (repo?.messages?.length > 0) {
+            threadRuntime.import(repo);
+          }
+        }
+      } catch {}
+      setIsRestoring(false);
+    }
+  }, [threadId, tabId, apiUrl, threadRuntime]);
+
+  // Persist messages after each completed response
   useEffect(() => {
     if (!hasRestoredRef.current) return;
     if (isRunning) return;
     if (messages.length === 0) return;
-    try {
-      const repo = threadRuntime.export();
-      sessionStorage.setItem(storageKey, JSON.stringify(repo));
-    } catch {
-      // Ignore storage errors
+
+    const repo = threadRuntime.export();
+
+    if (threadId && onSaveThreadRef.current) {
+      // Save to server via the hook callback
+      const { title, preview } = extractThreadMeta(repo);
+      onSaveThreadRef.current({
+        threadData: JSON.stringify(repo),
+        title,
+        preview,
+        messageCount: messages.length,
+      });
+    } else {
+      // Legacy: save to sessionStorage
+      const storageKey = `${CHAT_STORAGE_PREFIX}${tabId || "default"}`;
+      try {
+        sessionStorage.setItem(storageKey, JSON.stringify(repo));
+      } catch {}
     }
-  }, [messages, isRunning, storageKey, threadRuntime]);
+  }, [messages, isRunning, threadId, tabId, threadRuntime]);
 
   useEffect(() => {
     onMessageCountChange?.(messages.length);
   }, [messages.length, onMessageCountChange]);
-
-  const clearChat = useCallback(() => {
-    try {
-      sessionStorage.removeItem(storageKey);
-    } catch {}
-    window.location.reload();
-  }, [storageKey]);
 
   // Listen for missing API key events from the adapter
   useEffect(() => {
@@ -804,14 +878,6 @@ const AssistantChatInner = forwardRef<
                 CLI
               </button>
             )}
-            {messages.length > 0 && (
-              <button
-                onClick={clearChat}
-                className="text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
-              >
-                Clear
-              </button>
-            )}
           </div>
         </div>
       )}
@@ -824,6 +890,17 @@ const AssistantChatInner = forwardRef<
         {missingApiKey ? (
           <div className="flex flex-col items-center justify-center h-full px-2">
             <ApiKeySetupCard apiUrl={apiUrl} />
+          </div>
+        ) : isRestoring ? (
+          <div className="flex flex-col gap-3 p-4">
+            <div className="flex justify-end">
+              <div className="h-8 w-32 rounded-lg bg-muted animate-pulse" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <div className="h-4 w-48 rounded bg-muted animate-pulse" />
+              <div className="h-4 w-64 rounded bg-muted animate-pulse" />
+              <div className="h-4 w-40 rounded bg-muted animate-pulse" />
+            </div>
           </div>
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-4 py-16 px-4 h-full">
@@ -926,10 +1003,13 @@ const AssistantChatInner = forwardRef<
 export const AssistantChat = forwardRef<
   AssistantChatHandle,
   AssistantChatProps
->(function AssistantChat({ apiUrl = "/api/agent-chat", tabId, ...props }, ref) {
+>(function AssistantChat(
+  { apiUrl = "/api/agent-chat", tabId, threadId, ...props },
+  ref,
+) {
   const adapter = useMemo(
-    () => createAgentChatAdapter({ apiUrl, tabId }),
-    [apiUrl, tabId],
+    () => createAgentChatAdapter({ apiUrl, tabId, threadId }),
+    [apiUrl, tabId, threadId],
   );
   const attachmentAdapter = useMemo(
     () =>
@@ -951,6 +1031,7 @@ export const AssistantChat = forwardRef<
           {...props}
           apiUrl={apiUrl}
           tabId={tabId}
+          threadId={threadId}
         />
       </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>

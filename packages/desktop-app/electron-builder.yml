@@ -14,6 +14,11 @@ files:
   - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
   - "!{tsconfig.json,tsconfig.*.json}"
 
+protocols:
+  - name: Agent Native
+    schemes:
+      - agentnative
+
 mac:
   category: public.app-category.developer-tools
   identity: "Builder.io, Inc (W3PMF2T3MW)"

@@ -15,7 +15,6 @@ import {
   useEmails,
   useThreadMessages,
   useMarkRead,
-  useUnarchiveEmail,
   useDeleteDraft,
   useSettings,
 } from "@/hooks/use-emails";
@@ -23,7 +22,6 @@ import {
 import { IntegrationsSidebar } from "@/components/email/IntegrationsSidebar";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { useAccountFilter } from "@/hooks/use-account-filter";
-import { toast } from "sonner";
 import type { EmailMessage } from "@shared/types";
 
 function ContactPanel({
@@ -139,7 +137,6 @@ export function InboxPage() {
   const compose = useComposeState();
   const navState = useNavigationState();
   const [lastArchivedId, setLastArchivedId] = useState<string | null>(null);
-  const unarchiveEmail = useUnarchiveEmail();
   const { data: settings } = useSettings();
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
@@ -323,18 +320,6 @@ export function InboxPage() {
 
   const searchQuery = searchParams.get("q") ?? undefined;
 
-  const undoArchive = useCallback(
-    (id: string) => {
-      unarchiveEmail.mutate(id, {
-        onSuccess: () => {
-          toast("Undone.");
-          setLastArchivedId(null);
-        },
-      });
-    },
-    [unarchiveEmail],
-  );
-
   const handleCompose = useCallback(
     (email: EmailMessage, mode: "reply" | "forward") => {
       if (mode === "reply") {
@@ -447,7 +432,6 @@ export function InboxPage() {
             setFocusedId={setFocusedId}
             onCompose={handleCompose}
             onArchived={setLastArchivedId}
-            undoArchive={undoArchive}
             onDraftOpen={handleDraftOpen}
           />
         )}

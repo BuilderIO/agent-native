@@ -35,8 +35,14 @@ export {
 export {
   MultiTabAssistantChat,
   type MultiTabAssistantChatProps,
+  type MultiTabAssistantChatHeaderProps,
 } from "./MultiTabAssistantChat.js";
 export { createAgentChatAdapter } from "./agent-chat-adapter.js";
+export {
+  useChatThreads,
+  type ChatThreadSummary,
+  type ChatThreadData,
+} from "./use-chat-threads.js";
 export {
   AgentPanel,
   AgentSidebar,

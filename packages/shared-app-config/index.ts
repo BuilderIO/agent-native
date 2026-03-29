@@ -39,7 +39,7 @@ export interface AppConfig {
   mode?: "dev" | "prod";
 }
 
-/** Harness UI port — must match dev-all.ts UI_PORT */
+/** Harness UI port */
 export const HARNESS_PORT = 3334;
 
 export const DEFAULT_APPS: AppConfig[] = [

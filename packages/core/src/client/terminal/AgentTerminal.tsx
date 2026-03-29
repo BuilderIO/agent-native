@@ -311,7 +311,7 @@ export function AgentTerminal({
           setError(null);
           term.write(data);
 
-          // Idle detection — same logic as harness-cli TerminalTab
+          // Idle detection — prompt or cursor visible means agent stopped
           if (data.includes("❯") || data.includes("\x1b[?25h")) {
             if (idleTimer) clearTimeout(idleTimer);
             idleTimer = setTimeout(() => {

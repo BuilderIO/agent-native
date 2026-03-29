@@ -497,9 +497,13 @@ export function EventDetailPopover({
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      setEventDetailSidebar(true);
-      setSidebarEvent(event);
+      // Close popover first, then set sidebar state after a frame
+      // so the popover unmount doesn't interfere with state updates
       setOpen(false);
+      requestAnimationFrame(() => {
+        setSidebarEvent(event);
+        setEventDetailSidebar(true);
+      });
     },
     [event, setEventDetailSidebar, setSidebarEvent],
   );

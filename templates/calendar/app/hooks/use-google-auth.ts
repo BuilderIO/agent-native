@@ -50,7 +50,7 @@ export function useGoogleAddAccountUrl(enabled = false) {
     queryFn: async () => {
       const { getCallbackOrigin } = await import("@agent-native/core/client");
       const res = await fetch(
-        `/api/google/add-account/auth-url?redirect_uri=${encodeURIComponent(getCallbackOrigin() + "/api/google/add-account/callback")}`,
+        `/api/google/add-account/auth-url?redirect_uri=${encodeURIComponent(getCallbackOrigin() + "/api/google/callback")}`,
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));

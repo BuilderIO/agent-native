@@ -22,6 +22,80 @@ import * as AppStore from "./app-store";
 
 const IS_DEV = !app.isPackaged;
 
+// ---------- Deep link protocol (agentnative://) ----------
+// Register before app is ready so macOS associates the scheme with this app.
+
+const DEEP_LINK_PROTOCOL = "agentnative";
+if (IS_DEV) {
+  app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [
+    path.resolve(process.argv[1]),
+  ]);
+} else {
+  app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
+}
+
+let pendingDeepLink: string | null = null;
+
+async function handleDeepLink(url: string) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.host === "oauth-complete") {
+      const token = parsed.searchParams.get("token");
+      if (token) {
+        await injectSessionAndReload(token);
+      } else {
+        reloadAllWebviews();
+      }
+    }
+  } catch {
+    // Malformed URL — ignore
+  }
+}
+
+async function injectSessionAndReload(token: string) {
+  const allContents = webContents.getAllWebContents();
+  const origins = new Set<string>();
+  for (const wc of allContents) {
+    if (wc.getType() === "webview") {
+      try {
+        origins.add(new URL(wc.getURL()).origin);
+      } catch {}
+    }
+  }
+  for (const origin of origins) {
+    await session.defaultSession.cookies.set({
+      url: origin,
+      name: "an_session",
+      value: token,
+      httpOnly: true,
+      path: "/",
+      expirationDate: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
+    });
+  }
+  reloadAllWebviews();
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
+}
+
+function reloadAllWebviews() {
+  for (const wc of webContents.getAllWebContents()) {
+    if (wc.getType() === "webview") wc.reload();
+  }
+}
+
+// macOS: deep links arrive via open-url (both when app is running and on cold launch)
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  if (app.isReady()) {
+    handleDeepLink(url);
+  } else {
+    pendingDeepLink = url;
+  }
+});
+
 // ---------- Auto-updates (production only) ----------
 
 if (!IS_DEV) {
@@ -128,7 +202,7 @@ function toggleWebviewDevTools() {
     if (target.isDevToolsOpened()) {
       target.closeDevTools();
     } else {
-      target.openDevTools({ mode: "right" });
+      target.openDevTools();
     }
   }
 }
@@ -201,36 +275,76 @@ ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
 });
 
 // ---------- OAuth handling ----------
-// Open OAuth flows in the system browser so the user can use their
-// existing logged-in session. The callback still hits the local server
-// (localhost) which stores tokens in SQL. When the user switches back
-// to the app, we reload webviews to pick up the new auth state.
+// Open OAuth in an Electron BrowserWindow (not the system browser) so
+// the callback sets the session cookie in the same Electron session as
+// the app webviews. After the callback completes, auto-close the OAuth
+// window and reload webviews to pick up the new auth state.
 
 const OAUTH_HOSTS = ["accounts.google.com"];
-let oauthExpiresAt = 0;
 
-function openAuthExternal(url: string) {
-  // Keep the OAuth flag active for 5 minutes so premature focus events
-  // (alt-tab, notification click) don't consume it before the user
-  // finishes the consent screen.
-  oauthExpiresAt = Date.now() + 5 * 60 * 1000;
-  shell.openExternal(url);
-}
+function openOAuthWindow(url: string) {
+  const mainWin = BrowserWindow.getAllWindows()[0];
 
-// When the app regains focus after an external OAuth flow, reload
-// webviews so they pick up the new auth state (same approach as mobile).
-app.on("browser-window-focus", () => {
-  if (Date.now() > oauthExpiresAt) return;
-  // Give the callback handler a moment to finish storing tokens
-  setTimeout(() => {
-    const allContents = webContents.getAllWebContents();
-    for (const wc of allContents) {
-      if (wc.getType() === "webview") {
-        wc.reload();
+  const oauthWin = new BrowserWindow({
+    width: 500,
+    height: 700,
+    title: "Sign in",
+    backgroundColor: "#111111",
+    parent: mainWin || undefined,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  oauthWin.loadURL(url);
+
+  // Once navigation leaves Google's domain, the OAuth callback has been
+  // reached and the server has set cookies. Wait for the page to finish
+  // loading then auto-close the window.
+  let closeScheduled = false;
+
+  function scheduleClose() {
+    if (closeScheduled) return;
+    closeScheduled = true;
+    oauthWin.webContents.once("did-finish-load", () => {
+      setTimeout(() => {
+        if (!oauthWin.isDestroyed()) oauthWin.close();
+      }, 600);
+    });
+  }
+
+  const isGoogleDomain = (hostname: string) =>
+    hostname.endsWith("google.com") ||
+    hostname.endsWith("googleapis.com") ||
+    hostname.endsWith("gstatic.com");
+
+  const onNavigate = (_event: Electron.Event, navUrl: string) => {
+    try {
+      const parsed = new URL(navUrl);
+      if (!isGoogleDomain(parsed.hostname)) {
+        scheduleClose();
       }
+    } catch {
+      // Malformed URL — ignore
     }
-  }, 500);
-});
+  };
+
+  oauthWin.webContents.on("did-navigate", onNavigate);
+  oauthWin.webContents.on("did-redirect-navigation", onNavigate);
+
+  // Fallback: also detect did-fail-load (e.g. deep link navigation)
+  oauthWin.webContents.on("did-fail-load", () => {
+    setTimeout(() => {
+      if (!oauthWin.isDestroyed()) oauthWin.close();
+    }, 300);
+  });
+
+  // Reload webviews when the OAuth window closes (whether auto or manual)
+  oauthWin.on("closed", () => {
+    reloadAllWebviews();
+  });
+}
 
 // ---------- Webview popup handling ----------
 
@@ -245,7 +359,7 @@ app.on("web-contents-created", (_event, contents) => {
         return { action: "deny" };
       }
       if (OAUTH_HOSTS.includes(parsed.hostname)) {
-        openAuthExternal(url);
+        openOAuthWindow(url);
       } else {
         shell.openExternal(url);
       }
@@ -300,6 +414,12 @@ app.on("web-contents-created", (_event, contents) => {
 // ---------- App lifecycle ----------
 
 app.whenReady().then(() => {
+  // Process any deep link that arrived before the app was ready
+  if (pendingDeepLink) {
+    handleDeepLink(pendingDeepLink);
+    pendingDeepLink = null;
+  }
+
   // Allow webviews to load any localhost URL during development
   if (IS_DEV) {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {

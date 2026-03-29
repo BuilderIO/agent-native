@@ -85,6 +85,31 @@ export function ComposeModal({
   const [showCcBcc, setShowCcBcc] = useState(false);
   const [showQuoted, setShowQuoted] = useState(false);
 
+  // Observe agent sidebar width so compose window stays to its left
+  const [sidebarRight, setSidebarRight] = useState(16); // default 16px (right-4)
+  useEffect(() => {
+    function measure() {
+      const panel = document.querySelector(".agent-sidebar-panel");
+      // Also account for the resize handle (6px)
+      const panelWidth = panel ? panel.getBoundingClientRect().width + 6 : 0;
+      setSidebarRight(panelWidth > 0 ? panelWidth + 16 : 16);
+    }
+    measure();
+    const observer = new MutationObserver(measure);
+    // Watch for sidebar appearing/disappearing and style changes (resize)
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["style", "class"],
+    });
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
+
   const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
   const scheduleEmail = useScheduleEmail();
@@ -309,9 +334,10 @@ export function ComposeModal({
     <div
       ref={composeRef}
       className={cn(
-        "compose-window fixed bottom-0 right-4 z-50 flex w-[540px] flex-col rounded-t-xl bg-card transition-all duration-200",
+        "compose-window fixed bottom-0 z-50 flex w-[540px] flex-col rounded-t-xl bg-card",
         minimized ? "h-11" : "h-[520px]",
       )}
+      style={{ right: sidebarRight }}
       onKeyDown={handleKeyDown}
     >
       {/* Title bar with inline tabs */}

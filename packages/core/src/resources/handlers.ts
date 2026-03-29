@@ -141,7 +141,10 @@ export async function handleGetResourceTree(event: any) {
   return { tree };
 }
 
-/** GET /api/resources/:id — get single resource with content */
+/** GET /api/resources/:id — get single resource with content.
+ *  If the request comes from an <img>/<video>/etc tag (Accept includes the
+ *  resource's mime type, or query param `?raw` is set), return the raw binary
+ *  with the correct Content-Type so the browser can render it inline. */
 export async function handleGetResource(event: any) {
   const id = getRouterParam(event, "id") || event.context.params?.id;
   if (!id) {
@@ -153,6 +156,38 @@ export async function handleGetResource(event: any) {
   if (!resource) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
+  }
+
+  // Serve raw binary when ?raw query param is set (used by <img> tags etc.)
+  const query = getQuery(event);
+  const wantsRaw = query.raw !== undefined;
+
+  if (wantsRaw && resource.content) {
+    const isText =
+      resource.mimeType.startsWith("text/") ||
+      resource.mimeType === "application/json";
+    const buf = isText
+      ? Buffer.from(resource.content, "utf-8")
+      : Buffer.from(resource.content, "base64");
+
+    event.node.res.setHeader("Content-Type", resource.mimeType);
+    event.node.res.setHeader("Content-Length", buf.length);
+    event.node.res.end(buf);
+    return;
+  }
+
+  // For binary resources (images, audio, video), omit the content field from
+  // the JSON response — it can be megabytes of base64. The client fetches
+  // the actual bytes via ?raw when it needs to display them.
+  const isBinary =
+    resource.mimeType.startsWith("image/") ||
+    resource.mimeType.startsWith("audio/") ||
+    resource.mimeType.startsWith("video/") ||
+    resource.mimeType === "application/octet-stream";
+
+  if (isBinary) {
+    const { content: _content, ...meta } = resource;
+    return { ...meta, content: "" };
   }
 
   return resource;

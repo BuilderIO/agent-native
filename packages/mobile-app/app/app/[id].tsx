@@ -38,14 +38,18 @@ export default function AppScreen() {
 
   // When the app returns to foreground after external OAuth, re-read the token
   // (it may have been set by oauth-complete) and reload the WebView.
+  // Use a short delay to let oauth-complete store the token in AsyncStorage
+  // before we read it — the deep link handler and AppState listener race.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active" && openedExternal.current) {
         openedExternal.current = false;
-        AsyncStorage.getItem(SESSION_TOKEN_KEY).then((t) => {
-          setSessionToken(t);
-          webviewRef.current?.reload();
-        });
+        setTimeout(() => {
+          AsyncStorage.getItem(SESSION_TOKEN_KEY).then((t) => {
+            setSessionToken(t);
+            webviewRef.current?.reload();
+          });
+        }, 500);
       }
     });
     return () => sub.remove();
@@ -146,7 +150,7 @@ export default function AppScreen() {
 
         {loading && !error && (
           <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color={app.color} />
+            <ActivityIndicator size="large" color="#ffffff" />
           </View>
         )}
       </View>
@@ -194,14 +198,14 @@ const styles = StyleSheet.create({
   retryButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#3B82F6",
+    backgroundColor: "#ffffff",
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 8,
     gap: 8,
   },
   retryText: {
-    color: "#ffffff",
+    color: "#111111",
     fontSize: 15,
     fontWeight: "600",
   },

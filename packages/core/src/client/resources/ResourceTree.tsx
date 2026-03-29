@@ -283,7 +283,7 @@ function TreeNodeRow({
         <div>
           {node.children.map((child) => (
             <TreeNodeRow
-              key={child.path}
+              key={child.resource?.id ?? child.path}
               node={child}
               depth={depth + 1}
               expanded={expanded}
@@ -456,7 +456,7 @@ export function ResourceTree({
 
       {tree.map((node) => (
         <TreeNodeRow
-          key={node.path}
+          key={node.resource?.id ?? node.path}
           node={node}
           depth={0}
           expanded={expanded}

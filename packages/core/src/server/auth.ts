@@ -403,7 +403,7 @@ function mountAuthRoutes(
       await addSession(sessionToken, "user");
       setCookie(event, COOKIE_NAME, sessionToken, {
         httpOnly: true,
-        secure: true,
+        secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
         path: "/",
         maxAge: sessionMaxAge,

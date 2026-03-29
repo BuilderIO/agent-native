@@ -93,6 +93,7 @@ export function DayView({
   isLoading = false,
 }: DayViewProps) {
   const [now, setNow] = useState(new Date());
+  const [focusedEventId, setFocusedEventId] = useState<string | null>(null);
   const currentTimeRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -283,15 +284,17 @@ export function DayView({
                   onDelete={onDeleteEvent}
                 >
                   <button
+                    onPointerDown={() => setFocusedEventId(event.id)}
                     className={cn(
-                      "absolute overflow-hidden rounded-lg px-2 py-1 text-left text-sm flex flex-col justify-start transition-all hover:z-30 hover:brightness-110 hover:shadow-lg",
+                      "absolute overflow-hidden rounded-lg px-2 py-0.5 text-left text-xs flex flex-col hover:brightness-110 hover:shadow-lg",
+                      durationMin <= 30 ? "justify-center" : "justify-start",
                       isDeclined && "saturate-[0.3]",
                     )}
                     style={{
                       ...posStyle,
                       left: `${li.left}px`,
                       width: `calc(100% - ${li.left + 2}px)`,
-                      zIndex: li.col + 1,
+                      zIndex: focusedEventId === event.id ? 50 : li.col + 1,
                       backgroundColor: color
                         ? `color-mix(in srgb, ${color} ${isPast || isDeclined ? 8 : 18}%, hsl(var(--background)))`
                         : `color-mix(in srgb, hsl(var(--primary)) ${isPast || isDeclined ? 5 : 12}%, hsl(var(--background)))`,
@@ -302,33 +305,67 @@ export function DayView({
                       }`,
                     }}
                   >
-                    <div
-                      className={cn(
-                        "truncate leading-tight",
-                        isPast || isDeclined
-                          ? "text-muted-foreground"
-                          : "text-foreground",
-                        isDeclined && "line-through",
-                        !isPast && !isDeclined && "font-semibold",
-                      )}
-                    >
-                      {event.title}
-                    </div>
-                    <div
-                      className={cn(
-                        "truncate text-[11px] leading-tight",
-                        isPast || isDeclined
-                          ? "text-muted-foreground/50"
-                          : "text-foreground/60",
-                      )}
-                    >
-                      {format(parseISO(event.start), "h:mm a")} –{" "}
-                      {format(parseISO(event.end), "h:mm a")}
-                    </div>
-                    {durationMin >= 45 && event.location && (
-                      <div className="truncate text-[11px] leading-tight text-foreground/50">
-                        {event.location}
+                    {durationMin <= 30 ? (
+                      <div className="flex items-baseline gap-1.5 truncate">
+                        <span
+                          className={cn(
+                            "truncate leading-tight",
+                            isPast || isDeclined
+                              ? "text-muted-foreground"
+                              : "text-foreground",
+                            isDeclined && "line-through",
+                            !isPast && !isDeclined && "font-semibold",
+                          )}
+                        >
+                          {event.title}
+                        </span>
+                        <span
+                          className={cn(
+                            "shrink-0 text-[11px] leading-tight",
+                            isPast || isDeclined
+                              ? "text-muted-foreground/50"
+                              : "text-foreground/60",
+                          )}
+                        >
+                          {format(
+                            parseISO(event.start),
+                            parseISO(event.start).getMinutes() === 0
+                              ? "h a"
+                              : "h:mm a",
+                          )}
+                        </span>
                       </div>
+                    ) : (
+                      <>
+                        <div
+                          className={cn(
+                            "mt-0.5 truncate leading-tight",
+                            isPast || isDeclined
+                              ? "text-muted-foreground"
+                              : "text-foreground",
+                            isDeclined && "line-through",
+                            !isPast && !isDeclined && "font-semibold",
+                          )}
+                        >
+                          {event.title}
+                        </div>
+                        <div
+                          className={cn(
+                            "mt-0.5 truncate text-[10px] leading-tight",
+                            isPast || isDeclined
+                              ? "text-muted-foreground/50"
+                              : "text-foreground/60",
+                          )}
+                        >
+                          {format(parseISO(event.start), "h:mm a")} –{" "}
+                          {format(parseISO(event.end), "h:mm a")}
+                        </div>
+                        {durationMin >= 45 && event.location && (
+                          <div className="truncate text-[11px] leading-tight text-foreground/50">
+                            {event.location}
+                          </div>
+                        )}
+                      </>
                     )}
                   </button>
                 </EventDetailPopover>

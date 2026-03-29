@@ -29,6 +29,7 @@ import React, {
   useCallback,
   lazy,
   Suspense,
+  startTransition,
 } from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
@@ -81,8 +82,8 @@ interface AvailableCli {
 function useAvailableClis() {
   const [clis, setClis] = useState<AvailableCli[]>([]);
   useEffect(() => {
-    // Only fetch in dev mode — this endpoint is provided by the terminal plugin
-    if (!IS_DEV) return;
+    // Try to fetch available CLIs — endpoint is provided by the terminal plugin.
+    // Returns 404 gracefully when the plugin isn't loaded.
     fetch("/api/available-clis")
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => setClis(data))
@@ -231,22 +232,6 @@ function PlusIcon({ className }: { className?: string }) {
   );
 }
 
-function TrashIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.85}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    </svg>
-  );
-}
-
 function FolderIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -275,6 +260,24 @@ function XIcon({ className }: { className?: string }) {
       className={className}
     >
       <path d="M18 6L6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+function HistoryIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M12 7v5l4 2" />
     </svg>
   );
 }
@@ -318,14 +321,14 @@ function SettingsSelect({
           <SelectPrimitive.Content
             position="popper"
             sideOffset={6}
-            className="z-[220] w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
+            className="z-[9999] w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
           >
             <SelectPrimitive.Viewport className="p-1">
               {options.map((option) => (
                 <SelectPrimitive.Item
                   key={option.value}
                   value={option.value}
-                  className="relative flex w-full cursor-default select-none items-start gap-2 rounded-md px-8 py-2.5 text-[12px] outline-none transition-colors data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40"
+                  className="relative flex w-full cursor-pointer select-none items-start gap-2 rounded-md px-8 py-2.5 text-[12px] outline-none data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40"
                   style={AGENT_PANEL_CONTROL_STYLE}
                 >
                   <span className="absolute left-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
@@ -402,14 +405,18 @@ function AgentSettingsPopover({
   useEffect(() => {
     if (!open) return;
     function handleClick(e: MouseEvent) {
+      const target = e.target as Node;
+      // Ignore clicks inside the popover itself or its trigger button
+      if (popoverRef.current?.contains(target)) return;
+      if (buttonRef.current?.contains(target)) return;
+      // Ignore clicks inside portaled Radix Select content (rendered outside the popover DOM)
       if (
-        popoverRef.current &&
-        !popoverRef.current.contains(e.target as Node) &&
-        buttonRef.current &&
-        !buttonRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
+        (target as Element).closest?.(
+          "[data-radix-popper-content-wrapper], [data-radix-select-viewport], [role='listbox']",
+        )
+      )
+        return;
+      setOpen(false);
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -485,7 +492,7 @@ function AgentSettingsPopover({
                   if (nextIsDev !== isDevMode) onToggle();
                 }}
               />
-              {IS_DEV && cliOptions.length > 0 && (
+              {isDevMode && cliOptions.length > 0 && (
                 <SettingsSelect
                   label="CLI Agent"
                   value={selectedCli}
@@ -531,7 +538,48 @@ export function AgentPanel({
   onCollapse,
 }: AgentPanelProps) {
   const mounted = useClientOnly();
-  const [mode, setMode] = useState<"chat" | "cli" | "resources">(defaultMode);
+  const [mode, setMode] = useState<"chat" | "cli" | "resources">(() => {
+    try {
+      const saved = localStorage.getItem("agent-native-panel-mode");
+      if (saved === "chat" || saved === "cli" || saved === "resources")
+        return saved;
+    } catch {}
+    return defaultMode;
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("agent-native-panel-mode", mode);
+    } catch {}
+  }, [mode]);
+  const switchMode = useCallback((m: "chat" | "cli" | "resources") => {
+    startTransition(() => setMode(m));
+  }, []);
+  // CLI terminal tabs (ephemeral — not persisted to SQL)
+  const [cliTabs, setCliTabs] = useState<string[]>(["cli-1"]);
+  const [activeCliTab, setActiveCliTab] = useState("cli-1");
+  const cliCounter = useRef(1);
+
+  const addCliTab = useCallback(() => {
+    const id = `cli-${++cliCounter.current}`;
+    setCliTabs((prev) => [...prev, id]);
+    setActiveCliTab(id);
+  }, []);
+
+  const closeCliTab = useCallback(
+    (id: string) => {
+      setCliTabs((prev) => {
+        if (prev.length <= 1) return prev;
+        const next = prev.filter((t) => t !== id);
+        if (id === activeCliTab) {
+          const idx = prev.indexOf(id);
+          setActiveCliTab(next[Math.min(idx, next.length - 1)]);
+        }
+        return next;
+      });
+    },
+    [activeCliTab],
+  );
+
   const availableClis = useAvailableClis();
   const [selectedCli, selectCli] = useCliSelection();
   const selectedLabel =
@@ -549,7 +597,7 @@ export function AgentPanel({
     (activeMode: "chat" | "cli" | "resources") => (
       <div className="flex shrink-0 items-center gap-1">
         <button
-          onClick={() => setMode("chat")}
+          onClick={() => switchMode("chat")}
           className={cn(
             "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
             activeMode === "chat"
@@ -562,9 +610,9 @@ export function AgentPanel({
           <ChatBubbleIcon className="h-3.5 w-3.5" />
           Chat
         </button>
-        {IS_DEV && (
+        {isDevMode && (
           <button
-            onClick={() => setMode("cli")}
+            onClick={() => switchMode("cli")}
             className={cn(
               "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
               activeMode === "cli"
@@ -578,25 +626,28 @@ export function AgentPanel({
             CLI
           </button>
         )}
+        <button
+          onClick={() => switchMode("resources")}
+          className={cn(
+            "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+            activeMode === "resources"
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          )}
+          title="Files & resources"
+          style={AGENT_PANEL_CONTROL_STYLE}
+        >
+          <FolderIcon className="h-3.5 w-3.5" />
+          Files
+        </button>
       </div>
     ),
-    [],
+    [isDevMode],
   );
 
   const renderHeaderActions = useCallback(
     () => (
       <div className="flex shrink-0 items-center gap-1.5">
-        <IconTooltip content="Resources">
-          <button
-            onClick={() => setMode(mode === "resources" ? "chat" : "resources")}
-            className={cn(
-              "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
-              mode === "resources" && "bg-accent/50 text-foreground",
-            )}
-          >
-            <FolderIcon className="h-3.5 w-3.5" />
-          </button>
-        </IconTooltip>
         {showDevToggle && (
           <IconTooltip content="Agent settings">
             <div>
@@ -641,89 +692,127 @@ export function AgentPanel({
       setActiveTabId,
       addTab,
       closeTab,
+      showHistory,
+      toggleHistory,
     }: MultiTabAssistantChatHeaderProps) => (
-      <div
-        className={AGENT_PANEL_HEADER_CLASS}
-        style={AGENT_PANEL_HEADER_STYLE}
-      >
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
-          {renderModeButtons(mode)}
-          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
-            {tabs.length > 1 &&
-              tabs.map((tab) => (
-                <div
-                  key={tab.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setActiveTabId(tab.id)}
-                  className={cn(
-                    "group/tab flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium leading-none cursor-pointer",
-                    tab.id === activeTabId
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                  )}
-                  style={AGENT_PANEL_CONTROL_STYLE}
-                >
-                  <span>{tab.label}</span>
-                  {tab.status === "running" && (
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 animate-pulse" />
-                  )}
-                  {tab.status === "completed" && (
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
-                  )}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      closeTab(tab.id);
-                    }}
-                    className={cn(
-                      "ml-0.5 flex h-3 w-3 items-center justify-center rounded-sm opacity-0 group-hover/tab:opacity-100",
-                      tab.id === activeTabId
-                        ? "text-foreground/55 hover:bg-background/60 hover:text-foreground"
-                        : "text-muted-foreground/65 hover:bg-accent hover:text-foreground",
-                    )}
-                    title={`Close chat ${tab.label}`}
-                    aria-label={`Close chat ${tab.label}`}
-                  >
-                    <XIcon className="h-2.5 w-2.5" />
-                  </button>
-                </div>
-              ))}
-            <IconTooltip content="New chat">
-              <button
-                onClick={addTab}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:bg-accent/40 hover:text-muted-foreground"
+      <div className="flex flex-col shrink-0">
+        {/* Top bar: mode buttons + actions */}
+        <div
+          className={AGENT_PANEL_HEADER_CLASS}
+          style={AGENT_PANEL_HEADER_STYLE}
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+            {renderModeButtons(mode)}
+          </div>
+          <div className="flex items-center gap-0.5">
+            {mode !== "resources" && (
+              <IconTooltip
+                content={mode === "cli" ? "New terminal" : "New chat"}
               >
-                <PlusIcon className="h-3.5 w-3.5" />
-              </button>
-            </IconTooltip>
+                <button
+                  onClick={mode === "cli" ? addCliTab : addTab}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                >
+                  <PlusIcon className="h-3.5 w-3.5" />
+                </button>
+              </IconTooltip>
+            )}
+            {mode === "chat" && toggleHistory && (
+              <IconTooltip content="Chat history">
+                <button
+                  onClick={toggleHistory}
+                  className={cn(
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                    showHistory && "bg-accent text-foreground",
+                  )}
+                >
+                  <HistoryIcon className="h-3.5 w-3.5" />
+                </button>
+              </IconTooltip>
+            )}
+            {renderHeaderActions()}
           </div>
         </div>
-        {renderHeaderActions()}
+        {/* Tab bar: chat tabs or CLI tabs when multiple are open */}
+        {((mode === "chat" && tabs.length > 1) ||
+          (mode === "cli" && cliTabs.length > 1)) && (
+          <div className="flex items-center px-1 py-1 border-b border-border gap-0.5 overflow-x-auto scrollbar-none">
+            {mode === "chat"
+              ? tabs.map((tab) => (
+                  <div
+                    key={tab.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setActiveTabId(tab.id)}
+                    className={cn(
+                      "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[130px]",
+                      tab.id === activeTabId
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    )}
+                  >
+                    <span className="truncate pr-1">{tab.label}</span>
+                    {tab.status === "running" && (
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 animate-pulse" />
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        closeTab(tab.id);
+                      }}
+                      className="agent-tab-close absolute right-1 top-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded bg-accent/80 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    >
+                      <XIcon className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                ))
+              : cliTabs.map((id, i) => (
+                  <div
+                    key={id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setActiveCliTab(id)}
+                    className={cn(
+                      "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
+                      id === activeCliTab
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    )}
+                  >
+                    <span>Terminal {i + 1}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        closeCliTab(id);
+                      }}
+                      className="agent-tab-close absolute right-1 top-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded bg-accent/80 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    >
+                      <XIcon className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                ))}
+            <button
+              onClick={mode === "cli" ? addCliTab : addTab}
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50"
+              title={mode === "cli" ? "New terminal" : "New chat"}
+            >
+              <PlusIcon className="h-3 w-3" />
+            </button>
+          </div>
+        )}
       </div>
     ),
-    [mode, renderHeaderActions, renderModeButtons],
-  );
-
-  const renderChatOverlay = useCallback(
-    ({
-      activeTabMessageCount,
-      clearActiveTab,
-    }: MultiTabAssistantChatHeaderProps) =>
-      activeTabMessageCount > 0 ? (
-        <div className="pointer-events-none absolute right-2 top-2 z-20">
-          <IconTooltip content="Clear chat">
-            <button
-              onClick={clearActiveTab}
-              className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded text-muted-foreground/50 hover:bg-accent/40 hover:text-muted-foreground"
-            >
-              <TrashIcon className="h-3.5 w-3.5" />
-            </button>
-          </IconTooltip>
-        </div>
-      ) : null,
-    [],
+    [
+      mode,
+      renderHeaderActions,
+      renderModeButtons,
+      cliTabs,
+      activeCliTab,
+      addCliTab,
+      closeCliTab,
+    ],
   );
 
   return (
@@ -734,6 +823,13 @@ export function AgentPanel({
       )}
       style={AGENT_PANEL_ROOT_STYLE}
     >
+      {/* Tailwind group-hover/tab doesn't work in core package — inject directly */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html:
+            ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}",
+        }}
+      />
       {/* Chat view — always mounted to preserve state.
           Header (with tabs + mode buttons) is always visible.
           Chat content is hidden when CLI or resources mode is active.
@@ -750,42 +846,53 @@ export function AgentPanel({
             apiUrl={apiUrl}
             showHeader={false}
             renderHeader={showHeader ? renderChatHeader : undefined}
-            renderOverlay={showHeader ? renderChatOverlay : undefined}
+            renderOverlay={undefined}
             contentHidden={mode !== "chat"}
             emptyStateText={emptyStateText}
             suggestions={suggestions}
-            onSwitchToCli={IS_DEV ? () => setMode("cli") : undefined}
+            onSwitchToCli={isDevMode ? () => switchMode("cli") : undefined}
           />
         )}
       </div>
 
-      {/* CLI terminal — only rendered in dev mode */}
-      {IS_DEV && mode === "cli" && (
-        <div className="flex-1 min-h-0 relative">
-          <Suspense
-            fallback={
-              <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                Loading terminal...
-              </div>
-            }
+      {/* CLI terminals — only rendered in dev mode, supports multiple tabs */}
+      {isDevMode &&
+        mode === "cli" &&
+        cliTabs.map((id) => (
+          <div
+            key={id}
+            className="flex-1 min-h-0 relative"
+            style={{ display: id === activeCliTab ? undefined : "none" }}
           >
-            <AgentTerminal
-              command={selectedCli}
-              hideInHarness={false}
-              className="h-full"
-              style={{ background: "transparent" }}
-            />
-          </Suspense>
-        </div>
-      )}
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                  Loading terminal...
+                </div>
+              }
+            >
+              <AgentTerminal
+                command={selectedCli}
+                hideInHarness={false}
+                className="h-full"
+                style={{ background: "transparent" }}
+              />
+            </Suspense>
+          </div>
+        ))}
 
       {/* Resources view */}
       {mode === "resources" && (
         <div className="flex-1 min-h-0">
           <Suspense
             fallback={
-              <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                Loading resources...
+              <div className="flex h-full flex-col min-h-0">
+                <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5">
+                  <div className="flex items-center gap-1">
+                    <div className="h-5 w-16 rounded bg-muted animate-pulse" />
+                    <div className="h-5 w-14 rounded bg-muted animate-pulse" />
+                  </div>
+                </div>
               </div>
             }
           >
@@ -811,56 +918,78 @@ function ResizeHandle({
   position: "left" | "right";
   onDrag: (delta: number) => void;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const lastX = useRef(0);
+  const onDragRef = useRef(onDrag);
+  onDragRef.current = onDrag;
+  const GRAB_ZONE = 5; // px on each side of the border
 
-  const onPointerDown = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    dragging.current = true;
-    lastX.current = e.clientX;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-  }, []);
+  // All drag logic runs via document-level listeners so the 1px-wide
+  // element doesn't need to capture pointer events itself.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let cursorActive = false;
 
-  const onPointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!dragging.current) return;
-      const delta = e.clientX - lastX.current;
+    function onMouseDown(e: MouseEvent) {
+      const rect = el!.getBoundingClientRect();
+      const dist = Math.abs(e.clientX - (rect.left + rect.width / 2));
+      if (dist > GRAB_ZONE) return;
+      e.preventDefault();
+      dragging.current = true;
       lastX.current = e.clientX;
-      // For a left sidebar, dragging right = wider (positive delta)
-      // For a right sidebar, dragging left = wider (negative delta)
-      onDrag(position === "left" ? delta : -delta);
-    },
-    [onDrag, position],
-  );
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    }
 
-  const onPointerUp = useCallback(() => {
-    dragging.current = false;
-    document.body.style.cursor = "";
-    document.body.style.userSelect = "";
-  }, []);
+    function onMouseMove(e: MouseEvent) {
+      if (dragging.current) {
+        const delta = e.clientX - lastX.current;
+        lastX.current = e.clientX;
+        onDragRef.current(position === "left" ? delta : -delta);
+        return;
+      }
+      // Hover cursor
+      const rect = el!.getBoundingClientRect();
+      const dist = Math.abs(e.clientX - (rect.left + rect.width / 2));
+      const near = dist <= GRAB_ZONE;
+      if (near && !cursorActive) {
+        cursorActive = true;
+        document.body.style.cursor = "col-resize";
+      } else if (!near && cursorActive) {
+        cursorActive = false;
+        document.body.style.cursor = "";
+      }
+    }
+
+    function onMouseUp() {
+      if (!dragging.current) return;
+      dragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      if (cursorActive) document.body.style.cursor = "";
+    };
+  }, [position]);
 
   return (
     <div
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      className="group relative z-10 shrink-0 w-px touch-none"
-    >
-      <div
-        className={cn(
-          "absolute inset-y-0 cursor-col-resize",
-          position === "left" ? "-left-1.5 w-4" : "-right-1.5 w-4",
-        )}
-      />
-      <div
-        className={cn(
-          "absolute inset-y-0 top-0 w-px bg-border transition-colors group-hover:bg-accent group-active:bg-accent",
-          position === "left" ? "left-0" : "right-0",
-        )}
-      />
-    </div>
+      ref={ref}
+      className={cn(
+        "relative z-20 shrink-0 w-px touch-none select-none transition-colors",
+        "bg-border hover:bg-accent active:bg-accent",
+      )}
+      style={{ cursor: "col-resize" }}
+    />
   );
 }
 

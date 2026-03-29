@@ -23,6 +23,28 @@ export interface TerminalPluginOptions {
 
 export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
   return async (nitroApp: any) => {
+    // Always mount /api/available-clis so the client doesn't get 404s
+    nitroApp.h3App.use(
+      "/api/available-clis",
+      defineEventHandler(async () => {
+        try {
+          const { CLI_REGISTRY, commandExists } =
+            await import("./cli-registry.js");
+          const results = [];
+          for (const [cmd, entry] of Object.entries(CLI_REGISTRY)) {
+            results.push({
+              command: cmd,
+              label: entry.label,
+              available: commandExists(cmd),
+            });
+          }
+          return results;
+        } catch {
+          return [];
+        }
+      }),
+    );
+
     // Skip if running inside a harness
     if (process.env.HARNESS_PORT) {
       console.log("[terminal] Harness detected, skipping embedded terminal");
@@ -87,24 +109,6 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
       (process.env.AGENT_TERMINAL_PORT
         ? parseInt(process.env.AGENT_TERMINAL_PORT, 10)
         : 0);
-
-    // Mount available CLIs endpoint (always available, even if PTY fails)
-    nitroApp.h3App.use(
-      "/api/available-clis",
-      defineEventHandler(async () => {
-        const { CLI_REGISTRY, commandExists } =
-          await import("./cli-registry.js");
-        const results = [];
-        for (const [cmd, entry] of Object.entries(CLI_REGISTRY)) {
-          results.push({
-            command: cmd,
-            label: entry.label,
-            available: commandExists(cmd),
-          });
-        }
-        return results;
-      }),
-    );
 
     try {
       const { createPtyWebSocketServer } = await import("./pty-server.js");

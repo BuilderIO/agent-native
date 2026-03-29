@@ -25,6 +25,13 @@ export default function SettingsScreen() {
     [updateApp],
   );
 
+  const handleModeToggle = useCallback(
+    (id: string, mode: "dev" | "prod") => {
+      updateApp(id, { mode });
+    },
+    [updateApp],
+  );
+
   const handleEdit = useCallback((app: AppConfig) => {
     setEditingApp(app);
   }, []);
@@ -87,6 +94,41 @@ export default function SettingsScreen() {
               </View>
             </View>
             <View style={styles.appActions}>
+              <View style={styles.modeToggle}>
+                <TouchableOpacity
+                  style={[
+                    styles.modeButton,
+                    (app.mode ?? "prod") === "prod" && styles.modeButtonActive,
+                  ]}
+                  onPress={() => handleModeToggle(app.id, "prod")}
+                >
+                  <Text
+                    style={[
+                      styles.modeButtonText,
+                      (app.mode ?? "prod") === "prod" &&
+                        styles.modeButtonTextActive,
+                    ]}
+                  >
+                    Prod
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.modeButton,
+                    app.mode === "dev" && styles.modeButtonActive,
+                  ]}
+                  onPress={() => handleModeToggle(app.id, "dev")}
+                >
+                  <Text
+                    style={[
+                      styles.modeButtonText,
+                      app.mode === "dev" && styles.modeButtonTextActive,
+                    ]}
+                  >
+                    Dev
+                  </Text>
+                </TouchableOpacity>
+              </View>
               <TouchableOpacity
                 onPress={() => handleEdit(app)}
                 style={styles.editButton}
@@ -104,8 +146,8 @@ export default function SettingsScreen() {
               <Switch
                 value={app.enabled}
                 onValueChange={(v) => handleToggle(app.id, v)}
-                trackColor={{ false: "#333333", true: "#3B82F644" }}
-                thumbColor={app.enabled ? "#3B82F6" : "#666666"}
+                trackColor={{ false: "#333333", true: "#555555" }}
+                thumbColor={app.enabled ? "#ffffff" : "#666666"}
               />
             </View>
           </View>
@@ -117,7 +159,7 @@ export default function SettingsScreen() {
             style={styles.addButton}
             onPress={() => setShowAddForm(true)}
           >
-            <Feather name="plus" size={18} color="#3B82F6" />
+            <Feather name="plus" size={18} color="#ffffff" />
             <Text style={styles.addButtonText}>Add Custom App</Text>
           </TouchableOpacity>
 
@@ -204,6 +246,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
+  modeToggle: {
+    flexDirection: "row",
+    backgroundColor: "#1A1A1A",
+    borderRadius: 6,
+    padding: 2,
+    gap: 1,
+  },
+  modeButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  modeButtonActive: {
+    backgroundColor: "#333333",
+  },
+  modeButtonText: {
+    color: "#555555",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  modeButtonTextActive: {
+    color: "#ffffff",
+  },
   editButton: {
     padding: 6,
   },
@@ -220,10 +285,10 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 8,
     borderWidth: 1,
-    borderColor: "#3B82F633",
+    borderColor: "#33333366",
   },
   addButtonText: {
-    color: "#3B82F6",
+    color: "#ffffff",
     fontSize: 16,
     fontWeight: "500",
   },
