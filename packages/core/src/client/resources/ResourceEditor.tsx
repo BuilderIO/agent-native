@@ -5,7 +5,7 @@ import React, {
   useCallback,
   useMemo,
 } from "react";
-import { useEditor, EditorContent, BubbleMenu } from "@tiptap/react";
+import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
@@ -269,8 +269,44 @@ function SlashMenu({ editor }: { editor: any }) {
 // --- Inline Bubble Toolbar ---
 
 function InlineBubbleToolbar({ editor }: { editor: any }) {
+  const [visible, setVisible] = useState(false);
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
+  const toolbarRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!editor) return;
+    const update = () => {
+      const { from, to } = editor.state.selection;
+      if (from === to || !editor.isFocused) {
+        setVisible(false);
+        return;
+      }
+      const domSelection = window.getSelection();
+      if (!domSelection || domSelection.rangeCount === 0) {
+        setVisible(false);
+        return;
+      }
+      const range = domSelection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      if (rect.width === 0) {
+        setVisible(false);
+        return;
+      }
+      setCoords({
+        top: rect.top + window.scrollY - 8,
+        left: rect.left + window.scrollX + rect.width / 2,
+      });
+      setVisible(true);
+    };
+    editor.on("selectionUpdate", update);
+    editor.on("blur", () => setVisible(false));
+    return () => {
+      editor.off("selectionUpdate", update);
+      editor.off("blur", () => setVisible(false));
+    };
+  }, [editor]);
 
   const handleSetLink = () => {
     if (linkUrl.trim()) {
@@ -354,13 +390,18 @@ function InlineBubbleToolbar({ editor }: { editor: any }) {
     },
   ];
 
+  if (!visible) return null;
+
   return (
-    <BubbleMenu
-      editor={editor}
+    <div
+      ref={toolbarRef}
       className="re-bubble-toolbar"
-      shouldShow={({ editor, from, to }) => {
-        if (!editor.isFocused) return false;
-        return from !== to;
+      style={{
+        position: "absolute",
+        top: coords.top,
+        left: coords.left,
+        transform: "translate(-50%, -100%)",
+        zIndex: 50,
       }}
     >
       {showLinkInput ? (
@@ -449,7 +490,7 @@ function InlineBubbleToolbar({ editor }: { editor: any }) {
           })}
         </div>
       )}
-    </BubbleMenu>
+    </div>
   );
 }
 
