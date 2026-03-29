@@ -270,17 +270,44 @@ export function MultiTabAssistantChat({
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
 
-  // Open tabs — a subset of all threads that are currently visible as tabs.
-  // On initial load, only the active thread is open. Users can open more from history.
-  const [openTabIds, setOpenTabIds] = useState<string[]>([]);
+  // Open tabs — persisted to localStorage so they survive refresh.
+  const OPEN_TABS_KEY = "agent-chat-open-tabs";
+  const [openTabIds, setOpenTabIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(OPEN_TABS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
   const initializedRef = useRef(false);
 
-  // Initialize open tabs once threads load
+  // Persist open tab IDs to localStorage
+  useEffect(() => {
+    if (openTabIds.length > 0) {
+      try {
+        localStorage.setItem(OPEN_TABS_KEY, JSON.stringify(openTabIds));
+      } catch {}
+    }
+  }, [openTabIds]);
+
+  // Initialize open tabs once threads load — validate saved tabs still exist
   useEffect(() => {
     if (initializedRef.current || !activeThreadId || threads.length === 0)
       return;
     initializedRef.current = true;
-    setOpenTabIds([activeThreadId]);
+    const threadIds = new Set(threads.map((t) => t.id));
+    setOpenTabIds((prev) => {
+      // Filter out any saved tabs that no longer exist
+      const valid = prev.filter((id) => threadIds.has(id));
+      // Ensure active thread is included
+      if (!valid.includes(activeThreadId)) {
+        valid.push(activeThreadId);
+      }
+      return valid.length > 0 ? valid : [activeThreadId];
+    });
   }, [activeThreadId, threads]);
 
   // Ensure active thread is always in open tabs

@@ -489,7 +489,7 @@ export default function BookingLinksPage() {
                   />
                 </div>
 
-                {/* Interactive booking link */}
+                {/* Editable URL parts (username / slug) */}
                 <EditableBookingUrl
                   username={
                     bookingUsername || usernameInput || suggestedUsername || ""
@@ -520,8 +520,6 @@ export default function BookingLinksPage() {
                       slugManuallyEdited: true,
                     }));
                   }}
-                  onCopy={() => void copyPreviewUrl(draft.slug)}
-                  onOpen={() => openPreview(draft.slug)}
                 />
 
                 {/* Actions */}
@@ -569,6 +567,9 @@ export default function BookingLinksPage() {
                 durations={draft.durations}
                 isActive={draft.isActive}
                 availability={availability ?? undefined}
+                bookingUrl={previewUrl}
+                onCopy={() => void copyPreviewUrl(draft.slug)}
+                onOpen={() => openPreview(draft.slug)}
               />
             </div>
           )}
@@ -858,15 +859,11 @@ function EditableBookingUrl({
   slug,
   onUsernameChange,
   onSlugChange,
-  onCopy,
-  onOpen,
 }: {
   username: string;
   slug: string;
   onUsernameChange: (val: string) => void;
   onSlugChange: (val: string) => void;
-  onCopy: () => void;
-  onOpen: () => void;
 }) {
   const [editingField, setEditingField] = useState<"username" | "slug" | null>(
     null,
@@ -894,13 +891,10 @@ function EditableBookingUrl({
       : PRODUCTION_DOMAIN;
 
   return (
-    <div className="rounded-2xl border border-border bg-muted/20 p-4 space-y-3">
-      <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-        Booking link
-      </p>
-
+    <div className="space-y-2">
+      <Label>URL</Label>
       {/* Interactive URL — click username or slug to edit inline */}
-      <div className="flex flex-wrap items-baseline gap-0 text-sm font-mono leading-relaxed break-all">
+      <div className="flex flex-wrap items-baseline gap-0 text-sm font-mono leading-relaxed break-all rounded-lg border border-border bg-muted/20 px-3 py-2">
         <span className="text-muted-foreground">{host}/meet/</span>
 
         {editingField === "username" ? (
@@ -966,29 +960,6 @@ function EditableBookingUrl({
           </button>
         )}
       </div>
-
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="gap-2"
-          onClick={onCopy}
-        >
-          <Copy className="h-3.5 w-3.5" />
-          Copy link
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="gap-2"
-          onClick={onOpen}
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-          Open in new tab
-        </Button>
-      </div>
     </div>
   );
 }
@@ -999,12 +970,18 @@ function BookingPreview({
   durations,
   isActive,
   availability,
+  bookingUrl,
+  onCopy,
+  onOpen,
 }: {
   title: string;
   description: string;
   durations: number[];
   isActive: boolean;
   availability?: AvailabilityConfig;
+  bookingUrl?: string;
+  onCopy?: () => void;
+  onOpen?: () => void;
 }) {
   const displayTitle = title.trim() || "Untitled Meeting";
   const hasDurationChoice = durations.length > 1;
@@ -1084,14 +1061,43 @@ function BookingPreview({
   return (
     <div className="rounded-2xl border border-border overflow-hidden bg-card">
       {/* Preview header bar */}
-      <div className="flex items-center justify-between border-b border-border/60 bg-muted/30 px-4 py-2">
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          Preview
-        </span>
-        {!isActive && (
-          <Badge variant="secondary" className="text-[10px]">
-            Hidden
-          </Badge>
+      <div className="border-b border-border/60 bg-muted/30 px-4 py-2 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            Preview
+          </span>
+          <div className="flex items-center gap-1">
+            {!isActive && (
+              <Badge variant="secondary" className="text-[10px]">
+                Hidden
+              </Badge>
+            )}
+            {onCopy && (
+              <button
+                type="button"
+                onClick={onCopy}
+                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                title="Copy link"
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {onOpen && (
+              <button
+                type="button"
+                onClick={onOpen}
+                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                title="Open in new tab"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+        {bookingUrl && (
+          <p className="text-[11px] font-mono text-muted-foreground truncate">
+            {bookingUrl.replace(/^https?:\/\//, "")}
+          </p>
         )}
       </div>
 

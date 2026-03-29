@@ -158,13 +158,9 @@ export async function handleGetResource(event: any) {
     return { error: "Resource not found" };
   }
 
-  // Serve raw binary for image/audio/video or when ?raw is set
+  // Serve raw binary only when ?raw query param is set (used by <img> tags etc.)
   const query = getQuery(event);
-  const isBinaryMime =
-    resource.mimeType.startsWith("image/") ||
-    resource.mimeType.startsWith("audio/") ||
-    resource.mimeType.startsWith("video/");
-  const wantsRaw = query.raw !== undefined || isBinaryMime;
+  const wantsRaw = query.raw !== undefined;
 
   if (wantsRaw && resource.content) {
     const isBase64 =

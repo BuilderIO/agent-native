@@ -550,6 +550,32 @@ export function AgentPanel({
       localStorage.setItem("agent-native-panel-mode", mode);
     } catch {}
   }, [mode]);
+  // CLI terminal tabs (ephemeral — not persisted to SQL)
+  const [cliTabs, setCliTabs] = useState<string[]>(["cli-1"]);
+  const [activeCliTab, setActiveCliTab] = useState("cli-1");
+  const cliCounter = useRef(1);
+
+  const addCliTab = useCallback(() => {
+    const id = `cli-${++cliCounter.current}`;
+    setCliTabs((prev) => [...prev, id]);
+    setActiveCliTab(id);
+  }, []);
+
+  const closeCliTab = useCallback(
+    (id: string) => {
+      setCliTabs((prev) => {
+        if (prev.length <= 1) return prev;
+        const next = prev.filter((t) => t !== id);
+        if (id === activeCliTab) {
+          const idx = prev.indexOf(id);
+          setActiveCliTab(next[Math.min(idx, next.length - 1)]);
+        }
+        return next;
+      });
+    },
+    [activeCliTab],
+  );
+
   const availableClis = useAvailableClis();
   const [selectedCli, selectCli] = useCliSelection();
   const selectedLabel =
@@ -680,7 +706,7 @@ export function AgentPanel({
                 content={mode === "cli" ? "New terminal" : "New chat"}
               >
                 <button
-                  onClick={addTab}
+                  onClick={mode === "cli" ? addCliTab : addTab}
                   className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
                 >
                   <PlusIcon className="h-3.5 w-3.5" />
@@ -703,43 +729,86 @@ export function AgentPanel({
             {renderHeaderActions()}
           </div>
         </div>
-        {/* Tab bar: only when multiple chat tabs are open */}
-        {mode === "chat" && tabs.length > 1 && (
+        {/* Tab bar: chat tabs or CLI tabs when multiple are open */}
+        {((mode === "chat" && tabs.length > 1) ||
+          (mode === "cli" && cliTabs.length > 1)) && (
           <div className="flex items-center px-1 py-1 border-b border-border gap-0.5 overflow-x-auto scrollbar-none">
-            {tabs.map((tab) => (
-              <div
-                key={tab.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => setActiveTabId(tab.id)}
-                className={cn(
-                  "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[130px]",
-                  tab.id === activeTabId
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                )}
-              >
-                <span className="truncate pr-1">{tab.label}</span>
-                {tab.status === "running" && (
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 animate-pulse" />
-                )}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    closeTab(tab.id);
-                  }}
-                  className="agent-tab-close absolute right-1 top-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded bg-accent/80 text-muted-foreground hover:bg-accent hover:text-foreground"
-                >
-                  <XIcon className="h-2.5 w-2.5" />
-                </button>
-              </div>
-            ))}
+            {mode === "chat"
+              ? tabs.map((tab) => (
+                  <div
+                    key={tab.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setActiveTabId(tab.id)}
+                    className={cn(
+                      "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[130px]",
+                      tab.id === activeTabId
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    )}
+                  >
+                    <span className="truncate pr-1">{tab.label}</span>
+                    {tab.status === "running" && (
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 animate-pulse" />
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        closeTab(tab.id);
+                      }}
+                      className="agent-tab-close absolute right-1 top-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded bg-accent/80 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    >
+                      <XIcon className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                ))
+              : cliTabs.map((id, i) => (
+                  <div
+                    key={id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setActiveCliTab(id)}
+                    className={cn(
+                      "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
+                      id === activeCliTab
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    )}
+                  >
+                    <span>Terminal {i + 1}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        closeCliTab(id);
+                      }}
+                      className="agent-tab-close absolute right-1 top-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded bg-accent/80 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    >
+                      <XIcon className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                ))}
+            <button
+              onClick={mode === "cli" ? addCliTab : addTab}
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50"
+              title={mode === "cli" ? "New terminal" : "New chat"}
+            >
+              <PlusIcon className="h-3 w-3" />
+            </button>
           </div>
         )}
       </div>
     ),
-    [mode, renderHeaderActions, renderModeButtons],
+    [
+      mode,
+      renderHeaderActions,
+      renderModeButtons,
+      cliTabs,
+      activeCliTab,
+      addCliTab,
+      closeCliTab,
+    ],
   );
 
   return (
@@ -782,25 +851,31 @@ export function AgentPanel({
         )}
       </div>
 
-      {/* CLI terminal — only rendered in dev mode */}
-      {isDevMode && mode === "cli" && (
-        <div className="flex-1 min-h-0 relative">
-          <Suspense
-            fallback={
-              <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                Loading terminal...
-              </div>
-            }
+      {/* CLI terminals — only rendered in dev mode, supports multiple tabs */}
+      {isDevMode &&
+        mode === "cli" &&
+        cliTabs.map((id) => (
+          <div
+            key={id}
+            className="flex-1 min-h-0 relative"
+            style={{ display: id === activeCliTab ? undefined : "none" }}
           >
-            <AgentTerminal
-              command={selectedCli}
-              hideInHarness={false}
-              className="h-full"
-              style={{ background: "transparent" }}
-            />
-          </Suspense>
-        </div>
-      )}
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                  Loading terminal...
+                </div>
+              }
+            >
+              <AgentTerminal
+                command={selectedCli}
+                hideInHarness={false}
+                className="h-full"
+                style={{ background: "transparent" }}
+              />
+            </Suspense>
+          </div>
+        ))}
 
       {/* Resources view */}
       {mode === "resources" && (

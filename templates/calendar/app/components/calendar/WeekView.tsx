@@ -168,6 +168,7 @@ export function WeekView({
   isLoading = false,
 }: WeekViewProps) {
   const [now, setNow] = useState(new Date());
+  const [focusedEventId, setFocusedEventId] = useState<string | null>(null);
   const currentTimeRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -531,8 +532,9 @@ export function WeekView({
                         onDelete={onDeleteEvent}
                       >
                         <button
+                          onPointerDown={() => setFocusedEventId(event.id)}
                           className={cn(
-                            "absolute overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[11px] flex flex-col transition-all hover:z-30 hover:brightness-110 hover:shadow-md",
+                            "absolute overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[11px] flex flex-col hover:brightness-110 hover:shadow-md",
                             durationMin <= 30
                               ? "justify-center"
                               : "justify-start",
@@ -542,7 +544,8 @@ export function WeekView({
                             ...style,
                             left: `${li.left}px`,
                             width: `calc(100% - ${li.left + 2}px)`,
-                            zIndex: li.col + 1,
+                            zIndex:
+                              focusedEventId === event.id ? 50 : li.col + 1,
                             backgroundColor: color
                               ? `color-mix(in srgb, ${color} ${isPast || isDeclined ? 8 : 18}%, hsl(var(--background)))`
                               : `color-mix(in srgb, hsl(var(--primary)) ${isPast || isDeclined ? 5 : 12}%, hsl(var(--background)))`,

@@ -67,12 +67,7 @@ export function EventDetailPanel({
 
   return (
     <TooltipProvider>
-      <div
-        className={cn(
-          "shrink-0 overflow-hidden transition-[width] duration-200 ease-in-out",
-          isOpen ? "w-80" : "w-0",
-        )}
-      >
+      <div className={cn("shrink-0 overflow-hidden", isOpen ? "w-80" : "w-0")}>
         <div className="h-full w-80 border-l border-border bg-card flex flex-col">
           {event && (
             <>
