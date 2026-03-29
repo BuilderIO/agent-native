@@ -872,11 +872,6 @@ export function ResourceEditor({ resource, onSave }: ResourceEditorProps) {
   if (isImage) {
     return (
       <div className="flex h-full flex-col">
-        <div className="flex items-center justify-between border-b border-border px-3 py-2">
-          <span className="text-[12px] text-muted-foreground">
-            {resource.path}
-          </span>
-        </div>
         <div className="flex flex-1 items-center justify-center overflow-auto p-4">
           <img
             src={`/api/resources/${resource.id}`}
@@ -959,18 +954,6 @@ export function ResourceEditor({ resource, onSave }: ResourceEditorProps) {
   // Non-markdown text files: plain textarea
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <span className="text-[12px] text-muted-foreground">
-          {resource.path}
-        </span>
-        <span className="text-[11px] text-muted-foreground/60">
-          {saveStatus === "saving"
-            ? "Saving..."
-            : saveStatus === "saved"
-              ? "Saved"
-              : ""}
-        </span>
-      </div>
       <textarea
         value={content}
         onChange={(e) => handleChange(e.target.value)}

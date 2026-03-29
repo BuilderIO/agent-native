@@ -350,7 +350,7 @@ export default function BookingLinksPage() {
   // If a link is selected, show the detail/edit view
   if (selectedId) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6 px-4 py-8">
+      <div className="mx-auto max-w-6xl space-y-6 p-6">
         {/* Top bar: back + save */}
         <div className="flex items-center justify-between">
           <button

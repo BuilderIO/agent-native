@@ -467,20 +467,20 @@ export function MultiTabAssistantChat({
       {renderHeader ? (
         renderHeader(headerProps)
       ) : showTabBar ? (
-        <div className="flex items-center h-8 px-1 border-b border-border shrink-0 gap-px">
-          <div className="flex items-center gap-px min-w-0 overflow-x-auto scrollbar-none flex-1">
+        <div className="flex items-center px-1 py-1 border-b border-border shrink-0 gap-0.5">
+          <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-none flex-1">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => switchThread(tab.id)}
                 className={cn(
-                  "agent-tab flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-[11px] font-medium shrink-0 max-w-[120px]",
+                  "agent-tab relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
                   tab.id === activeThreadId
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
                 )}
               >
-                <span className="truncate">{tab.label}</span>
+                <span className="truncate pr-1">{tab.label}</span>
                 {tab.status === "running" && (
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 animate-pulse" />
                 )}
@@ -491,7 +491,7 @@ export function MultiTabAssistantChat({
                       e.stopPropagation();
                       closeTab(tab.id);
                     }}
-                    className="agent-tab-close rounded p-px text-muted-foreground/50 hover:!text-foreground hover:!bg-accent"
+                    className="agent-tab-close absolute right-1 top-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded bg-accent/80 text-muted-foreground hover:!text-foreground hover:!bg-accent"
                   >
                     <IconX size={8} />
                   </span>

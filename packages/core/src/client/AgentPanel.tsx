@@ -705,7 +705,7 @@ export function AgentPanel({
         </div>
         {/* Tab bar: only when multiple chat tabs are open */}
         {mode === "chat" && tabs.length > 1 && (
-          <div className="flex items-center h-7 px-1 border-b border-border gap-px overflow-x-auto scrollbar-none">
+          <div className="flex items-center px-1 py-1 border-b border-border gap-0.5 overflow-x-auto scrollbar-none">
             {tabs.map((tab) => (
               <div
                 key={tab.id}
@@ -713,13 +713,13 @@ export function AgentPanel({
                 tabIndex={0}
                 onClick={() => setActiveTabId(tab.id)}
                 className={cn(
-                  "agent-tab flex shrink-0 items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium leading-none cursor-pointer max-w-[120px]",
+                  "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[130px]",
                   tab.id === activeTabId
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                 )}
               >
-                <span className="truncate">{tab.label}</span>
+                <span className="truncate pr-1">{tab.label}</span>
                 {tab.status === "running" && (
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 animate-pulse" />
                 )}
@@ -729,12 +729,7 @@ export function AgentPanel({
                     e.stopPropagation();
                     closeTab(tab.id);
                   }}
-                  className={cn(
-                    "agent-tab-close ml-0.5 flex h-3 w-3 items-center justify-center rounded-sm",
-                    tab.id === activeTabId
-                      ? "text-foreground/55 hover:bg-background/60 hover:text-foreground"
-                      : "text-muted-foreground/65 hover:bg-accent hover:text-foreground",
-                  )}
+                  className="agent-tab-close absolute right-1 top-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded bg-accent/80 text-muted-foreground hover:bg-accent hover:text-foreground"
                 >
                   <XIcon className="h-2.5 w-2.5" />
                 </button>

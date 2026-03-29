@@ -299,21 +299,31 @@ function openOAuthWindow(url: string) {
 
   oauthWin.loadURL(url);
 
-  // Detect when the OAuth callback URL is reached — the server has set
-  // the session cookie in this Electron session by this point.
+  // Once navigation leaves Google's domain, the OAuth callback has been
+  // reached and the server has set cookies. Wait for the page to finish
+  // loading then auto-close the window.
+  let closeScheduled = false;
+
+  function scheduleClose() {
+    if (closeScheduled) return;
+    closeScheduled = true;
+    oauthWin.webContents.once("did-finish-load", () => {
+      setTimeout(() => {
+        if (!oauthWin.isDestroyed()) oauthWin.close();
+      }, 600);
+    });
+  }
+
+  const isGoogleDomain = (hostname: string) =>
+    hostname.endsWith("google.com") ||
+    hostname.endsWith("googleapis.com") ||
+    hostname.endsWith("gstatic.com");
+
   const onNavigate = (_event: Electron.Event, navUrl: string) => {
     try {
       const parsed = new URL(navUrl);
-      if (
-        parsed.pathname.startsWith("/api/google/callback") ||
-        parsed.pathname.startsWith("/api/google/add-account/callback")
-      ) {
-        // Wait for the page to finish loading (cookie is set in the response)
-        oauthWin.webContents.once("did-finish-load", () => {
-          setTimeout(() => {
-            if (!oauthWin.isDestroyed()) oauthWin.close();
-          }, 600);
-        });
+      if (!isGoogleDomain(parsed.hostname)) {
+        scheduleClose();
       }
     } catch {
       // Malformed URL — ignore
@@ -322,6 +332,13 @@ function openOAuthWindow(url: string) {
 
   oauthWin.webContents.on("did-navigate", onNavigate);
   oauthWin.webContents.on("did-redirect-navigation", onNavigate);
+
+  // Fallback: also detect did-fail-load (e.g. deep link navigation)
+  oauthWin.webContents.on("did-fail-load", () => {
+    setTimeout(() => {
+      if (!oauthWin.isDestroyed()) oauthWin.close();
+    }, 300);
+  });
 
   // Reload webviews when the OAuth window closes (whether auto or manual)
   oauthWin.on("closed", () => {

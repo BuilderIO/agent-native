@@ -141,7 +141,10 @@ export async function handleGetResourceTree(event: any) {
   return { tree };
 }
 
-/** GET /api/resources/:id — get single resource with content */
+/** GET /api/resources/:id — get single resource with content.
+ *  If the request comes from an <img>/<video>/etc tag (Accept includes the
+ *  resource's mime type, or query param `?raw` is set), return the raw binary
+ *  with the correct Content-Type so the browser can render it inline. */
 export async function handleGetResource(event: any) {
   const id = getRouterParam(event, "id") || event.context.params?.id;
   if (!id) {
@@ -153,6 +156,28 @@ export async function handleGetResource(event: any) {
   if (!resource) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
+  }
+
+  // Serve raw binary for image/audio/video or when ?raw is set
+  const query = getQuery(event);
+  const isBinaryMime =
+    resource.mimeType.startsWith("image/") ||
+    resource.mimeType.startsWith("audio/") ||
+    resource.mimeType.startsWith("video/");
+  const wantsRaw = query.raw !== undefined || isBinaryMime;
+
+  if (wantsRaw && resource.content) {
+    const isBase64 =
+      !resource.mimeType.startsWith("text/") &&
+      resource.mimeType !== "application/json";
+    const body = isBase64
+      ? Buffer.from(resource.content, "base64")
+      : Buffer.from(resource.content, "utf-8");
+
+    event.node.res.setHeader("Content-Type", resource.mimeType);
+    event.node.res.setHeader("Content-Length", body.length);
+    event.node.res.end(body);
+    return;
   }
 
   return resource;
