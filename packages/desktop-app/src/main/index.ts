@@ -207,18 +207,20 @@ ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
 // to the app, we reload webviews to pick up the new auth state.
 
 const OAUTH_HOSTS = ["accounts.google.com"];
-let oauthPending = false;
+let oauthExpiresAt = 0;
 
 function openAuthExternal(url: string) {
-  oauthPending = true;
+  // Keep the OAuth flag active for 5 minutes so premature focus events
+  // (alt-tab, notification click) don't consume it before the user
+  // finishes the consent screen.
+  oauthExpiresAt = Date.now() + 5 * 60 * 1000;
   shell.openExternal(url);
 }
 
 // When the app regains focus after an external OAuth flow, reload
 // webviews so they pick up the new auth state (same approach as mobile).
 app.on("browser-window-focus", () => {
-  if (!oauthPending) return;
-  oauthPending = false;
+  if (Date.now() > oauthExpiresAt) return;
   // Give the callback handler a moment to finish storing tokens
   setTimeout(() => {
     const allContents = webContents.getAllWebContents();

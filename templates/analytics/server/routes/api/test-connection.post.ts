@@ -26,8 +26,7 @@ export default defineEventHandler(async (event) => {
         if (!creds || !propertyId)
           return { ok: false, error: "Missing credentials" };
         const { testConnection } = await import("../../lib/google-analytics");
-        await testConnection();
-        return { ok: true };
+        return await testConnection();
       }
 
       case "amplitude": {
@@ -36,8 +35,7 @@ export default defineEventHandler(async (event) => {
         if (!apiKey || !secretKey)
           return { ok: false, error: "Missing credentials" };
         const { testConnection } = await import("../../lib/amplitude");
-        await testConnection();
-        return { ok: true };
+        return await testConnection();
       }
 
       case "mixpanel": {
@@ -46,8 +44,7 @@ export default defineEventHandler(async (event) => {
         if (!projectId || !sa)
           return { ok: false, error: "Missing credentials" };
         const { testConnection } = await import("../../lib/mixpanel");
-        await testConnection();
-        return { ok: true };
+        return await testConnection();
       }
 
       case "posthog": {
@@ -56,16 +53,14 @@ export default defineEventHandler(async (event) => {
         if (!apiKey || !projectId)
           return { ok: false, error: "Missing credentials" };
         const { testConnection } = await import("../../lib/posthog");
-        await testConnection();
-        return { ok: true };
+        return await testConnection();
       }
 
       case "postgresql": {
         const url = process.env.POSTGRES_URL;
         if (!url) return { ok: false, error: "Missing connection URL" };
         const { testConnection } = await import("../../lib/postgres");
-        await testConnection();
-        return { ok: true };
+        return await testConnection();
       }
 
       case "stripe": {
