@@ -1,16 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  CalendarDays,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   ExternalLink,
   Link2,
   Plus,
-  TimerReset,
-  Trash2,
   Clock,
+  Trash2,
   AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import {
+  startOfMonth,
+  endOfMonth,
+  startOfWeek,
+  endOfWeek,
+  eachDayOfInterval,
+  isSameMonth,
+  isToday,
+  isBefore,
+  addDays,
+  format,
+  startOfDay,
+  getDay,
+} from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,6 +41,17 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import {
   useBookingLinks,
@@ -123,6 +151,16 @@ export default function BookingLinksPage() {
   const [usernameInput, setUsernameInput] = useState("");
   const { isLocal } = useDbStatus();
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
+  const googleStatus = useGoogleAuthStatus();
+
+  // Derive a default username from the Google email (e.g. "steve" from "steve@builder.io")
+  const suggestedUsername = useMemo(() => {
+    const email = googleStatus.data?.accounts?.[0]?.email;
+    if (!email) return "";
+    const local = email.split("@")[0];
+    // Convert "sewell.steve" → "sewell-steve"
+    return local.replace(/[^a-z0-9]/gi, "-").toLowerCase();
+  }, [googleStatus.data]);
 
   useEffect(() => {
     if (availability) {
@@ -212,7 +250,10 @@ export default function BookingLinksPage() {
       duration: selectedLink.duration,
       durations,
       isActive: selectedLink.isActive,
-      slugManuallyEdited: true, // existing links have established slugs
+      // Only lock the slug if the user previously customized it
+      // (i.e. the saved slug doesn't match what the title would generate).
+      // Freshly created links keep auto-deriving until the user edits the slug.
+      slugManuallyEdited: selectedLink.slug !== slugify(selectedLink.title),
     });
     // Show advanced section if link has a description or custom slug
     setShowAdvanced(!!selectedLink.description);
@@ -237,8 +278,9 @@ export default function BookingLinksPage() {
   const previewUrl = getBookingUrl(draft.slug);
 
   async function handleCreate() {
-    const baseTitle = `New ${bookingLinks.length + 1 > 1 ? "Meeting Link" : "Meeting"}`;
-    const baseSlug = slugify(`meeting-${bookingLinks.length + 1}`);
+    const n = bookingLinks.length + 1;
+    const baseTitle = n > 1 ? `Meeting ${n}` : "Meeting";
+    const baseSlug = slugify(baseTitle);
     try {
       const created = await createBookingLink.mutateAsync({
         title: baseTitle,
@@ -274,7 +316,6 @@ export default function BookingLinksPage() {
 
   async function handleDelete() {
     if (!draft.id) return;
-    if (!window.confirm("Delete this booking link?")) return;
     try {
       await deleteBookingLink.mutateAsync(draft.id);
       setSelectedId(null);
@@ -366,116 +407,50 @@ export default function BookingLinksPage() {
               </Button>
             </div>
           ) : (
-            <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
-              <Card className="overflow-hidden">
-                <CardHeader className="border-b border-border/60 bg-muted/20">
-                  <CardTitle className="text-lg">Meeting Types</CardTitle>
-                  <CardDescription>
-                    One public URL per meeting type.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3 p-4">
-                  {isLoading ? (
-                    <p className="text-sm text-muted-foreground">
-                      Loading links...
-                    </p>
-                  ) : (
-                    bookingLinks.map((link) => {
-                      const isSelected = link.id === selectedId;
-                      return (
-                        <div
-                          key={link.id}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => setSelectedId(link.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              setSelectedId(link.id);
-                            }
-                          }}
-                          className={cn(
-                            "w-full cursor-pointer rounded-2xl border p-4 text-left transition-all",
-                            isSelected
-                              ? "border-primary/25 bg-primary/[0.06] shadow-sm"
-                              : "border-border/70 bg-card hover:border-border hover:bg-muted/20",
-                          )}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-background">
-                                  <Link2 className="h-4 w-4 text-muted-foreground" />
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="truncate font-medium">
-                                    {link.title}
-                                  </p>
-                                  <p className="truncate text-xs text-muted-foreground">
-                                    {bookingUsername
-                                      ? `/meet/${bookingUsername}/${link.slug}`
-                                      : `/book/${link.slug}`}
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-                            <Badge
-                              variant={link.isActive ? "default" : "secondary"}
-                            >
-                              {link.isActive ? "Live" : "Hidden"}
-                            </Badge>
-                          </div>
-                          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                            <TimerReset className="h-3.5 w-3.5" />
-                            {link.duration} minutes
-                          </div>
-                          <div className="mt-4 flex items-center gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="gap-1.5"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openPreview(link.slug);
-                              }}
-                            >
-                              <ExternalLink className="h-3.5 w-3.5" />
-                              Preview
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              className="gap-1.5"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void copyPreviewUrl(link.slug);
-                              }}
-                            >
-                              <Copy className="h-3.5 w-3.5" />
-                              Copy link
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </CardContent>
-              </Card>
+            <div className="space-y-5">
+              {/* Meeting type selector — horizontal pills */}
+              {bookingLinks.length > 1 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {bookingLinks.map((link) => (
+                    <button
+                      key={link.id}
+                      type="button"
+                      onClick={() => setSelectedId(link.id)}
+                      className={cn(
+                        "flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm",
+                        link.id === selectedId
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border text-muted-foreground hover:text-foreground hover:bg-accent/60",
+                      )}
+                    >
+                      <span className="truncate max-w-[180px]">
+                        {link.title}
+                      </span>
+                      <Badge
+                        variant={link.isActive ? "default" : "secondary"}
+                        className="text-[10px] px-1.5 py-0"
+                      >
+                        {link.isActive ? "Live" : "Hidden"}
+                      </Badge>
+                    </button>
+                  ))}
+                </div>
+              )}
 
-              <Card>
-                <CardHeader className="border-b border-border/60 bg-muted/20">
-                  <CardTitle className="text-lg">Configure Link</CardTitle>
-                  <CardDescription>
-                    Set the meeting name, choose durations, and share the link.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6 p-6">
+              {/* Two-column layout: form left, preview right */}
+              <div className="grid gap-6 lg:grid-cols-2">
+                {/* Left — Edit form */}
+                <div className="space-y-5">
                   {!selectedLink ? (
-                    <p className="py-8 text-center text-sm text-muted-foreground">
-                      Select a link on the left to configure it.
-                    </p>
+                    <Card>
+                      <CardContent className="py-12">
+                        <p className="text-center text-sm text-muted-foreground">
+                          {isLoading
+                            ? "Loading links..."
+                            : "Select a meeting type above to configure it."}
+                        </p>
+                      </CardContent>
+                    </Card>
                   ) : (
                     <>
                       {/* Title */}
@@ -495,6 +470,28 @@ export default function BookingLinksPage() {
                             }));
                           }}
                           placeholder="Quick Chat"
+                        />
+                      </div>
+
+                      {/* Description */}
+                      <div className="space-y-2">
+                        <Label htmlFor="booking-link-description">
+                          Description{" "}
+                          <span className="text-muted-foreground font-normal">
+                            (optional)
+                          </span>
+                        </Label>
+                        <Textarea
+                          id="booking-link-description"
+                          rows={2}
+                          value={draft.description}
+                          onChange={(e) =>
+                            setDraft((prev) => ({
+                              ...prev,
+                              description: e.target.value,
+                            }))
+                          }
+                          placeholder="Shown on the booking page"
                         />
                       </div>
 
@@ -567,123 +564,101 @@ export default function BookingLinksPage() {
                         />
                       </div>
 
-                      {/* Preview link */}
-                      <div className="rounded-2xl border border-border bg-muted/20 p-4">
-                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                          Booking link
-                        </p>
-                        <p className="mt-2 break-all text-sm font-medium">
-                          {previewUrl}
-                        </p>
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="gap-2"
-                            onClick={() => openPreview(draft.slug)}
-                          >
-                            <ExternalLink className="h-4 w-4" />
-                            Open preview
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="gap-2"
-                            onClick={() => void copyPreviewUrl(draft.slug)}
-                          >
-                            <Copy className="h-4 w-4" />
-                            Copy link
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Advanced section (slug, description) */}
-                      <button
-                        type="button"
-                        onClick={() => setShowAdvanced((v) => !v)}
-                        className="flex w-full items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-                      >
-                        <ChevronDown
-                          className={cn(
-                            "h-4 w-4",
-                            showAdvanced && "rotate-180",
-                          )}
-                        />
-                        Advanced options
-                      </button>
-
-                      {showAdvanced && (
-                        <div className="space-y-4 rounded-xl border border-border/60 bg-muted/10 p-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="booking-link-slug">URL slug</Label>
-                            {draft.id &&
-                              selectedLink &&
-                              selectedLink.slug !== slugify(draft.slug) && (
-                                <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
-                                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-                                  <p className="text-xs text-amber-600 dark:text-amber-400">
-                                    Changing the slug will break any existing
-                                    shared links.
-                                  </p>
-                                </div>
-                              )}
-                            <Input
-                              id="booking-link-slug"
-                              value={draft.slug}
-                              onChange={(e) =>
-                                setDraft((prev) => ({
-                                  ...prev,
-                                  slug: slugify(e.target.value),
-                                  slugManuallyEdited: true,
-                                }))
-                              }
-                              placeholder="intro-call"
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label htmlFor="booking-link-description">
-                              Description{" "}
-                              <span className="text-muted-foreground font-normal">
-                                (optional)
-                              </span>
-                            </Label>
-                            <Textarea
-                              id="booking-link-description"
-                              rows={2}
-                              value={draft.description}
-                              onChange={(e) =>
-                                setDraft((prev) => ({
-                                  ...prev,
-                                  description: e.target.value,
-                                }))
-                              }
-                              placeholder="Shown on the booking page"
-                            />
-                          </div>
-                        </div>
-                      )}
+                      {/* Interactive booking link */}
+                      <EditableBookingUrl
+                        username={
+                          bookingUsername ||
+                          usernameInput ||
+                          suggestedUsername ||
+                          ""
+                        }
+                        slug={draft.slug}
+                        onUsernameChange={(val) => {
+                          const clean = val
+                            .toLowerCase()
+                            .replace(/[^a-z0-9-]/g, "");
+                          setUsernameInput(clean);
+                          // Persist username to availability config
+                          if (clean) {
+                            updateAvailability.mutate({
+                              timezone,
+                              weeklySchedule: schedule,
+                              bufferMinutes,
+                              minNoticeHours,
+                              maxAdvanceDays,
+                              slotDurationMinutes: slotDuration,
+                              bookingPageSlug: bookingSlug,
+                              bookingUsername: clean,
+                            });
+                          }
+                        }}
+                        onSlugChange={(val) => {
+                          const clean = slugify(val);
+                          setDraft((prev) => ({
+                            ...prev,
+                            slug: clean,
+                            slugManuallyEdited: true,
+                          }));
+                        }}
+                        onCopy={() => void copyPreviewUrl(draft.slug)}
+                        onOpen={() => openPreview(draft.slug)}
+                      />
 
                       {/* Actions */}
-                      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-2">
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          className="gap-2"
-                          onClick={handleDelete}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Delete link
-                        </Button>
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <button
+                              type="button"
+                              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              Delete
+                            </button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Delete booking link
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will permanently remove{" "}
+                                <span className="font-medium text-foreground">
+                                  {draft.title}
+                                </span>{" "}
+                                and its public booking page. This can't be
+                                undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={handleDelete}>
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                         <Button type="button" onClick={handleSave}>
                           Save changes
                         </Button>
                       </div>
                     </>
                   )}
-                </CardContent>
-              </Card>
+                </div>
+
+                {/* Right — Live booking page preview */}
+                {selectedLink && (
+                  <div className="lg:sticky lg:top-8 lg:self-start">
+                    <BookingPreview
+                      title={draft.title}
+                      description={draft.description}
+                      durations={draft.durations}
+                      isActive={draft.isActive}
+                      availability={availability ?? undefined}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </>
@@ -839,6 +814,343 @@ export default function BookingLinksPage() {
           />
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Inline booking page preview — mirrors BookingPage layout, updates live
+// ---------------------------------------------------------------------------
+
+const WEEKDAY_HEADERS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const DAY_MAP: Record<number, DayName> = {
+  0: "sunday",
+  1: "monday",
+  2: "tuesday",
+  3: "wednesday",
+  4: "thursday",
+  5: "friday",
+  6: "saturday",
+};
+
+function EditableBookingUrl({
+  username,
+  slug,
+  onUsernameChange,
+  onSlugChange,
+  onCopy,
+  onOpen,
+}: {
+  username: string;
+  slug: string;
+  onUsernameChange: (val: string) => void;
+  onSlugChange: (val: string) => void;
+  onCopy: () => void;
+  onOpen: () => void;
+}) {
+  const [editingField, setEditingField] = useState<"username" | "slug" | null>(
+    null,
+  );
+  const [editValue, setEditValue] = useState("");
+
+  function startEdit(field: "username" | "slug") {
+    setEditingField(field);
+    setEditValue(field === "username" ? username : slug);
+  }
+
+  function commitEdit() {
+    if (!editingField) return;
+    const val = editValue.trim();
+    if (val) {
+      if (editingField === "username") onUsernameChange(val);
+      else onSlugChange(val);
+    }
+    setEditingField(null);
+  }
+
+  const host =
+    typeof window !== "undefined" && window.location.hostname !== "localhost"
+      ? window.location.host
+      : PRODUCTION_DOMAIN;
+
+  return (
+    <div className="rounded-2xl border border-border bg-muted/20 p-4 space-y-3">
+      <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+        Booking link
+      </p>
+
+      {/* Interactive URL — click username or slug to edit inline */}
+      <div className="flex flex-wrap items-baseline gap-0 text-sm font-mono leading-relaxed break-all">
+        <span className="text-muted-foreground">{host}/meet/</span>
+
+        {editingField === "username" ? (
+          <input
+            autoFocus
+            value={editValue}
+            onChange={(e) =>
+              setEditValue(
+                e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""),
+              )
+            }
+            onBlur={commitEdit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitEdit();
+              if (e.key === "Escape") setEditingField(null);
+            }}
+            className="inline-block bg-primary/10 text-primary border-b border-primary/40 outline-none px-0.5 font-mono text-sm w-auto min-w-[3ch]"
+            style={{ width: `${Math.max(3, editValue.length)}ch` }}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => startEdit("username")}
+            className={cn(
+              "inline font-mono rounded px-0.5 -mx-0.5",
+              username
+                ? "text-foreground hover:bg-primary/10 hover:text-primary"
+                : "text-primary/60 bg-primary/5 border border-dashed border-primary/30 hover:bg-primary/10",
+            )}
+            title="Click to edit username"
+          >
+            {username || "your-name"}
+          </button>
+        )}
+
+        <span className="text-muted-foreground">/</span>
+
+        {editingField === "slug" ? (
+          <input
+            autoFocus
+            value={editValue}
+            onChange={(e) =>
+              setEditValue(
+                e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""),
+              )
+            }
+            onBlur={commitEdit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitEdit();
+              if (e.key === "Escape") setEditingField(null);
+            }}
+            className="inline-block bg-primary/10 text-primary border-b border-primary/40 outline-none px-0.5 font-mono text-sm w-auto min-w-[3ch]"
+            style={{ width: `${Math.max(3, editValue.length)}ch` }}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => startEdit("slug")}
+            className="inline font-mono text-foreground rounded px-0.5 -mx-0.5 hover:bg-primary/10 hover:text-primary"
+            title="Click to edit slug"
+          >
+            {slug || "meeting"}
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="gap-2"
+          onClick={onCopy}
+        >
+          <Copy className="h-3.5 w-3.5" />
+          Copy link
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="gap-2"
+          onClick={onOpen}
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+          Open in new tab
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function BookingPreview({
+  title,
+  description,
+  durations,
+  isActive,
+  availability,
+}: {
+  title: string;
+  description: string;
+  durations: number[];
+  isActive: boolean;
+  availability?: AvailabilityConfig;
+}) {
+  const displayTitle = title.trim() || "Untitled Meeting";
+  const hasDurationChoice = durations.length > 1;
+  const primaryDuration = durations[0] ?? 30;
+
+  // Mini calendar data for the current month
+  const today = startOfDay(new Date());
+  const monthStart = startOfMonth(today);
+  const monthEnd = endOfMonth(today);
+  const calStart = startOfWeek(monthStart);
+  const calEnd = endOfWeek(monthEnd);
+  const calDays = eachDayOfInterval({ start: calStart, end: calEnd });
+  const maxDate = addDays(today, availability?.maxAdvanceDays ?? 60);
+
+  function isDayDisabled(day: Date) {
+    if (isBefore(day, today)) return true;
+    if (isBefore(maxDate, day)) return true;
+    if (availability) {
+      const dayName = DAY_MAP[getDay(day)];
+      if (!availability.weeklySchedule[dayName]?.enabled) return true;
+    }
+    return false;
+  }
+
+  // Fake time slots for the preview
+  const fakeSlots = ["9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM"];
+
+  return (
+    <div className="rounded-2xl border border-border overflow-hidden bg-card">
+      {/* Preview header bar */}
+      <div className="flex items-center justify-between border-b border-border/60 bg-muted/30 px-4 py-2">
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          Preview
+        </span>
+        {!isActive && (
+          <Badge variant="secondary" className="text-[10px]">
+            Hidden
+          </Badge>
+        )}
+      </div>
+
+      {/* Simulated booking page */}
+      <div
+        className={cn(
+          "p-6 space-y-5",
+          !isActive && "opacity-50 pointer-events-none",
+        )}
+      >
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+            <CalendarDays className="h-5 w-5 text-primary" />
+          </div>
+          <h3 className="text-lg font-semibold leading-tight">
+            {displayTitle}
+          </h3>
+          {description.trim() && (
+            <p className="text-xs text-muted-foreground leading-relaxed max-w-xs mx-auto">
+              {description}
+            </p>
+          )}
+          {!hasDurationChoice && (
+            <span className="inline-flex rounded-full border border-border px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+              {primaryDuration} minute meeting
+            </span>
+          )}
+        </div>
+
+        {/* Duration choice step (when multiple durations) */}
+        {hasDurationChoice && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-center text-muted-foreground">
+              Choose a Duration
+            </p>
+            <div className="space-y-1.5">
+              {durations.map((mins) => (
+                <div
+                  key={mins}
+                  className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground"
+                >
+                  {mins} minutes
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Separator */}
+        {hasDurationChoice && (
+          <div className="border-t border-dashed border-border/60" />
+        )}
+
+        {/* Date picker preview */}
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-center text-muted-foreground">
+            Select a Date
+          </p>
+          <div className="rounded-lg border border-border/60 p-3">
+            {/* Month header */}
+            <div className="flex items-center justify-between mb-2">
+              <ChevronLeft className="h-3.5 w-3.5 text-muted-foreground/50" />
+              <span className="text-xs font-medium">
+                {format(today, "MMMM yyyy")}
+              </span>
+              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50" />
+            </div>
+
+            {/* Weekday headers */}
+            <div className="grid grid-cols-7 mb-0.5">
+              {WEEKDAY_HEADERS.map((d) => (
+                <div
+                  key={d}
+                  className="py-0.5 text-center text-[10px] font-medium text-muted-foreground/60"
+                >
+                  {d}
+                </div>
+              ))}
+            </div>
+
+            {/* Days grid */}
+            <div className="grid grid-cols-7 gap-px">
+              {calDays.map((day) => {
+                const inMonth = isSameMonth(day, today);
+                const disabled = isDayDisabled(day);
+                const isTodayMark = isToday(day);
+
+                return (
+                  <div
+                    key={day.toISOString()}
+                    className={cn(
+                      "flex h-7 items-center justify-center rounded text-[11px]",
+                      !inMonth && "opacity-0",
+                      inMonth && disabled && "text-muted-foreground/30",
+                      inMonth &&
+                        !disabled &&
+                        "text-muted-foreground hover:bg-accent/40",
+                      isTodayMark &&
+                        !disabled &&
+                        "border border-primary/40 text-foreground font-medium",
+                    )}
+                  >
+                    {format(day, "d")}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Fake time slots */}
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-center text-muted-foreground">
+            Available Times
+          </p>
+          <div className="grid grid-cols-3 gap-1.5">
+            {fakeSlots.map((slot) => (
+              <div
+                key={slot}
+                className="rounded-md border border-border/60 px-2 py-1.5 text-center text-[11px] text-muted-foreground"
+              >
+                {slot}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -11,7 +11,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 interface AppWebViewProps {
   url: string;
-  color?: string;
 }
 
 const SESSION_TOKEN_KEY = "agent-native:session-token";
@@ -20,10 +19,7 @@ const SESSION_TOKEN_KEY = "agent-native:session-token";
 // system browser (Safari) instead.
 const EXTERNAL_HOSTS = ["accounts.google.com", "oauth2.googleapis.com"];
 
-export default function AppWebView({
-  url,
-  color = "#ffffff",
-}: AppWebViewProps) {
+export default function AppWebView({ url }: AppWebViewProps) {
   const webviewRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const openedExternal = useRef(false);
@@ -92,7 +88,7 @@ export default function AppWebView({
       />
       {loading && (
         <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color={color} />
+          <ActivityIndicator size="large" color="#ffffff" />
         </View>
       )}
     </View>

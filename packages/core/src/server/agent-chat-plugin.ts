@@ -818,37 +818,9 @@ export function createAgentChatPlugin(
     );
 
     // ─── Thread management endpoints ──────────────────────────────────────
-
-    // List threads or create a new thread
-    nitroApp.h3App.use(
-      `${routePath}/threads`,
-      defineEventHandler(async (event) => {
-        const owner = await getOwnerFromEvent(event);
-        const method = getMethod(event);
-
-        if (method === "GET") {
-          const query = getQuery(event);
-          const limit = Math.min(
-            parseInt(String(query.limit ?? "50"), 10) || 50,
-            200,
-          );
-          const offset = parseInt(String(query.offset ?? "0"), 10) || 0;
-          const threads = await listThreads(owner, limit, offset);
-          return { threads };
-        }
-
-        if (method === "POST") {
-          const body = await readBody(event);
-          const thread = await createThread(owner, {
-            title: body?.title ?? "",
-          });
-          return thread;
-        }
-
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }),
-    );
+    // NOTE: The specific-thread handler (with trailing slash) must be mounted
+    // BEFORE the list handler, because h3's use() does prefix matching —
+    // otherwise GET /threads/thread-123 would match the /threads handler first.
 
     // Get, update, or delete a specific thread
     nitroApp.h3App.use(
@@ -900,6 +872,37 @@ export function createAgentChatPlugin(
           }
           await deleteThread(threadId);
           return { ok: true };
+        }
+
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }),
+    );
+
+    // List threads or create a new thread
+    nitroApp.h3App.use(
+      `${routePath}/threads`,
+      defineEventHandler(async (event) => {
+        const owner = await getOwnerFromEvent(event);
+        const method = getMethod(event);
+
+        if (method === "GET") {
+          const query = getQuery(event);
+          const limit = Math.min(
+            parseInt(String(query.limit ?? "50"), 10) || 50,
+            200,
+          );
+          const offset = parseInt(String(query.offset ?? "0"), 10) || 0;
+          const threads = await listThreads(owner, limit, offset);
+          return { threads };
+        }
+
+        if (method === "POST") {
+          const body = await readBody(event);
+          const thread = await createThread(owner, {
+            title: body?.title ?? "",
+          });
+          return thread;
         }
 
         setResponseStatus(event, 405);

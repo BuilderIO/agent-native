@@ -33,6 +33,7 @@ function encodeState(
   redirectUri: string,
   owner?: string,
   desktop?: boolean,
+  addAccount?: boolean,
 ): string {
   const nonce = crypto.randomBytes(8).toString("hex");
   const payload: Record<string, string | boolean> = {
@@ -41,6 +42,7 @@ function encodeState(
   };
   if (owner) payload.o = owner;
   if (desktop) payload.d = true;
+  if (addAccount) payload.a = true;
   return Buffer.from(JSON.stringify(payload)).toString("base64url");
 }
 
@@ -48,7 +50,12 @@ function encodeState(
 function decodeState(
   stateParam: string | undefined,
   fallbackUri: string,
-): { redirectUri: string; owner?: string; desktop?: boolean } {
+): {
+  redirectUri: string;
+  owner?: string;
+  desktop?: boolean;
+  addAccount?: boolean;
+} {
   if (stateParam) {
     try {
       const parsed = JSON.parse(
@@ -58,6 +65,7 @@ function decodeState(
         redirectUri: parsed.r || fallbackUri,
         owner: parsed.o || undefined,
         desktop: !!parsed.d,
+        addAccount: !!parsed.a,
       };
     } catch {}
   }
@@ -74,7 +82,7 @@ function desktopSuccessPage(email?: string, sessionToken?: string): Response {
   if (sessionToken) {
     const deepLink = `agentnative://oauth-complete?token=${sessionToken}`;
     return new Response(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">Returning to Agent Native\u2026</p><script>window.location.href=${JSON.stringify(deepLink)};setTimeout(function(){document.getElementById("f").style.display="block"},2000)</script><p id="f" style="display:none;font-size:12px;color:#666;margin-top:16px">You can close this tab and return to Agent Native.</p></body></html>`,
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:12px"><p style="font-size:16px">${msg}</p><a href=${JSON.stringify(deepLink)} style="display:inline-block;margin-top:8px;padding:10px 24px;background:#fff;color:#000;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">Open Agent Native</a><p style="font-size:12px;color:#666;margin-top:4px">If the app didn\u2019t open automatically, click the button above.</p><script>window.location.href=${JSON.stringify(deepLink)}</script></body></html>`,
       { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
     );
   }
@@ -129,6 +137,7 @@ export const handleGoogleCallback = defineEventHandler(
         redirectUri,
         owner: stateOwner,
         desktop,
+        addAccount,
       } = decodeState(stateParam, `${getOrigin(event)}/api/google/callback`);
 
       // Determine the owner for this OAuth account:
@@ -151,11 +160,14 @@ export const handleGoogleCallback = defineEventHandler(
           : stateOwner || undefined;
       const email = await exchangeCode(code, undefined, redirectUri, owner);
 
-      // Only create a new session when there isn't one already.
-      // If the user already has a session (adding another account via this
-      // flow), keep the existing session so the owner stays consistent.
+      // Only create a new session when there isn't one already AND this
+      // is not an add-account flow.  When adding a secondary account the
+      // user already has a session — the state owner carries their
+      // identity through cookie-less contexts (e.g. system browser).
+      // Creating a session here would switch the user's identity to the
+      // new Google email, losing their settings/filters.
       let sessionToken: string | undefined;
-      if (!hasProductionSession) {
+      if (!hasProductionSession && !addAccount) {
         sessionToken = crypto.randomBytes(32).toString("hex");
         await addSession(sessionToken, email);
         setCookie(event, "an_session", sessionToken, {
@@ -188,6 +200,18 @@ export const handleGoogleCallback = defineEventHandler(
 
       // Desktop: redirect via deep link so Electron can inject the session cookie
       if (desktop) return desktopSuccessPage(email, sessionToken);
+
+      // Add-account web flow: show close-tab page (main tab polls for status)
+      if (addAccount) {
+        const safeEmail = JSON.stringify(email);
+        return `<!DOCTYPE html><html><body><script>
+          window.close();
+          var p = document.createElement('p');
+          p.style.cssText = 'font-family:system-ui;text-align:center;margin-top:40vh';
+          p.textContent = 'Connected ' + ${safeEmail} + '! You can close this tab.';
+          document.body.appendChild(p);
+        </script></body></html>`;
+      }
 
       // Web: redirect to app home
       return sendRedirect(event, "/");
@@ -229,13 +253,18 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       };
     }
     try {
+      // Use the MAIN callback URL so only one redirect URI needs to be
+      // registered in Google Cloud Console.  The `addAccount` flag in the
+      // state tells the callback not to create a new session.
       const redirectUri =
         (getQuery(event).redirect_uri as string) ||
-        `${getOrigin(event)}/api/google/add-account/callback`;
-      // Encode the owner into state so the callback can identify the user
-      // even when the OAuth flow happens in a cookie-less context (e.g.
-      // desktop app opening the system browser).
-      const state = encodeState(redirectUri, session.email, isElectron(event));
+        `${getOrigin(event)}/api/google/callback`;
+      const state = encodeState(
+        redirectUri,
+        session.email,
+        isElectron(event),
+        true, // addAccount flag
+      );
       const url = getAuthUrl(undefined, redirectUri, state);
       return { url };
     } catch (error: any) {

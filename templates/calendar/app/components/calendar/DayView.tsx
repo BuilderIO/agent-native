@@ -284,7 +284,8 @@ export function DayView({
                 >
                   <button
                     className={cn(
-                      "absolute overflow-hidden rounded-lg px-2 py-1 text-left text-xs flex flex-col justify-start transition-all hover:z-30 hover:brightness-110 hover:shadow-lg",
+                      "absolute overflow-hidden rounded-lg px-2 py-0.5 text-left text-xs flex flex-col transition-all hover:z-30 hover:brightness-110 hover:shadow-lg",
+                      durationMin <= 30 ? "justify-center" : "justify-start",
                       isDeclined && "saturate-[0.3]",
                     )}
                     style={{
@@ -303,7 +304,7 @@ export function DayView({
                     }}
                   >
                     {durationMin <= 30 ? (
-                      <div className="mt-0.5 flex items-baseline gap-1.5 truncate">
+                      <div className="flex items-baseline gap-1.5 truncate">
                         <span
                           className={cn(
                             "truncate leading-tight",

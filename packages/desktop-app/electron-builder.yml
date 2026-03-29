@@ -15,9 +15,9 @@ files:
   - "!{tsconfig.json,tsconfig.*.json}"
 
 protocols:
-  name: Agent Native
-  schemes:
-    - agentnative
+  - name: Agent Native
+    schemes:
+      - agentnative
 
 mac:
   category: public.app-category.developer-tools
