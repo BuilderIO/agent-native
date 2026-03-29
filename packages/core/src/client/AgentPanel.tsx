@@ -921,6 +921,18 @@ export function AgentSidebar({
     };
   }, [setOpenPersisted]);
 
+  // Cmd+I / Ctrl+I to focus the agent chat
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "i") {
+        e.preventDefault();
+        focusAgentChat();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   const handleDrag = useCallback((delta: number) => {
     setWidth((prev) => {
       const next = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, prev + delta));
@@ -959,6 +971,28 @@ export function AgentSidebar({
       {!isLeft && open ? sidebar : null}
     </div>
   );
+}
+
+/**
+ * Focus the agent chat composer input.
+ * Opens the sidebar if closed, then focuses the text input.
+ */
+export function focusAgentChat() {
+  window.dispatchEvent(new Event("agent-panel:open"));
+  // Wait for sidebar to render, then focus the composer
+  requestAnimationFrame(() => {
+    const panel = document.querySelector(".agent-sidebar-panel");
+    if (!panel) return;
+    const prosemirror = panel.querySelector(
+      ".ProseMirror",
+    ) as HTMLElement | null;
+    if (prosemirror) {
+      prosemirror.focus();
+      return;
+    }
+    const textarea = panel.querySelector("textarea") as HTMLElement | null;
+    if (textarea) textarea.focus();
+  });
 }
 
 /**

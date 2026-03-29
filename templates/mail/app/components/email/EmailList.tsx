@@ -11,6 +11,7 @@ import {
   useToggleStar,
   useArchiveEmail,
   useTrashEmail,
+  useUntrashEmail,
 } from "@/hooks/use-emails";
 import { useQueryClient } from "@tanstack/react-query";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
@@ -154,6 +155,7 @@ export function EmailList({
   const toggleStar = useToggleStar();
   const archiveEmail = useArchiveEmail();
   const trashEmail = useTrashEmail();
+  const untrashEmail = useUntrashEmail();
   const queryClient = useQueryClient();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -248,9 +250,16 @@ export function EmailList({
       setFocusedId(null);
     }
 
-    toast("Moved to Trash.");
+    const undo = () => untrashEmail.mutate(id);
+    setUndoAction(undo);
+    toast("Moved to Trash.", {
+      action: {
+        label: "UNDO",
+        onClick: undo,
+      },
+    });
     trashEmail.mutate(id);
-  }, [threads, trashEmail, setFocusedId]);
+  }, [threads, trashEmail, untrashEmail, setFocusedId]);
 
   const toggleFocusedRead = useCallback(() => {
     const id = focusedIdRef.current;
@@ -306,8 +315,6 @@ export function EmailList({
     { key: "Enter", handler: openFocused },
     { key: "o", handler: openFocused },
     { key: "e", handler: archiveFocused },
-    { key: "d", handler: trashFocused },
-    { key: "#", handler: trashFocused, shift: true },
     { key: "u", handler: toggleFocusedRead },
     { key: "I", handler: markFocusedRead, shift: true },
     { key: "U", handler: markFocusedUnread, shift: true },

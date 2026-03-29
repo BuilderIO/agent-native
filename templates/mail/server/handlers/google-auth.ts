@@ -23,12 +23,12 @@ function getOrigin(event: H3Event): string {
   return `${proto}://${host}`;
 }
 
-/** Encode a redirect URI into the OAuth state param so the callback can recover it across proxies. */
-function encodeState(redirectUri: string): string {
+/** Encode a redirect URI (and optional owner) into the OAuth state param so the callback can recover them across proxies and cookie-less flows (e.g. desktop app system browser). */
+function encodeState(redirectUri: string, owner?: string): string {
   const nonce = crypto.randomBytes(8).toString("hex");
-  return Buffer.from(JSON.stringify({ n: nonce, r: redirectUri })).toString(
-    "base64url",
-  );
+  const payload: Record<string, string> = { n: nonce, r: redirectUri };
+  if (owner) payload.o = owner;
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
 }
 
 /** Recover the redirect URI from the state param, falling back to origin-based computation. */
@@ -105,8 +105,9 @@ export const handleGoogleCallback = defineEventHandler(
       // Only create a new session when there isn't one already.
       // If the user already has a session (adding another account via this
       // flow), keep the existing session so the owner stays consistent.
+      let sessionToken: string | undefined;
       if (!hasProductionSession) {
-        const sessionToken = crypto.randomBytes(32).toString("hex");
+        sessionToken = crypto.randomBytes(32).toString("hex");
         await addSession(sessionToken, email);
         setCookie(event, "an_session", sessionToken, {
           httpOnly: true,
@@ -119,11 +120,16 @@ export const handleGoogleCallback = defineEventHandler(
 
       // If this looks like a mobile request, redirect via the native app scheme
       // so Safari bounces back to the app instead of staying on the web page.
+      // Pass the session token in the deep link so the app can inject it as a
+      // cookie into its WebView (Safari and WKWebView have separate cookie jars).
       const ua = getHeader(event, "user-agent") || "";
       const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
       if (isMobile) {
+        const deepLink = sessionToken
+          ? `agentnative://oauth-complete?token=${sessionToken}`
+          : `agentnative://oauth-complete`;
         return new Response(
-          `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href="agentnative://oauth-complete";setTimeout(function(){window.location.href="/"},1500)</script></body></html>`,
+          `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href=${JSON.stringify(deepLink)};setTimeout(function(){window.location.href="/"},1500)</script></body></html>`,
           {
             status: 200,
             headers: { "Content-Type": "text/html; charset=utf-8" },

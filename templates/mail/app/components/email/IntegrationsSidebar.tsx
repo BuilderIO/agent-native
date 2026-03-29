@@ -234,7 +234,7 @@ function IntegrationSetup() {
       <div className="px-4 py-2">
         <button
           onClick={() => setExpanded(true)}
-          className="text-[11px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+          className="text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
         >
           {connectedCount > 0
             ? `Integrations (${connectedCount}/${INTEGRATIONS.length})`
@@ -247,12 +247,12 @@ function IntegrationSetup() {
   return (
     <div className="px-4 py-3">
       <div className="flex items-center justify-between mb-3">
-        <h4 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider">
+        <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
           Integrations
         </h4>
         <button
           onClick={() => setExpanded(false)}
-          className="text-[10px] text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+          className="text-[10px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
         >
           Collapse
         </button>
@@ -310,7 +310,7 @@ function AddIntegrationButton() {
       <div className="relative" ref={ref}>
         <button
           onClick={() => setOpen(!open)}
-          className="flex items-center gap-2 w-full py-1.5 text-[11px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+          className="flex items-center gap-2 w-full py-1.5 text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
         >
           <div className="h-7 w-7 rounded-md border border-dashed border-border/40 flex items-center justify-center shrink-0">
             <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
@@ -382,7 +382,7 @@ function IntegrationRow({
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-[12px] font-medium text-foreground/80">{def.name}</p>
-        <p className="text-[10px] text-muted-foreground/50 truncate">
+        <p className="text-[10px] text-muted-foreground/70 truncate">
           {def.description}
         </p>
       </div>
@@ -422,7 +422,7 @@ function IntegrationRow({
       ) : (
         <button
           onClick={onConfigure}
-          className="shrink-0 text-[11px] text-primary/70 hover:text-primary font-medium transition-colors"
+          className="shrink-0 text-[11px] text-primary hover:text-primary/90 font-medium transition-colors"
         >
           Connect
         </button>

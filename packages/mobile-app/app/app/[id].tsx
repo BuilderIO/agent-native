@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -12,7 +12,9 @@ import { useLocalSearchParams, Stack } from "expo-router";
 import { WebView } from "react-native-webview";
 import { Feather } from "@expo/vector-icons";
 import { useApps } from "@/lib/use-apps";
-import { useEffect } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const SESSION_TOKEN_KEY = "agent-native:session-token";
 
 // Google blocks OAuth in embedded WebViews. Open Google auth URLs in the
 // system browser (Safari) instead.
@@ -27,14 +29,23 @@ export default function AppScreen() {
   const openedExternal = useRef(false);
 
   const app = apps.find((a) => a.id === id);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
 
-  // When the app returns to foreground after external OAuth, reload the WebView
-  // to pick up the new session cookie.
+  // Load stored session token on mount
+  useEffect(() => {
+    AsyncStorage.getItem(SESSION_TOKEN_KEY).then((t) => setSessionToken(t));
+  }, []);
+
+  // When the app returns to foreground after external OAuth, re-read the token
+  // (it may have been set by oauth-complete) and reload the WebView.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active" && openedExternal.current) {
         openedExternal.current = false;
-        webviewRef.current?.reload();
+        AsyncStorage.getItem(SESSION_TOKEN_KEY).then((t) => {
+          setSessionToken(t);
+          webviewRef.current?.reload();
+        });
       }
     });
     return () => sub.remove();
@@ -68,7 +79,13 @@ export default function AppScreen() {
     );
   }
 
-  const url = app.mode === "dev" && app.devUrl ? app.devUrl : app.url;
+  const baseUrl = app.mode === "dev" && app.devUrl ? app.devUrl : app.url;
+
+  // Append the session token as a query param so the server can promote it to
+  // an httpOnly cookie. This bridges the Safari/WKWebView cookie jar gap.
+  const url = sessionToken
+    ? `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}_session=${sessionToken}`
+    : baseUrl;
 
   return (
     <>

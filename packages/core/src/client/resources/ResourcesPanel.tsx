@@ -433,7 +433,14 @@ Create skill files under \`skills/\` to give the agent specialized knowledge. Re
 `;
 
 export function ResourcesPanel() {
-  const [scope, setScope] = useState<ResourceScope>("shared");
+  const [scope, setScope] = useState<ResourceScope>(
+    () =>
+      (localStorage.getItem("an:resources-scope") as ResourceScope) || "shared",
+  );
+  const handleSetScope = (s: ResourceScope) => {
+    setScope(s);
+    localStorage.setItem("an:resources-scope", s);
+  };
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(
     null,
   );
@@ -619,7 +626,7 @@ export function ResourcesPanel() {
           <>
             <div className="flex items-center gap-1">
               <button
-                onClick={() => setScope("personal")}
+                onClick={() => handleSetScope("personal")}
                 className={cn(
                   "rounded-md px-2 py-1 text-[12px] leading-none",
                   scope === "personal"
@@ -631,7 +638,7 @@ export function ResourcesPanel() {
                 Personal
               </button>
               <button
-                onClick={() => setScope("shared")}
+                onClick={() => handleSetScope("shared")}
                 className={cn(
                   "rounded-md px-2 py-1 text-[12px] leading-none",
                   scope === "shared"

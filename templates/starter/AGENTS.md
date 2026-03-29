@@ -24,16 +24,19 @@ Use `getSession(event)` server-side and `useSession()` client-side. See [docs/au
 
 ## Resources
 
-Resources are SQL-backed persistent files that store notes, learnings, context, and other long-lived information. They replace the old `learnings.md` file approach with a structured, scriptable system.
+Resources are SQL-backed persistent files that store notes, learnings, context, and other long-lived information. They replace the old `LEARNINGS.md` file approach with a structured, scriptable system.
 
 - **Personal resources** — scoped to the current user. Use these for individual preferences, corrections, and context.
 - **Shared resources** — visible to all users. Use these for team-wide patterns, app-specific knowledge, and shared context.
 
-### The `learnings.md` resource
+### Startup resources
 
-**At the start of every conversation, read the `learnings.md` resource.** This is the app's memory — it contains user preferences, corrections, important context, and patterns learned from past interactions.
+**At the start of every conversation, read these resources (both personal and shared scopes):**
 
-**Update `learnings.md` when you learn something important:**
+1. **`AGENTS.md`** — contains user-specific context like contacts, nicknames, and preferences that help you act on vague requests. Read both `--scope personal` and `--scope shared`.
+2. **`LEARNINGS.md`** — the app's memory with user preferences, corrections, important context, and patterns learned from past interactions. Read both `--scope personal` and `--scope shared`.
+
+**Update `LEARNINGS.md` when you learn something important:**
 
 - User corrects your tone, style, or approach
 - User shares personal info relevant to the app (contacts, preferences, habits)
@@ -46,8 +49,8 @@ Keep entries concise and actionable. Group by category.
 
 | Script            | Purpose                     | Example                                                          |
 | ----------------- | --------------------------- | ---------------------------------------------------------------- |
-| `resource-read`   | Read a resource             | `pnpm script resource-read --name learnings.md`                  |
-| `resource-write`  | Create or update a resource | `pnpm script resource-write --name learnings.md --content "..."` |
+| `resource-read`   | Read a resource             | `pnpm script resource-read --name LEARNINGS.md`                  |
+| `resource-write`  | Create or update a resource | `pnpm script resource-write --name LEARNINGS.md --content "..."` |
 | `resource-list`   | List all resources          | `pnpm script resource-list`                                      |
 | `resource-delete` | Delete a resource           | `pnpm script resource-delete --name old-notes.md`                |
 
