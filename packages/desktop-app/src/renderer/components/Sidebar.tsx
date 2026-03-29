@@ -104,11 +104,6 @@ function SidebarItem({ app, isActive, onClick }: SidebarItemProps) {
   return (
     <button
       className={`sidebar-item${isActive ? " sidebar-item--active" : ""}`}
-      style={
-        {
-          "--item-accent": app.color,
-        } as React.CSSProperties
-      }
       onClick={onClick}
       title={app.description}
       aria-label={app.name}

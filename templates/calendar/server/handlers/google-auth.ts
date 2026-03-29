@@ -32,28 +32,31 @@ function errorPage(message: string): string {
   </body></html>`;
 }
 
-/** Encode a redirect URI into the OAuth state param so the callback can recover it across proxies. */
-function encodeState(redirectUri: string): string {
+/** Encode a redirect URI (and optional owner) into the OAuth state param so the callback can recover them across proxies and cookie-less flows (e.g. desktop app system browser). */
+function encodeState(redirectUri: string, owner?: string): string {
   const nonce = crypto.randomBytes(8).toString("hex");
-  return Buffer.from(JSON.stringify({ n: nonce, r: redirectUri })).toString(
-    "base64url",
-  );
+  const payload: Record<string, string> = { n: nonce, r: redirectUri };
+  if (owner) payload.o = owner;
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
 }
 
-/** Recover the redirect URI from the state param, falling back to origin-based computation. */
-function decodeRedirectUri(
+/** Recover the redirect URI and optional owner from the state param. */
+function decodeState(
   stateParam: string | undefined,
-  fallback: string,
-): string {
+  fallbackUri: string,
+): { redirectUri: string; owner?: string } {
   if (stateParam) {
     try {
       const parsed = JSON.parse(
         Buffer.from(stateParam, "base64url").toString(),
       );
-      if (parsed.r) return parsed.r;
+      return {
+        redirectUri: parsed.r || fallbackUri,
+        owner: parsed.o || undefined,
+      };
     } catch {}
   }
-  return fallback;
+  return { redirectUri: fallbackUri };
 }
 
 export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
@@ -90,7 +93,7 @@ export const handleGoogleCallback = defineEventHandler(
         return { error: "Missing authorization code" };
       }
 
-      const redirectUri = decodeRedirectUri(
+      const { redirectUri } = decodeState(
         stateParam,
         `${getOrigin(event)}/api/google/callback`,
       );
@@ -173,7 +176,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       const redirectUri =
         (query.redirect_uri as string) ||
         `${getOrigin(event)}/api/google/add-account/callback`;
-      const state = encodeState(redirectUri);
+      const state = encodeState(redirectUri, session.email);
       const url = getAuthUrl(undefined, redirectUri, state);
       return { url };
     } catch (error: any) {
@@ -187,28 +190,29 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
   async (event: H3Event) => {
     try {
       const session = await getSession(event);
-      if (!session?.email) {
+      const query = getQuery(event);
+      const stateParam = query.state as string | undefined;
+      const { redirectUri, owner: stateOwner } = decodeState(
+        stateParam,
+        `${getOrigin(event)}/api/google/add-account/callback`,
+      );
+
+      const ownerEmail = session?.email || stateOwner;
+      if (!ownerEmail) {
         return errorPage("Session expired. Please log in again.");
       }
 
-      const query = getQuery(event);
       const code = query.code as string;
-      const stateParam = query.state as string | undefined;
       if (!code) {
         setResponseStatus(event, 400);
         return errorPage("Missing authorization code.");
       }
 
-      const redirectUri = decodeRedirectUri(
-        stateParam,
-        `${getOrigin(event)}/api/google/add-account/callback`,
-      );
-
       const addedEmail = await exchangeCode(
         code,
         undefined,
         redirectUri,
-        session.email,
+        ownerEmail,
       );
 
       // Return a close-tab page (UI opens this in a new tab and polls for status)

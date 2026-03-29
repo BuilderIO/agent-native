@@ -31,20 +31,23 @@ function encodeState(redirectUri: string, owner?: string): string {
   return Buffer.from(JSON.stringify(payload)).toString("base64url");
 }
 
-/** Recover the redirect URI from the state param, falling back to origin-based computation. */
-function decodeRedirectUri(
+/** Recover the redirect URI and optional owner from the state param. */
+function decodeState(
   stateParam: string | undefined,
-  fallback: string,
-): string {
+  fallbackUri: string,
+): { redirectUri: string; owner?: string } {
   if (stateParam) {
     try {
       const parsed = JSON.parse(
         Buffer.from(stateParam, "base64url").toString(),
       );
-      if (parsed.r) return parsed.r;
+      return {
+        redirectUri: parsed.r || fallbackUri,
+        owner: parsed.o || undefined,
+      };
     } catch {}
   }
-  return fallback;
+  return { redirectUri: fallbackUri };
 }
 
 export const getGoogleAuthUrl = defineEventHandler((event: H3Event) => {
@@ -80,7 +83,7 @@ export const handleGoogleCallback = defineEventHandler(
       }
 
       const stateParam = query.state as string | undefined;
-      const redirectUri = decodeRedirectUri(
+      const { redirectUri } = decodeState(
         stateParam,
         `${getOrigin(event)}/api/google/callback`,
       );
@@ -180,7 +183,10 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       const redirectUri =
         (getQuery(event).redirect_uri as string) ||
         `${getOrigin(event)}/api/google/add-account/callback`;
-      const state = encodeState(redirectUri);
+      // Encode the owner into state so the callback can identify the user
+      // even when the OAuth flow happens in a cookie-less context (e.g.
+      // desktop app opening the system browser).
+      const state = encodeState(redirectUri, session.email);
       const url = getAuthUrl(undefined, redirectUri, state);
       return { url };
     } catch (error: any) {
@@ -194,29 +200,33 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
   async (event: H3Event) => {
     try {
       const session = await getSession(event);
-      if (!session?.email) {
+      const query = getQuery(event);
+      const stateParam = query.state as string | undefined;
+      const { redirectUri, owner: stateOwner } = decodeState(
+        stateParam,
+        `${getOrigin(event)}/api/google/add-account/callback`,
+      );
+
+      // Use session cookie if available, otherwise fall back to the owner
+      // encoded in the OAuth state (for cookie-less flows like desktop app
+      // opening the system browser for OAuth).
+      const ownerEmail = session?.email || stateOwner;
+      if (!ownerEmail) {
         return errorPage("Session expired. Please log in again.");
       }
 
-      const query = getQuery(event);
       const code = query.code as string;
       if (!code) {
         setResponseStatus(event, 400);
         return errorPage("Missing authorization code.");
       }
 
-      const stateParam = query.state as string | undefined;
-      const redirectUri = decodeRedirectUri(
-        stateParam,
-        `${getOrigin(event)}/api/google/add-account/callback`,
-      );
-
       // Exchange code, passing the logged-in user as the owner
       const addedEmail = await exchangeCode(
         code,
         undefined,
         redirectUri,
-        session.email,
+        ownerEmail,
       );
 
       // Do NOT create a new session — user stays logged in

@@ -255,7 +255,7 @@ body {
   width: 3px;
   height: 0;
   border-radius: 0 3px 3px 0;
-  background: var(--item-accent, #888);
+  background: #888;
   transition: height var(--ease);
 }
 
@@ -283,7 +283,7 @@ body {
 }
 
 .sidebar-item.sidebar-item--active .icon-wrapper {
-  background: color-mix(in srgb, var(--item-accent, #888) 15%, transparent);
+  background: color-mix(in srgb, #888 15%, transparent);
   color: var(--icon-active);
 }
 

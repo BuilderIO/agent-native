@@ -27,7 +27,7 @@ Options:
 
   const resourcePath = parsed.path;
   if (!resourcePath) {
-    fail("--path is required. Example: --path learnings.md");
+    fail("--path is required. Example: --path LEARNINGS.md");
   }
 
   const scope = parsed.scope;
