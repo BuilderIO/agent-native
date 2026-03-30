@@ -74,8 +74,14 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         customFields = JSON.parse(bookingLink.customFields);
       } catch {}
     }
-    const fieldResponses: Record<string, string | boolean> =
+    const rawFieldResponses: Record<string, string | boolean> =
       body.fieldResponses || {};
+    // Filter to only declared field IDs — don't persist arbitrary caller keys
+    const fieldResponses: Record<string, string | boolean> = Object.fromEntries(
+      customFields
+        .map((f) => [f.id, rawFieldResponses[f.id]] as const)
+        .filter(([, v]) => v !== undefined),
+    );
     for (const field of customFields) {
       const value = fieldResponses[field.id];
       if (field.required) {
@@ -90,17 +96,23 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         }
       }
       if (field.pattern && typeof value === "string" && value) {
+        // Cap input length to mitigate ReDoS on user-defined patterns
+        const safeValue = value.slice(0, 1000);
+        let re: RegExp;
         try {
-          const re = new RegExp(field.pattern);
-          if (!re.test(value)) {
-            setResponseStatus(event, 400);
-            return {
-              error:
-                field.patternError ||
-                `${field.label} does not match the expected format`,
-            };
-          }
-        } catch {}
+          re = new RegExp(field.pattern);
+        } catch {
+          setResponseStatus(event, 400);
+          return { error: `Invalid validation pattern for ${field.label}` };
+        }
+        if (!re.test(safeValue)) {
+          setResponseStatus(event, 400);
+          return {
+            error:
+              field.patternError ||
+              `${field.label} does not match the expected format`,
+          };
+        }
       }
     }
 
