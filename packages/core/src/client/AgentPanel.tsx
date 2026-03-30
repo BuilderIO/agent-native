@@ -772,8 +772,8 @@ export function AgentPanel({
                         borderRadius: "0 6px 6px 0",
                         background:
                           tab.id === activeTabId
-                            ? "linear-gradient(to right, transparent, var(--accent) 40%)"
-                            : "linear-gradient(to right, transparent, var(--background) 40%)",
+                            ? "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)"
+                            : "linear-gradient(to right, transparent, hsl(var(--background)) 40%)",
                       }}
                     >
                       <XIcon className="h-2.5 w-2.5" />
@@ -811,8 +811,8 @@ export function AgentPanel({
                         borderRadius: "0 6px 6px 0",
                         background:
                           id === activeCliTab
-                            ? "linear-gradient(to right, transparent, var(--accent) 40%)"
-                            : "linear-gradient(to right, transparent, var(--background) 40%)",
+                            ? "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)"
+                            : "linear-gradient(to right, transparent, hsl(var(--background)) 40%)",
                       }}
                     >
                       <XIcon className="h-2.5 w-2.5" />

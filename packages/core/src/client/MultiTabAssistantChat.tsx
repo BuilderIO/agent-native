@@ -533,8 +533,8 @@ export function MultiTabAssistantChat({
                       borderRadius: "0 6px 6px 0",
                       background:
                         tab.id === activeThreadId
-                          ? "linear-gradient(to right, transparent, var(--accent) 40%)"
-                          : "linear-gradient(to right, transparent, var(--background) 40%)",
+                          ? "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)"
+                          : "linear-gradient(to right, transparent, hsl(var(--background)) 40%)",
                     }}
                   >
                     <IconX size={8} />
