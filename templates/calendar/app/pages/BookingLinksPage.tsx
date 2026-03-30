@@ -459,7 +459,7 @@ export default function BookingLinksPage({
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Left — Edit form */}
           <div className="space-y-5">
-            {!selectedLink ? (
+            {isLoading ? (
               <Card>
                 <CardContent className="py-12">
                   <p className="text-center text-sm text-muted-foreground">
@@ -467,7 +467,7 @@ export default function BookingLinksPage({
                   </p>
                 </CardContent>
               </Card>
-            ) : (
+            ) : selectedLink ? (
               <>
                 {/* Title */}
                 <div className="space-y-2">
@@ -659,7 +659,7 @@ export default function BookingLinksPage({
                   </AlertDialog>
                 </div>
               </>
-            )}
+            ) : null}
           </div>
 
           {/* Right — Live booking page preview */}

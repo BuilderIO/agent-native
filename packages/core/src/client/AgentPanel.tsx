@@ -808,9 +808,7 @@ export function AgentPanel({
                         paddingRight: 6,
                         borderRadius: "0 6px 6px 0",
                         background:
-                          id === activeCliTab
-                            ? "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)"
-                            : "linear-gradient(to right, transparent, hsl(var(--background)) 40%)",
+                          "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
                       }}
                     >
                       <XIcon className="h-2.5 w-2.5" />
