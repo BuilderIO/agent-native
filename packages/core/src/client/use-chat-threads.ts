@@ -161,6 +161,46 @@ export function useChatThreads(apiUrl = "/api/agent-chat") {
     [apiUrl],
   );
 
+  const generateTitle = useCallback(
+    async (threadId: string, message: string): Promise<string | null> => {
+      try {
+        const res = await fetch(`${apiUrl}/generate-title`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        const title = data.title;
+        if (!title) return null;
+        // Update the title in local state
+        setThreads((prev) =>
+          prev.map((t) => (t.id === threadId ? { ...t, title } : t)),
+        );
+        return title;
+      } catch {
+        return null;
+      }
+    },
+    [apiUrl],
+  );
+
+  const searchThreads = useCallback(
+    async (query: string): Promise<ChatThreadSummary[]> => {
+      try {
+        const res = await fetch(
+          `${apiUrl}/threads?q=${encodeURIComponent(query)}`,
+        );
+        if (!res.ok) return [];
+        const data = await res.json();
+        return data.threads ?? [];
+      } catch {
+        return [];
+      }
+    },
+    [apiUrl],
+  );
+
   const refreshThreads = useCallback(() => {
     fetchThreads();
   }, [fetchThreads]);
@@ -173,6 +213,8 @@ export function useChatThreads(apiUrl = "/api/agent-chat") {
     switchThread,
     deleteThread: removeThread,
     saveThreadData,
+    generateTitle,
+    searchThreads,
     refreshThreads,
   };
 }

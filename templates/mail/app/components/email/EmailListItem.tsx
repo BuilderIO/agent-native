@@ -125,7 +125,7 @@ export function EmailListItem({
           "w-[160px] shrink-0 text-sm sm:text-[13px] truncate mr-3",
           isUnread
             ? "font-semibold text-foreground"
-            : "font-normal text-foreground/70",
+            : "font-normal text-foreground/90",
         )}
       >
         {senderName}
@@ -159,12 +159,12 @@ export function EmailListItem({
             "text-sm sm:text-[13px] truncate shrink-0 max-w-[45%]",
             isUnread
               ? "font-medium text-foreground"
-              : "font-normal text-foreground/70",
+              : "font-normal text-foreground/90",
           )}
         >
           {email.subject}
         </span>
-        <span className="text-sm sm:text-[13px] text-muted-foreground truncate">
+        <span className="text-sm sm:text-[13px] text-muted-foreground/80 truncate">
           {email.snippet}
         </span>
       </div>

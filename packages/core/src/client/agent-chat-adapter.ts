@@ -233,6 +233,21 @@ export function createAgentChatAdapter(options?: {
                 },
               } as ChatModelRunResult;
               return;
+            } else if (ev.type === "loop_limit") {
+              content.push({
+                type: "text",
+                text: "I've reached the maximum number of steps for this response.",
+              });
+              yield { content: [...content] } as ChatModelRunResult;
+              // Notify UI to show a "Continue" button
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(
+                  new CustomEvent("agent-chat:loop-limit", {
+                    detail: { tabId },
+                  }),
+                );
+              }
+              return;
             } else if (ev.type === "error") {
               // Check if this is an auth-related error from the SDK
               const errMsg = ev.error ?? "Unknown error";

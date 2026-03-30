@@ -108,13 +108,13 @@ function ThreadListSidebar({
                     "text-[13px] truncate",
                     thread.hasUnread
                       ? "font-semibold text-foreground"
-                      : "text-foreground/80",
+                      : "text-foreground/90",
                   )}
                 >
                   {email.subject}
                 </span>
                 {thread.messageCount > 1 && (
-                  <span className="text-[10px] text-muted-foreground/50 shrink-0">
+                  <span className="text-[10px] text-muted-foreground/70 shrink-0">
                     {thread.messageCount}
                   </span>
                 )}

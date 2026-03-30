@@ -20,6 +20,7 @@ import {
   createThread,
   getThread,
   listThreads,
+  searchThreads,
   updateThreadData,
   deleteThread,
 } from "../chat-threads/store.js";
@@ -817,6 +818,58 @@ export function createAgentChatPlugin(
       }),
     );
 
+    // ─── Generate thread title ──────────────────────────────────────────
+    nitroApp.h3App.use(
+      `${routePath}/generate-title`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const body = await readBody(event);
+        const message = body?.message;
+        if (!message || typeof message !== "string") {
+          setResponseStatus(event, 400);
+          return { error: "message is required" };
+        }
+        const apiKey = process.env.ANTHROPIC_API_KEY;
+        if (!apiKey) {
+          // Fallback: truncate the message
+          return { title: message.trim().slice(0, 60) };
+        }
+        try {
+          const res = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": apiKey,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model: "claude-haiku-4-5-20251001",
+              max_tokens: 30,
+              messages: [
+                {
+                  role: "user",
+                  content: `Generate a very short title (3-6 words, no quotes) for a chat that starts with this message:\n\n${message.slice(0, 500)}`,
+                },
+              ],
+            }),
+          });
+          if (!res.ok) {
+            return { title: message.trim().slice(0, 60) };
+          }
+          const data = (await res.json()) as {
+            content?: Array<{ type: string; text?: string }>;
+          };
+          const text = data.content?.[0]?.text?.trim();
+          return { title: text || message.trim().slice(0, 60) };
+        } catch {
+          return { title: message.trim().slice(0, 60) };
+        }
+      }),
+    );
+
     // ─── Thread management endpoints ──────────────────────────────────────
     // Single handler for /threads and /threads/:id — h3's use() does prefix
     // matching so we can't reliably split them into separate handlers.
@@ -860,7 +913,7 @@ export function createAgentChatPlugin(
             const body = await readBody(event);
             await updateThreadData(
               threadId,
-              body.threadData ?? thread.threadData,
+              body.threadData || thread.threadData,
               body.title ?? thread.title,
               body.preview ?? thread.preview,
               body.messageCount ?? thread.messageCount,
@@ -889,6 +942,11 @@ export function createAgentChatPlugin(
             parseInt(String(query.limit ?? "50"), 10) || 50,
             200,
           );
+          const q = query.q ? String(query.q).trim() : "";
+          if (q) {
+            const threads = await searchThreads(owner, q, limit);
+            return { threads };
+          }
           const offset = parseInt(String(query.offset ?? "0"), 10) || 0;
           const threads = await listThreads(owner, limit, offset);
           return { threads };

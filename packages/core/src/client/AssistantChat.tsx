@@ -546,6 +546,8 @@ export interface AssistantChatProps {
     preview: string;
     messageCount: number;
   }) => void;
+  /** Callback to generate a title from the first user message */
+  onGenerateTitle?: (message: string) => void;
 }
 
 // ─── Queue Composer ──────────────────────────────────────────────────────────
@@ -670,6 +672,7 @@ const AssistantChatInner = forwardRef<
     threadId,
     onMessageCountChange,
     onSaveThread,
+    onGenerateTitle,
   },
   ref,
 ) {
@@ -680,6 +683,7 @@ const AssistantChatInner = forwardRef<
   const messages = thread.messages;
   const [missingApiKey, setMissingApiKey] = useState(false);
   const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
+  const [showContinue, setShowContinue] = useState(false);
   const wasRunningRef = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
@@ -688,6 +692,9 @@ const AssistantChatInner = forwardRef<
   const [isRestoring, setIsRestoring] = useState(!!threadId);
   const onSaveThreadRef = useRef(onSaveThread);
   onSaveThreadRef.current = onSaveThread;
+  const onGenerateTitleRef = useRef(onGenerateTitle);
+  onGenerateTitleRef.current = onGenerateTitle;
+  const titleGeneratedRef = useRef(false);
 
   // Restore messages from server on mount (when threadId is set)
   useEffect(() => {
@@ -709,8 +716,13 @@ const AssistantChatInner = forwardRef<
                 ? JSON.parse(data.threadData)
                 : data.threadData;
             if (repo?.messages?.length > 0) {
+              titleGeneratedRef.current = true; // Don't re-generate for restored threads
               threadRuntime.import(repo);
             }
+          }
+          // Also skip title generation if thread already has a title
+          if (data.title) {
+            titleGeneratedRef.current = true;
           }
         } catch {
           // Start fresh
@@ -734,7 +746,56 @@ const AssistantChatInner = forwardRef<
     }
   }, [threadId, tabId, apiUrl, threadRuntime]);
 
-  // Persist messages after each completed response
+  // Generate a title when the first user message is sent
+  useEffect(() => {
+    if (!hasRestoredRef.current) return;
+    if (titleGeneratedRef.current) return;
+    if (messages.length === 0) return;
+
+    const firstUserMsg = messages.find((m) => m.role === "user");
+    if (!firstUserMsg) return;
+
+    // Extract text from the first user message
+    const text =
+      "content" in firstUserMsg
+        ? Array.isArray(firstUserMsg.content)
+          ? firstUserMsg.content
+              .filter((p: any) => p.type === "text")
+              .map((p: any) => p.text)
+              .join(" ")
+          : typeof firstUserMsg.content === "string"
+            ? firstUserMsg.content
+            : ""
+        : "";
+
+    if (!text.trim()) return;
+    titleGeneratedRef.current = true;
+    onGenerateTitleRef.current?.(text.trim());
+  }, [messages]);
+
+  // Save title/preview eagerly when messages change (even while agent is running)
+  // so that the history popover shows meaningful labels immediately.
+  const savedTitleRef = useRef("");
+  useEffect(() => {
+    if (!hasRestoredRef.current) return;
+    if (messages.length === 0) return;
+    if (!threadId || !onSaveThreadRef.current) return;
+
+    const repo = threadRuntime.export();
+    const { title, preview } = extractThreadMeta(repo);
+    // Only send a lightweight title-only update while running
+    if (isRunning && title && title !== savedTitleRef.current) {
+      savedTitleRef.current = title;
+      onSaveThreadRef.current({
+        threadData: "",
+        title,
+        preview,
+        messageCount: messages.length,
+      });
+    }
+  }, [messages, isRunning, threadId, threadRuntime]);
+
+  // Persist full thread data after each completed response
   useEffect(() => {
     if (!hasRestoredRef.current) return;
     if (isRunning) return;
@@ -745,6 +806,7 @@ const AssistantChatInner = forwardRef<
     if (threadId && onSaveThreadRef.current) {
       // Save to server via the hook callback
       const { title, preview } = extractThreadMeta(repo);
+      savedTitleRef.current = title;
       onSaveThreadRef.current({
         threadData: JSON.stringify(repo),
         title,
@@ -772,6 +834,18 @@ const AssistantChatInner = forwardRef<
       window.removeEventListener("agent-chat:missing-api-key", handler);
   }, []);
 
+  // Listen for loop-limit events from the adapter
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!tabId || detail?.tabId === tabId) {
+        setShowContinue(true);
+      }
+    };
+    window.addEventListener("agent-chat:loop-limit", handler);
+    return () => window.removeEventListener("agent-chat:loop-limit", handler);
+  }, [tabId]);
+
   // Auto-dequeue: when agent finishes running, send the next queued message
   useEffect(() => {
     if (wasRunningRef.current && !isRunning && queuedMessages.length > 0) {
@@ -790,6 +864,7 @@ const AssistantChatInner = forwardRef<
 
   const addToQueue = useCallback(
     (text: string) => {
+      setShowContinue(false);
       if (isRunning) {
         setQueuedMessages((prev) => [...prev, text]);
       } else {
@@ -937,6 +1012,20 @@ const AssistantChatInner = forwardRef<
                 AssistantMessage,
               }}
             />
+            {showContinue && !isRunning && (
+              <div className="flex justify-center py-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowContinue(false);
+                    addToQueue("Continue from where you left off.");
+                  }}
+                  className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
+                >
+                  Continue
+                </button>
+              </div>
+            )}
             {isRunning && <ThinkingIndicator />}
             {queuedMessages.map((msg, i) => (
               <div key={`queued-${i}`} className="flex justify-end">
@@ -1025,7 +1114,7 @@ export const AssistantChat = forwardRef<
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <ThreadPrimitive.Root className="flex flex-1 flex-col h-full min-h-0">
+      <ThreadPrimitive.Root className="flex flex-1 flex-col h-full min-h-0 overflow-x-hidden">
         <AssistantChatInner
           ref={ref}
           {...props}

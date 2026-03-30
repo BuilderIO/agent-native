@@ -113,7 +113,8 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       session?.email && session.email !== "local@localhost"
         ? session.email
         : undefined;
-    const state = encodeState(redirectUri, owner);
+    const desktop = isElectron(event);
+    const state = encodeState(redirectUri, owner, desktop);
     const url = getAuthUrl(undefined, redirectUri, state);
     return { url };
   } catch (error: any) {
@@ -160,14 +161,12 @@ export const handleGoogleCallback = defineEventHandler(
           : stateOwner || undefined;
       const email = await exchangeCode(code, undefined, redirectUri, owner);
 
-      // Only create a new session when there isn't one already AND this
-      // is not an add-account flow.  When adding a secondary account the
-      // user already has a session — the state owner carries their
-      // identity through cookie-less contexts (e.g. system browser).
-      // Creating a session here would switch the user's identity to the
-      // new Google email, losing their settings/filters.
+      // Create a session when there isn't one already, or when the desktop
+      // app needs a token for its deep link (the system browser may have a
+      // session but the Electron webview needs its own).
+      // Skip for add-account flows — the user already has a session.
       let sessionToken: string | undefined;
-      if (!hasProductionSession && !addAccount) {
+      if ((!hasProductionSession || desktop) && !addAccount) {
         sessionToken = crypto.randomBytes(32).toString("hex");
         await addSession(sessionToken, email);
         setCookie(event, "an_session", sessionToken, {
