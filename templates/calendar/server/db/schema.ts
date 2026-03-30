@@ -9,6 +9,8 @@ export const bookings = sqliteTable("bookings", {
   slug: text("slug").notNull(),
   eventTitle: text("event_title"),
   notes: text("notes"),
+  /** JSON object of custom field responses, keyed by field ID */
+  fieldResponses: text("field_responses"),
   status: text("status", { enum: ["confirmed", "cancelled"] })
     .notNull()
     .default("confirmed"),
@@ -23,6 +25,8 @@ export const bookingLinks = sqliteTable("booking_links", {
   duration: integer("duration").notNull().default(30),
   /** JSON array of additional duration options, e.g. [15, 30, 60] */
   durations: text("durations"),
+  /** JSON array of custom field definitions */
+  customFields: text("custom_fields"),
   color: text("color"),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").notNull(),

@@ -34,4 +34,12 @@ export default runMigrations([
     version: 3,
     sql: `ALTER TABLE booking_links ADD COLUMN durations TEXT`,
   },
+  {
+    version: 4,
+    sql: `ALTER TABLE booking_links ADD COLUMN custom_fields TEXT`,
+  },
+  {
+    version: 5,
+    sql: `ALTER TABLE bookings ADD COLUMN field_responses TEXT`,
+  },
 ]);

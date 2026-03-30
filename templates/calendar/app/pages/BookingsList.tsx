@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,16 +12,33 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useBookings, useDeleteBooking } from "@/hooks/use-bookings";
+import { useBookingLinks } from "@/hooks/use-booking-links";
 import { toast } from "sonner";
-import type { Booking } from "@shared/api";
+import type { Booking, CustomField } from "@shared/api";
 
 type FilterStatus = "all" | "confirmed" | "cancelled";
 
 export default function BookingsList() {
   const { data: bookings = [] } = useBookings();
+  const { data: bookingLinks = [] } = useBookingLinks();
   const deleteBooking = useDeleteBooking();
   const [filter, setFilter] = useState<FilterStatus>("all");
+
+  // Build a map of slug -> custom fields for resolving field labels
+  const fieldsBySlug = useMemo(() => {
+    const map: Record<string, CustomField[]> = {};
+    for (const link of bookingLinks) {
+      if (link.customFields) map[link.slug] = link.customFields;
+    }
+    return map;
+  }, [bookingLinks]);
 
   const filtered = bookings.filter((b) => {
     if (filter === "all") return true;
@@ -73,6 +90,7 @@ export default function BookingsList() {
                 <TableHead>Email</TableHead>
                 <TableHead>Event</TableHead>
                 <TableHead>Date & Time</TableHead>
+                <TableHead>Details</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="w-[80px]" />
               </TableRow>
@@ -91,6 +109,12 @@ export default function BookingsList() {
                       {format(parseISO(booking.start), "h:mm a")} -{" "}
                       {format(parseISO(booking.end), "h:mm a")}
                     </div>
+                  </TableCell>
+                  <TableCell>
+                    <BookingDetails
+                      booking={booking}
+                      customFields={fieldsBySlug[booking.slug]}
+                    />
                   </TableCell>
                   <TableCell>
                     <Badge
@@ -121,5 +145,62 @@ export default function BookingsList() {
         </div>
       )}
     </div>
+  );
+}
+
+function BookingDetails({
+  booking,
+  customFields,
+}: {
+  booking: Booking;
+  customFields?: CustomField[];
+}) {
+  const responses = booking.fieldResponses;
+  const hasResponses = responses && Object.keys(responses).length > 0;
+  const hasNotes = !!booking.notes;
+
+  if (!hasNotes && !hasResponses) {
+    return <span className="text-muted-foreground text-xs">—</span>;
+  }
+
+  const lines: { label: string; value: string }[] = [];
+  if (hasNotes) {
+    lines.push({ label: "Notes", value: booking.notes! });
+  }
+  if (hasResponses && customFields) {
+    for (const field of customFields) {
+      const val = responses[field.id];
+      if (val !== undefined && val !== "" && val !== false) {
+        lines.push({
+          label: field.label,
+          value: typeof val === "boolean" ? "Yes" : String(val),
+        });
+      }
+    }
+  }
+
+  if (lines.length === 0) {
+    return <span className="text-muted-foreground text-xs">—</span>;
+  }
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="text-xs text-muted-foreground cursor-help underline decoration-dotted">
+            {lines.length} {lines.length === 1 ? "detail" : "details"}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="max-w-xs">
+          <div className="space-y-1 text-xs">
+            {lines.map((line) => (
+              <div key={line.label}>
+                <span className="font-medium">{line.label}:</span> {line.value}
+              </div>
+            ))}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }

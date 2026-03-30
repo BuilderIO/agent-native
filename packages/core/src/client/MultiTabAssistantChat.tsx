@@ -310,12 +310,16 @@ export function MultiTabAssistantChat({
     });
   }, [activeThreadId, threads]);
 
-  // Ensure active thread is always in open tabs
+  // Ensure active thread is always in open tabs.
+  // Use functional update to check inside the setter — avoids race with the
+  // initialization effect that may have already added the ID in the same batch.
   useEffect(() => {
-    if (activeThreadId && !openTabIds.includes(activeThreadId)) {
-      setOpenTabIds((prev) => [...prev, activeThreadId]);
+    if (activeThreadId) {
+      setOpenTabIds((prev) =>
+        prev.includes(activeThreadId) ? prev : [...prev, activeThreadId],
+      );
     }
-  }, [activeThreadId, openTabIds]);
+  }, [activeThreadId]);
 
   const [messageCounts, setMessageCounts] = useState<Record<string, number>>(
     () => Object.fromEntries(threads.map((t) => [t.id, t.messageCount ?? 0])),
@@ -518,7 +522,20 @@ export function MultiTabAssistantChat({
                       e.stopPropagation();
                       closeTab(tab.id);
                     }}
-                    className="agent-tab-close absolute right-1 top-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded bg-accent/80 text-muted-foreground hover:!text-foreground hover:!bg-accent"
+                    className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
+                    style={{
+                      position: "absolute",
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: 28,
+                      paddingRight: 6,
+                      borderRadius: "0 6px 6px 0",
+                      background:
+                        tab.id === activeThreadId
+                          ? "linear-gradient(to right, transparent, var(--accent) 40%)"
+                          : "linear-gradient(to right, transparent, var(--background) 40%)",
+                    }}
                   >
                     <IconX size={8} />
                   </span>
@@ -563,7 +580,7 @@ export function MultiTabAssistantChat({
         )}
 
         {/* Render all open tabs, hide inactive ones to preserve state */}
-        {openTabIds.map((tabId) => (
+        {[...new Set(openTabIds)].map((tabId) => (
           <div
             key={tabId}
             className="flex-1 min-h-0"

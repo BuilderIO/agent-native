@@ -19,6 +19,12 @@ function rowToBookingLink(
       durations = JSON.parse(row.durations);
     } catch {}
   }
+  let customFields: BookingLink["customFields"];
+  if (row.customFields) {
+    try {
+      customFields = JSON.parse(row.customFields);
+    } catch {}
+  }
   return {
     id: row.id,
     slug: row.slug,
@@ -26,6 +32,7 @@ function rowToBookingLink(
     description: row.description ?? undefined,
     duration: row.duration,
     durations,
+    customFields,
     color: row.color ?? undefined,
     isActive: row.isActive,
     createdAt: row.createdAt,
@@ -77,6 +84,9 @@ export const createBookingLink = defineEventHandler(async (event: H3Event) => {
         description: body.description ? String(body.description).trim() : null,
         duration: Number(body.duration),
         durations: body.durations ? JSON.stringify(body.durations) : null,
+        customFields: body.customFields
+          ? JSON.stringify(body.customFields)
+          : null,
         color: body.color ? String(body.color).trim() : null,
         isActive: body.isActive ?? true,
         createdAt: now,
@@ -130,6 +140,9 @@ export const updateBookingLink = defineEventHandler(async (event: H3Event) => {
         description: body.description ? String(body.description).trim() : null,
         duration: Number(body.duration),
         durations: body.durations ? JSON.stringify(body.durations) : null,
+        customFields: body.customFields
+          ? JSON.stringify(body.customFields)
+          : null,
         color: body.color ? String(body.color).trim() : null,
         isActive: body.isActive ?? true,
         updatedAt: new Date().toISOString(),

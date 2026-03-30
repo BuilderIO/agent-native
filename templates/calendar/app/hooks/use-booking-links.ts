@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { BookingLink } from "@shared/api";
+import type { BookingLink, CustomField } from "@shared/api";
 
 export function useBookingLinks() {
   return useQuery<BookingLink[]>({
@@ -19,6 +19,7 @@ export function useCreateBookingLink() {
       data: Pick<BookingLink, "title" | "slug" | "duration"> & {
         description?: string;
         durations?: number[];
+        customFields?: CustomField[];
         color?: string;
         isActive?: boolean;
       },
@@ -47,6 +48,7 @@ export function useUpdateBookingLink() {
       > & {
         description?: string;
         durations?: number[];
+        customFields?: CustomField[];
         color?: string;
       },
     ) => {

@@ -74,6 +74,7 @@ export default function BookingPage() {
     email: string;
     notes?: string;
     captchaToken?: string;
+    fieldResponses?: Record<string, string | boolean>;
   }) {
     if (!selectedSlot || !slug) return;
 
@@ -86,6 +87,7 @@ export default function BookingPage() {
         email: data.email,
         notes: data.notes,
         captchaToken: data.captchaToken,
+        fieldResponses: data.fieldResponses,
         start: slot.start,
         end: slot.end,
         slug,
@@ -269,6 +271,7 @@ export default function BookingPage() {
               <BookingForm
                 onSubmit={handleBookingSubmit}
                 loading={createBooking.isPending}
+                customFields={bookingLink?.customFields}
               />
             </div>
           )}
@@ -276,6 +279,7 @@ export default function BookingPage() {
           {step === "confirmed" && confirmedBooking && (
             <BookingConfirmation
               booking={confirmedBooking}
+              customFields={bookingLink?.customFields}
               onReset={handleReset}
             />
           )}

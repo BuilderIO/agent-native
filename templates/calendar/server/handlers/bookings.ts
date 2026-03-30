@@ -13,6 +13,7 @@ import type {
   Booking,
   CalendarEvent,
   AvailabilityConfig,
+  CustomField,
   TimeSlot,
 } from "../../shared/api.js";
 import { getSetting } from "@agent-native/core/settings";
@@ -66,6 +67,43 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       return { error: "Booking link not found" };
     }
 
+    // Validate custom field responses
+    let customFields: CustomField[] = [];
+    if (bookingLink?.customFields) {
+      try {
+        customFields = JSON.parse(bookingLink.customFields);
+      } catch {}
+    }
+    const fieldResponses: Record<string, string | boolean> =
+      body.fieldResponses || {};
+    for (const field of customFields) {
+      const value = fieldResponses[field.id];
+      if (field.required) {
+        if (
+          value === undefined ||
+          value === null ||
+          value === "" ||
+          value === false
+        ) {
+          setResponseStatus(event, 400);
+          return { error: `${field.label} is required` };
+        }
+      }
+      if (field.pattern && typeof value === "string" && value) {
+        try {
+          const re = new RegExp(field.pattern);
+          if (!re.test(value)) {
+            setResponseStatus(event, 400);
+            return {
+              error:
+                field.patternError ||
+                `${field.label} does not match the expected format`,
+            };
+          }
+        } catch {}
+      }
+    }
+
     // Check for conflicts + insert atomically in a transaction
     const db = getDb();
     const insertResult = await db.transaction(async (tx) => {
@@ -93,6 +131,10 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         slug: body.slug || "",
         eventTitle: body.eventTitle || bookingLink?.title || null,
         notes: body.notes || null,
+        fieldResponses:
+          Object.keys(fieldResponses).length > 0
+            ? JSON.stringify(fieldResponses)
+            : null,
         status: "confirmed",
         createdAt: now,
       });
@@ -114,7 +156,19 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
             body.eventTitle ||
             bookingLink?.title ||
             `Booking with ${body.name}`,
-          description: `Booking by ${body.name} (${body.email})${body.notes ? `\n\nNotes: ${body.notes}` : ""}`,
+          description: `Booking by ${body.name} (${body.email})${body.notes ? `\n\nNotes: ${body.notes}` : ""}${
+            customFields.length > 0 && Object.keys(fieldResponses).length > 0
+              ? "\n\n" +
+                customFields
+                  .filter(
+                    (f) =>
+                      fieldResponses[f.id] !== undefined &&
+                      fieldResponses[f.id] !== "",
+                  )
+                  .map((f) => `${f.label}: ${fieldResponses[f.id]}`)
+                  .join("\n")
+              : ""
+          }`,
           start: body.start,
           end: body.end,
           location: "",
@@ -138,6 +192,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       slug: body.slug || "",
       eventTitle: body.eventTitle || bookingLink?.title,
       notes: body.notes,
+      fieldResponses:
+        Object.keys(fieldResponses).length > 0 ? fieldResponses : undefined,
       status: "confirmed",
       createdAt: now,
     };
@@ -305,6 +361,12 @@ export const deleteBooking = defineEventHandler(async (event: H3Event) => {
 
 // Helper to convert DB row to Booking type
 function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
+  let fieldResponses: Record<string, string | boolean> | undefined;
+  if (row.fieldResponses) {
+    try {
+      fieldResponses = JSON.parse(row.fieldResponses);
+    } catch {}
+  }
   return {
     id: row.id,
     name: row.name,
@@ -314,6 +376,7 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
     slug: row.slug,
     eventTitle: row.eventTitle ?? undefined,
     notes: row.notes ?? undefined,
+    fieldResponses,
     status: row.status,
     createdAt: row.createdAt,
   };
