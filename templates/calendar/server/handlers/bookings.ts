@@ -190,13 +190,20 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
     let meetingLink: string | undefined;
 
-    // For zoom/custom, use the static URL
+    // For zoom/custom, use the static URL — only allow http(s) schemes
     if (
       conferencing &&
       (conferencing.type === "zoom" || conferencing.type === "custom") &&
       conferencing.url
     ) {
-      meetingLink = conferencing.url;
+      try {
+        const parsed = new URL(conferencing.url);
+        if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+          meetingLink = conferencing.url;
+        }
+      } catch {
+        // Invalid URL — skip
+      }
     }
 
     // Build the manage-booking URL for the event description
