@@ -21,6 +21,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
 
 interface BookingInfo {
   eventTitle: string;
@@ -159,20 +160,47 @@ export function ManageBookingPage() {
         ) : (
           <div className="flex flex-col gap-3">
             {booking.slug && (
-              <Button
-                variant="outline"
-                className="w-full gap-2"
-                onClick={() => {
-                  // Cancel first, then redirect to rebook
-                  cancelMutation.mutate(undefined, {
-                    onSuccess: () => navigate(`/book/${booking.slug}`),
-                  });
-                }}
-                disabled={cancelMutation.isPending}
-              >
-                <CalendarPlus className="h-4 w-4" />
-                Reschedule
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="w-full gap-2"
+                    disabled={cancelMutation.isPending}
+                  >
+                    <CalendarPlus className="h-4 w-4" />
+                    Reschedule
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Reschedule this booking?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Your current booking will be cancelled and you'll be taken
+                      to pick a new time.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Keep Current Time</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={(e) => {
+                        e.preventDefault();
+                        cancelMutation.mutate(undefined, {
+                          onSuccess: () => navigate(`/book/${booking.slug}`),
+                          onError: () =>
+                            toast.error("Failed to cancel booking"),
+                        });
+                      }}
+                      disabled={cancelMutation.isPending}
+                    >
+                      {cancelMutation.isPending
+                        ? "Cancelling..."
+                        : "Reschedule"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
 
             <AlertDialog>
@@ -204,7 +232,12 @@ export function ManageBookingPage() {
                 <AlertDialogFooter>
                   <AlertDialogCancel>Keep Booking</AlertDialogCancel>
                   <AlertDialogAction
-                    onClick={() => cancelMutation.mutate()}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      cancelMutation.mutate(undefined, {
+                        onError: () => toast.error("Failed to cancel booking"),
+                      });
+                    }}
                     disabled={cancelMutation.isPending}
                   >
                     {cancelMutation.isPending ? "Cancelling..." : "Yes, Cancel"}

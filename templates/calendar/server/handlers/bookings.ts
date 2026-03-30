@@ -101,12 +101,18 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       if (
         field.type === "select" &&
         typeof value === "string" &&
-        !field.options?.includes(value)
+        field.options &&
+        field.options.length > 0 &&
+        !field.options.includes(value)
       ) {
         setResponseStatus(event, 400);
         return { error: `Invalid value for ${field.label}` };
       }
-      if (field.type === "checkbox" && typeof value !== "boolean") {
+      if (
+        field.type === "checkbox" &&
+        value !== undefined &&
+        typeof value !== "boolean"
+      ) {
         setResponseStatus(event, 400);
         return { error: `${field.label} must be true or false` };
       }
