@@ -822,6 +822,11 @@ export default function BookingLinksPage({
                                       title: link.title,
                                       slug: link.slug,
                                       duration: link.duration,
+                                      durations: link.durations,
+                                      description: link.description,
+                                      customFields: link.customFields,
+                                      conferencing: link.conferencing,
+                                      color: link.color,
                                       isActive: !link.isActive,
                                     },
                                     {
