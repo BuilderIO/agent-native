@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 import {
   CalendarDays,
   ChevronDown,
@@ -117,12 +118,16 @@ const DEFAULT_SCHEDULE: DaySchedule = {
 
 type Tab = "links" | "availability";
 
-export default function BookingLinksPage() {
+export default function BookingLinksPage({
+  selectedId = null,
+}: {
+  selectedId?: string | null;
+}) {
+  const navigate = useNavigate();
   const { data: bookingLinks = [], isLoading } = useBookingLinks();
   const createBookingLink = useCreateBookingLink();
   const updateBookingLink = useUpdateBookingLink();
   const deleteBookingLink = useDeleteBookingLink();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("links");
   const [draft, setDraft] = useState<DraftLink>({
     title: "",
@@ -219,16 +224,16 @@ export default function BookingLinksPage() {
     );
   }
 
-  // Clear selection if the selected link was deleted
+  // Navigate back to list if the selected link was deleted
   useEffect(() => {
     if (
       selectedId &&
       bookingLinks.length > 0 &&
       !bookingLinks.some((link) => link.id === selectedId)
     ) {
-      setSelectedId(null);
+      navigate("/booking-links", { replace: true });
     }
-  }, [bookingLinks, selectedId]);
+  }, [bookingLinks, selectedId, navigate]);
 
   const selectedLink = useMemo(
     () => bookingLinks.find((link) => link.id === selectedId) ?? null,
@@ -302,8 +307,7 @@ export default function BookingLinksPage() {
         duration: 30,
         isActive: true,
       });
-      setSelectedId(created.id);
-      setActiveTab("links");
+      navigate(`/booking-links/${created.id}`);
       toast.success("Booking link created");
     } catch {
       toast.error("Failed to create booking link");
@@ -324,7 +328,7 @@ export default function BookingLinksPage() {
           draft.customFields.length > 0 ? draft.customFields : undefined,
         isActive: draft.isActive,
       });
-      setSelectedId(null);
+      navigate("/booking-links");
       toast.success("Booking link updated");
     } catch {
       toast.error("Failed to update booking link");
@@ -335,7 +339,7 @@ export default function BookingLinksPage() {
     if (!draft.id) return;
     try {
       await deleteBookingLink.mutateAsync(draft.id);
-      setSelectedId(null);
+      navigate("/booking-links");
       toast.success("Booking link deleted");
     } catch {
       toast.error("Failed to delete booking link");
@@ -365,7 +369,7 @@ export default function BookingLinksPage() {
         <div className="flex items-center justify-between">
           <button
             type="button"
-            onClick={() => setSelectedId(null)}
+            onClick={() => navigate("/booking-links")}
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
           >
             <ChevronLeft className="h-4 w-4" />
@@ -492,7 +496,7 @@ export default function BookingLinksPage() {
                 />
 
                 {/* Visibility toggle */}
-                <div className="flex items-center justify-between rounded-2xl border border-border px-4 py-3">
+                <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium">Link visibility</p>
                     <p className="text-xs text-muted-foreground">
@@ -644,7 +648,7 @@ export default function BookingLinksPage() {
                     <button
                       key={link.id}
                       type="button"
-                      onClick={() => setSelectedId(link.id)}
+                      onClick={() => navigate(`/booking-links/${link.id}`)}
                       className="flex w-full items-center justify-between rounded-lg border border-border px-4 py-3 text-left hover:bg-accent/40"
                     >
                       <div className="min-w-0">
@@ -887,7 +891,7 @@ function EditableBookingUrl({
     <div className="space-y-2">
       <Label>URL</Label>
       {/* Interactive URL — click username or slug to edit inline */}
-      <div className="flex flex-wrap items-baseline gap-0 text-sm font-mono leading-relaxed break-all rounded-lg border border-border bg-muted/20 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-0 text-sm font-mono break-all rounded-lg border border-border bg-muted/20 px-3 py-2">
         <span className="text-muted-foreground">{host}/meet/</span>
 
         {editingField === "username" ? (
@@ -904,7 +908,7 @@ function EditableBookingUrl({
               if (e.key === "Enter") commitEdit();
               if (e.key === "Escape") setEditingField(null);
             }}
-            className="inline-block bg-primary/10 text-primary border-b border-primary/40 outline-none px-0.5 font-mono text-sm w-auto min-w-[3ch]"
+            className="inline-block bg-primary/10 text-primary border-b border-primary/40 outline-none px-0.5 py-0 font-mono text-sm w-auto min-w-[3ch]"
             style={{ width: `${Math.max(3, editValue.length)}ch` }}
           />
         ) : (
@@ -939,7 +943,7 @@ function EditableBookingUrl({
               if (e.key === "Enter") commitEdit();
               if (e.key === "Escape") setEditingField(null);
             }}
-            className="inline-block bg-primary/10 text-primary border-b border-primary/40 outline-none px-0.5 font-mono text-sm w-auto min-w-[3ch]"
+            className="inline-block bg-primary/10 text-primary border-b border-primary/40 outline-none px-0.5 py-0 font-mono text-sm w-auto min-w-[3ch]"
             style={{ width: `${Math.max(3, editValue.length)}ch` }}
           />
         ) : (
