@@ -298,12 +298,12 @@ export default function BookingLinksPage({
   useEffect(() => {
     if (
       selectedId &&
-      bookingLinks.length > 0 &&
+      !isLoading &&
       !bookingLinks.some((link) => link.id === selectedId)
     ) {
       navigate("/booking-links", { replace: true });
     }
-  }, [bookingLinks, selectedId, navigate]);
+  }, [bookingLinks, selectedId, isLoading, navigate]);
 
   const selectedLink = useMemo(
     () => bookingLinks.find((link) => link.id === selectedId) ?? null,
