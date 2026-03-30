@@ -508,7 +508,7 @@ export function MultiTabAssistantChat({
                   "agent-tab relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
                   tab.id === activeThreadId
                     ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent",
                 )}
               >
                 <span className="truncate pr-1">{tab.label}</span>
@@ -532,9 +532,7 @@ export function MultiTabAssistantChat({
                       paddingRight: 6,
                       borderRadius: "0 6px 6px 0",
                       background:
-                        tab.id === activeThreadId
-                          ? "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)"
-                          : "linear-gradient(to right, transparent, hsl(var(--background)) 40%)",
+                        "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
                     }}
                   >
                     <IconX size={8} />

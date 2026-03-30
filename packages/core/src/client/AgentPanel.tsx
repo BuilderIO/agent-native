@@ -748,7 +748,7 @@ export function AgentPanel({
                       "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[130px]",
                       tab.id === activeTabId
                         ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
                     )}
                   >
                     <span className="truncate pr-1">{tab.label}</span>
@@ -771,9 +771,7 @@ export function AgentPanel({
                         paddingRight: 6,
                         borderRadius: "0 6px 6px 0",
                         background:
-                          tab.id === activeTabId
-                            ? "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)"
-                            : "linear-gradient(to right, transparent, hsl(var(--background)) 40%)",
+                          "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
                       }}
                     >
                       <XIcon className="h-2.5 w-2.5" />
@@ -790,7 +788,7 @@ export function AgentPanel({
                       "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
                       id === activeCliTab
                         ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
                     )}
                   >
                     <span>Terminal {i + 1}</span>
