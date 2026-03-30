@@ -25,6 +25,12 @@ function rowToBookingLink(
       customFields = JSON.parse(row.customFields);
     } catch {}
   }
+  let conferencing: BookingLink["conferencing"];
+  if (row.conferencing) {
+    try {
+      conferencing = JSON.parse(row.conferencing);
+    } catch {}
+  }
   return {
     id: row.id,
     slug: row.slug,
@@ -33,6 +39,7 @@ function rowToBookingLink(
     duration: row.duration,
     durations,
     customFields,
+    conferencing,
     color: row.color ?? undefined,
     isActive: row.isActive,
     createdAt: row.createdAt,
@@ -63,12 +70,18 @@ export const createBookingLink = defineEventHandler(async (event: H3Event) => {
     }
 
     const slug = String(body.slug).trim().toLowerCase();
-    const existing = await getDb()
-      .select({ id: schema.bookingLinks.id })
-      .from(schema.bookingLinks)
-      .where(eq(schema.bookingLinks.slug, slug));
+    const [existingLink, existingRedirect] = await Promise.all([
+      getDb()
+        .select({ id: schema.bookingLinks.id })
+        .from(schema.bookingLinks)
+        .where(eq(schema.bookingLinks.slug, slug)),
+      getDb()
+        .select({ oldSlug: schema.bookingSlugRedirects.oldSlug })
+        .from(schema.bookingSlugRedirects)
+        .where(eq(schema.bookingSlugRedirects.oldSlug, slug)),
+    ]);
 
-    if (existing.length > 0) {
+    if (existingLink.length > 0 || existingRedirect.length > 0) {
       setResponseStatus(event, 409);
       return { error: "A booking link with this slug already exists" };
     }
@@ -86,6 +99,9 @@ export const createBookingLink = defineEventHandler(async (event: H3Event) => {
         durations: body.durations ? JSON.stringify(body.durations) : null,
         customFields: body.customFields
           ? JSON.stringify(body.customFields)
+          : null,
+        conferencing: body.conferencing
+          ? JSON.stringify(body.conferencing)
           : null,
         color: body.color ? String(body.color).trim() : null,
         isActive: body.isActive ?? true,
@@ -119,18 +135,39 @@ export const updateBookingLink = defineEventHandler(async (event: H3Event) => {
     }
 
     const slug = String(body.slug).trim().toLowerCase();
-    const existingSlug = await getDb()
-      .select({ id: schema.bookingLinks.id })
-      .from(schema.bookingLinks)
-      .where(
-        // ensure another record does not already own the slug
-        eq(schema.bookingLinks.slug, slug),
-      );
+    const [existingSlug, existingRedirect] = await Promise.all([
+      getDb()
+        .select({ id: schema.bookingLinks.id })
+        .from(schema.bookingLinks)
+        .where(eq(schema.bookingLinks.slug, slug)),
+      getDb()
+        .select({ oldSlug: schema.bookingSlugRedirects.oldSlug })
+        .from(schema.bookingSlugRedirects)
+        .where(eq(schema.bookingSlugRedirects.oldSlug, slug)),
+    ]);
 
     if (existingSlug.some((row) => row.id !== id)) {
       setResponseStatus(event, 409);
       return { error: "A booking link with this slug already exists" };
     }
+    if (existingRedirect.length > 0) {
+      setResponseStatus(event, 409);
+      return { error: "A booking link with this slug already exists" };
+    }
+
+    // Fetch current slug to detect changes
+    const current = await getDb()
+      .select({ slug: schema.bookingLinks.slug })
+      .from(schema.bookingLinks)
+      .where(eq(schema.bookingLinks.id, id));
+
+    if (current.length === 0) {
+      setResponseStatus(event, 404);
+      return { error: "Booking link not found" };
+    }
+
+    const oldSlug = current[0].slug;
+    const slugChanged = oldSlug !== slug;
 
     await getDb()
       .update(schema.bookingLinks)
@@ -143,11 +180,29 @@ export const updateBookingLink = defineEventHandler(async (event: H3Event) => {
         customFields: body.customFields
           ? JSON.stringify(body.customFields)
           : null,
+        conferencing: body.conferencing
+          ? JSON.stringify(body.conferencing)
+          : null,
         color: body.color ? String(body.color).trim() : null,
         isActive: body.isActive ?? true,
         updatedAt: new Date().toISOString(),
       })
       .where(eq(schema.bookingLinks.id, id));
+
+    // Create redirect from old slug and repoint any existing redirects
+    if (slugChanged) {
+      const now = new Date().toISOString();
+      await getDb().insert(schema.bookingSlugRedirects).values({
+        oldSlug,
+        newSlug: slug,
+        createdAt: now,
+      });
+      // Chain: any redirects pointing to the old slug now point to the new one
+      await getDb()
+        .update(schema.bookingSlugRedirects)
+        .set({ newSlug: slug })
+        .where(eq(schema.bookingSlugRedirects.newSlug, oldSlug));
+    }
 
     const updated = await getDb()
       .select()
@@ -174,9 +229,23 @@ export const deleteBookingLink = defineEventHandler(async (event: H3Event) => {
       return { error: "id is required" };
     }
 
+    // Get the slug before deleting so we can clean up redirects
+    const toDelete = await getDb()
+      .select({ slug: schema.bookingLinks.slug })
+      .from(schema.bookingLinks)
+      .where(eq(schema.bookingLinks.id, id));
+
     await getDb()
       .delete(schema.bookingLinks)
       .where(eq(schema.bookingLinks.id, id));
+
+    // Clean up redirects that point to the deleted link's slug
+    if (toDelete.length > 0) {
+      await getDb()
+        .delete(schema.bookingSlugRedirects)
+        .where(eq(schema.bookingSlugRedirects.newSlug, toDelete[0].slug));
+    }
+
     return { ok: true };
   } catch (error: any) {
     setResponseStatus(event, 500);
@@ -199,6 +268,16 @@ export const getPublicBookingLink = defineEventHandler(
         .where(eq(schema.bookingLinks.slug, slug));
 
       if (rows.length === 0 || !rows[0].isActive) {
+        // Check if there's a redirect for this slug
+        const redirect = await getDb()
+          .select({ newSlug: schema.bookingSlugRedirects.newSlug })
+          .from(schema.bookingSlugRedirects)
+          .where(eq(schema.bookingSlugRedirects.oldSlug, slug));
+
+        if (redirect.length > 0) {
+          return { redirect: redirect[0].newSlug };
+        }
+
         setResponseStatus(event, 404);
         return { error: "Booking link not found" };
       }

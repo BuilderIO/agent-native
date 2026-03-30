@@ -9,11 +9,12 @@ import {
   ExternalLink,
   GripVertical,
   Link2,
+  MoreVertical,
   Plus,
-  Clock,
   Trash2,
   AlertTriangle,
   ListChecks,
+  Video,
 } from "lucide-react";
 import { nanoid } from "nanoid";
 import { toast } from "sonner";
@@ -59,6 +60,12 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import {
   useBookingLinks,
@@ -72,7 +79,12 @@ import {
 } from "@/hooks/use-availability";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
-import type { AvailabilityConfig, CustomField, DaySchedule } from "@shared/api";
+import type {
+  AvailabilityConfig,
+  ConferencingConfig,
+  CustomField,
+  DaySchedule,
+} from "@shared/api";
 
 const DURATION_PRESETS = [15, 30, 45, 60];
 
@@ -94,6 +106,7 @@ type DraftLink = {
   duration: number;
   durations: number[];
   customFields: CustomField[];
+  conferencing: ConferencingConfig;
   isActive: boolean;
   /** Whether the user has manually edited the slug (vs auto-generated) */
   slugManuallyEdited: boolean;
@@ -118,6 +131,62 @@ const DEFAULT_SCHEDULE: DaySchedule = {
 
 type Tab = "links" | "availability";
 
+/** Format "09:00" → "9 am", "17:00" → "5 pm" */
+function formatTime12(time: string) {
+  const [h, m] = time.split(":").map(Number);
+  const suffix = h >= 12 ? "pm" : "am";
+  const hour = h % 12 || 12;
+  return m
+    ? `${hour}:${String(m).padStart(2, "0")} ${suffix}`
+    : `${hour} ${suffix}`;
+}
+
+/** Summarize availability, e.g. "Weekdays, 9 am - 5 pm" */
+function formatAvailabilitySummary(config: AvailabilityConfig) {
+  const ws = config.weeklySchedule;
+  const weekdayKeys: DayName[] = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+  ];
+  const weekendKeys: DayName[] = ["saturday", "sunday"];
+  const allDays: DayName[] = [...weekdayKeys, ...weekendKeys];
+
+  const enabledDays = allDays.filter((d) => ws[d].enabled);
+  if (enabledDays.length === 0) return "No availability set";
+
+  // Determine day label
+  const weekdaysOn = weekdayKeys.every((d) => ws[d].enabled);
+  const weekendsOn = weekendKeys.every((d) => ws[d].enabled);
+  const weekdaysOff = weekdayKeys.every((d) => !ws[d].enabled);
+  const weekendsOff = weekendKeys.every((d) => !ws[d].enabled);
+
+  let dayLabel: string;
+  if (weekdaysOn && weekendsOn) dayLabel = "Every day";
+  else if (weekdaysOn && weekendsOff) dayLabel = "Weekdays";
+  else if (weekdaysOff && weekendsOn) dayLabel = "Weekends";
+  else {
+    const shortNames: Record<DayName, string> = {
+      monday: "Mon",
+      tuesday: "Tue",
+      wednesday: "Wed",
+      thursday: "Thu",
+      friday: "Fri",
+      saturday: "Sat",
+      sunday: "Sun",
+    };
+    dayLabel = enabledDays.map((d) => shortNames[d]).join(", ");
+  }
+
+  // Find common time range
+  const slot = ws[enabledDays[0]].slots[0];
+  if (!slot) return dayLabel;
+
+  return `${dayLabel}, ${formatTime12(slot.start)} - ${formatTime12(slot.end)}`;
+}
+
 export default function BookingLinksPage({
   selectedId = null,
 }: {
@@ -136,6 +205,7 @@ export default function BookingLinksPage({
     duration: 30,
     durations: [30],
     customFields: [],
+    conferencing: { type: "none" },
     isActive: true,
     slugManuallyEdited: false,
   });
@@ -249,6 +319,7 @@ export default function BookingLinksPage({
         duration: 30,
         durations: [30],
         customFields: [],
+        conferencing: { type: "none" },
         isActive: true,
         slugManuallyEdited: false,
       });
@@ -268,11 +339,11 @@ export default function BookingLinksPage({
       duration: selectedLink.duration,
       durations,
       customFields: selectedLink.customFields || [],
+      conferencing: selectedLink.conferencing || { type: "none" },
       isActive: selectedLink.isActive,
-      // Only lock the slug if the user previously customized it
-      // (i.e. the saved slug doesn't match what the title would generate).
-      // Freshly created links keep auto-deriving until the user edits the slug.
-      slugManuallyEdited: selectedLink.slug !== slugify(selectedLink.title),
+      // Always lock the slug for saved links — changing a saved URL would
+      // break existing shared links. Users can still edit the slug manually.
+      slugManuallyEdited: true,
     });
     // Show advanced section if link has a description or custom slug
     setShowAdvanced(!!selectedLink.description);
@@ -326,6 +397,8 @@ export default function BookingLinksPage({
         durations: draft.durations.length > 1 ? draft.durations : undefined,
         customFields:
           draft.customFields.length > 0 ? draft.customFields : undefined,
+        conferencing:
+          draft.conferencing.type !== "none" ? draft.conferencing : undefined,
         isActive: draft.isActive,
       });
       navigate("/booking-links");
@@ -487,14 +560,6 @@ export default function BookingLinksPage({
                   )}
                 </div>
 
-                {/* Custom fields editor */}
-                <CustomFieldsEditor
-                  fields={draft.customFields}
-                  onChange={(fields) =>
-                    setDraft((prev) => ({ ...prev, customFields: fields }))
-                  }
-                />
-
                 {/* Visibility toggle */}
                 <div className="flex items-center justify-between">
                   <div>
@@ -542,6 +607,23 @@ export default function BookingLinksPage({
                       slugManuallyEdited: true,
                     }));
                   }}
+                />
+
+                {/* Conferencing */}
+                <ConferencingEditor
+                  config={draft.conferencing}
+                  onChange={(conferencing) =>
+                    setDraft((prev) => ({ ...prev, conferencing }))
+                  }
+                  googleConnected={googleStatus.data?.connected ?? false}
+                />
+
+                {/* Custom fields editor */}
+                <CustomFieldsEditor
+                  fields={draft.customFields}
+                  onChange={(fields) =>
+                    setDraft((prev) => ({ ...prev, customFields: fields }))
+                  }
                 />
 
                 {/* Actions */}
@@ -643,32 +725,121 @@ export default function BookingLinksPage({
             ) : (
               <div className="space-y-3">
                 {bookingLinks.map((link) => {
-                  const linkUrl = getBookingUrl(link.slug);
+                  const durations =
+                    link.durations && link.durations.length > 0
+                      ? link.durations
+                      : [link.duration];
+                  const durationLabel = durations
+                    .map((d) => (d >= 60 ? `${d / 60} hr` : `${d} min`))
+                    .join(", ");
+
                   return (
-                    <button
+                    <div
                       key={link.id}
-                      type="button"
-                      onClick={() => navigate(`/booking-links/${link.id}`)}
-                      className="flex w-full items-center justify-between rounded-lg border border-border px-4 py-3 text-left hover:bg-accent/40"
+                      className={cn(
+                        "rounded-lg border text-left hover:bg-accent/40 cursor-pointer",
+                        link.isActive
+                          ? "border-border bg-card"
+                          : "border-transparent bg-muted/60",
+                      )}
                     >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium truncate">
-                            {link.title}
-                          </span>
-                          <Badge
-                            variant={link.isActive ? "default" : "secondary"}
-                            className="text-[10px] px-1.5 py-0"
+                      <div className="flex items-center gap-4 px-5 py-4">
+                        {/* Info — clickable to edit */}
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/booking-links/${link.id}`)}
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <p
+                            className={cn(
+                              "text-sm font-semibold truncate",
+                              !link.isActive && "text-muted-foreground",
+                            )}
                           >
-                            {link.isActive ? "Live" : "Hidden"}
-                          </Badge>
+                            {link.title}
+                          </p>
+                          <p className="mt-0.5 text-xs text-muted-foreground truncate">
+                            {durationLabel} • One-on-One
+                          </p>
+                          {availability && (
+                            <p className="mt-0.5 text-xs text-muted-foreground truncate">
+                              {formatAvailabilitySummary(availability)}
+                            </p>
+                          )}
+                        </button>
+
+                        {/* Actions */}
+                        <div className="flex shrink-0 items-center gap-2">
+                          {link.isActive && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void copyPreviewUrl(link.slug);
+                                }}
+                                className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm font-medium text-foreground hover:bg-accent/60"
+                              >
+                                <Link2 className="h-3.5 w-3.5" />
+                                Copy link
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openPreview(link.slug);
+                                }}
+                                className="flex items-center justify-center rounded-full border border-border p-2 text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
+
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex items-center justify-center rounded-full border border-border p-2 text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                              >
+                                <MoreVertical className="h-4 w-4" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  navigate(`/booking-links/${link.id}`)
+                                }
+                              >
+                                Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  updateBookingLink.mutate(
+                                    {
+                                      id: link.id,
+                                      title: link.title,
+                                      slug: link.slug,
+                                      duration: link.duration,
+                                      isActive: !link.isActive,
+                                    },
+                                    {
+                                      onSuccess: () =>
+                                        toast.success(
+                                          `${link.title} ${link.isActive ? "disabled" : "enabled"}`,
+                                        ),
+                                    },
+                                  );
+                                }}
+                              >
+                                {link.isActive ? "Disable" : "Enable"}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {linkUrl.replace(/^https?:\/\//, "")}
-                        </p>
                       </div>
-                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -1392,6 +1563,117 @@ function BookingPreview({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Custom fields editor — add/edit/remove custom form fields per booking link
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Conferencing editor — configure meeting links per booking link
+// ---------------------------------------------------------------------------
+
+const CONFERENCING_OPTIONS: {
+  type: ConferencingConfig["type"];
+  label: string;
+  description: string;
+}[] = [
+  { type: "none", label: "No conferencing", description: "In-person or other" },
+  {
+    type: "google_meet",
+    label: "Google Meet",
+    description: "Auto-generate a Meet link",
+  },
+  {
+    type: "zoom",
+    label: "Zoom",
+    description: "Use your personal meeting link",
+  },
+  {
+    type: "custom",
+    label: "Custom link",
+    description: "Any meeting URL",
+  },
+];
+
+function ConferencingEditor({
+  config,
+  onChange,
+  googleConnected,
+}: {
+  config: ConferencingConfig;
+  onChange: (config: ConferencingConfig) => void;
+  googleConnected: boolean;
+}) {
+  return (
+    <div className="space-y-3">
+      <Label className="flex items-center gap-1.5">
+        <Video className="h-4 w-4" />
+        Conferencing
+      </Label>
+
+      <div className="grid grid-cols-2 gap-1.5">
+        {CONFERENCING_OPTIONS.map((opt) => {
+          const isSelected = config.type === opt.type;
+          const isDisabled = opt.type === "google_meet" && !googleConnected;
+          return (
+            <button
+              key={opt.type}
+              type="button"
+              disabled={isDisabled}
+              onClick={() =>
+                onChange({
+                  type: opt.type,
+                  url:
+                    opt.type === "zoom" || opt.type === "custom"
+                      ? config.url
+                      : undefined,
+                })
+              }
+              className={cn(
+                "rounded-lg border px-3 py-2 text-left text-xs",
+                isSelected
+                  ? "border-primary bg-primary/10"
+                  : "border-border/60 hover:bg-accent/60 hover:border-primary/30",
+                isDisabled && "opacity-40 cursor-not-allowed",
+              )}
+            >
+              <p className={cn("font-medium", isSelected && "text-primary")}>
+                {opt.label}
+              </p>
+              <p className="text-muted-foreground">{opt.description}</p>
+              {isDisabled && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  Connect Google Calendar first
+                </p>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {(config.type === "zoom" || config.type === "custom") && (
+        <div className="space-y-1.5">
+          <Label className="text-xs">
+            {config.type === "zoom"
+              ? "Personal Zoom meeting link"
+              : "Meeting URL"}
+          </Label>
+          <Input
+            type="url"
+            value={config.url || ""}
+            onChange={(e) => onChange({ ...config, url: e.target.value })}
+            placeholder={
+              config.type === "zoom"
+                ? "https://zoom.us/j/1234567890"
+                : "https://meet.example.com/room"
+            }
+            className="h-8 text-sm"
+          />
+        </div>
+      )}
     </div>
   );
 }

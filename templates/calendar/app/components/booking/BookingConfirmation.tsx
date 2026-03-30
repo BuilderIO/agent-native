@@ -1,5 +1,6 @@
 import { format, parseISO } from "date-fns";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Video } from "lucide-react";
+import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import type { Booking, CustomField } from "@shared/api";
 
@@ -55,6 +56,20 @@ export function BookingConfirmation({
           <span className="text-xs text-muted-foreground">Name</span>
           <p className="font-medium">{booking.name}</p>
         </div>
+        {booking.meetingLink && (
+          <div>
+            <span className="text-xs text-muted-foreground">Meeting Link</span>
+            <a
+              href={booking.meetingLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 font-medium text-primary hover:underline"
+            >
+              <Video className="h-4 w-4" />
+              Join Meeting
+            </a>
+          </div>
+        )}
         {fieldsWithResponses.map((field) => (
           <div key={field.id}>
             <span className="text-xs text-muted-foreground">{field.label}</span>
@@ -68,6 +83,18 @@ export function BookingConfirmation({
           </div>
         ))}
       </div>
+
+      {booking.cancelToken && (
+        <p className="text-xs text-muted-foreground">
+          Need to make changes?{" "}
+          <Link
+            to={`/booking/manage/${booking.cancelToken}`}
+            className="text-primary hover:underline"
+          >
+            Cancel or reschedule
+          </Link>
+        </p>
+      )}
 
       <Button variant="outline" onClick={onReset}>
         Book Another

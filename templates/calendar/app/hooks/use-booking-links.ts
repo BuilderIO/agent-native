@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { BookingLink, CustomField } from "@shared/api";
+import type { BookingLink, ConferencingConfig, CustomField } from "@shared/api";
 
 export function useBookingLinks() {
   return useQuery<BookingLink[]>({
@@ -20,6 +20,7 @@ export function useCreateBookingLink() {
         description?: string;
         durations?: number[];
         customFields?: CustomField[];
+        conferencing?: ConferencingConfig;
         color?: string;
         isActive?: boolean;
       },
@@ -49,6 +50,7 @@ export function useUpdateBookingLink() {
         description?: string;
         durations?: number[];
         customFields?: CustomField[];
+        conferencing?: ConferencingConfig;
         color?: string;
       },
     ) => {

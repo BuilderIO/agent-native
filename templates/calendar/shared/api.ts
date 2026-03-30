@@ -92,6 +92,12 @@ export interface CustomField {
   options?: string[];
 }
 
+export interface ConferencingConfig {
+  type: "none" | "google_meet" | "zoom" | "custom";
+  /** Meeting URL for zoom/custom types */
+  url?: string;
+}
+
 export interface Booking {
   id: string;
   name: string;
@@ -103,6 +109,10 @@ export interface Booking {
   notes?: string;
   /** Responses to custom fields, keyed by field ID */
   fieldResponses?: Record<string, string | boolean>;
+  /** Meeting link (Zoom, Google Meet, or custom) */
+  meetingLink?: string;
+  /** Token for cancel/reschedule link (only returned to the booker) */
+  cancelToken?: string;
   status: "confirmed" | "cancelled";
   createdAt: string;
 }
@@ -117,6 +127,8 @@ export interface BookingLink {
   durations?: number[];
   /** Custom fields shown on the booking form */
   customFields?: CustomField[];
+  /** Video conferencing configuration */
+  conferencing?: ConferencingConfig;
   color?: string;
   isActive: boolean;
   createdAt: string;

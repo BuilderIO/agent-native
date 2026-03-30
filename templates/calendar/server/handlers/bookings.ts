@@ -1,6 +1,7 @@
 import {
   defineEventHandler,
   getQuery,
+  getRequestURL,
   readBody,
   getRouterParam,
   setResponseStatus,
@@ -13,6 +14,7 @@ import type {
   Booking,
   CalendarEvent,
   AvailabilityConfig,
+  ConferencingConfig,
   CustomField,
   TimeSlot,
 } from "../../shared/api.js";
@@ -46,6 +48,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
 
     const now = new Date().toISOString();
     const id = nanoid();
+    const cancelToken = nanoid();
 
     // Validate required fields
     if (!body.name || !body.email || !body.start || !body.end) {
@@ -147,6 +150,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           Object.keys(fieldResponses).length > 0
             ? JSON.stringify(fieldResponses)
             : null,
+        cancelToken,
         status: "confirmed",
         createdAt: now,
       });
@@ -159,40 +163,82 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       return { error: "This time slot is no longer available" };
     }
 
+    // Resolve conferencing config
+    let conferencing: ConferencingConfig | undefined;
+    if (bookingLink?.conferencing) {
+      try {
+        conferencing = JSON.parse(bookingLink.conferencing);
+      } catch {}
+    }
+    let meetingLink: string | undefined;
+
+    // For zoom/custom, use the static URL
+    if (
+      conferencing &&
+      (conferencing.type === "zoom" || conferencing.type === "custom") &&
+      conferencing.url
+    ) {
+      meetingLink = conferencing.url;
+    }
+
+    // Build the manage-booking URL for the event description
+    const reqUrl = getRequestURL(event);
+    const origin = reqUrl.origin;
+    const manageUrl = `${origin}/booking/manage/${cancelToken}`;
+
     // Create a corresponding Google Calendar event if connected
     if (await googleCalendar.isConnected()) {
       try {
+        const descParts: string[] = [`Booking by ${body.name} (${body.email})`];
+        if (body.notes) descParts.push(`Notes: ${body.notes}`);
+        if (customFields.length > 0 && Object.keys(fieldResponses).length > 0) {
+          const fieldLines = customFields
+            .filter(
+              (f) =>
+                fieldResponses[f.id] !== undefined &&
+                fieldResponses[f.id] !== "",
+            )
+            .map((f) => `${f.label}: ${fieldResponses[f.id]}`);
+          if (fieldLines.length > 0) descParts.push(fieldLines.join("\n"));
+        }
+        if (meetingLink) descParts.push(`Meeting link: ${meetingLink}`);
+        descParts.push(
+          `──────────\nNeed to make changes?\nCancel or reschedule: ${manageUrl}`,
+        );
+
         const calEvent: CalendarEvent = {
           id: nanoid(),
           title:
             body.eventTitle ||
             bookingLink?.title ||
             `Booking with ${body.name}`,
-          description: `Booking by ${body.name} (${body.email})${body.notes ? `\n\nNotes: ${body.notes}` : ""}${
-            customFields.length > 0 && Object.keys(fieldResponses).length > 0
-              ? "\n\n" +
-                customFields
-                  .filter(
-                    (f) =>
-                      fieldResponses[f.id] !== undefined &&
-                      fieldResponses[f.id] !== "",
-                  )
-                  .map((f) => `${f.label}: ${fieldResponses[f.id]}`)
-                  .join("\n")
-              : ""
-          }`,
+          description: descParts.join("\n\n"),
           start: body.start,
           end: body.end,
-          location: "",
+          location: meetingLink || "",
           allDay: false,
           source: "google",
           createdAt: now,
           updatedAt: now,
         };
-        await googleCalendar.createEvent(calEvent);
+        const result = await googleCalendar.createEvent(calEvent, {
+          addGoogleMeet: conferencing?.type === "google_meet",
+        });
+        // Google Meet link is returned by the API when created
+        if (result.meetLink) {
+          meetingLink = result.meetLink;
+        }
       } catch {
         // Continue even if Google Calendar creation fails
       }
+    }
+
+    // Persist the meeting link to the booking row
+    if (meetingLink) {
+      await getDb()
+        .update(schema.bookings)
+        .set({ meetingLink })
+        .where(eq(schema.bookings.id, id));
     }
 
     const booking: Booking = {
@@ -206,6 +252,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       notes: body.notes,
       fieldResponses:
         Object.keys(fieldResponses).length > 0 ? fieldResponses : undefined,
+      meetingLink,
+      cancelToken,
       status: "confirmed",
       createdAt: now,
     };
@@ -371,6 +419,82 @@ export const deleteBooking = defineEventHandler(async (event: H3Event) => {
   }
 });
 
+/** Look up a booking by its cancel token (public, no auth) */
+export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
+  try {
+    const token = getRouterParam(event, "token") as string;
+    if (!token) {
+      setResponseStatus(event, 400);
+      return { error: "Token is required" };
+    }
+
+    const row = await getDb()
+      .select()
+      .from(schema.bookings)
+      .where(eq(schema.bookings.cancelToken, token))
+      .then((rows) => rows[0]);
+
+    if (!row) {
+      setResponseStatus(event, 404);
+      return { error: "Booking not found" };
+    }
+
+    // Return limited info — don't expose internal IDs
+    const booking = rowToBooking(row);
+    return {
+      eventTitle: booking.eventTitle,
+      name: booking.name,
+      start: booking.start,
+      end: booking.end,
+      slug: booking.slug,
+      meetingLink: booking.meetingLink,
+      status: booking.status,
+    };
+  } catch (error: any) {
+    setResponseStatus(event, 500);
+    return { error: error.message };
+  }
+});
+
+/** Cancel a booking by its cancel token (public, no auth) */
+export const cancelBookingByToken = defineEventHandler(
+  async (event: H3Event) => {
+    try {
+      const token = getRouterParam(event, "token") as string;
+      if (!token) {
+        setResponseStatus(event, 400);
+        return { error: "Token is required" };
+      }
+
+      const db = getDb();
+      const row = await db
+        .select()
+        .from(schema.bookings)
+        .where(eq(schema.bookings.cancelToken, token))
+        .then((rows) => rows[0]);
+
+      if (!row) {
+        setResponseStatus(event, 404);
+        return { error: "Booking not found" };
+      }
+
+      if (row.status === "cancelled") {
+        return { success: true, alreadyCancelled: true };
+      }
+
+      await db
+        .update(schema.bookings)
+        .set({ status: "cancelled" })
+        .where(eq(schema.bookings.id, row.id));
+
+      return { success: true, slug: row.slug };
+    } catch (error: any) {
+      setResponseStatus(event, 500);
+      return { error: error.message };
+    }
+  },
+);
+
 // Helper to convert DB row to Booking type
 function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
   let fieldResponses: Record<string, string | boolean> | undefined;
@@ -389,6 +513,7 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
     eventTitle: row.eventTitle ?? undefined,
     notes: row.notes ?? undefined,
     fieldResponses,
+    meetingLink: row.meetingLink ?? undefined,
     status: row.status,
     createdAt: row.createdAt,
   };
