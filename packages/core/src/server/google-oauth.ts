@@ -40,10 +40,18 @@ export interface OAuthStatePayload {
 }
 
 /**
- * Encode OAuth state into a base64url string.
- * Carries the redirect URI, owner, and platform flags through Google's
- * OAuth redirect so the callback can recover them in cookie-less contexts
- * (system browser, mobile Safari).
+ * Derive a signing key for HMAC verification of OAuth state.
+ * Uses GOOGLE_CLIENT_SECRET as the key material — it's always available
+ * when OAuth is configured and is never exposed to the browser.
+ */
+function getStateSigningKey(): string {
+  return process.env.GOOGLE_CLIENT_SECRET || "oauth-state-key";
+}
+
+/**
+ * Encode OAuth state into a signed base64url string.
+ * The state is HMAC-signed so the callback can verify it wasn't forged,
+ * preventing CSRF attacks on the OAuth flow.
  */
 export function encodeOAuthState(
   redirectUri: string,
@@ -59,12 +67,18 @@ export function encodeOAuthState(
   if (owner) payload.o = owner;
   if (desktop) payload.d = true;
   if (addAccount) payload.a = true;
-  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const sig = crypto
+    .createHmac("sha256", getStateSigningKey())
+    .update(data)
+    .digest("base64url");
+  return `${data}.${sig}`;
 }
 
 /**
- * Decode OAuth state from the callback's state query parameter.
- * Falls back to the provided URI if decoding fails.
+ * Decode and verify OAuth state from the callback's state query parameter.
+ * Rejects forged or tampered state by checking the HMAC signature.
+ * Falls back to the provided URI if decoding or verification fails.
  */
 export function decodeOAuthState(
   stateParam: string | undefined,
@@ -72,9 +86,24 @@ export function decodeOAuthState(
 ): OAuthStatePayload {
   if (stateParam) {
     try {
-      const parsed = JSON.parse(
-        Buffer.from(stateParam, "base64url").toString(),
-      );
+      const dotIdx = stateParam.lastIndexOf(".");
+      if (dotIdx === -1) return { redirectUri: fallbackUri };
+
+      const data = stateParam.slice(0, dotIdx);
+      const sig = stateParam.slice(dotIdx + 1);
+      const expected = crypto
+        .createHmac("sha256", getStateSigningKey())
+        .update(data)
+        .digest("base64url");
+
+      if (
+        sig.length !== expected.length ||
+        !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))
+      ) {
+        return { redirectUri: fallbackUri };
+      }
+
+      const parsed = JSON.parse(Buffer.from(data, "base64url").toString());
       return {
         redirectUri: parsed.r || fallbackUri,
         owner: parsed.o || undefined,
