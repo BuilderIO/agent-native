@@ -1,0 +1,151 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 220 10% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 10% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 10% 10%;
+    --primary: 220 10% 15%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 10% 95%;
+    --secondary-foreground: 220 10% 15%;
+    --muted: 220 10% 95%;
+    --muted-foreground: 220 5% 45%;
+    --accent: 220 10% 95%;
+    --accent-foreground: 220 10% 15%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 10% 90%;
+    --input: 220 10% 90%;
+    --ring: 220 10% 40%;
+    --radius: 0.5rem;
+    --sidebar-background: 220 10% 97%;
+    --sidebar-foreground: 220 5% 45%;
+    --sidebar-primary: 220 10% 15%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 10% 95%;
+    --sidebar-accent-foreground: 220 10% 15%;
+    --sidebar-border: 220 10% 90%;
+    --sidebar-ring: 220 10% 40%;
+  }
+
+  .dark {
+    --background: 220 6% 6%;
+    --foreground: 0 0% 90%;
+    --card: 220 5% 6%;
+    --card-foreground: 0 0% 90%;
+    --popover: 220 5% 6%;
+    --popover-foreground: 0 0% 90%;
+    --primary: 0 0% 75%;
+    --primary-foreground: 220 6% 6%;
+    --secondary: 220 4% 12%;
+    --secondary-foreground: 0 0% 90%;
+    --muted: 220 4% 10%;
+    --muted-foreground: 220 4% 60%;
+    --accent: 220 4% 13%;
+    --accent-foreground: 0 0% 90%;
+    --destructive: 0 63% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 4% 14%;
+    --input: 220 4% 14%;
+    --ring: 0 0% 60%;
+    --radius: 0.5rem;
+    --sidebar-background: 220 6% 4%;
+    --sidebar-foreground: 220 4% 60%;
+    --sidebar-primary: 0 0% 75%;
+    --sidebar-primary-foreground: 220 6% 6%;
+    --sidebar-accent: 220 4% 10%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 220 4% 10%;
+    --sidebar-ring: 0 0% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Inter", sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  /* Prevent text selection on double-click for table rows */
+  .list-row {
+    user-select: none;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* Keyboard shortcut hint badges */
+.kbd-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-family: ui-monospace, monospace;
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
+  border-radius: 3px;
+  color: hsl(var(--muted-foreground));
+  letter-spacing: 0;
+}
+
+/* Highlight focused list row */
+.list-row.focused {
+  background: hsl(var(--accent));
+}
+
+/* Pipeline kanban card */
+.pipeline-card {
+  cursor: grab;
+}
+.pipeline-card:active {
+  cursor: grabbing;
+}
+.pipeline-card.dragging {
+  opacity: 0.5;
+}
+.pipeline-column.drag-over {
+  background: hsl(var(--accent));
+}
+
+/* Sonner cancel button style */
+[data-sonner-toast] [data-cancel] {
+  background: transparent !important;
+  color: hsl(220, 10%, 50%) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.05em !important;
+  padding: 0 !important;
+  margin-left: 16px !important;
+}
+[data-sonner-toast] [data-cancel]:hover {
+  color: hsl(220, 10%, 70%) !important;
+}
