@@ -57,24 +57,22 @@ describe("server/auth", () => {
       warnSpy.mockRestore();
     });
 
-    it("exits process when no tokens in production without AUTH_DISABLED", async () => {
+    it("enables email/password auth when no tokens in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
       delete process.env.AUTH_DISABLED;
       const { autoMountAuth } = await import("./auth.js");
 
-      const exitSpy = vi
-        .spyOn(process, "exit")
-        .mockImplementation((() => {}) as any);
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       const app = createMockApp();
-      autoMountAuth(app);
+      const result = autoMountAuth(app);
 
-      expect(exitSpy).toHaveBeenCalledWith(1);
-      exitSpy.mockRestore();
-      errorSpy.mockRestore();
+      expect(result).toBe(true);
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.stringContaining("email/password"),
+      );
+      logSpy.mockRestore();
     });
 
     it("mounts auth when ACCESS_TOKEN is set in production", async () => {

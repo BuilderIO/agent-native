@@ -210,3 +210,5 @@ Agent skills in `.agents/skills/` provide detailed guidance for architectural ru
 | `ship`                | Commit, prep, push, check CI, fix PR feedback        |
 
 The **`frontend-design`** skill (sourced from [Anthropic's skills library](https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md)) applies whenever the agent generates or modifies UI. It enforces distinctive, production-grade aesthetics — avoiding generic AI-generated design patterns like purple gradients, overused fonts, and cookie-cutter layouts.
+
+**Always use shadcn/ui components** for standard UI patterns — Tabs, Dialog, Button, DropdownMenu, Select, Popover, Input, Textarea, Badge, Card, etc. Every template includes shadcn components in `app/components/ui/`. Never create custom one-off implementations when a shadcn component exists. Check `app/components/ui/` before building custom UI elements.

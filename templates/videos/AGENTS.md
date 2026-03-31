@@ -8,6 +8,8 @@ This is an **agent-native** app built with `@agent-native/core`. See `.agents/sk
 - **real-time-sync** — UI stays in sync with agent changes via SSE (DB change events).
 - **frontend-design** — Build distinctive, production-grade UI. Read this skill before creating or restyling any component, page, or layout.
 
+**Always use shadcn/ui components** (from `@/components/ui/`) for standard UI patterns — tabs, dialogs, buttons, dropdowns, popovers, selects, inputs, etc. Never create custom one-off implementations when a shadcn component exists. Check `app/components/ui/` for available components before building custom UI.
+
 For code editing and development guidance, read `DEVELOPING.md`.
 
 ---
