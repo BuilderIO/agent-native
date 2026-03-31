@@ -101,7 +101,7 @@ export function FormsListPage() {
     );
   }
 
-  if (error) {
+  if (error && !forms?.length) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3">
         <p className="text-sm text-muted-foreground">Failed to load forms</p>
@@ -154,7 +154,10 @@ export function FormsListPage() {
               tabIndex={0}
               onClick={() => navigate(`/forms/${form.id}`)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
+                if (
+                  (e.key === "Enter" || e.key === " ") &&
+                  e.target === e.currentTarget
+                ) {
                   e.preventDefault();
                   navigate(`/forms/${form.id}`);
                 }

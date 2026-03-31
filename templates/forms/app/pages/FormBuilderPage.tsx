@@ -150,7 +150,7 @@ export function FormBuilderPage() {
     );
   }
 
-  if (error || !form) {
+  if (error && !form) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3">
         <p className="text-sm text-muted-foreground">Failed to load form</p>
