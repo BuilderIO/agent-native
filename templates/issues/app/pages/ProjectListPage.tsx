@@ -23,17 +23,9 @@ export function ProjectListPage() {
               className="group rounded-lg border border-border p-4 hover:border-border/80 hover:bg-accent/50"
             >
               <div className="flex items-center gap-3">
-                {project.avatarUrls?.["32x32"] ? (
-                  <img
-                    src={project.avatarUrls["32x32"]}
-                    alt=""
-                    className="h-8 w-8 rounded"
-                  />
-                ) : (
-                  <div className="flex h-8 w-8 items-center justify-center rounded bg-muted">
-                    <FolderKanban className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                )}
+                <div className="flex h-8 w-8 items-center justify-center rounded bg-muted">
+                  <FolderKanban className="h-4 w-4 text-muted-foreground" />
+                </div>
                 <div className="min-w-0">
                   <div className="text-[13px] font-semibold text-foreground">
                     {project.name}

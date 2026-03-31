@@ -13,6 +13,7 @@ import {
   agileGetBoardConfig,
   agileListSprints,
   agileGetSprintIssues,
+  AtlassianApiError,
 } from "../lib/jira-api.js";
 
 async function requireClient(event: H3Event) {
@@ -31,13 +32,22 @@ export const listBoards = defineEventHandler(async (event: H3Event) => {
   const maxResults = query.maxResults ? Number(query.maxResults) : 50;
   const projectKeyOrId = query.projectKeyOrId as string | undefined;
 
-  const result = await agileListBoards(client.cloudId, client.accessToken, {
-    startAt,
-    maxResults,
-    projectKeyOrId,
-  });
-
-  return result;
+  try {
+    const result = await agileListBoards(client.cloudId, client.accessToken, {
+      startAt,
+      maxResults,
+      projectKeyOrId,
+    });
+    return result;
+  } catch (err) {
+    if (
+      err instanceof AtlassianApiError &&
+      (err.status === 403 || err.status === 404)
+    ) {
+      return { values: [], total: 0 };
+    }
+    throw err;
+  }
 });
 
 export const getBoardConfig = defineEventHandler(async (event: H3Event) => {
@@ -48,12 +58,23 @@ export const getBoardConfig = defineEventHandler(async (event: H3Event) => {
     return { error: "boardId is required" };
   }
 
-  const config = await agileGetBoardConfig(
-    client.cloudId,
-    client.accessToken,
-    boardId,
-  );
-  return config;
+  try {
+    const config = await agileGetBoardConfig(
+      client.cloudId,
+      client.accessToken,
+      boardId,
+    );
+    return config;
+  } catch (err) {
+    if (
+      err instanceof AtlassianApiError &&
+      (err.status === 403 || err.status === 404)
+    ) {
+      setResponseStatus(event, err.status);
+      return { error: err.message };
+    }
+    throw err;
+  }
 });
 
 export const listSprints = defineEventHandler(async (event: H3Event) => {
@@ -67,17 +88,26 @@ export const listSprints = defineEventHandler(async (event: H3Event) => {
   const query = getQuery(event);
   const state = query.state as string | undefined;
 
-  const result = await agileListSprints(
-    client.cloudId,
-    client.accessToken,
-    boardId,
-    {
-      state,
-      maxResults: 50,
-    },
-  );
-
-  return result;
+  try {
+    const result = await agileListSprints(
+      client.cloudId,
+      client.accessToken,
+      boardId,
+      {
+        state,
+        maxResults: 50,
+      },
+    );
+    return result;
+  } catch (err) {
+    if (
+      err instanceof AtlassianApiError &&
+      (err.status === 403 || err.status === 404)
+    ) {
+      return { values: [], total: 0 };
+    }
+    throw err;
+  }
 });
 
 export const getSprintIssues = defineEventHandler(async (event: H3Event) => {
@@ -92,15 +122,24 @@ export const getSprintIssues = defineEventHandler(async (event: H3Event) => {
   const startAt = query.startAt ? Number(query.startAt) : 0;
   const maxResults = query.maxResults ? Number(query.maxResults) : 50;
 
-  const result = await agileGetSprintIssues(
-    client.cloudId,
-    client.accessToken,
-    sprintId,
-    {
-      startAt,
-      maxResults,
-    },
-  );
-
-  return result;
+  try {
+    const result = await agileGetSprintIssues(
+      client.cloudId,
+      client.accessToken,
+      sprintId,
+      {
+        startAt,
+        maxResults,
+      },
+    );
+    return result;
+  } catch (err) {
+    if (
+      err instanceof AtlassianApiError &&
+      (err.status === 403 || err.status === 404)
+    ) {
+      return { startAt: 0, maxResults: 0, total: 0, issues: [] };
+    }
+    throw err;
+  }
 });

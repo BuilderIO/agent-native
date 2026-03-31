@@ -7,8 +7,8 @@ export function useIssues(params: IssueListParams) {
   if (params.projectKey) searchParams.set("projectKey", params.projectKey);
   if (params.jql) searchParams.set("jql", params.jql);
   if (params.q) searchParams.set("q", params.q);
-  if (params.startAt !== undefined)
-    searchParams.set("startAt", String(params.startAt));
+  if (params.nextPageToken)
+    searchParams.set("nextPageToken", params.nextPageToken);
   if (params.maxResults !== undefined)
     searchParams.set("maxResults", String(params.maxResults));
 

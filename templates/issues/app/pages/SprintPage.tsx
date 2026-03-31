@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { useSprints, useSprintIssues } from "@/hooks/use-boards";
 import { IssueList } from "@/components/issues/IssueList";
 import { IssueDetail } from "@/components/issues/IssueDetail";
@@ -10,7 +10,13 @@ interface SprintPageProps {
   selectedIssueKey?: string;
 }
 
-export function SprintPage({ boardId, selectedIssueKey }: SprintPageProps) {
+export function SprintPage({
+  boardId: propBoardId,
+  selectedIssueKey: propIssueKey,
+}: SprintPageProps) {
+  const params = useParams();
+  const boardId = propBoardId || params.boardId || "";
+  const selectedIssueKey = propIssueKey || params.issueKey;
   const { data: sprintsData, isLoading: sprintsLoading } = useSprints(boardId);
   const sprints = sprintsData?.values || [];
 
@@ -27,7 +33,7 @@ export function SprintPage({ boardId, selectedIssueKey }: SprintPageProps) {
   return (
     <div className="flex h-full">
       <div
-        className={`flex flex-col overflow-hidden ${selectedIssueKey ? "w-[400px] shrink-0 border-r border-border" : "flex-1"}`}
+        className={`flex flex-col overflow-hidden ${selectedIssueKey ? "hidden" : "flex-1"}`}
       >
         <div className="flex items-center gap-3 border-b border-border px-4 py-3">
           <h1 className="text-sm font-semibold text-foreground">
