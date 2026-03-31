@@ -9,7 +9,9 @@ import {
   Search,
   FileText,
   Plus,
+  History,
 } from "lucide-react";
+import { VersionHistoryPanel } from "./VersionHistoryPanel";
 import {
   Popover,
   PopoverTrigger,
@@ -61,6 +63,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
   const createAndLink = useCreateAndLinkNotionPage(documentId);
 
   const [open, setOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -202,6 +205,20 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
 
   return (
     <div className="absolute top-3 right-4 z-10 flex items-center gap-1">
+      <button
+        onClick={() => setHistoryOpen(true)}
+        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
+        title="Version history"
+      >
+        <History size={16} />
+      </button>
+
+      <VersionHistoryPanel
+        documentId={documentId}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+      />
+
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button

@@ -61,3 +61,10 @@ export type AgentChatEvent =
   | { type: "error"; error: string }
   | { type: "missing_api_key" }
   | { type: "loop_limit" };
+
+export interface RunEvent {
+  seq: number;
+  event: AgentChatEvent;
+}
+
+export type RunStatus = "running" | "completed" | "errored";

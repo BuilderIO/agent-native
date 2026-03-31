@@ -33,4 +33,14 @@ export default runMigrations([
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
   },
+  {
+    version: 3,
+    sql: `CREATE TABLE IF NOT EXISTS document_versions (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+  },
 ]);
