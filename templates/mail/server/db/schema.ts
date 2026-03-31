@@ -16,3 +16,15 @@ export const scheduledJobs = sqliteTable("scheduled_jobs", {
     .default("pending"),
   createdAt: integer("created_at").notNull(),
 });
+
+export const automationRules = sqliteTable("automation_rules", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  domain: text("domain").notNull(), // "mail" | "calendar"
+  name: text("name").notNull(),
+  condition: text("condition").notNull(), // natural language condition
+  actions: text("actions").notNull(), // JSON array of AutomationAction
+  enabled: integer("enabled").notNull().default(1),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});

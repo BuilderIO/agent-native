@@ -56,6 +56,8 @@ This is an agent-native calendar app with Google Calendar integration and a publ
 
 Calendar events come directly from the Google Calendar API. They are **not** stored locally — the app queries Google Calendar on each request.
 
+**IMPORTANT: Events are NOT in SQL.** Never use `db-query` to search for events. Use the `list-events` or `search-events` scripts instead — they query Google Calendar directly.
+
 ### Skills
 
 Read the skill files in `.agents/skills/` for detailed patterns:
@@ -77,7 +79,8 @@ pnpm script sync-google-calendar --from 2026-01-01 --to 2026-06-01
 
 | Script                 | Args                                                                     | Purpose                                                               |
 | ---------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------- |
-| `list-events`          | `--from`, `--to`, `--source`                                             | **Query Google Calendar events** — use this for any schedule question |
+| `list-events`          | `--from`, `--to`, `--query`, `--json`                                    | **Query Google Calendar events** — use this for any schedule question |
+| `search-events`        | `--query` (required), `--from`, `--to`                                   | **Search events by title** — returns JSON with attendees and details  |
 | `sync-google-calendar` | `--from`, `--to`                                                         | Pull Google Calendar events                                           |
 | `create-event`         | `--title`, `--start`, `--end`, `--description`, `--location`, `--google` | Create event locally + optionally on Google                           |
 | `check-availability`   | `--date`, `--duration`                                                   | Show available time slots for a date                                  |

@@ -98,11 +98,11 @@ export function SnoozeModal({
 
   // Debounced NL parse
   useEffect(() => {
+    setSelectedIndex(0);
     if (!nlInput.trim()) {
       setParsedDate(null);
       setParsedLabel(null);
       setParsedFormatted(null);
-      setSelectedIndex(0);
       return;
     }
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -127,43 +127,66 @@ export function SnoozeModal({
     };
   }, [nlInput]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Which options list to show
-  const options: Option[] =
-    nlInput.trim() && parsedDate
-      ? [{ label: parsedLabel ?? nlInput, date: parsedDate, isCustom: true }]
-      : presets;
+  // Filter presets by prefix match (e.g. "tom" → "tomorrow", "next" → "next week")
+  const filteredPresets = nlInput.trim()
+    ? presets.filter((p) =>
+        p.label.toLowerCase().startsWith(nlInput.trim().toLowerCase()),
+      )
+    : presets;
+
+  // Which options list to show — presets that prefix-match, plus server-parsed custom date
+  // (skip custom if it duplicates a preset)
+  const options: Option[] = nlInput.trim()
+    ? [
+        ...filteredPresets,
+        ...(parsedDate && filteredPresets.length === 0
+          ? [
+              {
+                label: parsedLabel ?? nlInput,
+                date: parsedDate,
+                isCustom: true,
+              },
+            ]
+          : []),
+      ]
+    : presets;
 
   const handleConfirm = useCallback(
-    async (opt: Option) => {
+    (opt: Option) => {
       if (!emailId) return;
-      try {
-        await snoozeEmail.mutateAsync({
+
+      // Optimistic: close immediately, show toast, advance selection
+      onClose();
+      toast(`Snoozed until ${formatRight(opt.date, opt.sublabel)}`);
+      window.dispatchEvent(
+        new CustomEvent("email:snoozed", { detail: { emailId } }),
+      );
+      onSnoozed?.(emailId);
+
+      // Fire API in background — surface errors after the fact
+      snoozeEmail
+        .mutateAsync({
           emailId,
           runAt: opt.date.getTime(),
           accountEmail,
+        })
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ["emails"] });
+        })
+        .catch((err: any) => {
+          const msg = err?.message ?? "";
+          if (
+            msg.includes("no such table") ||
+            msg.includes("scheduled_jobs") ||
+            msg.includes("SQLITE")
+          ) {
+            toast.error(
+              "Snooze DB not ready. Run: pnpm db:push in the mail template.",
+            );
+          } else {
+            toast.error("Couldn't snooze — check the server logs.");
+          }
         });
-        queryClient.invalidateQueries({ queryKey: ["emails"] });
-        // Dispatch after successful archive so list advances selection
-        window.dispatchEvent(
-          new CustomEvent("email:snoozed", { detail: { emailId } }),
-        );
-        onSnoozed?.(emailId);
-        onClose();
-        toast(`Snoozed until ${formatRight(opt.date, opt.sublabel)}`);
-      } catch (err: any) {
-        const msg = err?.message ?? "";
-        if (
-          msg.includes("no such table") ||
-          msg.includes("scheduled_jobs") ||
-          msg.includes("SQLITE")
-        ) {
-          toast.error(
-            "Snooze DB not ready. Run: pnpm db:push in the mail template.",
-          );
-        } else {
-          toast.error("Couldn't snooze — check the server logs.");
-        }
-      }
     },
     [accountEmail, emailId, snoozeEmail, queryClient, onSnoozed, onClose],
   );
@@ -194,7 +217,6 @@ export function SnoozeModal({
 
   const nlTyping = nlInput.trim().length > 0;
   const nlParsed = nlTyping && parsedDate !== null;
-  const nlFailed = nlTyping && !parsedDate && !parseDate.isPending;
 
   return (
     <div
@@ -227,18 +249,11 @@ export function SnoozeModal({
             value={nlInput}
             onChange={(e) => setNlInput(e.target.value)}
             placeholder="Try: 8 am, 3 days, aug 7"
-            className={cn(
-              "flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground",
-              nlFailed && "text-destructive",
-            )}
+            className="flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
           />
-          {nlTyping && (
+          {nlTyping && (nlParsed || parseDate.isPending) && (
             <span className="shrink-0 ml-3 text-xs text-muted-foreground tabular-nums">
-              {parseDate.isPending
-                ? "…"
-                : nlParsed
-                  ? parsedFormatted
-                  : "no match"}
+              {parseDate.isPending ? "…" : parsedFormatted}
             </span>
           )}
         </div>

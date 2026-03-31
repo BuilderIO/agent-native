@@ -748,7 +748,7 @@ export function AgentPanel({
                       "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[130px]",
                       tab.id === activeTabId
                         ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
                     )}
                   >
                     <span className="truncate pr-1">{tab.label}</span>
@@ -761,7 +761,18 @@ export function AgentPanel({
                         e.stopPropagation();
                         closeTab(tab.id);
                       }}
-                      className="agent-tab-close absolute right-1 top-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded bg-accent/80 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
+                      style={{
+                        position: "absolute",
+                        right: 0,
+                        top: 0,
+                        bottom: 0,
+                        width: 28,
+                        paddingRight: 6,
+                        borderRadius: "0 6px 6px 0",
+                        background:
+                          "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                      }}
                     >
                       <XIcon className="h-2.5 w-2.5" />
                     </button>
@@ -777,7 +788,7 @@ export function AgentPanel({
                       "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
                       id === activeCliTab
                         ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
                     )}
                   >
                     <span>Terminal {i + 1}</span>
@@ -787,7 +798,18 @@ export function AgentPanel({
                         e.stopPropagation();
                         closeCliTab(id);
                       }}
-                      className="agent-tab-close absolute right-1 top-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded bg-accent/80 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
+                      style={{
+                        position: "absolute",
+                        right: 0,
+                        top: 0,
+                        bottom: 0,
+                        width: 28,
+                        paddingRight: 6,
+                        borderRadius: "0 6px 6px 0",
+                        background:
+                          "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                      }}
                     >
                       <XIcon className="h-2.5 w-2.5" />
                     </button>
@@ -795,10 +817,10 @@ export function AgentPanel({
                 ))}
             <button
               onClick={mode === "cli" ? addCliTab : addTab}
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
               title={mode === "cli" ? "New terminal" : "New chat"}
             >
-              <PlusIcon className="h-3 w-3" />
+              <PlusIcon className="h-3.5 w-3.5" />
             </button>
           </div>
         )}

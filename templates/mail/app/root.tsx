@@ -1,6 +1,5 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useEffect } from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   QueryClient,
   QueryClientProvider,
@@ -61,6 +60,28 @@ function AutoFocus() {
       document.removeEventListener("visibilitychange", handleVisibility);
       document.removeEventListener("click", handleClick, true);
     };
+  }, []);
+  return null;
+}
+
+/** Trigger automation processing on window focus and initial load */
+function AutomationTrigger() {
+  const lastTrigger = useRef(0);
+  useEffect(() => {
+    const trigger = () => {
+      const now = Date.now();
+      if (now - lastTrigger.current < 30_000) return;
+      lastTrigger.current = now;
+      fetch("/api/automations/trigger", { method: "POST" }).catch(() => {});
+    };
+    // Trigger on load
+    trigger();
+    // Trigger on window focus
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") trigger();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
   return null;
 }
@@ -138,6 +159,7 @@ export default function Root() {
           <TooltipProvider delayDuration={300}>
             <Toaster richColors position="bottom-left" />
             <AutoFocus />
+            <AutomationTrigger />
             <FileWatcherSetup />
             <AppLayout>
               <Outlet />

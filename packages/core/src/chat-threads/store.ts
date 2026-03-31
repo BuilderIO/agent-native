@@ -114,6 +114,28 @@ export async function listThreads(
   }));
 }
 
+export async function searchThreads(
+  ownerEmail: string,
+  query: string,
+  limit = 50,
+): Promise<ChatThreadSummary[]> {
+  await ensureTable();
+  const client = getDbExec();
+  const pattern = `%${query}%`;
+  const { rows } = await client.execute({
+    sql: `SELECT id, title, preview, message_count, created_at, updated_at FROM chat_threads WHERE owner_email = ? AND (title LIKE ? OR preview LIKE ? OR thread_data LIKE ?) ORDER BY updated_at DESC LIMIT ?`,
+    args: [ownerEmail, pattern, pattern, pattern, limit],
+  });
+  return rows.map((r) => ({
+    id: r.id as string,
+    title: r.title as string,
+    preview: r.preview as string,
+    messageCount: Number(r.message_count),
+    createdAt: Number(r.created_at),
+    updatedAt: Number(r.updated_at),
+  }));
+}
+
 export async function updateThreadData(
   id: string,
   threadData: string,

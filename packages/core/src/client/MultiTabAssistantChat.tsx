@@ -110,14 +110,21 @@ function HistoryPopover({
   openTabIds,
   onSelect,
   onClose,
+  onSearch,
 }: {
   threads: ChatThreadSummary[];
   openTabIds: Set<string>;
   onSelect: (id: string) => void;
   onClose: () => void;
+  onSearch?: (query: string) => Promise<ChatThreadSummary[]>;
 }) {
   const [search, setSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<
+    ChatThreadSummary[] | null
+  >(null);
+  const [isSearching, setIsSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -131,17 +138,42 @@ function HistoryPopover({
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
+  // Debounced server-side search
+  const searchIdRef = useRef(0);
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const q = search.trim();
+    if (!q) {
+      searchIdRef.current++;
+      setSearchResults(null);
+      setIsSearching(false);
+      return;
+    }
+    setIsSearching(true);
+    const id = ++searchIdRef.current;
+    debounceRef.current = setTimeout(async () => {
+      if (onSearch) {
+        const results = await onSearch(q);
+        if (id !== searchIdRef.current) return;
+        setSearchResults(results);
+      } else {
+        // Fallback to client-side filtering
+        setSearchResults(null);
+      }
+      setIsSearching(false);
+    }, 250);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [search, onSearch]);
+
   // Only show threads not currently open as tabs
   const closedThreads = threads.filter(
     (t) => !openTabIds.has(t.id) && t.messageCount > 0,
   );
 
   const filtered = search.trim()
-    ? closedThreads.filter(
-        (t) =>
-          t.title.toLowerCase().includes(search.toLowerCase()) ||
-          t.preview.toLowerCase().includes(search.toLowerCase()),
-      )
+    ? (searchResults ?? closedThreads).filter((t) => t.messageCount > 0)
     : closedThreads;
 
   const formatTime = (ts: number) => {
@@ -172,7 +204,11 @@ function HistoryPopover({
           />
         </div>
         <div className="max-h-64 overflow-y-auto py-1">
-          {filtered.length === 0 ? (
+          {isSearching ? (
+            <div className="px-3 py-4 text-xs text-muted-foreground text-center">
+              Searching...
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="px-3 py-4 text-xs text-muted-foreground text-center">
               {search ? "No matching chats" : "No past chats"}
             </div>
@@ -261,6 +297,8 @@ export function MultiTabAssistantChat({
     switchThread,
     deleteThread,
     saveThreadData,
+    generateTitle,
+    searchThreads,
   } = useChatThreads(apiUrl);
 
   const activeThreadIdRef = useRef(activeThreadId);
@@ -310,12 +348,26 @@ export function MultiTabAssistantChat({
     });
   }, [activeThreadId, threads]);
 
-  // Ensure active thread is always in open tabs
+  // Ensure active thread is always in open tabs.
+  // Use functional update to check inside the setter — avoids race with the
+  // initialization effect that may have already added the ID in the same batch.
   useEffect(() => {
-    if (activeThreadId && !openTabIds.includes(activeThreadId)) {
-      setOpenTabIds((prev) => [...prev, activeThreadId]);
+    if (activeThreadId) {
+      setOpenTabIds((prev) =>
+        prev.includes(activeThreadId) ? prev : [...prev, activeThreadId],
+      );
     }
-  }, [activeThreadId, openTabIds]);
+  }, [activeThreadId]);
+
+  // Focus the composer when switching tabs
+  useEffect(() => {
+    if (!activeThreadId) return;
+    // Small delay to ensure the tab is visible before focusing
+    const t = setTimeout(() => {
+      chatRefs.current.get(activeThreadId)?.focusComposer();
+    }, 50);
+    return () => clearTimeout(t);
+  }, [activeThreadId]);
 
   const [messageCounts, setMessageCounts] = useState<Record<string, number>>(
     () => Object.fromEntries(threads.map((t) => [t.id, t.messageCount ?? 0])),
@@ -348,14 +400,18 @@ export function MultiTabAssistantChat({
       if (event.data?.type !== "builder.submitChat") return;
       const message = event.data.data?.message as string;
       if (!message) return;
+      const context = event.data.data?.context as string | undefined;
+      const fullMessage = context
+        ? `${message}\n\n<context>\n${context}\n</context>`
+        : message;
 
       const currentTabId = activeThreadIdRef.current;
       if (!currentTabId) return;
       const activeRef = chatRefs.current.get(currentTabId);
       if (activeRef) {
-        activeRef.sendMessage(message);
+        activeRef.sendMessage(fullMessage);
       } else {
-        pendingSends.current.set(currentTabId, message);
+        pendingSends.current.set(currentTabId, fullMessage);
       }
     };
     window.addEventListener("message", handler);
@@ -433,6 +489,24 @@ export function MultiTabAssistantChat({
     [openTabIds, switchThread],
   );
 
+  const handleGenerateTitle = useCallback(
+    (message: string) => {
+      if (activeThreadId) {
+        generateTitle(activeThreadId, message).then((title) => {
+          if (title && activeThreadId) {
+            // Persist the generated title to the server
+            saveThreadData(activeThreadId, {
+              threadData: "",
+              title,
+              preview: message.slice(0, 120),
+            });
+          }
+        });
+      }
+    },
+    [activeThreadId, generateTitle, saveThreadData],
+  );
+
   const handleSaveThread = useCallback(
     (data: {
       threadData: string;
@@ -483,7 +557,7 @@ export function MultiTabAssistantChat({
   }
 
   return (
-    <div className="flex flex-1 flex-col h-full min-h-0">
+    <div className="flex flex-1 flex-col h-full min-h-0 overflow-x-hidden">
       {/* Tailwind group-hover/tab doesn't work in core package — inject directly */}
       <style
         dangerouslySetInnerHTML={{
@@ -504,7 +578,7 @@ export function MultiTabAssistantChat({
                   "agent-tab relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
                   tab.id === activeThreadId
                     ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent",
                 )}
               >
                 <span className="truncate pr-1">{tab.label}</span>
@@ -518,7 +592,18 @@ export function MultiTabAssistantChat({
                       e.stopPropagation();
                       closeTab(tab.id);
                     }}
-                    className="agent-tab-close absolute right-1 top-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded bg-accent/80 text-muted-foreground hover:!text-foreground hover:!bg-accent"
+                    className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
+                    style={{
+                      position: "absolute",
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: 28,
+                      paddingRight: 6,
+                      borderRadius: "0 6px 6px 0",
+                      background:
+                        "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                    }}
                   >
                     <IconX size={8} />
                   </span>
@@ -559,11 +644,12 @@ export function MultiTabAssistantChat({
             openTabIds={new Set(openTabIds)}
             onSelect={openFromHistory}
             onClose={() => setShowHistory(false)}
+            onSearch={searchThreads}
           />
         )}
 
         {/* Render all open tabs, hide inactive ones to preserve state */}
-        {openTabIds.map((tabId) => (
+        {[...new Set(openTabIds)].map((tabId) => (
           <div
             key={tabId}
             className="flex-1 min-h-0"
@@ -591,6 +677,9 @@ export function MultiTabAssistantChat({
               }
               onSaveThread={
                 tabId === activeThreadId ? handleSaveThread : undefined
+              }
+              onGenerateTitle={
+                tabId === activeThreadId ? handleGenerateTitle : undefined
               }
             />
           </div>

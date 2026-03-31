@@ -3,6 +3,7 @@ import React, {
   useRef,
   useEffect,
   useCallback,
+  useImperativeHandle,
   useMemo,
 } from "react";
 import {
@@ -21,10 +22,15 @@ import { useMentionSearch } from "./use-mention-search.js";
 import { useSkills } from "./use-skills.js";
 import type { MentionItem, SkillResult, Reference } from "./types.js";
 
+export interface TiptapComposerHandle {
+  focus(): void;
+}
+
 interface TiptapComposerProps {
   onSubmit: (text: string, references: Reference[]) => void;
   placeholder?: string;
   disabled?: boolean;
+  focusRef?: React.Ref<TiptapComposerHandle>;
 }
 
 type PopoverState = {
@@ -71,6 +77,7 @@ export function TiptapComposer({
   onSubmit,
   placeholder = "Message agent...",
   disabled = false,
+  focusRef,
 }: TiptapComposerProps) {
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
@@ -244,6 +251,12 @@ export function TiptapComposer({
       },
     },
   });
+
+  useImperativeHandle(focusRef, () => ({
+    focus() {
+      editor?.commands.focus("end");
+    },
+  }));
 
   const extractComposerPayload = useCallback(() => {
     const ed = editor;

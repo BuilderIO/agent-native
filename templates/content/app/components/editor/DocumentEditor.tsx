@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VisualEditor } from "./VisualEditor";
+import { DocumentToolbar } from "./DocumentToolbar";
 import { useDocument, useUpdateDocument } from "@/hooks/use-documents";
 import { Loader2 } from "lucide-react";
 
@@ -29,6 +30,32 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
       isInitializedRef.current = true;
     }
   }, [document]);
+
+  // Pick up external changes (e.g. Notion pull) — if the server content
+  // diverges from what we last saved, an external source changed it.
+  useEffect(() => {
+    if (!document || !isInitializedRef.current) return;
+    const serverTitle = document.title;
+    const serverContent = document.content;
+    const lastSaved = lastSavedRef.current;
+
+    // If the server state differs from what we last saved, something
+    // external (like a Notion pull) updated the document — re-sync.
+    if (
+      serverTitle !== lastSaved.title ||
+      serverContent !== lastSaved.content
+    ) {
+      // Only apply if the local state hasn't diverged from what was saved
+      // (i.e. the user hasn't typed new changes since the last save).
+      const localMatchesSaved =
+        localTitle === lastSaved.title && localContent === lastSaved.content;
+      if (localMatchesSaved) {
+        setLocalTitle(serverTitle);
+        setLocalContent(serverContent);
+        lastSavedRef.current = { title: serverTitle, content: serverContent };
+      }
+    }
+  }, [document, localTitle, localContent]);
 
   // Reset when document ID changes
   useEffect(() => {
@@ -90,9 +117,12 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
+      {/* Toolbar: Notion sync + Chat toggle */}
+      <DocumentToolbar documentId={documentId} />
+
       {/* Save indicator */}
       {isSaving && (
-        <div className="absolute top-3 right-4 flex items-center gap-1.5 text-xs text-muted-foreground z-10">
+        <div className="absolute top-12 right-4 flex items-center gap-1.5 text-xs text-muted-foreground z-10">
           <Loader2 size={12} className="animate-spin" />
           Saving...
         </div>

@@ -34,4 +34,32 @@ export default runMigrations([
     version: 3,
     sql: `ALTER TABLE booking_links ADD COLUMN durations TEXT`,
   },
+  {
+    version: 4,
+    sql: `ALTER TABLE booking_links ADD COLUMN custom_fields TEXT`,
+  },
+  {
+    version: 5,
+    sql: `ALTER TABLE bookings ADD COLUMN field_responses TEXT`,
+  },
+  {
+    version: 6,
+    sql: `ALTER TABLE booking_links ADD COLUMN conferencing TEXT`,
+  },
+  {
+    version: 7,
+    sql: `ALTER TABLE bookings ADD COLUMN meeting_link TEXT`,
+  },
+  {
+    version: 8,
+    sql: `ALTER TABLE bookings ADD COLUMN cancel_token TEXT`,
+  },
+  {
+    version: 9,
+    sql: `CREATE TABLE IF NOT EXISTS booking_slug_redirects (
+    old_slug TEXT PRIMARY KEY,
+    new_slug TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  },
 ]);

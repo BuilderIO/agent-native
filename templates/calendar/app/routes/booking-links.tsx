@@ -1,4 +1,4 @@
-import BookingLinksPage from "@/pages/BookingLinksPage";
+import { Outlet } from "react-router";
 import { AppLayout } from "@/components/layout/AppLayout";
 
 export function meta() {
@@ -13,10 +13,10 @@ export function HydrateFallback() {
   );
 }
 
-export default function BookingLinksRoute() {
+export default function BookingLinksLayout() {
   return (
     <AppLayout>
-      <BookingLinksPage />
+      <Outlet />
     </AppLayout>
   );
 }

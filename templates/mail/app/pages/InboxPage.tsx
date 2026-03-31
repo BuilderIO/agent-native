@@ -108,13 +108,13 @@ function ThreadListSidebar({
                     "text-[13px] truncate",
                     thread.hasUnread
                       ? "font-semibold text-foreground"
-                      : "text-foreground/80",
+                      : "text-foreground/90",
                   )}
                 >
                   {email.subject}
                 </span>
                 {thread.messageCount > 1 && (
-                  <span className="text-[10px] text-muted-foreground/50 shrink-0">
+                  <span className="text-[10px] text-muted-foreground/70 shrink-0">
                     {thread.messageCount}
                   </span>
                 )}
@@ -215,44 +215,16 @@ export function InboxPage() {
   }, [rawEmails, view, activeLabel, pinnedUserLabels, activeAccounts]);
 
   // Sync current navigation state to file (write-only, so agent can read it)
+  const searchQ = searchParams.get("q") ?? undefined;
   useEffect(() => {
     navState.sync({
       view,
       threadId,
       focusedEmailId: focusedId ?? undefined,
+      search: searchQ,
+      label: activeLabel ?? undefined,
     });
-  }, [view, threadId, focusedId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Sync displayed email list to application-state so agent can see what's on screen
-  const emailListSyncRef = useRef<ReturnType<typeof setTimeout>>();
-  useEffect(() => {
-    if (emailListSyncRef.current) clearTimeout(emailListSyncRef.current);
-    emailListSyncRef.current = setTimeout(() => {
-      const compact = emails.slice(0, 50).map((e) => ({
-        id: e.id,
-        threadId: e.threadId,
-        from: e.from.name ? `${e.from.name} <${e.from.email}>` : e.from.email,
-        subject: e.subject,
-        snippet: e.snippet,
-        date: e.date,
-        isRead: e.isRead,
-        isStarred: e.isStarred,
-      }));
-      fetch("/api/application-state/email-list", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          view,
-          label: activeLabel,
-          count: emails.length,
-          emails: compact,
-        }),
-      }).catch(() => {});
-    }, 1000);
-    return () => {
-      if (emailListSyncRef.current) clearTimeout(emailListSyncRef.current);
-    };
-  }, [emails, view, activeLabel]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [view, threadId, focusedId, searchQ, activeLabel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync current thread messages to application-state so agent can read them
   const { data: currentThreadMessages } = useThreadMessages(threadId);

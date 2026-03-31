@@ -194,10 +194,10 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
       updatedAt: new Date().toISOString(),
     };
 
-    const googleEventId = await googleCalendar.createEvent(calEvent);
-    if (googleEventId) {
-      calEvent.id = `google-${googleEventId}`;
-      calEvent.googleEventId = googleEventId;
+    const result = await googleCalendar.createEvent(calEvent);
+    if (result.id) {
+      calEvent.id = `google-${result.id}`;
+      calEvent.googleEventId = result.id;
     }
 
     setResponseStatus(event, 201);

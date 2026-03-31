@@ -26,7 +26,7 @@ export function usePublicAvailability() {
 }
 
 export function usePublicBookingLink(slug?: string) {
-  return useQuery<BookingLink>({
+  return useQuery<BookingLink & { redirect?: string }>({
     queryKey: ["public-booking-link", slug],
     queryFn: async () => {
       const res = await fetch(`/api/public/booking-links/${slug}`);

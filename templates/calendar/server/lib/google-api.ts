@@ -336,9 +336,10 @@ export function calendarInsertEvent(
   accessToken: string,
   calendarId: string,
   body: any,
+  params?: { conferenceDataVersion?: number },
 ) {
   return googleFetch(
-    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events`,
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events${qs(params ?? {})}`,
     accessToken,
     {
       method: "POST",

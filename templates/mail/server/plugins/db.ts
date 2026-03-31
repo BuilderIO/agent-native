@@ -25,4 +25,18 @@ export default runMigrations([
     version: 4,
     sql: `ALTER TABLE scheduled_jobs ADD COLUMN thread_id TEXT`,
   },
+  {
+    version: 5,
+    sql: `CREATE TABLE IF NOT EXISTS automation_rules (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    name TEXT NOT NULL,
+    condition TEXT NOT NULL,
+    actions TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
+  },
 ]);
