@@ -1,11 +1,15 @@
 import { useState } from "react";
 import { useJiraAuthUrl } from "@/hooks/use-jira-auth";
-import { ExternalLink, Copy, Check, ArrowRight } from "lucide-react";
+import { ExternalLink, Copy, Check, ArrowRight, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 export function JiraConnectBanner() {
   const [step, setStep] = useState(1);
   const [copied, setCopied] = useState(false);
-  const { data: authData } = useJiraAuthUrl(step >= 5);
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [saving, setSaving] = useState(false);
+  const { data: authData, refetch: refetchAuthUrl } = useJiraAuthUrl(step >= 5);
 
   const callbackUrl =
     typeof window !== "undefined"
@@ -122,25 +126,85 @@ export function JiraConnectBanner() {
           <StepCard
             step={4}
             current={step}
-            title="Set environment variables"
+            title="Enter credentials"
             onActivate={() => setStep(4)}
           >
             <p className="text-[13px] text-muted-foreground">
               Copy the <strong>Client ID</strong> and <strong>Secret</strong>{" "}
-              from your app&apos;s Settings page. Add them to your{" "}
-              <code className="text-[12px]">.env</code> file:
+              from your app&apos;s Settings page.
             </p>
-            <pre className="mt-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-[12px] text-foreground">
-              {`ATLASSIAN_CLIENT_ID=your_client_id\nATLASSIAN_CLIENT_SECRET=your_secret`}
-            </pre>
-            <p className="mt-2 text-[12px] text-muted-foreground">
-              Restart the dev server after adding these variables.
-            </p>
+            <div className="mt-3 space-y-2.5">
+              <div>
+                <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Client ID
+                </label>
+                <input
+                  type="text"
+                  value={clientId}
+                  onChange={(e) => setClientId(e.target.value)}
+                  placeholder="Paste your Client ID"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Client Secret
+                </label>
+                <input
+                  type="password"
+                  value={clientSecret}
+                  onChange={(e) => setClientSecret(e.target.value)}
+                  placeholder="Paste your Client Secret"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+            </div>
             <button
-              onClick={() => setStep(5)}
-              className="mt-3 flex items-center gap-1.5 text-[13px] font-medium text-foreground hover:underline"
+              onClick={async () => {
+                if (!clientId.trim() || !clientSecret.trim()) {
+                  toast.error("Both Client ID and Secret are required");
+                  return;
+                }
+                setSaving(true);
+                try {
+                  const res = await fetch("/api/env-vars", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      vars: [
+                        { key: "ATLASSIAN_CLIENT_ID", value: clientId.trim() },
+                        {
+                          key: "ATLASSIAN_CLIENT_SECRET",
+                          value: clientSecret.trim(),
+                        },
+                      ],
+                    }),
+                  });
+                  if (!res.ok) throw new Error("Failed to save");
+                  toast.success("Credentials saved");
+                  setStep(5);
+                  // Refetch auth URL now that creds are available
+                  setTimeout(() => refetchAuthUrl(), 500);
+                } catch {
+                  toast.error("Failed to save credentials");
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              disabled={saving || !clientId.trim() || !clientSecret.trim()}
+              className="mt-3 flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-[13px] font-medium text-primary-foreground disabled:opacity-50"
             >
-              Next <ArrowRight className="h-3 w-3" />
+              {saving ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  Save & Continue
+                  <ArrowRight className="h-3 w-3" />
+                </>
+              )}
             </button>
           </StepCard>
 
