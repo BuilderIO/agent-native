@@ -917,7 +917,7 @@ export function createAgentChatPlugin(
               body.threadData || thread.threadData,
               body.title ?? thread.title,
               body.preview ?? thread.preview,
-              body.messageCount ?? thread.messageCount,
+              body.messageCount || thread.messageCount,
             );
             return { ok: true };
           }
