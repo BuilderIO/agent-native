@@ -145,10 +145,12 @@ export function JobsListPage() {
                   key={job.id}
                   onClick={() => navigate(`/jobs/${job.id}`)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") navigate(`/jobs/${job.id}`);
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      navigate(`/jobs/${job.id}`);
+                    }
                   }}
                   tabIndex={0}
-                  role="button"
                   className="list-row cursor-pointer hover:bg-accent/50"
                 >
                   <td className="px-6 py-3">

@@ -7,7 +7,7 @@ export const listInterviewsHandler = defineEventHandler(async (event) => {
   // Default to interviews created in the last 60 days to avoid paginating
   // through thousands of old interviews. The frontend filters to upcoming only.
   const defaultAfter = new Date(
-    Date.now() - 60 * 24 * 60 * 60 * 1000,
+    Date.now() - 365 * 24 * 60 * 60 * 1000,
   ).toISOString();
 
   return gh.listScheduledInterviews({

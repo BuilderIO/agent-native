@@ -10,26 +10,21 @@ import type {
 
 const BASE_URL = "https://harvest.greenhouse.io/v1";
 
-let cachedAuth: string | null = null;
-
-async function getAuth(): Promise<string> {
-  if (cachedAuth) return cachedAuth;
+async function getEncodedAuth(): Promise<string> {
   const setting = await getSetting("greenhouse-api-key");
   if (!setting || typeof setting !== "object" || !("apiKey" in setting)) {
     throw new Error("Greenhouse API key not configured");
   }
   const apiKey = (setting as { apiKey: string }).apiKey;
-  cachedAuth = Buffer.from(`${apiKey}:`).toString("base64");
-  return cachedAuth;
+  return Buffer.from(`${apiKey}:`).toString("base64");
 }
 
-/** Lightweight single-page fetch for dashboard — avoids paginating entire dataset */
 async function dashboardFetch<T>(
   path: string,
   params: Record<string, string> = {},
   perPage = 100,
 ): Promise<T[]> {
-  const encoded = await getAuth();
+  const encoded = await getEncodedAuth();
   const qs = new URLSearchParams({
     ...params,
     per_page: String(perPage),
@@ -49,7 +44,7 @@ async function dashboardFetch<T>(
 }
 
 async function fetchCandidate(id: number): Promise<GreenhouseCandidate> {
-  const encoded = await getAuth();
+  const encoded = await getEncodedAuth();
   const res = await fetch(`${BASE_URL}/candidates/${id}`, {
     headers: {
       Authorization: `Basic ${encoded}`,
@@ -64,7 +59,7 @@ export const getDashboardHandler = defineEventHandler(
   async (): Promise<DashboardStats> => {
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const twoMonthsAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+    const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
 
     const [jobs, recentApps, interviews] = await Promise.all([
       dashboardFetch<GreenhouseJob>("/jobs", { status: "open" }),
@@ -75,7 +70,7 @@ export const getDashboardHandler = defineEventHandler(
       ),
       dashboardFetch<GreenhouseScheduledInterview>(
         "/scheduled_interviews",
-        { created_after: twoMonthsAgo.toISOString() },
+        { created_after: oneYearAgo.toISOString() },
         500,
       ),
     ]);
