@@ -204,7 +204,7 @@ export async function linkDocumentToNotionPage(
     warnings: [],
     hasConflict: false,
   });
-  return pullDocumentFromNotion(owner, documentId, false);
+  return pullDocumentFromNotion(owner, documentId, true);
 }
 
 export async function pullDocumentFromNotion(
@@ -364,6 +364,70 @@ export async function resolveDocumentSyncConflict(
   if (direction === "pull") {
     return pullDocumentFromNotion(owner, documentId, true);
   }
+  return pushDocumentToNotion(owner, documentId, true);
+}
+
+export async function createAndLinkNotionPage(
+  owner: string,
+  documentId: string,
+): Promise<DocumentSyncStatus> {
+  const connection = await getNotionConnectionForOwner(owner);
+  if (!connection) throw new Error("Connect Notion before creating a page.");
+  const document = await getDocument(documentId);
+
+  // Find a parent page — search for any page the user has access to
+  const { notionFetch } = await import("./notion.js");
+  const searchResult = await notionFetch<{
+    results: Array<{ id: string; object: string }>;
+  }>("/search", connection.accessToken, {
+    method: "POST",
+    body: JSON.stringify({
+      filter: { value: "page", property: "object" },
+      page_size: 1,
+    }),
+  });
+
+  if (!searchResult.results.length) {
+    throw new Error(
+      "No accessible Notion pages found. Share at least one page with the integration first.",
+    );
+  }
+
+  const parentId = searchResult.results[0].id;
+
+  // Create a new page under the parent with the document's title
+  const newPage = await notionFetch<{ id: string; url: string }>(
+    "/pages",
+    connection.accessToken,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        parent: { type: "page_id", page_id: parentId },
+        properties: {
+          title: {
+            title: [
+              {
+                type: "text",
+                text: { content: document.title || "Untitled" },
+              },
+            ],
+          },
+        },
+        children: [],
+      }),
+    },
+  );
+
+  // Link the document to the new page and push content
+  await upsertSyncLink({
+    documentId,
+    remotePageId: newPage.id,
+    state: "linked",
+    lastKnownRemoteUpdatedAt: null,
+    warnings: [],
+    hasConflict: false,
+  });
+
   return pushDocumentToNotion(owner, documentId, true);
 }
 
