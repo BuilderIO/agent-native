@@ -11,31 +11,23 @@ export default createAgentChatPlugin({
       icon: "email",
       search: async (query: string) => {
         try {
-          const { readAppState } =
-            await import("@agent-native/core/application-state");
-          const emailList = await readAppState("email-list");
-          if (!emailList?.emails) return [];
-          const emails = emailList.emails as Array<{
+          const params = new URLSearchParams({ view: "inbox" });
+          if (query) params.set("q", query);
+          const port = process.env.PORT || "8080";
+          const res = await fetch(
+            `http://localhost:${port}/api/emails?${params.toString()}`,
+          );
+          if (!res.ok) return [];
+          const emails = (await res.json()) as Array<{
             id: string;
-            threadId: string;
-            from: string;
+            from: { name?: string; email: string };
             subject: string;
-            snippet: string;
             date: string;
           }>;
-          const q = query.toLowerCase();
-          const filtered = q
-            ? emails.filter(
-                (e) =>
-                  e.subject?.toLowerCase().includes(q) ||
-                  e.from?.toLowerCase().includes(q) ||
-                  e.snippet?.toLowerCase().includes(q),
-              )
-            : emails;
-          return filtered.slice(0, 15).map((e) => ({
+          return emails.slice(0, 15).map((e) => ({
             id: e.id,
             label: e.subject || "(no subject)",
-            description: `${e.from} · ${e.date ? new Date(e.date).toLocaleDateString() : ""}`,
+            description: `${e.from?.name || e.from?.email || ""} · ${e.date ? new Date(e.date).toLocaleDateString() : ""}`,
             icon: "email" as const,
             refType: "email",
             refId: e.id,

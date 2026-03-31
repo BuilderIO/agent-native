@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useParseDate, useSnoozeEmail } from "@/hooks/use-scheduled-jobs";
 import { IconAlarm } from "@tabler/icons-react";
+import { toast } from "sonner";
 
 interface SnoozePopoverProps {
   emailId: string;
@@ -110,18 +111,21 @@ export function SnoozePopover({
     setNlInput("");
   };
 
-  const handleSnooze = async () => {
+  const handleSnooze = () => {
     if (!selectedDate) return;
-    await snoozeEmail.mutateAsync({
-      emailId,
-      runAt: selectedDate.getTime(),
-    });
-    // Archive the email immediately
+    const runAt = selectedDate.getTime();
+
+    // Optimistic: close immediately
     onArchive?.(emailId);
     onSnoozed?.();
     setOpen(false);
     setNlInput("");
     setSelectedDate(null);
+
+    // Fire API in background
+    snoozeEmail
+      .mutateAsync({ emailId, runAt })
+      .catch(() => toast.error("Couldn't snooze — check the server logs."));
   };
 
   const displayDate = selectedDate

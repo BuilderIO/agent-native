@@ -35,8 +35,18 @@ export const tool: ScriptTool = {
   },
 };
 
-async function readJson(key: string): Promise<any | null> {
-  return readAppState(key);
+async function fetchEmailList(view: string): Promise<any[]> {
+  try {
+    const port = process.env.PORT || "8080";
+    const res = await fetch(
+      `http://localhost:${port}/api/emails?view=${encodeURIComponent(view)}`,
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function run(args: Record<string, string>): Promise<string> {
@@ -54,9 +64,8 @@ export async function run(args: Record<string, string>): Promise<string> {
     return "Error: No Google account connected. Connect an account in the app first.";
   }
 
-  const navigation = await readJson("navigation");
-  const emailList = await readJson("email-list");
-  const thread = await readJson("thread");
+  const navigation = (await readAppState("navigation")) as any;
+  const thread = (await readAppState("thread")) as any;
 
   const results: { id: string; success: boolean; error?: string }[] = [];
 
@@ -83,7 +92,7 @@ export async function run(args: Record<string, string>): Promise<string> {
   const failed = results.filter((r) => !r.success).length;
 
   // Auto-navigate if the archived email was open
-  if (succeeded > 0 && thread && emailList?.emails?.length) {
+  if (succeeded > 0 && thread) {
     const archivedIds = new Set(ids);
     const openThreadMessageIds = new Set<string>(
       (thread.messages ?? []).map((m: any) => m.id),
@@ -91,27 +100,32 @@ export async function run(args: Record<string, string>): Promise<string> {
     const openThreadId: string | undefined =
       navigation?.threadId ?? thread.messages?.[0]?.threadId;
 
+    const view = navigation?.view ?? "inbox";
+
+    // Fetch the current email list via API to find next email
+    const emails = await fetchEmailList(view);
+
     const isActiveThreadArchived =
       ids.some((id) => openThreadMessageIds.has(id)) ||
       (openThreadId &&
         ids.some((id) => {
-          const email = emailList.emails.find((e: any) => e.id === id);
+          const email = emails.find((e: any) => e.id === id);
           return email?.threadId === openThreadId;
         }));
 
-    if (isActiveThreadArchived) {
-      const emails: any[] = emailList.emails;
+    if (isActiveThreadArchived && emails.length > 0) {
       const idx = emails.findIndex(
-        (e) => archivedIds.has(e.id) || archivedIds.has(e.threadId),
+        (e: any) => archivedIds.has(e.id) || archivedIds.has(e.threadId),
       );
       const nextEmail = emails[idx + 1] ?? emails[idx - 1] ?? null;
-      const nav: Record<string, string> = {
-        view: emailList.view ?? navigation?.view ?? "inbox",
-      };
+      const nav: Record<string, string> = { view };
       if (nextEmail?.threadId) nav.threadId = nextEmail.threadId;
       await writeAppState("navigate", nav);
     }
   }
+
+  // Trigger UI refresh
+  await writeAppState("refresh-signal", { ts: Date.now() });
 
   if (failed > 0) {
     const failedItems = results.filter((r) => !r.success);

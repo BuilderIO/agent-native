@@ -152,36 +152,41 @@ export function SnoozeModal({
     : presets;
 
   const handleConfirm = useCallback(
-    async (opt: Option) => {
+    (opt: Option) => {
       if (!emailId) return;
-      try {
-        await snoozeEmail.mutateAsync({
+
+      // Optimistic: close immediately, show toast, advance selection
+      onClose();
+      toast(`Snoozed until ${formatRight(opt.date, opt.sublabel)}`);
+      window.dispatchEvent(
+        new CustomEvent("email:snoozed", { detail: { emailId } }),
+      );
+      onSnoozed?.(emailId);
+
+      // Fire API in background — surface errors after the fact
+      snoozeEmail
+        .mutateAsync({
           emailId,
           runAt: opt.date.getTime(),
           accountEmail,
+        })
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ["emails"] });
+        })
+        .catch((err: any) => {
+          const msg = err?.message ?? "";
+          if (
+            msg.includes("no such table") ||
+            msg.includes("scheduled_jobs") ||
+            msg.includes("SQLITE")
+          ) {
+            toast.error(
+              "Snooze DB not ready. Run: pnpm db:push in the mail template.",
+            );
+          } else {
+            toast.error("Couldn't snooze — check the server logs.");
+          }
         });
-        queryClient.invalidateQueries({ queryKey: ["emails"] });
-        // Dispatch after successful archive so list advances selection
-        window.dispatchEvent(
-          new CustomEvent("email:snoozed", { detail: { emailId } }),
-        );
-        onSnoozed?.(emailId);
-        onClose();
-        toast(`Snoozed until ${formatRight(opt.date, opt.sublabel)}`);
-      } catch (err: any) {
-        const msg = err?.message ?? "";
-        if (
-          msg.includes("no such table") ||
-          msg.includes("scheduled_jobs") ||
-          msg.includes("SQLITE")
-        ) {
-          toast.error(
-            "Snooze DB not ready. Run: pnpm db:push in the mail template.",
-          );
-        } else {
-          toast.error("Couldn't snooze — check the server logs.");
-        }
-      }
     },
     [accountEmail, emailId, snoozeEmail, queryClient, onSnoozed, onClose],
   );
