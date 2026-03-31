@@ -26,6 +26,7 @@ export function StudioHeader({
         <div className="flex items-center gap-3">
           <button
             onClick={onToggleSidebar}
+            aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
             className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
           >
             {sidebarOpen ? (
@@ -79,6 +80,7 @@ export function StudioHeader({
                 // Future: implement share/export flow
               }
             }}
+            aria-label="Share"
             className="px-3 py-1.5 text-xs font-medium rounded-md transition-colors text-muted-foreground hover:text-foreground hover:bg-secondary/50 flex items-center gap-1.5"
           >
             <Share2 className="w-3.5 h-3.5" />
