@@ -106,8 +106,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 Projects
               </button>
               {projectsOpen &&
-                projects
-                  .slice(0, 10)
+                [...projects]
+                  .sort((a: any, b: any) =>
+                    (a.name || "").localeCompare(b.name || ""),
+                  )
                   .map((p: any) => (
                     <NavItem
                       key={p.key}
@@ -146,8 +148,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 Boards
               </button>
               {boardsOpen &&
-                boards
-                  .slice(0, 10)
+                [...boards]
+                  .sort((a: any, b: any) =>
+                    (a.name || "").localeCompare(b.name || ""),
+                  )
                   .map((b: any) => (
                     <NavItem
                       key={b.id}
