@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useParams } from "react-router";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router";
 import { format } from "date-fns";
 import { CalendarDays } from "lucide-react";
 import { PoweredByBadge } from "@agent-native/core/client";
@@ -22,6 +22,7 @@ type Step = "duration" | "date" | "time" | "info" | "confirmed";
 
 export default function BookingPage() {
   const { slug, username } = useParams<{ slug: string; username?: string }>();
+  const navigate = useNavigate();
   const { data: settings, isLoading: settingsLoading } = usePublicSettings();
   const { data: availability, isLoading: availabilityLoading } =
     usePublicAvailability();
@@ -30,6 +31,14 @@ export default function BookingPage() {
     isLoading: bookingLinkLoading,
     isError: bookingLinkError,
   } = usePublicBookingLink(slug);
+
+  // Handle slug redirects (old URL → new URL)
+  useEffect(() => {
+    if (!bookingLink?.redirect) return;
+    const newSlug = bookingLink.redirect;
+    const path = username ? `/meet/${username}/${newSlug}` : `/book/${newSlug}`;
+    navigate(path, { replace: true });
+  }, [bookingLink?.redirect, username, navigate]);
 
   const [step, setStep] = useState<Step>("date");
   const hasDurationChoice =
@@ -74,6 +83,7 @@ export default function BookingPage() {
     email: string;
     notes?: string;
     captchaToken?: string;
+    fieldResponses?: Record<string, string | boolean>;
   }) {
     if (!selectedSlot || !slug) return;
 
@@ -86,6 +96,7 @@ export default function BookingPage() {
         email: data.email,
         notes: data.notes,
         captchaToken: data.captchaToken,
+        fieldResponses: data.fieldResponses,
         start: slot.start,
         end: slot.end,
         slug,
@@ -269,6 +280,7 @@ export default function BookingPage() {
               <BookingForm
                 onSubmit={handleBookingSubmit}
                 loading={createBooking.isPending}
+                customFields={bookingLink?.customFields}
               />
             </div>
           )}
@@ -276,6 +288,7 @@ export default function BookingPage() {
           {step === "confirmed" && confirmedBooking && (
             <BookingConfirmation
               booking={confirmedBooking}
+              customFields={bookingLink?.customFields}
               onReset={handleReset}
             />
           )}

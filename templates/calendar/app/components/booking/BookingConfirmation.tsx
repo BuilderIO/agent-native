@@ -1,17 +1,28 @@
 import { format, parseISO } from "date-fns";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Video } from "lucide-react";
+import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
-import type { Booking } from "@shared/api";
+import type { Booking, CustomField } from "@shared/api";
 
 interface BookingConfirmationProps {
   booking: Booking;
+  customFields?: CustomField[];
   onReset: () => void;
 }
 
 export function BookingConfirmation({
   booking,
+  customFields = [],
   onReset,
 }: BookingConfirmationProps) {
+  const responses = booking.fieldResponses;
+  const fieldsWithResponses = customFields.filter(
+    (f) =>
+      responses?.[f.id] !== undefined &&
+      responses[f.id] !== "" &&
+      responses[f.id] !== false,
+  );
+
   return (
     <div className="flex flex-col items-center text-center space-y-6 py-8">
       <CheckCircle2 className="h-16 w-16 text-emerald-600 dark:text-emerald-400" />
@@ -45,7 +56,45 @@ export function BookingConfirmation({
           <span className="text-xs text-muted-foreground">Name</span>
           <p className="font-medium">{booking.name}</p>
         </div>
+        {booking.meetingLink && (
+          <div>
+            <span className="text-xs text-muted-foreground">Meeting Link</span>
+            <a
+              href={booking.meetingLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 font-medium text-primary hover:underline"
+            >
+              <Video className="h-4 w-4" />
+              Join Meeting
+            </a>
+          </div>
+        )}
+        {fieldsWithResponses.map((field) => (
+          <div key={field.id}>
+            <span className="text-xs text-muted-foreground">{field.label}</span>
+            <p className="font-medium">
+              {typeof responses![field.id] === "boolean"
+                ? responses![field.id]
+                  ? "Yes"
+                  : "No"
+                : String(responses![field.id])}
+            </p>
+          </div>
+        ))}
       </div>
+
+      {booking.cancelToken && (
+        <p className="text-xs text-muted-foreground">
+          Need to make changes?{" "}
+          <Link
+            to={`/booking/manage/${booking.cancelToken}`}
+            className="text-primary hover:underline"
+          >
+            Cancel or reschedule
+          </Link>
+        </p>
+      )}
 
       <Button variant="outline" onClick={onReset}>
         Book Another

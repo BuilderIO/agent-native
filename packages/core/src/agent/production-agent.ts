@@ -28,7 +28,7 @@ function sseEvent(event: AgentChatEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
 }
 
-const MAX_ITERATIONS = 20;
+const MAX_ITERATIONS = 40;
 const encoder = new TextEncoder();
 
 export function createProductionAgentHandler(
@@ -172,10 +172,7 @@ export function createProductionAgentHandler(
           while (true) {
             if (abort.signal.aborted) break;
             if (++iterations > MAX_ITERATIONS) {
-              send({
-                type: "error",
-                error: "Agent loop exceeded maximum iterations",
-              });
+              send({ type: "loop_limit" });
               break;
             }
 

@@ -67,9 +67,9 @@ export default async function main(args: string[]) {
   };
 
   try {
-    const googleEventId = await googleCalendar.createEvent(event);
-    if (googleEventId) {
-      console.log(`Created event on Google Calendar (ID: ${googleEventId})`);
+    const result = await googleCalendar.createEvent(event);
+    if (result.id) {
+      console.log(`Created event on Google Calendar (ID: ${result.id})`);
     } else {
       console.log("Created event on Google Calendar.");
     }

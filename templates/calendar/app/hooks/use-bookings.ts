@@ -34,6 +34,7 @@ export function useCreateBooking() {
       email: string;
       notes?: string;
       captchaToken?: string;
+      fieldResponses?: Record<string, string | boolean>;
       start: string;
       end: string;
       slug: string;

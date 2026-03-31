@@ -3,6 +3,7 @@ import type {
   DocumentSyncStatus,
   LinkNotionPageRequest,
   NotionConnectionStatus,
+  NotionSearchResponse,
   ResolveDocumentSyncConflictRequest,
 } from "@shared/api";
 
@@ -134,5 +135,31 @@ export function useResolveDocumentSyncConflict(documentId: string) {
         },
       ),
     onSuccess: () => invalidateDocumentQueries(queryClient, documentId),
+  });
+}
+
+export function useCreateAndLinkNotionPage(documentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetchJson<DocumentSyncStatus>(
+        `/api/documents/${documentId}/notion/create-and-link`,
+        { method: "POST" },
+      ),
+    onSuccess: () => invalidateDocumentQueries(queryClient, documentId),
+  });
+}
+
+export function useSearchNotionPages(query: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["notion-search", query],
+    queryFn: () =>
+      fetchJson<NotionSearchResponse>("/api/notion/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      }),
+    enabled,
+    staleTime: 10_000,
   });
 }

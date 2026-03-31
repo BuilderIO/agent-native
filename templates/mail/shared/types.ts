@@ -124,6 +124,27 @@ export type Alias = {
   updatedAt: string;
 };
 
+// ─── Automation types ─────────────────────────────────────────────────────────
+
+export type AutomationAction =
+  | { type: "label"; labelName: string }
+  | { type: "archive" }
+  | { type: "mark_read" }
+  | { type: "star" }
+  | { type: "trash" };
+
+export type AutomationRule = {
+  id: string;
+  ownerEmail: string;
+  domain: "mail" | "calendar";
+  name: string;
+  condition: string;
+  actions: AutomationAction[];
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ApolloPersonResult = {
   id?: string;
   first_name?: string;

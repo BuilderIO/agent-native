@@ -7,6 +7,8 @@ import type { TreeNode, ResourceMeta } from "./use-resources.js";
 function ChevronRightIcon({ className }: { className?: string }) {
   return (
     <svg
+      width="12"
+      height="12"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -23,6 +25,8 @@ function ChevronRightIcon({ className }: { className?: string }) {
 function ChevronDownIcon({ className }: { className?: string }) {
   return (
     <svg
+      width="12"
+      height="12"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

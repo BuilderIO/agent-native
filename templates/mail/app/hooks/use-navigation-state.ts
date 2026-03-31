@@ -6,6 +6,7 @@ export interface NavigationState {
   threadId?: string;
   focusedEmailId?: string;
   search?: string;
+  label?: string;
 }
 
 import { TAB_ID } from "@/lib/tab-id";

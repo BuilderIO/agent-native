@@ -72,3 +72,16 @@ export interface DocumentListResponse {
 export interface DocumentTreeNode extends Document {
   children: DocumentTreeNode[];
 }
+
+export interface NotionSearchResult {
+  id: string;
+  title: string;
+  icon: string | null;
+  url: string;
+  lastEditedTime: string | null;
+}
+
+export interface NotionSearchResponse {
+  results: NotionSearchResult[];
+  hasMore: boolean;
+}

@@ -231,6 +231,45 @@ export function gmailListLabels(accessToken: string) {
   return googleFetch(`${GMAIL_BASE}/labels`, accessToken);
 }
 
+export function gmailCreateLabel(
+  accessToken: string,
+  name: string,
+  opts?: {
+    labelListVisibility?: string;
+    messageListVisibility?: string;
+  },
+) {
+  return googleFetch(`${GMAIL_BASE}/labels`, accessToken, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name,
+      labelListVisibility: opts?.labelListVisibility ?? "labelShow",
+      messageListVisibility: opts?.messageListVisibility ?? "show",
+    }),
+  });
+}
+
+export function gmailListHistory(
+  accessToken: string,
+  params: {
+    startHistoryId: string;
+    historyTypes?: string[];
+    labelId?: string;
+    maxResults?: number;
+  },
+) {
+  const queryParams: Record<string, string | number | undefined> = {
+    startHistoryId: params.startHistoryId,
+    labelId: params.labelId,
+    maxResults: params.maxResults,
+  };
+  if (params.historyTypes?.length) {
+    queryParams.historyTypes = params.historyTypes.join(",");
+  }
+  return googleFetch(`${GMAIL_BASE}/history${qs(queryParams)}`, accessToken);
+}
+
 // ---------------------------------------------------------------------------
 // People API
 // ---------------------------------------------------------------------------

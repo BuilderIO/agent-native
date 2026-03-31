@@ -70,8 +70,8 @@ Resources support **personal** scope (per-user) and **shared** scope (visible to
 
 To check the current state:
 
-- Use `readAppState("email-list")` to see the emails currently displayed on the user's screen (compact summaries with id, threadId, from, subject, snippet, date, isRead, isStarred)
-- Use `readAppState("navigation")` to see what view/thread the user is looking at
+- Use `readAppState("navigation")` to see what view/thread/search/label the user is looking at
+- Use `pnpm script view-screen` to see the navigation state and fetch the matching email list
 - Use `pnpm script list-emails --view=inbox` to list emails (automatically uses Gmail when connected, falls back to local data)
 - Use `pnpm script search-emails --q=term` to search across all emails
 - Check Google connection status via `GET /api/google/status`
@@ -153,13 +153,12 @@ See the full Scripts section below for all available scripts and arguments.
 
 Ephemeral UI state is stored in the SQL `application_state` table, accessed via `readAppState(key)` and `writeAppState(key, value)` from `@agent-native/core/application-state`. Scripts use these functions instead of filesystem reads/writes. The UI syncs its state here so you can always see what the user is looking at.
 
-| State Key      | Purpose                                     | Direction                                    |
-| -------------- | ------------------------------------------- | -------------------------------------------- |
-| `navigation`   | Current view, open thread, focused email    | UI -> Agent (read-only for agent)            |
-| `email-list`   | Emails currently displayed on user's screen | UI -> Agent (read-only for agent)            |
-| `thread`       | Full messages of the open thread            | UI -> Agent (read-only for agent)            |
-| `navigate`     | Navigate the user to a view/thread          | Agent -> UI (one-shot command, auto-deleted) |
-| `compose-{id}` | Email draft (one entry per draft tab)       | Bidirectional                                |
+| State Key      | Purpose                                            | Direction                                    |
+| -------------- | -------------------------------------------------- | -------------------------------------------- |
+| `navigation`   | Current view, thread, search, label, focused email | UI -> Agent (read-only for agent)            |
+| `thread`       | Full messages of the open thread                   | UI -> Agent (read-only for agent)            |
+| `navigate`     | Navigate the user to a view/thread                 | Agent -> UI (one-shot command, auto-deleted) |
+| `compose-{id}` | Email draft (one entry per draft tab)              | Bidirectional                                |
 
 SSE streams DB change events (source: `"app-state"`, `"settings"`) so the UI updates in real time when any state changes.
 
@@ -171,37 +170,13 @@ The UI automatically writes `writeAppState("navigation", ...)` whenever the user
 {
   "view": "inbox",
   "threadId": "thread-123",
-  "focusedEmailId": "msg-456"
+  "focusedEmailId": "msg-456",
+  "search": "budget",
+  "label": "important"
 }
 ```
 
-**Do NOT write to `navigation`** — it is overwritten by the UI. To navigate the user, use the `navigate` key instead.
-
-### Email list (see what's on the user's screen)
-
-The UI automatically syncs `writeAppState("email-list", ...)` with a compact summary of the emails currently displayed. **This is the fastest way to see the user's inbox** — no script or API call needed:
-
-```json
-{
-  "view": "inbox",
-  "label": null,
-  "count": 42,
-  "emails": [
-    {
-      "id": "msg-abc123",
-      "threadId": "thread-xyz",
-      "from": "Alice Smith <alice@example.com>",
-      "subject": "Q1 Budget Review",
-      "snippet": "Hi team, attached is the Q1 budget...",
-      "date": "2026-03-16T10:30:00Z",
-      "isRead": false,
-      "isStarred": true
-    }
-  ]
-}
-```
-
-**Do NOT write to `email-list`** — it is synced by the UI. To get more details about an email, use `GET /api/emails/:id` or `GET /api/threads/:threadId/messages`.
+**Do NOT write to `navigation`** — it is overwritten by the UI. To navigate the user, use the `navigate` key instead. To see the emails matching the user's current filters, use `pnpm script view-screen` which reads navigation state and fetches emails via the API.
 
 ### Open thread (full conversation context)
 
@@ -293,13 +268,13 @@ The UI will pick up the changes automatically (via SSE on `"app-state"` events).
 
 | User request                      | What to do                                                                                                                                                                 |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "Summarize my inbox"              | `readAppState("email-list")` — the emails on screen are already there                                                                                                      |
+| "Summarize my inbox"              | `pnpm script view-screen` — fetches emails matching the user's current view                                                                                                |
 | "Draft an email to Alice about X" | `writeAppState("compose-{id}", { id, to, subject, body, mode: "compose" })`                                                                                                |
 | "Make this draft more formal"     | View composer, read the draft, rewrite body, write back                                                                                                                    |
 | "Change the subject to Y"         | View composer, read the draft, update subject, write back                                                                                                                  |
 | "Reply to this email saying Z"    | Read navigation state for threadId, fetch thread via API, `writeAppState("compose-{id}", ...)` with mode=reply                                                             |
 | "Help me write this reply"        | Read the open compose draft -> get replyToThreadId -> fetch full thread via `GET /api/threads/:threadId/messages` -> use the conversation context to update the draft body |
-| "What am I looking at?"           | `readAppState("navigation")` + `readAppState("email-list")`, then fetch thread via `GET /api/threads/:threadId/messages`                                                   |
+| "What am I looking at?"           | `pnpm script view-screen`, then fetch thread via `GET /api/threads/:threadId/messages`                                                                                     |
 | "Find the email about X"          | `pnpm script search-emails --q=X`, `writeAppState("navigate", { threadId: "..." })`                                                                                        |
 | "Open my starred emails"          | `writeAppState("navigate", { view: "starred" })`                                                                                                                           |
 

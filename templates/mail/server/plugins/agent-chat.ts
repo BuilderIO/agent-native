@@ -11,31 +11,23 @@ export default createAgentChatPlugin({
       icon: "email",
       search: async (query: string) => {
         try {
-          const { readAppState } =
-            await import("@agent-native/core/application-state");
-          const emailList = await readAppState("email-list");
-          if (!emailList?.emails) return [];
-          const emails = emailList.emails as Array<{
+          const params = new URLSearchParams({ view: "inbox" });
+          if (query) params.set("q", query);
+          const port = process.env.PORT || "8080";
+          const res = await fetch(
+            `http://localhost:${port}/api/emails?${params.toString()}`,
+          );
+          if (!res.ok) return [];
+          const emails = (await res.json()) as Array<{
             id: string;
-            threadId: string;
-            from: string;
+            from: { name?: string; email: string };
             subject: string;
-            snippet: string;
             date: string;
           }>;
-          const q = query.toLowerCase();
-          const filtered = q
-            ? emails.filter(
-                (e) =>
-                  e.subject?.toLowerCase().includes(q) ||
-                  e.from?.toLowerCase().includes(q) ||
-                  e.snippet?.toLowerCase().includes(q),
-              )
-            : emails;
-          return filtered.slice(0, 15).map((e) => ({
+          return emails.slice(0, 15).map((e) => ({
             id: e.id,
             label: e.subject || "(no subject)",
-            description: `${e.from} · ${e.date ? new Date(e.date).toLocaleDateString() : ""}`,
+            description: `${e.from?.name || e.from?.email || ""} · ${e.date ? new Date(e.date).toLocaleDateString() : ""}`,
             icon: "email" as const,
             refType: "email",
             refId: e.id,
@@ -59,6 +51,21 @@ Always use view-screen first to understand what the user is looking at before ta
 After any change (archive, trash, star, mark-read, send), run refresh-list to update the UI.
 
 Be concise and helpful. When summarizing emails, include sender, subject, and a brief snippet.
+
+## Automations
+
+You can create and manage email automation rules that process new inbox emails automatically using AI.
+Use manage-automations to create rules like "auto-label newsletters", "star emails from my boss", etc.
+
+Examples:
+- User says "auto-label newsletters" → create rule with condition "from a newsletter or marketing mailing list" and action label:"newsletters"
+- User says "archive marketing emails" → create rule with condition "marketing or promotional email" and action archive
+- User says "star emails from alice@example.com" → create rule with condition "from alice@example.com" and action star
+
+Rules are evaluated by a fast AI model (Haiku) and run every minute + when the user opens the app.
+Use trigger-automations to force immediate processing.
+
+Available action types: label (with labelName), archive, mark_read, star, trash.
 
 ## Composing vs Replying
 

@@ -378,11 +378,12 @@ export async function listOverlayEvents(
 
 export async function createEvent(
   event: CalendarEvent,
-): Promise<string | undefined> {
+  opts?: { addGoogleMeet?: boolean },
+): Promise<{ id?: string; meetLink?: string }> {
   const client = await getClient(event.accountEmail);
-  if (!client) return undefined;
+  if (!client) return {};
 
-  const response = await calendarInsertEvent(client.accessToken, "primary", {
+  const body: any = {
     summary: event.title,
     description: event.description,
     location: event.location,
@@ -392,9 +393,28 @@ export async function createEvent(
     end: event.allDay
       ? { date: event.end.split("T")[0] }
       : { dateTime: event.end },
-  });
+  };
 
-  return response.id || undefined;
+  if (opts?.addGoogleMeet) {
+    body.conferenceData = {
+      createRequest: {
+        requestId: `meet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        conferenceSolutionKey: { type: "hangoutsMeet" },
+      },
+    };
+  }
+
+  const response = await calendarInsertEvent(
+    client.accessToken,
+    "primary",
+    body,
+    opts?.addGoogleMeet ? { conferenceDataVersion: 1 } : undefined,
+  );
+
+  return {
+    id: response.id || undefined,
+    meetLink: response.hangoutLink || undefined,
+  };
 }
 
 export async function updateEvent(
