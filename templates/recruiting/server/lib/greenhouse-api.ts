@@ -70,13 +70,33 @@ async function greenhouseFetchAll<T>(
   return all;
 }
 
+/** Fetch a single page (no auto-pagination). Good for dashboards/previews. */
+async function greenhouseFetchPage<T>(
+  path: string,
+  params: Record<string, string> = {},
+  perPage = 100,
+  page = 1,
+): Promise<T[]> {
+  const qs = new URLSearchParams({
+    ...params,
+    per_page: String(perPage),
+    page: String(page),
+  });
+  return greenhouseFetch<T[]>(`${path}?${qs}`);
+}
+
 // --- Jobs ---
 
 export async function listJobs(
-  params: { status?: string } = {},
+  params: { status?: string; per_page?: number; page?: number } = {},
 ): Promise<GreenhouseJob[]> {
   const qs: Record<string, string> = {};
   if (params.status) qs.status = params.status;
+  if (params.per_page) {
+    qs.per_page = String(params.per_page);
+    qs.page = String(params.page || 1);
+    return greenhouseFetch<GreenhouseJob[]>(`/jobs?${new URLSearchParams(qs)}`);
+  }
   return greenhouseFetchAll<GreenhouseJob>("/jobs", qs);
 }
 
@@ -99,12 +119,21 @@ export async function listCandidates(
     job_id?: number;
     updated_after?: string;
     created_after?: string;
+    per_page?: number;
+    page?: number;
   } = {},
 ): Promise<GreenhouseCandidate[]> {
   const qs: Record<string, string> = {};
   if (params.job_id) qs.job_id = String(params.job_id);
   if (params.updated_after) qs.updated_after = params.updated_after;
   if (params.created_after) qs.created_after = params.created_after;
+  if (params.per_page) {
+    qs.per_page = String(params.per_page);
+    qs.page = String(params.page || 1);
+    return greenhouseFetch<GreenhouseCandidate[]>(
+      `/candidates?${new URLSearchParams(qs)}`,
+    );
+  }
   return greenhouseFetchAll<GreenhouseCandidate>("/candidates", qs);
 }
 

@@ -11,10 +11,14 @@ export const listCandidatesHandler = defineEventHandler(async (event) => {
   const query = getQuery(event) as {
     job_id?: string;
     search?: string;
+    per_page?: string;
+    page?: string;
   };
 
   const candidates = await gh.listCandidates({
     job_id: query.job_id ? Number(query.job_id) : undefined,
+    per_page: Number(query.per_page) || 100,
+    page: Number(query.page) || 1,
   });
 
   // Client-side search filtering (Greenhouse API doesn't have a search param)

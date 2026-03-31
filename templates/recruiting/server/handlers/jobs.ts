@@ -3,8 +3,16 @@ import * as gh from "../lib/greenhouse-api.js";
 import type { PipelineStage } from "@shared/types";
 
 export const listJobsHandler = defineEventHandler(async (event) => {
-  const { status } = getQuery(event) as { status?: string };
-  return gh.listJobs({ status });
+  const query = getQuery(event) as {
+    status?: string;
+    per_page?: string;
+    page?: string;
+  };
+  return gh.listJobs({
+    status: query.status,
+    per_page: Number(query.per_page) || 100,
+    page: Number(query.page) || 1,
+  });
 });
 
 export const getJobHandler = defineEventHandler(async (event) => {

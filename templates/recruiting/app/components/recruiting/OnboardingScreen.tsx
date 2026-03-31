@@ -46,19 +46,44 @@ export function OnboardingScreen() {
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
             Where to find your API key
           </p>
-          <ol className="space-y-1.5 text-sm text-muted-foreground">
-            <li className="flex gap-2">
-              <span className="text-foreground/60 font-medium">1.</span>
-              Go to Greenhouse &rarr; Configure &rarr; Dev Center
+          <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside">
+            <li>
+              Go to{" "}
+              <a
+                href="https://www.greenhouse.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-green-600 hover:text-green-500"
+              >
+                Greenhouse
+              </a>{" "}
+              &rarr; Configure &rarr; Dev Center
             </li>
-            <li className="flex gap-2">
-              <span className="text-foreground/60 font-medium">2.</span>
-              Click "API Credential Management"
+            <li>
+              Click{" "}
+              <a
+                href="https://app4.greenhouse.io/configure/dev_center/credentials"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-green-600 hover:text-green-500"
+              >
+                API Credential Management
+              </a>
             </li>
-            <li className="flex gap-2">
-              <span className="text-foreground/60 font-medium">3.</span>
-              Create or copy a Harvest API key
+            <li>
+              Click{" "}
+              <strong className="text-foreground/80">
+                Create new API credentials
+              </strong>{" "}
+              with API type{" "}
+              <strong className="text-foreground/80">Harvest</strong>
             </li>
+            <li>
+              On the permissions page, check{" "}
+              <strong className="text-foreground/80">Select All</strong> under
+              Harvest V1
+            </li>
+            <li>Copy the generated API key</li>
           </ol>
           <a
             href="https://support.greenhouse.io/hc/en-us/articles/202842799"

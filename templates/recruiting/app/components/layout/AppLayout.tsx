@@ -123,7 +123,16 @@ export function AppLayout({ children }: AppLayoutProps) {
   if (!status?.connected) return <OnboardingScreen />;
 
   return (
-    <AgentSidebar>
+    <AgentSidebar
+      position="right"
+      defaultOpen={false}
+      emptyStateText="Ask me anything about your recruiting pipeline"
+      suggestions={[
+        "Show me open jobs",
+        "Who's in the pipeline?",
+        "Summarize my dashboard",
+      ]}
+    >
       <div className="flex h-screen overflow-hidden bg-background">
         {/* Sidebar */}
         <aside className="flex w-52 flex-col border-r border-border bg-sidebar-background">

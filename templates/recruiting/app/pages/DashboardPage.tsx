@@ -9,7 +9,7 @@ import {
 } from "@tabler/icons-react";
 
 export function DashboardPage() {
-  const { data, isLoading } = useDashboard();
+  const { data, isLoading, error } = useDashboard();
   const navigate = useNavigate();
 
   if (isLoading) {
@@ -20,7 +20,15 @@ export function DashboardPage() {
     );
   }
 
-  if (!data) return null;
+  if (error || !data) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-muted-foreground">
+          {error ? "Failed to load dashboard data" : "No data available"}
+        </p>
+      </div>
+    );
+  }
 
   const stats = [
     {
