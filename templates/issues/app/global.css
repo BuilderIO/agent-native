@@ -1,0 +1,298 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 220 10% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 10% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 10% 10%;
+    --primary: 220 10% 15%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 10% 95%;
+    --secondary-foreground: 220 10% 15%;
+    --muted: 220 10% 95%;
+    --muted-foreground: 220 5% 45%;
+    --accent: 220 10% 95%;
+    --accent-foreground: 220 10% 15%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 10% 90%;
+    --input: 220 10% 90%;
+    --ring: 220 10% 40%;
+    --radius: 0.5rem;
+    --sidebar-background: 220 10% 97%;
+    --sidebar-foreground: 220 5% 45%;
+    --sidebar-primary: 220 10% 15%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 10% 95%;
+    --sidebar-accent-foreground: 220 10% 15%;
+    --sidebar-border: 220 10% 90%;
+    --sidebar-ring: 220 10% 40%;
+  }
+
+  .dark {
+    --background: 220 6% 6%;
+    --foreground: 0 0% 90%;
+    --card: 220 5% 6%;
+    --card-foreground: 0 0% 90%;
+    --popover: 220 5% 6%;
+    --popover-foreground: 0 0% 90%;
+    --primary: 0 0% 75%;
+    --primary-foreground: 220 6% 6%;
+    --secondary: 220 4% 12%;
+    --secondary-foreground: 0 0% 90%;
+    --muted: 220 4% 10%;
+    --muted-foreground: 220 4% 60%;
+    --accent: 220 4% 13%;
+    --accent-foreground: 0 0% 90%;
+    --destructive: 0 63% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 4% 14%;
+    --input: 220 4% 14%;
+    --ring: 0 0% 60%;
+    --radius: 0.5rem;
+    --sidebar-background: 220 6% 4%;
+    --sidebar-foreground: 220 4% 60%;
+    --sidebar-primary: 0 0% 75%;
+    --sidebar-primary-foreground: 220 6% 6%;
+    --sidebar-accent: 220 4% 10%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 220 4% 10%;
+    --sidebar-ring: 0 0% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family:
+      "Inter",
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Issue list row */
+.issue-row {
+  user-select: none;
+  cursor: default;
+}
+
+.issue-row:hover {
+  background: hsl(var(--accent));
+}
+
+.issue-row.focused {
+  background: hsl(var(--accent));
+}
+
+.issue-row.selected {
+  background: hsl(var(--secondary));
+}
+
+/* Keyboard shortcut hints */
+.kbd-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.25rem;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: "SF Mono", Monaco, monospace;
+  font-weight: 500;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  border: 1px solid hsl(var(--border));
+}
+
+/* Status category colors */
+.status-new {
+  background: hsl(217 91% 60% / 0.15);
+  color: hsl(217 91% 60%);
+}
+
+.status-indeterminate {
+  background: hsl(45 93% 47% / 0.15);
+  color: hsl(45 93% 47%);
+}
+
+.status-done {
+  background: hsl(142 71% 45% / 0.15);
+  color: hsl(142 71% 45%);
+}
+
+/* Priority colors */
+.priority-highest {
+  color: hsl(0 84% 60%);
+}
+
+.priority-high {
+  color: hsl(25 95% 53%);
+}
+
+.priority-medium {
+  color: hsl(45 93% 47%);
+}
+
+.priority-low {
+  color: hsl(217 91% 60%);
+}
+
+.priority-lowest {
+  color: hsl(220 4% 60%);
+}
+
+/* Kanban board */
+.kanban-column {
+  min-height: 200px;
+}
+
+.kanban-card {
+  transition: box-shadow 0.15s ease;
+}
+
+.kanban-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.dark .kanban-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Drag states */
+.kanban-card.dragging {
+  opacity: 0.5;
+}
+
+.kanban-column.drag-over {
+  background: hsl(var(--accent) / 0.5);
+}
+
+/* ADF content styling */
+.adf-content {
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+
+.adf-content p {
+  margin-bottom: 0.5em;
+}
+
+.adf-content h1 {
+  font-size: 1.5em;
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+}
+
+.adf-content h2 {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin-top: 0.75em;
+  margin-bottom: 0.5em;
+}
+
+.adf-content h3 {
+  font-size: 1.1em;
+  font-weight: 600;
+  margin-top: 0.5em;
+  margin-bottom: 0.25em;
+}
+
+.adf-content ul,
+.adf-content ol {
+  padding-left: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.adf-content li {
+  margin-bottom: 0.25em;
+}
+
+.adf-content blockquote {
+  border-left: 3px solid hsl(var(--border));
+  padding-left: 1em;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 0.5em;
+}
+
+.adf-content code {
+  background: hsl(var(--muted));
+  padding: 0.125em 0.375em;
+  border-radius: 3px;
+  font-size: 0.85em;
+  font-family: "SF Mono", Monaco, monospace;
+}
+
+.adf-content pre {
+  background: hsl(var(--muted));
+  padding: 0.75em 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin-bottom: 0.5em;
+}
+
+.adf-content pre code {
+  background: none;
+  padding: 0;
+}
+
+.adf-content a {
+  color: hsl(217 91% 60%);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.adf-content table {
+  border-collapse: collapse;
+  margin-bottom: 0.5em;
+  width: 100%;
+}
+
+.adf-content th,
+.adf-content td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.375em 0.625em;
+  font-size: 0.85em;
+}
+
+.adf-content th {
+  background: hsl(var(--muted));
+  font-weight: 600;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.3);
+}
