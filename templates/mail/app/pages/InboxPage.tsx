@@ -13,7 +13,6 @@ import {
 import {
   useEmail,
   useEmails,
-  useThreadMessages,
   useMarkRead,
   useDeleteDraft,
   useSettings,
@@ -229,43 +228,6 @@ export function InboxPage() {
       label: activeLabel ?? undefined,
     });
   }, [view, threadId, focusedId, searchQ, activeLabel]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Sync current thread messages to application-state so agent can read them
-  const { data: currentThreadMessages } = useThreadMessages(threadId);
-  const threadSyncRef = useRef<ReturnType<typeof setTimeout>>();
-  useEffect(() => {
-    if (threadSyncRef.current) clearTimeout(threadSyncRef.current);
-    if (!threadId || !currentThreadMessages?.length) {
-      // Clear thread state when not viewing a thread
-      fetch("/api/application-state/thread", { method: "DELETE" }).catch(
-        () => {},
-      );
-      return;
-    }
-    threadSyncRef.current = setTimeout(() => {
-      fetch("/api/application-state/thread", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          threadId,
-          messages: currentThreadMessages.map((m) => ({
-            id: m.id,
-            from: m.from.name
-              ? `${m.from.name} <${m.from.email}>`
-              : m.from.email,
-            to: m.to.map((t) => (t.name ? `${t.name} <${t.email}>` : t.email)),
-            subject: m.subject,
-            body: m.body,
-            date: m.date,
-            isRead: m.isRead,
-          })),
-        }),
-      }).catch(() => {});
-    }, 500);
-    return () => {
-      if (threadSyncRef.current) clearTimeout(threadSyncRef.current);
-    };
-  }, [threadId, currentThreadMessages]);
 
   // One-shot agent navigation: agent writes navigate.json, UI reads it, navigates, deletes it
   const { data: navCommand } = navState.command;

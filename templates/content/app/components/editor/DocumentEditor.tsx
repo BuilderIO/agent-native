@@ -17,10 +17,27 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef({ title: "", content: "" });
   const isInitializedRef = useRef(false);
+  const prevDocIdRef = useRef<string | null>(null);
+  const localTitleRef = useRef(localTitle);
+  localTitleRef.current = localTitle;
+  const localContentRef = useRef(localContent);
+  localContentRef.current = localContent;
 
-  // Initialize from fetched document
+  // Initialize from fetched document, reset on document switch
   useEffect(() => {
-    if (document && !isInitializedRef.current) {
+    if (!document) return;
+    // When documentId changes, clear stale state from the previous document
+    if (prevDocIdRef.current !== documentId) {
+      prevDocIdRef.current = documentId;
+      isInitializedRef.current = false;
+      // Cancel any pending debounced save — it would corrupt lastSavedRef
+      // with the old document's values after we've moved on
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+    }
+    if (!isInitializedRef.current) {
       setLocalTitle(document.title);
       setLocalContent(document.content);
       lastSavedRef.current = {
@@ -29,7 +46,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
       };
       isInitializedRef.current = true;
     }
-  }, [document]);
+  }, [document, documentId]);
 
   // Pick up external changes (e.g. Notion pull) — if the server content
   // diverges from what we last saved, an external source changed it.
@@ -57,11 +74,6 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
     }
   }, [document, localTitle, localContent]);
 
-  // Reset when document ID changes
-  useEffect(() => {
-    isInitializedRef.current = false;
-  }, [documentId]);
-
   const debouncedSave = useCallback(
     (title: string, content: string) => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -86,17 +98,17 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
   const handleTitleChange = useCallback(
     (newTitle: string) => {
       setLocalTitle(newTitle);
-      debouncedSave(newTitle, localContent);
+      debouncedSave(newTitle, localContentRef.current);
     },
-    [debouncedSave, localContent],
+    [debouncedSave],
   );
 
   const handleContentChange = useCallback(
     (newContent: string) => {
       setLocalContent(newContent);
-      debouncedSave(localTitle, newContent);
+      debouncedSave(localTitleRef.current, newContent);
     },
-    [debouncedSave, localTitle],
+    [debouncedSave],
   );
 
   if (isLoading) {
@@ -158,6 +170,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
           }}
         >
           <VisualEditor
+            documentId={documentId}
             content={localContent}
             onChange={handleContentChange}
             editable

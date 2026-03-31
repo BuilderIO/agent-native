@@ -42,6 +42,13 @@ type NotionPage = {
   parent?: Record<string, any>;
 };
 
+const LIST_BLOCK_TYPES = new Set([
+  "bulleted_list_item",
+  "numbered_list_item",
+  "to_do",
+  "toggle",
+]);
+
 export type NotionPageContent = {
   pageId: string;
   title: string;
@@ -91,6 +98,68 @@ function trimTrailingBlankLines(lines: string[]): string[] {
   let end = lines.length;
   while (end > 0 && !lines[end - 1].trim()) end--;
   return lines.slice(0, end);
+}
+
+function splitMarkdownLines(text: string, indent = ""): string[] {
+  return text.split("\n").map((line) => (line ? `${indent}${line}` : ""));
+}
+
+function isListBlock(block: NotionBlock | undefined): boolean {
+  return !!block && LIST_BLOCK_TYPES.has(block.type);
+}
+
+function shouldInsertBlankLine(
+  previous: NotionBlock | undefined,
+  current: NotionBlock,
+): boolean {
+  if (!previous) return false;
+  return !(isListBlock(previous) && isListBlock(current));
+}
+
+function isPlainTextCodeLanguage(language: string): boolean {
+  return ["", "plain text", "text", "plain"].includes(
+    language.trim().toLowerCase(),
+  );
+}
+
+function looksLikeCode(text: string): boolean {
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) return false;
+
+  let signalCount = 0;
+  for (const line of lines) {
+    if (
+      /^[<{[]/.test(line) ||
+      /[{}[\];=>]/.test(line) ||
+      /\b(const|let|var|function|class|return|import|export|async|await|if|else|for|while|switch|SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER)\b/.test(
+        line,
+      ) ||
+      /\w+\(.*\)/.test(line)
+    ) {
+      signalCount++;
+    }
+  }
+
+  return signalCount >= Math.max(1, Math.ceil(lines.length / 3));
+}
+
+function codeBlockToMarkdown(block: NotionBlock, indent: string): string[] {
+  const language = String(block.code?.language || "").trim();
+  const text = richTextToPlain(block.code?.rich_text || []);
+
+  if (isPlainTextCodeLanguage(language) && !looksLikeCode(text)) {
+    return splitMarkdownLines(text, indent);
+  }
+
+  return [
+    `${indent}\`\`\`${language}`.trimEnd(),
+    ...text.split("\n").map((line) => `${indent}${line}`),
+    `${indent}\`\`\``,
+  ];
 }
 
 function markdownInlineToRichText(text: string) {
@@ -299,9 +368,15 @@ function childrenToMarkdown(
 ): string[] {
   if (!children?.length) return [];
   const lines: string[] = [];
+  let previousChild: NotionBlock | undefined;
   for (const child of children) {
-    lines.push(...blockToMarkdown(child, warnings, indent));
-    lines.push("");
+    const childLines = blockToMarkdown(child, warnings, indent);
+    if (childLines.length === 0) continue;
+    if (shouldInsertBlankLine(previousChild, child)) {
+      lines.push("");
+    }
+    lines.push(...childLines);
+    previousChild = child;
   }
   return trimTrailingBlankLines(lines);
 }
@@ -316,7 +391,12 @@ function blockToMarkdown(
 
   switch (block.type) {
     case "paragraph":
-      lines.push(indent + richTextToMarkdown(block.paragraph?.rich_text || []));
+      lines.push(
+        ...splitMarkdownLines(
+          richTextToMarkdown(block.paragraph?.rich_text || []),
+          indent,
+        ),
+      );
       break;
     case "heading_1":
       lines.push(`# ${richTextToMarkdown(block.heading_1?.rich_text || [])}`);
@@ -349,11 +429,7 @@ function blockToMarkdown(
       lines.push("---");
       break;
     case "code":
-      lines.push(
-        `\`\`\`${block.code?.language || ""}`.trimEnd(),
-        richTextToPlain(block.code?.rich_text || []),
-        "```",
-      );
+      lines.push(...codeBlockToMarkdown(block, indent));
       break;
     case "callout":
       warnings.push("Flattened Notion callout block into markdown quote.");
@@ -386,11 +462,21 @@ export function notionBlocksToMarkdown(blocks: NotionBlock[]): {
   warnings: string[];
 } {
   const warnings: string[] = [];
-  const lines = trimTrailingBlankLines(
-    blocks.flatMap((block) => [...blockToMarkdown(block, warnings), ""]),
-  );
+  const lines: string[] = [];
+  let previousBlock: NotionBlock | undefined;
+
+  for (const block of blocks) {
+    const blockLines = blockToMarkdown(block, warnings);
+    if (blockLines.length === 0) continue;
+    if (shouldInsertBlankLine(previousBlock, block)) {
+      lines.push("");
+    }
+    lines.push(...blockLines);
+    previousBlock = block;
+  }
+
   return {
-    markdown: lines.join("\n"),
+    markdown: trimTrailingBlankLines(lines).join("\n"),
     warnings: [...new Set(warnings)],
   };
 }

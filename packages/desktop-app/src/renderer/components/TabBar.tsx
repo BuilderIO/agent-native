@@ -9,7 +9,7 @@ import {
   CircleDot,
   ClipboardList,
   Users,
-  Rocket,
+  Code,
   X,
   Plus,
   type LucideProps,
@@ -27,7 +27,7 @@ const ICON_MAP: Record<string, React.ComponentType<LucideProps>> = {
   CircleDot,
   ClipboardList,
   Users,
-  Rocket,
+  Code,
 };
 
 interface TabBarProps {

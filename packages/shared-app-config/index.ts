@@ -172,7 +172,7 @@ export const DEFAULT_APPS: AppConfig[] = [
   {
     id: "starter",
     name: "Starter",
-    icon: "Rocket",
+    icon: "Code",
     description: "Blank starter template",
     url: "",
     devPort: 8089,

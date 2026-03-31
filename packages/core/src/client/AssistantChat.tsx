@@ -12,13 +12,14 @@ import {
   useLocalRuntime,
   useThreadRuntime,
   useThread,
+  useAui,
+  useComposer,
   useMessageRuntime,
   ThreadPrimitive,
   ComposerPrimitive,
   MessagePrimitive,
-  AttachmentPrimitive,
 } from "@assistant-ui/react";
-import type { ToolCallMessagePartProps } from "@assistant-ui/react";
+import type { ToolCallMessagePartProps, Attachment } from "@assistant-ui/react";
 import {
   SimpleImageAttachmentAdapter,
   SimpleTextAttachmentAdapter,
@@ -217,18 +218,114 @@ function MarkdownText() {
 
 // ─── Composer Attachment Preview ─────────────────────────────────────────────
 
-function ComposerAttachmentPreview() {
+function getImageAttachmentSrc(attachment: Attachment): string | null {
+  if (attachment.type !== "image") return null;
+
+  if ("file" in attachment && attachment.file) {
+    return URL.createObjectURL(attachment.file);
+  }
+
+  const imagePart = attachment.content?.find((part) => part.type === "image");
+  return imagePart && "image" in imagePart ? imagePart.image : null;
+}
+
+function ComposerAttachmentPreviewCard({
+  attachment,
+  onRemove,
+}: {
+  attachment: Attachment;
+  onRemove: (id: string) => void;
+}) {
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextSrc = getImageAttachmentSrc(attachment);
+    setImageSrc(nextSrc);
+
+    return () => {
+      if (nextSrc?.startsWith("blob:")) {
+        URL.revokeObjectURL(nextSrc);
+      }
+    };
+  }, [attachment]);
+
+  const isImage = !!imageSrc;
+
   return (
-    <AttachmentPrimitive.Root className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs text-foreground m-1.5 mb-0">
-      <span className="max-w-[160px] truncate">
-        <AttachmentPrimitive.Name />
-      </span>
-      <AttachmentPrimitive.Remove asChild>
-        <button className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-accent text-muted-foreground hover:text-foreground">
-          <XIcon className="h-3 w-3" />
-        </button>
-      </AttachmentPrimitive.Remove>
-    </AttachmentPrimitive.Root>
+    <div
+      className={cn(
+        "group relative overflow-hidden border border-border/70 bg-muted/50 text-foreground",
+        isImage
+          ? "h-20 w-20 rounded-xl shadow-[0_12px_30px_-18px_rgba(0,0,0,0.7)]"
+          : "inline-flex max-w-[220px] items-center gap-2 rounded-lg px-2.5 py-2 text-xs",
+      )}
+    >
+      {isImage ? (
+        <>
+          <img
+            src={imageSrc}
+            alt={attachment.name}
+            className="h-full w-full object-cover"
+          />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent px-2 py-1.5">
+            <div className="truncate text-[10px] font-medium text-white/95">
+              {attachment.name}
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            {attachment.name.split(".").pop() || "file"}
+          </div>
+          <div className="min-w-0">
+            <div className="truncate font-medium">{attachment.name}</div>
+            <div className="text-[11px] text-muted-foreground">
+              {attachment.contentType || attachment.type}
+            </div>
+          </div>
+        </>
+      )}
+      <button
+        type="button"
+        onClick={() => onRemove(attachment.id)}
+        className={cn(
+          "absolute flex h-6 w-6 items-center justify-center rounded-full border border-border/60 bg-background/95 text-muted-foreground shadow-sm transition hover:text-foreground",
+          isImage
+            ? "right-1.5 top-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100"
+            : "right-1.5 top-1.5",
+        )}
+        aria-label={`Remove ${attachment.name}`}
+      >
+        <XIcon className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
+function ComposerAttachmentPreviewStrip() {
+  const attachments = useComposer((state) => state.attachments);
+  const aui = useAui();
+
+  const handleRemove = useCallback(
+    (id: string) => {
+      void aui.composer().attachment({ id }).remove();
+    },
+    [aui],
+  );
+
+  if (attachments.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-2 px-2 pt-2">
+      {attachments.map((attachment) => (
+        <ComposerAttachmentPreviewCard
+          key={attachment.id}
+          attachment={attachment}
+          onRemove={handleRemove}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -1132,12 +1229,7 @@ const AssistantChatInner = forwardRef<
           />
         ) : (
           <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
-            {/* Attachment previews */}
-            <ComposerPrimitive.Attachments
-              components={{
-                Attachment: ComposerAttachmentPreview,
-              }}
-            />
+            <ComposerAttachmentPreviewStrip />
             <TiptapComposer focusRef={tiptapRef} />
           </ComposerPrimitive.Root>
         )}
