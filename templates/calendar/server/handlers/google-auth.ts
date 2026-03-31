@@ -155,12 +155,16 @@ export const handleGoogleCallback = defineEventHandler(
           : stateOwner || undefined;
       const email = await exchangeCode(code, undefined, redirectUri, owner);
 
-      // Create a session when there isn't one already, or when the desktop
-      // app needs a token for its deep link (the system browser may have a
-      // session but the Electron webview needs its own).
-      // Skip for add-account flows — the user already has a session.
+      // Detect platform early — needed for session token creation.
+      const ua = getHeader(event, "user-agent") || "";
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
+      const needsDeepLink = desktop || isMobile;
+
+      // Create a session when:
+      // - No existing session, OR
+      // - Desktop/mobile need a token for their deep link (separate cookie jar)
       let sessionToken: string | undefined;
-      if ((!hasProductionSession || desktop) && !addAccount) {
+      if (!hasProductionSession || needsDeepLink) {
         sessionToken = crypto.randomBytes(32).toString("hex");
         await addSession(sessionToken, email);
         setCookie(event, "an_session", sessionToken, {
@@ -172,11 +176,8 @@ export const handleGoogleCallback = defineEventHandler(
         });
       }
 
-      // If this looks like a mobile request, redirect via the native app scheme.
-      // Pass the session token in the deep link so the app can inject it as a
-      // cookie into its WebView (Safari and WKWebView have separate cookie jars).
-      const ua = getHeader(event, "user-agent") || "";
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(ua);
+      // Mobile: redirect via deep link so the native app can inject the
+      // session cookie into its WebView.
       if (isMobile) {
         const deepLink = sessionToken
           ? `agentnative://oauth-complete?token=${sessionToken}`

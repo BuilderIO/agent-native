@@ -84,6 +84,19 @@ export {
 
 export { wrapWithAnalytics } from "./analytics.js";
 
+export {
+  isElectron,
+  isMobile,
+  getOrigin,
+  encodeOAuthState,
+  decodeOAuthState,
+  resolveOAuthSession,
+  oauthCallbackResponse,
+  oauthErrorPage,
+  type OAuthStatePayload,
+  type OAuthSessionResult,
+} from "./google-oauth.js";
+
 // Nitro plugin helper — re-exported so templates don't need nitro as a direct dependency.
 // defineNitroPlugin is an identity function; this typed wrapper lets templates use it
 // without resolving `nitro/runtime` (which requires Nitro's virtual modules at runtime).
