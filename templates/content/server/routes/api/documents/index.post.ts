@@ -2,6 +2,7 @@ import { defineEventHandler, readBody } from "h3";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db/index.js";
 import { schema } from "../../../db/index.js";
+import { parseDocumentFavorite } from "../../../lib/documents.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -56,7 +57,7 @@ export default defineEventHandler(async (event) => {
     content: doc.content,
     icon: doc.icon,
     position: doc.position,
-    isFavorite: Boolean(doc.isFavorite),
+    isFavorite: parseDocumentFavorite(doc.isFavorite),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };

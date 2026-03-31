@@ -1079,19 +1079,7 @@ const AssistantChatInner = forwardRef<
                 Attachment: ComposerAttachmentPreview,
               }}
             />
-            <TiptapComposer
-              focusRef={tiptapRef}
-              onSubmit={(text, references) => {
-                threadRuntime.append({
-                  role: "user",
-                  content: [{ type: "text", text }],
-                  runConfig:
-                    references.length > 0
-                      ? { custom: { references } }
-                      : undefined,
-                });
-              }}
-            />
+            <TiptapComposer focusRef={tiptapRef} />
           </ComposerPrimitive.Root>
         )}
       </div>

@@ -21,7 +21,7 @@ export function AppLayout({ activeDocumentId, children }: AppLayoutProps) {
           "Organize my pages",
         ]}
       >
-        <main className="relative flex min-w-0 flex-1 flex-col">
+        <main className="relative flex min-w-0 min-h-0 flex-1 flex-col">
           {children}
         </main>
       </AgentSidebar>

@@ -64,6 +64,85 @@ function sanitizeHtml(html: string): string {
     .replace(/\bon\w+\s*=\s*[^\s>]*/gi, "");
 }
 
+/**
+ * Strip Google Calendar invitation boilerplate from event descriptions.
+ * GCal embeds the full invitation HTML (guest list, RSVP buttons, "More options",
+ * meeting details, "Invitation from Google Calendar" footer) into the description.
+ * We render all of that natively, so strip it out to avoid ugly duplication.
+ */
+function stripGcalInviteHtml(html: string): string {
+  let cleaned = html;
+
+  // Remove "Reply for <email>" section with Yes/No/Maybe buttons
+  // This covers the RSVP table/block that Google Calendar injects
+  cleaned = cleaned.replace(
+    /<(table|div)[^>]*>[\s\S]*?Reply\s+for[\s\S]*?<\/(table|div)>/gi,
+    "",
+  );
+
+  // Remove standalone Yes/No/Maybe buttons (various Google formats)
+  cleaned = cleaned.replace(
+    /<(table|div)[^>]*>[\s\S]*?(?:>Yes<|>No<|>Maybe<)[\s\S]*?<\/(table|div)>/gi,
+    "",
+  );
+
+  // Remove "More options" link/button
+  cleaned = cleaned.replace(/<a[^>]*>[\s]*More\s+options[\s]*<\/a>/gi, "");
+  cleaned = cleaned.replace(
+    /<(table|div)[^>]*>[\s\S]*?More\s+options[\s\S]*?<\/(table|div)>/gi,
+    "",
+  );
+
+  // Remove "Invitation from Google Calendar" footer
+  cleaned = cleaned.replace(
+    /Invitation\s+from\s+<a[^>]*>Google\s+Calendar<\/a>/gi,
+    "",
+  );
+  cleaned = cleaned.replace(/Invitation\s+from\s+Google\s+Calendar/gi, "");
+
+  // Remove "You are receiving this email" disclaimer
+  cleaned = cleaned.replace(/You\s+are\s+receiving\s+this[\s\S]*?$/gi, "");
+
+  // Remove "View all guest info" links
+  cleaned = cleaned.replace(
+    /<a[^>]*>[\s]*View\s+all\s+guest\s+info[\s]*<\/a>/gi,
+    "",
+  );
+
+  // Remove the "When" / "Guests" sections that duplicate our native UI
+  cleaned = cleaned.replace(
+    /<b>When<\/b>[\s\S]*?(?=<b>|<hr|<br\s*\/?>[\s]*<br\s*\/?>|$)/gi,
+    "",
+  );
+
+  // Remove "Join Zoom Meeting" / "Join by phone" blocks that duplicate our meeting link
+  cleaned = cleaned.replace(
+    /<b>Join\s+Zoom\s+Meeting<\/b>[\s\S]*?(?=<b>Joining\s+notes|<hr|<br\s*\/?>[\s]*<br\s*\/?>[\s]*<br|$)/gi,
+    "",
+  );
+  cleaned = cleaned.replace(
+    /<b>Join\s+by\s+phone<\/b>[\s\S]*?(?=<b>|<hr|$)/gi,
+    "",
+  );
+
+  // Remove "Joining instructions" links
+  cleaned = cleaned.replace(
+    /<a[^>]*>[\s]*Joining\s+instructions[\s]*<\/a>/gi,
+    "",
+  );
+
+  // Clean up leftover separators and whitespace
+  cleaned = cleaned.replace(/(<hr\s*\/?>[\s]*){2,}/gi, "<hr/>");
+  cleaned = cleaned.replace(/(<br\s*\/?>[\s]*){4,}/gi, "<br/><br/>");
+  cleaned = cleaned.replace(/([-─]{5,}[\s]*){2,}/g, "");
+
+  // Trim leading/trailing whitespace and empty elements
+  cleaned = cleaned.replace(/^[\s<br\/>]*(<hr\s*\/?>)?[\s<br\/>]*/i, "");
+  cleaned = cleaned.replace(/[\s<br\/>]*(<hr\s*\/?>)?[\s<br\/>]*$/i, "");
+
+  return cleaned.trim();
+}
+
 /** Extract a Zoom/Meet/Teams link from location or description */
 function extractMeetingLink(event: CalendarEvent): {
   url: string;
@@ -183,6 +262,95 @@ function ResponseStatusIcon({ status }: { status?: string }) {
     default:
       return <HelpCircle className="h-3 w-3 text-muted-foreground/40" />;
   }
+}
+
+type RsvpStatus = "accepted" | "declined" | "tentative" | "needsAction";
+
+function RsvpSection({
+  event,
+  onStatusChange,
+}: {
+  event: CalendarEvent;
+  onStatusChange?: (status: RsvpStatus) => void;
+}) {
+  const currentStatus = event.responseStatus || "needsAction";
+  const [status, setStatus] = useState<RsvpStatus>(currentStatus);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setStatus(event.responseStatus || "needsAction");
+  }, [event.responseStatus]);
+
+  const handleRsvp = async (
+    newStatus: "accepted" | "declined" | "tentative",
+  ) => {
+    if (loading || status === newStatus) return;
+    setLoading(true);
+    const prev = status;
+    setStatus(newStatus);
+
+    try {
+      const res = await fetch(`/api/events/${event.id}/rsvp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: newStatus,
+          accountEmail: event.accountEmail,
+        }),
+      });
+      if (!res.ok) {
+        setStatus(prev);
+      } else {
+        onStatusChange?.(newStatus);
+      }
+    } catch {
+      setStatus(prev);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const options: Array<{
+    value: "accepted" | "declined" | "tentative";
+    label: string;
+  }> = [
+    { value: "accepted", label: "Yes" },
+    { value: "tentative", label: "Maybe" },
+    { value: "declined", label: "No" },
+  ];
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {options.map((opt) => {
+        const isActive = status === opt.value;
+        return (
+          <button
+            key={opt.value}
+            disabled={loading}
+            onClick={() => handleRsvp(opt.value)}
+            className={`
+              px-3 py-1 rounded-md text-xs font-medium transition-colors
+              ${
+                isActive
+                  ? opt.value === "accepted"
+                    ? "bg-green-500/15 text-green-400 ring-1 ring-green-500/30"
+                    : opt.value === "declined"
+                      ? "bg-red-500/15 text-red-400 ring-1 ring-red-500/30"
+                      : "bg-yellow-500/15 text-yellow-400 ring-1 ring-yellow-500/30"
+                  : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+              }
+              ${loading ? "opacity-50" : ""}
+            `}
+          >
+            {isActive && opt.value === "accepted" && (
+              <Check className="inline h-3 w-3 mr-1 -mt-px" />
+            )}
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 /**
@@ -735,26 +903,54 @@ export function EventDetailPopover({
               </>
             )}
 
+            {/* RSVP */}
+            {event.source === "google" &&
+              event.attendees &&
+              event.attendees.length > 0 && (
+                <>
+                  <div className="mx-4 my-2 border-t border-border/50" />
+                  <div className="flex items-center gap-3 px-4 py-1.5">
+                    <div className="h-4 w-4 shrink-0" />
+                    <div className="flex items-center gap-3 flex-1">
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        Going?
+                      </span>
+                      <RsvpSection event={event} />
+                    </div>
+                  </div>
+                </>
+              )}
+
             {/* Description */}
-            {event.description && (
-              <>
-                <div className="mx-4 my-2 border-t border-border/50" />
-                <div className="px-4 py-1.5">
-                  {descriptionIsHtml ? (
-                    <div
-                      className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80  prose prose-sm prose-invert prose-p:my-1 prose-a:text-primary"
-                      dangerouslySetInnerHTML={{
-                        __html: sanitizeHtml(event.description),
-                      }}
-                    />
-                  ) : (
-                    <p className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80  whitespace-pre-wrap">
-                      {event.description}
-                    </p>
-                  )}
-                </div>
-              </>
-            )}
+            {event.description &&
+              (() => {
+                const cleanedHtml = descriptionIsHtml
+                  ? stripGcalInviteHtml(sanitizeHtml(event.description))
+                  : null;
+                const hasContent = cleanedHtml
+                  ? cleanedHtml.replace(/<[^>]*>/g, "").trim().length > 0
+                  : true;
+                if (!hasContent) return null;
+                return (
+                  <>
+                    <div className="mx-4 my-2 border-t border-border/50" />
+                    <div className="px-4 py-1.5">
+                      {descriptionIsHtml ? (
+                        <div
+                          className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80 prose prose-sm prose-invert prose-p:my-1 prose-a:text-primary"
+                          dangerouslySetInnerHTML={{
+                            __html: cleanedHtml!,
+                          }}
+                        />
+                      ) : (
+                        <p className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap">
+                          {event.description}
+                        </p>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
 
             {/* Reminders */}
             {event.reminders && event.reminders.length > 0 && (

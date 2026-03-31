@@ -248,7 +248,14 @@ export async function pullDocumentFromNotion(
       warnings: pageContent.warnings,
       hasConflict: true,
     });
-    return getDocumentSyncStatus(owner, documentId);
+    const updatedLink = await getSyncLink(documentId);
+    return buildStatus({
+      connected: true,
+      documentId,
+      link: updatedLink,
+      remoteUpdatedAt: pageContent.lastEditedTime,
+      documentUpdatedAt: document.updatedAt,
+    });
   }
 
   const updatedAt = nowIso();
@@ -256,7 +263,7 @@ export async function pullDocumentFromNotion(
     .update(schema.documents)
     .set({
       title: pageContent.title || document.title,
-      content: pageContent.content,
+      content: pageContent.content || document.content,
       icon: pageContent.icon,
       updatedAt,
     })
@@ -275,7 +282,14 @@ export async function pullDocumentFromNotion(
     hasConflict: false,
   });
 
-  return getDocumentSyncStatus(owner, documentId);
+  const updatedLink = await getSyncLink(documentId);
+  return buildStatus({
+    connected: true,
+    documentId,
+    link: updatedLink,
+    remoteUpdatedAt: pageContent.lastEditedTime,
+    documentUpdatedAt: updatedAt,
+  });
 }
 
 export async function pushDocumentToNotion(
@@ -313,7 +327,14 @@ export async function pushDocumentToNotion(
       warnings: parseWarnings(link),
       hasConflict: true,
     });
-    return getDocumentSyncStatus(owner, documentId);
+    const updatedLink = await getSyncLink(documentId);
+    return buildStatus({
+      connected: true,
+      documentId,
+      link: updatedLink,
+      remoteUpdatedAt: page.last_edited_time || null,
+      documentUpdatedAt: document.updatedAt,
+    });
   }
 
   const remote = await pushDocumentToNotionPage({
@@ -324,11 +345,12 @@ export async function pushDocumentToNotion(
     icon: document.icon,
   });
 
+  const pushedAt = nowIso();
   await upsertSyncLink({
     documentId,
     remotePageId: link.remotePageId,
     state: "linked",
-    lastSyncedAt: nowIso(),
+    lastSyncedAt: pushedAt,
     lastPulledRemoteUpdatedAt: remote.lastEditedTime,
     lastPushedLocalUpdatedAt: document.updatedAt,
     lastKnownRemoteUpdatedAt: remote.lastEditedTime,
@@ -337,7 +359,14 @@ export async function pushDocumentToNotion(
     hasConflict: false,
   });
 
-  return getDocumentSyncStatus(owner, documentId);
+  const updatedLink = await getSyncLink(documentId);
+  return buildStatus({
+    connected: true,
+    documentId,
+    link: updatedLink,
+    remoteUpdatedAt: remote.lastEditedTime,
+    documentUpdatedAt: document.updatedAt,
+  });
 }
 
 export async function refreshDocumentSyncStatus(

@@ -129,9 +129,9 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
       )}
 
       {/* Scrollable document area */}
-      <div className="flex-1 min-h-0 overflow-auto">
+      <div className="flex-1 min-h-0 overflow-auto flex flex-col">
         {/* Title */}
-        <div className="px-16 pt-16 pb-2">
+        <div className="shrink-0 px-16 pt-16 pb-2">
           <div className="flex items-center gap-3 mb-2">
             {document.icon && <span className="text-4xl">{document.icon}</span>}
           </div>
@@ -145,7 +145,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
 
         {/* Editor */}
         <div
-          className="px-16 pb-16 cursor-text"
+          className="flex-1 px-16 pb-16 cursor-text"
           onClick={(e) => {
             // If click is on the wrapper itself (empty space below content),
             // focus the editor at the end — like Notion/Google Docs

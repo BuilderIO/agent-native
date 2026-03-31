@@ -57,6 +57,26 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="issues"
+        options={{
+          title: "Issues",
+          headerShown: false,
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="alert-circle" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="recruiting"
+        options={{
+          title: "Recruiting",
+          headerShown: false,
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="users" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{
           title: "Settings",

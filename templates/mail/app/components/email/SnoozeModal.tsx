@@ -142,7 +142,7 @@ export function SnoozeModal({
         ...(parsedDate && filteredPresets.length === 0
           ? [
               {
-                label: parsedLabel ?? nlInput,
+                label: nlInput,
                 date: parsedDate,
                 isCustom: true,
               },

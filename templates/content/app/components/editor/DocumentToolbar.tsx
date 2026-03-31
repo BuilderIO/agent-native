@@ -291,6 +291,9 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                       onClick={() => handleResolve("pull")}
                       disabled={isWorking}
                     >
+                      {resolveConflict.isPending ? (
+                        <Loader2 size={12} className="animate-spin mr-1.5" />
+                      ) : null}
                       Use Notion
                     </Button>
                     <Button
@@ -300,6 +303,9 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                       onClick={() => handleResolve("push")}
                       disabled={isWorking}
                     >
+                      {resolveConflict.isPending ? (
+                        <Loader2 size={12} className="animate-spin mr-1.5" />
+                      ) : null}
                       Use local
                     </Button>
                   </div>

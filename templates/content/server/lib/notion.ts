@@ -30,6 +30,7 @@ type NotionBlock = {
   id: string;
   type: string;
   has_children?: boolean;
+  children?: NotionBlock[];
   [key: string]: any;
 };
 
@@ -291,48 +292,78 @@ export function markdownToNotionBlocks(markdown: string): any[] {
   return blocks.length > 0 ? blocks : [paragraphBlock("")];
 }
 
+function childrenToMarkdown(
+  children: NotionBlock[] | undefined,
+  warnings: string[],
+  indent: string,
+): string[] {
+  if (!children?.length) return [];
+  const lines: string[] = [];
+  for (const child of children) {
+    lines.push(...blockToMarkdown(child, warnings, indent));
+    lines.push("");
+  }
+  return trimTrailingBlankLines(lines);
+}
+
 function blockToMarkdown(
   block: NotionBlock,
   warnings: string[],
   indent = "",
 ): string[] {
+  const childIndent = indent + "  ";
+  const lines: string[] = [];
+
   switch (block.type) {
     case "paragraph":
-      return [indent + richTextToMarkdown(block.paragraph?.rich_text || [])];
+      lines.push(indent + richTextToMarkdown(block.paragraph?.rich_text || []));
+      break;
     case "heading_1":
-      return [`# ${richTextToMarkdown(block.heading_1?.rich_text || [])}`];
+      lines.push(`# ${richTextToMarkdown(block.heading_1?.rich_text || [])}`);
+      break;
     case "heading_2":
-      return [`## ${richTextToMarkdown(block.heading_2?.rich_text || [])}`];
+      lines.push(`## ${richTextToMarkdown(block.heading_2?.rich_text || [])}`);
+      break;
     case "heading_3":
-      return [`### ${richTextToMarkdown(block.heading_3?.rich_text || [])}`];
+      lines.push(`### ${richTextToMarkdown(block.heading_3?.rich_text || [])}`);
+      break;
     case "bulleted_list_item":
-      return [
+      lines.push(
         `${indent}- ${richTextToMarkdown(block.bulleted_list_item?.rich_text || [])}`,
-      ];
+      );
+      break;
     case "numbered_list_item":
-      return [
+      lines.push(
         `${indent}1. ${richTextToMarkdown(block.numbered_list_item?.rich_text || [])}`,
-      ];
+      );
+      break;
     case "to_do":
-      return [
+      lines.push(
         `${indent}- [${block.to_do?.checked ? "x" : " "}] ${richTextToMarkdown(block.to_do?.rich_text || [])}`,
-      ];
+      );
+      break;
     case "quote":
-      return [`> ${richTextToMarkdown(block.quote?.rich_text || [])}`];
+      lines.push(`> ${richTextToMarkdown(block.quote?.rich_text || [])}`);
+      break;
     case "divider":
-      return ["---"];
+      lines.push("---");
+      break;
     case "code":
-      return [
+      lines.push(
         `\`\`\`${block.code?.language || ""}`.trimEnd(),
         richTextToPlain(block.code?.rich_text || []),
         "```",
-      ];
+      );
+      break;
     case "callout":
       warnings.push("Flattened Notion callout block into markdown quote.");
-      return [`> ${richTextToMarkdown(block.callout?.rich_text || [])}`];
+      lines.push(`> ${richTextToMarkdown(block.callout?.rich_text || [])}`);
+      break;
     case "toggle":
-      warnings.push("Flattened Notion toggle block into markdown bullet.");
-      return [`- ${richTextToMarkdown(block.toggle?.rich_text || [])}`];
+      lines.push(
+        `${indent}- ${richTextToMarkdown(block.toggle?.rich_text || [])}`,
+      );
+      break;
     case "image": {
       warnings.push("Image blocks were omitted from markdown sync.");
       return [];
@@ -342,6 +373,12 @@ function blockToMarkdown(
       return [];
     }
   }
+
+  if (block.children?.length) {
+    lines.push(...childrenToMarkdown(block.children, warnings, childIndent));
+  }
+
+  return lines;
 }
 
 export function notionBlocksToMarkdown(blocks: NotionBlock[]): {
@@ -441,6 +478,21 @@ export async function fetchBlockChildren(
   return blocks;
 }
 
+export async function fetchBlockChildrenDeep(
+  accessToken: string,
+  blockId: string,
+): Promise<NotionBlock[]> {
+  const blocks = await fetchBlockChildren(accessToken, blockId);
+  await Promise.all(
+    blocks
+      .filter((b) => b.has_children)
+      .map(async (b) => {
+        b.children = await fetchBlockChildrenDeep(accessToken, b.id);
+      }),
+  );
+  return blocks;
+}
+
 async function replaceChildren(
   accessToken: string,
   pageId: string,
@@ -467,7 +519,7 @@ export async function readNotionPageAsDocument(
   pageId: string,
 ): Promise<NotionPageContent> {
   const page = await fetchNotionPage(accessToken, pageId);
-  const blocks = await fetchBlockChildren(accessToken, pageId);
+  const blocks = await fetchBlockChildrenDeep(accessToken, pageId);
   const { markdown, warnings } = notionBlocksToMarkdown(blocks);
   return {
     pageId: page.id,

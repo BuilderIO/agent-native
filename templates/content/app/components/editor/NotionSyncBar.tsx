@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   ExternalLink,
   Unplug,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -263,6 +264,9 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
             onClick={() => handleResolve("pull")}
             disabled={isWorking}
           >
+            {resolveConflict.isPending ? (
+              <Loader2 size={14} className="animate-spin mr-1" />
+            ) : null}
             Pull from Notion
           </Button>
           <Button
@@ -271,6 +275,9 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
             onClick={() => handleResolve("push")}
             disabled={isWorking}
           >
+            {resolveConflict.isPending ? (
+              <Loader2 size={14} className="animate-spin mr-1" />
+            ) : null}
             Push local
           </Button>
         </div>

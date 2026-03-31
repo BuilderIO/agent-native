@@ -134,6 +134,7 @@ export function InboxPage() {
   }>();
   const navigate = useNavigate();
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const compose = useComposeState();
   const navState = useNavigationState();
   const [lastArchivedId, setLastArchivedId] = useState<string | null>(null);
@@ -213,6 +214,9 @@ export function InboxPage() {
     }
     return filtered;
   }, [rawEmails, view, activeLabel, pinnedUserLabels, activeAccounts]);
+
+  // Clear multi-selection when navigating to a different view or thread
+  useEffect(() => setSelectedIds(new Set()), [view, threadId]);
 
   // Sync current navigation state to file (write-only, so agent can read it)
   const searchQ = searchParams.get("q") ?? undefined;
@@ -402,6 +406,8 @@ export function InboxPage() {
             emails={emails}
             focusedId={focusedId}
             setFocusedId={setFocusedId}
+            selectedIds={selectedIds}
+            setSelectedIds={setSelectedIds}
             onCompose={handleCompose}
             onArchived={setLastArchivedId}
             onDraftOpen={handleDraftOpen}

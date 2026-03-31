@@ -1,53 +1,112 @@
-import fs from "fs";
-import path from "path";
 import crypto from "crypto";
-import type { Task, Message, TaskState } from "./types.js";
+import { getDbExec, isPostgres, intType } from "../db/client.js";
+import type { Task, Message, TaskState, Artifact } from "./types.js";
 
-const TASKS_DIR = path.join(process.cwd(), "data", "a2a-tasks");
+let _initialized = false;
 
-function ensureDir() {
-  fs.mkdirSync(TASKS_DIR, { recursive: true });
+async function ensureTable(): Promise<void> {
+  if (_initialized) return;
+  const client = getDbExec();
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS a2a_tasks (
+      id TEXT PRIMARY KEY,
+      context_id TEXT,
+      status_state TEXT NOT NULL DEFAULT 'submitted',
+      status_message TEXT,
+      status_timestamp TEXT NOT NULL,
+      history TEXT NOT NULL DEFAULT '[]',
+      artifacts TEXT NOT NULL DEFAULT '[]',
+      metadata TEXT,
+      created_at ${intType()} NOT NULL,
+      updated_at ${intType()} NOT NULL
+    )
+  `);
+  _initialized = true;
 }
 
-function taskPath(id: string): string {
-  return path.join(TASKS_DIR, `${id}.json`);
-}
-
-export function createTask(message: Message, contextId?: string): Task {
-  ensureDir();
-  const task: Task = {
-    id: crypto.randomUUID(),
-    contextId,
+function taskFromRow(row: any): Task {
+  return {
+    id: row.id as string,
+    contextId: (row.context_id as string) || undefined,
     status: {
-      state: "submitted",
-      timestamp: new Date().toISOString(),
+      state: row.status_state as TaskState,
+      message: row.status_message
+        ? JSON.parse(row.status_message as string)
+        : undefined,
+      timestamp: row.status_timestamp as string,
     },
+    history: JSON.parse(row.history as string),
+    artifacts: JSON.parse(row.artifacts as string),
+    metadata: row.metadata ? JSON.parse(row.metadata as string) : undefined,
+  };
+}
+
+export async function createTask(
+  message: Message,
+  contextId?: string,
+): Promise<Task> {
+  await ensureTable();
+  const client = getDbExec();
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  const timestamp = new Date().toISOString();
+
+  const task: Task = {
+    id,
+    contextId,
+    status: { state: "submitted", timestamp },
     history: [message],
     artifacts: [],
   };
-  fs.writeFileSync(taskPath(task.id), JSON.stringify(task, null, 2));
+
+  await client.execute({
+    sql: `INSERT INTO a2a_tasks (id, context_id, status_state, status_timestamp, history, artifacts, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      id,
+      contextId ?? null,
+      "submitted",
+      timestamp,
+      JSON.stringify([message]),
+      "[]",
+      now,
+      now,
+    ],
+  });
+
   return task;
 }
 
-export function getTask(id: string): Task | null {
-  try {
-    const data = fs.readFileSync(taskPath(id), "utf-8");
-    return JSON.parse(data);
-  } catch {
-    return null;
-  }
+export async function getTask(id: string): Promise<Task | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM a2a_tasks WHERE id = ?`,
+    args: [id],
+  });
+  if (rows.length === 0) return null;
+  return taskFromRow(rows[0]);
 }
 
-export function updateTask(
+export async function updateTask(
   id: string,
   update: {
     state?: TaskState;
     message?: Message;
-    artifacts?: Task["artifacts"];
+    artifacts?: Artifact[];
   },
-): Task | null {
-  const task = getTask(id);
-  if (!task) return null;
+): Promise<Task | null> {
+  await ensureTable();
+  const client = getDbExec();
+
+  // Read current task
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM a2a_tasks WHERE id = ?`,
+    args: [id],
+  });
+  if (rows.length === 0) return null;
+
+  const task = taskFromRow(rows[0]);
+  const now = Date.now();
 
   if (update.state) {
     task.status = {
@@ -65,26 +124,36 @@ export function updateTask(
     task.artifacts = [...(task.artifacts ?? []), ...update.artifacts];
   }
 
-  fs.writeFileSync(taskPath(id), JSON.stringify(task, null, 2));
+  await client.execute({
+    sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, artifacts = ?, updated_at = ? WHERE id = ?`,
+    args: [
+      task.status.state,
+      task.status.message ? JSON.stringify(task.status.message) : null,
+      task.status.timestamp,
+      JSON.stringify(task.history),
+      JSON.stringify(task.artifacts),
+      now,
+      id,
+    ],
+  });
+
   return task;
 }
 
-export function listTasks(contextId?: string): Task[] {
-  ensureDir();
-  const files = fs.readdirSync(TASKS_DIR).filter((f) => f.endsWith(".json"));
-  const tasks: Task[] = [];
+export async function listTasks(contextId?: string): Promise<Task[]> {
+  await ensureTable();
+  const client = getDbExec();
 
-  for (const file of files) {
-    try {
-      const data = fs.readFileSync(path.join(TASKS_DIR, file), "utf-8");
-      const task: Task = JSON.parse(data);
-      if (!contextId || task.contextId === contextId) {
-        tasks.push(task);
-      }
-    } catch {
-      // Skip invalid files
-    }
+  if (contextId) {
+    const { rows } = await client.execute({
+      sql: `SELECT * FROM a2a_tasks WHERE context_id = ? ORDER BY created_at DESC`,
+      args: [contextId],
+    });
+    return rows.map(taskFromRow);
   }
 
-  return tasks;
+  const { rows } = await client.execute(
+    `SELECT * FROM a2a_tasks ORDER BY created_at DESC`,
+  );
+  return rows.map(taskFromRow);
 }

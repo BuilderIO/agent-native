@@ -145,12 +145,41 @@ export function EventDetailPanel({
                   </div>
                 )}
 
-                {/* Description */}
-                {event.description && (
-                  <p className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground">
-                    {event.description}
-                  </p>
-                )}
+                {/* Description — strip HTML and gcal invitation cruft */}
+                {event.description &&
+                  (() => {
+                    const hasHtml = /<[a-z][\s\S]*>/i.test(event.description);
+                    if (hasHtml) {
+                      // Strip gcal invitation HTML and extract text
+                      const text = event.description
+                        .replace(/<style[\s\S]*?<\/style>/gi, "")
+                        .replace(/<[^>]+>/g, " ")
+                        .replace(/&nbsp;/g, " ")
+                        .replace(/&amp;/g, "&")
+                        .replace(/&lt;/g, "<")
+                        .replace(/&gt;/g, ">")
+                        .replace(/\s+/g, " ")
+                        .trim();
+                      // Skip if it's just Google Calendar boilerplate
+                      if (
+                        !text ||
+                        /^(Invitation from Google Calendar|Reply for|View all guest info)/i.test(
+                          text,
+                        )
+                      )
+                        return null;
+                      return (
+                        <p className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+                          {text}
+                        </p>
+                      );
+                    }
+                    return (
+                      <p className="rounded-md bg-muted/50 px-3 py-2.5 text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+                        {event.description}
+                      </p>
+                    );
+                  })()}
 
                 {/* Attendees */}
                 {event.attendees && event.attendees.length > 0 && (

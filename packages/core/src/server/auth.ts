@@ -219,18 +219,23 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     return DEV_SESSION;
   }
 
-  if (customGetSession) return customGetSession(event);
-
-  const cookie = getCookie(event, COOKIE_NAME);
-  if (cookie) {
-    const email = await getSessionEmail(cookie);
-    if (email) return { email, token: cookie };
+  if (customGetSession) {
+    const session = await customGetSession(event);
+    if (session) return session;
+    // Fall through to _session query param check (mobile WebView bridge)
+  } else {
+    const cookie = getCookie(event, COOKIE_NAME);
+    if (cookie) {
+      const email = await getSessionEmail(cookie);
+      if (email) return { email, token: cookie };
+    }
   }
 
   // Mobile WebViews have a separate cookie jar from Safari, so after OAuth
   // completes in Safari the WebView won't have the session cookie.  The mobile
   // app passes the token as a query parameter; if it's valid we promote it to
   // an httpOnly cookie so subsequent requests work normally.
+  // This MUST run even with custom auth providers (e.g. createGoogleAuthPlugin).
   const qToken = getQuery(event)?._session as string | undefined;
   if (qToken) {
     const email = await getSessionEmail(qToken);
@@ -658,6 +663,7 @@ export function autoMountAuth(app: H3App, options: AuthOptions = {}): boolean {
       "\n";
     console.error(msg);
     process.exit(1);
+    return false; // unreachable in production, but prevents fallthrough if exit is intercepted
   }
 
   // Production with tokens — mount auth

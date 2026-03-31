@@ -6,7 +6,10 @@ import {
   GalleryHorizontal,
   Layers,
   Video,
-  Image,
+  CircleDot,
+  ClipboardList,
+  Users,
+  Rocket,
   Settings,
   type LucideProps,
 } from "lucide-react";
@@ -21,7 +24,10 @@ const ICON_MAP: Record<string, React.ComponentType<LucideProps>> = {
   GalleryHorizontal,
   Layers,
   Video,
-  Image,
+  CircleDot,
+  ClipboardList,
+  Users,
+  Rocket,
 };
 
 interface SidebarProps {

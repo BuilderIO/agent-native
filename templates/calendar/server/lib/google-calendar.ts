@@ -14,6 +14,7 @@ import {
   calendarInsertEvent,
   calendarUpdateEvent,
   calendarDeleteEvent,
+  calendarPatchEvent,
 } from "./google-api.js";
 
 const SCOPES = [
@@ -456,4 +457,32 @@ export async function deleteEvent(
   if (!client) return;
 
   await calendarDeleteEvent(client.accessToken, "primary", googleEventId);
+}
+
+/**
+ * Update the current user's RSVP status for an event.
+ * Uses PATCH with attendees containing only the self entry.
+ */
+export async function rsvpEvent(
+  googleEventId: string,
+  responseStatus: "accepted" | "declined" | "tentative",
+  accountEmail: string,
+): Promise<void> {
+  const client = await getClient(accountEmail);
+  if (!client) return;
+
+  await calendarPatchEvent(
+    client.accessToken,
+    "primary",
+    googleEventId,
+    {
+      attendees: [
+        {
+          email: accountEmail,
+          responseStatus,
+        },
+      ],
+    },
+    "none",
+  );
 }
