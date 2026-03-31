@@ -7,6 +7,7 @@ import {
   fetchNotionPage,
   getNotionConnectionForOwner,
   normalizeNotionPageId,
+  notionFetch,
   pushDocumentToNotionPage,
   readNotionPageAsDocument,
 } from "./notion.js";
@@ -376,7 +377,6 @@ export async function createAndLinkNotionPage(
   const document = await getDocument(documentId);
 
   // Find a parent page — search for any page the user has access to
-  const { notionFetch } = await import("./notion.js");
   const searchResult = await notionFetch<{
     results: Array<{ id: string; object: string }>;
   }>("/search", connection.accessToken, {

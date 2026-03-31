@@ -138,6 +138,18 @@ export function useResolveDocumentSyncConflict(documentId: string) {
   });
 }
 
+export function useCreateAndLinkNotionPage(documentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetchJson<DocumentSyncStatus>(
+        `/api/documents/${documentId}/notion/create-and-link`,
+        { method: "POST" },
+      ),
+    onSuccess: () => invalidateDocumentQueries(queryClient, documentId),
+  });
+}
+
 export function useSearchNotionPages(query: string, enabled: boolean) {
   return useQuery({
     queryKey: ["notion-search", query],

@@ -8,6 +8,7 @@ import {
   Loader2,
   Search,
   FileText,
+  Plus,
 } from "lucide-react";
 import {
   Popover,
@@ -25,6 +26,7 @@ import {
   usePushDocumentToNotion,
   useResolveDocumentSyncConflict,
   useSearchNotionPages,
+  useCreateAndLinkNotionPage,
 } from "@/hooks/use-notion";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -56,6 +58,8 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
   const pushDocument = usePushDocumentToNotion(documentId);
   const resolveConflict = useResolveDocumentSyncConflict(documentId);
 
+  const createAndLink = useCreateAndLinkNotionPage(documentId);
+
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -71,7 +75,8 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
     unlinkDocument.isPending ||
     pullDocument.isPending ||
     pushDocument.isPending ||
-    resolveConflict.isPending;
+    resolveConflict.isPending ||
+    createAndLink.isPending;
 
   const { data: searchResults, isLoading: searchLoading } =
     useSearchNotionPages(debouncedQuery, open && isConnected && !isLinked);
@@ -147,20 +152,48 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
   }, [unlinkDocument]);
 
   const handleResolve = useCallback(
-    async (direction: "pull" | "push") => {
-      try {
-        await resolveConflict.mutateAsync({ direction });
-        toast.success(
-          direction === "pull"
-            ? "Resolved — pulled from Notion."
-            : "Resolved — pushed local version.",
-        );
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Resolve failed.");
-      }
+    (direction: "pull" | "push") => {
+      resolveConflict.mutate(
+        { direction },
+        {
+          onSuccess: () => {
+            queryClient.invalidateQueries({
+              queryKey: ["document", documentId],
+            });
+            queryClient.invalidateQueries({
+              queryKey: ["document-sync", documentId],
+            });
+            toast.success(
+              direction === "pull"
+                ? "Resolved — pulled from Notion."
+                : "Resolved — pushed local version.",
+            );
+            setOpen(false);
+          },
+          onError: (error) => {
+            toast.error(
+              error instanceof Error ? error.message : "Resolve failed.",
+            );
+          },
+        },
+      );
     },
-    [resolveConflict],
+    [resolveConflict, queryClient, documentId],
   );
+
+  const handleCreateAndLink = useCallback(() => {
+    createAndLink.mutate(undefined, {
+      onSuccess: () => {
+        toast.success("Created and linked to new Notion page.");
+        setSearchQuery("");
+      },
+      onError: (error) => {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to create page.",
+        );
+      },
+    });
+  }, [createAndLink]);
 
   const handleSetup = () => {
     toast.info("Set up Notion in the sidebar first — click the Notion icon.");
@@ -346,6 +379,29 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
               </div>
 
               <div className="max-h-64 overflow-y-auto border-t border-border">
+                {/* Create new page option */}
+                <div className="p-1.5 border-b border-border">
+                  <button
+                    onClick={handleCreateAndLink}
+                    disabled={isWorking}
+                    className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md hover:bg-accent disabled:opacity-40"
+                  >
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                      {createAndLink.isPending ? (
+                        <Loader2
+                          size={14}
+                          className="animate-spin text-muted-foreground"
+                        />
+                      ) : (
+                        <Plus size={14} className="text-muted-foreground" />
+                      )}
+                    </span>
+                    <span className="text-xs font-medium">
+                      Create new page in Notion
+                    </span>
+                  </button>
+                </div>
+
                 {searchLoading ? (
                   <div className="flex items-center justify-center py-6">
                     <Loader2

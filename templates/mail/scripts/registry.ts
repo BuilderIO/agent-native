@@ -34,6 +34,14 @@ import {
   tool as requestCodeChangeTool,
   run as requestCodeChangeRun,
 } from "./request-code-change.js";
+import {
+  tool as manageAutomationsTool,
+  run as manageAutomationsRun,
+} from "./manage-automations.js";
+import {
+  tool as triggerAutomationsTool,
+  run as triggerAutomationsRun,
+} from "./trigger-automations.js";
 import type { ScriptEntry } from "@agent-native/core";
 
 export const scriptRegistry: Record<string, ScriptEntry> = {
@@ -55,5 +63,13 @@ export const scriptRegistry: Record<string, ScriptEntry> = {
   "request-code-change": {
     tool: requestCodeChangeTool,
     run: requestCodeChangeRun,
+  },
+  "manage-automations": {
+    tool: manageAutomationsTool,
+    run: manageAutomationsRun,
+  },
+  "trigger-automations": {
+    tool: triggerAutomationsTool,
+    run: triggerAutomationsRun,
   },
 };

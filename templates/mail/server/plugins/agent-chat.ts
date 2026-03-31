@@ -52,6 +52,21 @@ After any change (archive, trash, star, mark-read, send), run refresh-list to up
 
 Be concise and helpful. When summarizing emails, include sender, subject, and a brief snippet.
 
+## Automations
+
+You can create and manage email automation rules that process new inbox emails automatically using AI.
+Use manage-automations to create rules like "auto-label newsletters", "star emails from my boss", etc.
+
+Examples:
+- User says "auto-label newsletters" → create rule with condition "from a newsletter or marketing mailing list" and action label:"newsletters"
+- User says "archive marketing emails" → create rule with condition "marketing or promotional email" and action archive
+- User says "star emails from alice@example.com" → create rule with condition "from alice@example.com" and action star
+
+Rules are evaluated by a fast AI model (Haiku) and run every minute + when the user opens the app.
+Use trigger-automations to force immediate processing.
+
+Available action types: label (with labelName), archive, mark_read, star, trash.
+
 ## Composing vs Replying
 
 When the user asks to draft/email a specific person (e.g., "email my wife", "draft an email to Alice"):
