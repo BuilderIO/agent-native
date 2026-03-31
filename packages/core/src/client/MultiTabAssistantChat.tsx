@@ -139,18 +139,22 @@ function HistoryPopover({
   }, [onClose]);
 
   // Debounced server-side search
+  const searchIdRef = useRef(0);
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const q = search.trim();
     if (!q) {
+      searchIdRef.current++;
       setSearchResults(null);
       setIsSearching(false);
       return;
     }
     setIsSearching(true);
+    const id = ++searchIdRef.current;
     debounceRef.current = setTimeout(async () => {
       if (onSearch) {
         const results = await onSearch(q);
+        if (id !== searchIdRef.current) return;
         setSearchResults(results);
       } else {
         // Fallback to client-side filtering
