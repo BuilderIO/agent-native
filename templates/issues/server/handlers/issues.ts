@@ -4,6 +4,7 @@ import {
   readBody,
   getRouterParam,
   setResponseStatus,
+  createError,
   type H3Event,
 } from "h3";
 import { getSession } from "@agent-native/core/server";
@@ -21,8 +22,7 @@ async function requireClient(event: H3Event) {
   const session = await getSession(event);
   const client = await getClient(session?.email);
   if (!client) {
-    setResponseStatus(event, 401);
-    throw new Error("Jira not connected");
+    throw createError({ statusCode: 401, statusMessage: "Jira not connected" });
   }
   return client;
 }

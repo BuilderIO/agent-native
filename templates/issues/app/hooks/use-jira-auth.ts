@@ -17,7 +17,7 @@ export function useJiraAuthUrl(enabled = false) {
     queryKey: ["jira-auth-url"],
     queryFn: async () => {
       const res = await fetch("/api/atlassian/auth-url");
-      if (!res.ok) throw new Error("Failed to get auth URL");
+      // Return JSON even on error so the banner can show the message
       return res.json();
     },
     enabled,

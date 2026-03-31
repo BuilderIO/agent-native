@@ -186,7 +186,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* Main content */}
       <main className="flex-1 overflow-hidden">
-        {isConnected ? children : <JiraConnectBanner />}
+        {isConnected || isActive("/settings") ? (
+          children
+        ) : (
+          <JiraConnectBanner />
+        )}
       </main>
 
       {/* Agent sidebar */}
