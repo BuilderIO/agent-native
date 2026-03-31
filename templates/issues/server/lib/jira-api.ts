@@ -9,6 +9,10 @@ const SCOPES = [
   "read:jira-work",
   "write:jira-work",
   "read:jira-user",
+  "read:board-scope:jira-software",
+  "read:sprint:jira-software",
+  "read:issue:jira-software",
+  "read:project:jira",
   "offline_access",
 ];
 
@@ -146,35 +150,32 @@ export async function jiraGetMyself(cloudId: string, accessToken: string) {
   return res.json();
 }
 
-// Search issues
+// Search issues (using /search/jql endpoint — the old /search was removed)
 export async function jiraSearchIssues(
   cloudId: string,
   accessToken: string,
   params: {
     jql?: string;
-    startAt?: number;
     maxResults?: number;
     fields?: string[];
     expand?: string[];
+    nextPageToken?: string;
   },
 ) {
-  const query = new URLSearchParams();
-  if (params.jql) query.set("jql", params.jql);
-  if (params.startAt !== undefined)
-    query.set("startAt", String(params.startAt));
-  if (params.maxResults !== undefined)
-    query.set("maxResults", String(params.maxResults));
-  if (params.fields?.length) query.set("fields", params.fields.join(","));
-  if (params.expand?.length) query.set("expand", params.expand.join(","));
+  const body: Record<string, unknown> = {};
+  if (params.jql) body.jql = params.jql;
+  if (params.maxResults !== undefined) body.maxResults = params.maxResults;
+  if (params.fields?.length) body.fields = params.fields;
+  if (params.expand?.length) body.expand = params.expand;
+  if (params.nextPageToken) body.nextPageToken = params.nextPageToken;
   const res = await atlassianFetch(
-    jiraUrl(cloudId, `/search?${query}`),
+    jiraUrl(cloudId, "/search/jql"),
     accessToken,
+    { method: "POST", body: JSON.stringify(body) },
   );
   return res.json() as Promise<{
-    startAt: number;
-    maxResults: number;
-    total: number;
     issues: any[];
+    nextPageToken?: string;
   }>;
 }
 

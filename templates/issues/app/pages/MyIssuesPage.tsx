@@ -92,7 +92,7 @@ export function MyIssuesPage({ selectedIssueKey }: MyIssuesPageProps) {
 
         {/* Footer */}
         <div className="border-t border-border px-4 py-2 text-[11px] text-muted-foreground">
-          {data?.total !== undefined && `${data.total} issues`}
+          {data?.issues && `${data.issues.length} issues`}
         </div>
       </div>
 
