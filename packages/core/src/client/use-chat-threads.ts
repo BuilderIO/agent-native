@@ -133,7 +133,7 @@ export function useChatThreads(apiUrl = "/api/agent-chat") {
         threadData: string;
         title: string;
         preview: string;
-        messageCount: number;
+        messageCount?: number;
       },
     ) => {
       try {

@@ -826,6 +826,7 @@ export function createAgentChatPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
+        await getOwnerFromEvent(event);
         const body = await readBody(event);
         const message = body?.message;
         if (!message || typeof message !== "string") {
