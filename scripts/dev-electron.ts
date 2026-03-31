@@ -19,6 +19,7 @@ const PORT_MAP: Record<string, number> = {
   mail: 8084,
   slides: 8085,
   videos: 8086,
+  recruiting: 8090,
 };
 
 // ── Parse --apps flag ──────────────────────────────────────────

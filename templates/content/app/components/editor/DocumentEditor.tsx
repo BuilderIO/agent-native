@@ -128,38 +128,41 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
         </div>
       )}
 
-      {/* Title */}
-      <div className="px-16 pt-16 pb-2">
-        <div className="flex items-center gap-3 mb-2">
-          {document.icon && <span className="text-4xl">{document.icon}</span>}
+      {/* Scrollable document area */}
+      <div className="flex-1 min-h-0 overflow-auto">
+        {/* Title */}
+        <div className="px-16 pt-16 pb-2">
+          <div className="flex items-center gap-3 mb-2">
+            {document.icon && <span className="text-4xl">{document.icon}</span>}
+          </div>
+          <input
+            value={localTitle}
+            onChange={(e) => handleTitleChange(e.target.value)}
+            placeholder="Untitled"
+            className="w-full text-4xl font-bold bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/40"
+          />
         </div>
-        <input
-          value={localTitle}
-          onChange={(e) => handleTitleChange(e.target.value)}
-          placeholder="Untitled"
-          className="w-full text-4xl font-bold bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/40"
-        />
-      </div>
 
-      {/* Editor */}
-      <div
-        className="flex-1 px-16 pb-16 min-h-0 overflow-auto cursor-text"
-        onClick={(e) => {
-          // If click is on the wrapper itself (empty space below content),
-          // focus the editor at the end — like Notion/Google Docs
-          if (e.target === e.currentTarget) {
-            const pm = e.currentTarget.querySelector(
-              ".ProseMirror",
-            ) as HTMLElement | null;
-            pm?.focus();
-          }
-        }}
-      >
-        <VisualEditor
-          content={localContent}
-          onChange={handleContentChange}
-          editable
-        />
+        {/* Editor */}
+        <div
+          className="px-16 pb-16 cursor-text"
+          onClick={(e) => {
+            // If click is on the wrapper itself (empty space below content),
+            // focus the editor at the end — like Notion/Google Docs
+            if (e.target === e.currentTarget) {
+              const pm = e.currentTarget.querySelector(
+                ".ProseMirror",
+              ) as HTMLElement | null;
+              pm?.focus();
+            }
+          }}
+        >
+          <VisualEditor
+            content={localContent}
+            onChange={handleContentChange}
+            editable
+          />
+        </div>
       </div>
     </div>
   );
