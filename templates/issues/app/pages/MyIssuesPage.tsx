@@ -108,7 +108,7 @@ export function MyIssuesPage({ selectedIssueKey: propKey }: MyIssuesPageProps) {
         {/* Footer */}
         <div className="border-t border-border px-4 py-2 text-[11px] text-muted-foreground">
           {data?.issues &&
-            `${data.issues.length} issue${data.issues.length !== 1 ? "s" : ""}`}
+            `${data.issues.length}${data.nextPageToken ? "+" : ""} issue${data.issues.length !== 1 ? "s" : ""}`}
         </div>
       </div>
 
