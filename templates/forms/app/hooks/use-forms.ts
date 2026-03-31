@@ -104,6 +104,7 @@ export function usePublicForm(slug: string) {
         return r.json();
       }),
     enabled: !!slug,
+    retry: false,
   });
 }
 

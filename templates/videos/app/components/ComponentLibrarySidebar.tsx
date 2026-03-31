@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, Component, type ReactNode } from "react";
 import {
   libraryComponents,
   type LibraryComponentEntry,
@@ -13,6 +13,20 @@ import {
   Info,
 } from "lucide-react";
 import { CurrentElementPanel } from "@/components/CurrentElementPanel";
+
+class SafeBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    if (this.state.hasError) return null;
+    return this.props.children;
+  }
+}
 
 type ComponentLibrarySidebarProps = {
   open: boolean;
@@ -209,7 +223,9 @@ export function ComponentLibrarySidebar({
                     </div>
                   </summary>
                   <div className="mt-1">
-                    <CurrentElementPanel />
+                    <SafeBoundary>
+                      <CurrentElementPanel />
+                    </SafeBoundary>
                   </div>
                 </details>
 

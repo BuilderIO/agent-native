@@ -71,13 +71,18 @@ export default function PresentationView({
 
   // Request fullscreen on mount
   useEffect(() => {
+    let wasFullscreen = false;
     const el = document.documentElement;
     if (el.requestFullscreen && !document.fullscreenElement) {
-      el.requestFullscreen().catch(() => {});
+      el.requestFullscreen()
+        .then(() => {
+          wasFullscreen = true;
+        })
+        .catch(() => {});
     }
     const handleFullscreenChange = () => {
-      // If user exits fullscreen via Esc (browser-level), navigate back
-      if (!document.fullscreenElement) {
+      // Only navigate back if we were actually in fullscreen and user exited
+      if (wasFullscreen && !document.fullscreenElement) {
         if (isShared) {
           const token = deckId.replace("__shared__/", "");
           navigate(`/share/${token}`);
