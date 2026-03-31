@@ -1,5 +1,5 @@
 import { createRequestHandler } from "react-router";
-import { defineEventHandler, toWebRequest } from "h3";
+import { defineEventHandler, sendRedirect, toWebRequest } from "h3";
 
 const handler = createRequestHandler(
   () => import("virtual:react-router/server-build"),
@@ -13,5 +13,9 @@ export default defineEventHandler(async (event) => {
     return;
   }
   const webReq = toWebRequest(event);
-  return handler(webReq);
+  try {
+    return await handler(webReq);
+  } catch {
+    return sendRedirect(event, "/");
+  }
 });
