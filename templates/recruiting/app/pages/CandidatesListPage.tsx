@@ -83,22 +83,40 @@ export function CandidatesListPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-border text-left">
-                <th className="px-6 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-6 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+                >
                   Name
                 </th>
-                <th className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+                >
                   Email
                 </th>
-                <th className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+                >
                   Company
                 </th>
-                <th className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+                >
                   Current Stage
                 </th>
-                <th className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+                >
                   Tags
                 </th>
-                <th className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider text-right">
+                <th
+                  scope="col"
+                  className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider text-right"
+                >
                   Last Activity
                 </th>
               </tr>
@@ -119,6 +137,12 @@ export function CandidatesListPage() {
                   <tr
                     key={candidate.id}
                     onClick={() => navigate(`/candidates/${candidate.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter")
+                        navigate(`/candidates/${candidate.id}`);
+                    }}
+                    tabIndex={0}
+                    role="button"
                     className="list-row cursor-pointer hover:bg-accent/50"
                   >
                     <td className="px-6 py-3">

@@ -137,7 +137,7 @@ export function DashboardPage() {
                         {app.jobs?.[0]?.name ?? "Unknown Job"}
                         {" · "}
                         {app.current_stage?.name ?? "No stage"}
-                        {app.source && (
+                        {app.source?.public_name && (
                           <span> · via {app.source.public_name}</span>
                         )}
                       </div>

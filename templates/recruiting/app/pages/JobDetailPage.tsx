@@ -99,6 +99,7 @@ export function JobDetailPage() {
       <div className="flex items-center gap-3 border-b border-border px-6 h-14 flex-shrink-0">
         <button
           onClick={() => navigate("/jobs")}
+          aria-label="Back to jobs"
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <IconArrowLeft className="h-4 w-4" />

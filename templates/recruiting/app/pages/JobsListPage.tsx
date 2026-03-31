@@ -101,22 +101,40 @@ export function JobsListPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-border text-left">
-                <th className="px-6 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-6 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+                >
                   Job
                 </th>
-                <th className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+                >
                   Department
                 </th>
-                <th className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+                >
                   Office
                 </th>
-                <th className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+                >
                   Status
                 </th>
-                <th className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+                >
                   Openings
                 </th>
-                <th className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider text-right">
+                <th
+                  scope="col"
+                  className="px-4 py-2.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider text-right"
+                >
                   Opened
                 </th>
               </tr>
@@ -126,6 +144,11 @@ export function JobsListPage() {
                 <tr
                   key={job.id}
                   onClick={() => navigate(`/jobs/${job.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") navigate(`/jobs/${job.id}`);
+                  }}
+                  tabIndex={0}
+                  role="button"
                   className="list-row cursor-pointer hover:bg-accent/50"
                 >
                   <td className="px-6 py-3">
