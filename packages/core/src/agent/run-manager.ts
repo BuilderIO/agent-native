@@ -68,8 +68,9 @@ export function startRun(
     .then(() => {
       run.status = "completed";
     })
-    .catch(() => {
+    .catch((err) => {
       run.status = "errored";
+      send({ type: "error", error: err?.message ?? "Unknown error" });
     })
     .finally(() => {
       // Notify all remaining subscribers that the run is done
@@ -109,6 +110,7 @@ export function subscribeToRun(
   if (!run) return null;
 
   const encoder = new TextEncoder();
+  let subscriberRef: ((event: RunEvent) => void) | null = null;
 
   return new ReadableStream({
     start(controller) {
@@ -132,7 +134,7 @@ export function subscribeToRun(
       }
 
       // Subscribe to live events
-      const subscriber = (event: RunEvent) => {
+      subscriberRef = (event: RunEvent) => {
         try {
           controller.enqueue(
             encoder.encode(
@@ -146,18 +148,19 @@ export function subscribeToRun(
             event.event.type === "missing_api_key" ||
             event.event.type === "loop_limit"
           ) {
-            run.subscribers.delete(subscriber);
+            run.subscribers.delete(subscriberRef!);
             controller.close();
           }
         } catch {
-          run.subscribers.delete(subscriber);
+          run.subscribers.delete(subscriberRef!);
         }
       };
 
-      run.subscribers.add(subscriber);
+      run.subscribers.add(subscriberRef);
     },
     cancel() {
       // Only unsubscribe — do NOT abort the agent run
+      if (subscriberRef) run.subscribers.delete(subscriberRef);
     },
   });
 }

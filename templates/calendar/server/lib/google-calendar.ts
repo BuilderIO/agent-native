@@ -11,6 +11,7 @@ import {
   createOAuth2Client,
   oauth2GetUserInfo,
   calendarListEvents,
+  calendarGetEvent,
   calendarInsertEvent,
   calendarUpdateEvent,
   calendarDeleteEvent,
@@ -471,18 +472,22 @@ export async function rsvpEvent(
   const client = await getClient(accountEmail);
   if (!client) return;
 
+  // GET the current event to preserve the full attendees list — PATCH with a
+  // single-entry array would silently remove every other guest.
+  const existing = await calendarGetEvent(
+    client.accessToken,
+    "primary",
+    googleEventId,
+  );
+  const attendees = (existing.attendees ?? []).map(
+    (a: { email: string; responseStatus?: string }) =>
+      a.email === accountEmail ? { ...a, responseStatus } : a,
+  );
   await calendarPatchEvent(
     client.accessToken,
     "primary",
     googleEventId,
-    {
-      attendees: [
-        {
-          email: accountEmail,
-          responseStatus,
-        },
-      ],
-    },
+    { attendees },
     "none",
   );
 }
