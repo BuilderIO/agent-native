@@ -114,17 +114,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                     <NavItem
                       key={p.key}
                       to={`/projects/${p.key}`}
-                      icon={
-                        p.avatarUrls?.["16x16"] ? (
-                          <img
-                            src={p.avatarUrls["16x16"]}
-                            alt=""
-                            className="h-4 w-4 rounded"
-                          />
-                        ) : (
-                          <FolderKanban className="h-4 w-4" />
-                        )
-                      }
+                      icon={<FolderKanban className="h-4 w-4" />}
                       label={p.name}
                       active={isActive(`/projects/${p.key}`)}
                       collapsed={false}

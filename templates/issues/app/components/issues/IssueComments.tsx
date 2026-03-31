@@ -53,39 +53,42 @@ export function IssueComments({ issueKey }: IssueCommentsProps) {
         <p className="text-[13px] text-muted-foreground">No comments yet.</p>
       ) : (
         <div className="space-y-4">
-          {comments.map((comment: any) => (
-            <div
-              key={comment.id}
-              className="rounded-md border border-border/50 p-3"
-            >
-              <div className="mb-2 flex items-center gap-2">
-                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
-                  {(comment.author?.displayName || "?")
-                    .split(" ")
-                    .map((n: string) => n[0])
-                    .join("")
-                    .slice(0, 2)
-                    .toUpperCase()}
-                </div>
-                <span className="text-[13px] font-medium text-foreground">
-                  {comment.author?.displayName}
-                </span>
-                <span className="text-[11px] text-muted-foreground">
-                  {comment.created &&
-                    format(
-                      new Date(comment.created),
-                      "MMM d, yyyy 'at' h:mm a",
-                    )}
-                </span>
-              </div>
+          {comments.map((comment: any) => {
+            const html = adfToHtml(comment.body);
+            // Skip comments with empty body (ADF docs that render to nothing)
+            if (!html || !html.trim()) return null;
+            return (
               <div
-                className="adf-content text-[13px]"
-                dangerouslySetInnerHTML={{
-                  __html: adfToHtml(comment.body),
-                }}
-              />
-            </div>
-          ))}
+                key={comment.id}
+                className="rounded-md border border-border/50 p-3"
+              >
+                <div className="mb-2 flex items-center gap-2">
+                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
+                    {(comment.author?.displayName || "?")
+                      .split(" ")
+                      .map((n: string) => n[0])
+                      .join("")
+                      .slice(0, 2)
+                      .toUpperCase()}
+                  </div>
+                  <span className="text-[13px] font-medium text-foreground">
+                    {comment.author?.displayName}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {comment.created &&
+                      format(
+                        new Date(comment.created),
+                        "MMM d, yyyy 'at' h:mm a",
+                      )}
+                  </span>
+                </div>
+                <div
+                  className="adf-content text-[13px]"
+                  dangerouslySetInnerHTML={{ __html: html }}
+                />
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

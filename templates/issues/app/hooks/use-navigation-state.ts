@@ -62,7 +62,7 @@ export function useNavigationState() {
       }
       return null;
     },
-    refetchInterval: 2_000,
+    refetchInterval: 5_000,
   });
 
   useEffect(() => {

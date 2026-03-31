@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router";
-import { Plus, Search } from "lucide-react";
+import { useSearchParams, useParams, useNavigate } from "react-router";
+import { Plus, Search, CircleDot } from "lucide-react";
 import { useIssues } from "@/hooks/use-issues";
 import { useProject } from "@/hooks/use-projects";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -14,9 +14,13 @@ interface ProjectIssuesPageProps {
 }
 
 export function ProjectIssuesPage({
-  projectKey,
-  selectedIssueKey,
+  projectKey: propProjectKey,
+  selectedIssueKey: propIssueKey,
 }: ProjectIssuesPageProps) {
+  const params = useParams();
+  const navigate = useNavigate();
+  const projectKey = propProjectKey || params.projectKey || "";
+  const selectedIssueKey = propIssueKey || params.issueKey;
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState(searchParams.get("q") || "");
   const [focusedIndex, setFocusedIndex] = useState(0);
@@ -35,13 +39,16 @@ export function ProjectIssuesPage({
     onNext: () => setFocusedIndex((i) => Math.min(i + 1, issues.length - 1)),
     onPrev: () => setFocusedIndex((i) => Math.max(i - 1, 0)),
     onCreate: () => setCreateOpen(true),
+    onClose: () => {
+      if (selectedIssueKey) navigate(`/projects/${projectKey}`);
+    },
     onSearch: () => document.getElementById("project-search")?.focus(),
   });
 
   return (
     <div className="flex h-full">
       <div
-        className={`flex flex-col overflow-hidden ${selectedIssueKey ? "w-[400px] shrink-0 border-r border-border" : "flex-1"}`}
+        className={`flex flex-col overflow-hidden ${selectedIssueKey ? "hidden" : "flex-1"}`}
       >
         <div className="flex items-center gap-3 border-b border-border px-4 py-3">
           <h1 className="text-sm font-semibold text-foreground">
@@ -76,14 +83,25 @@ export function ProjectIssuesPage({
 
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (
-            <div className="flex h-32 items-center justify-center">
-              <span className="text-sm text-muted-foreground">Loading...</span>
+            <div className="space-y-1 p-2">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-4 py-2.5">
+                  <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse" />
+                  <div className="h-3 w-16 rounded bg-muted animate-pulse" />
+                  <div className="h-3 flex-1 rounded bg-muted animate-pulse" />
+                  <div className="h-5 w-12 rounded-full bg-muted animate-pulse" />
+                </div>
+              ))}
             </div>
           ) : issues.length === 0 ? (
-            <div className="flex h-32 items-center justify-center">
-              <span className="text-sm text-muted-foreground">
-                No issues found
-              </span>
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <CircleDot className="h-10 w-10 text-muted-foreground/30 mb-3" />
+              <p className="text-sm text-muted-foreground">No issues found</p>
+              <p className="text-xs text-muted-foreground/60 mt-1">
+                {search
+                  ? "Try a different search"
+                  : "No issues in this project yet"}
+              </p>
             </div>
           ) : (
             <IssueList
@@ -96,7 +114,8 @@ export function ProjectIssuesPage({
         </div>
 
         <div className="border-t border-border px-4 py-2 text-[11px] text-muted-foreground">
-          {data?.issues && `${data.issues.length} issues`}
+          {data?.issues &&
+            `${data.issues.length} issue${data.issues.length !== 1 ? "s" : ""}`}
         </div>
       </div>
 

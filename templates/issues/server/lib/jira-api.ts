@@ -96,6 +96,34 @@ export { SCOPES };
 
 // ── Authenticated fetch ──
 
+export class AtlassianApiError extends Error {
+  status: number;
+  body: string;
+  constructor(status: number, body: string) {
+    let message: string;
+    switch (status) {
+      case 401:
+        message = `Jira authentication failed — token may be expired. Re-connect your Jira account.`;
+        break;
+      case 403:
+        message = `Jira permission denied — your account doesn't have access to this resource.`;
+        break;
+      case 404:
+        message = `Jira resource not found — the issue, project, or board may not exist or you may lack permission to view it.`;
+        break;
+      case 429:
+        message = `Jira rate limit exceeded — try again in a few seconds.`;
+        break;
+      default:
+        message = `Atlassian API error ${status}: ${body}`;
+    }
+    super(message);
+    this.name = "AtlassianApiError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
 async function atlassianFetch(
   url: string,
   accessToken: string,
@@ -112,7 +140,7 @@ async function atlassianFetch(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Atlassian API ${res.status}: ${text}`);
+    throw new AtlassianApiError(res.status, text);
   }
   return res;
 }

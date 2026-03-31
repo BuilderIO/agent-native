@@ -22,9 +22,9 @@ export function IssueProperties({ issue }: IssuePropertiesProps) {
   };
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-md border border-border/50 bg-muted/30 p-4">
       {/* Status */}
-      <PropertyRow label="Status">
+      <PropertyCell label="Status">
         <div className="relative">
           <button
             onClick={() => setShowTransitions(!showTransitions)}
@@ -46,10 +46,10 @@ export function IssueProperties({ issue }: IssuePropertiesProps) {
             </div>
           )}
         </div>
-      </PropertyRow>
+      </PropertyCell>
 
       {/* Assignee */}
-      <PropertyRow label="Assignee">
+      <PropertyCell label="Assignee">
         {fields.assignee ? (
           <div className="flex items-center gap-2">
             <div className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
@@ -60,39 +60,55 @@ export function IssueProperties({ issue }: IssuePropertiesProps) {
                 .slice(0, 2)
                 .toUpperCase()}
             </div>
-            <span className="text-[13px] text-foreground">
+            <span className="truncate text-[13px] text-foreground">
               {fields.assignee.displayName}
             </span>
           </div>
         ) : (
           <span className="text-[13px] text-muted-foreground">Unassigned</span>
         )}
-      </PropertyRow>
+      </PropertyCell>
 
       {/* Priority */}
-      <PropertyRow label="Priority">
+      <PropertyCell label="Priority">
         <span className="text-[13px] text-foreground">
           {fields.priority?.name || "None"}
         </span>
-      </PropertyRow>
+      </PropertyCell>
 
       {/* Type */}
-      <PropertyRow label="Type">
+      <PropertyCell label="Type">
         <span className="text-[13px] text-foreground">
           {fields.issuetype?.name}
         </span>
-      </PropertyRow>
+      </PropertyCell>
 
       {/* Reporter */}
-      <PropertyRow label="Reporter">
-        <span className="text-[13px] text-foreground">
+      <PropertyCell label="Reporter">
+        <span className="truncate text-[13px] text-foreground">
           {fields.reporter?.displayName || "None"}
         </span>
-      </PropertyRow>
+      </PropertyCell>
+
+      {/* Project */}
+      <PropertyCell label="Project">
+        <span className="truncate text-[13px] text-foreground">
+          {fields.project?.name}
+        </span>
+      </PropertyCell>
+
+      {/* Sprint */}
+      {fields.sprint && (
+        <PropertyCell label="Sprint">
+          <span className="truncate text-[13px] text-foreground">
+            {fields.sprint.name}
+          </span>
+        </PropertyCell>
+      )}
 
       {/* Labels */}
       {fields.labels && fields.labels.length > 0 && (
-        <PropertyRow label="Labels">
+        <PropertyCell label="Labels">
           <div className="flex flex-wrap gap-1">
             {fields.labels.map((label) => (
               <span
@@ -103,68 +119,54 @@ export function IssueProperties({ issue }: IssuePropertiesProps) {
               </span>
             ))}
           </div>
-        </PropertyRow>
+        </PropertyCell>
       )}
-
-      {/* Sprint */}
-      {fields.sprint && (
-        <PropertyRow label="Sprint">
-          <span className="text-[13px] text-foreground">
-            {fields.sprint.name}
-          </span>
-        </PropertyRow>
-      )}
-
-      {/* Project */}
-      <PropertyRow label="Project">
-        <span className="text-[13px] text-foreground">
-          {fields.project?.name}
-        </span>
-      </PropertyRow>
 
       {/* Created */}
       {fields.created && (
-        <PropertyRow label="Created">
+        <PropertyCell label="Created">
           <span className="text-[12px] text-muted-foreground">
             {format(new Date(fields.created), "MMM d, yyyy")}
           </span>
-        </PropertyRow>
+        </PropertyCell>
       )}
 
       {/* Updated */}
       {fields.updated && (
-        <PropertyRow label="Updated">
+        <PropertyCell label="Updated">
           <span className="text-[12px] text-muted-foreground">
             {format(new Date(fields.updated), "MMM d, yyyy")}
           </span>
-        </PropertyRow>
+        </PropertyCell>
       )}
 
       {/* Parent */}
       {fields.parent && (
-        <PropertyRow label="Parent">
+        <PropertyCell label="Parent" span2>
           <span className="text-[13px] text-foreground">
             {fields.parent.key} — {fields.parent.fields.summary}
           </span>
-        </PropertyRow>
+        </PropertyCell>
       )}
     </div>
   );
 }
 
-function PropertyRow({
+function PropertyCell({
   label,
   children,
+  span2,
 }: {
   label: string;
   children: React.ReactNode;
+  span2?: boolean;
 }) {
   return (
-    <div>
-      <div className="mb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+    <div className={span2 ? "col-span-2" : ""}>
+      <div className="mb-0.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </div>
-      <div>{children}</div>
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }
