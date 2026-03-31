@@ -148,12 +148,21 @@ export async function listApplications(
     job_id?: number;
     status?: string;
     created_after?: string;
+    per_page?: number;
   } = {},
 ): Promise<GreenhouseApplication[]> {
   const qs: Record<string, string> = {};
   if (params.job_id) qs.job_id = String(params.job_id);
   if (params.status) qs.status = params.status;
   if (params.created_after) qs.created_after = params.created_after;
+  // When per_page is specified, fetch only a single page (fast for pipeline views)
+  if (params.per_page) {
+    return greenhouseFetchPage<GreenhouseApplication>(
+      "/applications",
+      qs,
+      params.per_page,
+    );
+  }
   return greenhouseFetchAll<GreenhouseApplication>("/applications", qs);
 }
 
