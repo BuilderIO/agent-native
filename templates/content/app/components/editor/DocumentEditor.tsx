@@ -31,6 +31,32 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
     }
   }, [document]);
 
+  // Pick up external changes (e.g. Notion pull) — if the server content
+  // diverges from what we last saved, an external source changed it.
+  useEffect(() => {
+    if (!document || !isInitializedRef.current) return;
+    const serverTitle = document.title;
+    const serverContent = document.content;
+    const lastSaved = lastSavedRef.current;
+
+    // If the server state differs from what we last saved, something
+    // external (like a Notion pull) updated the document — re-sync.
+    if (
+      serverTitle !== lastSaved.title ||
+      serverContent !== lastSaved.content
+    ) {
+      // Only apply if the local state hasn't diverged from what was saved
+      // (i.e. the user hasn't typed new changes since the last save).
+      const localMatchesSaved =
+        localTitle === lastSaved.title && localContent === lastSaved.content;
+      if (localMatchesSaved) {
+        setLocalTitle(serverTitle);
+        setLocalContent(serverContent);
+        lastSavedRef.current = { title: serverTitle, content: serverContent };
+      }
+    }
+  }, [document, localTitle, localContent]);
+
   // Reset when document ID changes
   useEffect(() => {
     isInitializedRef.current = false;
