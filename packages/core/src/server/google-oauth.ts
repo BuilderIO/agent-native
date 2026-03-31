@@ -88,29 +88,20 @@ export function decodeOAuthState(
 
 // ─── Session Creation ────────────────────────────────────────────────────────
 
-export interface OAuthSessionResult {
-  sessionToken: string | undefined;
+export interface OAuthOwnerResult {
   owner: string | undefined;
   isDevSession: boolean;
   hasProductionSession: boolean;
 }
 
 /**
- * Resolve the session owner and optionally create a new session token.
- *
- * Desktop and mobile apps have separate cookie jars from the system
- * browser, so they always get a fresh session token (even if the browser
- * already has one). The token is then passed via deep link so the native
- * app can inject it.
+ * Determine the token owner from the current session and OAuth state.
+ * Call this BEFORE exchangeCode to get the owner parameter.
  */
-export async function resolveOAuthSession(
+export async function resolveOAuthOwner(
   event: H3Event,
-  email: string,
-  opts: {
-    stateOwner?: string;
-    desktop?: boolean;
-  },
-): Promise<OAuthSessionResult> {
+  stateOwner?: string,
+): Promise<OAuthOwnerResult> {
   const existingSession = await getSession(event);
   const isDevSession = existingSession?.email === "local@localhost";
   const hasProductionSession = !!(existingSession?.email && !isDevSession);
@@ -119,16 +110,36 @@ export async function resolveOAuthSession(
     ? "local@localhost"
     : hasProductionSession
       ? existingSession!.email
-      : opts.stateOwner || undefined;
+      : stateOwner || undefined;
 
+  return { owner, isDevSession, hasProductionSession };
+}
+
+export interface OAuthSessionResult {
+  sessionToken: string | undefined;
+}
+
+/**
+ * Create a session token after a successful OAuth exchange.
+ *
+ * Desktop and mobile apps have separate cookie jars from the system
+ * browser, so they always get a fresh session token (even if the browser
+ * already has one). The token is then passed via deep link so the native
+ * app can inject it.
+ */
+export async function createOAuthSession(
+  event: H3Event,
+  email: string,
+  opts: {
+    hasProductionSession: boolean;
+    desktop?: boolean;
+  },
+): Promise<OAuthSessionResult> {
   const mobile = isMobile(event);
   const needsDeepLink = opts.desktop || mobile;
 
-  // Create a session when:
-  // - No existing production session, OR
-  // - Desktop/mobile need a token for their deep link (separate cookie jar)
   let sessionToken: string | undefined;
-  if (!hasProductionSession || needsDeepLink) {
+  if (!opts.hasProductionSession || needsDeepLink) {
     sessionToken = crypto.randomBytes(32).toString("hex");
     await addSession(sessionToken, email);
     setCookie(event, "an_session", sessionToken, {
@@ -140,7 +151,7 @@ export async function resolveOAuthSession(
     });
   }
 
-  return { sessionToken, owner, isDevSession, hasProductionSession };
+  return { sessionToken };
 }
 
 // ─── Callback Responses ──────────────────────────────────────────────────────

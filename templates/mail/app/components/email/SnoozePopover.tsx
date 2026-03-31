@@ -71,7 +71,6 @@ export function SnoozePopover({
   const [nlInput, setNlInput] = useState("");
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [parsedFormatted, setParsedFormatted] = useState<string | null>(null);
-  const [parseError, setParseError] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const snoozeEmail = useSnoozeEmail();
@@ -83,7 +82,7 @@ export function SnoozePopover({
     if (!nlInput.trim()) {
       setSelectedDate(null);
       setParsedFormatted(null);
-      setParseError(false);
+
       return;
     }
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -95,11 +94,9 @@ export function SnoozePopover({
       if (!result || !result.timestamp) {
         setSelectedDate(null);
         setParsedFormatted(null);
-        setParseError(true);
       } else {
         setSelectedDate(new Date(result.timestamp));
         setParsedFormatted(result.formatted);
-        setParseError(false);
       }
     }, 200);
     return () => {
@@ -111,7 +108,6 @@ export function SnoozePopover({
     setSelectedDate(date);
     setParsedFormatted(null);
     setNlInput("");
-    setParseError(false);
   };
 
   const handleSnooze = async () => {
@@ -170,26 +166,16 @@ export function SnoozePopover({
               value={nlInput}
               onChange={(e) => setNlInput(e.target.value)}
               placeholder="or try: friday 5pm, in 2 weeks..."
-              className={cn(
-                "w-full text-xs px-2.5 py-1.5 rounded-md border bg-background",
-                "placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1",
-                parseError && nlInput
-                  ? "border-destructive/50 focus:ring-destructive/30"
-                  : "border-input focus:ring-ring/30",
-              )}
+              className="w-full text-xs px-2.5 py-1.5 rounded-md border border-input bg-background placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring/30"
             />
-            {nlInput && (
-              <div
-                className={cn(
-                  "text-[11px] px-1",
-                  parseError ? "text-destructive/70" : "text-muted-foreground",
-                )}
-              >
-                {parseError
-                  ? "Couldn't parse that date"
-                  : displayDate
-                    ? `Snooze until ${displayDate}`
-                    : "Parsing..."}
+            {nlInput && displayDate && (
+              <div className="text-[11px] px-1 text-muted-foreground">
+                Snooze until {displayDate}
+              </div>
+            )}
+            {nlInput && !displayDate && parseDate.isPending && (
+              <div className="text-[11px] px-1 text-muted-foreground">
+                Parsing...
               </div>
             )}
           </div>

@@ -90,10 +90,12 @@ export {
   getOrigin,
   encodeOAuthState,
   decodeOAuthState,
-  resolveOAuthSession,
+  resolveOAuthOwner,
+  createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,
   type OAuthStatePayload,
+  type OAuthOwnerResult,
   type OAuthSessionResult,
 } from "./google-oauth.js";
 

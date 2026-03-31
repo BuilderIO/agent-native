@@ -4,7 +4,6 @@ import { ArrowUp, Plus, Search, Star, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { AgentToggleButton } from "@agent-native/core/client";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import {
   Popover,
@@ -156,16 +155,13 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
         <span className="text-base font-semibold tracking-tight text-foreground">
           Documents
         </span>
-        <div className="flex items-center gap-1">
-          <button
-            className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
-            onClick={() => setIsSearching(!isSearching)}
-            title="Search"
-          >
-            <Search size={14} />
-          </button>
-          <AgentToggleButton />
-        </div>
+        <button
+          className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+          onClick={() => setIsSearching(!isSearching)}
+          title="Search"
+        >
+          <Search size={14} />
+        </button>
       </div>
 
       {/* Search */}

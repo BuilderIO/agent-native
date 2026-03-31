@@ -21,7 +21,7 @@ const config = async () => {
   } catch {}
 };
 import { agentChat } from "@agent-native/core";
-import { parseArgs, formatDateRange } from "./helpers.js";
+import { parseArgs, formatDateRange, parseDate } from "./helpers.js";
 
 export default async function main(args: string[]) {
   await config();
@@ -35,10 +35,10 @@ export default async function main(args: string[]) {
   const defaultTo = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
   const from = opts["from"]
-    ? new Date(opts["from"]).toISOString()
+    ? parseDate(opts["from"]).toISOString()
     : defaultFrom.toISOString();
   const to = opts["to"]
-    ? new Date(opts["to"]).toISOString()
+    ? parseDate(opts["to"]).toISOString()
     : defaultTo.toISOString();
 
   // Import the Google Calendar client

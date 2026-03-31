@@ -19,7 +19,7 @@ const config = async () => {
     m.config();
   } catch {}
 };
-import { parseArgs } from "./helpers.js";
+import { parseArgs, parseDate } from "./helpers.js";
 
 export default async function main(args: string[]) {
   await config();
@@ -38,10 +38,10 @@ export default async function main(args: string[]) {
   const defaultTo = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
   const from = opts["from"]
-    ? new Date(opts["from"]).toISOString()
+    ? parseDate(opts["from"]).toISOString()
     : defaultFrom.toISOString();
   const to = opts["to"]
-    ? new Date(opts["to"]).toISOString()
+    ? parseDate(opts["to"]).toISOString()
     : defaultTo.toISOString();
 
   const googleCalendar = await import("../server/lib/google-calendar.js");

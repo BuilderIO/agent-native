@@ -5,13 +5,14 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { getSession } from "@agent-native/core/server";
 import {
+  getSession,
   isElectron,
   getOrigin,
   encodeOAuthState,
   decodeOAuthState,
-  resolveOAuthSession,
+  resolveOAuthOwner,
+  createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,
 } from "@agent-native/core/server";
@@ -70,21 +71,24 @@ export const handleGoogleCallback = defineEventHandler(
         `${getOrigin(event)}/api/google/callback`,
       );
 
-      const { sessionToken, owner } = await resolveOAuthSession(event, "", {
+      // 1. Resolve owner (needs session context, before exchangeCode)
+      const { owner, hasProductionSession } = await resolveOAuthOwner(
+        event,
         stateOwner,
-        desktop,
-      });
+      );
 
+      // 2. Exchange code with Google (template-specific)
       const email = await exchangeCode(code, undefined, redirectUri, owner);
 
-      // Re-resolve with the actual email now that we have it
-      const result = await resolveOAuthSession(event, email, {
-        stateOwner,
+      // 3. Create session token (after we have the email)
+      const { sessionToken } = await createOAuthSession(event, email, {
+        hasProductionSession,
         desktop,
       });
 
+      // 4. Return platform-appropriate response
       return oauthCallbackResponse(event, email, {
-        sessionToken: result.sessionToken,
+        sessionToken,
         desktop,
         addAccount,
       });

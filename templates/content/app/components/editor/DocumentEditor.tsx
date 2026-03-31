@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VisualEditor } from "./VisualEditor";
+import { DocumentToolbar } from "./DocumentToolbar";
 import { useDocument, useUpdateDocument } from "@/hooks/use-documents";
 import { Loader2 } from "lucide-react";
 
@@ -90,9 +91,12 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
+      {/* Toolbar: Notion sync + Chat toggle */}
+      <DocumentToolbar documentId={documentId} />
+
       {/* Save indicator */}
       {isSaving && (
-        <div className="absolute top-3 right-4 flex items-center gap-1.5 text-xs text-muted-foreground z-10">
+        <div className="absolute top-12 right-4 flex items-center gap-1.5 text-xs text-muted-foreground z-10">
           <Loader2 size={12} className="animate-spin" />
           Saving...
         </div>
