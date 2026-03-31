@@ -1,7 +1,12 @@
 import { useNavigate } from "react-router";
 import { useDashboard } from "@/hooks/use-greenhouse";
-import { formatRelativeDate, cn } from "@/lib/utils";
-import { getInitials, getAvatarColor } from "@/lib/utils";
+import {
+  formatRelativeDate,
+  cn,
+  getInitials,
+  getAvatarColor,
+  titleCase,
+} from "@/lib/utils";
 import {
   IconBriefcase,
   IconUsers,
@@ -23,10 +28,16 @@ export function DashboardPage() {
 
   if (error || !data) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-muted-foreground">
+      <div className="flex h-full flex-col items-center justify-center">
+        <p className="text-sm text-muted-foreground mb-3">
           {error ? "Failed to load dashboard data" : "No data available"}
         </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="text-xs text-green-600 hover:underline"
+        >
+          Try again
+        </button>
       </div>
     );
   }
@@ -100,7 +111,7 @@ export function DashboardPage() {
         ) : (
           <div className="rounded-lg border border-border divide-y divide-border">
             {data.recentApplications.map((app) => {
-              const name = app.candidate_name ?? "Unknown";
+              const name = titleCase(app.candidate_name ?? "Unknown");
               const initials = getInitials(name);
               const color = getAvatarColor(name);
               return (

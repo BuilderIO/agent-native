@@ -7,7 +7,11 @@ import { IconSearch, IconLoader2, IconBriefcase } from "@tabler/icons-react";
 export function JobsListPage() {
   const [statusFilter, setStatusFilter] = useState<string>("open");
   const [search, setSearch] = useState("");
-  const { data: jobs = [], isLoading } = useJobs(statusFilter || undefined);
+  const {
+    data: jobs = [],
+    isLoading,
+    error,
+  } = useJobs(statusFilter || undefined);
   const navigate = useNavigate();
 
   const filtered = search
@@ -68,10 +72,30 @@ export function JobsListPage() {
           <div className="flex items-center justify-center py-20">
             <IconLoader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+            <IconBriefcase className="h-8 w-8 mb-2 opacity-40" />
+            <p className="text-sm font-medium text-foreground mb-1">
+              Failed to load jobs
+            </p>
+            <p className="text-xs mb-3">
+              Check your Greenhouse connection in Settings.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="text-xs text-green-600 hover:underline"
+            >
+              Try again
+            </button>
+          </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <IconBriefcase className="h-8 w-8 mb-2 opacity-40" />
-            <p className="text-sm">No jobs found</p>
+            <p className="text-sm">
+              {search
+                ? "No jobs match your search"
+                : `No ${statusFilter || ""} jobs found`}
+            </p>
           </div>
         ) : (
           <table className="w-full">

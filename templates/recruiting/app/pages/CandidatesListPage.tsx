@@ -5,6 +5,7 @@ import {
   formatRelativeDate,
   getInitials,
   getAvatarColor,
+  titleCase,
   cn,
 } from "@/lib/utils";
 import { IconSearch, IconLoader2, IconUsers } from "@tabler/icons-react";
@@ -12,7 +13,11 @@ import { IconSearch, IconLoader2, IconUsers } from "@tabler/icons-react";
 export function CandidatesListPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const { data: candidates = [], isLoading } = useCandidates({
+  const {
+    data: candidates = [],
+    isLoading,
+    error,
+  } = useCandidates({
     search: debouncedSearch || undefined,
   });
   const navigate = useNavigate();
@@ -49,6 +54,22 @@ export function CandidatesListPage() {
           <div className="flex items-center justify-center py-20">
             <IconLoader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+            <IconUsers className="h-8 w-8 mb-2 opacity-40" />
+            <p className="text-sm font-medium text-foreground mb-1">
+              Failed to load candidates
+            </p>
+            <p className="text-xs mb-3">
+              Check your Greenhouse connection in Settings.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="text-xs text-green-600 hover:underline"
+            >
+              Try again
+            </button>
+          </div>
         ) : candidates.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <IconUsers className="h-8 w-8 mb-2 opacity-40" />
@@ -84,7 +105,9 @@ export function CandidatesListPage() {
             </thead>
             <tbody className="divide-y divide-border">
               {candidates.map((candidate) => {
-                const name = `${candidate.first_name} ${candidate.last_name}`;
+                const name = titleCase(
+                  `${candidate.first_name} ${candidate.last_name}`,
+                );
                 const email = candidate.emails[0]?.value;
                 const initials = getInitials(name);
                 const color = getAvatarColor(name);

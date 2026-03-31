@@ -71,6 +71,17 @@ export function formatShortcut(key: string): string {
     .replace("alt", isMac() ? "⌥" : "Alt");
 }
 
+export function titleCase(str: string): string {
+  return str
+    .split(" ")
+    .map((word) =>
+      word.length > 0
+        ? word[0].toUpperCase() + word.slice(1).toLowerCase()
+        : word,
+    )
+    .join(" ");
+}
+
 export function daysAgo(dateStr: string): number {
   const date = new Date(dateStr);
   const now = new Date();

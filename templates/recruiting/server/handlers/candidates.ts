@@ -15,8 +15,15 @@ export const listCandidatesHandler = defineEventHandler(async (event) => {
     page?: string;
   };
 
+  // Default to recently-updated candidates for a useful default view
+  // (without this, the API returns the oldest candidates by creation order)
+  const thirtyDaysAgo = new Date(
+    Date.now() - 30 * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
   const candidates = await gh.listCandidates({
     job_id: query.job_id ? Number(query.job_id) : undefined,
+    updated_after: query.search ? undefined : thirtyDaysAgo,
     per_page: Number(query.per_page) || 100,
     page: Number(query.page) || 1,
   });
@@ -33,6 +40,13 @@ export const listCandidatesHandler = defineEventHandler(async (event) => {
         (c.emails || []).some((e) => e.value.toLowerCase().includes(term)),
     );
   }
+
+  // Sort by most recently active first
+  results.sort((a, b) => {
+    const aDate = a.last_activity ? new Date(a.last_activity).getTime() : 0;
+    const bDate = b.last_activity ? new Date(b.last_activity).getTime() : 0;
+    return bDate - aDate;
+  });
 
   // Return only fields needed for the list view to reduce payload size
   return results.map((c) => ({

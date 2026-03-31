@@ -19,6 +19,7 @@ import {
   IconSparkles,
   IconTrash,
   IconFileDescription,
+  IconUsers,
 } from "@tabler/icons-react";
 
 export function CandidateDetailPage() {
@@ -37,7 +38,26 @@ export function CandidateDetailPage() {
     );
   }
 
-  if (!candidate) return null;
+  if (!candidate) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center text-center">
+        <IconUsers className="h-10 w-10 text-muted-foreground/30 mb-3" />
+        <p className="text-sm font-medium text-foreground mb-1">
+          Candidate not found
+        </p>
+        <p className="text-xs text-muted-foreground mb-4">
+          This candidate may have been removed or the ID is invalid.
+        </p>
+        <button
+          onClick={() => navigate("/candidates")}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+        >
+          <IconArrowLeft className="h-3.5 w-3.5" />
+          Back to Candidates
+        </button>
+      </div>
+    );
+  }
 
   const name = `${candidate.first_name} ${candidate.last_name}`;
   const initials = getInitials(name);
