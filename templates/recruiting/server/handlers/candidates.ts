@@ -15,15 +15,19 @@ export const listCandidatesHandler = defineEventHandler(async (event) => {
     page?: string;
   };
 
-  // Default to recently-updated candidates for a useful default view
-  // (without this, the API returns the oldest candidates by creation order)
+  // Default to recently-updated candidates for a useful default view.
+  // When searching, use a wider window (1 year) so search covers more candidates.
+  // (Greenhouse API doesn't support name search, so we filter server-side)
   const thirtyDaysAgo = new Date(
     Date.now() - 30 * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const oneYearAgo = new Date(
+    Date.now() - 365 * 24 * 60 * 60 * 1000,
   ).toISOString();
 
   const candidates = await gh.listCandidates({
     job_id: query.job_id ? Number(query.job_id) : undefined,
-    updated_after: query.search ? undefined : thirtyDaysAgo,
+    updated_after: query.search ? oneYearAgo : thirtyDaysAgo,
     per_page: Number(query.per_page) || 100,
     page: Number(query.page) || 1,
   });
