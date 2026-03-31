@@ -126,6 +126,7 @@ export const deleteAutomation = defineEventHandler(async (event) => {
 
 // ─── Trigger automations ─────────────────────────────────────────────────────
 
-export const triggerAutomations = defineEventHandler(async () => {
+export const triggerAutomations = defineEventHandler(async (event) => {
+  await getSession(event);
   return triggerAutomationsDebounced();
 });
