@@ -1,9 +1,5 @@
-import { CandidatesListPage } from "@/pages/CandidatesListPage";
+import { Outlet } from "react-router";
 
-export function meta() {
-  return [{ title: "Candidates — Recruiting" }];
-}
-
-export default function CandidatesRoute() {
-  return <CandidatesListPage />;
+export default function CandidatesLayout() {
+  return <Outlet />;
 }

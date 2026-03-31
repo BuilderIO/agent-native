@@ -19,6 +19,7 @@ import {
   IconSparkles,
   IconTrash,
   IconFileDescription,
+  IconUsers,
 } from "@tabler/icons-react";
 
 export function CandidateDetailPage() {
@@ -37,14 +38,35 @@ export function CandidateDetailPage() {
     );
   }
 
-  if (!candidate) return null;
+  if (!candidate) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center text-center">
+        <IconUsers className="h-10 w-10 text-muted-foreground/30 mb-3" />
+        <p className="text-sm font-medium text-foreground mb-1">
+          Candidate not found
+        </p>
+        <p className="text-xs text-muted-foreground mb-4">
+          This candidate may have been removed or the ID is invalid.
+        </p>
+        <button
+          onClick={() => navigate("/candidates")}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+        >
+          <IconArrowLeft className="h-3.5 w-3.5" />
+          Back to Candidates
+        </button>
+      </div>
+    );
+  }
 
   const name = `${candidate.first_name} ${candidate.last_name}`;
   const initials = getInitials(name);
   const color = getAvatarColor(name);
-  const email = candidate.emails[0]?.value;
-  const phone = candidate.phone_numbers[0]?.value;
-  const activeApp = candidate.applications.find((a) => a.status === "active");
+  const email = (candidate.emails || [])[0]?.value;
+  const phone = (candidate.phone_numbers || [])[0]?.value;
+  const activeApp = (candidate.applications || []).find(
+    (a) => a.status === "active",
+  );
 
   return (
     <div className="h-full flex flex-col">
@@ -52,6 +74,7 @@ export function CandidateDetailPage() {
       <div className="flex items-center gap-3 border-b border-border px-6 h-14 flex-shrink-0">
         <button
           onClick={() => navigate("/candidates")}
+          aria-label="Back to candidates"
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <IconArrowLeft className="h-4 w-4" />
@@ -131,7 +154,7 @@ export function CandidateDetailPage() {
                     {phone}
                   </span>
                 )}
-                {candidate.addresses[0] && (
+                {(candidate.addresses || [])[0] && (
                   <span className="flex items-center gap-1.5 text-muted-foreground">
                     <IconMapPin className="h-3.5 w-3.5" />
                     {candidate.addresses[0].value}
@@ -140,9 +163,9 @@ export function CandidateDetailPage() {
               </div>
 
               {/* Tags */}
-              {candidate.tags.length > 0 && (
+              {(candidate.tags || []).length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
-                  {candidate.tags.map((tag) => (
+                  {(candidate.tags || []).map((tag) => (
                     <span
                       key={tag}
                       className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground"
@@ -159,7 +182,7 @@ export function CandidateDetailPage() {
                   Applications
                 </h3>
                 <div className="space-y-2">
-                  {candidate.applications.map((app) => (
+                  {(candidate.applications || []).map((app) => (
                     <div
                       key={app.id}
                       className="rounded-lg border border-border p-3"
@@ -293,6 +316,7 @@ export function CandidateDetailPage() {
                                 candidateId: candidate.id,
                               })
                             }
+                            aria-label="Delete note"
                             className="text-muted-foreground/50 hover:text-destructive"
                           >
                             <IconTrash className="h-3 w-3" />

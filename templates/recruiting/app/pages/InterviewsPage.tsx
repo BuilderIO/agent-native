@@ -4,7 +4,7 @@ import { format } from "date-fns";
 import { IconLoader2, IconCalendar } from "@tabler/icons-react";
 
 export function InterviewsPage() {
-  const { data: interviews = [], isLoading } = useInterviews();
+  const { data: interviews = [], isLoading, error } = useInterviews();
 
   // Only future interviews, sorted by start time
   const now = new Date();
@@ -38,6 +38,22 @@ export function InterviewsPage() {
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <IconLoader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+            <IconCalendar className="h-8 w-8 mb-2 opacity-40" />
+            <p className="text-sm font-medium text-foreground mb-1">
+              Failed to load interviews
+            </p>
+            <p className="text-xs mb-3">
+              Check your Greenhouse connection in Settings.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="text-xs text-green-600 hover:underline"
+            >
+              Try again
+            </button>
           </div>
         ) : upcoming.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
@@ -83,7 +99,7 @@ export function InterviewsPage() {
                             {interview.organizer?.name ?? "Interview"}
                           </div>
                           <div className="text-xs text-muted-foreground truncate">
-                            {interview.interviewers
+                            {(interview.interviewers || [])
                               .map((i: any) => i.name)
                               .join(", ")}
                           </div>

@@ -11,6 +11,7 @@ import {
   IconLoader2,
   IconGripVertical,
   IconUser,
+  IconBriefcase,
 } from "@tabler/icons-react";
 import type { PipelineStage, GreenhouseApplication } from "@shared/types";
 
@@ -71,7 +72,26 @@ export function JobDetailPage() {
     );
   }
 
-  if (!job) return null;
+  if (!job) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center text-center">
+        <IconBriefcase className="h-10 w-10 text-muted-foreground/30 mb-3" />
+        <p className="text-sm font-medium text-foreground mb-1">
+          Job not found
+        </p>
+        <p className="text-xs text-muted-foreground mb-4">
+          This job may have been removed or the ID is invalid.
+        </p>
+        <button
+          onClick={() => navigate("/jobs")}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+        >
+          <IconArrowLeft className="h-3.5 w-3.5" />
+          Back to Jobs
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full flex flex-col">
@@ -79,6 +99,7 @@ export function JobDetailPage() {
       <div className="flex items-center gap-3 border-b border-border px-6 h-14 flex-shrink-0">
         <button
           onClick={() => navigate("/jobs")}
+          aria-label="Back to jobs"
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <IconArrowLeft className="h-4 w-4" />
@@ -88,8 +109,8 @@ export function JobDetailPage() {
             {job.name}
           </h1>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            {job.departments.map((d) => d.name).join(", ")}
-            {job.offices.length > 0 && (
+            {(job.departments || []).map((d) => d.name).join(", ")}
+            {(job.offices || []).length > 0 && (
               <span> &middot; {job.offices.map((o) => o.name).join(", ")}</span>
             )}
           </div>
