@@ -2,13 +2,13 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { format } from "date-fns";
 import {
-  FileText,
   Plus,
   MoreHorizontal,
   Trash2,
   Copy,
   ExternalLink,
   BarChart3,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,7 +39,7 @@ const statusColors: Record<string, string> = {
 
 export function FormsListPage() {
   const navigate = useNavigate();
-  const { data: forms = [], isLoading } = useForms();
+  const { data: forms = [], isLoading, error, refetch } = useForms();
   const createForm = useCreateForm();
   const deleteForm = useDeleteForm();
   const updateForm = useUpdateForm();
@@ -101,6 +101,23 @@ export function FormsListPage() {
     );
   }
 
+  if (error && !forms?.length) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3">
+        <p className="text-sm text-muted-foreground">Failed to load forms</p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => refetch()}
+          className="gap-2"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-8">
@@ -118,9 +135,6 @@ export function FormsListPage() {
 
       {forms.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 border border-dashed border-border rounded-xl">
-          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4">
-            <FileText className="h-6 w-6 text-muted-foreground" />
-          </div>
           <h3 className="font-medium mb-1">No forms yet</h3>
           <p className="text-sm text-muted-foreground mb-4">
             Create your first form to get started
@@ -136,7 +150,18 @@ export function FormsListPage() {
             <div
               key={form.id}
               className="group relative border border-border rounded-xl p-5 hover:border-primary/30 transition-colors cursor-pointer bg-card"
+              role="button"
+              tabIndex={0}
               onClick={() => navigate(`/forms/${form.id}`)}
+              onKeyDown={(e) => {
+                if (
+                  (e.key === "Enter" || e.key === " ") &&
+                  e.target === e.currentTarget
+                ) {
+                  e.preventDefault();
+                  navigate(`/forms/${form.id}`);
+                }
+              }}
             >
               <div className="flex items-start justify-between mb-3">
                 <div className="flex-1 min-w-0">
@@ -155,7 +180,8 @@ export function FormsListPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100"
+                      className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      aria-label="Form actions"
                     >
                       <MoreHorizontal className="h-4 w-4" />
                     </Button>
@@ -220,13 +246,11 @@ export function FormsListPage() {
       )}
 
       {showCloudUpgrade && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <CloudUpgrade
-            title="Publish Form"
-            description="To publish forms publicly, connect a cloud database so submissions can be received from anywhere."
-            onClose={() => setShowCloudUpgrade(false)}
-          />
-        </div>
+        <CloudUpgrade
+          title="Publish Form"
+          description="To publish forms publicly, connect a cloud database so submissions can be received from anywhere."
+          onClose={() => setShowCloudUpgrade(false)}
+        />
       )}
     </div>
   );

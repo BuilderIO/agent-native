@@ -53,7 +53,8 @@ export function CompSettingsEditor({
             </span>
           </div>
           <span className="text-[10px] text-muted-foreground/45 font-mono">
-            {settings.durationInFrames}f · {durationSeconds}s · 30fps
+            {settings.durationInFrames}f · {durationSeconds}s · {settings.fps}
+            fps
           </span>
         </div>
 

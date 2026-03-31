@@ -25,6 +25,15 @@ export function ComponentLibraryView({
   // Keyboard shortcut to toggle debug mode
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
+      // Don't trigger when typing in inputs/textareas
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
       if (e.key === "d" || e.key === "D") {
         setDebugMode((prev) => {
           console.log(
@@ -233,6 +242,7 @@ export function ComponentLibraryView({
                   onClick={handleRestart}
                   className="p-2 hover:bg-white/10 rounded transition-colors"
                   title="Restart"
+                  aria-label="Restart"
                 >
                   <SkipBack className="w-4 h-4 text-white" />
                 </button>
@@ -242,6 +252,7 @@ export function ComponentLibraryView({
                   onClick={handlePlayPause}
                   className="p-2 hover:bg-white/10 rounded transition-colors"
                   title={playing ? "Pause" : "Play"}
+                  aria-label={playing ? "Pause" : "Play"}
                 >
                   {playing ? (
                     <Pause className="w-4 h-4 text-white" />

@@ -15,7 +15,15 @@ export function CompositionCard({
 }: CompositionCardProps) {
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
       className={cn(
         "flex items-center gap-3 px-2 py-1.5 rounded-lg transition-all group cursor-pointer relative",
         isSelected

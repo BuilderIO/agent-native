@@ -123,6 +123,7 @@ export default function AssetLibraryPanel({
         <button
           onClick={() => onOpenChange(false)}
           className="text-white/30 hover:text-white/60 transition-colors"
+          aria-label="Close"
         >
           <X className="w-4 h-4" />
         </button>
@@ -184,6 +185,7 @@ export default function AssetLibraryPanel({
                     handleDelete(asset.filename);
                   }}
                   className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/70 text-white/70 hover:text-red-400 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  aria-label={`Delete ${asset.filename}`}
                 >
                   <Trash2 className="w-2.5 h-2.5" />
                 </button>

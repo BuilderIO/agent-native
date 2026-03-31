@@ -71,13 +71,18 @@ export default function PresentationView({
 
   // Request fullscreen on mount
   useEffect(() => {
+    let wasFullscreen = false;
     const el = document.documentElement;
     if (el.requestFullscreen && !document.fullscreenElement) {
-      el.requestFullscreen().catch(() => {});
+      el.requestFullscreen()
+        .then(() => {
+          wasFullscreen = true;
+        })
+        .catch(() => {});
     }
     const handleFullscreenChange = () => {
-      // If user exits fullscreen via Esc (browser-level), navigate back
-      if (!document.fullscreenElement) {
+      // Only navigate back if we were actually in fullscreen and user exited
+      if (wasFullscreen && !document.fullscreenElement) {
         if (isShared) {
           const token = deckId.replace("__shared__/", "");
           navigate(`/share/${token}`);
@@ -140,6 +145,7 @@ export default function PresentationView({
               onClick={goPrev}
               disabled={currentIndex === 0}
               className="p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              aria-label="Previous slide"
             >
               <ChevronLeft className="w-4 h-4 text-white" />
             </button>
@@ -147,6 +153,7 @@ export default function PresentationView({
               onClick={goNext}
               disabled={currentIndex === slides.length - 1}
               className="p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              aria-label="Next slide"
             >
               <ChevronRight className="w-4 h-4 text-white" />
             </button>
@@ -155,6 +162,7 @@ export default function PresentationView({
           <button
             onClick={exit}
             className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+            aria-label="Exit presentation"
           >
             <X className="w-4 h-4 text-white" />
           </button>

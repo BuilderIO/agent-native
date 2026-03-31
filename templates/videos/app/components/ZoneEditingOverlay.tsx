@@ -88,6 +88,15 @@ export const ZoneEditingOverlay: React.FC<ZoneEditingOverlayProps> = ({
   // Keyboard shortcut to toggle debug mode
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
+      // Don't trigger when typing in inputs/textareas
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
       if (e.key === "d" || e.key === "D") {
         setDebugMode((prev) => {
           console.log(`🔧 Debug mode: ${!prev ? "ON" : "OFF"}`);

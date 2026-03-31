@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useCurrentElement } from "@/contexts/CurrentElementContext";
+import { usePlayback } from "@/contexts/PlaybackContext";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -29,9 +30,6 @@ import type {
   AnimatedPropertyConfig,
 } from "@/types/elementAnimations";
 import type { EasingKey } from "@/types";
-
-// Standard fps for converting between seconds and frames
-const FPS = 30;
 
 /**
  * ANIMATION PROPERTY DEFAULTS
@@ -263,6 +261,8 @@ export const CurrentElementPanel: React.FC = () => {
     deleteCursorType,
   } = useCurrentElement();
 
+  const { fps } = usePlayback();
+
   const [expandedAnimationId, setExpandedAnimationId] = useState<string | null>(
     null,
   );
@@ -377,7 +377,7 @@ export const CurrentElementPanel: React.FC = () => {
       0.01,
       Math.round(durationInSeconds * 100) / 100,
     );
-    const durationInFrames = Math.max(1, Math.round(clampedDuration * FPS));
+    const durationInFrames = Math.max(1, Math.round(clampedDuration * fps));
     updateAnimation(currentElement.compositionId, animId, {
       duration: durationInFrames,
     });
@@ -535,7 +535,7 @@ export const CurrentElementPanel: React.FC = () => {
               <input
                 key={`duration-${animation.id}-${animation.duration}`}
                 type="number"
-                defaultValue={(animation.duration / FPS).toFixed(2)}
+                defaultValue={(animation.duration / fps).toFixed(2)}
                 onChange={(e) => {
                   const numValue = parseFloat(e.target.value);
                   if (!isNaN(numValue) && numValue > 0) {

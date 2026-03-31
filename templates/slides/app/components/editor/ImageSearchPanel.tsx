@@ -94,6 +94,7 @@ export default function ImageSearchPanel({
         <button
           onClick={() => onOpenChange(false)}
           className="text-white/30 hover:text-white/60 transition-colors"
+          aria-label="Close"
         >
           <X className="w-4 h-4" />
         </button>

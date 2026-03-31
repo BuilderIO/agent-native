@@ -15,7 +15,6 @@ import {
   Settings,
   FileText,
   MousePointerClick,
-  Layers,
 } from "lucide-react";
 import { NewCompositionPopover } from "@/components/NewCompositionPopover";
 import { cn } from "@/lib/utils";
@@ -205,13 +204,11 @@ export function Sidebar({
           <TabButton
             active={tab === "compositions"}
             onClick={() => setTab("compositions")}
-            icon={<Layers size={13} />}
             label="Compositions"
           />
           <TabButton
             active={tab === "properties"}
             onClick={() => setTab("properties")}
-            icon={<SlidersHorizontal size={13} />}
             label="Properties"
             badge={selectedTrackId ? "track" : undefined}
           />
@@ -400,13 +397,11 @@ export function Sidebar({
 function TabButton({
   active,
   onClick,
-  icon,
   label,
   badge,
 }: {
   active: boolean;
   onClick: () => void;
-  icon: React.ReactNode;
   label: string;
   badge?: string;
 }) {
@@ -420,7 +415,6 @@ function TabButton({
           : "text-muted-foreground hover:text-foreground/70",
       )}
     >
-      {icon}
       {label}
       {badge && (
         <span className="ml-1 w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />

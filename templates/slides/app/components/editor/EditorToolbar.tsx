@@ -5,8 +5,6 @@ import {
   ArrowLeft,
   Play,
   Layout,
-  Code,
-  Eye,
   PanelLeft,
   ImageIcon,
   Share2,
@@ -157,6 +155,7 @@ export default function EditorToolbar({
         to="/"
         className="p-1.5 rounded-md hover:bg-white/[0.06] transition-colors flex-shrink-0"
         title="Back to decks"
+        aria-label="Back to decks"
       >
         <ArrowLeft className="w-4 h-4 text-white/60" />
       </Link>
@@ -168,6 +167,7 @@ export default function EditorToolbar({
           sidebarOpen ? "text-white/60" : "text-white/30"
         }`}
         title="Toggle sidebar"
+        aria-label="Toggle sidebar"
       >
         <PanelLeft className="w-4 h-4" />
       </button>
@@ -204,6 +204,7 @@ export default function EditorToolbar({
                 : "text-white/50 hover:text-white/70 hover:bg-white/[0.06]"
             }`}
             title="Slide settings"
+            aria-label="Slide settings"
           >
             <Settings className="w-3.5 h-3.5" />
           </button>
@@ -300,6 +301,7 @@ export default function EditorToolbar({
           disabled={!canUndo}
           className="p-1.5 rounded-md hover:bg-white/[0.06] disabled:opacity-20 transition-colors"
           title="Undo (Cmd+Z)"
+          aria-label="Undo"
         >
           <Undo2 className="w-3.5 h-3.5 text-white/60" />
         </button>
@@ -308,6 +310,7 @@ export default function EditorToolbar({
           disabled={!canRedo}
           className="p-1.5 rounded-md hover:bg-white/[0.06] disabled:opacity-20 transition-colors"
           title="Redo (Cmd+Shift+Z)"
+          aria-label="Redo"
         >
           <Redo2 className="w-3.5 h-3.5 text-white/60" />
         </button>
@@ -323,6 +326,7 @@ export default function EditorToolbar({
             : "text-white/40 hover:text-white/70"
         }`}
         title="Edit history"
+        aria-label="Edit history"
       >
         <History className="w-3.5 h-3.5" />
       </button>
@@ -334,25 +338,23 @@ export default function EditorToolbar({
       <div className="flex items-center rounded-md border border-white/[0.08] overflow-hidden flex-shrink-0">
         <button
           onClick={() => onTabChange("visual")}
-          className={`flex items-center gap-1 px-2 py-1.5 text-xs transition-colors ${
+          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
             activeTab === "visual"
               ? "bg-white/[0.08] text-white/90"
               : "text-white/40 hover:text-white/60"
           }`}
         >
-          <Eye className="w-3 h-3" />
-          <span className="hidden sm:inline">Preview</span>
+          Preview
         </button>
         <button
           onClick={() => onTabChange("code")}
-          className={`flex items-center gap-1 px-2 py-1.5 text-xs transition-colors ${
+          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
             activeTab === "code"
               ? "bg-white/[0.08] text-white/90"
               : "text-white/40 hover:text-white/60"
           }`}
         >
-          <Code className="w-3 h-3" />
-          <span className="hidden sm:inline">Code</span>
+          Code
         </button>
       </div>
 
@@ -361,6 +363,7 @@ export default function EditorToolbar({
         onClick={onShare}
         className="p-1.5 rounded-md text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors flex-shrink-0"
         title="Share presentation"
+        aria-label="Share presentation"
       >
         <Share2 className="w-3.5 h-3.5" />
       </button>

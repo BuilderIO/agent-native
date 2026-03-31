@@ -62,14 +62,7 @@ export default function CompositionView({
   // Detect if there are unsaved changes in localStorage
   const hasUnsavedChanges = useUnsavedChanges();
 
-  // If this is a new composition, render the new composition view
-  if (isNew) {
-    return <NewComposition isGenerating={isGenerating} />;
-  }
-
-  // If no composition selected yet, return null
-  if (!composition) return null;
-
+  // All hooks must be called before any early returns (React rules of hooks)
   const playerRef = useRef<VideoPlayerHandle>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const [currentFrameLocal, setCurrentFrameLocal] = useState(initialFrame);
@@ -78,27 +71,19 @@ export default function CompositionView({
 
   // ── View window (shared between Timeline and VideoPlayer) ─────────────────
   const [viewStart, setViewStart] = useState(0);
-  const [viewEnd, setViewEnd] = useState(composition.durationInFrames);
+  const [viewEnd, setViewEnd] = useState(composition?.durationInFrames ?? 240);
 
   // Reset to full view when composition (or its duration) changes
   useEffect(() => {
+    if (!composition) return;
     setViewStart(0);
     setViewEnd(composition.durationInFrames);
-  }, [composition.id, composition.durationInFrames]);
+  }, [composition?.id, composition?.durationInFrames]);
 
   const handleViewChange = useCallback((start: number, end: number) => {
     setViewStart(start);
     setViewEnd(end);
   }, []);
-
-  // Merge live track state into the props passed to the Remotion player.
-  const compositionWithProps = {
-    ...composition,
-    defaultProps: {
-      ...currentProps,
-      tracks,
-    },
-  };
 
   const handleTimelineSeek = useCallback((frame: number) => {
     playerRef.current?.seekTo(frame);
@@ -221,11 +206,11 @@ export default function CompositionView({
           localStorage.removeItem(`videos-comp-settings:${composition.id}`);
           localStorage.removeItem(`videos-tracks-version:${composition.id}`);
 
-          console.log(`[Save] ✅ Saved "${composition.title}" to registry`);
+          console.log(`[Save] Saved "${composition.title}" to registry`);
 
           if (!silent) {
             alert(
-              `✅ Saved "${composition.title}" to registry!\n\nThe page will reload to pick up the changes.`,
+              `Saved "${composition.title}" to registry!\n\nThe page will reload to pick up the changes.`,
             );
           }
 
@@ -234,17 +219,14 @@ export default function CompositionView({
         } else if (lastError) {
           // Network error or server not available after all retries
           const errorMessage = lastError.message;
-          console.error(
-            "[Save] ❌ Failed to save after retries:",
-            errorMessage,
-          );
+          console.error("[Save] Failed to save after retries:", errorMessage);
 
           if (!silent) {
             alert(
-              `❌ Failed to save to registry:\n\n${errorMessage}\n\n` +
+              `Failed to save to registry:\n\n${errorMessage}\n\n` +
                 `This usually means:\n` +
-                `• The dev server needs to be restarted\n` +
-                `• The API endpoint is not available\n\n` +
+                `- The dev server needs to be restarted\n` +
+                `- The API endpoint is not available\n\n` +
                 `Your changes are still saved in browser storage and will persist until you reload the page.`,
             );
           }
@@ -252,7 +234,7 @@ export default function CompositionView({
           throw lastError; // Re-throw to be caught by outer catch
         }
       } catch (error) {
-        console.error("[Save] ❌ Failed to save:", error);
+        console.error("[Save] Failed to save:", error);
         // Error already handled above, just log it
       }
     },
@@ -277,7 +259,7 @@ export default function CompositionView({
     const handleAutoSave = async (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail && detail.compositionId === composition?.id) {
-        console.log("[Auto-Save] Triggered for:", composition.id);
+        console.log("[Auto-Save] Triggered for:", composition?.id);
         await performSave(true); // Silent mode - no alerts
       }
     };
@@ -308,6 +290,25 @@ export default function CompositionView({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  // ── Early returns after all hooks ──────────────────────────────────────────
+
+  // If this is a new composition, render the new composition view
+  if (isNew) {
+    return <NewComposition isGenerating={isGenerating} />;
+  }
+
+  // If no composition selected yet, return null
+  if (!composition) return null;
+
+  // Merge live track state into the props passed to the Remotion player.
+  const compositionWithProps = {
+    ...composition,
+    defaultProps: {
+      ...currentProps,
+      tracks,
+    },
+  };
 
   return (
     <div className="flex flex-col items-center p-4 lg:p-6 min-w-0 bg-background">
@@ -341,7 +342,7 @@ export default function CompositionView({
               className="text-[10px] px-2 py-1 rounded-md bg-secondary/50 hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 hover:border-border font-mono transition-colors cursor-pointer"
               title="Click to edit output size"
             >
-              {composition.width}×{composition.height}
+              {composition.width}x{composition.height}
             </button>
             <button
               onClick={onCompSettingsClick}

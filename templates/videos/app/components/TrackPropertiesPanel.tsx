@@ -229,6 +229,7 @@ function ExpressionPropRow({
 
         <button
           onClick={onRemove}
+          aria-label={`Remove ${prop.property}`}
           className="flex-shrink-0 text-muted-foreground/30 hover:text-destructive/60 transition-colors"
         >
           <X size={11} />
@@ -457,6 +458,7 @@ function AnimatedPropRow({
 
         <button
           onClick={onRemove}
+          aria-label={`Remove ${prop.property}`}
           className="flex-shrink-0 text-muted-foreground/40 hover:text-destructive/70 transition-colors"
         >
           <X size={11} />

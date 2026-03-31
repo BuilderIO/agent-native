@@ -364,6 +364,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               <button
                 onClick={restart}
                 title="Go to start"
+                aria-label="Go to start"
                 className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
               >
                 <SkipBack size={15} />
@@ -371,6 +372,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               <button
                 onClick={togglePlay}
                 title={playing ? "Pause" : "Play"}
+                aria-label={playing ? "Pause" : "Play"}
                 className="p-2 text-foreground hover:bg-secondary rounded-lg transition-colors"
               >
                 {playing ? <Pause size={17} /> : <Play size={17} />}
@@ -378,6 +380,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               <button
                 onClick={() => setRepeat((r) => !r)}
                 title={repeat ? "Loop: on" : "Loop: off"}
+                aria-label={repeat ? "Disable loop" : "Enable loop"}
                 className={cn(
                   "p-2 rounded-lg transition-colors hover:bg-secondary",
                   repeat
@@ -435,6 +438,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               <button
                 onClick={toggleFullscreen}
                 title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
                 className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
               >
                 {isFullscreen ? (
