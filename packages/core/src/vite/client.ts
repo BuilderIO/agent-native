@@ -162,9 +162,12 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       ...(options.plugins ?? []),
     ].filter(Boolean),
     optimizeDeps: {
-      include: hasDep("@agent-native/pinpoint", cwd)
-        ? ["@agent-native/pinpoint/react"]
-        : [],
+      include: [
+        "@tabler/icons-react",
+        ...(hasDep("@agent-native/pinpoint", cwd)
+          ? ["@agent-native/pinpoint/react"]
+          : []),
+      ],
     },
     resolve: {
       alias: {

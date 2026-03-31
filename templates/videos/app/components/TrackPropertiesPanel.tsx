@@ -1,15 +1,15 @@
 import { useRef, useState, useEffect } from "react";
 import {
-  Clock,
-  Plus,
-  X,
-  Code2,
-  ChevronDown,
-  Copy,
-  Check,
-  Braces,
-  Zap,
-} from "lucide-react";
+  IconClock,
+  IconPlus,
+  IconX,
+  IconCode,
+  IconChevronDown,
+  IconCopy,
+  IconCheck,
+  IconBraces,
+  IconBolt,
+} from "@tabler/icons-react";
 import type { AnimationTrack, AnimatedProp, EasingKey } from "@/types";
 import { COMMON_PROP_TEMPLATES } from "@/types";
 import { cn } from "@/lib/utils";
@@ -71,7 +71,7 @@ const EASING_COLORS: Record<EasingKey, string> = {
 /** Label displayed in the badge for a known property */
 const PROP_LABEL: Record<string, string> = {
   translateY: "Y",
-  translateX: "X",
+  translateX: "IconX",
   opacity: "op",
   scale: "sc",
   rotate: "rot",
@@ -108,7 +108,7 @@ function CodeBlock({ snippet }: { snippet: string }) {
     <div className="rounded-md overflow-hidden border border-zinc-700/30 opacity-70">
       <div className="flex items-center justify-between px-2.5 py-1 bg-zinc-900/60 border-b border-zinc-700/30">
         <div className="flex items-center gap-1.5">
-          <Braces size={9} className="text-zinc-500/70" />
+          <IconBraces size={9} className="text-zinc-500/70" />
           <span className="text-[9px] font-mono text-zinc-500/70 uppercase tracking-wider">
             read-only
           </span>
@@ -119,9 +119,9 @@ function CodeBlock({ snippet }: { snippet: string }) {
           className="flex items-center gap-1 text-[9px] font-mono text-zinc-500/70 hover:text-zinc-300 transition-colors"
         >
           {copied ? (
-            <Check size={9} className="text-green-400" />
+            <IconCheck size={9} className="text-green-400" />
           ) : (
-            <Copy size={9} />
+            <IconCopy size={9} />
           )}
           {copied ? "copied" : "copy"}
         </button>
@@ -218,7 +218,7 @@ function ExpressionPropRow({
           <span className="uppercase tracking-wider">
             {expanded ? "hide" : "code"}
           </span>
-          <ChevronDown
+          <IconChevronDown
             size={10}
             className={cn(
               "transition-transform duration-150",
@@ -232,7 +232,7 @@ function ExpressionPropRow({
           aria-label={`Remove ${prop.property}`}
           className="flex-shrink-0 text-muted-foreground/30 hover:text-destructive/60 transition-colors"
         >
-          <X size={11} />
+          <IconX size={11} />
         </button>
       </div>
 
@@ -293,7 +293,10 @@ function ExpressionPropRow({
           {prop.description && (
             <div className="pt-2 space-y-1">
               <div className="flex items-center gap-1">
-                <Zap size={9} style={{ color: EXPR_COLOR, opacity: 0.7 }} />
+                <IconBolt
+                  size={9}
+                  style={{ color: EXPR_COLOR, opacity: 0.7 }}
+                />
                 <span
                   className="text-[10px] uppercase tracking-wider font-semibold"
                   style={{ color: `${EXPR_COLOR}80` }}
@@ -452,7 +455,7 @@ function AnimatedPropRow({
               backgroundColor: codeOpen ? `${accentColor}15` : "transparent",
             }}
           >
-            <Code2 size={10} />
+            <IconCode size={10} />
           </button>
         )}
 
@@ -461,7 +464,7 @@ function AnimatedPropRow({
           aria-label={`Remove ${prop.property}`}
           className="flex-shrink-0 text-muted-foreground/40 hover:text-destructive/70 transition-colors"
         >
-          <X size={11} />
+          <IconX size={11} />
         </button>
       </div>
 
@@ -562,7 +565,10 @@ function AnimatedPropRow({
           {prop.description && (
             <div className="space-y-1">
               <div className="flex items-center gap-1">
-                <Zap size={9} style={{ color: accentColor, opacity: 0.6 }} />
+                <IconBolt
+                  size={9}
+                  style={{ color: accentColor, opacity: 0.6 }}
+                />
                 <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground/50">
                   How it works
                 </span>
@@ -624,10 +630,10 @@ function PropPicker({
         }
       >
         <span className="flex items-center gap-1">
-          <Plus size={9} />
+          <IconPlus size={9} />
           Add property…
         </span>
-        <ChevronDown
+        <IconChevronDown
           size={9}
           className={cn(
             "transition-transform duration-150",
@@ -808,7 +814,7 @@ export function TrackPropertiesPanel({
         className="flex items-center gap-1.5 pb-1 border-b"
         style={{ borderColor: `${accentColor}20` }}
       >
-        <Clock size={10} style={{ color: accentColor, opacity: 0.7 }} />
+        <IconClock size={10} style={{ color: accentColor, opacity: 0.7 }} />
         <span className="text-[10px] font-mono text-muted-foreground/55">
           {startSec}s → {endSec}s
         </span>
@@ -822,7 +828,7 @@ export function TrackPropertiesPanel({
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <Code2 size={11} style={{ color: accentColor, opacity: 0.8 }} />
+            <IconCode size={11} style={{ color: accentColor, opacity: 0.8 }} />
             <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
               Animated Properties
             </span>

@@ -7,23 +7,23 @@ import {
   useQueryClient as __useQueryClient,
 } from "@tanstack/react-query";
 import {
-  FlaskConical,
-  LogOut,
-  ChevronDown,
-  ChevronRight,
-  Plus,
-  Sun,
-  Moon,
-  Info,
-  Trash2,
-  Star,
-  Wrench,
-  GripVertical,
-  Home,
-  BarChart3,
-  LayoutDashboard,
-  Database,
-} from "lucide-react";
+  IconFlask,
+  IconLogout,
+  IconChevronDown,
+  IconChevronRight,
+  IconPlus,
+  IconSun,
+  IconMoon,
+  IconInfoCircle,
+  IconTrash,
+  IconStar,
+  IconTool,
+  IconGripVertical,
+  IconHome,
+  IconChartBar,
+  IconLayoutDashboard,
+  IconDatabase,
+} from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
   dashboards,
@@ -70,8 +70,8 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 const bottomItems = [
-  { icon: Wrench, label: "Settings", href: "/settings" },
-  { icon: Info, label: "About", href: "/about" },
+  { icon: IconTool, label: "Settings", href: "/settings" },
+  { icon: IconInfoCircle, label: "About", href: "/about" },
 ];
 
 interface ToolItem {
@@ -152,7 +152,7 @@ function SortableDashboardItem({
           {...attributes}
           {...listeners}
         >
-          <GripVertical className="h-3 w-3" />
+          <IconGripVertical className="h-3 w-3" />
         </button>
         <Link
           to={href}
@@ -175,7 +175,7 @@ function SortableDashboardItem({
           )}
           title={favoriteIds.has(d.id) ? "Unfavorite" : "Favorite"}
         >
-          <Star
+          <IconStar
             className={cn("h-3 w-3", favoriteIds.has(d.id) && "fill-current")}
           />
         </button>
@@ -188,7 +188,7 @@ function SortableDashboardItem({
               className="opacity-0 group-hover:opacity-100 p-1 rounded text-muted-foreground/50 hover:text-destructive transition-all shrink-0 mr-1"
               title={`Remove ${d.name}`}
             >
-              <Trash2 className="h-3 w-3" />
+              <IconTrash className="h-3 w-3" />
             </button>
           </PopoverTrigger>
           <PopoverContent className="w-52 p-3" side="right" align="start">
@@ -306,7 +306,7 @@ function NewExplorerDashboardButton() {
       disabled={creating}
       className="flex items-center gap-2 rounded-md px-3 py-1 text-[11px] text-muted-foreground/50 hover:text-primary hover:bg-sidebar-accent/50 transition-all w-full"
     >
-      <Plus className="h-3 w-3 shrink-0" />
+      <IconPlus className="h-3 w-3 shrink-0" />
       New Dashboard
     </button>
   );
@@ -353,7 +353,7 @@ function SortableToolItem({
           {...attributes}
           {...listeners}
         >
-          <GripVertical className="h-3 w-3" />
+          <IconGripVertical className="h-3 w-3" />
         </button>
         <Link
           to={tool.href}
@@ -389,7 +389,7 @@ function SortableToolItem({
                       : "text-muted-foreground/70 hover:bg-sidebar-accent/50",
                   )}
                 >
-                  <LayoutDashboard className="h-3 w-3 shrink-0" />
+                  <IconLayoutDashboard className="h-3 w-3 shrink-0" />
                   {d.name}
                 </Link>
               );
@@ -410,7 +410,7 @@ function SortableToolItem({
                       : "text-muted-foreground/70 hover:bg-sidebar-accent/50",
                   )}
                 >
-                  <BarChart3 className="h-3 w-3 shrink-0" />
+                  <IconChartBar className="h-3 w-3 shrink-0" />
                   {c.name}
                 </Link>
               );
@@ -595,7 +595,7 @@ export function Sidebar() {
       </div>
       <div className="flex-1 overflow-auto py-2">
         <nav className="grid items-start px-2 text-sm font-medium lg:px-4 space-y-1">
-          {/* Home link */}
+          {/* IconHome link */}
           <Link
             to="/"
             className={cn(
@@ -605,8 +605,8 @@ export function Sidebar() {
                 : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
-            <Home className="h-4 w-4" />
-            Home
+            <IconHome className="h-4 w-4" />
+            IconHome
           </Link>
 
           {/* Data Sources link */}
@@ -619,7 +619,7 @@ export function Sidebar() {
                 : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
-            <Database className="h-4 w-4" />
+            <IconDatabase className="h-4 w-4" />
             Data Sources
           </Link>
 
@@ -633,9 +633,9 @@ export function Sidebar() {
                 : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
-            <FlaskConical className="h-4 w-4" />
+            <IconFlask className="h-4 w-4" />
             <span className="flex-1">Dashboards</span>
-            <ChevronDown
+            <IconChevronDown
               className={cn(
                 "h-3.5 w-3.5 transition-transform",
                 !dashOpen && "-rotate-90",
@@ -683,9 +683,9 @@ export function Sidebar() {
                 : "text-muted-foreground hover:bg-sidebar-accent/50",
             )}
           >
-            <Wrench className="h-4 w-4" />
+            <IconTool className="h-4 w-4" />
             <span className="flex-1">Tools</span>
-            <ChevronDown
+            <IconChevronDown
               className={cn(
                 "h-3.5 w-3.5 transition-transform",
                 !toolsOpen && "-rotate-90",
@@ -771,7 +771,7 @@ export function Sidebar() {
                 <TooltipTrigger asChild>
                   <PopoverTrigger asChild>
                     <button className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50">
-                      <LogOut className="h-4 w-4" />
+                      <IconLogout className="h-4 w-4" />
                     </button>
                   </PopoverTrigger>
                 </TooltipTrigger>
@@ -816,9 +816,9 @@ export function Sidebar() {
                   className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
                 >
                   {light ? (
-                    <Moon className="h-4 w-4" />
+                    <IconMoon className="h-4 w-4" />
                   ) : (
-                    <Sun className="h-4 w-4" />
+                    <IconSun className="h-4 w-4" />
                   )}
                 </button>
               </TooltipTrigger>

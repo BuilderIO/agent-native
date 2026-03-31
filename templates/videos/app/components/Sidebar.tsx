@@ -8,14 +8,14 @@ import { CameraControls } from "@/components/CameraControls";
 import { CursorControls } from "@/components/CursorControls";
 import { CurrentElementPanel } from "@/components/CurrentElementPanel";
 import {
-  SlidersHorizontal,
-  Camera,
-  Mouse,
-  ChevronRight,
-  Settings,
-  FileText,
-  MousePointerClick,
-} from "lucide-react";
+  IconAdjustmentsHorizontal,
+  IconCamera,
+  IconMouse,
+  IconChevronRight,
+  IconSettings,
+  IconFileText,
+  IconClick,
+} from "@tabler/icons-react";
 import { NewCompositionPopover } from "@/components/NewCompositionPopover";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -249,14 +249,14 @@ export function Sidebar({
           >
             {selected ? (
               <div className="space-y-3">
-                {/* Camera controls */}
+                {/* IconCamera controls */}
                 {cameraTrack && (
                   <details ref={cameraDetailsRef} className="group">
                     <summary className="cursor-pointer list-none">
                       <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
-                        <Camera className="w-3.5 h-3.5 text-blue-400 mr-1 ml-[3px]" />
-                        <span className="text-xs font-medium">Camera</span>
-                        <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
+                        <IconCamera className="w-3.5 h-3.5 text-blue-400 mr-1 ml-[3px]" />
+                        <span className="text-xs font-medium">IconCamera</span>
+                        <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                       </div>
                     </summary>
                     <div className="mt-1">
@@ -277,9 +277,9 @@ export function Sidebar({
                 <details ref={cursorDetailsRef} className="group">
                   <summary className="cursor-pointer list-none">
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
-                      <Mouse className="w-3.5 h-3.5 text-purple-400" />
+                      <IconMouse className="w-3.5 h-3.5 text-purple-400" />
                       <span className="text-xs font-medium">Cursor</span>
-                      <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
+                      <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                     </div>
                   </summary>
                   <div className="mt-1">
@@ -308,11 +308,11 @@ export function Sidebar({
                   <details className="group">
                     <summary className="cursor-pointer list-none">
                       <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
-                        <MousePointerClick className="w-3.5 h-3.5 text-green-400" />
+                        <IconClick className="w-3.5 h-3.5 text-green-400" />
                         <span className="text-xs font-medium">
                           Cursor Interactions
                         </span>
-                        <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
+                        <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                       </div>
                     </summary>
                     <div className="mt-1">
@@ -329,7 +329,7 @@ export function Sidebar({
                 >
                   <summary className="cursor-pointer list-none">
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
-                      <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
+                      <IconAdjustmentsHorizontal className="w-3.5 h-3.5 text-amber-400" />
                       <span className="text-xs font-medium">
                         Animation Track
                       </span>
@@ -338,7 +338,7 @@ export function Sidebar({
                           {selectedTrack.label}
                         </span>
                       )}
-                      <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
+                      <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                     </div>
                   </summary>
                   <div className="mt-1">
@@ -368,9 +368,9 @@ export function Sidebar({
                 <details className="group" open>
                   <summary className="cursor-pointer list-none">
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
-                      <FileText className="w-3.5 h-3.5 text-blue-400" />
+                      <IconFileText className="w-3.5 h-3.5 text-blue-400" />
                       <span className="text-xs font-medium">Properties</span>
-                      <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
+                      <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                     </div>
                   </summary>
                   <div className="mt-1">
@@ -387,9 +387,9 @@ export function Sidebar({
                   <details ref={compSettingsDetailsRef} className="group" open>
                     <summary className="cursor-pointer list-none">
                       <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
-                        <Settings className="w-3.5 h-3.5 text-red-400" />
+                        <IconSettings className="w-3.5 h-3.5 text-red-400" />
                         <span className="text-xs font-medium">Composition</span>
-                        <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
+                        <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                       </div>
                     </summary>
                     <div className="mt-1">

@@ -1,5 +1,11 @@
 import { useRef, useCallback, useState, useEffect } from "react";
-import { Camera, Mouse, AlertCircle, Trash2, RotateCcw } from "lucide-react";
+import {
+  IconCamera,
+  IconMouse,
+  IconAlertCircle,
+  IconTrash,
+  IconRotate,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import type { AnimationTrack, EasingKey } from "@/types";
 import {
@@ -275,7 +281,7 @@ const EASING_COLORS: Record<
 
 const DEFAULT_EASING_COLOR = EASING_COLORS.linear;
 
-// Camera track styling (blue accent)
+// IconCamera track styling (blue accent)
 const CAMERA_COLOR = "#60a5fa";
 
 // Cursor track styling (purple accent)
@@ -844,7 +850,7 @@ export function Timeline({
                   }}
                 >
                   {isCamera ? (
-                    <Camera
+                    <IconCamera
                       className="flex-shrink-0"
                       size={12}
                       style={{
@@ -853,7 +859,7 @@ export function Timeline({
                       }}
                     />
                   ) : isCursor ? (
-                    <Mouse
+                    <IconMouse
                       className="flex-shrink-0"
                       size={12}
                       style={{
@@ -995,7 +1001,7 @@ export function Timeline({
                 });
               }
 
-              // Camera/Cursor track: only show keyframes, no track bar
+              // IconCamera/Cursor track: only show keyframes, no track bar
               if (isCamera || isCursor) {
                 const trackColor = isCamera ? CAMERA_COLOR : CURSOR_COLOR;
 
@@ -1858,7 +1864,7 @@ export function Timeline({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start gap-3 mb-4">
-              <AlertCircle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+              <IconAlertCircle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
               <div>
                 <h3 className="text-sm font-semibold mb-1">Keyframe overlap</h3>
                 <p className="text-xs text-muted-foreground leading-relaxed">
@@ -1938,7 +1944,7 @@ export function Timeline({
       {contextMenu &&
         (() => {
           const trackName =
-            contextMenu.trackId === "camera" ? "Camera" : "Cursor";
+            contextMenu.trackId === "camera" ? "IconCamera" : "Cursor";
 
           // Estimate menu height (header ~36px + 2 options ~28px each + padding ~8px = ~100px)
           const estimatedMenuHeight = 100;
@@ -1986,14 +1992,14 @@ export function Timeline({
                   onClick={() => handleClearTrack(contextMenu.trackId)}
                   className="w-full px-3 py-1.5 text-left text-xs hover:bg-secondary transition-colors flex items-center gap-2 text-foreground/80 hover:text-foreground"
                 >
-                  <RotateCcw className="w-3.5 h-3.5 text-muted-foreground" />
+                  <IconRotate className="w-3.5 h-3.5 text-muted-foreground" />
                   Clear track
                 </button>
                 <button
                   onClick={() => handleDeleteTrack(contextMenu.trackId)}
                   className="w-full px-3 py-1.5 text-left text-xs hover:bg-destructive/10 transition-colors flex items-center gap-2 text-foreground/80 hover:text-destructive"
                 >
-                  <Trash2 className="w-3.5 h-3.5 text-muted-foreground" />
+                  <IconTrash className="w-3.5 h-3.5 text-muted-foreground" />
                   Delete track
                 </button>
               </div>

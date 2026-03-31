@@ -22,6 +22,15 @@ import {
   aliasIdFromToken,
   ALIAS_PREFIX,
 } from "@/lib/alias-utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import type { Alias } from "@shared/types";
 
 interface RecipientInputProps {
@@ -157,23 +166,6 @@ interface SaveAliasModalProps {
 function SaveAliasModal({ emails, onClose }: SaveAliasModalProps) {
   const [name, setName] = useState("");
   const createAlias = useCreateAlias();
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  // Close on outside click or Escape
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose]);
 
   const handleSave = async () => {
     if (!name.trim()) return;
@@ -181,39 +173,31 @@ function SaveAliasModal({ emails, onClose }: SaveAliasModalProps) {
     onClose();
   };
 
-  return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/40" onMouseDown={onClose} />
-      {/* Modal */}
-      <div className="relative z-10 w-80 rounded-xl border border-border bg-popover shadow-2xl">
-        <div className="px-4 py-3 border-b border-border">
-          <h3 className="text-[14px] font-semibold text-foreground">
-            Save as alias
-          </h3>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="text-[14px]">Save as alias</DialogTitle>
+          <DialogDescription className="text-[12px]">
             Create a reusable group of {emails.length} recipients
-          </p>
-        </div>
-        <div className="p-4">
-          <input
-            ref={inputRef}
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleSave();
-              e.stopPropagation();
-            }}
-            placeholder="Alias name"
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30"
-          />
-        </div>
-        <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+          </DialogDescription>
+        </DialogHeader>
+        <Input
+          autoFocus
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSave();
+            e.stopPropagation();
+          }}
+          placeholder="Alias name"
+        />
+        <DialogFooter>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="rounded-lg px-3 py-1.5 text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             Cancel
           </button>
@@ -221,14 +205,13 @@ function SaveAliasModal({ emails, onClose }: SaveAliasModalProps) {
             type="button"
             onClick={handleSave}
             disabled={!name.trim() || createAlias.isPending}
-            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40"
           >
             {createAlias.isPending ? "Saving…" : "Save"}
           </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

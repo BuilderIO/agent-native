@@ -583,7 +583,7 @@ export function MultiTabAssistantChat({
               >
                 <span className="truncate pr-1">{tab.label}</span>
                 {tab.status === "running" && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 animate-pulse" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0 animate-pulse" />
                 )}
                 {openTabIds.length > 1 && (
                   <span

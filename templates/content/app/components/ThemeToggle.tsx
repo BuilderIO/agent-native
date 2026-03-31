@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useTheme } from "next-themes";
-import { Sun, Moon } from "lucide-react";
+import { IconSun, IconMoon } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -27,7 +27,11 @@ export function ThemeToggle({ className }: { className?: string }) {
             className,
           )}
         >
-          {mounted && theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+          {mounted && theme === "dark" ? (
+            <IconSun size={14} />
+          ) : (
+            <IconMoon size={14} />
+          )}
         </Button>
       </TooltipTrigger>
       <TooltipContent>Toggle theme</TooltipContent>

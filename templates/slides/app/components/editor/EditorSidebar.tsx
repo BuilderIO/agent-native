@@ -7,15 +7,15 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  Plus,
-  GripVertical,
-  Copy,
-  Trash2,
-  Loader2,
-  Paperclip,
-  X,
-  ArrowUp,
-} from "lucide-react";
+  IconPlus,
+  IconGripVertical,
+  IconCopy,
+  IconTrash,
+  IconLoader2,
+  IconPaperclip,
+  IconX,
+  IconArrowUp,
+} from "@tabler/icons-react";
 import type { Slide } from "@/context/DeckContext";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
@@ -80,7 +80,7 @@ function SortableSlideThumb({
           {...listeners}
           className="flex-shrink-0 mt-2 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
         >
-          <GripVertical className="w-3.5 h-3.5 text-white/30" />
+          <IconGripVertical className="w-3.5 h-3.5 text-white/30" />
         </div>
 
         {/* Index */}
@@ -107,7 +107,7 @@ function SortableSlideThumb({
           title="Duplicate"
           aria-label="Duplicate slide"
         >
-          <Copy className="w-3 h-3 text-white/60" />
+          <IconCopy className="w-3 h-3 text-white/60" />
         </button>
         <button
           onClick={(e) => {
@@ -118,7 +118,7 @@ function SortableSlideThumb({
           title="Delete"
           aria-label="Delete slide"
         >
-          <Trash2 className="w-3 h-3 text-white/60" />
+          <IconTrash className="w-3 h-3 text-white/60" />
         </button>
       </div>
     </div>
@@ -323,7 +323,7 @@ function AddSlidePopover({
                 className="p-0.5 rounded hover:bg-white/[0.1]"
                 aria-label={`Remove ${file.name}`}
               >
-                <X className="w-2.5 h-2.5" />
+                <IconX className="w-2.5 h-2.5" />
               </button>
             </div>
           ))}
@@ -339,7 +339,7 @@ function AddSlidePopover({
           title="Attach files"
           aria-label="Attach files"
         >
-          <Paperclip className="w-4 h-4" />
+          <IconPaperclip className="w-4 h-4" />
         </button>
         <input
           ref={fileInputRef}
@@ -357,9 +357,9 @@ function AddSlidePopover({
           aria-label="Generate slides"
         >
           {busy ? (
-            <Loader2 className="w-4 h-4 text-white/70 animate-spin" />
+            <IconLoader2 className="w-4 h-4 text-white/70 animate-spin" />
           ) : (
-            <ArrowUp className="w-4 h-4 text-white/70" />
+            <IconArrowUp className="w-4 h-4 text-white/70" />
           )}
         </button>
       </div>
@@ -391,7 +391,7 @@ export default function EditorSidebar({
   // Arrow key navigation for slides
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      if (e.key !== "IconArrowUp" && e.key !== "ArrowDown") return;
       // Don't intercept if user is typing in an input/textarea or contenteditable
       const tag = (e.target as HTMLElement)?.tagName;
       if (
@@ -406,7 +406,7 @@ export default function EditorSidebar({
       if (currentIndex === -1) return;
 
       const nextIndex =
-        e.key === "ArrowUp"
+        e.key === "IconArrowUp"
           ? Math.max(0, currentIndex - 1)
           : Math.min(slides.length - 1, currentIndex + 1);
 
@@ -426,7 +426,7 @@ export default function EditorSidebar({
           Slides
         </span>
         {addSlideGenerating ? (
-          <Loader2 className="w-4 h-4 text-white/40 animate-spin" />
+          <IconLoader2 className="w-4 h-4 text-white/40 animate-spin" />
         ) : (
           <button
             ref={headerAddRef}
@@ -435,7 +435,7 @@ export default function EditorSidebar({
             title="Add slides"
             aria-label="Add slides"
           >
-            <Plus className="w-4 h-4 text-white/50" />
+            <IconPlus className="w-4 h-4 text-white/50" />
           </button>
         )}
       </div>

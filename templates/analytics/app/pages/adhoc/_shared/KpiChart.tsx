@@ -16,7 +16,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Code } from "lucide-react";
+import { IconCode } from "@tabler/icons-react";
 import { formatDate } from "./format";
 
 interface KpiChartProps {
@@ -87,7 +87,7 @@ export function KpiChart({
                 className="h-7 w-7 p-0"
                 title="Edit SQL Query"
               >
-                <Code className="h-3.5 w-3.5" />
+                <IconCode className="h-3.5 w-3.5" />
               </Button>
             )}
           </div>

@@ -771,6 +771,11 @@ function mountEmailAuthRoutes(app: H3App, publicPaths: string[] = []): void {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
+
+      const ip = getClientIp(event);
+      const limited = checkRateLimit(event, `register:${ip}`);
+      if (limited) return limited;
+
       const body = await readBody(event);
       const email = body?.email?.trim?.()?.toLowerCase?.();
       const password = body?.password;
@@ -790,6 +795,7 @@ function mountEmailAuthRoutes(app: H3App, publicPaths: string[] = []): void {
         return { error: result.error };
       }
 
+      resetRateLimit(`register:${ip}`);
       return { ok: true };
     }),
   );
@@ -802,6 +808,12 @@ function mountEmailAuthRoutes(app: H3App, publicPaths: string[] = []): void {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
+
+      const ip = getClientIp(event);
+      const rateLimitKey = `login:${ip}`;
+      const limited = checkRateLimit(event, rateLimitKey);
+      if (limited) return limited;
+
       const body = await readBody(event);
 
       // Legacy: ACCESS_TOKEN login (for API callers, scripts)
@@ -823,6 +835,7 @@ function mountEmailAuthRoutes(app: H3App, publicPaths: string[] = []): void {
           path: "/",
           maxAge: sessionMaxAge,
         });
+        resetRateLimit(rateLimitKey);
         return { ok: true };
       }
 
@@ -850,6 +863,7 @@ function mountEmailAuthRoutes(app: H3App, publicPaths: string[] = []): void {
         path: "/",
         maxAge: sessionMaxAge,
       });
+      resetRateLimit(rateLimitKey);
       return { ok: true };
     }),
   );
@@ -943,6 +957,12 @@ function mountAuthRoutes(
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
+
+      const ip = getClientIp(event);
+      const rateLimitKey = `login:${ip}`;
+      const limited = checkRateLimit(event, rateLimitKey);
+      if (limited) return limited;
+
       const body = await readBody(event);
       if (
         !body?.token ||
@@ -961,6 +981,7 @@ function mountAuthRoutes(
         path: "/",
         maxAge: sessionMaxAge,
       });
+      resetRateLimit(rateLimitKey);
       return { ok: true };
     }),
   );

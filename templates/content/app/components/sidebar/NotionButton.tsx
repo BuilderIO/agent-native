@@ -1,16 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  ExternalLink,
-  Check,
-  Circle,
-  Loader2,
-  Upload,
-  Unplug,
-  RefreshCw,
-  Key,
-  Globe,
-  ArrowLeft,
-} from "lucide-react";
+  IconExternalLink,
+  IconCheck,
+  IconCircle,
+  IconLoader2,
+  IconUpload,
+  IconPlugOff,
+  IconRefresh,
+  IconKey,
+  IconGlobe,
+  IconArrowLeft,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -260,7 +260,7 @@ export function NotionButton() {
                     className="text-muted-foreground hover:text-foreground"
                     onClick={() => setSetupMode(null)}
                   >
-                    <ArrowLeft size={14} />
+                    <IconArrowLeft size={14} />
                   </button>
                 )}
                 <h3 className="text-sm font-semibold">Connect Notion</h3>
@@ -290,9 +290,12 @@ export function NotionButton() {
                 className="w-full flex items-start gap-3 rounded-lg border border-border p-3 text-left hover:bg-muted/50"
                 onClick={() => setSetupMode("api_key")}
               >
-                <Key size={16} className="mt-0.5 shrink-0 text-foreground" />
+                <IconKey
+                  size={16}
+                  className="mt-0.5 shrink-0 text-foreground"
+                />
                 <div>
-                  <p className="text-xs font-medium">API Key</p>
+                  <p className="text-xs font-medium">API IconKey</p>
                   <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
                     Paste a token from a Notion internal integration. Simplest
                     setup — takes 2 minutes.
@@ -303,7 +306,10 @@ export function NotionButton() {
                 className="w-full flex items-start gap-3 rounded-lg border border-border p-3 text-left hover:bg-muted/50"
                 onClick={() => setSetupMode("oauth")}
               >
-                <Globe size={16} className="mt-0.5 shrink-0 text-foreground" />
+                <IconGlobe
+                  size={16}
+                  className="mt-0.5 shrink-0 text-foreground"
+                />
                 <div>
                   <p className="text-xs font-medium">OAuth Integration</p>
                   <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
@@ -315,7 +321,7 @@ export function NotionButton() {
             </div>
           )}
 
-          {/* ─── API Key setup ──────────────────────────────── */}
+          {/* ─── API IconKey setup ──────────────────────────────── */}
           {setupMode === "api_key" && (
             <div className="p-4 space-y-3">
               <div className="rounded-lg border border-border p-3 space-y-2">
@@ -337,7 +343,7 @@ export function NotionButton() {
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
                     >
-                      <ExternalLink size={11} />
+                      <IconExternalLink size={11} />
                       Open Notion Integrations
                     </a>
                   </div>
@@ -396,7 +402,7 @@ export function NotionButton() {
               >
                 {saving ? (
                   <>
-                    <Loader2 size={12} className="mr-1 animate-spin" />
+                    <IconLoader2 size={12} className="mr-1 animate-spin" />
                     Saving...
                   </>
                 ) : (
@@ -430,15 +436,18 @@ export function NotionButton() {
                     >
                       <span className="mt-0.5 shrink-0">
                         {completed ? (
-                          <Check size={14} className="text-emerald-500" />
+                          <IconCheck size={14} className="text-emerald-500" />
                         ) : active ? (
-                          <Circle
+                          <IconCircle
                             size={14}
                             className="text-foreground"
                             fill="currentColor"
                           />
                         ) : (
-                          <Circle size={14} className="text-muted-foreground" />
+                          <IconCircle
+                            size={14}
+                            className="text-muted-foreground"
+                          />
                         )}
                       </span>
                       <span
@@ -468,7 +477,7 @@ export function NotionButton() {
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                           >
-                            <ExternalLink size={11} />
+                            <IconExternalLink size={11} />
                             {step.linkText}
                           </a>
                         )}
@@ -493,8 +502,10 @@ export function NotionButton() {
                         {step.showUpload && (
                           <div className="space-y-2">
                             <label className="flex items-center gap-2 cursor-pointer rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:border-foreground/30 hover:text-foreground">
-                              <Upload size={14} />
-                              {saving ? "Saving..." : "Upload credentials JSON"}
+                              <IconUpload size={14} />
+                              {saving
+                                ? "Saving..."
+                                : "IconUpload credentials JSON"}
                               <input
                                 type="file"
                                 accept=".json"
@@ -513,12 +524,12 @@ export function NotionButton() {
                                   className="flex items-center gap-2 text-[10px]"
                                 >
                                   {k.configured ? (
-                                    <Check
+                                    <IconCheck
                                       size={10}
                                       className="text-emerald-500"
                                     />
                                   ) : (
-                                    <Circle
+                                    <IconCircle
                                       size={10}
                                       className="text-muted-foreground"
                                     />
@@ -542,7 +553,7 @@ export function NotionButton() {
                               "Connect Notion Workspace"
                             ) : (
                               <>
-                                <Loader2
+                                <IconLoader2
                                   size={12}
                                   className="mr-1 animate-spin"
                                 />
@@ -626,7 +637,7 @@ export function NotionButton() {
                 }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md"
               >
-                <RefreshCw size={12} />
+                <IconRefresh size={12} />
                 Refresh connection
               </button>
               <button
@@ -636,7 +647,7 @@ export function NotionButton() {
                 }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-md"
               >
-                <Unplug size={12} />
+                <IconPlugOff size={12} />
                 Disconnect workspace
               </button>
             </div>

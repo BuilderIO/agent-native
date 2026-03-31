@@ -18,14 +18,14 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  ChevronDown,
-  Save,
-  FolderOpen,
-  FilePlus,
-  Trash2,
-  Code,
-  ChevronRight,
-} from "lucide-react";
+  IconChevronDown,
+  IconDeviceFloppy,
+  IconFolderOpen,
+  IconFilePlus,
+  IconTrash,
+  IconCode,
+  IconChevronRight,
+} from "@tabler/icons-react";
 import { useMetricsQuery } from "@/lib/query-metrics";
 import { EventPanel } from "./components/EventPanel";
 import { ChartTypePicker } from "./components/ChartTypePicker";
@@ -112,35 +112,35 @@ export default function ExplorerPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Save */}
+          {/* IconDeviceFloppy */}
           <Button
             size="sm"
             variant="outline"
             onClick={handleSave}
             disabled={isSaving}
           >
-            <Save className="h-4 w-4 mr-1" />
-            {isSaving ? "Saving..." : "Save"}
+            <IconDeviceFloppy className="h-4 w-4 mr-1" />
+            {isSaving ? "Saving..." : "IconDeviceFloppy"}
           </Button>
 
           {/* Load / manage saved configs */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="sm" variant="outline">
-                <FolderOpen className="h-4 w-4 mr-1" />
+                <IconFolderOpen className="h-4 w-4 mr-1" />
                 Load
-                <ChevronDown className="h-3 w-3 ml-1" />
+                <IconChevronDown className="h-3 w-3 ml-1" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem onClick={newConfig}>
-                <FilePlus className="h-4 w-4 mr-2" />
+                <IconFilePlus className="h-4 w-4 mr-2" />
                 New Explorer
               </DropdownMenuItem>
               {currentId && (
                 <DropdownMenuItem onClick={handleSaveAs}>
-                  <Save className="h-4 w-4 mr-2" />
-                  Save As...
+                  <IconDeviceFloppy className="h-4 w-4 mr-2" />
+                  IconDeviceFloppy As...
                 </DropdownMenuItem>
               )}
               {savedConfigs.length > 0 && <DropdownMenuSeparator />}
@@ -160,7 +160,7 @@ export default function ExplorerPage() {
                       deleteConfig(sc.id);
                     }}
                   >
-                    <Trash2 className="h-3 w-3 text-destructive" />
+                    <IconTrash className="h-3 w-3 text-destructive" />
                   </Button>
                 </DropdownMenuItem>
               ))}
@@ -204,11 +204,11 @@ export default function ExplorerPage() {
       {/* SQL preview */}
       {sql && <SqlPreview sql={sql} />}
 
-      {/* Save dialog */}
+      {/* IconDeviceFloppy dialog */}
       <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Save Explorer</DialogTitle>
+            <DialogTitle>IconDeviceFloppy Explorer</DialogTitle>
           </DialogHeader>
           <Input
             placeholder="Dashboard name..."
@@ -221,7 +221,7 @@ export default function ExplorerPage() {
             <Button variant="outline" onClick={() => setSaveDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSaveConfirm}>Save</Button>
+            <Button onClick={handleSaveConfirm}>IconDeviceFloppy</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

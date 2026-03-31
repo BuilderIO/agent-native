@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ArrowDownToLine,
-  ArrowUpFromLine,
-  AlertTriangle,
-  ExternalLink,
-  Link2Off,
-  Loader2,
-  Search,
-  FileText,
-  Plus,
-  History,
-} from "lucide-react";
+  IconArrowBarDown,
+  IconArrowBarUp,
+  IconAlertTriangle,
+  IconExternalLink,
+  IconLinkOff,
+  IconLoader2,
+  IconSearch,
+  IconFileText,
+  IconPlus,
+  IconHistory,
+} from "@tabler/icons-react";
 import { VersionHistoryPanel } from "./VersionHistoryPanel";
 import {
   Popover,
@@ -210,7 +210,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
         className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
         title="Version history"
       >
-        <History size={16} />
+        <IconHistory size={16} />
       </button>
 
       <VersionHistoryPanel
@@ -239,7 +239,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
             {hasConflict ? (
               <div className="relative">
                 <NotionIcon className="h-4 w-4" />
-                <AlertTriangle
+                <IconAlertTriangle
                   size={8}
                   className="absolute -right-1 -top-1 text-amber-500"
                 />
@@ -309,7 +309,10 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                       disabled={isWorking}
                     >
                       {resolveConflict.isPending ? (
-                        <Loader2 size={12} className="animate-spin mr-1.5" />
+                        <IconLoader2
+                          size={12}
+                          className="animate-spin mr-1.5"
+                        />
                       ) : null}
                       Use Notion
                     </Button>
@@ -321,7 +324,10 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                       disabled={isWorking}
                     >
                       {resolveConflict.isPending ? (
-                        <Loader2 size={12} className="animate-spin mr-1.5" />
+                        <IconLoader2
+                          size={12}
+                          className="animate-spin mr-1.5"
+                        />
                       ) : null}
                       Use local
                     </Button>
@@ -336,9 +342,9 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md disabled:opacity-40"
                 >
                   {pullDocument.isPending ? (
-                    <Loader2 size={12} className="animate-spin" />
+                    <IconLoader2 size={12} className="animate-spin" />
                   ) : (
-                    <ArrowDownToLine size={12} />
+                    <IconArrowBarDown size={12} />
                   )}
                   Pull from Notion
                 </button>
@@ -348,9 +354,9 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md disabled:opacity-40"
                 >
                   {pushDocument.isPending ? (
-                    <Loader2 size={12} className="animate-spin" />
+                    <IconLoader2 size={12} className="animate-spin" />
                   ) : (
-                    <ArrowUpFromLine size={12} />
+                    <IconArrowBarUp size={12} />
                   )}
                   Push to Notion
                 </button>
@@ -361,7 +367,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                     rel="noopener noreferrer"
                     className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md"
                   >
-                    <ExternalLink size={12} />
+                    <IconExternalLink size={12} />
                     Open in Notion
                   </a>
                 )}
@@ -370,7 +376,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                   disabled={isWorking}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-md disabled:opacity-40"
                 >
-                  <Link2Off size={12} />
+                  <IconLinkOff size={12} />
                   Unlink
                 </button>
               </div>
@@ -386,7 +392,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                   </span>
                 </div>
                 <div className="relative">
-                  <Search
+                  <IconSearch
                     size={13}
                     className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
                   />
@@ -395,7 +401,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search Notion pages..."
+                    placeholder="IconSearch Notion pages..."
                     className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground"
                   />
                 </div>
@@ -411,12 +417,12 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                   >
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center">
                       {createAndLink.isPending ? (
-                        <Loader2
+                        <IconLoader2
                           size={14}
                           className="animate-spin text-muted-foreground"
                         />
                       ) : (
-                        <Plus size={14} className="text-muted-foreground" />
+                        <IconPlus size={14} className="text-muted-foreground" />
                       )}
                     </span>
                     <span className="text-xs font-medium">
@@ -427,7 +433,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
 
                 {searchLoading ? (
                   <div className="flex items-center justify-center py-6">
-                    <Loader2
+                    <IconLoader2
                       size={16}
                       className="animate-spin text-muted-foreground"
                     />
@@ -443,7 +449,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                       >
                         <span className="flex h-5 w-5 shrink-0 items-center justify-center text-sm">
                           {page.icon || (
-                            <FileText
+                            <IconFileText
                               size={14}
                               className="text-muted-foreground"
                             />

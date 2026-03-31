@@ -350,7 +350,7 @@ function ToolCallFallback({
         className={cn(
           "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
           isRunning
-            ? "bg-amber-500/10 text-amber-400"
+            ? "bg-blue-500/10 text-blue-400"
             : "bg-muted text-muted-foreground hover:bg-accent",
         )}
       >

@@ -1,6 +1,6 @@
 import { libraryComponents } from "@/remotion/componentRegistry";
 import { cn } from "@/lib/utils";
-import { Box, Layers } from "lucide-react";
+import { IconBox, IconStack2 } from "@tabler/icons-react";
 
 type ComponentsSidebarProps = {
   open: boolean;
@@ -20,7 +20,7 @@ export function ComponentsSidebar({
       {/* Header */}
       <div className="px-4 py-3 border-b border-border">
         <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-          <Layers className="w-4 h-4" />
+          <IconStack2 className="w-4 h-4" />
           Components
         </h2>
         <p className="text-xs text-muted-foreground mt-1">
@@ -32,7 +32,7 @@ export function ComponentsSidebar({
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
         {libraryComponents.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground text-sm">
-            <Box className="w-8 h-8 mx-auto mb-2 opacity-50" />
+            <IconBox className="w-8 h-8 mx-auto mb-2 opacity-50" />
             <p>No components yet</p>
             <p className="text-xs mt-1">Components will appear here</p>
           </div>

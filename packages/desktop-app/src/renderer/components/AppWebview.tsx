@@ -5,7 +5,7 @@ import {
   useState,
   useImperativeHandle,
 } from "react";
-import { AlertCircle, RefreshCw } from "lucide-react";
+import { IconAlertCircle, IconRefresh } from "@tabler/icons-react";
 import type { AppDefinition, AppConfig } from "@shared/app-registry";
 import { getAppUrl } from "@shared/app-registry";
 
@@ -227,7 +227,7 @@ function ErrorScreen({
 }) {
   return (
     <div className="error-overlay">
-      <AlertCircle size={40} className="error-icon" />
+      <IconAlertCircle size={40} className="error-icon" />
       <p className="error-title">Could not connect to {app.name}</p>
       <p className="error-hint">
         {appConfig?.devCommand ? (
@@ -241,7 +241,7 @@ function ErrorScreen({
         )}
       </p>
       <button className="retry-button" onClick={onRetry}>
-        <RefreshCw size={11} style={{ display: "inline", marginRight: 5 }} />
+        <IconRefresh size={11} style={{ display: "inline", marginRight: 5 }} />
         Retry
       </button>
     </div>

@@ -1,6 +1,11 @@
 import { useState } from "react";
 import type { LibraryComponentEntry } from "@/remotion/componentRegistry";
-import { X, ChevronRight, SlidersHorizontal, FileText } from "lucide-react";
+import {
+  IconX,
+  IconChevronRight,
+  IconAdjustmentsHorizontal,
+  IconFileText,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
 type ComponentPropsPanelProps = {
@@ -31,7 +36,7 @@ export function ComponentPropsPanel({
           className="p-1 hover:bg-secondary rounded transition-colors"
           title="Close panel"
         >
-          <X className="w-4 h-4" />
+          <IconX className="w-4 h-4" />
         </button>
       </div>
 
@@ -46,13 +51,13 @@ export function ComponentPropsPanel({
               toggleSection("props");
             }}
           >
-            <ChevronRight
+            <IconChevronRight
               className={cn(
                 "w-4 h-4 transition-transform",
                 openSections.props && "rotate-90",
               )}
             />
-            <FileText className="w-4 h-4" />
+            <IconFileText className="w-4 h-4" />
             <span className="text-sm font-medium">Component Props</span>
           </summary>
 
@@ -105,13 +110,13 @@ export function ComponentPropsPanel({
               toggleSection("animations");
             }}
           >
-            <ChevronRight
+            <IconChevronRight
               className={cn(
                 "w-4 h-4 transition-transform",
                 openSections.animations && "rotate-90",
               )}
             />
-            <SlidersHorizontal className="w-4 h-4" />
+            <IconAdjustmentsHorizontal className="w-4 h-4" />
             <span className="text-sm font-medium">Animations</span>
           </summary>
 

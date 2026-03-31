@@ -6,13 +6,15 @@ import {
 } from "@/remotion/componentRegistry";
 import { cn } from "@/lib/utils";
 import {
-  Box,
-  SlidersHorizontal,
-  ChevronRight,
-  FileText,
-  Info,
-} from "lucide-react";
+  IconBox,
+  IconAdjustmentsHorizontal,
+  IconChevronRight,
+  IconFileText,
+  IconInfoCircle,
+} from "@tabler/icons-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { CurrentElementPanel } from "@/components/CurrentElementPanel";
 
 class SafeBoundary extends Component<
@@ -133,7 +135,7 @@ export function ComponentLibrarySidebar({
             <div className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-thin">
               {libraryComponents.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground text-sm">
-                  <Box className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <IconBox className="w-8 h-8 mx-auto mb-2 opacity-50" />
                   <p>No components yet</p>
                   <p className="text-xs mt-1">Components will appear here</p>
                 </div>
@@ -151,7 +153,7 @@ export function ComponentLibrarySidebar({
                           onClick={() => toggleCategory(category)}
                           className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-secondary/50 transition-colors text-xs font-semibold text-muted-foreground"
                         >
-                          <ChevronRight
+                          <IconChevronRight
                             className={cn(
                               "w-3 h-3 transition-transform",
                               isExpanded && "rotate-90",
@@ -208,11 +210,11 @@ export function ComponentLibrarySidebar({
                 <details className="group">
                   <summary className="cursor-pointer list-none">
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
-                      <SlidersHorizontal className="w-3.5 h-3.5 text-green-400" />
+                      <IconAdjustmentsHorizontal className="w-3.5 h-3.5 text-green-400" />
                       <span className="text-xs font-medium">
                         Cursor Interactions
                       </span>
-                      <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
+                      <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                     </div>
                   </summary>
                   <div className="mt-1">
@@ -227,17 +229,17 @@ export function ComponentLibrarySidebar({
                   <details className="group" open>
                     <summary className="cursor-pointer list-none">
                       <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
-                        <FileText className="w-3.5 h-3.5 text-purple-400" />
+                        <IconFileText className="w-3.5 h-3.5 text-purple-400" />
                         <span className="text-xs font-medium">
                           Text Animations
                         </span>
-                        <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
+                        <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                       </div>
                     </summary>
                     <div className="mt-1 px-4 py-3 space-y-3 bg-secondary/20">
                       <div className="px-4 py-3 bg-purple-500/10 rounded-lg border border-purple-500/20">
                         <div className="flex items-start gap-2">
-                          <Info className="w-4 h-4 text-purple-400 flex-shrink-0 mt-0.5" />
+                          <IconInfoCircle className="w-4 h-4 text-purple-400 flex-shrink-0 mt-0.5" />
                           <div>
                             <p className="text-xs font-medium text-purple-200 mb-1">
                               Interactive Text Input
@@ -279,11 +281,11 @@ export function ComponentLibrarySidebar({
                     }}
                   >
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
-                      <FileText className="w-3.5 h-3.5 text-blue-400" />
+                      <IconFileText className="w-3.5 h-3.5 text-blue-400" />
                       <span className="text-xs font-medium">
                         Component Props
                       </span>
-                      <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
+                      <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                     </div>
                   </summary>
 
@@ -351,36 +353,36 @@ export function ComponentLibrarySidebar({
                                       }}
                                     />
                                   </div>
-                                  <input
+                                  <Input
                                     type="text"
                                     value={currentValue}
                                     onChange={(e) =>
                                       onPropChange(prop.name, e.target.value)
                                     }
-                                    className="flex-1 h-9 px-3 text-xs bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+                                    className="flex-1 h-9 px-3 text-xs"
                                     placeholder={String(prop.defaultValue)}
                                   />
                                 </div>
                               ) : isLongText ? (
-                                <textarea
+                                <Textarea
                                   id={`prop-${prop.name}`}
                                   value={currentValue}
                                   onChange={(e) =>
                                     onPropChange(prop.name, e.target.value)
                                   }
                                   rows={3}
-                                  className="w-full px-3 py-2 text-xs bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                                  className="w-full px-3 py-2 text-xs resize-none"
                                   placeholder={String(prop.defaultValue)}
                                 />
                               ) : (
-                                <input
+                                <Input
                                   id={`prop-${prop.name}`}
                                   type="text"
                                   value={currentValue}
                                   onChange={(e) =>
                                     onPropChange(prop.name, e.target.value)
                                   }
-                                  className="w-full h-9 px-3 text-xs bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+                                  className="w-full h-9 px-3 text-xs"
                                   placeholder={String(prop.defaultValue)}
                                 />
                               )}
@@ -392,15 +394,15 @@ export function ComponentLibrarySidebar({
                   )}
                 </details>
 
-                {/* Component Info */}
+                {/* Component IconInfoCircle */}
                 <details className="group">
                   <summary className="cursor-pointer list-none">
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
-                      <Info className="w-3.5 h-3.5 text-amber-400" />
+                      <IconInfoCircle className="w-3.5 h-3.5 text-amber-400" />
                       <span className="text-xs font-medium">
-                        Component Info
+                        Component IconInfoCircle
                       </span>
-                      <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
+                      <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                     </div>
                   </summary>
                   <div className="mt-1 px-4 py-3 space-y-3 text-xs text-muted-foreground">

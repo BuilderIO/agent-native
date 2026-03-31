@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { DataTable } from "@/components/dashboard/DataTable";
 import { TimeSeriesChart } from "@/components/dashboard/TimeSeriesChart";
 import { Button } from "@/components/ui/button";
-import { TableIcon, BarChart3 } from "lucide-react";
+import { IconTable, IconChartBar } from "@tabler/icons-react";
 
 interface QueryResultsProps {
   data: Record<string, unknown>[];
@@ -42,7 +42,7 @@ export function QueryResults({ data, isLoading, error }: QueryResultsProps) {
             className="h-7 px-2"
             onClick={() => setView("table")}
           >
-            <TableIcon className="h-4 w-4 mr-1" />
+            <IconTable className="h-4 w-4 mr-1" />
             Table
           </Button>
           <Button
@@ -51,7 +51,7 @@ export function QueryResults({ data, isLoading, error }: QueryResultsProps) {
             className="h-7 px-2"
             onClick={() => setView("chart")}
           >
-            <BarChart3 className="h-4 w-4 mr-1" />
+            <IconChartBar className="h-4 w-4 mr-1" />
             Chart
           </Button>
         </div>

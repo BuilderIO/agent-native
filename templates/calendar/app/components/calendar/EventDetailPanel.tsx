@@ -5,15 +5,15 @@ import {
   differenceInHours,
 } from "date-fns";
 import {
-  X,
-  Clock,
-  MapPin,
-  Trash2,
-  Edit2,
-  ExternalLink,
-  User,
-  PanelRightClose,
-} from "lucide-react";
+  IconX,
+  IconClock,
+  IconMapPin,
+  IconTrash,
+  IconEdit,
+  IconExternalLink,
+  IconUser,
+  IconLayoutSidebarRightCollapse,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -85,7 +85,7 @@ export function EventDetailPanel({
                         className="h-7 w-7 text-muted-foreground hover:text-foreground"
                         onClick={handleUnpin}
                       >
-                        <PanelRightClose className="h-4 w-4" />
+                        <IconLayoutSidebarRightCollapse className="h-4 w-4" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom">
@@ -98,7 +98,7 @@ export function EventDetailPanel({
                     className="h-7 w-7 text-muted-foreground hover:text-foreground"
                     onClick={onClose}
                   >
-                    <X className="h-4 w-4" />
+                    <IconX className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
@@ -112,7 +112,7 @@ export function EventDetailPanel({
 
                 {/* Time */}
                 <div className="flex items-start gap-2.5 text-sm text-muted-foreground">
-                  <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+                  <IconClock className="mt-0.5 h-4 w-4 shrink-0" />
                   <div>
                     {event.allDay ? (
                       <span>
@@ -140,7 +140,7 @@ export function EventDetailPanel({
                 {/* Location */}
                 {event.location && (
                   <div className="flex items-start gap-2.5 text-sm text-muted-foreground">
-                    <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
+                    <IconMapPin className="mt-0.5 h-4 w-4 shrink-0" />
                     <span>{event.location}</span>
                   </div>
                 )}
@@ -184,7 +184,7 @@ export function EventDetailPanel({
                 {/* Attendees */}
                 {event.attendees && event.attendees.length > 0 && (
                   <div className="flex items-start gap-2.5">
-                    <User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <IconUser className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                     <div className="flex-1 space-y-1.5">
                       {event.attendees.map((attendee, i) => (
                         <AttendeeApolloPopover
@@ -227,7 +227,7 @@ export function EventDetailPanel({
                 {/* Google Calendar badge */}
                 {event.source === "google" && (
                   <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-                    <ExternalLink className="h-3.5 w-3.5" />
+                    <IconExternalLink className="h-3.5 w-3.5" />
                     <span>Synced from Google Calendar</span>
                   </div>
                 )}
@@ -242,7 +242,7 @@ export function EventDetailPanel({
                     className="text-destructive hover:text-destructive hover:bg-destructive/10"
                     onClick={() => onDelete(event.id)}
                   >
-                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                    <IconTrash className="mr-1.5 h-3.5 w-3.5" />
                     Delete
                   </Button>
                   <div className="flex-1" />
@@ -251,7 +251,7 @@ export function EventDetailPanel({
                     size="sm"
                     onClick={() => onEdit(event)}
                   >
-                    <Edit2 className="mr-1.5 h-3.5 w-3.5" />
+                    <IconEdit className="mr-1.5 h-3.5 w-3.5" />
                     Edit
                   </Button>
                 </div>

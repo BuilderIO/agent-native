@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router";
-import { Menu, BarChart3 } from "lucide-react";
+import { IconMenu, IconChartBar } from "@tabler/icons-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Sidebar } from "./Sidebar";
 import { AgentToggleButton } from "@agent-native/core/client";
@@ -21,11 +21,11 @@ export function MobileNav() {
         className="mr-3 p-1.5 rounded-md hover:bg-sidebar-accent/50 transition-colors"
         aria-label="Open navigation"
       >
-        <Menu className="h-5 w-5 text-foreground" />
+        <IconMenu className="h-5 w-5 text-foreground" />
       </button>
       <div className="flex items-center gap-2">
         <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <BarChart3 className="h-4 w-4" />
+          <IconChartBar className="h-4 w-4" />
         </div>
         <span className="text-base font-bold tracking-tight">Analytics</span>
       </div>

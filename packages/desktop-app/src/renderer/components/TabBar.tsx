@@ -1,33 +1,32 @@
 import {
-  Mail,
-  CalendarDays,
-  FileText,
-  BarChart2,
-  GalleryHorizontal,
-  Layers,
-  Video,
-  CircleDot,
-  ClipboardList,
-  Users,
-  Code,
-  X,
-  Plus,
-  type LucideProps,
-} from "lucide-react";
+  IconMail,
+  IconCalendar,
+  IconFileText,
+  IconChartBar,
+  IconLayoutGrid,
+  IconStack2,
+  IconVideo,
+  IconCircleDot,
+  IconClipboardList,
+  IconUsers,
+  IconCode,
+  IconX,
+  IconPlus,
+} from "@tabler/icons-react";
 import type { Tab } from "../App.js";
 
-const ICON_MAP: Record<string, React.ComponentType<LucideProps>> = {
-  Mail,
-  CalendarDays,
-  FileText,
-  BarChart2,
-  GalleryHorizontal,
-  Layers,
-  Video,
-  CircleDot,
-  ClipboardList,
-  Users,
-  Code,
+const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
+  IconMail,
+  IconCalendar,
+  IconFileText,
+  IconChartBar,
+  IconLayoutGrid,
+  IconStack2,
+  IconVideo,
+  IconCircleDot,
+  IconClipboardList,
+  IconUsers,
+  IconCode,
 };
 
 interface TabBarProps {
@@ -74,13 +73,13 @@ export default function TabBar({
               role="button"
               tabIndex={-1}
             >
-              <X size={10} strokeWidth={2} />
+              <IconX size={10} strokeWidth={2} />
             </span>
           </button>
         );
       })}
       <button className="tab-new" onClick={onNewTab} title="New tab">
-        <Plus size={14} strokeWidth={1.75} />
+        <IconPlus size={14} strokeWidth={1.75} />
       </button>
     </div>
   );

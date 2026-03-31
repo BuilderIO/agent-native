@@ -753,7 +753,7 @@ export function AgentPanel({
                   >
                     <span className="truncate pr-1">{tab.label}</span>
                     {tab.status === "running" && (
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 animate-pulse" />
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400 animate-pulse" />
                     )}
                     <button
                       type="button"

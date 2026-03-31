@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Link2,
-  RefreshCw,
-  Upload,
-  AlertTriangle,
-  ExternalLink,
-  Unplug,
-  Loader2,
-} from "lucide-react";
+  IconLink,
+  IconRefresh,
+  IconUpload,
+  IconAlertTriangle,
+  IconExternalLink,
+  IconPlugOff,
+  IconLoader2,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -150,7 +150,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
             </span>
             {syncStatus?.state === "conflict" && (
               <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                <AlertTriangle size={12} />
+                <IconAlertTriangle size={12} />
                 Conflict
               </span>
             )}
@@ -194,7 +194,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
                   onClick={handleLink}
                   disabled={isWorking}
                 >
-                  <Link2 size={14} className="mr-1" />
+                  <IconLink size={14} className="mr-1" />
                   Link Page
                 </Button>
               </>
@@ -207,7 +207,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
                     rel="noopener noreferrer"
                     className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:text-foreground"
                   >
-                    <ExternalLink size={13} />
+                    <IconExternalLink size={13} />
                     Open
                   </a>
                 )}
@@ -217,7 +217,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
                   onClick={handlePull}
                   disabled={isWorking || syncLoading}
                 >
-                  <RefreshCw size={14} className="mr-1" />
+                  <IconRefresh size={14} className="mr-1" />
                   Pull
                 </Button>
                 <Button
@@ -226,7 +226,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
                   onClick={handlePush}
                   disabled={isWorking || syncLoading}
                 >
-                  <Upload size={14} className="mr-1" />
+                  <IconUpload size={14} className="mr-1" />
                   Push
                 </Button>
                 <Button
@@ -245,7 +245,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
               onClick={handleDisconnect}
               disabled={isWorking}
             >
-              <Unplug size={14} className="mr-1" />
+              <IconPlugOff size={14} className="mr-1" />
               Disconnect
             </Button>
           </>
@@ -265,7 +265,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
             disabled={isWorking}
           >
             {resolveConflict.isPending ? (
-              <Loader2 size={14} className="animate-spin mr-1" />
+              <IconLoader2 size={14} className="animate-spin mr-1" />
             ) : null}
             Pull from Notion
           </Button>
@@ -276,7 +276,7 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
             disabled={isWorking}
           >
             {resolveConflict.isPending ? (
-              <Loader2 size={14} className="animate-spin mr-1" />
+              <IconLoader2 size={14} className="animate-spin mr-1" />
             ) : null}
             Push local
           </Button>

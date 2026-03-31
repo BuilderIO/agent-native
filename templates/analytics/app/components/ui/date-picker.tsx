@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { format, parse, isValid } from "date-fns";
-import { CalendarIcon } from "lucide-react";
+import { IconCalendar } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -40,7 +40,7 @@ export function DatePicker({
             className,
           )}
         >
-          <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <IconCalendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           {validDate ? (
             format(validDate, "MMM d, yyyy")
           ) : (

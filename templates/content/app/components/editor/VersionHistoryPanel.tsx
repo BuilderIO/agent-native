@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, RotateCcw, Loader2 } from "lucide-react";
+import { IconArrowLeft, IconRotate, IconLoader2 } from "@tabler/icons-react";
 import {
   Sheet,
   SheetContent,
@@ -77,7 +77,7 @@ export function VersionHistoryPanel({
                 onClick={() => setSelectedVersion(null)}
                 className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
               >
-                <ArrowLeft size={14} />
+                <IconArrowLeft size={14} />
                 <span>Back to history</span>
               </button>
             ) : (
@@ -118,9 +118,9 @@ export function VersionHistoryPanel({
                 disabled={restoreVersion.isPending}
               >
                 {restoreVersion.isPending ? (
-                  <Loader2 size={14} className="animate-spin mr-1.5" />
+                  <IconLoader2 size={14} className="animate-spin mr-1.5" />
                 ) : (
-                  <RotateCcw size={14} className="mr-1.5" />
+                  <IconRotate size={14} className="mr-1.5" />
                 )}
                 Restore this version
               </Button>
@@ -130,7 +130,7 @@ export function VersionHistoryPanel({
           <ScrollArea className="h-[calc(100%-60px)]">
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
-                <Loader2
+                <IconLoader2
                   size={16}
                   className="animate-spin text-muted-foreground"
                 />

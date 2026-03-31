@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router";
 import { useEffect } from "react";
-import { ArrowLeft } from "lucide-react";
+import { IconArrowLeft } from "@tabler/icons-react";
 
 export default function NotFound() {
   const location = useLocation();
@@ -20,7 +20,7 @@ export default function NotFound() {
           to="/"
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-sm text-white/70 transition-colors"
         >
-          <ArrowLeft className="w-4 h-4" />
+          <IconArrowLeft className="w-4 h-4" />
           Back to Decks
         </Link>
       </div>

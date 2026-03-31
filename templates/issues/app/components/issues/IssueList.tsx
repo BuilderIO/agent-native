@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
 import { IssueListItem } from "./IssueListItem";
 import { groupIssuesByStatusCategory } from "@/lib/issue-utils";
 import type { JiraIssue } from "@shared/types";
@@ -65,9 +65,9 @@ export function IssueList({
               className="flex w-full items-center gap-2 border-b border-border/30 bg-muted/30 px-4 py-2 text-left"
             >
               {isCollapsed ? (
-                <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                <IconChevronRight className="h-3 w-3 text-muted-foreground" />
               ) : (
-                <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                <IconChevronDown className="h-3 w-3 text-muted-foreground" />
               )}
               <span className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
                 {group.category}

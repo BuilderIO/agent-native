@@ -1,14 +1,14 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
-  Wand2,
-  FolderOpen,
-  Upload,
-  Search,
-  Maximize,
-  Minimize,
-  Globe,
-} from "lucide-react";
+  IconWand,
+  IconFolderOpen,
+  IconUpload,
+  IconSearch,
+  IconMaximize,
+  IconMinimize,
+  IconGlobe,
+} from "@tabler/icons-react";
 
 interface ImageOverlayProps {
   anchorRect: DOMRect;
@@ -76,7 +76,7 @@ export default function ImageOverlay({
         }}
         className="image-overlay-btn"
       >
-        <Wand2 className="w-3.5 h-3.5 text-[#609FF8]" />
+        <IconWand className="w-3.5 h-3.5 text-[#609FF8]" />
         Generate
       </button>
       <button
@@ -86,7 +86,7 @@ export default function ImageOverlay({
         }}
         className="image-overlay-btn"
       >
-        <FolderOpen className="w-3.5 h-3.5 text-[#00E5FF]" />
+        <IconFolderOpen className="w-3.5 h-3.5 text-[#00E5FF]" />
         Asset Library
       </button>
       <button
@@ -96,8 +96,8 @@ export default function ImageOverlay({
         }}
         className="image-overlay-btn"
       >
-        <Upload className="w-3.5 h-3.5 text-white/50" />
-        Upload
+        <IconUpload className="w-3.5 h-3.5 text-white/50" />
+        IconUpload
       </button>
       <button
         onClick={() => {
@@ -106,8 +106,8 @@ export default function ImageOverlay({
         }}
         className="image-overlay-btn"
       >
-        <Search className="w-3.5 h-3.5 text-white/50" />
-        Search
+        <IconSearch className="w-3.5 h-3.5 text-white/50" />
+        IconSearch
       </button>
       <button
         onClick={() => {
@@ -116,15 +116,15 @@ export default function ImageOverlay({
         }}
         className="image-overlay-btn"
       >
-        <Globe className="w-3.5 h-3.5 text-white/50" />
+        <IconGlobe className="w-3.5 h-3.5 text-white/50" />
         Logo
       </button>
       <div className="mx-1.5 border-t border-white/[0.08]" />
       <button onClick={onToggleObjectFit} className="image-overlay-btn">
         {objectFit === "cover" ? (
-          <Minimize className="w-3.5 h-3.5 text-white/50" />
+          <IconMinimize className="w-3.5 h-3.5 text-white/50" />
         ) : (
-          <Maximize className="w-3.5 h-3.5 text-white/50" />
+          <IconMaximize className="w-3.5 h-3.5 text-white/50" />
         )}
         Fit: {objectFit === "cover" ? "Cover" : "Contain"}
       </button>

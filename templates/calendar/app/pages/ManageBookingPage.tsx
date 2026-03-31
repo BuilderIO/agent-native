@@ -3,12 +3,12 @@ import { useParams, useNavigate } from "react-router";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import {
-  CalendarDays,
-  Clock,
-  XCircle,
-  CalendarPlus,
-  CheckCircle2,
-} from "lucide-react";
+  IconCalendar,
+  IconClock,
+  IconCircleX,
+  IconCalendarPlus,
+  IconCircleCheck,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -85,7 +85,7 @@ export function ManageBookingPage() {
   if (error || !booking) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen px-4 text-center">
-        <XCircle className="h-12 w-12 text-muted-foreground mb-4" />
+        <IconCircleX className="h-12 w-12 text-muted-foreground mb-4" />
         <h1 className="text-xl font-semibold">Booking not found</h1>
         <p className="mt-2 text-sm text-muted-foreground max-w-sm">
           This link may have expired or the booking may have been removed.
@@ -97,7 +97,7 @@ export function ManageBookingPage() {
   if (isCancelled) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen px-4 text-center">
-        <CheckCircle2 className="h-16 w-16 text-emerald-600 dark:text-emerald-400 mb-4" />
+        <IconCircleCheck className="h-16 w-16 text-emerald-600 dark:text-emerald-400 mb-4" />
         <h1 className="text-2xl font-semibold">Booking Cancelled</h1>
         <p className="mt-2 text-sm text-muted-foreground max-w-sm">
           Your booking for{" "}
@@ -116,7 +116,7 @@ export function ManageBookingPage() {
             className="mt-6 gap-2"
             onClick={() => navigate(`/book/${booking.slug}`)}
           >
-            <CalendarPlus className="h-4 w-4" />
+            <IconCalendarPlus className="h-4 w-4" />
             Reschedule
           </Button>
         )}
@@ -140,11 +140,11 @@ export function ManageBookingPage() {
             <p className="text-lg font-semibold">{booking.eventTitle}</p>
           </div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <CalendarDays className="h-4 w-4 shrink-0" />
+            <IconCalendar className="h-4 w-4 shrink-0" />
             {format(parseISO(booking.start), "EEEE, MMMM d, yyyy")}
           </div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Clock className="h-4 w-4 shrink-0" />
+            <IconClock className="h-4 w-4 shrink-0" />
             {format(parseISO(booking.start), "h:mm a")} -{" "}
             {format(parseISO(booking.end), "h:mm a")}
           </div>
@@ -167,7 +167,7 @@ export function ManageBookingPage() {
                     className="w-full gap-2"
                     disabled={cancelMutation.isPending}
                   >
-                    <CalendarPlus className="h-4 w-4" />
+                    <IconCalendarPlus className="h-4 w-4" />
                     Reschedule
                   </Button>
                 </AlertDialogTrigger>
@@ -210,7 +210,7 @@ export function ManageBookingPage() {
                   className="w-full gap-2"
                   disabled={cancelMutation.isPending}
                 >
-                  <XCircle className="h-4 w-4" />
+                  <IconCircleX className="h-4 w-4" />
                   Cancel Booking
                 </Button>
               </AlertDialogTrigger>

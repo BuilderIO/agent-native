@@ -1,14 +1,14 @@
 import { BubbleMenu } from "@tiptap/react/menus";
 import type { Editor } from "@tiptap/react";
 import {
-  Bold,
-  Italic,
-  Strikethrough,
-  Code,
-  Link,
-  Wand2,
-  Loader2,
-} from "lucide-react";
+  IconBold,
+  IconItalic,
+  IconStrikethrough,
+  IconCode,
+  IconLink,
+  IconWand,
+  IconLoader2,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 interface ComposeBubbleToolbarProps {
@@ -79,33 +79,33 @@ export function ComposeBubbleToolbar({
 
   const items = [
     {
-      icon: Bold,
-      title: "Bold",
+      icon: IconBold,
+      title: "IconBold",
       action: () => editor.chain().focus().toggleBold().run(),
       isActive: () => editor.isActive("bold"),
     },
     {
-      icon: Italic,
-      title: "Italic",
+      icon: IconItalic,
+      title: "IconItalic",
       action: () => editor.chain().focus().toggleItalic().run(),
       isActive: () => editor.isActive("italic"),
     },
     {
-      icon: Strikethrough,
-      title: "Strikethrough",
+      icon: IconStrikethrough,
+      title: "IconStrikethrough",
       action: () => editor.chain().focus().toggleStrike().run(),
       isActive: () => editor.isActive("strike"),
     },
     {
-      icon: Code,
-      title: "Code",
+      icon: IconCode,
+      title: "IconCode",
       action: () => editor.chain().focus().toggleCode().run(),
       isActive: () => editor.isActive("code"),
     },
     { type: "divider" as const },
     {
-      icon: Link,
-      title: "Link",
+      icon: IconLink,
+      title: "IconLink",
       action: toggleLink,
       isActive: () => editor.isActive("link"),
     },
@@ -158,7 +158,7 @@ export function ComposeBubbleToolbar({
         >
           {isGenerating ? (
             <>
-              <Loader2 size={14} className="animate-spin text-gray-400" />
+              <IconLoader2 size={14} className="animate-spin text-gray-400" />
               <span className="text-xs text-gray-400 px-1">Generating…</span>
             </>
           ) : (
@@ -242,7 +242,7 @@ export function ComposeBubbleToolbar({
             title="AI Assist"
             className="p-1.5 rounded transition-colors text-gray-300 hover:bg-gray-700 hover:text-white"
           >
-            <Wand2 size={14} strokeWidth={2.5} />
+            <IconWand size={14} strokeWidth={2.5} />
           </button>
         </div>
       )}

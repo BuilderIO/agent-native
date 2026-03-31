@@ -10,13 +10,13 @@ import {
   useImperativeHandle,
 } from "react";
 import {
-  Play,
-  Pause,
-  SkipBack,
-  Repeat,
-  Maximize2,
-  Minimize2,
-} from "lucide-react";
+  IconPlayerPlay,
+  IconPlayerPause,
+  IconPlayerSkipBack,
+  IconRepeat,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
+} from "@tabler/icons-react";
 import {
   Select,
   SelectContent,
@@ -367,15 +367,19 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 aria-label="Go to start"
                 className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
               >
-                <SkipBack size={15} />
+                <IconPlayerSkipBack size={15} />
               </button>
               <button
                 onClick={togglePlay}
-                title={playing ? "Pause" : "Play"}
-                aria-label={playing ? "Pause" : "Play"}
+                title={playing ? "IconPlayerPause" : "IconPlayerPlay"}
+                aria-label={playing ? "IconPlayerPause" : "IconPlayerPlay"}
                 className="p-2 text-foreground hover:bg-secondary rounded-lg transition-colors"
               >
-                {playing ? <Pause size={17} /> : <Play size={17} />}
+                {playing ? (
+                  <IconPlayerPause size={17} />
+                ) : (
+                  <IconPlayerPlay size={17} />
+                )}
               </button>
               <button
                 onClick={() => setRepeat((r) => !r)}
@@ -388,7 +392,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
-                <Repeat size={14} />
+                <IconRepeat size={14} />
               </button>
             </div>
 
@@ -442,9 +446,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
               >
                 {isFullscreen ? (
-                  <Minimize2 size={13} />
+                  <IconArrowsMinimize size={13} />
                 ) : (
-                  <Maximize2 size={13} />
+                  <IconArrowsMaximize size={13} />
                 )}
               </button>
             </div>

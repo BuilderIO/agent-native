@@ -1,5 +1,10 @@
 import { useState, useEffect } from "react";
-import { ExternalLink, Unlink, CheckCircle2, XCircle } from "lucide-react";
+import {
+  IconExternalLink,
+  IconUnlink,
+  IconCircleCheck,
+  IconCircleX,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -110,7 +115,7 @@ export default function Settings() {
             <div className="flex items-center gap-3">
               {googleStatus.data?.connected ? (
                 <>
-                  <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  <IconCircleCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                   <div>
                     <p className="text-sm font-medium">Connected</p>
                     {googleStatus.data.accounts?.length > 0 && (
@@ -124,7 +129,7 @@ export default function Settings() {
                 </>
               ) : (
                 <>
-                  <XCircle className="h-5 w-5 text-muted-foreground" />
+                  <IconCircleX className="h-5 w-5 text-muted-foreground" />
                   <p className="text-sm text-muted-foreground">Not connected</p>
                 </>
               )}
@@ -137,12 +142,12 @@ export default function Settings() {
                 onClick={handleDisconnect}
                 disabled={disconnectGoogle.isPending}
               >
-                <Unlink className="mr-1.5 h-3.5 w-3.5" />
+                <IconUnlink className="mr-1.5 h-3.5 w-3.5" />
                 Disconnect
               </Button>
             ) : (
               <Button size="sm" onClick={handleConnect}>
-                <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                <IconExternalLink className="mr-1.5 h-3.5 w-3.5" />
                 Connect
               </Button>
             )}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronRight, Copy, Check } from "lucide-react";
+import { IconChevronRight, IconCopy, IconCheck } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -23,7 +23,7 @@ export function SqlPreview({ sql }: SqlPreviewProps) {
         className="flex items-center gap-2 w-full px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
-        <ChevronRight
+        <IconChevronRight
           className={cn(
             "h-4 w-4 transition-transform",
             expanded && "rotate-90",
@@ -43,9 +43,9 @@ export function SqlPreview({ sql }: SqlPreviewProps) {
             onClick={handleCopy}
           >
             {copied ? (
-              <Check className="h-3 w-3" />
+              <IconCheck className="h-3 w-3" />
             ) : (
-              <Copy className="h-3 w-3" />
+              <IconCopy className="h-3 w-3" />
             )}
           </Button>
         </div>

@@ -25,6 +25,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@libsql/client": "^0.15.8",
+    "@tabler/icons-react": "^3.40.0",
     "h3": "^1.15.3",
     "isbot": "^5",
     "zod": "^3.25.76"

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { VisualEditor } from "./VisualEditor";
 import { DocumentToolbar } from "./DocumentToolbar";
 import { useDocument, useUpdateDocument } from "@/hooks/use-documents";
-import { Loader2 } from "lucide-react";
+import { IconLoader2 } from "@tabler/icons-react";
 
 interface DocumentEditorProps {
   documentId: string;
@@ -114,7 +114,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        <IconLoader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -135,7 +135,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
       {/* Save indicator */}
       {isSaving && (
         <div className="absolute top-12 right-4 flex items-center gap-1.5 text-xs text-muted-foreground z-10">
-          <Loader2 size={12} className="animate-spin" />
+          <IconLoader2 size={12} className="animate-spin" />
           Saving...
         </div>
       )}

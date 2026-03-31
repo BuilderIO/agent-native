@@ -1,18 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Editor } from "@tiptap/react";
 import {
-  Type,
-  Heading1,
-  Heading2,
-  Heading3,
-  List,
-  ListOrdered,
-  CheckSquare,
-  Code2,
-  Quote,
-  Minus,
-  Table as TableIcon,
-} from "lucide-react";
+  IconTypography,
+  IconH1,
+  IconH2,
+  IconH3,
+  IconList,
+  IconListNumbers,
+  IconSquareCheck,
+  IconCode,
+  IconQuote,
+  IconMinus,
+  IconTable as TableIcon,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
 interface SlashCommandMenuProps {
@@ -30,64 +30,64 @@ const commands: CommandItem[] = [
   {
     title: "Text",
     description: "Plain text block",
-    icon: Type,
+    icon: IconTypography,
     action: (editor) => editor.chain().focus().setParagraph().run(),
   },
   {
     title: "Heading 1",
     description: "Large heading",
-    icon: Heading1,
+    icon: IconH1,
     action: (editor) =>
       editor.chain().focus().toggleHeading({ level: 1 }).run(),
   },
   {
     title: "Heading 2",
     description: "Medium heading",
-    icon: Heading2,
+    icon: IconH2,
     action: (editor) =>
       editor.chain().focus().toggleHeading({ level: 2 }).run(),
   },
   {
     title: "Heading 3",
     description: "Small heading",
-    icon: Heading3,
+    icon: IconH3,
     action: (editor) =>
       editor.chain().focus().toggleHeading({ level: 3 }).run(),
   },
   {
-    title: "Bullet List",
+    title: "Bullet IconList",
     description: "Unordered list",
-    icon: List,
+    icon: IconList,
     action: (editor) => editor.chain().focus().toggleBulletList().run(),
   },
   {
-    title: "Numbered List",
+    title: "Numbered IconList",
     description: "Ordered list",
-    icon: ListOrdered,
+    icon: IconListNumbers,
     action: (editor) => editor.chain().focus().toggleOrderedList().run(),
   },
   {
-    title: "To-do List",
+    title: "To-do IconList",
     description: "Checklist items",
-    icon: CheckSquare,
+    icon: IconSquareCheck,
     action: (editor) => editor.chain().focus().toggleTaskList().run(),
   },
   {
     title: "Code Block",
     description: "Code snippet",
-    icon: Code2,
+    icon: IconCode,
     action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
   },
   {
-    title: "Quote",
+    title: "IconQuote",
     description: "Block quote",
-    icon: Quote,
+    icon: IconQuote,
     action: (editor) => editor.chain().focus().toggleBlockquote().run(),
   },
   {
     title: "Divider",
     description: "Horizontal rule",
-    icon: Minus,
+    icon: IconMinus,
     action: (editor) => editor.chain().focus().setHorizontalRule().run(),
   },
   {

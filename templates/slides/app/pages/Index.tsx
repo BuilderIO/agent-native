@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router";
-import { Plus, Layers, Settings } from "lucide-react";
+import { IconPlus, IconStack2, IconSettings } from "@tabler/icons-react";
 import { useDecks } from "@/context/DeckContext";
 import DeckCard from "@/components/deck/DeckCard";
 import PromptPopover from "@/components/editor/PromptDialog";
@@ -74,13 +74,13 @@ export default function Index() {
             <a
               href="/settings"
               className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/50 hover:text-white/80 transition-all"
-              title="Settings"
-              aria-label="Settings"
+              title="IconSettings"
+              aria-label="IconSettings"
             >
-              <Settings className="w-3.5 h-3.5" />
+              <IconSettings className="w-3.5 h-3.5" />
             </a>
             <Button onClick={openNewDeck} size="sm">
-              <Plus className="w-3.5 h-3.5" />
+              <IconPlus className="w-3.5 h-3.5" />
               New Deck
             </Button>
             <AgentToggleButton />
@@ -115,7 +115,7 @@ export default function Index() {
                 {/* Slide preview area - matches DeckCard aspect-video */}
                 <div className="aspect-video flex items-center justify-center bg-white/[0.02]">
                   <div className="w-12 h-12 rounded-xl bg-white/[0.04] flex items-center justify-center group-hover:bg-white/[0.06] transition-colors">
-                    <Plus className="w-6 h-6 text-white/30 group-hover:text-white/50 transition-colors" />
+                    <IconPlus className="w-6 h-6 text-white/30 group-hover:text-white/50 transition-colors" />
                   </div>
                 </div>
                 {/* Info area - matches DeckCard p-4 */}
@@ -192,7 +192,7 @@ function EmptyState({
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
-        <Layers className="w-7 h-7 text-[#609FF8]" />
+        <IconStack2 className="w-7 h-7 text-[#609FF8]" />
       </div>
       <h2 className="text-xl font-semibold text-white/90 mb-2">
         Create your first deck
@@ -206,7 +206,7 @@ function EmptyState({
           onCreateDeck(e as React.MouseEvent<HTMLElement>)
         }
       >
-        <Plus className="w-4 h-4" />
+        <IconPlus className="w-4 h-4" />
         New Deck
       </Button>
     </div>

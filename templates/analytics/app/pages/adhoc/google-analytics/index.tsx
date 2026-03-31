@@ -20,7 +20,7 @@ import {
   type DateRange,
 } from "@/components/dashboard/DateRangePicker";
 import { getIdToken } from "@/lib/auth";
-import { Users, MousePointerClick, ArrowLeftRight } from "lucide-react";
+import { IconUsers, IconClick, IconArrowLeftRight } from "@tabler/icons-react";
 import { fetchGA4Report, type GA4ReportResponse } from "./queries";
 
 const DATE_RANGE_KEY = "ga4_date_range";
@@ -134,7 +134,7 @@ function TopPagesTable({
               Views
             </th>
             <th className="text-right py-2 pl-4 font-medium text-muted-foreground">
-              Users
+              IconUsers
             </th>
           </tr>
         </thead>
@@ -257,7 +257,7 @@ function CountryTable({
               Country
             </th>
             <th className="text-right py-2 pl-4 font-medium text-muted-foreground">
-              Users
+              IconUsers
             </th>
           </tr>
         </thead>
@@ -335,7 +335,7 @@ export default function GoogleAnalyticsDashboard() {
     enabled: configured,
   });
 
-  // Users by country
+  // IconUsers by country
   const usersByCountry = useQuery({
     queryKey: ["ga4-countries", days],
     queryFn: () =>
@@ -397,9 +397,9 @@ export default function GoogleAnalyticsDashboard() {
       {/* Metric cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <MetricCard
-          title="Active Users"
+          title="Active IconUsers"
           value={activeUsers}
-          icon={Users}
+          icon={IconUsers}
           isLoading={totals.isLoading}
           error={totals.error?.message}
           description={`Last ${days} days`}
@@ -407,7 +407,7 @@ export default function GoogleAnalyticsDashboard() {
         <MetricCard
           title="Sessions"
           value={sessions}
-          icon={MousePointerClick}
+          icon={IconClick}
           isLoading={totals.isLoading}
           error={totals.error?.message}
           description={`Last ${days} days`}
@@ -417,7 +417,7 @@ export default function GoogleAnalyticsDashboard() {
           value={
             bounceRate != null ? `${(bounceRate * 100).toFixed(1)}%` : null
           }
-          icon={ArrowLeftRight}
+          icon={IconArrowLeftRight}
           isLoading={totals.isLoading}
           error={totals.error?.message}
           description={`Last ${days} days`}
@@ -464,7 +464,7 @@ export default function GoogleAnalyticsDashboard() {
 
       <Card className="bg-card border-border/50">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Users by Country</CardTitle>
+          <CardTitle className="text-base">IconUsers by Country</CardTitle>
         </CardHeader>
         <CardContent>
           <CountryTable

@@ -1,20 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
 import { format, parseISO, differenceInMinutes } from "date-fns";
 import {
-  X,
-  Clock,
-  MapPin,
-  User,
-  Video,
-  Globe,
-  RefreshCw,
-  Bell,
-  ChevronRight,
-  Check,
-  HelpCircle,
-  XCircle,
-  PanelRight,
-} from "lucide-react";
+  IconX,
+  IconClock,
+  IconMapPin,
+  IconUser,
+  IconVideo,
+  IconGlobe,
+  IconRefresh,
+  IconBell,
+  IconChevronRight,
+  IconCheck,
+  IconHelpCircle,
+  IconCircleX,
+  IconLayoutSidebarRight,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -151,7 +151,7 @@ function extractMeetingLink(event: CalendarEvent): {
   pin?: string;
   passcode?: string;
 } | null {
-  // Check conferenceData first
+  // IconCheck conferenceData first
   if (event.conferenceData?.entryPoints) {
     const videoEntry = event.conferenceData.entryPoints.find(
       (ep) => ep.entryPointType === "video",
@@ -171,7 +171,7 @@ function extractMeetingLink(event: CalendarEvent): {
     }
   }
 
-  // Check hangoutLink
+  // IconCheck hangoutLink
   if (event.hangoutLink) {
     return { url: event.hangoutLink, type: "meet" };
   }
@@ -254,13 +254,13 @@ function formatRecurrence(recurrence?: string[]): string | null {
 function ResponseStatusIcon({ status }: { status?: string }) {
   switch (status) {
     case "accepted":
-      return <Check className="h-3 w-3 text-green-500" />;
+      return <IconCheck className="h-3 w-3 text-green-500" />;
     case "declined":
-      return <XCircle className="h-3 w-3 text-red-400" />;
+      return <IconCircleX className="h-3 w-3 text-red-400" />;
     case "tentative":
-      return <HelpCircle className="h-3 w-3 text-yellow-500" />;
+      return <IconHelpCircle className="h-3 w-3 text-yellow-500" />;
     default:
-      return <HelpCircle className="h-3 w-3 text-muted-foreground/40" />;
+      return <IconHelpCircle className="h-3 w-3 text-muted-foreground/40" />;
   }
 }
 
@@ -343,7 +343,7 @@ function RsvpSection({
             `}
           >
             {isActive && opt.value === "accepted" && (
-              <Check className="inline h-3 w-3 mr-1 -mt-px" />
+              <IconCheck className="inline h-3 w-3 mr-1 -mt-px" />
             )}
             {opt.label}
           </button>
@@ -396,12 +396,12 @@ function AttendeeAvatar({
   );
 }
 
-/** Check if a string looks like a URL */
+/** IconCheck if a string looks like a URL */
 function isUrl(str: string): boolean {
   return /^https?:\/\//i.test(str.trim());
 }
 
-/** Check if description contains HTML */
+/** IconCheck if description contains HTML */
 function isHtml(str: string): boolean {
   return /<[a-z][\s\S]*>/i.test(str);
 }
@@ -446,7 +446,7 @@ function AttendeesSection({
   return (
     <div className="px-4 py-1">
       <div className="flex items-start gap-3">
-        <User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <IconUser className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="flex-1">
           {shouldTruncate && (
             <div className="mb-2">
@@ -593,7 +593,7 @@ function AttendeesList({
   return (
     <div className="px-4 py-1">
       <div className="flex items-start gap-3">
-        <User className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <IconUser className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="flex-1">
           {shouldTruncate && (
             <div className="mb-2">
@@ -734,7 +734,7 @@ export function EventDetailPopover({
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
             <div className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
               <span>Event</span>
-              <ChevronRight className="h-3 w-3" />
+              <IconChevronRight className="h-3 w-3" />
             </div>
             <div className="flex items-center gap-0.5">
               <Tooltip>
@@ -745,7 +745,7 @@ export function EventDetailPopover({
                     className="h-6 w-6 text-muted-foreground hover:text-foreground"
                     onClick={handlePinToSidebar}
                   >
-                    <PanelRight className="h-3.5 w-3.5" />
+                    <IconLayoutSidebarRight className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -758,7 +758,7 @@ export function EventDetailPopover({
                 className="h-6 w-6 text-muted-foreground hover:text-foreground"
                 onClick={() => setOpen(false)}
               >
-                <X className="h-3.5 w-3.5" />
+                <IconX className="h-3.5 w-3.5" />
               </Button>
             </div>
           </div>
@@ -775,7 +775,7 @@ export function EventDetailPopover({
             <div className="px-4 space-y-1">
               {/* Time */}
               <div className="flex items-start gap-3 py-1.5">
-                <Clock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <IconClock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                 <div className="text-sm">
                   {event.allDay ? (
                     <div>
@@ -810,14 +810,14 @@ export function EventDetailPopover({
 
               {/* Timezone */}
               <div className="flex items-center gap-3 py-1.5">
-                <Globe className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <IconGlobe className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <span className="text-sm text-muted-foreground">{tzLabel}</span>
               </div>
 
               {/* Recurrence */}
               {recurrenceText && (
                 <div className="flex items-center gap-3 py-1.5">
-                  <RefreshCw className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <IconRefresh className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="text-sm text-muted-foreground">
                     {recurrenceText}
                   </span>
@@ -854,7 +854,7 @@ export function EventDetailPopover({
                     rel="noopener noreferrer"
                     className="flex items-center justify-center w-full rounded-xl bg-[#4965E0] hover:bg-[#5A75F0] text-white font-semibold py-3 px-4 text-[15px] relative"
                   >
-                    <Video className="h-5 w-5 mr-2 opacity-80" />
+                    <IconVideo className="h-5 w-5 mr-2 opacity-80" />
                     <span>{getMeetingLabel(meetingLink.type)}</span>
                     <span className="absolute right-4 flex items-center gap-1 opacity-50">
                       <kbd className="text-xs font-normal">⌘</kbd>
@@ -883,7 +883,7 @@ export function EventDetailPopover({
               <>
                 <div className="mx-4 my-2 border-t border-border/50" />
                 <div className="flex items-start gap-3 px-4 py-1.5">
-                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <IconMapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                   {locationIsUrl ? (
                     <a
                       href={event.location}
@@ -957,7 +957,7 @@ export function EventDetailPopover({
               <>
                 <div className="mx-4 my-2 border-t border-border/50" />
                 <div className="flex items-start gap-3 px-4 py-1.5">
-                  <Bell className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <IconBell className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                   <div className="space-y-0.5">
                     {event.reminders.map((r, i) => (
                       <div key={i} className="text-sm text-muted-foreground">
@@ -1004,7 +1004,7 @@ export function EventDetailPopover({
               <>
                 <div className="mx-4 my-2 border-t border-border/50" />
                 <div className="flex items-center gap-3 px-4 py-1.5">
-                  <User className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <IconUser className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="text-sm text-muted-foreground">
                     {event.overlayEmail}
                   </span>

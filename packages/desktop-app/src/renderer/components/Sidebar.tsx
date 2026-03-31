@@ -1,33 +1,32 @@
 import {
-  Mail,
-  CalendarDays,
-  FileText,
-  BarChart2,
-  GalleryHorizontal,
-  Layers,
-  Video,
-  CircleDot,
-  ClipboardList,
-  Users,
-  Code,
-  Settings,
-  type LucideProps,
-} from "lucide-react";
+  IconMail,
+  IconCalendar,
+  IconFileText,
+  IconChartBar,
+  IconLayoutGrid,
+  IconStack2,
+  IconVideo,
+  IconCircleDot,
+  IconClipboardList,
+  IconUsers,
+  IconCode,
+  IconSettings,
+} from "@tabler/icons-react";
 import type { AppDefinition } from "@shared/app-registry";
 
 // Map icon name strings (from app-registry) to Lucide components
-const ICON_MAP: Record<string, React.ComponentType<LucideProps>> = {
-  Mail,
-  CalendarDays,
-  FileText,
-  BarChart2,
-  GalleryHorizontal,
-  Layers,
-  Video,
-  CircleDot,
-  ClipboardList,
-  Users,
-  Code,
+const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
+  IconMail,
+  IconCalendar,
+  IconFileText,
+  IconChartBar,
+  IconLayoutGrid,
+  IconStack2,
+  IconVideo,
+  IconCircleDot,
+  IconClipboardList,
+  IconUsers,
+  IconCode,
 };
 
 interface SidebarProps {
@@ -76,19 +75,19 @@ export default function Sidebar({
         ))}
       </nav>
 
-      {/* Settings button at bottom */}
+      {/* IconSettings button at bottom */}
       {onSettingsClick && (
         <div className="sidebar-footer">
           <button
             className="sidebar-item"
             onClick={onSettingsClick}
-            title="App Settings"
-            aria-label="Settings"
+            title="App IconSettings"
+            aria-label="IconSettings"
           >
             <span className="icon-wrapper">
-              <Settings size={18} strokeWidth={1.75} />
+              <IconSettings size={18} strokeWidth={1.75} />
             </span>
-            <span className="item-label">Settings</span>
+            <span className="item-label">IconSettings</span>
           </button>
         </div>
       )}
@@ -105,7 +104,7 @@ interface SidebarItemProps {
 }
 
 function SidebarItem({ app, isActive, onClick }: SidebarItemProps) {
-  const Icon = ICON_MAP[app.icon] ?? Layers;
+  const Icon = ICON_MAP[app.icon] ?? IconStack2;
 
   return (
     <button
