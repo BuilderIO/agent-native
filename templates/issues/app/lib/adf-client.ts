@@ -64,7 +64,7 @@ function renderNode(node: AdfNode): string {
       return `<blockquote>${(node.content || []).map(renderNode).join("")}</blockquote>`;
     case "codeBlock": {
       const lang = node.attrs?.language
-        ? ` class="language-${node.attrs.language}"`
+        ? ` class="language-${escapeHtml(String(node.attrs.language))}"`
         : "";
       return `<pre><code${lang}>${(node.content || []).map(renderNode).join("")}</code></pre>`;
     }
@@ -87,7 +87,7 @@ function renderNode(node: AdfNode): string {
     case "inlineCard":
       return `<a href="${escapeHtml(String(node.attrs?.url ?? ""))}" target="_blank" rel="noopener noreferrer">${escapeHtml(String(node.attrs?.url ?? "link"))}</a>`;
     case "panel": {
-      const panelType = node.attrs?.panelType ?? "info";
+      const panelType = escapeHtml(String(node.attrs?.panelType ?? "info"));
       return `<div class="panel panel-${panelType}">${(node.content || []).map(renderNode).join("")}</div>`;
     }
     default:

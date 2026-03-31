@@ -12,6 +12,8 @@ import { getSession } from "@agent-native/core/server";
 import type { AgentNote } from "@shared/types";
 
 export const listNotesHandler = defineEventHandler(async (event) => {
+  const session = await getSession(event);
+  const ownerEmail = session?.email ?? "local@localhost";
   const query = getQuery(event) as { candidate_id?: string };
   const candidateId = Number(query.candidate_id);
   if (!candidateId)
@@ -23,7 +25,12 @@ export const listNotesHandler = defineEventHandler(async (event) => {
   const rows = await db
     .select()
     .from(schema.agentNotes)
-    .where(eq(schema.agentNotes.candidateId, candidateId));
+    .where(
+      and(
+        eq(schema.agentNotes.candidateId, candidateId),
+        eq(schema.agentNotes.ownerEmail, ownerEmail),
+      ),
+    );
 
   return rows.map(
     (r): AgentNote => ({
@@ -68,10 +75,19 @@ export const createNoteHandler = defineEventHandler(async (event) => {
 });
 
 export const deleteNoteHandler = defineEventHandler(async (event) => {
+  const session = await getSession(event);
+  const ownerEmail = session?.email ?? "local@localhost";
   const id = getRouterParam(event, "id");
   if (!id) throw createError({ statusCode: 400, message: "Note ID required" });
 
-  await db.delete(schema.agentNotes).where(eq(schema.agentNotes.id, id));
+  await db
+    .delete(schema.agentNotes)
+    .where(
+      and(
+        eq(schema.agentNotes.id, id),
+        eq(schema.agentNotes.ownerEmail, ownerEmail),
+      ),
+    );
 
   return { success: true };
 });

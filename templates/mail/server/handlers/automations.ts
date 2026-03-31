@@ -1,4 +1,4 @@
-import { defineEventHandler, readBody, getRouterParam } from "h3";
+import { defineEventHandler, readBody, getRouterParam, createError } from "h3";
 import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
 import { getSession } from "@agent-native/core/server";
@@ -127,6 +127,9 @@ export const deleteAutomation = defineEventHandler(async (event) => {
 // ─── Trigger automations ─────────────────────────────────────────────────────
 
 export const triggerAutomations = defineEventHandler(async (event) => {
-  await getSession(event);
+  const session = await getSession(event);
+  if (!session) {
+    throw createError({ statusCode: 401, message: "Unauthorized" });
+  }
   return triggerAutomationsDebounced();
 });
