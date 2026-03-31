@@ -4,6 +4,7 @@ import {
   readBody,
   getMethod,
   getQuery,
+  getRequestIP,
   setResponseHeader,
   setResponseStatus,
   getCookie,
@@ -51,6 +52,69 @@ export interface AuthOptions {
 
 const COOKIE_NAME = "an_session";
 const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+
+// ---------------------------------------------------------------------------
+// Rate limiting — in-memory, per-IP
+// ---------------------------------------------------------------------------
+
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
+
+const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
+const RATE_LIMIT_MAX = 10; // max attempts per window
+const rateLimitMap = new Map<string, RateLimitEntry>();
+
+// Prune stale entries every 5 minutes to prevent unbounded growth
+setInterval(
+  () => {
+    const now = Date.now();
+    for (const [key, entry] of rateLimitMap) {
+      if (now > entry.resetAt) rateLimitMap.delete(key);
+    }
+  },
+  5 * 60 * 1000,
+).unref();
+
+function getClientIp(event: H3Event): string {
+  return getRequestIP(event, { xForwardedFor: true }) ?? "unknown";
+}
+
+/**
+ * Check rate limit for a given key (typically IP + route).
+ * Returns null if allowed, or a response object if blocked.
+ */
+function checkRateLimit(
+  event: H3Event,
+  key: string,
+): { error: string; retryAfter: number } | null {
+  const now = Date.now();
+  const entry = rateLimitMap.get(key);
+
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
+    return null;
+  }
+
+  entry.count++;
+  if (entry.count > RATE_LIMIT_MAX) {
+    const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+    setResponseStatus(event, 429);
+    setResponseHeader(event, "Retry-After", retryAfter);
+    return {
+      error: "Too many attempts. Please try again later.",
+      retryAfter,
+    };
+  }
+
+  return null;
+}
+
+/** Reset rate limit on successful auth (so valid users aren't penalized). */
+function resetRateLimit(key: string): void {
+  rateLimitMap.delete(key);
+}
 
 // ---------------------------------------------------------------------------
 // Session store — SQL-backed
@@ -531,53 +595,59 @@ const EMAIL_AUTH_HTML = `<!DOCTYPE html>
     border-radius: 12px;
   }
   .tabs {
-    display: flex;
-    gap: 0;
+    display: inline-flex;
+    width: 100%;
+    padding: 4px;
     margin-bottom: 1.5rem;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.06);
+    border-radius: 8px;
   }
   .tab {
     flex: 1;
-    padding: 0.625rem 0;
+    padding: 0.5rem 0.75rem;
     background: none;
     border: none;
-    color: #666;
-    font-size: 0.875rem;
+    color: #888;
+    font-size: 0.8125rem;
     font-weight: 500;
     cursor: pointer;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
+    border-radius: 6px;
   }
-  .tab.active { color: #fff; border-bottom-color: #fff; }
-  .tab:hover:not(.active) { color: #999; }
+  .tab.active {
+    background: #1e1e1e;
+    color: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  }
+  .tab:hover:not(.active) { color: #bbb; }
   .form { display: none; }
   .form.active { display: block; }
   label { display: block; font-size: 0.8125rem; color: #888; margin-bottom: 0.375rem; }
   input {
     width: 100%;
-    padding: 0.625rem 0.75rem;
-    background: #1e1e1e;
+    padding: 0.5rem 0.75rem;
+    background: transparent;
     border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 8px;
+    border-radius: 6px;
     color: #e5e5e5;
-    font-size: 0.9375rem;
+    font-size: 0.875rem;
     outline: none;
     margin-bottom: 0.875rem;
   }
-  input:focus { border-color: rgba(255,255,255,0.3); }
+  input:focus { border-color: rgba(255,255,255,0.3); box-shadow: 0 0 0 1px rgba(255,255,255,0.1); }
+  input::placeholder { color: #555; }
   button[type="submit"] {
     width: 100%;
     margin-top: 0.25rem;
-    padding: 0.625rem;
+    padding: 0.5rem;
     background: #fff;
     color: #000;
     border: none;
-    border-radius: 8px;
-    font-size: 0.9375rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
   }
-  button[type="submit"]:hover { opacity: 0.85; }
+  button[type="submit"]:hover { background: #e5e5e5; }
   button[type="submit"]:disabled { opacity: 0.5; cursor: not-allowed; }
   .msg { margin-top: 0.75rem; font-size: 0.8125rem; display: none; }
   .msg.error { color: #f87171; }

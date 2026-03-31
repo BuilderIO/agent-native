@@ -130,21 +130,27 @@ function looksLikeCode(text: string): boolean {
 
   if (lines.length === 0) return false;
 
+  // If average words per line is high, it's likely prose not code
+  const totalWords = lines.reduce((sum, l) => sum + l.split(/\s+/).length, 0);
+  if (totalWords / lines.length > 8) return false;
+
   let signalCount = 0;
   for (const line of lines) {
     if (
       /^[<{[]/.test(line) ||
-      /[{}[\];=>]/.test(line) ||
+      /[{}[\];]/.test(line) ||
       /\b(const|let|var|function|class|return|import|export|async|await|if|else|for|while|switch|SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER)\b/.test(
         line,
       ) ||
-      /\w+\(.*\)/.test(line)
+      // Function call: word( — requires NO space before paren and followed by ; { or EOL
+      /\w+\([^)]*\)(?:\s*[;{]|$)/.test(line)
     ) {
       signalCount++;
     }
   }
 
-  return signalCount >= Math.max(1, Math.ceil(lines.length / 3));
+  // Require at least half the lines to look like code (stricter than before)
+  return signalCount >= Math.max(2, Math.ceil(lines.length / 2));
 }
 
 function codeBlockToMarkdown(block: NotionBlock, indent: string): string[] {
@@ -381,6 +387,41 @@ function childrenToMarkdown(
   return trimTrailingBlankLines(lines);
 }
 
+/**
+ * Convert children of a paragraph block into bullet points.
+ * Notion represents indented text as child paragraphs — markdown has no
+ * equivalent, so we render them as nested bullets for visual indentation.
+ */
+function paragraphChildrenToBullets(
+  children: NotionBlock[],
+  warnings: string[],
+  indent: string,
+): string[] {
+  const lines: string[] = [];
+  for (const child of children) {
+    if (child.type === "paragraph") {
+      const childText = richTextToMarkdown(child.paragraph?.rich_text || []);
+      if (childText) {
+        lines.push(`${indent}- ${childText}`);
+      }
+      // Recursively convert grandchildren too
+      if (child.children?.length) {
+        lines.push(
+          ...paragraphChildrenToBullets(
+            child.children,
+            warnings,
+            indent + "  ",
+          ),
+        );
+      }
+    } else {
+      // Non-paragraph children (bullets, toggles, etc.) render normally
+      lines.push(...blockToMarkdown(child, warnings, indent));
+    }
+  }
+  return lines;
+}
+
 function blockToMarkdown(
   block: NotionBlock,
   warnings: string[],
@@ -437,7 +478,7 @@ function blockToMarkdown(
       break;
     case "toggle":
       lines.push(
-        `${indent}- ${richTextToMarkdown(block.toggle?.rich_text || [])}`,
+        `${indent}- ▶ ${richTextToMarkdown(block.toggle?.rich_text || [])}`,
       );
       break;
     case "image": {
@@ -451,7 +492,16 @@ function blockToMarkdown(
   }
 
   if (block.children?.length) {
-    lines.push(...childrenToMarkdown(block.children, warnings, childIndent));
+    if (block.type === "paragraph") {
+      // Notion indented paragraphs become children of a paragraph block.
+      // Markdown doesn't support indented paragraphs natively, so convert
+      // child paragraphs into nested bullet points for visual indentation.
+      lines.push(
+        ...paragraphChildrenToBullets(block.children, warnings, childIndent),
+      );
+    } else {
+      lines.push(...childrenToMarkdown(block.children, warnings, childIndent));
+    }
   }
 
   return lines;

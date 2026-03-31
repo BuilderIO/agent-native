@@ -35,6 +35,20 @@ function makeTempId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// Delay cache invalidation for mutations with optimistic updates.
+// Gmail's search index has eventual consistency — if we refetch immediately
+// after archiving/trashing, the email may still appear in `in:inbox` results,
+// undoing the optimistic removal. A short delay gives Gmail time to process.
+function delayedInvalidate(
+  qc: ReturnType<typeof useQueryClient>,
+  keys: string[][],
+  ms = 3000,
+) {
+  setTimeout(() => {
+    for (const key of keys) qc.invalidateQueries({ queryKey: key });
+  }, ms);
+}
+
 // ─── Emails ──────────────────────────────────────────────────────────────────
 
 export function useEmails(view: string = "inbox", search?: string) {
@@ -90,10 +104,7 @@ export function useMarkRead() {
     onError: (_err, _vars, context) => {
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["emails"] });
-      qc.invalidateQueries({ queryKey: ["labels"] });
-    },
+    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
   });
 }
 
@@ -136,10 +147,7 @@ export function useMarkThreadRead() {
     onError: (_err, _vars, context) => {
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["emails"] });
-      qc.invalidateQueries({ queryKey: ["labels"] });
-    },
+    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
   });
 }
 
@@ -180,7 +188,7 @@ export function useArchiveEmail() {
     onError: (_err, _vars, context) => {
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
   });
 }
 
@@ -226,7 +234,7 @@ export function useTrashEmail() {
     onError: (_err, _id, context) => {
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
+    onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
   });
 }
 

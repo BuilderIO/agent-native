@@ -12,6 +12,7 @@ import {
   FileText,
   Info,
 } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { CurrentElementPanel } from "@/components/CurrentElementPanel";
 
 class SafeBoundary extends Component<
@@ -97,36 +98,28 @@ export function ComponentLibrarySidebar({
 
   return (
     <div className="w-64 border-r border-border bg-secondary/30 flex flex-col overflow-hidden">
-      {/* Tab Switcher */}
-      <div className="flex border-b border-border">
-        <button
-          onClick={() => setTab("components")}
-          className={cn(
-            "flex-1 flex items-center justify-center px-3 py-2.5 text-[11px] font-medium transition-colors",
-            tab === "components"
-              ? "text-foreground border-b-2 border-primary"
-              : "text-muted-foreground hover:text-foreground/70",
-          )}
-        >
-          Components
-        </button>
-        <button
-          onClick={() => setTab("properties")}
-          className={cn(
-            "flex-1 flex items-center justify-center px-3 py-2.5 text-[11px] font-medium transition-colors",
-            tab === "properties"
-              ? "text-foreground border-b-2 border-primary"
-              : "text-muted-foreground hover:text-foreground/70",
-          )}
-        >
-          Properties
-        </button>
-      </div>
+      <Tabs
+        value={tab}
+        onValueChange={(v) => setTab(v as "components" | "properties")}
+        className="flex flex-col h-full"
+      >
+        <TabsList className="w-full rounded-none border-b border-border bg-transparent h-auto p-0 shrink-0">
+          <TabsTrigger
+            value="components"
+            className="flex-1 rounded-none border-b-2 border-transparent px-3 py-2.5 text-[11px] font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+          >
+            Components
+          </TabsTrigger>
+          <TabsTrigger
+            value="properties"
+            className="flex-1 rounded-none border-b-2 border-transparent px-3 py-2.5 text-[11px] font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+          >
+            Properties
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Tab Content */}
-      <div className="flex-1 overflow-hidden">
         {/* Components Tab */}
-        {tab === "components" && (
+        <TabsContent value="components" className="flex-1 overflow-hidden mt-0">
           <div className="h-full flex flex-col">
             <div className="px-4 py-3 border-b border-border">
               <h2 className="text-sm font-semibold text-foreground">
@@ -204,10 +197,10 @@ export function ComponentLibrarySidebar({
               )}
             </div>
           </div>
-        )}
+        </TabsContent>
 
         {/* Properties Tab */}
-        {tab === "properties" && (
+        <TabsContent value="properties" className="flex-1 overflow-hidden mt-0">
           <div className="h-full flex flex-col overflow-y-auto scrollbar-thin">
             {selectedComponent ? (
               <>
@@ -454,8 +447,8 @@ export function ComponentLibrarySidebar({
               </div>
             )}
           </div>
-        )}
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

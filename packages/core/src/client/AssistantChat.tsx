@@ -133,6 +133,7 @@ function ChevronDownIcon({ className }: { className?: string }) {
       strokeWidth={1.75}
       strokeLinecap="round"
       strokeLinejoin="round"
+      style={{ width: 24, height: 24 }}
       className={className}
     >
       <path d="m6 9 6 6 6-6" />
