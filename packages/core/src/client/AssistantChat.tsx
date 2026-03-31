@@ -27,7 +27,10 @@ import {
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
 import { cn } from "./utils.js";
-import { TiptapComposer } from "./composer/TiptapComposer.js";
+import {
+  TiptapComposer,
+  type TiptapComposerHandle,
+} from "./composer/TiptapComposer.js";
 import type { Reference } from "./composer/types.js";
 
 // ─── Icons ──────────────────────────────────────────────────────────────────
@@ -518,6 +521,8 @@ export interface AssistantChatHandle {
   queueMessage(text: string): void;
   /** Whether the chat is currently running */
   isRunning(): boolean;
+  /** Focus the composer input */
+  focusComposer(): void;
 }
 
 export interface AssistantChatProps {
@@ -686,6 +691,7 @@ const AssistantChatInner = forwardRef<
   const [showContinue, setShowContinue] = useState(false);
   const wasRunningRef = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const tiptapRef = useRef<TiptapComposerHandle>(null);
 
   // ─── Chat persistence ──────────────────────────────────────────────
   const hasRestoredRef = useRef(false);
@@ -890,6 +896,9 @@ const AssistantChatInner = forwardRef<
       isRunning() {
         return thread.isRunning;
       },
+      focusComposer() {
+        tiptapRef.current?.focus();
+      },
     }),
     [addToQueue, thread.isRunning],
   );
@@ -1071,6 +1080,7 @@ const AssistantChatInner = forwardRef<
               }}
             />
             <TiptapComposer
+              focusRef={tiptapRef}
               onSubmit={(text, references) => {
                 threadRuntime.append({
                   role: "user",

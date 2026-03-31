@@ -114,6 +114,18 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
         ? session.email
         : undefined;
     const desktop = isElectron(event);
+    console.log(
+      "[google-auth-url] UA:",
+      getHeader(event, "user-agent")?.slice(0, 80),
+    );
+    console.log(
+      "[google-auth-url] desktop:",
+      desktop,
+      "owner:",
+      owner,
+      "redirectUri:",
+      redirectUri,
+    );
     const state = encodeState(redirectUri, owner, desktop);
     const url = getAuthUrl(undefined, redirectUri, state);
     return { url };
@@ -159,7 +171,22 @@ export const handleGoogleCallback = defineEventHandler(
         : hasProductionSession
           ? existingSession.email
           : stateOwner || undefined;
+
+      console.log("[google-callback] state decoded:", {
+        desktop,
+        addAccount,
+        stateOwner,
+        redirectUri,
+      });
+      console.log("[google-callback] session:", {
+        existingEmail: existingSession?.email,
+        isDevSession,
+        hasProductionSession,
+        owner,
+      });
+
       const email = await exchangeCode(code, undefined, redirectUri, owner);
+      console.log("[google-callback] exchanged code, email:", email);
 
       // Create a session when there isn't one already, or when the desktop
       // app needs a token for its deep link (the system browser may have a
@@ -177,6 +204,15 @@ export const handleGoogleCallback = defineEventHandler(
           maxAge: 60 * 60 * 24 * 30, // 30 days
         });
       }
+
+      console.log("[google-callback] result:", {
+        hasToken: !!sessionToken,
+        desktop,
+        isMobile: /iPhone|iPad|iPod|Android/i.test(
+          getHeader(event, "user-agent") || "",
+        ),
+        willDeepLink: desktop && !!sessionToken,
+      });
 
       // If this looks like a mobile request, redirect via the native app scheme
       // so Safari bounces back to the app instead of staying on the web page.
@@ -258,7 +294,8 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       const redirectUri =
         (getQuery(event).redirect_uri as string) ||
         `${getOrigin(event)}/api/google/callback`;
-      const state = encodeState(redirectUri, session.email, undefined, true);
+      const desktop = isElectron(event);
+      const state = encodeState(redirectUri, session.email, desktop, true);
       const url = getAuthUrl(undefined, redirectUri, state);
       return { url };
     } catch (error: any) {

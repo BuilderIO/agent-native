@@ -355,6 +355,16 @@ export function MultiTabAssistantChat({
     }
   }, [activeThreadId]);
 
+  // Focus the composer when switching tabs
+  useEffect(() => {
+    if (!activeThreadId) return;
+    // Small delay to ensure the tab is visible before focusing
+    const t = setTimeout(() => {
+      chatRefs.current.get(activeThreadId)?.focusComposer();
+    }, 50);
+    return () => clearTimeout(t);
+  }, [activeThreadId]);
+
   const [messageCounts, setMessageCounts] = useState<Record<string, number>>(
     () => Object.fromEntries(threads.map((t) => [t.id, t.messageCount ?? 0])),
   );
