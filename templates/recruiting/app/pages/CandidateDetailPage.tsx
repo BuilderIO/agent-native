@@ -42,9 +42,11 @@ export function CandidateDetailPage() {
   const name = `${candidate.first_name} ${candidate.last_name}`;
   const initials = getInitials(name);
   const color = getAvatarColor(name);
-  const email = candidate.emails[0]?.value;
-  const phone = candidate.phone_numbers[0]?.value;
-  const activeApp = candidate.applications.find((a) => a.status === "active");
+  const email = (candidate.emails || [])[0]?.value;
+  const phone = (candidate.phone_numbers || [])[0]?.value;
+  const activeApp = (candidate.applications || []).find(
+    (a) => a.status === "active",
+  );
 
   return (
     <div className="h-full flex flex-col">
@@ -131,7 +133,7 @@ export function CandidateDetailPage() {
                     {phone}
                   </span>
                 )}
-                {candidate.addresses[0] && (
+                {(candidate.addresses || [])[0] && (
                   <span className="flex items-center gap-1.5 text-muted-foreground">
                     <IconMapPin className="h-3.5 w-3.5" />
                     {candidate.addresses[0].value}
@@ -140,9 +142,9 @@ export function CandidateDetailPage() {
               </div>
 
               {/* Tags */}
-              {candidate.tags.length > 0 && (
+              {(candidate.tags || []).length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
-                  {candidate.tags.map((tag) => (
+                  {(candidate.tags || []).map((tag) => (
                     <span
                       key={tag}
                       className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground"
@@ -159,7 +161,7 @@ export function CandidateDetailPage() {
                   Applications
                 </h3>
                 <div className="space-y-2">
-                  {candidate.applications.map((app) => (
+                  {(candidate.applications || []).map((app) => (
                     <div
                       key={app.id}
                       className="rounded-lg border border-border p-3"

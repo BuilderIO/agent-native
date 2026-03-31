@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router";
 import { useDashboard } from "@/hooks/use-greenhouse";
 import { formatRelativeDate, cn } from "@/lib/utils";
+import { getInitials, getAvatarColor } from "@/lib/utils";
 import {
   IconBriefcase,
   IconUsers,
@@ -40,7 +41,7 @@ export function DashboardPage() {
       onClick: () => navigate("/jobs"),
     },
     {
-      label: "Active Candidates",
+      label: "New This Week",
       value: data.activeCandidates,
       icon: IconUsers,
       color: "text-green-500",
@@ -98,43 +99,59 @@ export function DashboardPage() {
           </p>
         ) : (
           <div className="rounded-lg border border-border divide-y divide-border">
-            {data.recentApplications.map((app) => (
-              <div
-                key={app.id}
-                className="flex items-center justify-between px-4 py-3 text-sm"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="min-w-0">
-                    <div className="font-medium text-foreground truncate">
-                      {app.jobs?.[0]?.name ?? "Unknown Job"}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {app.current_stage?.name ?? "No stage"}
-                      {app.source && (
-                        <span> &middot; via {app.source.public_name}</span>
+            {data.recentApplications.map((app) => {
+              const name = app.candidate_name ?? "Unknown";
+              const initials = getInitials(name);
+              const color = getAvatarColor(name);
+              return (
+                <div
+                  key={app.id}
+                  onClick={() => navigate(`/candidates/${app.candidate_id}`)}
+                  className="flex items-center justify-between px-4 py-3 text-sm cursor-pointer hover:bg-accent/50"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className={cn(
+                        "flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white",
+                        color,
                       )}
+                    >
+                      {initials}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-medium text-foreground truncate">
+                        {name}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {app.jobs?.[0]?.name ?? "Unknown Job"}
+                        {" · "}
+                        {app.current_stage?.name ?? "No stage"}
+                        {app.source && (
+                          <span> · via {app.source.public_name}</span>
+                        )}
+                      </div>
                     </div>
                   </div>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <span
+                      className={cn(
+                        "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
+                        app.status === "active"
+                          ? "bg-green-500/10 text-green-600"
+                          : app.status === "hired"
+                            ? "bg-blue-500/10 text-blue-600"
+                            : "bg-red-500/10 text-red-600",
+                      )}
+                    >
+                      {app.status}
+                    </span>
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {formatRelativeDate(app.applied_at)}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 flex-shrink-0">
-                  <span
-                    className={cn(
-                      "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
-                      app.status === "active"
-                        ? "bg-green-500/10 text-green-600"
-                        : app.status === "hired"
-                          ? "bg-blue-500/10 text-blue-600"
-                          : "bg-red-500/10 text-red-600",
-                    )}
-                  >
-                    {app.status}
-                  </span>
-                  <span className="text-xs text-muted-foreground tabular-nums">
-                    {formatRelativeDate(app.applied_at)}
-                  </span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

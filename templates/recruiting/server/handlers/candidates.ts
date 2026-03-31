@@ -22,18 +22,35 @@ export const listCandidatesHandler = defineEventHandler(async (event) => {
   });
 
   // Client-side search filtering (Greenhouse API doesn't have a search param)
+  let results = candidates;
   if (query.search) {
     const term = query.search.toLowerCase();
-    return candidates.filter(
+    results = candidates.filter(
       (c) =>
-        c.first_name.toLowerCase().includes(term) ||
-        c.last_name.toLowerCase().includes(term) ||
+        c.first_name?.toLowerCase().includes(term) ||
+        c.last_name?.toLowerCase().includes(term) ||
         (c.company && c.company.toLowerCase().includes(term)) ||
-        c.emails.some((e) => e.value.toLowerCase().includes(term)),
+        (c.emails || []).some((e) => e.value.toLowerCase().includes(term)),
     );
   }
 
-  return candidates;
+  // Return only fields needed for the list view to reduce payload size
+  return results.map((c) => ({
+    id: c.id,
+    first_name: c.first_name,
+    last_name: c.last_name,
+    title: c.title,
+    company: c.company,
+    emails: (c.emails || []).slice(0, 1),
+    tags: c.tags || [],
+    last_activity: c.last_activity,
+    applications: (c.applications || []).map((a) => ({
+      id: a.id,
+      status: a.status,
+      current_stage: a.current_stage,
+      jobs: a.jobs,
+    })),
+  }));
 });
 
 export const getCandidateHandler = defineEventHandler(async (event) => {

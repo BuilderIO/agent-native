@@ -5,9 +5,23 @@ import type {
   GreenhouseJob,
   GreenhouseApplication,
   GreenhouseScheduledInterview,
+  GreenhouseCandidate,
 } from "@shared/types";
 
 const BASE_URL = "https://harvest.greenhouse.io/v1";
+
+let cachedAuth: string | null = null;
+
+async function getAuth(): Promise<string> {
+  if (cachedAuth) return cachedAuth;
+  const setting = await getSetting("greenhouse-api-key");
+  if (!setting || typeof setting !== "object" || !("apiKey" in setting)) {
+    throw new Error("Greenhouse API key not configured");
+  }
+  const apiKey = (setting as { apiKey: string }).apiKey;
+  cachedAuth = Buffer.from(`${apiKey}:`).toString("base64");
+  return cachedAuth;
+}
 
 /** Lightweight single-page fetch for dashboard — avoids paginating entire dataset */
 async function dashboardFetch<T>(
@@ -15,12 +29,7 @@ async function dashboardFetch<T>(
   params: Record<string, string> = {},
   perPage = 100,
 ): Promise<T[]> {
-  const setting = await getSetting("greenhouse-api-key");
-  if (!setting || typeof setting !== "object" || !("apiKey" in setting)) {
-    throw new Error("Greenhouse API key not configured");
-  }
-  const apiKey = (setting as { apiKey: string }).apiKey;
-  const encoded = Buffer.from(`${apiKey}:`).toString("base64");
+  const encoded = await getAuth();
   const qs = new URLSearchParams({
     ...params,
     per_page: String(perPage),
@@ -39,12 +48,24 @@ async function dashboardFetch<T>(
   return res.json();
 }
 
+async function fetchCandidate(id: number): Promise<GreenhouseCandidate> {
+  const encoded = await getAuth();
+  const res = await fetch(`${BASE_URL}/candidates/${id}`, {
+    headers: {
+      Authorization: `Basic ${encoded}`,
+      "Content-Type": "application/json",
+    },
+  });
+  if (!res.ok) throw new Error(`Failed to fetch candidate ${id}`);
+  return res.json();
+}
+
 export const getDashboardHandler = defineEventHandler(
   async (): Promise<DashboardStats> => {
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const twoMonthsAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
 
-    // Fetch only what we need — single pages, no full pagination
     const [jobs, recentApps, interviews] = await Promise.all([
       dashboardFetch<GreenhouseJob>("/jobs", { status: "open" }),
       dashboardFetch<GreenhouseApplication>(
@@ -54,8 +75,8 @@ export const getDashboardHandler = defineEventHandler(
       ),
       dashboardFetch<GreenhouseScheduledInterview>(
         "/scheduled_interviews",
-        {},
-        50,
+        { created_after: twoMonthsAgo.toISOString() },
+        500,
       ),
     ]);
 
@@ -70,11 +91,31 @@ export const getDashboardHandler = defineEventHandler(
       )
       .slice(0, 10);
 
+    // Fetch candidate names for recent applications
+    const uniqueCandidateIds = [
+      ...new Set(recentApplications.map((a) => a.candidate_id)),
+    ];
+    const candidateResults = await Promise.allSettled(
+      uniqueCandidateIds.map((id) => fetchCandidate(id)),
+    );
+    const candidateNames = new Map<number, string>();
+    candidateResults.forEach((result, i) => {
+      if (result.status === "fulfilled") {
+        const c = result.value;
+        candidateNames.set(c.id, `${c.first_name} ${c.last_name}`);
+      }
+    });
+
+    const enrichedApplications = recentApplications.map((app) => ({
+      ...app,
+      candidate_name: candidateNames.get(app.candidate_id) ?? "Unknown",
+    }));
+
     return {
       openJobs: jobs.length,
       activeCandidates: recentApps.length,
       upcomingInterviews: upcomingInterviews.length,
-      recentApplications,
+      recentApplications: enrichedApplications,
     };
   },
 );

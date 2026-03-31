@@ -131,11 +131,15 @@ export type GreenhouseOffice = {
   location: { name: string } | null;
 };
 
+export type DashboardRecentApplication = GreenhouseApplication & {
+  candidate_name: string;
+};
+
 export type DashboardStats = {
   openJobs: number;
   activeCandidates: number;
   upcomingInterviews: number;
-  recentApplications: GreenhouseApplication[];
+  recentApplications: DashboardRecentApplication[];
 };
 
 export type PipelineStage = {

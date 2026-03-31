@@ -31,18 +31,33 @@ export const getJobPipelineHandler = defineEventHandler(async (event) => {
   const id = Number(getRouterParam(event, "id"));
   if (!id) throw createError({ statusCode: 400, message: "Job ID required" });
 
-  const [stages, applications, candidates] = await Promise.all([
+  const [stages, applications] = await Promise.all([
     gh.getJobStages(id),
-    gh.listApplications({ job_id: id, status: "active" }),
-    gh.listCandidates({ job_id: id }),
+    // Fetch only the first page of applications (max 100) for fast pipeline load.
+    // Jobs with thousands of applications would be too slow to paginate entirely.
+    gh.listApplications({ job_id: id, status: "active", per_page: 100 }),
   ]);
 
-  const candidateMap = new Map(
-    candidates.map((c) => [
-      c.id,
-      { name: `${c.first_name} ${c.last_name}`, company: c.company },
-    ]),
+  // Fetch candidate details for the applications we have (max 100, in parallel)
+  const uniqueCandidateIds = [
+    ...new Set(applications.map((a) => a.candidate_id)),
+  ];
+  const candidateResults = await Promise.allSettled(
+    uniqueCandidateIds.map((cid) => gh.getCandidate(cid)),
   );
+  const candidateMap = new Map<
+    number,
+    { name: string; company: string | null }
+  >();
+  candidateResults.forEach((result) => {
+    if (result.status === "fulfilled") {
+      const c = result.value;
+      candidateMap.set(c.id, {
+        name: `${c.first_name} ${c.last_name}`,
+        company: c.company,
+      });
+    }
+  });
 
   const sortedStages = stages.sort((a, b) => a.priority - b.priority);
   const pipeline: PipelineStage[] = sortedStages.map((stage) => ({
