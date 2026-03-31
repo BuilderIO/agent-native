@@ -1,4 +1,9 @@
 import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
+import {
+  setActiveRun,
+  updateActiveRunSeq,
+  clearActiveRun,
+} from "./active-run-state.js";
 
 type ContentPart =
   | { type: "text"; text: string }
@@ -11,9 +16,217 @@ type ContentPart =
       result?: string;
     };
 
+interface SSEEvent {
+  type: string;
+  text?: string;
+  tool?: string;
+  input?: Record<string, string>;
+  result?: string;
+  error?: string;
+  seq?: number;
+}
+
+/**
+ * Process a single SSE event and update the content accumulator.
+ * Returns: "continue" to keep going, "done" to stop, or a yield-ready result.
+ */
+function processEvent(
+  ev: SSEEvent,
+  content: ContentPart[],
+  toolCallCounter: { value: number },
+  tabId: string | undefined,
+): {
+  action: "continue" | "done" | "yield" | "error" | "missing_api_key";
+  result?: ChatModelRunResult;
+} {
+  if (ev.type === "text") {
+    const lastPart = content[content.length - 1];
+    if (lastPart && lastPart.type === "text") {
+      lastPart.text += ev.text ?? "";
+    } else {
+      content.push({ type: "text", text: ev.text ?? "" });
+    }
+    return {
+      action: "yield",
+      result: { content: [...content] } as ChatModelRunResult,
+    };
+  }
+
+  if (ev.type === "tool_start") {
+    const toolCallId = `tc_${++toolCallCounter.value}`;
+    const args = (ev.input ?? {}) as Record<string, string>;
+    content.push({
+      type: "tool-call",
+      toolCallId,
+      toolName: ev.tool ?? "unknown",
+      argsText: JSON.stringify(args),
+      args,
+    });
+    return {
+      action: "yield",
+      result: { content: [...content] } as ChatModelRunResult,
+    };
+  }
+
+  if (ev.type === "tool_done") {
+    for (let i = content.length - 1; i >= 0; i--) {
+      const part = content[i];
+      if (
+        part.type === "tool-call" &&
+        part.toolName === ev.tool &&
+        part.result === undefined
+      ) {
+        part.result = ev.result ?? "";
+        break;
+      }
+    }
+    return {
+      action: "yield",
+      result: { content: [...content] } as ChatModelRunResult,
+    };
+  }
+
+  if (ev.type === "missing_api_key") {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+    }
+    content.push({ type: "text", text: "" });
+    return {
+      action: "missing_api_key",
+      result: {
+        content: [...content],
+        status: { type: "incomplete" as const, reason: "error" as const },
+      } as ChatModelRunResult,
+    };
+  }
+
+  if (ev.type === "loop_limit") {
+    content.push({
+      type: "text",
+      text: "I've reached the maximum number of steps for this response.",
+    });
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:loop-limit", { detail: { tabId } }),
+      );
+    }
+    return {
+      action: "done",
+      result: { content: [...content] } as ChatModelRunResult,
+    };
+  }
+
+  if (ev.type === "error") {
+    const errMsg = ev.error ?? "Unknown error";
+    if (
+      errMsg.includes("apiKey") ||
+      errMsg.includes("authToken") ||
+      errMsg.includes("ANTHROPIC_API_KEY") ||
+      errMsg.includes("authentication")
+    ) {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+      }
+      content.push({ type: "text", text: "" });
+      return {
+        action: "missing_api_key",
+        result: {
+          content: [...content],
+          status: { type: "incomplete" as const, reason: "error" as const },
+        } as ChatModelRunResult,
+      };
+    }
+    content.push({ type: "text", text: `Error: ${errMsg}` });
+    return {
+      action: "error",
+      result: {
+        content: [...content],
+        status: { type: "incomplete" as const, reason: "error" as const },
+      } as ChatModelRunResult,
+    };
+  }
+
+  if (ev.type === "done") {
+    return {
+      action: "done",
+      result: { content: [...content] } as ChatModelRunResult,
+    };
+  }
+
+  return { action: "continue" };
+}
+
+/**
+ * Read and process SSE events from a ReadableStream response body.
+ * Yields ChatModelRunResult for each meaningful event.
+ */
+async function* readSSEStream(
+  body: ReadableStream<Uint8Array>,
+  content: ContentPart[],
+  toolCallCounter: { value: number },
+  tabId: string | undefined,
+  onSeq?: (seq: number) => void,
+): AsyncGenerator<ChatModelRunResult> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const raw = line.slice(6).trim();
+        if (!raw) continue;
+
+        let ev: SSEEvent;
+        try {
+          ev = JSON.parse(raw);
+        } catch {
+          continue;
+        }
+
+        // Track sequence number for reconnection
+        if (ev.seq !== undefined && onSeq) {
+          onSeq(ev.seq);
+        }
+
+        const { action, result } = processEvent(
+          ev,
+          content,
+          toolCallCounter,
+          tabId,
+        );
+
+        if (result) yield result;
+        if (
+          action === "done" ||
+          action === "error" ||
+          action === "missing_api_key"
+        ) {
+          return;
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  // Stream ended without explicit done event
+  if (content.length > 0) {
+    yield { content: [...content] } as ChatModelRunResult;
+  }
+}
+
 /**
  * Creates a ChatModelAdapter that connects to the agent-native
- * `/api/agent-chat` SSE endpoint.
+ * `/api/agent-chat` SSE endpoint. Supports reconnection via run-manager.
  */
 export function createAgentChatAdapter(options?: {
   apiUrl?: string;
@@ -93,10 +306,10 @@ export function createAgentChatAdapter(options?: {
         );
       }
 
-      // Accumulate content parts across the entire agentic loop
       const content: ContentPart[] = [];
-
-      let toolCallCounter = 0;
+      const toolCallCounter = { value: 0 };
+      let runId: string | null = null;
+      let lastSeq = -1;
 
       try {
         const res = await fetch(apiUrl, {
@@ -115,7 +328,6 @@ export function createAgentChatAdapter(options?: {
         });
 
         if (!res.ok) {
-          // Try to read error body for better messages
           let errorText = `Server error: ${res.status}`;
           try {
             const body = await res.text();
@@ -125,7 +337,6 @@ export function createAgentChatAdapter(options?: {
               body.includes("ANTHROPIC_API_KEY") ||
               body.includes("authentication")
             ) {
-              // Show inline setup UI instead of raw error
               if (typeof window !== "undefined") {
                 window.dispatchEvent(new Event("agent-chat:missing-api-key"));
               }
@@ -151,154 +362,77 @@ export function createAgentChatAdapter(options?: {
           throw new Error("No response body");
         }
 
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buf += decoder.decode(value, { stream: true });
-          const lines = buf.split("\n");
-          buf = lines.pop() ?? "";
-
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const raw = line.slice(6).trim();
-            if (!raw) continue;
-
-            let ev: {
-              type: string;
-              text?: string;
-              tool?: string;
-              input?: Record<string, string>;
-              result?: string;
-              error?: string;
-            };
-            try {
-              ev = JSON.parse(raw);
-            } catch {
-              continue;
-            }
-
-            if (ev.type === "text") {
-              // Find or create a text part to append to
-              const lastPart = content[content.length - 1];
-              if (lastPart && lastPart.type === "text") {
-                lastPart.text += ev.text ?? "";
-              } else {
-                content.push({ type: "text", text: ev.text ?? "" });
-              }
-              yield { content: [...content] } as ChatModelRunResult;
-            } else if (ev.type === "tool_start") {
-              const toolCallId = `tc_${++toolCallCounter}`;
-              const args = (ev.input ?? {}) as Record<string, string>;
-              content.push({
-                type: "tool-call",
-                toolCallId,
-                toolName: ev.tool ?? "unknown",
-                argsText: JSON.stringify(args),
-                args,
-              });
-              yield { content: [...content] } as ChatModelRunResult;
-            } else if (ev.type === "tool_done") {
-              // Find the last tool call with the matching name and update its result
-              for (let i = content.length - 1; i >= 0; i--) {
-                const part = content[i];
-                if (
-                  part.type === "tool-call" &&
-                  part.toolName === ev.tool &&
-                  part.result === undefined
-                ) {
-                  part.result = ev.result ?? "";
-                  break;
-                }
-              }
-              yield { content: [...content] } as ChatModelRunResult;
-            } else if (ev.type === "missing_api_key") {
-              // Dispatch event for the UI to show inline setup
-              if (typeof window !== "undefined") {
-                window.dispatchEvent(new Event("agent-chat:missing-api-key"));
-              }
-              content.push({
-                type: "text",
-                text: "",
-              });
-              yield {
-                content: [...content],
-                status: {
-                  type: "incomplete" as const,
-                  reason: "error" as const,
-                },
-              } as ChatModelRunResult;
-              return;
-            } else if (ev.type === "loop_limit") {
-              content.push({
-                type: "text",
-                text: "I've reached the maximum number of steps for this response.",
-              });
-              yield { content: [...content] } as ChatModelRunResult;
-              // Notify UI to show a "Continue" button
-              if (typeof window !== "undefined") {
-                window.dispatchEvent(
-                  new CustomEvent("agent-chat:loop-limit", {
-                    detail: { tabId },
-                  }),
-                );
-              }
-              return;
-            } else if (ev.type === "error") {
-              // Check if this is an auth-related error from the SDK
-              const errMsg = ev.error ?? "Unknown error";
-              if (
-                errMsg.includes("apiKey") ||
-                errMsg.includes("authToken") ||
-                errMsg.includes("ANTHROPIC_API_KEY") ||
-                errMsg.includes("authentication")
-              ) {
-                if (typeof window !== "undefined") {
-                  window.dispatchEvent(new Event("agent-chat:missing-api-key"));
-                }
-                content.push({ type: "text", text: "" });
-                yield {
-                  content: [...content],
-                  status: {
-                    type: "incomplete" as const,
-                    reason: "error" as const,
-                  },
-                } as ChatModelRunResult;
-                return;
-              }
-              // Add error as text content
-              content.push({
-                type: "text",
-                text: `Error: ${errMsg}`,
-              });
-              yield {
-                content: [...content],
-                status: {
-                  type: "incomplete" as const,
-                  reason: "error" as const,
-                },
-              } as ChatModelRunResult;
-              return;
-            } else if (ev.type === "done") {
-              // Final yield
-              yield { content: [...content] } as ChatModelRunResult;
-              return;
-            }
-          }
+        // Track the run ID for reconnection
+        runId = res.headers.get("X-Run-Id");
+        if (runId && threadId) {
+          setActiveRun({ threadId, runId, lastSeq: -1 });
         }
 
-        // Stream ended without explicit done event
-        if (content.length > 0) {
-          yield { content: [...content] };
-        }
+        yield* readSSEStream(
+          res.body,
+          content,
+          toolCallCounter,
+          tabId,
+          (seq) => {
+            lastSeq = seq;
+            if (runId && threadId) {
+              updateActiveRunSeq(seq);
+            }
+          },
+        );
+
+        // Run completed normally — clear active run state
+        clearActiveRun();
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") {
+          // User-initiated abort (Stop button) — clear active run
+          clearActiveRun();
           return;
         }
+
+        // Connection lost — try to reconnect to the run
+        if (runId && lastSeq >= 0) {
+          let reconnected = false;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const reconnectRes = await fetch(
+                `${apiUrl}/runs/${encodeURIComponent(runId)}/events?after=${lastSeq + 1}`,
+                { signal: abortSignal },
+              );
+              if (!reconnectRes.ok || !reconnectRes.body) break;
+
+              yield* readSSEStream(
+                reconnectRes.body,
+                content,
+                toolCallCounter,
+                tabId,
+                (seq) => {
+                  lastSeq = seq;
+                  if (threadId) {
+                    updateActiveRunSeq(seq);
+                  }
+                },
+              );
+              reconnected = true;
+              clearActiveRun();
+              break;
+            } catch (reconnectErr: unknown) {
+              if (
+                reconnectErr instanceof Error &&
+                reconnectErr.name === "AbortError"
+              ) {
+                clearActiveRun();
+                return;
+              }
+              // Wait briefly before retrying
+              await new Promise((r) => setTimeout(r, 1000));
+            }
+          }
+
+          if (reconnected) return;
+        }
+
+        // Reconnect failed or not possible — show error
         content.push({
           type: "text",
           text: "Something went wrong. Please try again.",

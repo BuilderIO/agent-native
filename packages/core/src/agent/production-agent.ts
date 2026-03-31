@@ -62,8 +62,7 @@ function enrichMessage(
       "Referenced files:\n" +
         fileRefs
           .map(
-            (r) =>
-              `- ${r.path}${r.source === "resource" ? " (resource)" : ""}`,
+            (r) => `- ${r.path}${r.source === "resource" ? " (resource)" : ""}`,
           )
           .join("\n"),
     );
@@ -108,8 +107,16 @@ async function runAgentLoop(opts: {
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
 }): Promise<void> {
-  const { client, model, systemPrompt, tools, messages, scripts, send, signal } =
-    opts;
+  const {
+    client,
+    model,
+    systemPrompt,
+    tools,
+    messages,
+    scripts,
+    send,
+    signal,
+  } = opts;
 
   let iterations = 0;
   while (true) {
@@ -178,9 +185,7 @@ async function runAgentLoop(opts: {
 
       let result: string;
       try {
-        result = await scriptEntry.run(
-          toolUse.input as Record<string, string>,
-        );
+        result = await scriptEntry.run(toolUse.input as Record<string, string>);
       } catch (err: any) {
         result = `Error running ${toolUse.name}: ${err?.message ?? String(err)}`;
       }

@@ -689,6 +689,7 @@ const AssistantChatInner = forwardRef<
   const [missingApiKey, setMissingApiKey] = useState(false);
   const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
   const [showContinue, setShowContinue] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   const wasRunningRef = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
@@ -729,6 +730,52 @@ const AssistantChatInner = forwardRef<
           // Also skip title generation if thread already has a title
           if (data.title) {
             titleGeneratedRef.current = true;
+          }
+
+          // Check if there's an active run for this thread (e.g. after hot reload)
+          try {
+            const runRes = await fetch(
+              `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+            );
+            if (runRes.ok) {
+              // Agent is still running — poll until complete, then refresh
+              setIsReconnecting(true);
+              const pollForCompletion = async () => {
+                while (true) {
+                  await new Promise((r) => setTimeout(r, 2000));
+                  try {
+                    const check = await fetch(
+                      `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+                    );
+                    if (!check.ok) break; // 404 = run completed
+                  } catch {
+                    break;
+                  }
+                }
+                // Run finished — re-fetch thread data from server
+                try {
+                  const refreshRes = await fetch(
+                    `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+                  );
+                  if (refreshRes.ok) {
+                    const refreshData = await refreshRes.json();
+                    if (refreshData.threadData) {
+                      const repo =
+                        typeof refreshData.threadData === "string"
+                          ? JSON.parse(refreshData.threadData)
+                          : refreshData.threadData;
+                      if (repo?.messages?.length > 0) {
+                        threadRuntime.import(repo);
+                      }
+                    }
+                  }
+                } catch {}
+                setIsReconnecting(false);
+              };
+              pollForCompletion();
+            }
+          } catch {
+            // No active run — nothing to reconnect to
           }
         } catch {
           // Start fresh
@@ -789,11 +836,11 @@ const AssistantChatInner = forwardRef<
 
     const repo = threadRuntime.export();
     const { title, preview } = extractThreadMeta(repo);
-    // Only send a lightweight title-only update while running
+    // Save full thread data while running so hot reloads don't lose messages
     if (isRunning && title && title !== savedTitleRef.current) {
       savedTitleRef.current = title;
       onSaveThreadRef.current({
-        threadData: "",
+        threadData: JSON.stringify(repo),
         title,
         preview,
         messageCount: messages.length,
@@ -1036,6 +1083,18 @@ const AssistantChatInner = forwardRef<
               </div>
             )}
             {isRunning && <ThinkingIndicator />}
+            {isReconnecting && !isRunning && (
+              <div className="flex items-center gap-2 px-4 py-2">
+                <div className="flex gap-1">
+                  <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 animate-pulse" />
+                  <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 animate-pulse [animation-delay:150ms]" />
+                  <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 animate-pulse [animation-delay:300ms]" />
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  Agent is working...
+                </span>
+              </div>
+            )}
             {queuedMessages.map((msg, i) => (
               <div key={`queued-${i}`} className="flex justify-end">
                 <div className="max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">

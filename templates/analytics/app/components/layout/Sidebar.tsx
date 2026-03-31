@@ -9,7 +9,6 @@ import {
 import {
   FlaskConical,
   LogOut,
-  DollarSign,
   ChevronDown,
   ChevronRight,
   Plus,
@@ -26,14 +25,6 @@ import {
   Database,
 } from "lucide-react";
 import { getIdToken } from "@/lib/auth";
-import {
-  getTotalCost,
-  getTotalBytes,
-  formatCost,
-  formatBytes,
-  subscribe,
-  resetSession,
-} from "@/lib/cost-tracker";
 import {
   dashboards,
   hideDashboard,
@@ -437,9 +428,6 @@ export function Sidebar() {
   const location = useLocation();
   const { logout } = useAuth();
 
-  const [cost, setCost] = useState(getTotalCost());
-  const [bytes, setBytes] = useState(getTotalBytes());
-  const [costOpen, setCostOpen] = useState(() => getTotalCost() > 50);
   const [dashOpen, setDashOpen] = useState(true);
   const [toolsOpen, setToolsOpen] = useState(true);
 
@@ -551,15 +539,6 @@ export function Sidebar() {
     [orderedTools],
   );
 
-  useEffect(() => {
-    return subscribe(() => {
-      const newCost = getTotalCost();
-      setCost(newCost);
-      setBytes(getTotalBytes());
-      if (newCost > 50) setCostOpen(true);
-    });
-  }, []);
-
   const handleResizeStart = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
@@ -609,22 +588,7 @@ export function Sidebar() {
         className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-10"
       />
       <div className="flex h-14 items-center justify-between border-b border-border px-4 lg:h-[60px] lg:px-6">
-        <Link to="/" className="flex items-center gap-2 font-semibold">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 14 14"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-5 w-5 shrink-0"
-          >
-            <path
-              d="M11.6875 5.11344C11.6875 4.29267 11.3633 3.5055 10.7862 2.92507C10.2091 2.34464 9.42642 2.01847 8.61023 2.01831L3.41156 2.01831C3.19673 2.01831 2.99071 2.10413 2.8388 2.25688C2.6869 2.40964 2.60156 2.61682 2.60156 2.83285C2.60156 3.668 4.36017 4.30193 4.36017 7.17646C4.36017 10.051 2.60156 10.6849 2.60156 11.5195C2.60156 11.7355 2.68688 11.9428 2.83877 12.0956C2.99065 12.2485 3.19668 12.3345 3.41156 12.3346H8.61023C9.20428 12.3345 9.7856 12.1615 10.284 11.8365C10.7825 11.5115 11.1768 11.0483 11.4193 10.503C11.6618 9.95765 11.7422 9.35339 11.6507 8.76312C11.5593 8.17285 11.3 7.6218 10.904 7.17646C11.4094 6.60957 11.6884 5.87478 11.6875 5.11344ZM3.67191 2.90255H8.61023C9.03981 2.90267 9.45995 3.02936 9.81874 3.26694C10.1775 3.50453 10.4592 3.84262 10.6291 4.23942C10.7989 4.63623 10.8494 5.07438 10.7743 5.49973C10.6993 5.92508 10.5019 6.31901 10.2067 6.63283L3.67191 2.90255ZM10.1627 10.8025C9.95932 11.0082 9.7174 11.1714 9.45093 11.2826C9.18446 11.3938 8.89873 11.4508 8.61023 11.4504H3.67372L10.2067 7.72009C10.6001 8.13829 10.8158 8.69429 10.8079 9.26991C10.8001 9.84553 10.5692 10.3954 10.1645 10.8025H10.1627ZM4.63017 9.88675C5.03255 9.04061 5.24078 8.11438 5.23947 7.17646C5.24083 6.23835 5.0326 5.31191 4.63017 4.46557L9.37743 7.17646L4.63017 9.88675Z"
-              fill="currentColor"
-              stroke="currentColor"
-              strokeWidth="0.33"
-            />
-          </svg>
+        <Link to="/" className="font-semibold">
           <span className="text-lg font-bold tracking-tight">Analytics</span>
         </Link>
         <AgentToggleButton />
@@ -786,48 +750,6 @@ export function Sidebar() {
         </nav>
       </div>
       <div className="p-4 border-t border-border space-y-2">
-        <div className="rounded-lg bg-sidebar-accent/30">
-          <button
-            onClick={() => setCostOpen((o) => !o)}
-            className="flex items-center gap-2 px-3 py-1.5 w-full text-left cursor-pointer hover:bg-sidebar-accent/50 rounded-lg transition-colors"
-          >
-            <DollarSign
-              className={cn(
-                "h-3.5 w-3.5 shrink-0",
-                cost > 50 ? "text-destructive" : "text-muted-foreground",
-              )}
-            />
-            <p className="text-xs font-medium flex-1">
-              {formatCost(cost)}
-              <span className="text-muted-foreground font-normal">
-                {" "}
-                session cost
-              </span>
-            </p>
-            <ChevronDown
-              className={cn(
-                "h-3 w-3 text-muted-foreground transition-transform",
-                !costOpen && "-rotate-90",
-              )}
-            />
-          </button>
-          {costOpen && (
-            <div className="px-3 pb-1.5 flex items-center justify-between">
-              <p className="text-[10px] text-muted-foreground">
-                {formatBytes(bytes)} queried
-              </p>
-              {bytes > 0 && (
-                <button
-                  onClick={resetSession}
-                  className="text-[10px] text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                  title="Reset cost counter"
-                >
-                  Reset
-                </button>
-              )}
-            </div>
-          )}
-        </div>
         <button
           onClick={() =>
             document.dispatchEvent(
