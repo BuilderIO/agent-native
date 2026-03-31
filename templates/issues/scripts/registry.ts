@@ -16,7 +16,7 @@ function tool(
 }
 
 async function load(name: string) {
-  const mod = await import(`./${name}.js`);
+  const mod = await import(/* @vite-ignore */ `./${name}.js`);
   return mod.default;
 }
 

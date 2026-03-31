@@ -8,7 +8,8 @@ export function useJiraAuthStatus() {
       if (!res.ok) throw new Error("Failed to fetch auth status");
       return res.json();
     },
-    staleTime: 60_000,
+    staleTime: 10_000,
+    refetchOnWindowFocus: true,
   });
 }
 

@@ -61,6 +61,23 @@ function AutoFocus() {
   return null;
 }
 
+/** After OAuth redirect, clear the signin flag and refetch auth status */
+function OAuthReturnHandler() {
+  const qc = useQueryClient();
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem("__an_signin")) {
+        sessionStorage.removeItem("__an_signin");
+        qc.invalidateQueries({ queryKey: ["jira-auth-status"] });
+        qc.invalidateQueries({ queryKey: ["jira-auth-url"] });
+        qc.invalidateQueries({ queryKey: ["projects"] });
+        qc.invalidateQueries({ queryKey: ["boards"] });
+      }
+    } catch {}
+  }, [qc]);
+  return null;
+}
+
 function FileWatcherSetup() {
   const qc = useQueryClient();
 
@@ -120,6 +137,7 @@ export default function Root() {
           <TooltipProvider delayDuration={300}>
             <Toaster richColors position="bottom-left" />
             <AutoFocus />
+            <OAuthReturnHandler />
             <FileWatcherSetup />
             <AppLayout>
               <Outlet />
