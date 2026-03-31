@@ -107,7 +107,7 @@ export const getIssue = defineEventHandler(async (event: H3Event) => {
     issueKey,
     {
       fields: [...DEFAULT_FIELDS, "description"],
-      expand: ["renderedFields"],
+      expand: ["changelog", "renderedFields"],
     },
   );
 
