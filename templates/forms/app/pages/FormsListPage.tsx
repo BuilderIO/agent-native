@@ -9,6 +9,7 @@ import {
   Copy,
   ExternalLink,
   BarChart3,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,7 +40,7 @@ const statusColors: Record<string, string> = {
 
 export function FormsListPage() {
   const navigate = useNavigate();
-  const { data: forms = [], isLoading } = useForms();
+  const { data: forms = [], isLoading, error, refetch } = useForms();
   const createForm = useCreateForm();
   const deleteForm = useDeleteForm();
   const updateForm = useUpdateForm();
@@ -101,6 +102,23 @@ export function FormsListPage() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3">
+        <p className="text-sm text-muted-foreground">Failed to load forms</p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => refetch()}
+          className="gap-2"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-8">
@@ -136,7 +154,15 @@ export function FormsListPage() {
             <div
               key={form.id}
               className="group relative border border-border rounded-xl p-5 hover:border-primary/30 transition-colors cursor-pointer bg-card"
+              role="button"
+              tabIndex={0}
               onClick={() => navigate(`/forms/${form.id}`)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  navigate(`/forms/${form.id}`);
+                }
+              }}
             >
               <div className="flex items-start justify-between mb-3">
                 <div className="flex-1 min-w-0">
@@ -155,7 +181,8 @@ export function FormsListPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100"
+                      className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      aria-label="Form actions"
                     >
                       <MoreHorizontal className="h-4 w-4" />
                     </Button>

@@ -180,6 +180,7 @@ export function FieldPropertiesPanel({
                     size="sm"
                     className="h-7 w-7 p-0"
                     onClick={() => removeOption(i)}
+                    aria-label={`Remove option ${opt}`}
                   >
                     <X className="h-3 w-3" />
                   </Button>
@@ -198,6 +199,7 @@ export function FieldPropertiesPanel({
                   size="sm"
                   className="h-7 w-7 p-0"
                   onClick={addOption}
+                  aria-label="Add option"
                 >
                   <Plus className="h-3 w-3" />
                 </Button>

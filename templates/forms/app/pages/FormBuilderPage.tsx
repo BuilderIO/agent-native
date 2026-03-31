@@ -96,7 +96,7 @@ const fieldTypeLabels: Record<FormFieldType, string> = {
 export function FormBuilderPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { data: form, isLoading } = useForm(id!);
+  const { data: form, isLoading, error, refetch } = useForm(id!);
   const updateForm = useUpdateForm();
 
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
@@ -142,10 +142,30 @@ export function FormBuilderPage() {
 
   useEffect(() => () => clearTimeout(saveTimeout.current), []);
 
-  if (isLoading || !form) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
         <p className="text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
+
+  if (error || !form) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3">
+        <p className="text-sm text-muted-foreground">Failed to load form</p>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate("/forms")}
+          >
+            Back to Forms
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
       </div>
     );
   }
@@ -410,7 +430,10 @@ export function FormBuilderPage() {
                     dragIdx === idx && "opacity-50",
                   )}
                 >
-                  <div className="absolute -left-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab">
+                  <div
+                    className="absolute -left-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab"
+                    aria-label="Drag to reorder"
+                  >
                     <GripVertical className="h-4 w-4 text-muted-foreground" />
                   </div>
                   <FieldRenderer field={field} preview disabled />
@@ -445,7 +468,11 @@ export function FormBuilderPage() {
                 onOpenChange={setAgentPopoverOpen}
               >
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="icon">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Edit form with AI"
+                  >
                     <MessageCircle className="h-4 w-4" />
                   </Button>
                 </PopoverTrigger>
@@ -481,6 +508,7 @@ export function FormBuilderPage() {
                       className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-accent disabled:opacity-30"
                       onClick={submitAgentPrompt}
                       disabled={!agentPrompt.trim()}
+                      aria-label="Send prompt"
                     >
                       <ArrowUp className="h-3.5 w-3.5" />
                     </button>

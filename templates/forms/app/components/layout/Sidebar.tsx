@@ -99,6 +99,7 @@ export function Sidebar() {
             className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-accent disabled:opacity-30"
             onClick={handleSubmitPrompt}
             disabled={!prompt.trim()}
+            aria-label="Send prompt"
           >
             <ArrowUp size={14} />
           </button>

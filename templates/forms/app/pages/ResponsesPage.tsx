@@ -1,6 +1,6 @@
 import { useParams, Link } from "react-router";
 import { format } from "date-fns";
-import { ArrowLeft, Download, FileText } from "lucide-react";
+import { ArrowLeft, Download, FileText, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -11,7 +11,7 @@ import type { FormField } from "@shared/types";
 export function ResponsesPage() {
   const { id } = useParams<{ id: string }>();
   const { data: form } = useForm(id!);
-  const { data, isLoading } = useFormResponses(id!);
+  const { data, isLoading, error, refetch } = useFormResponses(id!);
 
   const responses = data?.responses || [];
   const fields: FormField[] = data?.fields || form?.fields || [];
@@ -48,6 +48,25 @@ export function ResponsesPage() {
     return (
       <div className="flex items-center justify-center h-full">
         <p className="text-muted-foreground">Loading responses...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3">
+        <p className="text-sm text-muted-foreground">
+          Failed to load responses
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => refetch()}
+          className="gap-2"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Retry
+        </Button>
       </div>
     );
   }
@@ -97,15 +116,22 @@ export function ResponsesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
+                  <th
+                    scope="col"
+                    className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                  >
                     #
                   </th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
+                  <th
+                    scope="col"
+                    className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                  >
                     Submitted
                   </th>
                   {fields.map((f) => (
                     <th
                       key={f.id}
+                      scope="col"
                       className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
                     >
                       {f.label}
