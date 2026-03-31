@@ -1,5 +1,16 @@
 import { useState, useRef, useCallback } from "react";
-import { X, Check, Loader2, Database, Cloud, ChevronRight } from "lucide-react";
+import { Check, Loader2, Database, Cloud, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 interface CloudUpgradeProps {
   title?: string;
@@ -163,155 +174,139 @@ export function CloudUpgrade({
   const isConnecting = status === "saving" || status === "polling";
 
   return (
-    <div className="w-full max-w-lg rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-      {/* Header */}
-      <div className="mb-4 flex items-start justify-between">
-        <div className="flex items-center gap-2">
-          <Cloud className="h-5 w-5 text-blue-500" />
-          <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-            {title}
-          </h3>
-        </div>
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        )}
-      </div>
+    <Dialog open onOpenChange={(open) => !open && onClose?.()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <div className="flex items-center gap-2">
+            <Cloud className="h-5 w-5 text-primary" />
+            <DialogTitle>{title}</DialogTitle>
+          </div>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
 
-      <p className="mb-5 text-sm text-zinc-500 dark:text-zinc-400">
-        {description}
-      </p>
-
-      {/* Provider selection */}
-      <div className="mb-5 grid grid-cols-2 gap-2">
-        {PROVIDERS.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => setSelectedProvider(p.id)}
-            className={`flex flex-col items-start rounded-lg border px-3 py-2.5 text-left transition-colors ${
-              selectedProvider === p.id
-                ? "border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-950/30"
-                : "border-zinc-200 hover:border-zinc-300 dark:border-zinc-700 dark:hover:border-zinc-600"
-            }`}
-          >
-            <span
-              className={`text-sm font-medium ${
+        {/* Provider selection */}
+        <div className="grid grid-cols-2 gap-2">
+          {PROVIDERS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setSelectedProvider(p.id)}
+              className={cn(
+                "flex flex-col items-start rounded-lg border px-3 py-2.5 text-left transition-colors",
                 selectedProvider === p.id
-                  ? "text-blue-700 dark:text-blue-300"
-                  : "text-zinc-900 dark:text-zinc-100"
-              }`}
-            >
-              {p.name}
-            </span>
-            <span className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-              {p.description}
-            </span>
-          </button>
-        ))}
-      </div>
-
-      {/* Provider setup steps */}
-      {provider && (
-        <div className="mb-5 rounded-lg border border-zinc-100 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            Setup steps
-          </p>
-          <ol className="space-y-1">
-            {provider.steps.map((step, i) => (
-              <li
-                key={i}
-                className="flex items-start gap-2 text-xs text-zinc-600 dark:text-zinc-300"
-              >
-                <ChevronRight className="mt-0.5 h-3 w-3 shrink-0 text-zinc-400" />
-                <span className="font-mono">{step}</span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-
-      {/* Credential inputs */}
-      <div className="space-y-3">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">
-            DATABASE_URL
-          </label>
-          <input
-            type="text"
-            placeholder={
-              provider?.urlPrefix
-                ? `${provider.urlPrefix}...`
-                : "libsql://... or postgres://..."
-            }
-            value={dbUrl}
-            onChange={(e) => setDbUrl(e.target.value)}
-            disabled={isConnecting}
-            className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-          />
-        </div>
-
-        {(!provider || provider.needsAuthToken) && (
-          <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">
-              DATABASE_AUTH_TOKEN
-              {provider && !provider.needsAuthToken && (
-                <span className="ml-1 text-zinc-400">(optional)</span>
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-primary/30",
               )}
-            </label>
-            <input
-              type="password"
-              placeholder="Auth token"
-              value={authToken}
-              onChange={(e) => setAuthToken(e.target.value)}
-              disabled={isConnecting}
-              className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-            />
+            >
+              <span
+                className={cn(
+                  "text-sm font-medium",
+                  selectedProvider === p.id
+                    ? "text-primary"
+                    : "text-foreground",
+                )}
+              >
+                {p.name}
+              </span>
+              <span className="mt-0.5 text-xs text-muted-foreground">
+                {p.description}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* Provider setup steps */}
+        {provider && (
+          <div className="rounded-lg border border-border bg-muted/30 p-3">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Setup steps
+            </p>
+            <ol className="space-y-1">
+              {provider.steps.map((step, i) => (
+                <li
+                  key={i}
+                  className="flex items-start gap-2 text-xs text-muted-foreground"
+                >
+                  <ChevronRight className="mt-0.5 h-3 w-3 shrink-0" />
+                  <span className="font-mono">{step}</span>
+                </li>
+              ))}
+            </ol>
           </div>
         )}
-      </div>
 
-      {/* Error message */}
-      {status === "error" && errorMsg && (
-        <p className="mt-3 text-xs text-red-600 dark:text-red-400">
-          {errorMsg}
-        </p>
-      )}
+        {/* Credential inputs */}
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">DATABASE_URL</Label>
+            <Input
+              placeholder={
+                provider?.urlPrefix
+                  ? `${provider.urlPrefix}...`
+                  : "libsql://... or postgres://..."
+              }
+              value={dbUrl}
+              onChange={(e) => setDbUrl(e.target.value)}
+              disabled={isConnecting}
+              className="text-sm"
+            />
+          </div>
 
-      {/* Success message */}
-      {status === "success" && (
-        <div className="mt-3 flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
-          <Check className="h-3.5 w-3.5" />
-          <span>Connected successfully. Reloading...</span>
+          {(!provider || provider.needsAuthToken) && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">
+                DATABASE_AUTH_TOKEN
+                {provider && !provider.needsAuthToken && (
+                  <span className="ml-1 text-muted-foreground">(optional)</span>
+                )}
+              </Label>
+              <Input
+                type="password"
+                placeholder="Auth token"
+                value={authToken}
+                onChange={(e) => setAuthToken(e.target.value)}
+                disabled={isConnecting}
+                className="text-sm"
+              />
+            </div>
+          )}
         </div>
-      )}
 
-      {/* Connect button */}
-      <button
-        onClick={handleConnect}
-        disabled={isConnecting || !dbUrl.trim() || status === "success"}
-        className="mt-4 flex w-full items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {isConnecting ? (
-          <>
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>
-              {status === "saving"
-                ? "Saving credentials..."
-                : "Testing connection..."}
-            </span>
-          </>
-        ) : (
-          <>
-            <Database className="h-4 w-4" />
-            <span>Test & Connect</span>
-          </>
+        {/* Error message */}
+        {status === "error" && errorMsg && (
+          <p className="text-xs text-destructive">{errorMsg}</p>
         )}
-      </button>
-    </div>
+
+        {/* Success message */}
+        {status === "success" && (
+          <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+            <Check className="h-3.5 w-3.5" />
+            <span>Connected successfully. Reloading...</span>
+          </div>
+        )}
+
+        {/* Connect button */}
+        <Button
+          onClick={handleConnect}
+          disabled={isConnecting || !dbUrl.trim() || status === "success"}
+          className="w-full gap-2"
+        >
+          {isConnecting ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>
+                {status === "saving"
+                  ? "Saving credentials..."
+                  : "Testing connection..."}
+              </span>
+            </>
+          ) : (
+            <>
+              <Database className="h-4 w-4" />
+              <span>Test & Connect</span>
+            </>
+          )}
+        </Button>
+      </DialogContent>
+    </Dialog>
   );
 }

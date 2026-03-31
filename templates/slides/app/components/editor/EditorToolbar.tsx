@@ -5,8 +5,6 @@ import {
   ArrowLeft,
   Play,
   Layout,
-  Code,
-  Eye,
   PanelLeft,
   ImageIcon,
   Share2,
@@ -340,25 +338,23 @@ export default function EditorToolbar({
       <div className="flex items-center rounded-md border border-white/[0.08] overflow-hidden flex-shrink-0">
         <button
           onClick={() => onTabChange("visual")}
-          className={`flex items-center gap-1 px-2 py-1.5 text-xs transition-colors ${
+          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
             activeTab === "visual"
               ? "bg-white/[0.08] text-white/90"
               : "text-white/40 hover:text-white/60"
           }`}
         >
-          <Eye className="w-3 h-3" />
-          <span className="hidden sm:inline">Preview</span>
+          Preview
         </button>
         <button
           onClick={() => onTabChange("code")}
-          className={`flex items-center gap-1 px-2 py-1.5 text-xs transition-colors ${
+          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
             activeTab === "code"
               ? "bg-white/[0.08] text-white/90"
               : "text-white/40 hover:text-white/60"
           }`}
         >
-          <Code className="w-3 h-3" />
-          <span className="hidden sm:inline">Code</span>
+          Code
         </button>
       </div>
 

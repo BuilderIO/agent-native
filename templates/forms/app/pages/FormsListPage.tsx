@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { format } from "date-fns";
 import {
-  FileText,
   Plus,
   MoreHorizontal,
   Trash2,
@@ -136,9 +135,6 @@ export function FormsListPage() {
 
       {forms.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 border border-dashed border-border rounded-xl">
-          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4">
-            <FileText className="h-6 w-6 text-muted-foreground" />
-          </div>
           <h3 className="font-medium mb-1">No forms yet</h3>
           <p className="text-sm text-muted-foreground mb-4">
             Create your first form to get started
@@ -247,13 +243,11 @@ export function FormsListPage() {
       )}
 
       {showCloudUpgrade && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <CloudUpgrade
-            title="Publish Form"
-            description="To publish forms publicly, connect a cloud database so submissions can be received from anywhere."
-            onClose={() => setShowCloudUpgrade(false)}
-          />
-        </div>
+        <CloudUpgrade
+          title="Publish Form"
+          description="To publish forms publicly, connect a cloud database so submissions can be received from anywhere."
+          onClose={() => setShowCloudUpgrade(false)}
+        />
       )}
     </div>
   );

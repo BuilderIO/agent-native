@@ -1,42 +1,24 @@
 import { Link } from "react-router";
 import { ApiKeySettings, AgentToggleButton } from "@agent-native/core/client";
+import { ArrowLeft } from "lucide-react";
 
 export default function Settings() {
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "hsl(240,6%,4%)",
-        color: "rgba(255,255,255,0.9)",
-      }}
-    >
-      <header
-        style={{
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
-          padding: "0 24px",
-          height: 56,
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-        }}
-      >
+    <div className="min-h-screen bg-[hsl(240,6%,4%)] text-white/90">
+      <header className="border-b border-white/[0.06] px-6 h-14 flex items-center gap-3">
         <Link
           to="/"
-          style={{
-            fontSize: 13,
-            opacity: 0.5,
-            textDecoration: "none",
-            color: "inherit",
-          }}
+          className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white/80 transition-colors"
         >
-          &larr; Back
+          <ArrowLeft className="w-3.5 h-3.5" />
+          Back
         </Link>
-        <span style={{ fontSize: 15, fontWeight: 600 }}>Settings</span>
-        <div style={{ marginLeft: "auto" }}>
+        <span className="text-base font-semibold">Settings</span>
+        <div className="ml-auto">
           <AgentToggleButton />
         </div>
       </header>
-      <main style={{ maxWidth: 640, margin: "0 auto", padding: "32px 24px" }}>
+      <main className="max-w-xl mx-auto px-6 py-8">
         <ApiKeySettings />
       </main>
     </div>

@@ -1,6 +1,6 @@
 import { useParams, Link } from "react-router";
 import { format } from "date-fns";
-import { ArrowLeft, Download, FileText, RefreshCw } from "lucide-react";
+import { ArrowLeft, Download, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -102,9 +102,6 @@ export function ResponsesPage() {
       {/* Table */}
       {responses.length === 0 ? (
         <div className="flex flex-col items-center justify-center flex-1 py-20">
-          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4">
-            <FileText className="h-6 w-6 text-muted-foreground" />
-          </div>
           <h3 className="font-medium mb-1">No responses yet</h3>
           <p className="text-sm text-muted-foreground">
             Share your form to start collecting responses

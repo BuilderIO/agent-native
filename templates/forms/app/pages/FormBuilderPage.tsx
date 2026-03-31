@@ -348,16 +348,16 @@ export function FormBuilderPage() {
           </Tooltip>
 
           <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-            <DialogTrigger asChild>
-              <Tooltip>
-                <TooltipTrigger asChild>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DialogTrigger asChild>
                   <Button variant="ghost" size="icon" className="h-8 w-8">
                     <Settings className="h-4 w-4" />
                   </Button>
-                </TooltipTrigger>
-                <TooltipContent>Settings</TooltipContent>
-              </Tooltip>
-            </DialogTrigger>
+                </DialogTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Settings</TooltipContent>
+            </Tooltip>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Form Settings</DialogTitle>
@@ -504,14 +504,16 @@ export function FormBuilderPage() {
                     />
                   </div>
                   <div className="flex items-center justify-end border-t border-border px-4 py-2.5">
-                    <button
-                      className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-accent disabled:opacity-30"
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      className="h-7 w-7"
                       onClick={submitAgentPrompt}
                       disabled={!agentPrompt.trim()}
                       aria-label="Send prompt"
                     >
                       <ArrowUp className="h-3.5 w-3.5" />
-                    </button>
+                    </Button>
                   </div>
                 </PopoverContent>
               </Popover>
@@ -532,13 +534,11 @@ export function FormBuilderPage() {
       </div>
 
       {showCloudUpgrade && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <CloudUpgrade
-            title="Publish Form"
-            description="To publish forms publicly, connect a cloud database so submissions can be received from anywhere."
-            onClose={() => setShowCloudUpgrade(false)}
-          />
-        </div>
+        <CloudUpgrade
+          title="Publish Form"
+          description="To publish forms publicly, connect a cloud database so submissions can be received from anywhere."
+          onClose={() => setShowCloudUpgrade(false)}
+        />
       )}
     </div>
   );

@@ -7,7 +7,6 @@ import {
 import { cn } from "@/lib/utils";
 import {
   Box,
-  Layers,
   SlidersHorizontal,
   ChevronRight,
   FileText,
@@ -85,36 +84,28 @@ export function ComponentLibrarySidebar({
   return (
     <div className="w-64 border-r border-border bg-secondary/30 flex flex-col overflow-hidden">
       {/* Tab Switcher */}
-      <div className="flex border-b border-border bg-card/50">
+      <div className="flex border-b border-border">
         <button
           onClick={() => setTab("components")}
           className={cn(
-            "flex-1 px-4 py-2.5 text-xs font-medium transition-colors relative flex items-center justify-center gap-1.5",
+            "flex-1 flex items-center justify-center px-3 py-2.5 text-[11px] font-medium transition-colors",
             tab === "components"
-              ? "text-foreground bg-background"
-              : "text-muted-foreground hover:text-foreground hover:bg-secondary/50",
+              ? "text-foreground border-b-2 border-primary"
+              : "text-muted-foreground hover:text-foreground/70",
           )}
         >
-          <Layers className="w-3.5 h-3.5" />
           Components
-          {tab === "components" && (
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-          )}
         </button>
         <button
           onClick={() => setTab("properties")}
           className={cn(
-            "flex-1 px-4 py-2.5 text-xs font-medium transition-colors relative flex items-center justify-center gap-1.5",
+            "flex-1 flex items-center justify-center px-3 py-2.5 text-[11px] font-medium transition-colors",
             tab === "properties"
-              ? "text-foreground bg-background"
-              : "text-muted-foreground hover:text-foreground hover:bg-secondary/50",
+              ? "text-foreground border-b-2 border-primary"
+              : "text-muted-foreground hover:text-foreground/70",
           )}
         >
-          <SlidersHorizontal className="w-3.5 h-3.5" />
           Properties
-          {tab === "properties" && (
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-          )}
         </button>
       </div>
 

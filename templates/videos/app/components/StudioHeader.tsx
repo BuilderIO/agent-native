@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { PanelLeftClose, PanelLeft, Box, Film, Share2 } from "lucide-react";
+import { PanelLeftClose, PanelLeft, Share2 } from "lucide-react";
 import { Link, useLocation } from "react-router";
 import { AgentToggleButton } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
@@ -47,25 +47,23 @@ export function StudioHeader({
             <Link
               to="/"
               className={cn(
-                "px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5",
+                "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
                 !isComponentLibrary
                   ? "bg-secondary text-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-secondary/50",
               )}
             >
-              <Film className="w-3.5 h-3.5" />
               Animations
             </Link>
             <Link
               to="/components"
               className={cn(
-                "px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5",
+                "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
                 isComponentLibrary
                   ? "bg-secondary text-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-secondary/50",
               )}
             >
-              <Box className="w-3.5 h-3.5" />
               Components
             </Link>
           </nav>

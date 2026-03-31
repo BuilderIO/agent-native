@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { ArrowUp, FileText, Plus } from "lucide-react";
+import { ArrowUp, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
@@ -12,10 +13,10 @@ import { useForms, useCreateForm } from "@/hooks/use-forms";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 
-const statusColors: Record<string, string> = {
-  draft: "text-amber-500",
-  published: "text-emerald-500",
-  closed: "text-muted-foreground/50",
+const statusDots: Record<string, string> = {
+  draft: "bg-amber-500",
+  published: "bg-emerald-500",
+  closed: "bg-muted-foreground/50",
 };
 
 export function Sidebar() {
@@ -89,20 +90,24 @@ export function Sidebar() {
       <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
         <div />
         <div className="flex items-center gap-3">
-          <button
-            className="text-xs text-blue-400 hover:text-blue-300"
+          <Button
+            variant="link"
+            size="sm"
+            className="h-auto p-0 text-xs text-muted-foreground"
             onClick={handleSkip}
           >
             Skip prompt
-          </button>
-          <button
-            className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-accent disabled:opacity-30"
+          </Button>
+          <Button
+            variant="secondary"
+            size="icon"
+            className="h-7 w-7"
             onClick={handleSubmitPrompt}
             disabled={!prompt.trim()}
             aria-label="Send prompt"
           >
             <ArrowUp size={14} />
-          </button>
+          </Button>
         </div>
       </div>
     </PopoverContent>
@@ -131,19 +136,16 @@ export function Sidebar() {
                 key={form.id}
                 to={`/forms/${form.id}`}
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm",
+                  "flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-sm",
                   isActive
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                 )}
               >
-                <FileText
-                  size={14}
+                <span
                   className={cn(
-                    "shrink-0",
-                    isActive
-                      ? "text-accent-foreground"
-                      : statusColors[form.status],
+                    "h-1.5 w-1.5 shrink-0 rounded-full",
+                    isActive ? "bg-accent-foreground" : statusDots[form.status],
                   )}
                 />
                 <span className="truncate">
