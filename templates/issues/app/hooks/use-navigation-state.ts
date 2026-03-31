@@ -53,12 +53,12 @@ export function useNavigationState() {
       const res = await fetch("/api/application-state/navigate");
       if (!res.ok) return null;
       const data = await res.json();
-      if (data?.value) {
+      if (data) {
         // Delete the one-shot command
         fetch("/api/application-state/navigate", { method: "DELETE" }).catch(
           () => {},
         );
-        return data.value;
+        return data;
       }
       return null;
     },
