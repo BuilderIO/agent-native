@@ -127,7 +127,6 @@ export function TiptapComposer({
   }, []);
 
   const editor = useEditor({
-    autofocus: "end",
     extensions: [
       StarterKit.configure({
         heading: false,
