@@ -215,6 +215,6 @@ export interface IssueListParams {
   sprintId?: string;
   jql?: string;
   q?: string;
-  startAt?: number;
+  nextPageToken?: string;
   maxResults?: number;
 }

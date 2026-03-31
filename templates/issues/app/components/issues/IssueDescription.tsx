@@ -13,6 +13,11 @@ export function IssueDescription({ description }: IssueDescriptionProps) {
     );
   }
 
+  // String description from older Jira instances
+  if (typeof description === "string") {
+    return <div className="adf-content whitespace-pre-wrap">{description}</div>;
+  }
+
   const html = adfToHtml(description);
 
   return (

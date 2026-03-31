@@ -54,7 +54,7 @@ export const listIssues = defineEventHandler(async (event: H3Event) => {
   const projectKey = query.projectKey as string | undefined;
   const q = query.q as string | undefined;
   let jql = query.jql as string | undefined;
-  const startAt = query.startAt ? Number(query.startAt) : 0;
+  const nextPageToken = query.nextPageToken as string | undefined;
   const maxResults = query.maxResults ? Number(query.maxResults) : 50;
 
   if (!jql) {
@@ -85,7 +85,7 @@ export const listIssues = defineEventHandler(async (event: H3Event) => {
 
   const result = await jiraSearchIssues(client.cloudId, client.accessToken, {
     jql,
-    startAt,
+    nextPageToken,
     maxResults,
     fields: DEFAULT_FIELDS,
   });
@@ -107,7 +107,7 @@ export const getIssue = defineEventHandler(async (event: H3Event) => {
     issueKey,
     {
       fields: [...DEFAULT_FIELDS, "description"],
-      expand: ["changelog"],
+      expand: ["changelog", "renderedFields"],
     },
   );
 

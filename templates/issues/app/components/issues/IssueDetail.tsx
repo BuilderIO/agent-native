@@ -1,12 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import {
-  X,
-  ExternalLink,
-  MessageSquare,
-  History,
-  ListTree,
-} from "lucide-react";
+import { X, ArrowLeft, MessageSquare, History, ListTree } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIssue } from "@/hooks/use-issues";
 import { IssueProperties } from "./IssueProperties";
@@ -49,39 +43,40 @@ export function IssueDetail({ issueKey, closePath }: IssueDetailProps) {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
+          {/* Back button visible on mobile when list is hidden */}
+          <Link
+            to={closePath}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground lg:hidden"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
           <span className="text-[13px] font-medium text-muted-foreground">
             {issueKey}
           </span>
-          {jiraIssue.self && (
-            <a
-              href={`https://${new URL(jiraIssue.self).hostname.replace("api.atlassian.com", "")}/browse/${issueKey}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-            </a>
-          )}
         </div>
         <Link
           to={closePath}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="hidden lg:flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <X className="h-4 w-4" />
         </Link>
       </div>
 
-      {/* Content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Main */}
-        <div className="flex-1 overflow-y-auto p-6">
-          <h1 className="text-lg font-semibold text-foreground">
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="p-5">
+          <h1 className="text-base font-semibold text-foreground leading-snug">
             {jiraIssue.fields.summary}
           </h1>
 
+          {/* Properties inline */}
+          <div className="mt-4">
+            <IssueProperties issue={jiraIssue} />
+          </div>
+
           {/* Description */}
-          <div className="mt-6">
-            <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="mt-5">
+            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Description
             </h3>
             <IssueDescription description={jiraIssue.fields.description} />
@@ -90,8 +85,8 @@ export function IssueDetail({ issueKey, closePath }: IssueDetailProps) {
           {/* Subtasks */}
           {jiraIssue.fields.subtasks &&
             jiraIssue.fields.subtasks.length > 0 && (
-              <div className="mt-6">
-                <h3 className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <div className="mt-5">
+                <h3 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <ListTree className="h-3.5 w-3.5" />
                   Subtasks ({jiraIssue.fields.subtasks.length})
                 </h3>
@@ -127,7 +122,7 @@ export function IssueDetail({ issueKey, closePath }: IssueDetailProps) {
             )}
 
           {/* Tabs: Comments / Activity */}
-          <div className="mt-6">
+          <div className="mt-5">
             <div className="flex gap-4 border-b border-border">
               <button
                 onClick={() => setActiveTab("comments")}
@@ -163,11 +158,6 @@ export function IssueDetail({ issueKey, closePath }: IssueDetailProps) {
               )}
             </div>
           </div>
-        </div>
-
-        {/* Properties sidebar */}
-        <div className="w-64 shrink-0 overflow-y-auto border-l border-border">
-          <IssueProperties issue={jiraIssue} />
         </div>
       </div>
     </div>
