@@ -1,6 +1,6 @@
 import { useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { History, ChevronRight } from "lucide-react";
+import { History } from "lucide-react";
 import { useDecks, type HistoryEntry } from "@/context/DeckContext";
 
 interface HistoryPanelProps {

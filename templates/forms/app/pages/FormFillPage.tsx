@@ -6,7 +6,7 @@ import { Turnstile, PoweredByBadge } from "@agent-native/core/client";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { usePublicForm, useSubmitForm } from "@/hooks/use-forms";
 import { toast } from "sonner";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, RefreshCw } from "lucide-react";
 import type { FormField, FormSettings } from "@shared/types";
 
 export function FormFillPage() {
@@ -126,9 +126,18 @@ export function FormFillPage() {
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="text-center">
           <h1 className="text-2xl font-semibold mb-2">Form not found</h1>
-          <p className="text-muted-foreground">
+          <p className="text-muted-foreground mb-4">
             This form may have been removed or is no longer accepting responses.
           </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.location.reload()}
+            className="gap-2"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Try Again
+          </Button>
         </div>
         <PoweredByBadge />
       </div>

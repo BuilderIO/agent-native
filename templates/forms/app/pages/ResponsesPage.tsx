@@ -1,6 +1,6 @@
 import { useParams, Link } from "react-router";
 import { format } from "date-fns";
-import { ArrowLeft, Download, FileText } from "lucide-react";
+import { ArrowLeft, Download, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -11,7 +11,7 @@ import type { FormField } from "@shared/types";
 export function ResponsesPage() {
   const { id } = useParams<{ id: string }>();
   const { data: form } = useForm(id!);
-  const { data, isLoading } = useFormResponses(id!);
+  const { data, isLoading, error, refetch } = useFormResponses(id!);
 
   const responses = data?.responses || [];
   const fields: FormField[] = data?.fields || form?.fields || [];
@@ -52,6 +52,25 @@ export function ResponsesPage() {
     );
   }
 
+  if (error && !responses) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3">
+        <p className="text-sm text-muted-foreground">
+          Failed to load responses
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => refetch()}
+          className="gap-2"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -83,9 +102,6 @@ export function ResponsesPage() {
       {/* Table */}
       {responses.length === 0 ? (
         <div className="flex flex-col items-center justify-center flex-1 py-20">
-          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4">
-            <FileText className="h-6 w-6 text-muted-foreground" />
-          </div>
           <h3 className="font-medium mb-1">No responses yet</h3>
           <p className="text-sm text-muted-foreground">
             Share your form to start collecting responses
@@ -97,15 +113,22 @@ export function ResponsesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
+                  <th
+                    scope="col"
+                    className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                  >
                     #
                   </th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap">
+                  <th
+                    scope="col"
+                    className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                  >
                     Submitted
                   </th>
                   {fields.map((f) => (
                     <th
                       key={f.id}
+                      scope="col"
                       className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
                     >
                       {f.label}

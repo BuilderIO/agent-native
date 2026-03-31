@@ -239,6 +239,7 @@ export function NewCompositionPopover({
                     </span>
                     <button
                       onClick={() => removeAttachment(index)}
+                      aria-label={`Remove ${attachment.name}`}
                       className="p-0.5 hover:bg-destructive/10 rounded transition-colors"
                     >
                       <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
@@ -276,6 +277,7 @@ export function NewCompositionPopover({
                 size="sm"
                 onClick={submitChat}
                 disabled={!prompt.trim()}
+                aria-label="Submit"
                 className="h-8 text-xs"
               >
                 <ArrowUp className="w-3.5 h-3.5" />

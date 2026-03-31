@@ -173,6 +173,7 @@ export function FieldRenderer({
               onClick={() => !disabled && handleChange(star)}
               className="p-0.5"
               disabled={disabled}
+              aria-label={`${star} star${star !== 1 ? "s" : ""}`}
             >
               <Star
                 className={cn(

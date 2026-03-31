@@ -240,6 +240,7 @@ export default function PromptPopover({
                 <button
                   onClick={() => removeFile(i)}
                   className="p-0.5 rounded hover:bg-white/[0.1]"
+                  aria-label={`Remove ${file.name}`}
                 >
                   <X className="w-2.5 h-2.5" />
                 </button>
@@ -256,6 +257,7 @@ export default function PromptPopover({
               onClick={() => fileInputRef.current?.click()}
               className="p-1.5 rounded-md hover:bg-white/[0.06] text-white/30 hover:text-white/50 transition-colors"
               title="Attach files"
+              aria-label="Attach files"
             >
               <Paperclip className="w-4 h-4" />
             </button>
@@ -289,6 +291,7 @@ export default function PromptPopover({
                   : "bg-white/[0.12] hover:bg-white/[0.18] disabled:opacity-30 disabled:cursor-not-allowed"
               }`}
               title="Submit"
+              aria-label="Submit"
             >
               {busy ? (
                 <Loader2

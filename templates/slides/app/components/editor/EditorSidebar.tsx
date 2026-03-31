@@ -105,6 +105,7 @@ function SortableSlideThumb({
           }}
           className="p-1 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80 transition-colors"
           title="Duplicate"
+          aria-label="Duplicate slide"
         >
           <Copy className="w-3 h-3 text-white/60" />
         </button>
@@ -115,6 +116,7 @@ function SortableSlideThumb({
           }}
           className="p-1 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-red-900/80 transition-colors"
           title="Delete"
+          aria-label="Delete slide"
         >
           <Trash2 className="w-3 h-3 text-white/60" />
         </button>
@@ -319,6 +321,7 @@ function AddSlidePopover({
               <button
                 onClick={() => removeFile(i)}
                 className="p-0.5 rounded hover:bg-white/[0.1]"
+                aria-label={`Remove ${file.name}`}
               >
                 <X className="w-2.5 h-2.5" />
               </button>
@@ -334,6 +337,7 @@ function AddSlidePopover({
           onClick={() => fileInputRef.current?.click()}
           className="p-1.5 rounded-md hover:bg-white/[0.06] text-white/30 hover:text-white/50 transition-colors"
           title="Attach files"
+          aria-label="Attach files"
         >
           <Paperclip className="w-4 h-4" />
         </button>
@@ -350,6 +354,7 @@ function AddSlidePopover({
           disabled={busy}
           className="p-1.5 rounded-lg bg-white/[0.12] hover:bg-white/[0.18] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           title="Generate"
+          aria-label="Generate slides"
         >
           {busy ? (
             <Loader2 className="w-4 h-4 text-white/70 animate-spin" />
@@ -428,6 +433,7 @@ export default function EditorSidebar({
             onClick={() => setAddOpen(!addOpen)}
             className="p-1 rounded-md hover:bg-white/[0.06] transition-colors"
             title="Add slides"
+            aria-label="Add slides"
           >
             <Plus className="w-4 h-4 text-white/50" />
           </button>

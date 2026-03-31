@@ -156,6 +156,7 @@ export default function ShareDialog({
                       onClick={handleCopy}
                       className="flex-shrink-0 p-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] transition-colors"
                       title="Copy link"
+                      aria-label="Copy link"
                     >
                       {copied ? (
                         <Check className="w-4 h-4 text-green-400" />
