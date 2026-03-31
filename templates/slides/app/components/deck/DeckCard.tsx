@@ -49,6 +49,7 @@ export default function DeckCard({ deck, onDelete }: DeckCardProps) {
             setShowMenu(!showMenu);
           }}
           className="p-1.5 rounded-md bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80 transition-colors"
+          aria-label="Deck options"
         >
           <MoreHorizontal className="w-3.5 h-3.5 text-white/70" />
         </button>

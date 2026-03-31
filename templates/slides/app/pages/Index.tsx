@@ -75,6 +75,7 @@ export default function Index() {
               href="/settings"
               className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/50 hover:text-white/80 transition-all"
               title="Settings"
+              aria-label="Settings"
             >
               <Settings className="w-3.5 h-3.5" />
             </a>
@@ -200,7 +201,11 @@ function EmptyState({
         Build beautiful slide presentations with AI-powered generation, image
         creation, and a stunning presentation mode.
       </p>
-      <Button onClick={onCreateDeck as any}>
+      <Button
+        onClick={(e: React.MouseEvent<HTMLButtonElement>) =>
+          onCreateDeck(e as React.MouseEvent<HTMLElement>)
+        }
+      >
         <Plus className="w-4 h-4" />
         New Deck
       </Button>

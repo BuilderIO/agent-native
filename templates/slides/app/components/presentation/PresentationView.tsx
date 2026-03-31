@@ -140,6 +140,7 @@ export default function PresentationView({
               onClick={goPrev}
               disabled={currentIndex === 0}
               className="p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              aria-label="Previous slide"
             >
               <ChevronLeft className="w-4 h-4 text-white" />
             </button>
@@ -147,6 +148,7 @@ export default function PresentationView({
               onClick={goNext}
               disabled={currentIndex === slides.length - 1}
               className="p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              aria-label="Next slide"
             >
               <ChevronRight className="w-4 h-4 text-white" />
             </button>
@@ -155,6 +157,7 @@ export default function PresentationView({
           <button
             onClick={exit}
             className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+            aria-label="Exit presentation"
           >
             <X className="w-4 h-4 text-white" />
           </button>
