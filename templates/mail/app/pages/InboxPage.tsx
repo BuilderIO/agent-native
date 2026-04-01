@@ -146,7 +146,12 @@ export function InboxPage() {
 
   // Always fetch from the URL view (inbox, starred, etc.)
   // Label tabs use ?label= param and always fetch inbox
-  const { data: rawEmails = [], isLoading, isError } = useEmails(view);
+  const searchQuery = searchParams.get("q") ?? undefined;
+  const {
+    data: rawEmails = [],
+    isLoading,
+    isError,
+  } = useEmails(view, searchQuery);
   const { activeAccounts } = useAccountFilter();
 
   const pinnedLabels = settings?.pinnedLabels ?? [];
@@ -255,8 +260,6 @@ export function InboxPage() {
     () => threads.map((t) => t.latestMessage.threadId || t.latestMessage.id),
     [threads],
   );
-
-  const searchQuery = searchParams.get("q") ?? undefined;
 
   const handleCompose = useCallback(
     (email: EmailMessage, mode: "reply" | "forward") => {

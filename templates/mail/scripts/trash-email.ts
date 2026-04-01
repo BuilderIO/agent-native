@@ -10,7 +10,7 @@
  */
 
 import { parseArgs, output, fatal, getAccessTokens } from "./helpers.js";
-import { gmailTrashMessage } from "../server/lib/google-api.js";
+import { gmailGetMessage, gmailTrashThread } from "../server/lib/google-api.js";
 import type { ScriptTool } from "@agent-native/core";
 
 export const tool: ScriptTool = {
@@ -43,7 +43,8 @@ export async function run(args: Record<string, string>): Promise<string> {
     const errors: string[] = [];
     for (const { accessToken } of accounts) {
       try {
-        await gmailTrashMessage(accessToken, id);
+        const msg = await gmailGetMessage(accessToken, id, "minimal");
+        await gmailTrashThread(accessToken, msg.threadId);
         success = true;
         break;
       } catch (err: any) {

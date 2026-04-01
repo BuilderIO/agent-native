@@ -34,6 +34,7 @@ import { RecipientInput } from "./RecipientInput";
 import { ComposeEditor, type ComposeEditorHandle } from "./ComposeEditor";
 import { openFilePicker, uploadFile, formatFileSize } from "@/lib/upload";
 import type { ComposeAttachment } from "@shared/types";
+import { useAccountFilter } from "@/hooks/use-account-filter";
 
 /**
  * Split a compose body into the editable portion and the quoted history.
@@ -114,6 +115,7 @@ export function ComposeModal({
   const sendEmail = useSendEmail();
   const scheduleEmail = useScheduleEmail();
   const { data: aliases = [] } = useAliases();
+  const { allAccounts } = useAccountFilter();
   const editorRef = useRef<ComposeEditorHandle>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const sendingRef = useRef(false);
@@ -427,6 +429,28 @@ export function ComposeModal({
         <>
           {/* Header fields */}
           <div className="border-b border-border">
+            {allAccounts.length > 1 && (
+              <div className="flex items-center border-b border-border px-4">
+                <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
+                  From
+                </span>
+                <select
+                  value={
+                    activeDraft.accountEmail || allAccounts[0]?.email || ""
+                  }
+                  onChange={(e) =>
+                    onUpdate(activeId!, { accountEmail: e.target.value })
+                  }
+                  className="flex-1 bg-transparent py-2 text-sm outline-none text-foreground cursor-pointer"
+                >
+                  {allAccounts.map((acct) => (
+                    <option key={acct.email} value={acct.email}>
+                      {acct.email}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="flex items-center border-b border-border px-4">
               <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
                 To
