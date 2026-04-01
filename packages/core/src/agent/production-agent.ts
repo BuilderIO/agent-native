@@ -40,9 +40,41 @@ export interface ProductionAgentOptions {
 }
 
 const MAX_ITERATIONS = 40;
+const MAX_RETRIES = 3;
+const RETRY_BASE_DELAY_MS = 2000;
 
 function generateRunId(): string {
   return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Check if an error is transient and should be retried */
+function isRetryableError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return (
+    msg.includes("overloaded") ||
+    msg.includes("rate_limit") ||
+    msg.includes("529") ||
+    msg.includes("503") ||
+    msg.includes("too many requests")
+  );
+}
+
+/** Wait with exponential backoff, respecting abort signal */
+function retryDelay(attempt: number, signal: AbortSignal): Promise<void> {
+  const ms = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(new Error("aborted"));
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new Error("aborted"));
+      },
+      { once: true },
+    );
+  });
 }
 
 /** Build enriched message with file/skill/mention references */
@@ -126,28 +158,46 @@ async function runAgentLoop(opts: {
       break;
     }
 
-    const apiStream = client.messages.stream(
-      {
-        model,
-        max_tokens: 4096,
-        system: systemPrompt,
-        tools,
-        messages,
-      },
-      { signal },
-    );
+    let assistantContent: Anthropic.ContentBlock[] | undefined;
+    for (let retry = 0; ; retry++) {
+      try {
+        const apiStream = client.messages.stream(
+          {
+            model,
+            max_tokens: 4096,
+            system: systemPrompt,
+            tools,
+            messages,
+          },
+          { signal },
+        );
 
-    for await (const chunk of apiStream) {
-      if (
-        chunk.type === "content_block_delta" &&
-        chunk.delta.type === "text_delta"
-      ) {
-        send({ type: "text", text: chunk.delta.text });
+        for await (const chunk of apiStream) {
+          if (
+            chunk.type === "content_block_delta" &&
+            chunk.delta.type === "text_delta"
+          ) {
+            send({ type: "text", text: chunk.delta.text });
+          }
+        }
+
+        const finalMessage = await apiStream.finalMessage();
+        assistantContent = finalMessage.content;
+        break;
+      } catch (err: unknown) {
+        if (signal.aborted) throw err;
+        if (retry < MAX_RETRIES && isRetryableError(err)) {
+          send({
+            type: "text",
+            text: `\n\n*API temporarily unavailable, retrying in ${(RETRY_BASE_DELAY_MS * Math.pow(2, retry)) / 1000}s...*\n\n`,
+          });
+          await retryDelay(retry, signal);
+          continue;
+        }
+        throw err;
       }
     }
-
-    const finalMessage = await apiStream.finalMessage();
-    const assistantContent = finalMessage.content;
+    if (!assistantContent) break;
 
     messages.push({ role: "assistant", content: assistantContent });
 

@@ -350,7 +350,7 @@ function ToolCallFallback({
         className={cn(
           "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
           isRunning
-            ? "bg-blue-500/10 text-blue-400"
+            ? "bg-muted text-muted-foreground"
             : "bg-muted text-muted-foreground hover:bg-accent",
         )}
       >
@@ -664,20 +664,29 @@ function QueueComposer({
   onStop,
 }: {
   composerRef: React.RefObject<HTMLTextAreaElement | null>;
-  addToQueue: (text: string) => void;
+  addToQueue: (text: string, images?: string[]) => void;
   queuedCount: number;
   onStop: () => void;
 }) {
   const [value, setValue] = useState("");
+  const [pendingImages, setPendingImages] = useState<
+    Array<{ name: string; dataUrl: string }>
+  >([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = useCallback(() => {
     const text = value.trim();
-    if (!text) return;
-    addToQueue(text);
+    if (!text && pendingImages.length === 0) return;
+    addToQueue(
+      text || "(attached images)",
+      pendingImages.length > 0
+        ? pendingImages.map((img) => img.dataUrl)
+        : undefined,
+    );
     setValue("");
-    // Re-focus after submit
+    setPendingImages([]);
     setTimeout(() => composerRef.current?.focus(), 0);
-  }, [value, addToQueue, composerRef]);
+  }, [value, pendingImages, addToQueue, composerRef]);
 
   const handleAutoResize = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -688,16 +697,80 @@ function QueueComposer({
     [],
   );
 
+  const handleFiles = useCallback((files: FileList | File[]) => {
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith("image/")) continue;
+      const reader = new FileReader();
+      reader.onload = () => {
+        setPendingImages((prev) => [
+          ...prev,
+          { name: file.name, dataUrl: reader.result as string },
+        ]);
+      };
+      reader.readAsDataURL(file);
+    }
+  }, []);
+
   return (
     <div className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
-      <div className="flex items-center gap-1 px-2 py-1.5">
-        <div className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground">
-          <PaperclipIcon className="h-4 w-4 opacity-30" />
+      {pendingImages.length > 0 && (
+        <div className="flex flex-wrap gap-2 px-2 pt-2">
+          {pendingImages.map((img, i) => (
+            <div
+              key={i}
+              className="group relative h-16 w-16 rounded-md overflow-hidden border border-border"
+            >
+              <img
+                src={img.dataUrl}
+                alt={img.name}
+                className="h-full w-full object-cover"
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  setPendingImages((prev) => prev.filter((_, j) => j !== i))
+                }
+                className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 text-muted-foreground hover:text-foreground"
+              >
+                <XIcon className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
         </div>
+      )}
+      <div className="flex items-center gap-1 px-2 py-1.5">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files) handleFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+          title="Attach images"
+        >
+          <PaperclipIcon className="h-4 w-4" />
+        </button>
         <textarea
           ref={composerRef}
           value={value}
           onChange={handleAutoResize}
+          onPaste={(e) => {
+            const files = Array.from(e.clipboardData?.files ?? []).filter((f) =>
+              f.type.startsWith("image/"),
+            );
+            if (files.length > 0) {
+              e.preventDefault();
+              handleFiles(files);
+            }
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -785,7 +858,9 @@ const AssistantChatInner = forwardRef<
   const isRunning = thread.isRunning;
   const messages = thread.messages;
   const [missingApiKey, setMissingApiKey] = useState(false);
-  const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
+  const [queuedMessages, setQueuedMessages] = useState<
+    Array<{ text: string; images?: string[] }>
+  >([]);
   const [showContinue, setShowContinue] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const wasRunningRef = useRef(false);
@@ -1004,25 +1079,35 @@ const AssistantChatInner = forwardRef<
       setQueuedMessages(rest);
       // Small delay to let the runtime settle after completion
       setTimeout(() => {
-        threadRuntime.append({
-          role: "user",
-          content: [{ type: "text", text: next }],
-        });
+        const content: Array<
+          { type: "text"; text: string } | { type: "image"; image: string }
+        > = [{ type: "text", text: next.text }];
+        if (next.images) {
+          for (const img of next.images) {
+            content.push({ type: "image", image: img });
+          }
+        }
+        threadRuntime.append({ role: "user", content });
       }, 100);
     }
     wasRunningRef.current = isRunning;
   }, [isRunning, queuedMessages, threadRuntime]);
 
   const addToQueue = useCallback(
-    (text: string) => {
+    (text: string, images?: string[]) => {
       setShowContinue(false);
       if (isRunning) {
-        setQueuedMessages((prev) => [...prev, text]);
+        setQueuedMessages((prev) => [...prev, { text, images }]);
       } else {
-        threadRuntime.append({
-          role: "user",
-          content: [{ type: "text", text }],
-        });
+        const content: Array<
+          { type: "text"; text: string } | { type: "image"; image: string }
+        > = [{ type: "text", text }];
+        if (images) {
+          for (const img of images) {
+            content.push({ type: "image", image: img });
+          }
+        }
+        threadRuntime.append({ role: "user", content });
       }
     },
     [isRunning, threadRuntime],
@@ -1211,7 +1296,19 @@ const AssistantChatInner = forwardRef<
                     </svg>
                     Queued
                   </div>
-                  {msg}
+                  {msg.text}
+                  {msg.images && msg.images.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {msg.images.map((img, j) => (
+                        <img
+                          key={j}
+                          src={img}
+                          alt=""
+                          className="h-12 w-12 rounded object-cover border border-border/50"
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

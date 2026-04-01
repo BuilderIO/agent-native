@@ -61,6 +61,49 @@ export interface ClientConfigOptions {
 }
 
 /**
+ * Vite plugin that auto-reloads the page when Vite's dependency optimizer
+ * invalidates modules (the "504 outdated optimize dep" error). Instead of
+ * leaving the app in a broken state requiring a manual refresh, this
+ * injects a tiny client script that listens for these errors and reloads
+ * automatically after a brief delay to let the optimizer finish.
+ */
+function autoReloadOnOptimizeDep(): Plugin {
+  return {
+    name: "agent-native-auto-reload-optimize-dep",
+    apply: "serve",
+    transformIndexHtml() {
+      return [
+        {
+          tag: "script",
+          attrs: { type: "module" },
+          children: `
+if (import.meta.hot) {
+  let reloadTimer;
+  // Vite sends "error" payloads when module fetches fail (504 outdated dep)
+  import.meta.hot.on("vite:error", (payload) => {
+    const msg = payload?.err?.message || "";
+    if (msg.includes("504") || msg.includes("outdated")) {
+      if (!reloadTimer) {
+        console.log("[agent-native] Dependency optimizer updated, reloading...");
+        reloadTimer = setTimeout(() => window.location.reload(), 800);
+      }
+    }
+  });
+  // Vite also fires beforeUpdate before a full reload from optimizer changes.
+  // If we get a vite:beforeFullReload after an error, clear our timer so
+  // Vite handles it natively.
+  import.meta.hot.on("vite:beforeFullReload", () => {
+    if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
+  });
+}`,
+          injectTo: "head",
+        },
+      ];
+    },
+  };
+}
+
+/**
  * Vite plugin that prevents the built-in base middleware from redirecting
  * "/" → "/app/" (or whatever the base is). When agent-native apps run with
  * --base /app/ in single-port mode, Vite's baseMiddleware sends a 302 from
@@ -155,6 +198,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       outDir: options.outDir ?? "dist/spa",
     },
     plugins: [
+      autoReloadOnOptimizeDep(),
       baseRedirectGuard(),
       devApiServer(),
       reactPluginInstance,

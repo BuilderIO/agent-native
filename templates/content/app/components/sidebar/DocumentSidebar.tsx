@@ -264,7 +264,7 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
                 </div>
                 {isLoading ? (
                   <div className="space-y-1 px-3 py-1">
-                    {Array.from({ length: 5 }).map((_, i) => (
+                    {[70, 55, 85, 60, 45].map((w, i) => (
                       <div
                         key={i}
                         className="flex items-center gap-2 px-1 py-1.5"
@@ -272,7 +272,7 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
                         <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse flex-shrink-0" />
                         <div
                           className="h-3.5 rounded bg-muted animate-pulse"
-                          style={{ width: `${50 + Math.random() * 40}%` }}
+                          style={{ width: `${w}%` }}
                         />
                       </div>
                     ))}

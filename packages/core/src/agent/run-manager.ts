@@ -69,6 +69,11 @@ export function startRun(
       run.status = "completed";
     })
     .catch((err) => {
+      // Don't surface abort errors — the run was intentionally stopped
+      if (abort.signal.aborted) {
+        run.status = "completed";
+        return;
+      }
       run.status = "errored";
       send({ type: "error", error: err?.message ?? "Unknown error" });
     })
