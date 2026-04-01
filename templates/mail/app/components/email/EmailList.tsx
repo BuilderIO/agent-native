@@ -185,7 +185,13 @@ export function EmailList({
     (delta: number) => {
       setSelectedIds(new Set());
       if (threads.length === 0) return;
-      const current = focusedIndexRef.current;
+      let current = focusedIndexRef.current;
+      // If index is stale (-1), re-derive from the current focusedId
+      if (current === -1 && focusedIdRef.current) {
+        current = threads.findIndex(
+          (t) => t.latestMessage.id === focusedIdRef.current,
+        );
+      }
       const next = Math.max(
         0,
         Math.min(threads.length - 1, (current === -1 ? 0 : current) + delta),
@@ -265,14 +271,8 @@ export function EmailList({
       (t) => !actionIdSet.has(t.latestMessage.id),
     );
     if (remaining.length > 0) {
-      // Pick the first remaining thread after the last selected
-      const nextThread =
-        remaining.find(
-          (_, i) =>
-            threads.indexOf(remaining[i]) > lastIdx ||
-            i === remaining.length - 1,
-        ) || remaining[remaining.length - 1];
-      setFocusedId(nextThread.latestMessage.id);
+      const nextIdx = Math.min(lastIdx, remaining.length - 1);
+      setFocusedId(remaining[nextIdx].latestMessage.id);
     } else {
       setFocusedId(null);
     }
@@ -336,13 +336,8 @@ export function EmailList({
       (t) => !actionIdSet.has(t.latestMessage.id),
     );
     if (remaining.length > 0) {
-      const nextThread =
-        remaining.find(
-          (_, i) =>
-            threads.indexOf(remaining[i]) > lastIdx ||
-            i === remaining.length - 1,
-        ) || remaining[remaining.length - 1];
-      setFocusedId(nextThread.latestMessage.id);
+      const nextIdx = Math.min(lastIdx, remaining.length - 1);
+      setFocusedId(remaining[nextIdx].latestMessage.id);
     } else {
       setFocusedId(null);
     }
@@ -465,9 +460,10 @@ export function EmailList({
     { key: "Escape", handler: clearSelection },
   ]);
 
-  // Auto-focus first thread when list loads
+  // Auto-focus first thread when list loads, or reset if focused email was removed
   useEffect(() => {
-    if (threads.length > 0 && !focusedId) {
+    if (threads.length === 0) return;
+    if (!focusedId || !threads.some((t) => t.latestMessage.id === focusedId)) {
       setFocusedId(threads[0].latestMessage.id);
     }
   }, [threads, focusedId, setFocusedId]);

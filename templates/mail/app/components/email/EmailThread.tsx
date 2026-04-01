@@ -264,17 +264,21 @@ export function EmailThread({
     [navigate, view, labelSuffix],
   );
 
-  // Navigate between threads (j/k)
+  // Navigate between threads (j/k) — use ref to avoid stale closure
+  const emailIdsRef = useRef(emailIds);
+  emailIdsRef.current = emailIds;
+
   const goToSibling = useCallback(
     (delta: number) => {
-      if (!threadId || emailIds.length === 0) return;
-      const idx = emailIds.indexOf(threadId);
+      const ids = emailIdsRef.current;
+      if (!threadId || ids.length === 0) return;
+      const idx = ids.indexOf(threadId);
       if (idx === -1) return;
       const nextIdx = idx + delta;
-      if (nextIdx < 0 || nextIdx >= emailIds.length) return;
-      navigate(`/${view}/${emailIds[nextIdx]}${labelSuffix}`);
+      if (nextIdx < 0 || nextIdx >= ids.length) return;
+      navigate(`/${view}/${ids[nextIdx]}${labelSuffix}`);
     },
-    [threadId, emailIds, view, navigate, labelSuffix],
+    [threadId, view, navigate, labelSuffix],
   );
 
   useEffect(() => {
