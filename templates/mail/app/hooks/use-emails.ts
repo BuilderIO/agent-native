@@ -212,12 +212,26 @@ export function useToggleStar() {
 export function useArchiveEmail() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, accountEmail }: { id: string; accountEmail?: string }) =>
+    mutationFn: ({
+      id,
+      accountEmail,
+      removeLabel,
+    }: {
+      id: string;
+      accountEmail?: string;
+      removeLabel?: string;
+    }) =>
       apiFetch(`/api/emails/${id}/archive`, {
         method: "PATCH",
-        body: JSON.stringify({ accountEmail }),
+        body: JSON.stringify({ accountEmail, removeLabel }),
       }),
-    onMutate: async ({ id }: { id: string; accountEmail?: string }) => {
+    onMutate: async ({
+      id,
+    }: {
+      id: string;
+      accountEmail?: string;
+      removeLabel?: string;
+    }) => {
       await qc.cancelQueries({ queryKey: ["emails"] });
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],

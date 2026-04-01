@@ -556,7 +556,25 @@ export const archiveEmail = defineEventHandler(async (event: H3Event) => {
     try {
       const id = getRouterParam(event, "id") as string;
       const msg = await gmailGetMessage(accessToken, id, "minimal");
-      await gmailModifyThread(accessToken, msg.threadId, undefined, ["INBOX"]);
+      // Remove INBOX + the current label (if archiving from a label view)
+      const removeLabels = ["INBOX"];
+      if (body?.removeLabel) {
+        // Gmail label IDs for user labels are the label name or a Label_N id
+        const labelId = msg.labelIds?.find(
+          (l: string) =>
+            l === body.removeLabel ||
+            l.toLowerCase() === body.removeLabel.toLowerCase(),
+        );
+        if (labelId && !removeLabels.includes(labelId)) {
+          removeLabels.push(labelId);
+        }
+      }
+      await gmailModifyThread(
+        accessToken,
+        msg.threadId,
+        undefined,
+        removeLabels,
+      );
       return { id, threadId: msg.threadId, isArchived: true };
     } catch (error: any) {
       console.error("[archiveEmail] Gmail error:", error.message);

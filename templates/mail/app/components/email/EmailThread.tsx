@@ -398,7 +398,11 @@ export function EmailThread({
       },
     });
     advanceOrGoBack();
-    archiveEmail.mutate({ id, accountEmail: email.accountEmail });
+    archiveEmail.mutate({
+      id,
+      accountEmail: email.accountEmail,
+      removeLabel: labelParam || undefined,
+    });
   }, [
     email,
     threadId,
@@ -407,6 +411,7 @@ export function EmailThread({
     advanceOrGoBack,
     onArchived,
     queryClient,
+    labelParam,
   ]);
 
   const handleTrash = useCallback(() => {

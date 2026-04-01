@@ -308,6 +308,7 @@ export function EmailList({
       archiveEmail.mutate({
         id,
         accountEmail: thread?.latestMessage.accountEmail,
+        removeLabel: labelParam || undefined,
       });
     }
     setSelectedIds(new Set());
@@ -317,6 +318,7 @@ export function EmailList({
     archiveEmail,
     unarchiveEmail,
     onArchived,
+    labelParam,
     setFocusedId,
     setSelectedIds,
     getActionIds,
