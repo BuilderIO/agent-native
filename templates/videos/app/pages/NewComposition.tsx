@@ -1,4 +1,4 @@
-import { Film, Loader2 } from "lucide-react";
+import { IconMovie, IconLoader2 } from "@tabler/icons-react";
 
 type NewCompositionProps = {
   isGenerating?: boolean;
@@ -9,7 +9,7 @@ export default function NewComposition({ isGenerating }: NewCompositionProps) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-6 lg:p-8 min-w-0 bg-background h-full">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 size={32} className="text-primary animate-spin" />
+          <IconLoader2 size={32} className="text-primary animate-spin" />
           <p className="text-sm text-muted-foreground">Generating...</p>
         </div>
       </div>
@@ -20,7 +20,7 @@ export default function NewComposition({ isGenerating }: NewCompositionProps) {
     <div className="flex-1 flex flex-col items-center justify-center p-6 lg:p-8 min-w-0 bg-background h-full">
       <div className="max-w-sm w-full text-center space-y-4">
         <div className="mx-auto w-14 h-14 rounded-2xl bg-primary/10 border border-primary/15 flex items-center justify-center">
-          <Film size={24} className="text-primary" />
+          <IconMovie size={24} className="text-primary" />
         </div>
         <div className="space-y-2">
           <h2 className="text-lg font-semibold text-foreground/90">

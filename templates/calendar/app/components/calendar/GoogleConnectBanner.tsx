@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  CalendarCheck,
-  X,
-  ExternalLink,
-  Check,
-  Circle,
-  Loader2,
-  ChevronUp,
-  Upload,
-} from "lucide-react";
+  IconCalendarCheck,
+  IconX,
+  IconExternalLink,
+  IconCheck,
+  IconCircle,
+  IconLoader2,
+  IconChevronUp,
+  IconUpload,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { getCallbackOrigin } from "@agent-native/core/client";
 import {
@@ -49,7 +49,7 @@ const STEPS = [
     showRedirectUri: true,
   },
   {
-    title: "Upload credentials JSON",
+    title: "IconUpload credentials JSON",
     description:
       'Click "Download JSON" on the credentials page, then upload it here.',
     showUpload: true,
@@ -102,7 +102,7 @@ export function GoogleConnectBanner({
     }
   }, []);
 
-  // Check if credentials are already configured on mount
+  // IconCheck if credentials are already configured on mount
   useEffect(() => {
     fetchStatus();
   }, [fetchStatus]);
@@ -227,7 +227,7 @@ export function GoogleConnectBanner({
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-foreground/[0.06]">
-          <CalendarCheck className="h-6 w-6 text-muted-foreground" />
+          <IconCalendarCheck className="h-6 w-6 text-muted-foreground" />
         </div>
         <h2 className="text-[15px] font-medium text-foreground">
           Connect Google Calendar
@@ -263,7 +263,7 @@ export function GoogleConnectBanner({
                   onClick={() => disconnectGoogle.mutate(account.email)}
                   className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/25 hover:text-foreground/50"
                 >
-                  <X className="h-3 w-3" />
+                  <IconX className="h-3 w-3" />
                 </button>
               </div>
             ))}
@@ -307,7 +307,7 @@ export function GoogleConnectBanner({
                   onClick={() => disconnectGoogle.mutate(account.email)}
                   className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/30 hover:text-foreground/60"
                 >
-                  <X className="h-3 w-3" />
+                  <IconX className="h-3 w-3" />
                 </button>
               </div>
             ))}
@@ -325,7 +325,7 @@ export function GoogleConnectBanner({
             className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
             onClick={() => setDismissed(true)}
           >
-            <X className="h-3 w-3" />
+            <IconX className="h-3 w-3" />
           </Button>
         </div>
       </div>
@@ -339,7 +339,7 @@ export function GoogleConnectBanner({
       <div className="flex items-center justify-between gap-3 px-4 py-2">
         <div className="flex items-center gap-2.5">
           <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-white/[0.06]">
-            <CalendarCheck className="h-3 w-3 text-white/40" />
+            <IconCalendarCheck className="h-3 w-3 text-white/40" />
           </div>
           <p className="text-[13px] font-medium leading-tight text-foreground/80">
             {allConfigured
@@ -356,7 +356,7 @@ export function GoogleConnectBanner({
               className="gap-1.5 text-xs h-7 font-medium"
               onClick={() => setShowWizard(false)}
             >
-              <ChevronUp className="h-3 w-3" />
+              <IconChevronUp className="h-3 w-3" />
               Hide setup
             </Button>
           ) : allConfigured ? (
@@ -386,7 +386,7 @@ export function GoogleConnectBanner({
             className="h-6 w-6 text-muted-foreground hover:text-foreground"
             onClick={() => setDismissed(true)}
           >
-            <X className="h-3 w-3" />
+            <IconX className="h-3 w-3" />
           </Button>
         </div>
       </div>
@@ -472,11 +472,11 @@ function SetupWizard({
             <div className="flex items-start gap-2.5">
               <div className="mt-0.5 shrink-0">
                 {isCompleted ? (
-                  <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <IconCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                 ) : isActive ? (
-                  <Circle className="h-3.5 w-3.5 text-primary fill-primary" />
+                  <IconCircle className="h-3.5 w-3.5 text-primary fill-primary" />
                 ) : (
-                  <Circle className="h-3.5 w-3.5 text-muted-foreground" />
+                  <IconCircle className="h-3.5 w-3.5 text-muted-foreground" />
                 )}
               </div>
               <div className="flex-1 min-w-0">
@@ -507,7 +507,7 @@ function SetupWizard({
                         >
                           {copiedKey === "redirect" ? (
                             <>
-                              <Check className="h-3 w-3" />
+                              <IconCheck className="h-3 w-3" />
                               Copied
                             </>
                           ) : (
@@ -535,7 +535,7 @@ function SetupWizard({
                             }
                           }}
                         >
-                          <ExternalLink className="h-3 w-3" />
+                          <IconExternalLink className="h-3 w-3" />
                           {step.linkText}
                         </a>
                       </Button>
@@ -571,18 +571,18 @@ function SetupWizard({
                           disabled={saving}
                         >
                           {saving ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <IconLoader2 className="h-3 w-3 animate-spin" />
                           ) : (
-                            <Upload className="h-3 w-3" />
+                            <IconUpload className="h-3 w-3" />
                           )}
-                          {saving ? "Saving..." : "Upload JSON"}
+                          {saving ? "Saving..." : "IconUpload JSON"}
                         </Button>
                       </div>
                     )}
 
                     {step.showUpload && allConfigured && (
                       <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400">
-                        <Check className="h-3.5 w-3.5" />
+                        <IconCheck className="h-3.5 w-3.5" />
                         Credentials configured. Click "Connect Google Calendar"
                         above to sign in.
                       </div>

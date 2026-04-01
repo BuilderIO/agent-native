@@ -1,25 +1,25 @@
-import type { LucideIcon } from "lucide-react";
+import type { ComponentType } from "react";
 import {
-  BarChart3,
-  Database,
-  Activity,
-  CreditCard,
-  ShoppingCart,
-  Phone,
-  UserSearch,
-  GitPullRequest,
-  Ticket,
-  Bug,
-  LineChart,
-  MessageSquare,
-  FileText,
-  Twitter,
-  Headset,
-  Users,
-  Search,
-  Cloud,
-  Gauge,
-} from "lucide-react";
+  IconChartBar,
+  IconDatabase,
+  IconActivity,
+  IconCreditCard,
+  IconShoppingCart,
+  IconPhone,
+  IconUserSearch,
+  IconGitPullRequest,
+  IconTicket,
+  IconBug,
+  IconChartLine,
+  IconMessage,
+  IconFileText,
+  IconBrandX,
+  IconHeadset,
+  IconUsers,
+  IconSearch,
+  IconCloud,
+  IconGauge,
+} from "@tabler/icons-react";
 
 export type DataSourceCategory =
   | "analytics"
@@ -47,7 +47,7 @@ export interface DataSource {
   name: string;
   description: string;
   category: DataSourceCategory;
-  icon: LucideIcon;
+  icon: ComponentType<Record<string, unknown>>;
   envKeys: string[];
   walkthroughSteps: WalkthroughStep[];
   docsUrl: string;
@@ -55,7 +55,7 @@ export interface DataSource {
 
 export const categoryLabels: Record<DataSourceCategory, string> = {
   analytics: "Analytics & Product",
-  database: "Database",
+  database: "IconDatabase",
   payments: "Payments",
   crm: "CRM & Sales",
   engineering: "Engineering",
@@ -82,21 +82,22 @@ export const dataSources: DataSource[] = [
     name: "Google Analytics",
     description: "GA4 website and app analytics via the Data API",
     category: "analytics",
-    icon: BarChart3,
+    icon: IconChartBar,
     envKeys: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "GA4_PROPERTY_ID"],
     docsUrl:
       "https://developers.google.com/analytics/devguides/reporting/data/v1",
     walkthroughSteps: [
       {
-        title: "Create a Google Cloud project",
+        title: "Create a Google IconCloud project",
         description:
-          "If you don't already have one, create a project in the Google Cloud Console.",
+          "If you don't already have one, create a project in the Google IconCloud Console.",
         url: "https://console.cloud.google.com/projectcreate",
         linkText: "Create project",
       },
       {
         title: "Enable the Google Analytics Data API",
-        description: 'Search for "Google Analytics Data API" and click Enable.',
+        description:
+          'IconSearch for "Google Analytics Data API" and click Enable.',
         url: "https://console.cloud.google.com/apis/library/analyticsdata.googleapis.com",
         linkText: "Enable API",
       },
@@ -139,14 +140,14 @@ export const dataSources: DataSource[] = [
     name: "BigQuery",
     description: "Query your data warehouse directly with SQL",
     category: "analytics",
-    icon: Database,
+    icon: IconDatabase,
     envKeys: ["GOOGLE_APPLICATION_CREDENTIALS_JSON", "BIGQUERY_PROJECT_ID"],
     docsUrl: "https://cloud.google.com/bigquery/docs",
     walkthroughSteps: [
       {
-        title: "Create a Google Cloud project",
+        title: "Create a Google IconCloud project",
         description:
-          "If you don't already have one, create a project in the Google Cloud Console.",
+          "If you don't already have one, create a project in the Google IconCloud Console.",
         url: "https://console.cloud.google.com/projectcreate",
         linkText: "Create project",
       },
@@ -175,7 +176,7 @@ export const dataSources: DataSource[] = [
       {
         title: "Enter your BigQuery Project ID",
         description:
-          "The Google Cloud project ID where your BigQuery data lives.",
+          "The Google IconCloud project ID where your BigQuery data lives.",
         inputKey: "BIGQUERY_PROJECT_ID",
         inputLabel: "Project ID",
         inputPlaceholder: "my-project-123",
@@ -188,7 +189,7 @@ export const dataSources: DataSource[] = [
     name: "Amplitude",
     description: "Product analytics — events, funnels, retention",
     category: "analytics",
-    icon: Activity,
+    icon: IconActivity,
     envKeys: ["AMPLITUDE_API_KEY", "AMPLITUDE_SECRET_KEY"],
     docsUrl: "https://www.docs.developers.amplitude.com/analytics/apis/",
     walkthroughSteps: [
@@ -222,7 +223,7 @@ export const dataSources: DataSource[] = [
     name: "Mixpanel",
     description: "Product analytics — events, funnels, user flows",
     category: "analytics",
-    icon: LineChart,
+    icon: IconChartLine,
     envKeys: ["MIXPANEL_PROJECT_ID", "MIXPANEL_SERVICE_ACCOUNT"],
     docsUrl: "https://developer.mixpanel.com/reference/overview",
     walkthroughSteps: [
@@ -265,7 +266,7 @@ export const dataSources: DataSource[] = [
     name: "PostHog",
     description: "Open-source product analytics and feature flags",
     category: "analytics",
-    icon: Gauge,
+    icon: IconGauge,
     envKeys: ["POSTHOG_API_KEY", "POSTHOG_PROJECT_ID"],
     docsUrl: "https://posthog.com/docs/api",
     walkthroughSteps: [
@@ -296,13 +297,13 @@ export const dataSources: DataSource[] = [
     ],
   },
 
-  // --- Database ---
+  // --- IconDatabase ---
   {
     id: "postgresql",
     name: "PostgreSQL",
     description: "Query any PostgreSQL database directly",
     category: "database",
-    icon: Database,
+    icon: IconDatabase,
     envKeys: ["POSTGRES_URL"],
     docsUrl: "https://www.postgresql.org/docs/",
     walkthroughSteps: [
@@ -331,7 +332,7 @@ export const dataSources: DataSource[] = [
     name: "Stripe",
     description: "Revenue, subscriptions, and payment analytics",
     category: "payments",
-    icon: CreditCard,
+    icon: IconCreditCard,
     envKeys: ["STRIPE_SECRET_KEY"],
     docsUrl: "https://stripe.com/docs/api",
     walkthroughSteps: [
@@ -360,7 +361,7 @@ export const dataSources: DataSource[] = [
     name: "HubSpot",
     description: "CRM deals, contacts, companies, and pipelines",
     category: "crm",
-    icon: ShoppingCart,
+    icon: IconShoppingCart,
     envKeys: ["HUBSPOT_ACCESS_TOKEN"],
     docsUrl: "https://developers.hubspot.com/docs/api/overview",
     walkthroughSteps: [
@@ -386,7 +387,7 @@ export const dataSources: DataSource[] = [
     name: "Gong",
     description: "Sales call recordings, transcripts, and analytics",
     category: "crm",
-    icon: Phone,
+    icon: IconPhone,
     envKeys: ["GONG_API_KEY"],
     docsUrl: "https://gong.app.gong.io/settings/api/documentation",
     walkthroughSteps: [
@@ -413,7 +414,7 @@ export const dataSources: DataSource[] = [
     name: "Apollo",
     description: "Contact and company enrichment for prospecting",
     category: "crm",
-    icon: UserSearch,
+    icon: IconUserSearch,
     envKeys: ["APOLLO_API_KEY"],
     docsUrl: "https://apolloio.github.io/apollo-api-docs/",
     walkthroughSteps: [
@@ -441,7 +442,7 @@ export const dataSources: DataSource[] = [
     name: "GitHub",
     description: "Pull requests, issues, and code reviews",
     category: "engineering",
-    icon: GitPullRequest,
+    icon: IconGitPullRequest,
     envKeys: ["GITHUB_TOKEN"],
     docsUrl: "https://docs.github.com/en/rest",
     walkthroughSteps: [
@@ -467,7 +468,7 @@ export const dataSources: DataSource[] = [
     name: "Jira",
     description: "Tickets, sprints, and project tracking",
     category: "engineering",
-    icon: Ticket,
+    icon: IconTicket,
     envKeys: ["JIRA_EMAIL", "JIRA_TOKEN"],
     docsUrl: "https://developer.atlassian.com/cloud/jira/platform/rest/v3/",
     walkthroughSteps: [
@@ -502,7 +503,7 @@ export const dataSources: DataSource[] = [
     name: "Sentry",
     description: "Error tracking and performance monitoring",
     category: "engineering",
-    icon: Bug,
+    icon: IconBug,
     envKeys: ["SENTRY_AUTH_TOKEN"],
     docsUrl: "https://docs.sentry.io/api/",
     walkthroughSteps: [
@@ -528,7 +529,7 @@ export const dataSources: DataSource[] = [
     name: "Grafana",
     description: "Prometheus metrics, dashboards, and alerts",
     category: "engineering",
-    icon: Activity,
+    icon: IconActivity,
     envKeys: ["GRAFANA_URL", "GRAFANA_TOKEN"],
     docsUrl: "https://grafana.com/docs/grafana/latest/developers/http_api/",
     walkthroughSteps: [
@@ -564,10 +565,10 @@ export const dataSources: DataSource[] = [
   },
   {
     id: "gcloud",
-    name: "Google Cloud",
-    description: "Cloud Run, Functions, and infrastructure metrics",
+    name: "Google IconCloud",
+    description: "IconCloud Run, Functions, and infrastructure metrics",
     category: "engineering",
-    icon: Cloud,
+    icon: IconCloud,
     envKeys: ["GOOGLE_APPLICATION_CREDENTIALS_JSON"],
     docsUrl: "https://cloud.google.com/monitoring/api/v3",
     walkthroughSteps: [
@@ -596,7 +597,7 @@ export const dataSources: DataSource[] = [
     name: "Slack",
     description: "Channel messages and workspace search",
     category: "communication",
-    icon: MessageSquare,
+    icon: IconMessage,
     envKeys: ["SLACK_TOKEN"],
     docsUrl: "https://api.slack.com/methods",
     walkthroughSteps: [
@@ -627,7 +628,7 @@ export const dataSources: DataSource[] = [
     name: "Notion",
     description: "Content calendar and editorial planning",
     category: "communication",
-    icon: FileText,
+    icon: IconFileText,
     envKeys: ["NOTION_API_KEY"],
     docsUrl: "https://developers.notion.com/",
     walkthroughSteps: [
@@ -656,10 +657,10 @@ export const dataSources: DataSource[] = [
   },
   {
     id: "twitter",
-    name: "Twitter / X",
+    name: "IconBrandX / X",
     description: "Tweet engagement and social metrics",
     category: "communication",
-    icon: Twitter,
+    icon: IconBrandX,
     envKeys: ["TWITTER_BEARER_TOKEN"],
     docsUrl: "https://developer.x.com/en/docs",
     walkthroughSteps: [
@@ -692,7 +693,7 @@ export const dataSources: DataSource[] = [
     name: "Pylon",
     description: "Support tickets and customer account lookup",
     category: "support",
-    icon: Headset,
+    icon: IconHeadset,
     envKeys: ["PYLON_API_KEY"],
     docsUrl: "https://docs.usepylon.com/",
     walkthroughSteps: [
@@ -715,7 +716,7 @@ export const dataSources: DataSource[] = [
     name: "Common Room",
     description: "Community member engagement and activity",
     category: "support",
-    icon: Users,
+    icon: IconUsers,
     envKeys: ["COMMONROOM_API_KEY"],
     docsUrl: "https://docs.commonroom.io/",
     walkthroughSteps: [
@@ -741,7 +742,7 @@ export const dataSources: DataSource[] = [
     name: "DataForSEO",
     description: "Keyword rankings, search volume, and SEO metrics",
     category: "seo",
-    icon: Search,
+    icon: IconSearch,
     envKeys: ["DATAFORSEO_LOGIN", "DATAFORSEO_PASSWORD"],
     docsUrl: "https://docs.dataforseo.com/",
     walkthroughSteps: [

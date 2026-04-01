@@ -18,11 +18,21 @@ const thisDir =
   typeof __dirname !== "undefined"
     ? __dirname
     : dirname(fileURLToPath(import.meta.url));
-const coreClientGlob = join(thisDir, "client", "**/*.{js,mjs}");
+
+/**
+ * Glob pattern that matches all core client component files.
+ * Templates MUST include this in their `content` array — Tailwind v3
+ * does NOT merge `content` from presets, so the preset alone isn't enough.
+ *
+ * Usage:
+ *   import preset, { coreContentGlob } from "@agent-native/core/tailwind";
+ *   export default { presets: [preset], content: ["./app/**\/*.{ts,tsx}", coreContentGlob] };
+ */
+export const coreContentGlob = join(thisDir, "client", "**/*.{js,mjs}");
 
 const preset: Config = {
   darkMode: ["class"],
-  content: [coreClientGlob],
+  content: [coreContentGlob],
   prefix: "",
   theme: {
     container: {

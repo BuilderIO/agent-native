@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
+import { IconCheck, IconSelector, IconLoader2 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -74,7 +74,7 @@ export function PropertyCombobox({
           <span className="truncate">
             {value || triggerLabel || "Select property..."}
           </span>
-          <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+          <IconSelector className="ml-1 h-3 w-3 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[280px] p-0" align="start">
@@ -98,7 +98,7 @@ export function PropertyCombobox({
             <CommandEmpty>
               {isLoading ? (
                 <span className="flex items-center justify-center gap-2 text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+                  <IconLoader2 className="h-4 w-4 animate-spin" /> Loading...
                 </span>
               ) : search.trim() ? (
                 <button
@@ -124,7 +124,7 @@ export function PropertyCombobox({
                       value={prop}
                       onSelect={handleSelect}
                     >
-                      <Check
+                      <IconCheck
                         className={cn(
                           "mr-2 h-3 w-3 shrink-0",
                           value === prop ? "opacity-100" : "opacity-0",
@@ -149,7 +149,7 @@ export function PropertyCombobox({
                     value={p.name}
                     onSelect={handleSelect}
                   >
-                    <Check
+                    <IconCheck
                       className={cn(
                         "mr-2 h-3 w-3 shrink-0",
                         value === p.name ? "opacity-100" : "opacity-0",
@@ -166,7 +166,7 @@ export function PropertyCombobox({
             {isLoading && extraProps.length === 0 && (
               <CommandGroup>
                 <div className="flex items-center justify-center py-4 text-muted-foreground text-xs gap-2">
-                  <Loader2 className="h-3 w-3 animate-spin" /> Loading from
+                  <IconLoader2 className="h-3 w-3 animate-spin" /> Loading from
                   BigQuery...
                 </div>
               </CommandGroup>

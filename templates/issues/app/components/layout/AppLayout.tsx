@@ -1,17 +1,17 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router";
 import {
-  CircleDot,
-  FolderKanban,
-  LayoutGrid,
-  Settings,
-  ChevronDown,
-  ChevronRight,
-  Search,
-  Plus,
-  PanelLeftClose,
-  PanelLeft,
-} from "lucide-react";
+  IconCircleDot,
+  IconFolder,
+  IconLayoutGrid,
+  IconSettings,
+  IconChevronDown,
+  IconChevronRight,
+  IconSearch,
+  IconPlus,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebar,
+} from "@tabler/icons-react";
 import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import { useProjects } from "@/hooks/use-projects";
@@ -73,9 +73,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             {sidebarCollapsed ? (
-              <PanelLeft className="h-4 w-4" />
+              <IconLayoutSidebar className="h-4 w-4" />
             ) : (
-              <PanelLeftClose className="h-4 w-4" />
+              <IconLayoutSidebarLeftCollapse className="h-4 w-4" />
             )}
           </button>
         </div>
@@ -85,7 +85,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           {/* My Issues */}
           <NavItem
             to="/my-issues"
-            icon={<CircleDot className="h-4 w-4" />}
+            icon={<IconCircleDot className="h-4 w-4" />}
             label="My Issues"
             active={isActive("/my-issues")}
             collapsed={sidebarCollapsed}
@@ -99,9 +99,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 className="flex w-full items-center gap-1.5 px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground"
               >
                 {projectsOpen ? (
-                  <ChevronDown className="h-3 w-3" />
+                  <IconChevronDown className="h-3 w-3" />
                 ) : (
-                  <ChevronRight className="h-3 w-3" />
+                  <IconChevronRight className="h-3 w-3" />
                 )}
                 Projects
               </button>
@@ -114,7 +114,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                     <NavItem
                       key={p.key}
                       to={`/projects/${p.key}`}
-                      icon={<FolderKanban className="h-4 w-4" />}
+                      icon={<IconFolder className="h-4 w-4" />}
                       label={p.name}
                       active={isActive(`/projects/${p.key}`)}
                       collapsed={false}
@@ -131,9 +131,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 className="flex w-full items-center gap-1.5 px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground"
               >
                 {boardsOpen ? (
-                  <ChevronDown className="h-3 w-3" />
+                  <IconChevronDown className="h-3 w-3" />
                 ) : (
-                  <ChevronRight className="h-3 w-3" />
+                  <IconChevronRight className="h-3 w-3" />
                 )}
                 Boards
               </button>
@@ -150,7 +150,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                           ? `/sprint/${b.id}`
                           : `/board/${b.id}`
                       }
-                      icon={<LayoutGrid className="h-4 w-4" />}
+                      icon={<IconLayoutGrid className="h-4 w-4" />}
                       label={b.name}
                       active={
                         isActive(`/board/${b.id}`) ||
@@ -167,8 +167,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="border-t border-border p-2">
           <NavItem
             to="/settings"
-            icon={<Settings className="h-4 w-4" />}
-            label="Settings"
+            icon={<IconSettings className="h-4 w-4" />}
+            label="IconSettings"
             active={isActive("/settings")}
             collapsed={sidebarCollapsed}
           />

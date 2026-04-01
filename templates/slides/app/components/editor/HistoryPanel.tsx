@@ -1,6 +1,6 @@
 import { useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { History } from "lucide-react";
+import { IconHistory } from "@tabler/icons-react";
 import { useDecks, type HistoryEntry } from "@/context/DeckContext";
 
 interface HistoryPanelProps {
@@ -65,8 +65,10 @@ export default function HistoryPanel({
       style={{ top: rect.bottom + 6, left, width: panelWidth }}
     >
       <div className="px-3 py-2.5 border-b border-white/[0.06] flex items-center gap-2">
-        <History className="w-4 h-4 text-[#609FF8]" />
-        <span className="text-xs font-medium text-white/80">Edit History</span>
+        <IconHistory className="w-4 h-4 text-[#609FF8]" />
+        <span className="text-xs font-medium text-white/80">
+          Edit IconHistory
+        </span>
         <span className="text-[10px] text-white/30 ml-auto">
           Cmd+Z / Cmd+Shift+Z
         </span>

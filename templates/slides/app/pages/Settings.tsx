@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { ApiKeySettings, AgentToggleButton } from "@agent-native/core/client";
-import { ArrowLeft } from "lucide-react";
+import { IconArrowLeft } from "@tabler/icons-react";
 
 export default function Settings() {
   return (
@@ -10,7 +10,7 @@ export default function Settings() {
           to="/"
           className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white/80 transition-colors"
         >
-          <ArrowLeft className="w-3.5 h-3.5" />
+          <IconArrowLeft className="w-3.5 h-3.5" />
           Back
         </Link>
         <span className="text-base font-semibold">Settings</span>

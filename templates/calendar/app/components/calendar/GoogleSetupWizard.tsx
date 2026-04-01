@@ -1,5 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
-import { ExternalLink, Check, Circle, Loader2 } from "lucide-react";
+import {
+  IconExternalLink,
+  IconCheck,
+  IconCircle,
+  IconLoader2,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -144,11 +149,11 @@ export function GoogleSetupWizard() {
             <div className="flex items-start gap-3">
               <div className="mt-0.5 shrink-0">
                 {isCompleted ? (
-                  <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                  <IconCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 ) : isActive ? (
-                  <Circle className="h-4 w-4 text-primary fill-primary" />
+                  <IconCircle className="h-4 w-4 text-primary fill-primary" />
                 ) : (
-                  <Circle className="h-4 w-4 text-muted-foreground" />
+                  <IconCircle className="h-4 w-4 text-muted-foreground" />
                 )}
               </div>
               <div className="flex-1 min-w-0">
@@ -195,7 +200,7 @@ export function GoogleSetupWizard() {
                           }
                         }}
                       >
-                        <ExternalLink className="h-3 w-3" />
+                        <IconExternalLink className="h-3 w-3" />
                         {step.linkText}
                       </Button>
                     )}
@@ -251,7 +256,7 @@ export function GoogleSetupWizard() {
                           }
                         >
                           {saving && (
-                            <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                            <IconLoader2 className="mr-1.5 h-3 w-3 animate-spin" />
                           )}
                           {saving ? "Saving..." : "Save credentials"}
                         </Button>
@@ -260,7 +265,7 @@ export function GoogleSetupWizard() {
 
                     {step.showInputs && allConfigured && (
                       <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400">
-                        <Check className="h-3.5 w-3.5" />
+                        <IconCheck className="h-3.5 w-3.5" />
                         Credentials configured. You can now connect your Google
                         Calendar above.
                       </div>

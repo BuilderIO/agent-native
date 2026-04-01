@@ -753,7 +753,7 @@ export function AgentPanel({
                   >
                     <span className="truncate pr-1">{tab.label}</span>
                     {tab.status === "running" && (
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 animate-pulse" />
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
                     )}
                     <button
                       type="button"
@@ -877,14 +877,20 @@ export function AgentPanel({
         )}
       </div>
 
-      {/* CLI terminals — only rendered in dev mode, supports multiple tabs */}
+      {/* CLI terminals — always mounted in dev mode to preserve state (WebSocket, buffer).
+          Hidden via display:none when another mode is active, matching how chat is handled. */}
       {isDevMode &&
-        mode === "cli" &&
         cliTabs.map((id) => (
           <div
             key={id}
-            className="flex-1 min-h-0 relative"
-            style={{ display: id === activeCliTab ? undefined : "none" }}
+            className={cn(
+              "min-h-0 relative",
+              mode === "cli" ? "flex-1" : "hidden",
+            )}
+            style={{
+              display:
+                mode === "cli" && id === activeCliTab ? undefined : "none",
+            }}
           >
             <Suspense
               fallback={

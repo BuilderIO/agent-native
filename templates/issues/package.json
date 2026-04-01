@@ -16,6 +16,7 @@
   "dependencies": {
     "@agent-native/core": "workspace:*",
     "@libsql/client": "^0.15.0",
+    "@tabler/icons-react": "^3.40.0",
     "drizzle-orm": "^0.36.4",
     "h3": "^1.13.0",
     "isbot": "^5",

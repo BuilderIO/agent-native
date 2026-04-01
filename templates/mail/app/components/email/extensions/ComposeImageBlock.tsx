@@ -1,6 +1,6 @@
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { useState, useCallback } from "react";
-import { ImageIcon, Loader2, X } from "lucide-react";
+import { IconPhoto, IconLoader2, IconX } from "@tabler/icons-react";
 import { openFilePicker, uploadFile } from "@/lib/upload";
 
 export function ComposeImageBlock({
@@ -40,12 +40,12 @@ export function ComposeImageBlock({
         >
           {isUploading ? (
             <>
-              <Loader2 size={20} className="animate-spin" />
+              <IconLoader2 size={20} className="animate-spin" />
               <span>Uploading...</span>
             </>
           ) : (
             <>
-              <ImageIcon size={20} />
+              <IconPhoto size={20} />
               <span>Add an image</span>
             </>
           )}
@@ -76,7 +76,7 @@ export function ComposeImageBlock({
               onClick={deleteNode}
               className="compose-image-btn compose-image-btn--danger"
             >
-              <X size={12} />
+              <IconX size={12} />
             </button>
           </div>
         )}

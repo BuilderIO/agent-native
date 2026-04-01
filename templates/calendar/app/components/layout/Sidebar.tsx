@@ -1,17 +1,17 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router";
 import {
-  CalendarDays,
-  Users,
-  Settings,
-  Link2,
-  ExternalLink,
-  ChevronUp,
-  ChevronDown,
-  Plus,
-  X,
-  Palette,
-} from "lucide-react";
+  IconCalendar,
+  IconUsers,
+  IconSettings,
+  IconLink,
+  IconExternalLink,
+  IconChevronUp,
+  IconChevronDown,
+  IconPlus,
+  IconX,
+  IconPalette,
+} from "@tabler/icons-react";
 import {
   startOfMonth,
   endOfMonth,
@@ -41,10 +41,10 @@ import { useCalendarContext } from "./AppLayout";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 const navItems = [
-  { path: "/", label: "Calendar", icon: CalendarDays },
-  { path: "/booking-links", label: "Booking Links", icon: Link2 },
-  { path: "/bookings", label: "Bookings", icon: Users },
-  { path: "/settings", label: "Settings", icon: Settings },
+  { path: "/", label: "Calendar", icon: IconCalendar },
+  { path: "/booking-links", label: "Booking Links", icon: IconLink },
+  { path: "/bookings", label: "Bookings", icon: IconUsers },
+  { path: "/settings", label: "IconSettings", icon: IconSettings },
 ];
 
 interface SidebarProps {
@@ -98,14 +98,14 @@ function MiniCalendar({
             onClick={() => setViewMonth(subMonths(viewMonth, 1))}
             className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
           >
-            <ChevronUp className="h-3 w-3" />
+            <IconChevronUp className="h-3 w-3" />
           </button>
           <button
             type="button"
             onClick={() => setViewMonth(addMonths(viewMonth, 1))}
             className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
           >
-            <ChevronDown className="h-3 w-3" />
+            <IconChevronDown className="h-3 w-3" />
           </button>
         </div>
       </div>
@@ -187,7 +187,7 @@ function GoogleConnectSidebarButton() {
           onClick={() => setWantAuthUrl(true)}
           disabled={authUrl.isLoading || authUrl.isFetching}
         >
-          <ExternalLink className="h-3 w-3" />
+          <IconExternalLink className="h-3 w-3" />
           {authUrl.isLoading ? "Connecting..." : "Connect"}
         </Button>
       </div>
@@ -267,7 +267,7 @@ function GoogleAccountsSection({
             className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
             title="Color settings"
           >
-            <Palette className="h-3.5 w-3.5" />
+            <IconPalette className="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
@@ -275,7 +275,7 @@ function GoogleAccountsSection({
             className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
             title="Add Google account"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <IconPlus className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
@@ -441,7 +441,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               onClick={() => setPeopleSearchOpen(true)}
               className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
             >
-              <Plus className="h-3.5 w-3.5" />
+              <IconPlus className="h-3.5 w-3.5" />
             </button>
           </div>
           {overlayPeople.length > 0 && (
@@ -463,7 +463,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                     onClick={() => removePerson.mutate(person.email)}
                     className="shrink-0 rounded p-0.5 text-muted-foreground/60 hover:text-foreground"
                   >
-                    <X className="h-3 w-3" />
+                    <IconX className="h-3 w-3" />
                   </button>
                 </div>
               ))}

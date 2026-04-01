@@ -8,7 +8,12 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { CircleDot, FolderKanban, Settings, Search } from "lucide-react";
+import {
+  IconCircleDot,
+  IconFolder,
+  IconSettings,
+  IconSearch,
+} from "@tabler/icons-react";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -30,7 +35,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
       <CommandInput
-        placeholder="Search issues, navigate..."
+        placeholder="IconSearch issues, navigate..."
         value={search}
         onValueChange={setSearch}
       />
@@ -41,27 +46,27 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           <CommandItem
             onSelect={() => runCommand(() => navigate("/my-issues"))}
           >
-            <CircleDot className="mr-2 h-4 w-4" />
+            <IconCircleDot className="mr-2 h-4 w-4" />
             My Issues
             <span className="ml-auto text-[11px] text-muted-foreground">
               G I
             </span>
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => navigate("/projects"))}>
-            <FolderKanban className="mr-2 h-4 w-4" />
+            <IconFolder className="mr-2 h-4 w-4" />
             Projects
             <span className="ml-auto text-[11px] text-muted-foreground">
               G P
             </span>
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => navigate("/settings"))}>
-            <Settings className="mr-2 h-4 w-4" />
-            Settings
+            <IconSettings className="mr-2 h-4 w-4" />
+            IconSettings
           </CommandItem>
         </CommandGroup>
 
         {search && (
-          <CommandGroup heading="Search">
+          <CommandGroup heading="IconSearch">
             <CommandItem
               onSelect={() =>
                 runCommand(() =>
@@ -69,8 +74,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 )
               }
             >
-              <Search className="mr-2 h-4 w-4" />
-              Search issues for &ldquo;{search}&rdquo;
+              <IconSearch className="mr-2 h-4 w-4" />
+              IconSearch issues for &ldquo;{search}&rdquo;
             </CommandItem>
           </CommandGroup>
         )}

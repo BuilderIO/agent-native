@@ -2,12 +2,12 @@ import { useEffect, useState, useCallback } from "react";
 import type { AnimationTrack, EasingKey } from "@/types";
 import { getPropValueKeyframed } from "@/remotion/trackAnimation";
 import {
-  ArrowLeftRight,
-  ArrowUpDown,
-  RotateCw,
-  ZoomIn,
-  Eye,
-} from "lucide-react";
+  IconArrowLeftRight,
+  IconArrowsUpDown,
+  IconRotateClockwise2,
+  IconZoomIn,
+  IconEye,
+} from "@tabler/icons-react";
 import { Label } from "./ui/label";
 import { MotionCurveSelect } from "./MotionCurveSelect";
 import { KeyframeNavigation } from "./keyframes/KeyframeNavigation";
@@ -302,7 +302,7 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
             {/* Pan X */}
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <ArrowLeftRight className="w-3 h-3" />
+                <IconArrowLeftRight className="w-3 h-3" />
                 Pan X
               </Label>
               <input
@@ -321,7 +321,7 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
             {/* Pan Y */}
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <ArrowUpDown className="w-3 h-3" />
+                <IconArrowsUpDown className="w-3 h-3" />
                 Pan Y
               </Label>
               <input
@@ -340,7 +340,7 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
             {/* Tilt X */}
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <RotateCw className="w-3 h-3" />
+                <IconRotateClockwise2 className="w-3 h-3" />
                 Tilt X
               </Label>
               <input
@@ -359,7 +359,7 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
             {/* Tilt Y */}
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <RotateCw
+                <IconRotateClockwise2
                   className="w-3 h-3"
                   style={{ transform: "rotate(90deg)" }}
                 />
@@ -381,7 +381,7 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
             {/* Zoom */}
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <ZoomIn className="w-3 h-3" />
+                <IconZoomIn className="w-3 h-3" />
                 Zoom
               </Label>
               <input
@@ -398,7 +398,7 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
             {/* Perspective */}
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <Eye className="w-3 h-3" />
+                <IconEye className="w-3 h-3" />
                 Perspective
               </Label>
               <input

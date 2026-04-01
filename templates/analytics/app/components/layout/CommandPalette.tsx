@@ -9,7 +9,12 @@ import {
   CommandGroup,
   CommandItem,
 } from "@/components/ui/command";
-import { FlaskConical, Wrench, BarChart3, LayoutDashboard } from "lucide-react";
+import {
+  IconFlask,
+  IconTool,
+  IconChartBar,
+  IconLayoutDashboard,
+} from "@tabler/icons-react";
 import { dashboards } from "@/pages/adhoc/registry";
 import { getIdToken } from "@/lib/auth";
 
@@ -110,7 +115,7 @@ export function CommandPalette() {
                 key={`ed-${d.id}`}
                 onSelect={() => go(`/adhoc/explorer-dashboard?id=${d.id}`)}
               >
-                <LayoutDashboard className="mr-2 h-4 w-4 text-muted-foreground" />
+                <IconLayoutDashboard className="mr-2 h-4 w-4 text-muted-foreground" />
                 {d.name}
               </CommandItem>
             ))}
@@ -123,7 +128,7 @@ export function CommandPalette() {
               key={`dash-${d.id}`}
               onSelect={() => go(`/adhoc/${d.id}`)}
             >
-              <FlaskConical className="mr-2 h-4 w-4 text-muted-foreground" />
+              <IconFlask className="mr-2 h-4 w-4 text-muted-foreground" />
               {d.name}
             </CommandItem>
           ))}
@@ -132,7 +137,7 @@ export function CommandPalette() {
         <CommandGroup heading="Tools">
           {defaultTools.map((t) => (
             <CommandItem key={`tool-${t.id}`} onSelect={() => go(t.href)}>
-              <Wrench className="mr-2 h-4 w-4 text-muted-foreground" />
+              <IconTool className="mr-2 h-4 w-4 text-muted-foreground" />
               {t.name}
             </CommandItem>
           ))}
@@ -145,7 +150,7 @@ export function CommandPalette() {
                 key={`chart-${c.id}`}
                 onSelect={() => go(`/adhoc/explorer?config=${c.id}`)}
               >
-                <BarChart3 className="mr-2 h-4 w-4 text-muted-foreground" />
+                <IconChartBar className="mr-2 h-4 w-4 text-muted-foreground" />
                 {c.name}
               </CommandItem>
             ))}

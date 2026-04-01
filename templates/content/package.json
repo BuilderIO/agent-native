@@ -23,6 +23,7 @@
     "@agent-native/core": "workspace:*",
     "@libsql/client": "^0.15.0",
     "@radix-ui/react-popover": "^1.1.15",
+    "@tabler/icons-react": "^3.40.0",
     "@tiptap/extension-bubble-menu": "^3.19.0",
     "@tiptap/extension-horizontal-rule": "^3.19.0",
     "@tiptap/extension-image": "^3.19.0",

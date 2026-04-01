@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Upload, Trash2, Loader2, X } from "lucide-react";
+import { IconUpload, IconTrash, IconLoader2, IconX } from "@tabler/icons-react";
 
 interface Asset {
   url: string;
@@ -125,20 +125,20 @@ export default function AssetLibraryPanel({
           className="text-white/30 hover:text-white/60 transition-colors"
           aria-label="Close"
         >
-          <X className="w-4 h-4" />
+          <IconX className="w-4 h-4" />
         </button>
       </div>
 
       <div className="px-4 pb-4 space-y-3 overflow-y-auto flex-1">
-        {/* Upload */}
+        {/* IconUpload */}
         <label className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg border border-dashed border-white/[0.1] hover:border-[#609FF8]/40 hover:bg-white/[0.02] cursor-pointer transition-all">
           {uploading ? (
-            <Loader2 className="w-3.5 h-3.5 text-white/50 animate-spin" />
+            <IconLoader2 className="w-3.5 h-3.5 text-white/50 animate-spin" />
           ) : (
-            <Upload className="w-3.5 h-3.5 text-white/50" />
+            <IconUpload className="w-3.5 h-3.5 text-white/50" />
           )}
           <span className="text-xs text-white/50">
-            {uploading ? "Uploading..." : "Upload images"}
+            {uploading ? "Uploading..." : "IconUpload images"}
           </span>
           <input
             type="file"
@@ -153,7 +153,7 @@ export default function AssetLibraryPanel({
         {/* Grid */}
         {loading ? (
           <div className="flex items-center justify-center py-8">
-            <Loader2 className="w-4 h-4 text-white/30 animate-spin" />
+            <IconLoader2 className="w-4 h-4 text-white/30 animate-spin" />
           </div>
         ) : assets.length === 0 ? (
           <div className="text-center py-8 text-white/30 text-xs">
@@ -187,7 +187,7 @@ export default function AssetLibraryPanel({
                   className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/70 text-white/70 hover:text-red-400 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                   aria-label={`Delete ${asset.filename}`}
                 >
-                  <Trash2 className="w-2.5 h-2.5" />
+                  <IconTrash className="w-2.5 h-2.5" />
                 </button>
               </div>
             ))}

@@ -156,7 +156,6 @@ Ephemeral UI state is stored in the SQL `application_state` table, accessed via 
 | State Key      | Purpose                                            | Direction                                    |
 | -------------- | -------------------------------------------------- | -------------------------------------------- |
 | `navigation`   | Current view, thread, search, label, focused email | UI -> Agent (read-only for agent)            |
-| `thread`       | Full messages of the open thread                   | UI -> Agent (read-only for agent)            |
 | `navigate`     | Navigate the user to a view/thread                 | Agent -> UI (one-shot command, auto-deleted) |
 | `compose-{id}` | Email draft (one entry per draft tab)              | Bidirectional                                |
 
@@ -178,39 +177,17 @@ The UI automatically writes `writeAppState("navigation", ...)` whenever the user
 
 **Do NOT write to `navigation`** — it is overwritten by the UI. To navigate the user, use the `navigate` key instead. To see the emails matching the user's current filters, use `pnpm script view-screen` which reads navigation state and fetches emails via the API.
 
-### Open thread (full conversation context)
+### Reading thread messages
 
-When the user is viewing an email thread, the UI syncs the full messages to `writeAppState("thread", ...)`. **This is the fastest way to read the conversation** the user is looking at — including all message bodies:
+To read the full conversation of a thread, use the API directly:
 
-```json
-{
-  "threadId": "thread-xyz",
-  "messages": [
-    {
-      "id": "msg-1",
-      "from": "Alice <alice@example.com>",
-      "to": ["You <me@example.com>"],
-      "subject": "Project update",
-      "body": "Hey, here's the latest...",
-      "date": "2026-03-16T10:30:00Z",
-      "isRead": true
-    },
-    {
-      "id": "msg-2",
-      "from": "You <me@example.com>",
-      "to": ["Alice <alice@example.com>"],
-      "subject": "Re: Project update",
-      "body": "Thanks! I'll review this afternoon.",
-      "date": "2026-03-16T14:00:00Z",
-      "isRead": true
-    }
-  ]
-}
-```
+- `pnpm script get-thread --id=<threadId>` (from scripts)
+- `GET /api/threads/:threadId/messages` (HTTP endpoint)
+- `pnpm script view-screen` (includes thread messages when the user is viewing a thread)
 
-**Do NOT write to `thread`** — it is synced by the UI and deleted when the user navigates away from the thread.
+Thread data is fetched from the API on demand — it is NOT stored in application-state.
 
-When the user is composing a reply and asks for help, read the compose draft (`readAppState("compose-{id}")`) to find `replyToThreadId`, then read `readAppState("thread")` (or fetch via API) to get the full conversation for context.
+When the user is composing a reply and asks for help, read the compose draft (`readAppState("compose-{id}")`) to find `replyToThreadId`, then fetch the thread via `pnpm script get-thread --id=<threadId>` to get the full conversation for context.
 
 ### Navigate command (control the UI)
 

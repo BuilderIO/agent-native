@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, X } from "lucide-react";
+import { IconPlus, IconX } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { PropertyCombobox } from "./PropertyCombobox";
 
@@ -27,7 +27,7 @@ export function GroupByPicker({ groupBy, onChange }: GroupByPickerProps) {
             className="hover:text-destructive"
             onClick={() => onChange(groupBy.filter((_, j) => j !== i))}
           >
-            <X className="h-3 w-3" />
+            <IconX className="h-3 w-3" />
           </button>
         </span>
       ))}
@@ -50,7 +50,7 @@ export function GroupByPicker({ groupBy, onChange }: GroupByPickerProps) {
           className="h-6 text-xs text-muted-foreground"
           onClick={() => setAdding(true)}
         >
-          <Plus className="h-3 w-3 mr-1" />
+          <IconPlus className="h-3 w-3 mr-1" />
           Group-by
         </Button>
       )}

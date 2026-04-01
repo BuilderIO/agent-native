@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { IconX } from "@tabler/icons-react";
 import { DEFAULT_STYLE_REFERENCE_URLS } from "@shared/api";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
-import { Loader2 } from "lucide-react";
+import { IconLoader2 } from "@tabler/icons-react";
 
 interface ImageGenPanelProps {
   open: boolean;
@@ -139,7 +139,7 @@ export default function ImageGenPanel({
           className="text-white/30 hover:text-white/60 transition-colors"
           aria-label="Close"
         >
-          <X className="w-4 h-4" />
+          <IconX className="w-4 h-4" />
         </button>
       </div>
 
@@ -193,7 +193,7 @@ export default function ImageGenPanel({
         >
           {generating ? (
             <>
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <IconLoader2 className="w-4 h-4 animate-spin" />
               Generating...
             </>
           ) : (

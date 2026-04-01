@@ -1,5 +1,5 @@
 import { Button } from "../ui/button";
-import { Copy, RotateCcw, Trash2 } from "lucide-react";
+import { IconCopy, IconRotate, IconTrash } from "@tabler/icons-react";
 
 interface KeyframeActionButtonsProps {
   isOnKeyframe: boolean;
@@ -27,7 +27,7 @@ export function KeyframeActionButtons({
         className="text-xs border-muted-foreground/30 hover:bg-secondary/50"
         title="Duplicate keyframe +30 frames ahead"
       >
-        <Copy className="w-3 h-3" />
+        <IconCopy className="w-3 h-3" />
       </Button>
       <Button
         variant="ghost"
@@ -36,7 +36,7 @@ export function KeyframeActionButtons({
         className="text-xs text-muted-foreground/60 hover:text-muted-foreground hover:bg-secondary/30"
         title={resetTooltip}
       >
-        <RotateCcw className="h-3 w-3" />
+        <IconRotate className="h-3 w-3" />
       </Button>
       <Button
         variant="outline"
@@ -45,7 +45,7 @@ export function KeyframeActionButtons({
         className="text-destructive/80 border-destructive/30 hover:bg-destructive/10 text-xs ml-auto"
         title="Remove keyframe"
       >
-        <Trash2 className="w-3.5 h-3.5" />
+        <IconTrash className="w-3.5 h-3.5" />
       </Button>
     </div>
   );

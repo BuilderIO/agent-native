@@ -252,6 +252,7 @@ async function buildCloudflarePages() {
     "chokidar",
     "fsevents",
     "dotenv",
+    "@anthropic-ai/sdk",
   ];
   const stubDir = path.join(tmpDir, "node_modules");
   for (const mod of stubModules) {
@@ -314,9 +315,27 @@ async function buildCloudflarePages() {
   }
   fs.writeFileSync(entryFile, workerCode2);
 
+  // Patch setInterval/setTimeout at module scope — CF Workers disallows timers in global scope.
+  // Some dependencies (e.g. Anthropic SDK rate limiter) call setInterval at module init.
+  // Inject a banner that makes setInterval/setTimeout safe during module evaluation,
+  // then restores them inside the first fetch() call.
+  let workerCode = fs.readFileSync(entryFile, "utf-8");
+  const timerShim = [
+    "var __origSetInterval=globalThis.setInterval;",
+    "globalThis.setInterval=function(){return{unref(){},ref(){},close(){}}};",
+  ].join("");
+  // Restore real setInterval inside the fetch handler
+  const timerRestore =
+    "if(__origSetInterval)globalThis.setInterval=__origSetInterval;";
+  workerCode = timerShim + workerCode;
+  // Inject restore right after "async fetch(request, env, ctx) {"
+  workerCode = workerCode.replace(
+    /async fetch\(request,\s*env,\s*ctx\)\s*\{/,
+    (match) => match + timerRestore,
+  );
+
   // Strip "node:" prefix from all imports/requires — nodejs_compat v1 only provides bare names.
   // Handles minified output (no space before quotes) and subpaths like node:fs/promises.
-  let workerCode = fs.readFileSync(entryFile, "utf-8");
   workerCode = workerCode.replace(
     /from\s*["']node:([^"']+)["']/g,
     (_, mod) => `from"${mod}"`,

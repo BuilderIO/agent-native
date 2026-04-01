@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { MoreHorizontal, Trash2 } from "lucide-react";
+import { IconDots, IconTrash } from "@tabler/icons-react";
 import { useState } from "react";
 import type { Deck } from "@/context/DeckContext";
 import SlideRenderer from "./SlideRenderer";
@@ -51,7 +51,7 @@ export default function DeckCard({ deck, onDelete }: DeckCardProps) {
           className="p-1.5 rounded-md bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80 transition-colors"
           aria-label="Deck options"
         >
-          <MoreHorizontal className="w-3.5 h-3.5 text-white/70" />
+          <IconDots className="w-3.5 h-3.5 text-white/70" />
         </button>
 
         {showMenu && (
@@ -70,7 +70,7 @@ export default function DeckCard({ deck, onDelete }: DeckCardProps) {
                 }}
                 className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-400 hover:bg-white/5 transition-colors"
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <IconTrash className="w-3.5 h-3.5" />
                 Delete
               </button>
             </div>

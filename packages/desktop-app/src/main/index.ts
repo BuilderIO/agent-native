@@ -393,8 +393,9 @@ app.on("web-contents-created", (_event, contents) => {
       return;
     }
 
-    // Forward other Cmd+ shortcuts: R, T, Shift+T, 1-9, [, ]
+    // Forward other Cmd+ shortcuts: F, R, T, Shift+T, 1-9, [, ]
     const isShortcut =
+      key === "f" ||
       key === "r" ||
       key === "t" ||
       key === "[" ||
@@ -512,6 +513,16 @@ app.whenReady().then(() => {
       _event.preventDefault();
       win.webContents.send("shortcut:keydown", {
         key: "r",
+        shiftKey: input.shift,
+      });
+      return;
+    }
+
+    // Cmd+F — search inside the active webview, not the shell
+    if (key === "f") {
+      _event.preventDefault();
+      win.webContents.send("shortcut:keydown", {
+        key: "f",
         shiftKey: input.shift,
       });
       return;

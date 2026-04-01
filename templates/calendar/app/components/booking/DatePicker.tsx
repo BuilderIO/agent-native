@@ -15,7 +15,7 @@ import {
   startOfDay,
   getDay,
 } from "date-fns";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -72,7 +72,7 @@ export function DatePicker({
           size="icon"
           onClick={() => setViewMonth((m) => subMonths(m, 1))}
         >
-          <ChevronLeft className="h-4 w-4" />
+          <IconChevronLeft className="h-4 w-4" />
         </Button>
         <span className="text-sm font-medium">
           {format(viewMonth, "MMMM yyyy")}
@@ -82,7 +82,7 @@ export function DatePicker({
           size="icon"
           onClick={() => setViewMonth((m) => addMonths(m, 1))}
         >
-          <ChevronRight className="h-4 w-4" />
+          <IconChevronRight className="h-4 w-4" />
         </Button>
       </div>
 

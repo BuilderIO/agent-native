@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Wand2, Loader2, ImageIcon } from "lucide-react";
+import { IconWand, IconLoader2, IconPhoto } from "@tabler/icons-react";
 import {
   Dialog,
   DialogContent,
@@ -86,7 +86,7 @@ export default function GenerateSlidesDialog({
       <DialogContent className="bg-[hsl(240,5%,8%)] border-white/[0.08] max-w-lg">
         <DialogHeader>
           <DialogTitle className="text-white/90 flex items-center gap-2">
-            <Wand2 className="w-5 h-5 text-[#609FF8]" />
+            <IconWand className="w-5 h-5 text-[#609FF8]" />
             Generate Slides with AI
           </DialogTitle>
           <DialogDescription className="text-white/50">
@@ -167,7 +167,7 @@ export default function GenerateSlidesDialog({
           {includeImages && (
             <div>
               <label className="text-xs font-medium text-white/60 block mb-1.5">
-                <ImageIcon className="w-3 h-3 inline mr-1" />
+                <IconPhoto className="w-3 h-3 inline mr-1" />
                 Reference Images (optional, for brand consistency)
               </label>
               <div className="flex flex-wrap gap-2 mb-2">
@@ -224,12 +224,12 @@ export default function GenerateSlidesDialog({
           >
             {loading ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <IconLoader2 className="w-4 h-4 animate-spin" />
                 Generating slides...
               </>
             ) : (
               <>
-                <Wand2 className="w-4 h-4" />
+                <IconWand className="w-4 h-4" />
                 Generate Slides
               </>
             )}

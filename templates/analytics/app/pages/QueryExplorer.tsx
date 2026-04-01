@@ -6,7 +6,7 @@ import { QueryResults } from "@/components/query/QueryResults";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { queryMetrics } from "@/lib/query-metrics";
 import { Button } from "@/components/ui/button";
-import { Trash2 } from "lucide-react";
+import { IconTrash } from "@tabler/icons-react";
 
 interface QueryHistoryEntry {
   sql: string;
@@ -110,7 +110,7 @@ export default function QueryExplorer() {
                 onClick={clearHistory}
                 className="h-7 text-xs text-muted-foreground"
               >
-                <Trash2 className="h-3 w-3 mr-1" />
+                <IconTrash className="h-3 w-3 mr-1" />
                 Clear
               </Button>
             </CardHeader>

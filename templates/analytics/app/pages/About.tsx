@@ -1,34 +1,34 @@
 import { Layout } from "@/components/layout/Layout";
 import {
-  BarChart3,
-  MessageSquare,
-  PencilLine,
-  LayoutDashboard,
-  Database,
-} from "lucide-react";
+  IconChartBar,
+  IconMessage,
+  IconPencil,
+  IconLayoutDashboard,
+  IconDatabase,
+} from "@tabler/icons-react";
 import { dataSources, categoryLabels, categoryOrder } from "@/lib/data-sources";
 
 const capabilities = [
   {
-    icon: Database,
+    icon: IconDatabase,
     title: "Connect Data Sources",
     description:
       "Connect any of 20+ data sources — from Google Analytics and BigQuery to Stripe, HubSpot, and PostgreSQL. Each source includes a step-by-step setup guide.",
   },
   {
-    icon: LayoutDashboard,
+    icon: IconLayoutDashboard,
     title: "Create Custom Dashboards",
     description:
       "Describe the dashboard you want and the agent builds it — charts, tables, metrics, and all. A Google Analytics example is included to show what's possible.",
   },
   {
-    icon: BarChart3,
+    icon: IconChartBar,
     title: "Query Explorer",
     description:
       "Use the Explorer tool to write arbitrary SQL against BigQuery and visualize results as charts or tables instantly.",
   },
   {
-    icon: MessageSquare,
+    icon: IconMessage,
     title: "Ask Questions in Chat",
     description:
       "Ask natural-language questions about any connected data source. Get answers, charts, and insights without writing SQL.",

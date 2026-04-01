@@ -1,14 +1,14 @@
 import { Link } from "react-router";
 import {
-  CircleDot,
-  Bug,
-  BookOpen,
-  Zap,
-  GitBranch,
-  ChevronUp,
-  ChevronDown,
-  Equal,
-} from "lucide-react";
+  IconCircleDot,
+  IconBug,
+  IconBook,
+  IconBolt,
+  IconGitBranch,
+  IconChevronUp,
+  IconChevronDown,
+  IconEqual,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { StatusBadge } from "./StatusBadge";
 import type { JiraIssue } from "@shared/types";
@@ -17,29 +17,31 @@ function PriorityIcon({ name }: { name?: string }) {
   if (!name) return null;
   const lower = name.toLowerCase();
   if (lower === "highest")
-    return <ChevronUp className="h-3.5 w-3.5 text-red-500" strokeWidth={3} />;
+    return (
+      <IconChevronUp className="h-3.5 w-3.5 text-red-500" strokeWidth={3} />
+    );
   if (lower === "high")
-    return <ChevronUp className="h-3.5 w-3.5 text-orange-500" />;
+    return <IconChevronUp className="h-3.5 w-3.5 text-orange-500" />;
   if (lower === "medium")
-    return <Equal className="h-3.5 w-3.5 text-yellow-500" />;
+    return <IconEqual className="h-3.5 w-3.5 text-yellow-500" />;
   if (lower === "low")
-    return <ChevronDown className="h-3.5 w-3.5 text-blue-500" />;
+    return <IconChevronDown className="h-3.5 w-3.5 text-blue-500" />;
   if (lower === "lowest")
-    return <ChevronDown className="h-3.5 w-3.5 text-gray-400" />;
+    return <IconChevronDown className="h-3.5 w-3.5 text-gray-400" />;
   return null;
 }
 
 function IssueTypeIcon({ name }: { name: string }) {
   const lower = name.toLowerCase();
   if (lower.includes("bug"))
-    return <Bug className="h-3.5 w-3.5 text-red-500" />;
+    return <IconBug className="h-3.5 w-3.5 text-red-500" />;
   if (lower.includes("story"))
-    return <BookOpen className="h-3.5 w-3.5 text-green-500" />;
+    return <IconBook className="h-3.5 w-3.5 text-green-500" />;
   if (lower.includes("epic"))
-    return <Zap className="h-3.5 w-3.5 text-purple-500" />;
+    return <IconBolt className="h-3.5 w-3.5 text-purple-500" />;
   if (lower.includes("sub"))
-    return <GitBranch className="h-3.5 w-3.5 text-blue-400" />;
-  return <CircleDot className="h-3.5 w-3.5 text-blue-500" />;
+    return <IconGitBranch className="h-3.5 w-3.5 text-blue-400" />;
+  return <IconCircleDot className="h-3.5 w-3.5 text-blue-500" />;
 }
 
 interface IssueListItemProps {

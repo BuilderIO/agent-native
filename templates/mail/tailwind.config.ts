@@ -1,10 +1,10 @@
 import type { Config } from "tailwindcss";
-import preset from "@agent-native/core/tailwind";
+import preset, { coreContentGlob } from "@agent-native/core/tailwind";
 
 export default {
   darkMode: ["class"],
   presets: [preset],
-  content: ["./app/**/*.{ts,tsx}"],
+  content: ["./app/**/*.{ts,tsx}", coreContentGlob],
   theme: {
     extend: {
       keyframes: {

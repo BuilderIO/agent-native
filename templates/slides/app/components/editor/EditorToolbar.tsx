@@ -2,18 +2,18 @@ import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
 import {
-  ArrowLeft,
-  Play,
-  Layout,
-  PanelLeft,
-  ImageIcon,
-  Share2,
-  History,
-  Undo2,
-  Redo2,
-  FolderOpen,
-  Settings,
-} from "lucide-react";
+  IconArrowLeft,
+  IconPlayerPlay,
+  IconLayout,
+  IconLayoutSidebar,
+  IconPhoto,
+  IconShare2,
+  IconHistory,
+  IconArrowBackUp,
+  IconArrowForwardUp,
+  IconFolderOpen,
+  IconSettings,
+} from "@tabler/icons-react";
 import type { Slide, SlideLayout } from "@/context/DeckContext";
 import { FeedbackButton } from "@/components/FeedbackButton";
 import { AgentToggleButton } from "@agent-native/core/client";
@@ -157,7 +157,7 @@ export default function EditorToolbar({
         title="Back to decks"
         aria-label="Back to decks"
       >
-        <ArrowLeft className="w-4 h-4 text-white/60" />
+        <IconArrowLeft className="w-4 h-4 text-white/60" />
       </Link>
 
       {/* Sidebar toggle */}
@@ -169,7 +169,7 @@ export default function EditorToolbar({
         title="Toggle sidebar"
         aria-label="Toggle sidebar"
       >
-        <PanelLeft className="w-4 h-4" />
+        <IconLayoutSidebar className="w-4 h-4" />
       </button>
 
       {/* Deck title */}
@@ -206,7 +206,7 @@ export default function EditorToolbar({
             title="Slide settings"
             aria-label="Slide settings"
           >
-            <Settings className="w-3.5 h-3.5" />
+            <IconSettings className="w-3.5 h-3.5" />
           </button>
           <ToolbarPopover
             open={layoutOpen}
@@ -215,9 +215,9 @@ export default function EditorToolbar({
             width={220}
           >
             <div className="py-1.5">
-              {/* Layout section */}
+              {/* IconLayout section */}
               <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">
-                Layout
+                IconLayout
               </div>
               {slideLayoutOptions.map((opt) => (
                 <button
@@ -231,7 +231,7 @@ export default function EditorToolbar({
                       : "text-white/60 hover:text-white hover:bg-white/[0.04]"
                   }`}
                 >
-                  <Layout className="w-3 h-3" />
+                  <IconLayout className="w-3 h-3" />
                   {opt.label}
                 </button>
               ))}
@@ -272,7 +272,7 @@ export default function EditorToolbar({
                 }}
                 className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-white/60 hover:text-white hover:bg-white/[0.04] transition-colors"
               >
-                <ImageIcon className="w-3 h-3" />
+                <IconPhoto className="w-3 h-3" />
                 Generate Image
               </button>
               <button
@@ -283,7 +283,7 @@ export default function EditorToolbar({
                 }}
                 className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-white/60 hover:text-white hover:bg-white/[0.04] transition-colors"
               >
-                <FolderOpen className="w-3 h-3" />
+                <IconFolderOpen className="w-3 h-3" />
                 Asset Library
               </button>
             </div>
@@ -303,7 +303,7 @@ export default function EditorToolbar({
           title="Undo (Cmd+Z)"
           aria-label="Undo"
         >
-          <Undo2 className="w-3.5 h-3.5 text-white/60" />
+          <IconArrowBackUp className="w-3.5 h-3.5 text-white/60" />
         </button>
         <button
           onClick={onRedo}
@@ -312,11 +312,11 @@ export default function EditorToolbar({
           title="Redo (Cmd+Shift+Z)"
           aria-label="Redo"
         >
-          <Redo2 className="w-3.5 h-3.5 text-white/60" />
+          <IconArrowForwardUp className="w-3.5 h-3.5 text-white/60" />
         </button>
       </div>
 
-      {/* History */}
+      {/* IconHistory */}
       <button
         ref={historyButtonRef}
         onClick={onShowHistory}
@@ -328,7 +328,7 @@ export default function EditorToolbar({
         title="Edit history"
         aria-label="Edit history"
       >
-        <History className="w-3.5 h-3.5" />
+        <IconHistory className="w-3.5 h-3.5" />
       </button>
 
       {/* Separator */}
@@ -365,7 +365,7 @@ export default function EditorToolbar({
         title="Share presentation"
         aria-label="Share presentation"
       >
-        <Share2 className="w-3.5 h-3.5" />
+        <IconShare2 className="w-3.5 h-3.5" />
       </button>
 
       <FeedbackButton />
@@ -375,7 +375,7 @@ export default function EditorToolbar({
         to={`/deck/${deckId}/present`}
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#609FF8] hover:bg-[#7AB2FA] text-black text-xs font-medium transition-colors flex-shrink-0"
       >
-        <Play className="w-3 h-3" />
+        <IconPlayerPlay className="w-3 h-3" />
         <span className="hidden sm:inline">Present</span>
       </Link>
       <AgentToggleButton className="flex-shrink-0 text-white/40 hover:text-white/70 hover:bg-white/[0.06]" />

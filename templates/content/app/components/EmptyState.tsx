@@ -1,4 +1,4 @@
-import { FileText, Plus } from "lucide-react";
+import { IconFileText, IconPlus } from "@tabler/icons-react";
 import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { useCreateDocument } from "@/hooks/use-documents";
@@ -24,7 +24,7 @@ export function EmptyState() {
     <div className="flex-1 flex items-center justify-center bg-background">
       <div className="text-center max-w-md px-6">
         <div className="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-muted mb-6">
-          <FileText size={24} className="text-muted-foreground" />
+          <IconFileText size={24} className="text-muted-foreground" />
         </div>
         <h2 className="text-lg font-semibold text-foreground mb-2">
           No page selected
@@ -33,7 +33,7 @@ export function EmptyState() {
           Select a page from the sidebar or create a new one to get started.
         </p>
         <Button onClick={handleCreate} size="sm">
-          <Plus size={14} className="mr-1.5" />
+          <IconPlus size={14} className="mr-1.5" />
           New page
         </Button>
       </div>

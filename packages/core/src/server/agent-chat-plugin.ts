@@ -1,5 +1,9 @@
 import {
   createProductionAgentHandler,
+  getActiveRunForThread,
+  getRun,
+  abortRun,
+  subscribeToRun,
   type ScriptEntry,
 } from "../agent/production-agent.js";
 import type {
@@ -11,6 +15,7 @@ import {
   defineEventHandler,
   readBody,
   setResponseStatus,
+  setResponseHeader,
   getMethod,
   getQuery,
 } from "h3";
@@ -433,6 +438,26 @@ export function createAgentChatPlugin(
       }
     };
 
+    // Callback to update thread timestamp when agent finishes (even if client disconnected)
+    const onRunComplete = async (_run: any, threadId: string | undefined) => {
+      if (!threadId) return;
+      try {
+        const thread = await getThread(threadId);
+        if (thread) {
+          // Update timestamp so client knows to re-fetch
+          await updateThreadData(
+            threadId,
+            thread.threadData,
+            thread.title,
+            thread.preview,
+            thread.messageCount,
+          );
+        }
+      } catch {
+        // Best-effort — don't break cleanup
+      }
+    };
+
     // Always build the production handler (includes resource tools)
     const prodHandler = createProductionAgentHandler({
       scripts: { ...templateScripts, ...resourceScripts },
@@ -443,6 +468,7 @@ export function createAgentChatPlugin(
       },
       model: options?.model,
       apiKey: options?.apiKey,
+      onRunComplete,
     });
 
     // Build the dev handler (with filesystem/shell/db tools) if environment allows toggling
@@ -465,6 +491,7 @@ export function createAgentChatPlugin(
         },
         model: options?.model,
         apiKey: options?.apiKey,
+        onRunComplete,
       });
     }
 
@@ -868,6 +895,74 @@ export function createAgentChatPlugin(
         } catch {
           return { title: message.trim().slice(0, 60) };
         }
+      }),
+    );
+
+    // ─── Run management endpoints (for hot-reload resilience) ─────────────
+
+    // GET /runs/active?threadId=X — check if there's an active run for a thread
+    nitroApp.h3App.use(
+      `${routePath}/runs`,
+      defineEventHandler(async (event) => {
+        const method = getMethod(event);
+        const url = event.node?.req?.url || event.path || "";
+
+        // Route: POST /runs/:id/abort
+        const abortMatch = url.match(/\/runs\/([^/?]+)\/abort/);
+        if (abortMatch && method === "POST") {
+          const runId = decodeURIComponent(abortMatch[1]);
+          const success = abortRun(runId);
+          if (!success) {
+            setResponseStatus(event, 404);
+            return { error: "Run not found" };
+          }
+          return { ok: true };
+        }
+
+        // Route: GET /runs/:id/events?after=N
+        const eventsMatch = url.match(/\/runs\/([^/?]+)\/events/);
+        if (eventsMatch && method === "GET") {
+          const runId = decodeURIComponent(eventsMatch[1]);
+          const query = getQuery(event);
+          const after = parseInt(String(query.after ?? "0"), 10) || 0;
+
+          const stream = subscribeToRun(runId, after);
+          if (!stream) {
+            setResponseStatus(event, 404);
+            return { error: "Run not found" };
+          }
+
+          setResponseHeader(event, "Content-Type", "text/event-stream");
+          setResponseHeader(event, "Cache-Control", "no-cache");
+          setResponseHeader(event, "Connection", "keep-alive");
+          return stream;
+        }
+
+        // Route: GET /runs/active?threadId=X
+        if (method === "GET") {
+          const query = getQuery(event);
+          const threadId = query.threadId ? String(query.threadId) : null;
+          if (!threadId) {
+            setResponseStatus(event, 400);
+            return { error: "threadId query parameter is required" };
+          }
+
+          const run = getActiveRunForThread(threadId);
+          if (!run || run.status !== "running") {
+            setResponseStatus(event, 404);
+            return { error: "No active run for this thread" };
+          }
+
+          return {
+            runId: run.runId,
+            threadId: run.threadId,
+            status: run.status,
+            eventCount: run.events.length,
+          };
+        }
+
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
       }),
     );
 

@@ -12,6 +12,7 @@ import {
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import { useFileWatcher } from "./hooks/use-file-watcher";
+import { useNavigationWatcher } from "./hooks/use-navigation-watcher";
 import "./global.css";
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -41,8 +42,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-function FileWatcherSetup() {
+function AppSetup() {
   useFileWatcher();
+  useNavigationWatcher();
   return null;
 }
 
@@ -54,7 +56,7 @@ export default function Root() {
     <ClientOnly fallback={<DefaultSpinner />}>
       <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
         <QueryClientProvider client={queryClient}>
-          <FileWatcherSetup />
+          <AppSetup />
           <TooltipProvider>
             <Toaster />
             <Sonner position="bottom-left" />

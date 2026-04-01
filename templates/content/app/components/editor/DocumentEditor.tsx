@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { VisualEditor } from "./VisualEditor";
 import { DocumentToolbar } from "./DocumentToolbar";
 import { useDocument, useUpdateDocument } from "@/hooks/use-documents";
-import { Loader2 } from "lucide-react";
+import { IconLoader2 } from "@tabler/icons-react";
 
 interface DocumentEditorProps {
   documentId: string;
@@ -17,10 +17,27 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef({ title: "", content: "" });
   const isInitializedRef = useRef(false);
+  const prevDocIdRef = useRef<string | null>(null);
+  const localTitleRef = useRef(localTitle);
+  localTitleRef.current = localTitle;
+  const localContentRef = useRef(localContent);
+  localContentRef.current = localContent;
 
-  // Initialize from fetched document
+  // Initialize from fetched document, reset on document switch
   useEffect(() => {
-    if (document && !isInitializedRef.current) {
+    if (!document) return;
+    // When documentId changes, clear stale state from the previous document
+    if (prevDocIdRef.current !== documentId) {
+      prevDocIdRef.current = documentId;
+      isInitializedRef.current = false;
+      // Cancel any pending debounced save — it would corrupt lastSavedRef
+      // with the old document's values after we've moved on
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+    }
+    if (!isInitializedRef.current) {
       setLocalTitle(document.title);
       setLocalContent(document.content);
       lastSavedRef.current = {
@@ -29,7 +46,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
       };
       isInitializedRef.current = true;
     }
-  }, [document]);
+  }, [document, documentId]);
 
   // Pick up external changes (e.g. Notion pull) — if the server content
   // diverges from what we last saved, an external source changed it.
@@ -57,11 +74,6 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
     }
   }, [document, localTitle, localContent]);
 
-  // Reset when document ID changes
-  useEffect(() => {
-    isInitializedRef.current = false;
-  }, [documentId]);
-
   const debouncedSave = useCallback(
     (title: string, content: string) => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -86,23 +98,23 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
   const handleTitleChange = useCallback(
     (newTitle: string) => {
       setLocalTitle(newTitle);
-      debouncedSave(newTitle, localContent);
+      debouncedSave(newTitle, localContentRef.current);
     },
-    [debouncedSave, localContent],
+    [debouncedSave],
   );
 
   const handleContentChange = useCallback(
     (newContent: string) => {
       setLocalContent(newContent);
-      debouncedSave(localTitle, newContent);
+      debouncedSave(localTitleRef.current, newContent);
     },
-    [debouncedSave, localTitle],
+    [debouncedSave],
   );
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        <IconLoader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -123,15 +135,15 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
       {/* Save indicator */}
       {isSaving && (
         <div className="absolute top-12 right-4 flex items-center gap-1.5 text-xs text-muted-foreground z-10">
-          <Loader2 size={12} className="animate-spin" />
+          <IconLoader2 size={12} className="animate-spin" />
           Saving...
         </div>
       )}
 
       {/* Scrollable document area */}
-      <div className="flex-1 min-h-0 overflow-auto">
+      <div className="flex-1 min-h-0 overflow-auto flex flex-col">
         {/* Title */}
-        <div className="px-16 pt-16 pb-2">
+        <div className="shrink-0 px-16 pt-16 pb-2">
           <div className="flex items-center gap-3 mb-2">
             {document.icon && <span className="text-4xl">{document.icon}</span>}
           </div>
@@ -145,7 +157,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
 
         {/* Editor */}
         <div
-          className="px-16 pb-16 cursor-text"
+          className="flex-1 px-16 pb-16 cursor-text"
           onClick={(e) => {
             // If click is on the wrapper itself (empty space below content),
             // focus the editor at the end — like Notion/Google Docs
@@ -158,6 +170,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
           }}
         >
           <VisualEditor
+            documentId={documentId}
             content={localContent}
             onChange={handleContentChange}
             editable

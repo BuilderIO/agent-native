@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react";
+import { IconPlus } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { EventRow } from "./EventRow";
 import type { ExplorerEvent } from "../types";
@@ -36,7 +36,7 @@ export function EventPanel({ events, onChange }: EventPanelProps) {
         />
       ))}
       <Button variant="outline" size="sm" className="w-full" onClick={addEvent}>
-        <Plus className="h-4 w-4 mr-1" />
+        <IconPlus className="h-4 w-4 mr-1" />
         Add Event
       </Button>
     </div>

@@ -7,7 +7,7 @@ import {
 } from "@shared/app-registry";
 import Sidebar from "./components/Sidebar.js";
 import TabBar from "./components/TabBar.js";
-import AppWebview from "./components/AppWebview.js";
+import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
 import AppSettings from "./components/AppSettings.js";
 
 export interface Tab {
@@ -102,8 +102,13 @@ export default function App() {
 
   const closedTabsRef = useRef<{ tab: Tab; appId: string }[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const findInputRef = useRef<HTMLInputElement>(null);
+  const webviewRefs = useRef(new Map<string, AppWebviewHandle>());
 
   const currentAppTabs = appTabs[activeSidebarAppId];
+  const activeTabId = currentAppTabs?.activeTabId ?? "";
 
   const handleAppsChanged = useCallback((newApps: AppConfig[]) => {
     setApps(newApps);
@@ -197,6 +202,15 @@ export default function App() {
     (key: string, shiftKey: boolean) => {
       const k = key.toLowerCase();
 
+      if (k === "f") {
+        setFindOpen(true);
+        setTimeout(() => {
+          findInputRef.current?.focus();
+          findInputRef.current?.select();
+        }, 0);
+        return;
+      }
+
       if (k === "r") {
         setRefreshKey((n) => n + 1);
         return;
@@ -266,6 +280,28 @@ export default function App() {
     });
   }, [handleTabClose]);
 
+  const runFind = useCallback(
+    (query: string, options?: { findNext?: boolean; forward?: boolean }) => {
+      const ref = webviewRefs.current.get(activeTabId);
+      if (!ref || !query.trim()) return;
+      ref.findInPage(query, options);
+    },
+    [activeTabId],
+  );
+
+  const closeFind = useCallback(() => {
+    if (activeTabId) {
+      webviewRefs.current.get(activeTabId)?.stopFindInPage("clearSelection");
+    }
+    setFindOpen(false);
+    setFindQuery("");
+  }, [activeTabId]);
+
+  useEffect(() => {
+    if (!findOpen || !findQuery.trim()) return;
+    runFind(findQuery, { forward: true });
+  }, [activeTabId, findOpen, findQuery, runFind]);
+
   if (loading) {
     return (
       <div
@@ -299,6 +335,56 @@ export default function App() {
 
   return (
     <div className="shell">
+      {findOpen && (
+        <div className="find-overlay">
+          <input
+            ref={findInputRef}
+            value={findQuery}
+            onChange={(e) => setFindQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                runFind(findQuery, {
+                  findNext: true,
+                  forward: !e.shiftKey,
+                });
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                closeFind();
+              }
+            }}
+            placeholder="Find in page"
+            className="find-input"
+          />
+          <button
+            type="button"
+            className="find-button"
+            onClick={() =>
+              runFind(findQuery, { findNext: true, forward: false })
+            }
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            className="find-button"
+            onClick={() =>
+              runFind(findQuery, { findNext: true, forward: true })
+            }
+          >
+            Next
+          </button>
+          <button
+            type="button"
+            className="find-button find-button--close"
+            onClick={closeFind}
+          >
+            Done
+          </button>
+        </div>
+      )}
       <TabBar
         tabs={currentAppTabs?.tabs ?? []}
         activeTabId={currentAppTabs?.activeTabId ?? ""}
@@ -317,6 +403,10 @@ export default function App() {
           {allWebviews.map(({ tab, app, appDef, isActive }) => (
             <AppWebview
               key={tab.id}
+              ref={(instance) => {
+                if (instance) webviewRefs.current.set(tab.id, instance);
+                else webviewRefs.current.delete(tab.id);
+              }}
               app={appDef}
               appConfig={app}
               isActive={isActive}

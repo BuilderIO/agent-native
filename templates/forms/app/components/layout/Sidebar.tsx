@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/popover";
 import { useForms, useCreateForm } from "@/hooks/use-forms";
 import { useSendToAgentChat } from "@agent-native/core/client";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 const statusDots: Record<string, string> = {
@@ -72,7 +73,7 @@ export function Sidebar() {
     >
       <div className="p-4 pb-3">
         <p className="text-sm font-semibold">New form</p>
-        <textarea
+        <Textarea
           ref={textareaRef}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
@@ -83,7 +84,7 @@ export function Sidebar() {
             }
           }}
           placeholder="Describe your form..."
-          className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
+          className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 border-none shadow-none"
           rows={4}
         />
       </div>

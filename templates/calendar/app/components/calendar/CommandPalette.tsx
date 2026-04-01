@@ -1,14 +1,12 @@
 import { useState, useMemo, useEffect } from "react";
 import { format, parseISO, parse, isValid } from "date-fns";
 import {
-  Calendar,
-  CalendarDays,
-  CalendarRange,
-  Clock,
-  Plus,
-  Zap,
-  ArrowRight,
-} from "lucide-react";
+  IconCalendar,
+  IconClock,
+  IconPlus,
+  IconBolt,
+  IconArrowRight,
+} from "@tabler/icons-react";
 import { CommandMenu } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent } from "@shared/api";
@@ -95,10 +93,10 @@ export function CommandPalette({
             onSelect={() => onGoToDate(parsedDate)}
             keywords={["date", "go", "jump"]}
           >
-            <Calendar className="h-4 w-4" />
+            <IconCalendar className="h-4 w-4" />
             Go to {format(parsedDate, "MMMM d, yyyy")}
             <CommandMenu.Shortcut>
-              <ArrowRight className="h-3 w-3" />
+              <IconArrowRight className="h-3 w-3" />
             </CommandMenu.Shortcut>
           </CommandMenu.Item>
         </CommandMenu.Group>
@@ -140,7 +138,7 @@ export function CommandPalette({
           onSelect={onCreateEvent}
           keywords={["create", "new", "add", "event"]}
         >
-          <Plus className="h-4 w-4" />
+          <IconPlus className="h-4 w-4" />
           Create new event
           <CommandMenu.Shortcut>C</CommandMenu.Shortcut>
         </CommandMenu.Item>
@@ -148,7 +146,7 @@ export function CommandPalette({
           onSelect={onToday}
           keywords={["today", "now", "current"]}
         >
-          <Zap className="h-4 w-4" />
+          <IconBolt className="h-4 w-4" />
           Go to today
           <CommandMenu.Shortcut>T</CommandMenu.Shortcut>
         </CommandMenu.Item>
@@ -161,7 +159,7 @@ export function CommandPalette({
           onSelect={() => onViewChange("month")}
           keywords={["month", "view"]}
         >
-          <CalendarDays className="h-4 w-4" />
+          <IconCalendar className="h-4 w-4" />
           Month view
           <CommandMenu.Shortcut>M</CommandMenu.Shortcut>
         </CommandMenu.Item>
@@ -169,7 +167,7 @@ export function CommandPalette({
           onSelect={() => onViewChange("week")}
           keywords={["week", "view"]}
         >
-          <CalendarRange className="h-4 w-4" />
+          <IconCalendar className="h-4 w-4" />
           Week view
           <CommandMenu.Shortcut>W</CommandMenu.Shortcut>
         </CommandMenu.Item>
@@ -177,7 +175,7 @@ export function CommandPalette({
           onSelect={() => onViewChange("day")}
           keywords={["day", "view"]}
         >
-          <Clock className="h-4 w-4" />
+          <IconClock className="h-4 w-4" />
           Day view
           <CommandMenu.Shortcut>D</CommandMenu.Shortcut>
         </CommandMenu.Item>

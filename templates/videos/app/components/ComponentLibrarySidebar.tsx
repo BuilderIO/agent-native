@@ -6,12 +6,15 @@ import {
 } from "@/remotion/componentRegistry";
 import { cn } from "@/lib/utils";
 import {
-  Box,
-  SlidersHorizontal,
-  ChevronRight,
-  FileText,
-  Info,
-} from "lucide-react";
+  IconBox,
+  IconAdjustmentsHorizontal,
+  IconChevronRight,
+  IconFileText,
+  IconInfoCircle,
+} from "@tabler/icons-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { CurrentElementPanel } from "@/components/CurrentElementPanel";
 
 class SafeBoundary extends Component<
@@ -97,36 +100,28 @@ export function ComponentLibrarySidebar({
 
   return (
     <div className="w-64 border-r border-border bg-secondary/30 flex flex-col overflow-hidden">
-      {/* Tab Switcher */}
-      <div className="flex border-b border-border">
-        <button
-          onClick={() => setTab("components")}
-          className={cn(
-            "flex-1 flex items-center justify-center px-3 py-2.5 text-[11px] font-medium transition-colors",
-            tab === "components"
-              ? "text-foreground border-b-2 border-primary"
-              : "text-muted-foreground hover:text-foreground/70",
-          )}
-        >
-          Components
-        </button>
-        <button
-          onClick={() => setTab("properties")}
-          className={cn(
-            "flex-1 flex items-center justify-center px-3 py-2.5 text-[11px] font-medium transition-colors",
-            tab === "properties"
-              ? "text-foreground border-b-2 border-primary"
-              : "text-muted-foreground hover:text-foreground/70",
-          )}
-        >
-          Properties
-        </button>
-      </div>
+      <Tabs
+        value={tab}
+        onValueChange={(v) => setTab(v as "components" | "properties")}
+        className="flex flex-col h-full"
+      >
+        <TabsList className="w-full rounded-none border-b border-border bg-transparent h-auto p-0 shrink-0">
+          <TabsTrigger
+            value="components"
+            className="flex-1 rounded-none border-b-2 border-transparent px-3 py-2.5 text-[11px] font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+          >
+            Components
+          </TabsTrigger>
+          <TabsTrigger
+            value="properties"
+            className="flex-1 rounded-none border-b-2 border-transparent px-3 py-2.5 text-[11px] font-medium text-muted-foreground data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+          >
+            Properties
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Tab Content */}
-      <div className="flex-1 overflow-hidden">
         {/* Components Tab */}
-        {tab === "components" && (
+        <TabsContent value="components" className="flex-1 overflow-hidden mt-0">
           <div className="h-full flex flex-col">
             <div className="px-4 py-3 border-b border-border">
               <h2 className="text-sm font-semibold text-foreground">
@@ -140,7 +135,7 @@ export function ComponentLibrarySidebar({
             <div className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-thin">
               {libraryComponents.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground text-sm">
-                  <Box className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <IconBox className="w-8 h-8 mx-auto mb-2 opacity-50" />
                   <p>No components yet</p>
                   <p className="text-xs mt-1">Components will appear here</p>
                 </div>
@@ -158,7 +153,7 @@ export function ComponentLibrarySidebar({
                           onClick={() => toggleCategory(category)}
                           className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-secondary/50 transition-colors text-xs font-semibold text-muted-foreground"
                         >
-                          <ChevronRight
+                          <IconChevronRight
                             className={cn(
                               "w-3 h-3 transition-transform",
                               isExpanded && "rotate-90",
@@ -204,10 +199,10 @@ export function ComponentLibrarySidebar({
               )}
             </div>
           </div>
-        )}
+        </TabsContent>
 
         {/* Properties Tab */}
-        {tab === "properties" && (
+        <TabsContent value="properties" className="flex-1 overflow-hidden mt-0">
           <div className="h-full flex flex-col overflow-y-auto scrollbar-thin">
             {selectedComponent ? (
               <>
@@ -215,11 +210,11 @@ export function ComponentLibrarySidebar({
                 <details className="group">
                   <summary className="cursor-pointer list-none">
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
-                      <SlidersHorizontal className="w-3.5 h-3.5 text-green-400" />
+                      <IconAdjustmentsHorizontal className="w-3.5 h-3.5 text-green-400" />
                       <span className="text-xs font-medium">
                         Cursor Interactions
                       </span>
-                      <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
+                      <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                     </div>
                   </summary>
                   <div className="mt-1">
@@ -234,17 +229,17 @@ export function ComponentLibrarySidebar({
                   <details className="group" open>
                     <summary className="cursor-pointer list-none">
                       <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
-                        <FileText className="w-3.5 h-3.5 text-purple-400" />
+                        <IconFileText className="w-3.5 h-3.5 text-purple-400" />
                         <span className="text-xs font-medium">
                           Text Animations
                         </span>
-                        <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
+                        <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                       </div>
                     </summary>
                     <div className="mt-1 px-4 py-3 space-y-3 bg-secondary/20">
                       <div className="px-4 py-3 bg-purple-500/10 rounded-lg border border-purple-500/20">
                         <div className="flex items-start gap-2">
-                          <Info className="w-4 h-4 text-purple-400 flex-shrink-0 mt-0.5" />
+                          <IconInfoCircle className="w-4 h-4 text-purple-400 flex-shrink-0 mt-0.5" />
                           <div>
                             <p className="text-xs font-medium text-purple-200 mb-1">
                               Interactive Text Input
@@ -286,11 +281,11 @@ export function ComponentLibrarySidebar({
                     }}
                   >
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
-                      <FileText className="w-3.5 h-3.5 text-blue-400" />
+                      <IconFileText className="w-3.5 h-3.5 text-blue-400" />
                       <span className="text-xs font-medium">
                         Component Props
                       </span>
-                      <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
+                      <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                     </div>
                   </summary>
 
@@ -358,36 +353,36 @@ export function ComponentLibrarySidebar({
                                       }}
                                     />
                                   </div>
-                                  <input
+                                  <Input
                                     type="text"
                                     value={currentValue}
                                     onChange={(e) =>
                                       onPropChange(prop.name, e.target.value)
                                     }
-                                    className="flex-1 h-9 px-3 text-xs bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+                                    className="flex-1 h-9 px-3 text-xs"
                                     placeholder={String(prop.defaultValue)}
                                   />
                                 </div>
                               ) : isLongText ? (
-                                <textarea
+                                <Textarea
                                   id={`prop-${prop.name}`}
                                   value={currentValue}
                                   onChange={(e) =>
                                     onPropChange(prop.name, e.target.value)
                                   }
                                   rows={3}
-                                  className="w-full px-3 py-2 text-xs bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                                  className="w-full px-3 py-2 text-xs resize-none"
                                   placeholder={String(prop.defaultValue)}
                                 />
                               ) : (
-                                <input
+                                <Input
                                   id={`prop-${prop.name}`}
                                   type="text"
                                   value={currentValue}
                                   onChange={(e) =>
                                     onPropChange(prop.name, e.target.value)
                                   }
-                                  className="w-full h-9 px-3 text-xs bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+                                  className="w-full h-9 px-3 text-xs"
                                   placeholder={String(prop.defaultValue)}
                                 />
                               )}
@@ -399,15 +394,15 @@ export function ComponentLibrarySidebar({
                   )}
                 </details>
 
-                {/* Component Info */}
+                {/* Component IconInfoCircle */}
                 <details className="group">
                   <summary className="cursor-pointer list-none">
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
-                      <Info className="w-3.5 h-3.5 text-amber-400" />
+                      <IconInfoCircle className="w-3.5 h-3.5 text-amber-400" />
                       <span className="text-xs font-medium">
-                        Component Info
+                        Component IconInfoCircle
                       </span>
-                      <ChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
+                      <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                     </div>
                   </summary>
                   <div className="mt-1 px-4 py-3 space-y-3 text-xs text-muted-foreground">
@@ -454,8 +449,8 @@ export function ComponentLibrarySidebar({
               </div>
             )}
           </div>
-        )}
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

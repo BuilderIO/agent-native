@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { handleJsonRpc } from "./handlers.js";
 import type { A2AConfig, Message } from "./types.js";
 
-// Mock task-store so we don't write to disk
+// Mock task-store (now async/SQL-backed)
 vi.mock("./task-store.js", () => {
   let tasks: Record<string, any> = {};
   let counter = 0;
   return {
-    createTask(message: Message, contextId?: string) {
+    async createTask(message: Message, contextId?: string) {
       const id = `task-${++counter}`;
       const task = {
         id,
@@ -19,10 +19,10 @@ vi.mock("./task-store.js", () => {
       tasks[id] = task;
       return task;
     },
-    getTask(id: string) {
+    async getTask(id: string) {
       return tasks[id] ?? null;
     },
-    updateTask(id: string, update: any) {
+    async updateTask(id: string, update: any) {
       const task = tasks[id];
       if (!task) return null;
       if (update.state) {

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useComments, useAddComment } from "@/hooks/use-comments";
 import { adfToHtml } from "@/lib/adf-client";
 import { format } from "date-fns";
-import { Send } from "lucide-react";
+import { IconSend } from "@tabler/icons-react";
 
 interface IssueCommentsProps {
   issueKey: string;
@@ -41,7 +41,7 @@ export function IssueComments({ issueKey }: IssueCommentsProps) {
             disabled={!newComment.trim() || addComment.isPending}
             className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-50"
           >
-            <Send className="h-3.5 w-3.5" />
+            <IconSend className="h-3.5 w-3.5" />
           </button>
         </div>
       </form>

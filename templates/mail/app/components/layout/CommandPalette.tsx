@@ -1,25 +1,25 @@
 import { useNavigate } from "react-router";
 import {
-  Inbox,
-  Star,
-  Send,
-  FileText,
-  Archive,
-  Trash2,
-  Search,
-  PenLine,
-  Moon,
-  Sun,
-  RefreshCw,
-  CornerUpLeft,
-  ShieldAlert,
-  Ban,
-  BellOff,
-  ImageOff,
-  Image,
-  Eye,
-  AlarmClock,
-} from "lucide-react";
+  IconInbox,
+  IconStar,
+  IconSend,
+  IconFileText,
+  IconArchive,
+  IconTrash,
+  IconSearch,
+  IconPencil,
+  IconMoon,
+  IconSun,
+  IconRefresh,
+  IconCornerUpLeft,
+  IconShieldExclamation,
+  IconBan,
+  IconBellOff,
+  IconPhotoOff,
+  IconPhoto,
+  IconEye,
+  IconAlarm,
+} from "@tabler/icons-react";
 import { CommandMenu } from "@agent-native/core/client";
 import { useTheme } from "next-themes";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
@@ -38,12 +38,32 @@ interface CommandPaletteProps {
 }
 
 const navCommands = [
-  { label: "Go to Inbox", icon: Inbox, route: "/inbox", shortcut: "G I" },
-  { label: "Go to Starred", icon: Star, route: "/starred", shortcut: "G S" },
-  { label: "Go to Sent", icon: Send, route: "/sent", shortcut: "G T" },
-  { label: "Go to Drafts", icon: FileText, route: "/drafts", shortcut: "G D" },
-  { label: "Go to Archive", icon: Archive, route: "/archive", shortcut: "G A" },
-  { label: "Go to Trash", icon: Trash2, route: "/trash" },
+  {
+    label: "Go to IconInbox",
+    icon: IconInbox,
+    route: "/inbox",
+    shortcut: "G I",
+  },
+  {
+    label: "Go to Starred",
+    icon: IconStar,
+    route: "/starred",
+    shortcut: "G S",
+  },
+  { label: "Go to Sent", icon: IconSend, route: "/sent", shortcut: "G T" },
+  {
+    label: "Go to Drafts",
+    icon: IconFileText,
+    route: "/drafts",
+    shortcut: "G D",
+  },
+  {
+    label: "Go to IconArchive",
+    icon: IconArchive,
+    route: "/archive",
+    shortcut: "G A",
+  },
+  { label: "Go to Trash", icon: IconTrash, route: "/trash" },
 ];
 
 export function CommandPalette({
@@ -74,13 +94,13 @@ export function CommandPalette({
           onSelect={onCompose}
           keywords={["compose", "new", "write"]}
         >
-          <PenLine className="h-4 w-4" />
+          <IconPencil className="h-4 w-4" />
           Compose new email
           <CommandMenu.Shortcut>C</CommandMenu.Shortcut>
         </CommandMenu.Item>
         {onReply && (
           <CommandMenu.Item onSelect={onReply} keywords={["reply", "respond"]}>
-            <CornerUpLeft className="h-4 w-4" />
+            <IconCornerUpLeft className="h-4 w-4" />
             Reply to thread
             <CommandMenu.Shortcut>R</CommandMenu.Shortcut>
           </CommandMenu.Item>
@@ -90,7 +110,7 @@ export function CommandPalette({
             onSelect={onSnooze}
             keywords={["snooze", "later", "remind"]}
           >
-            <AlarmClock className="h-4 w-4" />
+            <IconAlarm className="h-4 w-4" />
             Snooze email
             <CommandMenu.Shortcut>H</CommandMenu.Shortcut>
           </CommandMenu.Item>
@@ -99,20 +119,20 @@ export function CommandPalette({
           onSelect={() => navigate(`/inbox?q=`)}
           keywords={["search", "find"]}
         >
-          <Search className="h-4 w-4" />
-          Search emails
+          <IconSearch className="h-4 w-4" />
+          IconSearch emails
           <CommandMenu.Shortcut>/</CommandMenu.Shortcut>
         </CommandMenu.Item>
         <CommandMenu.Item
           onSelect={() => window.location.reload()}
           keywords={["refresh", "reload"]}
         >
-          <RefreshCw className="h-4 w-4" />
+          <IconRefresh className="h-4 w-4" />
           Refresh inbox
         </CommandMenu.Item>
         {onSpam && (
           <CommandMenu.Item onSelect={onSpam} keywords={["spam", "junk"]}>
-            <ShieldAlert className="h-4 w-4" />
+            <IconShieldExclamation className="h-4 w-4" />
             Report spam
           </CommandMenu.Item>
         )}
@@ -121,7 +141,7 @@ export function CommandPalette({
             onSelect={onBlockSender}
             keywords={["block", "spam"]}
           >
-            <Ban className="h-4 w-4" />
+            <IconBan className="h-4 w-4" />
             Report spam & block sender
           </CommandMenu.Item>
         )}
@@ -130,7 +150,7 @@ export function CommandPalette({
             onSelect={onMuteThread}
             keywords={["mute", "silence"]}
           >
-            <BellOff className="h-4 w-4" />
+            <IconBellOff className="h-4 w-4" />
             Mute thread
           </CommandMenu.Item>
         )}
@@ -161,7 +181,7 @@ export function CommandPalette({
           onSelect={() => updateSettings.mutate({ imagePolicy: "show" })}
           keywords={["images", "show"]}
         >
-          <Image className="h-4 w-4" />
+          <IconPhoto className="h-4 w-4" />
           Images: Show all
           {imagePolicy === "show" && (
             <CommandMenu.Shortcut>✓</CommandMenu.Shortcut>
@@ -173,7 +193,7 @@ export function CommandPalette({
           }
           keywords={["images", "trackers", "privacy"]}
         >
-          <Eye className="h-4 w-4" />
+          <IconEye className="h-4 w-4" />
           Images: Block known trackers
           {imagePolicy === "block-trackers" && (
             <CommandMenu.Shortcut>✓</CommandMenu.Shortcut>
@@ -183,7 +203,7 @@ export function CommandPalette({
           onSelect={() => updateSettings.mutate({ imagePolicy: "block-all" })}
           keywords={["images", "block", "privacy"]}
         >
-          <ImageOff className="h-4 w-4" />
+          <IconPhotoOff className="h-4 w-4" />
           Images: Block all remote images
           {imagePolicy === "block-all" && (
             <CommandMenu.Shortcut>✓</CommandMenu.Shortcut>
@@ -199,9 +219,9 @@ export function CommandPalette({
           keywords={["theme", "dark", "light", "mode"]}
         >
           {theme === "dark" ? (
-            <Sun className="h-4 w-4" />
+            <IconSun className="h-4 w-4" />
           ) : (
-            <Moon className="h-4 w-4" />
+            <IconMoon className="h-4 w-4" />
           )}
           Toggle {theme === "dark" ? "light" : "dark"} mode
         </CommandMenu.Item>

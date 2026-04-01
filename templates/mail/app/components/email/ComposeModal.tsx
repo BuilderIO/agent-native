@@ -1,15 +1,15 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import {
-  X,
-  Minus,
-  Bold,
-  Italic,
-  Link,
-  Paperclip,
-  ChevronDown,
-  Loader2,
-  Trash2,
-} from "lucide-react";
+  IconX,
+  IconMinus,
+  IconBold,
+  IconItalic,
+  IconLink,
+  IconPaperclip,
+  IconChevronDown,
+  IconLoader2,
+  IconTrash,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -384,7 +384,7 @@ export function ComposeModal({
                         : "opacity-0 group-hover:opacity-100 hover:bg-foreground/10",
                     )}
                   >
-                    <X className="h-2.5 w-2.5" />
+                    <IconX className="h-2.5 w-2.5" />
                   </span>
                 </button>
               );
@@ -410,7 +410,7 @@ export function ComposeModal({
             className="h-7 w-7"
             onClick={() => setMinimized(!minimized)}
           >
-            <Minus className="h-3.5 w-3.5" />
+            <IconMinus className="h-3.5 w-3.5" />
           </Button>
           <Button
             variant="ghost"
@@ -418,7 +418,7 @@ export function ComposeModal({
             className="h-7 w-7"
             onClick={onCloseAll}
           >
-            <X className="h-3.5 w-3.5" />
+            <IconX className="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>
@@ -450,7 +450,7 @@ export function ComposeModal({
                 }}
                 className="text-muted-foreground hover:text-foreground transition-colors p-1"
               >
-                <ChevronDown
+                <IconChevronDown
                   className={cn(
                     "h-4 w-4 transition-transform",
                     showCcBcc && "rotate-180",
@@ -519,7 +519,7 @@ export function ComposeModal({
                   key={att.id}
                   className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs"
                 >
-                  <Paperclip className="h-3 w-3 text-muted-foreground shrink-0" />
+                  <IconPaperclip className="h-3 w-3 text-muted-foreground shrink-0" />
                   <span className="truncate max-w-[140px]">
                     {att.originalName}
                   </span>
@@ -530,7 +530,7 @@ export function ComposeModal({
                     onClick={() => handleRemoveAttachment(att.id)}
                     className="ml-0.5 rounded-sm p-0.5 text-muted-foreground hover:text-foreground hover:bg-foreground/10 transition-colors"
                   >
-                    <X className="h-3 w-3" />
+                    <IconX className="h-3 w-3" />
                   </button>
                 </div>
               ))}
@@ -548,10 +548,10 @@ export function ComposeModal({
                     className="h-7 w-7"
                     onClick={() => editorRef.current?.toggleBold()}
                   >
-                    <Bold className="h-3.5 w-3.5" />
+                    <IconBold className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Bold</TooltipContent>
+                <TooltipContent>IconBold</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -561,10 +561,10 @@ export function ComposeModal({
                     className="h-7 w-7"
                     onClick={() => editorRef.current?.toggleItalic()}
                   >
-                    <Italic className="h-3.5 w-3.5" />
+                    <IconItalic className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Italic</TooltipContent>
+                <TooltipContent>IconItalic</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -574,7 +574,7 @@ export function ComposeModal({
                     className="h-7 w-7"
                     onClick={() => editorRef.current?.setLink()}
                   >
-                    <Link className="h-3.5 w-3.5" />
+                    <IconLink className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Insert link</TooltipContent>
@@ -587,7 +587,7 @@ export function ComposeModal({
                     className="h-7 w-7"
                     onClick={() => void handleAttach()}
                   >
-                    <Paperclip className="h-3.5 w-3.5" />
+                    <IconPaperclip className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Attach file</TooltipContent>
@@ -597,7 +597,7 @@ export function ComposeModal({
 
               {isGenerating ? (
                 <div className="flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
                   <span>Generating…</span>
                 </div>
               ) : (
@@ -659,7 +659,7 @@ export function ComposeModal({
                 className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground/40 hover:text-red-400 hover:bg-red-400/10 transition-colors"
                 title="Delete draft"
               >
-                <Trash2 className="h-4 w-4" />
+                <IconTrash className="h-4 w-4" />
               </button>
               <SendLaterButton
                 onSend={handleSend}

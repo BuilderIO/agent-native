@@ -1,12 +1,12 @@
 import { Link } from "react-router";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ExternalLink, type LucideIcon } from "lucide-react";
+import { IconExternalLink } from "@tabler/icons-react";
 
 interface MetricCardProps {
   title: string;
   value: string | number | null;
-  icon?: LucideIcon;
+  icon?: React.ComponentType<Record<string, unknown>>;
   description?: string;
   isLoading?: boolean;
   error?: string;
@@ -35,7 +35,7 @@ export function MetricCard({
               className="text-muted-foreground/50 hover:text-foreground transition-colors p-1"
               title="Open in Query Explorer"
             >
-              <ExternalLink className="h-3.5 w-3.5" />
+              <IconExternalLink className="h-3.5 w-3.5" />
             </Link>
           )}
           {Icon && <Icon className="h-4 w-4 text-muted-foreground" />}

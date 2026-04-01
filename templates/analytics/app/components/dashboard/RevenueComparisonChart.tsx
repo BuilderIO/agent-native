@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ExternalLink } from "lucide-react";
+import { IconExternalLink } from "@tabler/icons-react";
 
 interface RevenueComparisonChartProps {
   title: string;
@@ -84,7 +84,7 @@ export function RevenueComparisonChart({
             to={`/query?sql=${encodeURIComponent(sql)}`}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
           >
-            <ExternalLink className="h-3 w-3" />
+            <IconExternalLink className="h-3 w-3" />
             Query
           </Link>
         )}

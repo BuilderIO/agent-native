@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { format, parseISO } from "date-fns";
-import { MapPin, Clock, Edit2, Trash2, ExternalLink, X } from "lucide-react";
+import {
+  IconMapPin,
+  IconClock,
+  IconEdit,
+  IconTrash,
+  IconExternalLink,
+  IconX,
+} from "@tabler/icons-react";
 import {
   Dialog,
   DialogContent,
@@ -207,7 +214,7 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
           <div className="space-y-3">
             {/* Time */}
             <div className="flex items-start gap-2.5 text-sm text-muted-foreground">
-              <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+              <IconClock className="mt-0.5 h-4 w-4 shrink-0" />
               {event.allDay ? (
                 <span>
                   All day · {format(parseISO(event.start), "MMMM d, yyyy")}
@@ -225,7 +232,7 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
             {/* Location */}
             {event.location && (
               <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
-                <MapPin className="h-4 w-4 shrink-0" />
+                <IconMapPin className="h-4 w-4 shrink-0" />
                 <span>{event.location}</span>
               </div>
             )}
@@ -240,7 +247,7 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
             {/* Google Calendar badge */}
             {isGoogle && (
               <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-                <ExternalLink className="h-3.5 w-3.5" />
+                <IconExternalLink className="h-3.5 w-3.5" />
                 <span>Synced from Google Calendar</span>
               </div>
             )}
@@ -290,7 +297,7 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
                   onClick={handleDelete}
                   disabled={deleteEvent.isPending}
                 >
-                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                  <IconTrash className="mr-1.5 h-3.5 w-3.5" />
                   Delete
                 </Button>
               )}
@@ -301,12 +308,12 @@ export function EventDialog({ event, open, onClose }: EventDialogProps) {
                   size="sm"
                   onClick={() => setEditing(true)}
                 >
-                  <Edit2 className="mr-1.5 h-3.5 w-3.5" />
+                  <IconEdit className="mr-1.5 h-3.5 w-3.5" />
                   Edit
                 </Button>
               )}
               <Button variant="ghost" size="sm" onClick={onClose}>
-                <X className="mr-1.5 h-3.5 w-3.5" />
+                <IconX className="mr-1.5 h-3.5 w-3.5" />
                 Close
               </Button>
             </>

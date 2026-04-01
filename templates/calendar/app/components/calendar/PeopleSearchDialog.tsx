@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, X, UserPlus, Loader2 } from "lucide-react";
+import {
+  IconSearch,
+  IconX,
+  IconUserPlus,
+  IconLoader2,
+} from "@tabler/icons-react";
 import {
   Dialog,
   DialogContent,
@@ -141,24 +146,24 @@ export function PeopleSearchDialog({
           <DialogTitle className="text-base">People</DialogTitle>
         </DialogHeader>
 
-        {/* Search input */}
+        {/* IconSearch input */}
         <div className="relative px-4 pt-3 pb-2">
-          <Search className="absolute left-7 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <IconSearch className="absolute left-7 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search by name or type an email..."
+            placeholder="IconSearch by name or type an email..."
             className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             autoFocus
           />
           {searching && (
-            <Loader2 className="absolute right-7 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+            <IconLoader2 className="absolute right-7 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
           )}
         </div>
 
-        {/* Search results */}
+        {/* IconSearch results */}
         {results.length > 0 && (
           <div
             ref={listRef}
@@ -183,7 +188,7 @@ export function PeopleSearchDialog({
                       : "hover:bg-accent/50"
                   }`}
                 >
-                  <UserPlus className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <IconUserPlus className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
                     {person.name && (
                       <div className="truncate font-medium text-foreground">
@@ -251,7 +256,7 @@ export function PeopleSearchDialog({
                     onClick={() => removePerson.mutate(person.email)}
                     className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <IconX className="h-3.5 w-3.5" />
                   </button>
                 </div>
               ))}

@@ -4,7 +4,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Plus, ArrowUp, X, Paperclip } from "lucide-react";
+import {
+  IconPlus,
+  IconArrowUp,
+  IconX,
+  IconPaperclip,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -189,7 +194,7 @@ export function NewCompositionPopover({
                 : "border-border text-muted-foreground hover:border-primary/30 hover:text-primary/80 hover:bg-primary/5",
             )}
           >
-            <Plus size={14} />
+            <IconPlus size={14} />
             New Composition
           </button>
         </PopoverTrigger>
@@ -233,7 +238,7 @@ export function NewCompositionPopover({
                     key={index}
                     className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-secondary/50 border border-border/50 text-xs"
                   >
-                    <Paperclip className="w-3 h-3 text-muted-foreground" />
+                    <IconPaperclip className="w-3 h-3 text-muted-foreground" />
                     <span className="text-foreground/80 max-w-[150px] truncate">
                       {attachment.name}
                     </span>
@@ -242,7 +247,7 @@ export function NewCompositionPopover({
                       aria-label={`Remove ${attachment.name}`}
                       className="p-0.5 hover:bg-destructive/10 rounded transition-colors"
                     >
-                      <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
+                      <IconX className="w-3 h-3 text-muted-foreground hover:text-destructive" />
                     </button>
                   </div>
                 ))}
@@ -267,7 +272,7 @@ export function NewCompositionPopover({
                   onClick={() => fileInputRef.current?.click()}
                   className="h-8 text-xs"
                 >
-                  <Plus className="w-3.5 h-3.5 mr-1.5" />
+                  <IconPlus className="w-3.5 h-3.5 mr-1.5" />
                   Attach
                 </Button>
               </div>
@@ -280,7 +285,7 @@ export function NewCompositionPopover({
                 aria-label="Submit"
                 className="h-8 text-xs"
               >
-                <ArrowUp className="w-3.5 h-3.5" />
+                <IconArrowUp className="w-3.5 h-3.5" />
               </Button>
             </div>
           </div>

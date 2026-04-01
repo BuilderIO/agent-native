@@ -1,21 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import {
-  CalendarDays,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Copy,
-  ExternalLink,
-  GripVertical,
-  Link2,
-  MoreVertical,
-  Plus,
-  Trash2,
-  AlertTriangle,
-  ListChecks,
-  Video,
-} from "lucide-react";
+  IconCalendar,
+  IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
+  IconCopy,
+  IconExternalLink,
+  IconGripVertical,
+  IconLink,
+  IconDotsVertical,
+  IconPlus,
+  IconTrash,
+  IconAlertTriangle,
+  IconListCheck,
+  IconVideo,
+} from "@tabler/icons-react";
 import { nanoid } from "nanoid";
 import { toast } from "sonner";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
@@ -445,7 +445,7 @@ export default function BookingLinksPage({
             onClick={() => navigate("/booking-links")}
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
           >
-            <ChevronLeft className="h-4 w-4" />
+            <IconChevronLeft className="h-4 w-4" />
             Back
           </button>
           {selectedLink && (
@@ -634,7 +634,7 @@ export default function BookingLinksPage({
                         type="button"
                         className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <IconTrash className="h-3.5 w-3.5" />
                         Delete
                       </button>
                     </AlertDialogTrigger>
@@ -694,7 +694,7 @@ export default function BookingLinksPage({
           </p>
         </div>
         <Button onClick={handleCreate} className="gap-2">
-          <Plus className="h-4 w-4" />
+          <IconPlus className="h-4 w-4" />
           New booking link
         </Button>
       </div>
@@ -710,7 +710,7 @@ export default function BookingLinksPage({
             {!hasLinks && !isLoading ? (
               <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16 px-6 text-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted mb-4">
-                  <Link2 className="h-6 w-6 text-muted-foreground" />
+                  <IconLink className="h-6 w-6 text-muted-foreground" />
                 </div>
                 <p className="text-lg font-medium">No booking links yet</p>
                 <p className="mt-1 max-w-sm text-sm text-muted-foreground">
@@ -718,7 +718,7 @@ export default function BookingLinksPage({
                   you.
                 </p>
                 <Button onClick={handleCreate} className="mt-6 gap-2">
-                  <Plus className="h-4 w-4" />
+                  <IconPlus className="h-4 w-4" />
                   Create your first link
                 </Button>
               </div>
@@ -780,8 +780,8 @@ export default function BookingLinksPage({
                                 }}
                                 className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm font-medium text-foreground hover:bg-accent/60"
                               >
-                                <Link2 className="h-3.5 w-3.5" />
-                                Copy link
+                                <IconLink className="h-3.5 w-3.5" />
+                                IconCopy link
                               </button>
                               <button
                                 type="button"
@@ -791,7 +791,7 @@ export default function BookingLinksPage({
                                 }}
                                 className="flex items-center justify-center rounded-full border border-border p-2 text-muted-foreground hover:text-foreground hover:bg-accent/60"
                               >
-                                <ExternalLink className="h-4 w-4" />
+                                <IconExternalLink className="h-4 w-4" />
                               </button>
                             </>
                           )}
@@ -803,7 +803,7 @@ export default function BookingLinksPage({
                                 onClick={(e) => e.stopPropagation()}
                                 className="flex items-center justify-center rounded-full border border-border p-2 text-muted-foreground hover:text-foreground hover:bg-accent/60"
                               >
-                                <MoreVertical className="h-4 w-4" />
+                                <IconDotsVertical className="h-4 w-4" />
                               </button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
@@ -1256,9 +1256,9 @@ function BookingPreview({
                 type="button"
                 onClick={onCopy}
                 className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
-                title="Copy link"
+                title="IconCopy link"
               >
-                <Copy className="h-3.5 w-3.5" />
+                <IconCopy className="h-3.5 w-3.5" />
               </button>
             )}
             {onOpen && (
@@ -1268,7 +1268,7 @@ function BookingPreview({
                 className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
                 title="Open in new tab"
               >
-                <ExternalLink className="h-3.5 w-3.5" />
+                <IconExternalLink className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
@@ -1290,7 +1290,7 @@ function BookingPreview({
         {/* Header */}
         <div className="text-center space-y-2">
           <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-            <CalendarDays className="h-5 w-5 text-primary" />
+            <IconCalendar className="h-5 w-5 text-primary" />
           </div>
           <h3 className="text-lg font-semibold leading-tight">
             {displayTitle}
@@ -1387,7 +1387,7 @@ function BookingPreview({
                   onClick={() => setViewMonth((m) => subMonths(m, 1))}
                   className="p-1 rounded hover:bg-accent/60"
                 >
-                  <ChevronLeft className="h-3.5 w-3.5 text-muted-foreground" />
+                  <IconChevronLeft className="h-3.5 w-3.5 text-muted-foreground" />
                 </button>
                 <span className="text-xs font-medium">
                   {format(viewMonth, "MMMM yyyy")}
@@ -1397,7 +1397,7 @@ function BookingPreview({
                   onClick={() => setViewMonth((m) => addMonths(m, 1))}
                   className="p-1 rounded hover:bg-accent/60"
                 >
-                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                  <IconChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
                 </button>
               </div>
 
@@ -1615,7 +1615,7 @@ function ConferencingEditor({
   return (
     <div className="space-y-3">
       <Label className="flex items-center gap-1.5">
-        <Video className="h-4 w-4" />
+        <IconVideo className="h-4 w-4" />
         Conferencing
       </Label>
 
@@ -1782,7 +1782,7 @@ function CustomFieldsEditor({
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <Label className="flex items-center gap-1.5">
-          <ListChecks className="h-4 w-4" />
+          <IconListCheck className="h-4 w-4" />
           Custom fields
         </Label>
         <div className="flex items-center gap-1">
@@ -1791,7 +1791,7 @@ function CustomFieldsEditor({
             onClick={() => setShowPresets((p) => !p)}
             className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/60"
           >
-            <ChevronDown
+            <IconChevronDown
               className={cn(
                 "h-3 w-3 transition-transform",
                 showPresets && "rotate-180",
@@ -1804,7 +1804,7 @@ function CustomFieldsEditor({
             onClick={() => addField()}
             className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/60"
           >
-            <Plus className="h-3 w-3" />
+            <IconPlus className="h-3 w-3" />
             Add
           </button>
         </div>
@@ -1849,7 +1849,7 @@ function CustomFieldsEditor({
                 onClick={() => setEditingId(isEditing ? null : field.id)}
                 className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-accent/40"
               >
-                <GripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />
+                <IconGripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />
                 <div className="flex-1 min-w-0">
                   <span className="text-sm font-medium truncate block">
                     {field.label}
@@ -1870,7 +1870,7 @@ function CustomFieldsEditor({
                     className="p-0.5 text-muted-foreground/40 hover:text-foreground"
                     title="Move up"
                   >
-                    <ChevronLeft className="h-3 w-3 rotate-90" />
+                    <IconChevronLeft className="h-3 w-3 rotate-90" />
                   </button>
                   <button
                     type="button"
@@ -1881,7 +1881,7 @@ function CustomFieldsEditor({
                     className="p-0.5 text-muted-foreground/40 hover:text-foreground"
                     title="Move down"
                   >
-                    <ChevronRight className="h-3 w-3 rotate-90" />
+                    <IconChevronRight className="h-3 w-3 rotate-90" />
                   </button>
                   <button
                     type="button"
@@ -1892,7 +1892,7 @@ function CustomFieldsEditor({
                     className="p-0.5 text-muted-foreground/40 hover:text-destructive"
                     title="Remove field"
                   >
-                    <Trash2 className="h-3 w-3" />
+                    <IconTrash className="h-3 w-3" />
                   </button>
                 </div>
               </button>

@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { useJiraAuthUrl } from "@/hooks/use-jira-auth";
-import { ExternalLink, Copy, Check, ArrowRight, Loader2 } from "lucide-react";
+import {
+  IconExternalLink,
+  IconCopy,
+  IconCheck,
+  IconArrowRight,
+  IconLoader2,
+} from "@tabler/icons-react";
 import { toast } from "sonner";
 
 export function JiraConnectBanner() {
@@ -52,7 +58,7 @@ export function JiraConnectBanner() {
                 className="text-foreground underline underline-offset-2"
               >
                 Atlassian Developer Console
-                <ExternalLink className="ml-1 inline h-3 w-3" />
+                <IconExternalLink className="ml-1 inline h-3 w-3" />
               </a>{" "}
               and create a new OAuth 2.0 (3LO) integration.
             </p>
@@ -60,7 +66,7 @@ export function JiraConnectBanner() {
               onClick={() => setStep(2)}
               className="mt-3 flex items-center gap-1.5 text-[13px] font-medium text-foreground hover:underline"
             >
-              Next <ArrowRight className="h-3 w-3" />
+              Next <IconArrowRight className="h-3 w-3" />
             </button>
           </StepCard>
 
@@ -84,7 +90,7 @@ export function JiraConnectBanner() {
               onClick={() => setStep(3)}
               className="mt-3 flex items-center gap-1.5 text-[13px] font-medium text-foreground hover:underline"
             >
-              Next <ArrowRight className="h-3 w-3" />
+              Next <IconArrowRight className="h-3 w-3" />
             </button>
           </StepCard>
 
@@ -108,9 +114,9 @@ export function JiraConnectBanner() {
                 className="text-muted-foreground hover:text-foreground"
               >
                 {copied ? (
-                  <Check className="h-3.5 w-3.5 text-green-500" />
+                  <IconCheck className="h-3.5 w-3.5 text-green-500" />
                 ) : (
-                  <Copy className="h-3.5 w-3.5" />
+                  <IconCopy className="h-3.5 w-3.5" />
                 )}
               </button>
             </div>
@@ -118,7 +124,7 @@ export function JiraConnectBanner() {
               onClick={() => setStep(4)}
               className="mt-3 flex items-center gap-1.5 text-[13px] font-medium text-foreground hover:underline"
             >
-              Next <ArrowRight className="h-3 w-3" />
+              Next <IconArrowRight className="h-3 w-3" />
             </button>
           </StepCard>
 
@@ -130,8 +136,8 @@ export function JiraConnectBanner() {
             onActivate={() => setStep(4)}
           >
             <p className="text-[13px] text-muted-foreground">
-              Copy the <strong>Client ID</strong> and <strong>Secret</strong>{" "}
-              from your app&apos;s Settings page.
+              IconCopy the <strong>Client ID</strong> and{" "}
+              <strong>Secret</strong> from your app&apos;s Settings page.
             </p>
             <div className="mt-3 space-y-2.5">
               <div>
@@ -196,13 +202,13 @@ export function JiraConnectBanner() {
             >
               {saving ? (
                 <>
-                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <IconLoader2 className="h-3 w-3 animate-spin" />
                   Saving...
                 </>
               ) : (
                 <>
                   Save & Continue
-                  <ArrowRight className="h-3 w-3" />
+                  <IconArrowRight className="h-3 w-3" />
                 </>
               )}
             </button>

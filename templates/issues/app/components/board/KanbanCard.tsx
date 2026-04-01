@@ -1,13 +1,13 @@
 import { useCallback } from "react";
 import {
-  CircleDot,
-  Bug,
-  BookOpen,
-  Zap,
-  ChevronUp,
-  ChevronDown,
-  Equal,
-} from "lucide-react";
+  IconCircleDot,
+  IconBug,
+  IconBook,
+  IconBolt,
+  IconChevronUp,
+  IconChevronDown,
+  IconEqual,
+} from "@tabler/icons-react";
 import type { JiraIssue } from "@shared/types";
 
 interface KanbanCardProps {
@@ -19,21 +19,23 @@ function PriorityIcon({ name }: { name?: string }) {
   if (!name) return null;
   const lower = name.toLowerCase();
   if (lower === "highest" || lower === "high")
-    return <ChevronUp className="h-3 w-3 text-orange-500" />;
-  if (lower === "medium") return <Equal className="h-3 w-3 text-yellow-500" />;
+    return <IconChevronUp className="h-3 w-3 text-orange-500" />;
+  if (lower === "medium")
+    return <IconEqual className="h-3 w-3 text-yellow-500" />;
   if (lower === "low" || lower === "lowest")
-    return <ChevronDown className="h-3 w-3 text-blue-500" />;
+    return <IconChevronDown className="h-3 w-3 text-blue-500" />;
   return null;
 }
 
 function TypeIcon({ name }: { name: string }) {
   const lower = name.toLowerCase();
-  if (lower.includes("bug")) return <Bug className="h-3 w-3 text-red-500" />;
+  if (lower.includes("bug"))
+    return <IconBug className="h-3 w-3 text-red-500" />;
   if (lower.includes("story"))
-    return <BookOpen className="h-3 w-3 text-green-500" />;
+    return <IconBook className="h-3 w-3 text-green-500" />;
   if (lower.includes("epic"))
-    return <Zap className="h-3 w-3 text-purple-500" />;
-  return <CircleDot className="h-3 w-3 text-blue-500" />;
+    return <IconBolt className="h-3 w-3 text-purple-500" />;
+  return <IconCircleDot className="h-3 w-3 text-blue-500" />;
 }
 
 export function KanbanCard({ issue, onClick }: KanbanCardProps) {

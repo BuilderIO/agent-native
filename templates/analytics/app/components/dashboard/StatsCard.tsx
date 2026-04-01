@@ -1,11 +1,11 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { LucideIcon } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 
 interface StatsCardProps {
   title: string;
   value: string;
-  icon: LucideIcon;
+  icon: React.ComponentType<Record<string, unknown>>;
   description: string;
   trend?: {
     value: number;

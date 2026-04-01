@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { IconRefresh } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { useSyncGoogle } from "@/hooks/use-google-auth";
 import { toast } from "sonner";
@@ -32,7 +32,7 @@ export function GoogleSyncButton() {
         onClick={handleSync}
         disabled={syncGoogle.isPending}
       >
-        <RefreshCw
+        <IconRefresh
           className={cn(
             "mr-1.5 h-3.5 w-3.5",
             syncGoogle.isPending && "animate-spin",

@@ -11,7 +11,16 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   useAliases,
   useCreateAlias,
@@ -57,24 +66,24 @@ function AliasEditRow({
         <label className="block text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
           Alias name
         </label>
-        <input
+        <Input
           autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Design team"
-          className="w-full rounded-md border border-border/50 bg-background px-3 py-1.5 text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 transition-colors"
+          className="px-3 py-1.5 text-[13px] placeholder:text-muted-foreground/40"
         />
       </div>
       <div>
         <label className="block text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
           Recipients (one email per line)
         </label>
-        <textarea
+        <Textarea
           value={emailsText}
           onChange={(e) => setEmailsText(e.target.value)}
           placeholder={"alice@example.com\nbob@example.com"}
           rows={4}
-          className="w-full rounded-md border border-border/50 bg-background px-3 py-1.5 text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 transition-colors resize-none font-mono"
+          className="px-3 py-1.5 text-[13px] placeholder:text-muted-foreground/40 resize-none font-mono"
         />
       </div>
       <div className="flex items-center gap-2 pt-0.5">
@@ -344,33 +353,37 @@ function ActionBuilder({
     <div className="space-y-2">
       {actions.map((action, idx) => (
         <div key={idx} className="flex items-center gap-2">
-          <select
+          <Select
             value={action.type}
-            onChange={(e) => {
-              const type = e.target.value as AutomationAction["type"];
+            onValueChange={(value: string) => {
+              const type = value as AutomationAction["type"];
               if (type === "label") {
                 updateAction(idx, { type: "label", labelName: "" });
               } else {
                 updateAction(idx, { type } as AutomationAction);
               }
             }}
-            className="rounded-md border border-border/50 bg-background px-2 py-1.5 text-[13px] text-foreground outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30"
           >
-            {ACTION_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="h-8 w-[140px] text-[13px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ACTION_TYPES.map((t) => (
+                <SelectItem key={t.value} value={t.value}>
+                  {t.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
           {action.type === "label" && (
-            <input
+            <Input
               value={action.labelName}
               onChange={(e) =>
                 updateAction(idx, { type: "label", labelName: e.target.value })
               }
               placeholder="Label name"
-              className="flex-1 rounded-md border border-border/50 bg-background px-2 py-1.5 text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30"
+              className="flex-1 h-8 px-2 text-[13px] placeholder:text-muted-foreground/40"
             />
           )}
 
@@ -431,26 +444,26 @@ function AutomationEditRow({
         <label className="block text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
           Rule name
         </label>
-        <input
+        <Input
           autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Auto-label newsletters"
-          className="w-full rounded-md border border-border/50 bg-background px-3 py-1.5 text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30"
+          className="px-3 py-1.5 text-[13px] placeholder:text-muted-foreground/40"
         />
       </div>
       <div>
         <label className="block text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
           Condition (natural language)
         </label>
-        <textarea
+        <Textarea
           value={condition}
           onChange={(e) => setCondition(e.target.value)}
           placeholder={
             'e.g. "from a newsletter or marketing mailing list"\n"from alice@example.com"\n"subject contains invoice or receipt"'
           }
           rows={3}
-          className="w-full rounded-md border border-border/50 bg-background px-3 py-1.5 text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30 resize-none"
+          className="px-3 py-1.5 text-[13px] placeholder:text-muted-foreground/40 resize-none"
         />
       </div>
       <div>

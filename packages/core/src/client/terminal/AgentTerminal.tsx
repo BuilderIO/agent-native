@@ -404,6 +404,13 @@ export function AgentTerminal({
     return null;
   }
 
+  const terminalBackground = theme?.background ?? DEFAULT_THEME.background;
+  const mergedStyle = {
+    ...style,
+    background: terminalBackground,
+    backgroundColor: terminalBackground,
+  };
+
   return (
     <div
       ref={termRef}
@@ -411,10 +418,9 @@ export function AgentTerminal({
       style={{
         width: "100%",
         height: "100%",
-        padding: "4px 0 4px 12px",
-        backgroundColor: "#111",
+        padding: "4px 12px",
         position: "relative",
-        ...style,
+        ...mergedStyle,
       }}
     >
       {error && (

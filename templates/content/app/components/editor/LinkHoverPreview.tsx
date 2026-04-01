@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, forwardRef } from "react";
-import { Unlink, ExternalLink } from "lucide-react";
+import { IconUnlink, IconExternalLink } from "@tabler/icons-react";
 import type { Editor } from "@tiptap/react";
 
 interface LinkHoverPreviewProps {
@@ -136,14 +136,14 @@ export function LinkHoverPreview({ editor }: LinkHoverPreviewProps) {
           className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-accent"
           title="Open link"
         >
-          <ExternalLink className="h-3.5 w-3.5" />
+          <IconExternalLink className="h-3.5 w-3.5" />
         </a>
         <button
           onClick={handleRemoveLink}
           className="text-muted-foreground hover:text-destructive p-1 rounded hover:bg-destructive/10"
           title="Remove link"
         >
-          <Unlink className="h-3.5 w-3.5" />
+          <IconUnlink className="h-3.5 w-3.5" />
         </button>
       </div>
     </div>

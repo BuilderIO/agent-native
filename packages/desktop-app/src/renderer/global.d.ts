@@ -75,4 +75,11 @@ interface ElectronWebviewElement extends HTMLElement {
   goBack(): void;
   goForward(): void;
   openDevTools(): void;
+  findInPage(
+    text: string,
+    options?: { findNext?: boolean; forward?: boolean },
+  ): void;
+  stopFindInPage(
+    action?: "clearSelection" | "keepSelection" | "activateSelection",
+  ): void;
 }

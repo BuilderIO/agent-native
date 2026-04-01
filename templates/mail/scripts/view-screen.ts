@@ -49,9 +49,38 @@ async function fetchEmailList(
   }
 }
 
+async function fetchThreadMessages(threadId: string): Promise<any | null> {
+  try {
+    const port = process.env.PORT || "8080";
+    const res = await fetch(
+      `http://localhost:${port}/api/threads/${threadId}/messages`,
+    );
+    if (!res.ok) return null;
+    const messages = await res.json();
+    if (!Array.isArray(messages) || messages.length === 0) return null;
+    return {
+      threadId,
+      messages: messages.map((m: any) => ({
+        id: m.id,
+        from: m.from?.name
+          ? `${m.from.name} <${m.from.email}>`
+          : (m.from?.email ?? ""),
+        to: (m.to || []).map((t: any) =>
+          t.name ? `${t.name} <${t.email}>` : t.email,
+        ),
+        subject: m.subject,
+        body: m.body,
+        date: m.date,
+        isRead: m.isRead,
+      })),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function run(args: Record<string, string>): Promise<string> {
   const navigation = await readAppState("navigation");
-  const thread = await readAppState("thread");
 
   const screen: Record<string, unknown> = {};
   if (navigation) screen.navigation = navigation;
@@ -81,7 +110,11 @@ export async function run(args: Record<string, string>): Promise<string> {
     };
   }
 
-  if (thread) screen.thread = thread;
+  // Fetch thread messages from API if the user is viewing a thread
+  if (nav?.threadId) {
+    const thread = await fetchThreadMessages(nav.threadId);
+    if (thread) screen.thread = thread;
+  }
 
   if (Object.keys(screen).length === 0) {
     return "No application state found. Is the app running?";

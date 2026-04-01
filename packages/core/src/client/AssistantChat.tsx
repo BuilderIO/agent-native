@@ -12,13 +12,14 @@ import {
   useLocalRuntime,
   useThreadRuntime,
   useThread,
+  useAui,
+  useComposer,
   useMessageRuntime,
   ThreadPrimitive,
   ComposerPrimitive,
   MessagePrimitive,
-  AttachmentPrimitive,
 } from "@assistant-ui/react";
-import type { ToolCallMessagePartProps } from "@assistant-ui/react";
+import type { ToolCallMessagePartProps, Attachment } from "@assistant-ui/react";
 import {
   SimpleImageAttachmentAdapter,
   SimpleTextAttachmentAdapter,
@@ -132,6 +133,7 @@ function ChevronDownIcon({ className }: { className?: string }) {
       strokeWidth={1.75}
       strokeLinecap="round"
       strokeLinejoin="round"
+      style={{ width: 24, height: 24 }}
       className={className}
     >
       <path d="m6 9 6 6 6-6" />
@@ -217,18 +219,114 @@ function MarkdownText() {
 
 // ─── Composer Attachment Preview ─────────────────────────────────────────────
 
-function ComposerAttachmentPreview() {
+function getImageAttachmentSrc(attachment: Attachment): string | null {
+  if (attachment.type !== "image") return null;
+
+  if ("file" in attachment && attachment.file) {
+    return URL.createObjectURL(attachment.file);
+  }
+
+  const imagePart = attachment.content?.find((part) => part.type === "image");
+  return imagePart && "image" in imagePart ? imagePart.image : null;
+}
+
+function ComposerAttachmentPreviewCard({
+  attachment,
+  onRemove,
+}: {
+  attachment: Attachment;
+  onRemove: (id: string) => void;
+}) {
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextSrc = getImageAttachmentSrc(attachment);
+    setImageSrc(nextSrc);
+
+    return () => {
+      if (nextSrc?.startsWith("blob:")) {
+        URL.revokeObjectURL(nextSrc);
+      }
+    };
+  }, [attachment]);
+
+  const isImage = !!imageSrc;
+
   return (
-    <AttachmentPrimitive.Root className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs text-foreground m-1.5 mb-0">
-      <span className="max-w-[160px] truncate">
-        <AttachmentPrimitive.Name />
-      </span>
-      <AttachmentPrimitive.Remove asChild>
-        <button className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-accent text-muted-foreground hover:text-foreground">
-          <XIcon className="h-3 w-3" />
-        </button>
-      </AttachmentPrimitive.Remove>
-    </AttachmentPrimitive.Root>
+    <div
+      className={cn(
+        "group relative overflow-hidden border border-border/70 bg-muted/50 text-foreground",
+        isImage
+          ? "h-20 w-20 rounded-xl shadow-[0_12px_30px_-18px_rgba(0,0,0,0.7)]"
+          : "inline-flex max-w-[220px] items-center gap-2 rounded-lg px-2.5 py-2 text-xs",
+      )}
+    >
+      {isImage ? (
+        <>
+          <img
+            src={imageSrc}
+            alt={attachment.name}
+            className="h-full w-full object-cover"
+          />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent px-2 py-1.5">
+            <div className="truncate text-[10px] font-medium text-white/95">
+              {attachment.name}
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            {attachment.name.split(".").pop() || "file"}
+          </div>
+          <div className="min-w-0">
+            <div className="truncate font-medium">{attachment.name}</div>
+            <div className="text-[11px] text-muted-foreground">
+              {attachment.contentType || attachment.type}
+            </div>
+          </div>
+        </>
+      )}
+      <button
+        type="button"
+        onClick={() => onRemove(attachment.id)}
+        className={cn(
+          "absolute flex h-6 w-6 items-center justify-center rounded-full border border-border/60 bg-background/95 text-muted-foreground shadow-sm transition hover:text-foreground",
+          isImage
+            ? "right-1.5 top-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100"
+            : "right-1.5 top-1.5",
+        )}
+        aria-label={`Remove ${attachment.name}`}
+      >
+        <XIcon className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
+function ComposerAttachmentPreviewStrip() {
+  const attachments = useComposer((state) => state.attachments);
+  const aui = useAui();
+
+  const handleRemove = useCallback(
+    (id: string) => {
+      void aui.composer().attachment({ id }).remove();
+    },
+    [aui],
+  );
+
+  if (attachments.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-2 px-2 pt-2">
+      {attachments.map((attachment) => (
+        <ComposerAttachmentPreviewCard
+          key={attachment.id}
+          attachment={attachment}
+          onRemove={handleRemove}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -252,7 +350,7 @@ function ToolCallFallback({
         className={cn(
           "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
           isRunning
-            ? "bg-amber-500/10 text-amber-400"
+            ? "bg-muted text-muted-foreground"
             : "bg-muted text-muted-foreground hover:bg-accent",
         )}
       >
@@ -566,20 +664,29 @@ function QueueComposer({
   onStop,
 }: {
   composerRef: React.RefObject<HTMLTextAreaElement | null>;
-  addToQueue: (text: string) => void;
+  addToQueue: (text: string, images?: string[]) => void;
   queuedCount: number;
   onStop: () => void;
 }) {
   const [value, setValue] = useState("");
+  const [pendingImages, setPendingImages] = useState<
+    Array<{ name: string; dataUrl: string }>
+  >([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = useCallback(() => {
     const text = value.trim();
-    if (!text) return;
-    addToQueue(text);
+    if (!text && pendingImages.length === 0) return;
+    addToQueue(
+      text || "(attached images)",
+      pendingImages.length > 0
+        ? pendingImages.map((img) => img.dataUrl)
+        : undefined,
+    );
     setValue("");
-    // Re-focus after submit
+    setPendingImages([]);
     setTimeout(() => composerRef.current?.focus(), 0);
-  }, [value, addToQueue, composerRef]);
+  }, [value, pendingImages, addToQueue, composerRef]);
 
   const handleAutoResize = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -590,16 +697,80 @@ function QueueComposer({
     [],
   );
 
+  const handleFiles = useCallback((files: FileList | File[]) => {
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith("image/")) continue;
+      const reader = new FileReader();
+      reader.onload = () => {
+        setPendingImages((prev) => [
+          ...prev,
+          { name: file.name, dataUrl: reader.result as string },
+        ]);
+      };
+      reader.readAsDataURL(file);
+    }
+  }, []);
+
   return (
     <div className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
-      <div className="flex items-center gap-1 px-2 py-1.5">
-        <div className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground">
-          <PaperclipIcon className="h-4 w-4 opacity-30" />
+      {pendingImages.length > 0 && (
+        <div className="flex flex-wrap gap-2 px-2 pt-2">
+          {pendingImages.map((img, i) => (
+            <div
+              key={i}
+              className="group relative h-16 w-16 rounded-md overflow-hidden border border-border"
+            >
+              <img
+                src={img.dataUrl}
+                alt={img.name}
+                className="h-full w-full object-cover"
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  setPendingImages((prev) => prev.filter((_, j) => j !== i))
+                }
+                className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 text-muted-foreground hover:text-foreground"
+              >
+                <XIcon className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
         </div>
+      )}
+      <div className="flex items-center gap-1 px-2 py-1.5">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files) handleFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+          title="Attach images"
+        >
+          <PaperclipIcon className="h-4 w-4" />
+        </button>
         <textarea
           ref={composerRef}
           value={value}
           onChange={handleAutoResize}
+          onPaste={(e) => {
+            const files = Array.from(e.clipboardData?.files ?? []).filter((f) =>
+              f.type.startsWith("image/"),
+            );
+            if (files.length > 0) {
+              e.preventDefault();
+              handleFiles(files);
+            }
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -687,8 +858,11 @@ const AssistantChatInner = forwardRef<
   const isRunning = thread.isRunning;
   const messages = thread.messages;
   const [missingApiKey, setMissingApiKey] = useState(false);
-  const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
+  const [queuedMessages, setQueuedMessages] = useState<
+    Array<{ text: string; images?: string[] }>
+  >([]);
   const [showContinue, setShowContinue] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   const wasRunningRef = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
@@ -729,6 +903,52 @@ const AssistantChatInner = forwardRef<
           // Also skip title generation if thread already has a title
           if (data.title) {
             titleGeneratedRef.current = true;
+          }
+
+          // Check if there's an active run for this thread (e.g. after hot reload)
+          try {
+            const runRes = await fetch(
+              `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+            );
+            if (runRes.ok) {
+              // Agent is still running — poll until complete, then refresh
+              setIsReconnecting(true);
+              const pollForCompletion = async () => {
+                while (true) {
+                  await new Promise((r) => setTimeout(r, 2000));
+                  try {
+                    const check = await fetch(
+                      `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+                    );
+                    if (!check.ok) break; // 404 = run completed
+                  } catch {
+                    break;
+                  }
+                }
+                // Run finished — re-fetch thread data from server
+                try {
+                  const refreshRes = await fetch(
+                    `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+                  );
+                  if (refreshRes.ok) {
+                    const refreshData = await refreshRes.json();
+                    if (refreshData.threadData) {
+                      const repo =
+                        typeof refreshData.threadData === "string"
+                          ? JSON.parse(refreshData.threadData)
+                          : refreshData.threadData;
+                      if (repo?.messages?.length > 0) {
+                        threadRuntime.import(repo);
+                      }
+                    }
+                  }
+                } catch {}
+                setIsReconnecting(false);
+              };
+              pollForCompletion();
+            }
+          } catch {
+            // No active run — nothing to reconnect to
           }
         } catch {
           // Start fresh
@@ -789,11 +1009,11 @@ const AssistantChatInner = forwardRef<
 
     const repo = threadRuntime.export();
     const { title, preview } = extractThreadMeta(repo);
-    // Only send a lightweight title-only update while running
+    // Save full thread data while running so hot reloads don't lose messages
     if (isRunning && title && title !== savedTitleRef.current) {
       savedTitleRef.current = title;
       onSaveThreadRef.current({
-        threadData: "",
+        threadData: JSON.stringify(repo),
         title,
         preview,
         messageCount: messages.length,
@@ -859,25 +1079,35 @@ const AssistantChatInner = forwardRef<
       setQueuedMessages(rest);
       // Small delay to let the runtime settle after completion
       setTimeout(() => {
-        threadRuntime.append({
-          role: "user",
-          content: [{ type: "text", text: next }],
-        });
+        const content: Array<
+          { type: "text"; text: string } | { type: "image"; image: string }
+        > = [{ type: "text", text: next.text }];
+        if (next.images) {
+          for (const img of next.images) {
+            content.push({ type: "image", image: img });
+          }
+        }
+        threadRuntime.append({ role: "user", content });
       }, 100);
     }
     wasRunningRef.current = isRunning;
   }, [isRunning, queuedMessages, threadRuntime]);
 
   const addToQueue = useCallback(
-    (text: string) => {
+    (text: string, images?: string[]) => {
       setShowContinue(false);
       if (isRunning) {
-        setQueuedMessages((prev) => [...prev, text]);
+        setQueuedMessages((prev) => [...prev, { text, images }]);
       } else {
-        threadRuntime.append({
-          role: "user",
-          content: [{ type: "text", text }],
-        });
+        const content: Array<
+          { type: "text"; text: string } | { type: "image"; image: string }
+        > = [{ type: "text", text }];
+        if (images) {
+          for (const img of images) {
+            content.push({ type: "image", image: img });
+          }
+        }
+        threadRuntime.append({ role: "user", content });
       }
     },
     [isRunning, threadRuntime],
@@ -1036,6 +1266,18 @@ const AssistantChatInner = forwardRef<
               </div>
             )}
             {isRunning && <ThinkingIndicator />}
+            {isReconnecting && !isRunning && (
+              <div className="flex items-center gap-2 px-4 py-2">
+                <div className="flex gap-1">
+                  <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 animate-pulse" />
+                  <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 animate-pulse [animation-delay:150ms]" />
+                  <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 animate-pulse [animation-delay:300ms]" />
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  Agent is working...
+                </span>
+              </div>
+            )}
             {queuedMessages.map((msg, i) => (
               <div key={`queued-${i}`} className="flex justify-end">
                 <div className="max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
@@ -1054,7 +1296,19 @@ const AssistantChatInner = forwardRef<
                     </svg>
                     Queued
                   </div>
-                  {msg}
+                  {msg.text}
+                  {msg.images && msg.images.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {msg.images.map((img, j) => (
+                        <img
+                          key={j}
+                          src={img}
+                          alt=""
+                          className="h-12 w-12 rounded object-cover border border-border/50"
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -1073,25 +1327,8 @@ const AssistantChatInner = forwardRef<
           />
         ) : (
           <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
-            {/* Attachment previews */}
-            <ComposerPrimitive.Attachments
-              components={{
-                Attachment: ComposerAttachmentPreview,
-              }}
-            />
-            <TiptapComposer
-              focusRef={tiptapRef}
-              onSubmit={(text, references) => {
-                threadRuntime.append({
-                  role: "user",
-                  content: [{ type: "text", text }],
-                  runConfig:
-                    references.length > 0
-                      ? { custom: { references } }
-                      : undefined,
-                });
-              }}
-            />
+            <ComposerAttachmentPreviewStrip />
+            <TiptapComposer focusRef={tiptapRef} />
           </ComposerPrimitive.Root>
         )}
       </div>

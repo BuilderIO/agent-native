@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { format } from "date-fns";
-import { CalendarDays } from "lucide-react";
+import { IconCalendar } from "@tabler/icons-react";
 import { PoweredByBadge } from "@agent-native/core/client";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { DatePicker } from "@/components/booking/DatePicker";
@@ -156,7 +156,7 @@ export default function BookingPage() {
         {/* Header */}
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-            <CalendarDays className="h-6 w-6 text-primary" />
+            <IconCalendar className="h-6 w-6 text-primary" />
           </div>
           <h1 className="text-2xl font-semibold">{pageTitle}</h1>
           <p className="mt-1 text-sm text-muted-foreground">

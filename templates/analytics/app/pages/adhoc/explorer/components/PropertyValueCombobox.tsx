@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
+import { IconCheck, IconSelector, IconLoader2 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -50,9 +50,9 @@ export function PropertyValueCombobox({
         >
           <span className="truncate">{value || "value"}</span>
           {isLoading && !value ? (
-            <Loader2 className="ml-1 h-3 w-3 shrink-0 animate-spin opacity-50" />
+            <IconLoader2 className="ml-1 h-3 w-3 shrink-0 animate-spin opacity-50" />
           ) : (
-            <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+            <IconSelector className="ml-1 h-3 w-3 shrink-0 opacity-50" />
           )}
         </Button>
       </PopoverTrigger>
@@ -72,7 +72,7 @@ export function PropertyValueCombobox({
             <CommandEmpty>
               {isLoading ? (
                 <span className="flex items-center justify-center gap-2 text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+                  <IconLoader2 className="h-4 w-4 animate-spin" /> Loading...
                 </span>
               ) : search.trim() ? (
                 <button
@@ -95,7 +95,7 @@ export function PropertyValueCombobox({
                     value={v.value}
                     onSelect={handleSelect}
                   >
-                    <Check
+                    <IconCheck
                       className={cn(
                         "mr-2 h-3 w-3 shrink-0",
                         value === v.value ? "opacity-100" : "opacity-0",
@@ -112,7 +112,8 @@ export function PropertyValueCombobox({
             {isLoading && values.length === 0 && (
               <CommandGroup>
                 <div className="flex items-center justify-center py-4 text-muted-foreground text-xs gap-2">
-                  <Loader2 className="h-3 w-3 animate-spin" /> Loading values...
+                  <IconLoader2 className="h-3 w-3 animate-spin" /> Loading
+                  values...
                 </div>
               </CommandGroup>
             )}

@@ -13,14 +13,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  Trophy,
-  Medal,
-  Award,
-  GraduationCap,
-  Briefcase,
-  User,
-  TrendingUp,
-} from "lucide-react";
+  IconTrophy,
+  IconMedal,
+  IconAward,
+  IconSchool,
+  IconBriefcase,
+  IconUser,
+  IconTrendingUp,
+} from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 
 interface LeaderboardEntry {
@@ -71,19 +71,19 @@ async function fetchMyStats(): Promise<any> {
 function PersonaBadge({ persona }: { persona: string }) {
   const config: Record<string, { icon: any; label: string; color: string }> = {
     analytics: {
-      icon: GraduationCap,
+      icon: IconSchool,
       label: "Analytics",
       color:
         "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30",
     },
     dept_head: {
-      icon: Briefcase,
+      icon: IconBriefcase,
       label: "Dept Head",
       color:
         "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30",
     },
     regular: {
-      icon: User,
+      icon: IconUser,
       label: "Validator",
       color:
         "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30",
@@ -102,9 +102,9 @@ function PersonaBadge({ persona }: { persona: string }) {
 
 function PodiumCard({ rank, user }: { rank: number; user: LeaderboardEntry }) {
   const icons = [
-    { icon: Trophy, color: "text-yellow-500", bg: "bg-yellow-500/10" },
-    { icon: Medal, color: "text-slate-400", bg: "bg-slate-400/10" },
-    { icon: Award, color: "text-orange-500", bg: "bg-orange-500/10" },
+    { icon: IconTrophy, color: "text-yellow-500", bg: "bg-yellow-500/10" },
+    { icon: IconMedal, color: "text-slate-400", bg: "bg-slate-400/10" },
+    { icon: IconAward, color: "text-orange-500", bg: "bg-orange-500/10" },
   ];
 
   const { icon: Icon, color, bg } = icons[rank - 1];
@@ -197,7 +197,7 @@ export function LeaderboardView() {
                   </div>
                   {myStats.rank && (
                     <div className="flex items-center gap-2 text-muted-foreground">
-                      <TrendingUp className="h-4 w-4" />
+                      <IconTrendingUp className="h-4 w-4" />
                       <span className="text-sm">Rank #{myStats.rank}</span>
                     </div>
                   )}
@@ -281,7 +281,7 @@ export function LeaderboardView() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-16">Rank</TableHead>
-                      <TableHead>User</TableHead>
+                      <TableHead>IconUser</TableHead>
                       <TableHead>Persona</TableHead>
                       <TableHead>Department</TableHead>
                       <TableHead className="text-right">Points</TableHead>

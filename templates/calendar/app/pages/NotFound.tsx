@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router";
 import { useEffect } from "react";
-import { ArrowLeft } from "lucide-react";
+import { IconArrowLeft } from "@tabler/icons-react";
 
 export default function NotFound() {
   const location = useLocation();
@@ -20,7 +20,7 @@ export default function NotFound() {
           to="/"
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent hover:bg-accent/80 text-sm text-accent-foreground transition-colors"
         >
-          <ArrowLeft className="w-4 h-4" />
+          <IconArrowLeft className="w-4 h-4" />
           Back to Calendar
         </Link>
       </div>

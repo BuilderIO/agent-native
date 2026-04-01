@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
+import { IconCheck, IconSelector, IconLoader2 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -67,7 +67,7 @@ export function EventCombobox({ value, onChange }: EventComboboxProps) {
           className="w-full justify-between font-normal text-sm h-8"
         >
           <span className="truncate">{displayLabel || "Select event..."}</span>
-          <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+          <IconSelector className="ml-2 h-3 w-3 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[360px] p-0" align="start">
@@ -77,7 +77,8 @@ export function EventCombobox({ value, onChange }: EventComboboxProps) {
             <CommandEmpty>
               {isLoading ? (
                 <span className="flex items-center justify-center gap-2 text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading events...
+                  <IconLoader2 className="h-4 w-4 animate-spin" /> Loading
+                  events...
                 </span>
               ) : (
                 "No events found."
@@ -94,7 +95,7 @@ export function EventCombobox({ value, onChange }: EventComboboxProps) {
                     setOpen(false);
                   }}
                 >
-                  <Check
+                  <IconCheck
                     className={cn(
                       "mr-2 h-3 w-3 shrink-0",
                       value === ev.value ? "opacity-100" : "opacity-0",
@@ -118,7 +119,7 @@ export function EventCombobox({ value, onChange }: EventComboboxProps) {
                       setOpen(false);
                     }}
                   >
-                    <Check
+                    <IconCheck
                       className={cn(
                         "mr-2 h-3 w-3 shrink-0",
                         value === ev.value ? "opacity-100" : "opacity-0",
@@ -143,7 +144,7 @@ export function EventCombobox({ value, onChange }: EventComboboxProps) {
                       setOpen(false);
                     }}
                   >
-                    <Check
+                    <IconCheck
                       className={cn(
                         "mr-2 h-3 w-3 shrink-0",
                         value === ev.value ? "opacity-100" : "opacity-0",
@@ -160,7 +161,7 @@ export function EventCombobox({ value, onChange }: EventComboboxProps) {
             {isLoading && extraEvents.length === 0 && (
               <CommandGroup>
                 <div className="flex items-center justify-center py-4 text-muted-foreground text-xs gap-2">
-                  <Loader2 className="h-3 w-3 animate-spin" /> Loading from
+                  <IconLoader2 className="h-3 w-3 animate-spin" /> Loading from
                   BigQuery...
                 </div>
               </CommandGroup>

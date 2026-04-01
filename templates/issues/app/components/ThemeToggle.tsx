@@ -1,5 +1,5 @@
 import { useTheme } from "next-themes";
-import { Sun, Moon } from "lucide-react";
+import { IconSun, IconMoon } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
 export function ThemeToggle({ collapsed }: { collapsed?: boolean }) {
@@ -14,8 +14,8 @@ export function ThemeToggle({ collapsed }: { collapsed?: boolean }) {
       )}
       title={collapsed ? "Toggle theme" : undefined}
     >
-      <Sun className="h-4 w-4 rotate-0 scale-100 dark:-rotate-90 dark:scale-0" />
-      <Moon className="absolute h-4 w-4 rotate-90 scale-0 dark:rotate-0 dark:scale-100" />
+      <IconSun className="h-4 w-4 rotate-0 scale-100 dark:-rotate-90 dark:scale-0" />
+      <IconMoon className="absolute h-4 w-4 rotate-90 scale-0 dark:rotate-0 dark:scale-100" />
       {!collapsed && <span>Toggle theme</span>}
     </button>
   );

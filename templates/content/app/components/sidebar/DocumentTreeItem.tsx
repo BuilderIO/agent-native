@@ -1,12 +1,12 @@
 import { useState } from "react";
 import {
-  ChevronRight,
-  FileText,
-  Plus,
-  Star,
-  Trash2,
-  MoreHorizontal,
-} from "lucide-react";
+  IconChevronRight,
+  IconFileText,
+  IconPlus,
+  IconStar,
+  IconTrash,
+  IconDots,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import type { DocumentTreeNode } from "@shared/api";
 import {
@@ -61,7 +61,7 @@ export function DocumentTreeItem({
             setExpanded(!expanded);
           }}
         >
-          <ChevronRight
+          <IconChevronRight
             size={14}
             className={cn("transition-transform", expanded && "rotate-90")}
           />
@@ -69,7 +69,7 @@ export function DocumentTreeItem({
 
         <span className="flex-shrink-0 w-5 text-center">
           {node.icon || (
-            <FileText size={14} className="text-muted-foreground" />
+            <IconFileText size={14} className="text-muted-foreground" />
           )}
         </span>
 
@@ -82,18 +82,18 @@ export function DocumentTreeItem({
                 className="w-5 h-5 flex items-center justify-center rounded hover:bg-accent"
                 onClick={(e) => e.stopPropagation()}
               >
-                <MoreHorizontal size={14} />
+                <IconDots size={14} />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-48">
               <DropdownMenuItem onClick={() => onCreateChild(node.id)}>
-                <Plus size={14} className="mr-2" />
+                <IconPlus size={14} className="mr-2" />
                 Add sub-page
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => onToggleFavorite(node.id, !node.isFavorite)}
               >
-                <Star
+                <IconStar
                   size={14}
                   className={cn("mr-2", node.isFavorite && "fill-current")}
                 />
@@ -103,7 +103,7 @@ export function DocumentTreeItem({
                 className="text-destructive"
                 onClick={() => onDelete(node.id)}
               >
-                <Trash2 size={14} className="mr-2" />
+                <IconTrash size={14} className="mr-2" />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -117,7 +117,7 @@ export function DocumentTreeItem({
             }}
             title="Add sub-page"
           >
-            <Plus size={14} />
+            <IconPlus size={14} />
           </button>
         </div>
       </div>

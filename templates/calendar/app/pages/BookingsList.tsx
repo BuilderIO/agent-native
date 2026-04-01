@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
-import { XCircle } from "lucide-react";
+import { IconCircleX } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -134,7 +134,7 @@ export default function BookingsList() {
                         disabled={deleteBooking.isPending}
                         title="Cancel booking"
                       >
-                        <XCircle className="h-4 w-4 text-destructive" />
+                        <IconCircleX className="h-4 w-4 text-destructive" />
                       </Button>
                     )}
                   </TableCell>

@@ -132,9 +132,9 @@ async function handleSend(
   }
 
   const contextId = params.contextId as string | undefined;
-  const task = createTask(message, contextId);
+  const task = await createTask(message, contextId);
 
-  updateTask(task.id, { state: "working" });
+  await updateTask(task.id, { state: "working" });
 
   const { context, artifacts } = makeHandlerContext(task.id, contextId);
 
@@ -153,7 +153,7 @@ async function handleSend(
         lastMessage = msg;
       }
       const allArtifacts = [...artifacts];
-      const updated = updateTask(task.id, {
+      const updated = await updateTask(task.id, {
         state: "completed",
         message: lastMessage,
         artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
@@ -164,14 +164,14 @@ async function handleSend(
     // Promise-based handler
     const handlerResult = await (result as Promise<A2AHandlerResult>);
     const allArtifacts = [...artifacts, ...(handlerResult.artifacts ?? [])];
-    const updated = updateTask(task.id, {
+    const updated = await updateTask(task.id, {
       state: "completed",
       message: handlerResult.message,
       artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
     });
     return { ...jsonRpcResult(0, updated), _id: 0 };
   } catch (err: any) {
-    updateTask(task.id, {
+    await updateTask(task.id, {
       state: "failed",
       message: {
         role: "agent",
@@ -200,9 +200,9 @@ async function handleStream(
   }
 
   const contextId = params.contextId as string | undefined;
-  const task = createTask(message, contextId);
+  const task = await createTask(message, contextId);
 
-  updateTask(task.id, { state: "working" });
+  await updateTask(task.id, { state: "working" });
 
   const { context, artifacts } = makeHandlerContext(task.id, contextId);
 
@@ -215,7 +215,7 @@ async function handleStream(
       Symbol.asyncIterator in result
     ) {
       for await (const msg of result as AsyncGenerator<Message>) {
-        const intermediate = updateTask(task.id, {
+        const intermediate = await updateTask(task.id, {
           state: "working",
           message: msg,
         });
@@ -226,7 +226,7 @@ async function handleStream(
     } else {
       const handlerResult = await (result as Promise<A2AHandlerResult>);
       const allArtifacts = [...artifacts, ...(handlerResult.artifacts ?? [])];
-      const updated = updateTask(task.id, {
+      const updated = await updateTask(task.id, {
         state: "completed",
         message: handlerResult.message,
         artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
@@ -237,13 +237,13 @@ async function handleStream(
     }
 
     const allArtifacts = [...artifacts];
-    const final = updateTask(task.id, {
+    const final = await updateTask(task.id, {
       state: "completed",
       artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
     });
     res.write(`data: ${JSON.stringify(jsonRpcResult(0, final))}\n\n`);
   } catch (err: any) {
-    updateTask(task.id, { state: "failed" });
+    await updateTask(task.id, { state: "failed" });
     res.write(
       `data: ${JSON.stringify(jsonRpcError(0, -32000, err.message ?? "Handler failed"))}\n\n`,
     );
@@ -252,24 +252,28 @@ async function handleStream(
   res.end();
 }
 
-function handleGet(params: Record<string, unknown>): JsonRpcResponse {
+async function handleGet(
+  params: Record<string, unknown>,
+): Promise<JsonRpcResponse> {
   const id = params.id as string;
   if (!id) {
     return jsonRpcError(0, -32602, "Invalid params: id required");
   }
-  const task = getTask(id);
+  const task = await getTask(id);
   if (!task) {
     return jsonRpcError(0, -32001, "Task not found");
   }
   return jsonRpcResult(0, task);
 }
 
-function handleCancel(params: Record<string, unknown>): JsonRpcResponse {
+async function handleCancel(
+  params: Record<string, unknown>,
+): Promise<JsonRpcResponse> {
   const id = params.id as string;
   if (!id) {
     return jsonRpcError(0, -32602, "Invalid params: id required");
   }
-  const task = updateTask(id, { state: "canceled" });
+  const task = await updateTask(id, { state: "canceled" });
   if (!task) {
     return jsonRpcError(0, -32001, "Task not found");
   }
@@ -312,12 +316,12 @@ export async function handleJsonRpc(
       return;
     }
     case "tasks/get": {
-      const result = handleGet(params);
+      const result = await handleGet(params);
       res.json({ ...result, id });
       return;
     }
     case "tasks/cancel": {
-      const result = handleCancel(params);
+      const result = await handleCancel(params);
       res.json({ ...result, id });
       return;
     }

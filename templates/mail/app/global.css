@@ -142,6 +142,14 @@
   background: hsl(var(--secondary));
 }
 
+/* Multi-selected email rows */
+.email-list-row.multi-selected {
+  background: hsl(var(--primary) / 0.06);
+}
+.email-list-row.multi-selected.focused {
+  background: hsl(var(--primary) / 0.12);
+}
+
 /* Compose modal animations */
 .compose-window {
   box-shadow:

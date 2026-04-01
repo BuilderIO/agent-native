@@ -7,6 +7,7 @@ interface EmailListItemProps {
   thread?: ThreadSummary;
   isSelected: boolean;
   isFocused: boolean;
+  isMultiSelected?: boolean;
   onSelect: () => void;
   onStar: (e: React.MouseEvent) => void;
   onHover: () => void;
@@ -62,6 +63,7 @@ export function EmailListItem({
   thread,
   isSelected,
   isFocused,
+  isMultiSelected,
   onSelect,
   onStar,
   onHover,
@@ -110,8 +112,14 @@ export function EmailListItem({
         "email-list-row group relative flex cursor-pointer items-center h-[38px] px-3 transition-colors",
         isSelected && "selected",
         isFocused && !isSelected && "focused",
+        isMultiSelected && "multi-selected",
       )}
     >
+      {/* Multi-select left border indicator */}
+      {isMultiSelected && (
+        <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary rounded-r" />
+      )}
+
       {/* Unread dot */}
       <div className="w-5 shrink-0 flex items-center justify-center">
         {isUnread && (

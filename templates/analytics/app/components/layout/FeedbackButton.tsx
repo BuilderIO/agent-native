@@ -5,6 +5,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import { Textarea } from "@/components/ui/textarea";
 import { requestUserInfo } from "@/lib/user-info";
 
 const APP_NAME = "analytics";
@@ -82,11 +83,11 @@ export function FeedbackButton() {
           )}
           <div className={sent ? "invisible" : ""}>
             <p className="text-sm font-medium mb-2">Send Feedback</p>
-            <textarea
+            <Textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder="What's on your mind?"
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+              className="w-full resize-none"
               rows={3}
               autoFocus
               onKeyDown={(e) => {

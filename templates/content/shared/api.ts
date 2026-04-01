@@ -85,3 +85,15 @@ export interface NotionSearchResponse {
   results: NotionSearchResult[];
   hasMore: boolean;
 }
+
+export interface DocumentVersion {
+  id: string;
+  documentId: string;
+  title: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface DocumentVersionListResponse {
+  versions: DocumentVersion[];
+}

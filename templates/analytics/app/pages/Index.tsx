@@ -10,13 +10,13 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  BarChart3,
-  Database,
-  Plus,
-  ArrowRight,
-  Check,
-  Circle,
-} from "lucide-react";
+  IconChartBar,
+  IconDatabase,
+  IconPlus,
+  IconArrowRight,
+  IconCheck,
+  IconCircle,
+} from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
   dataSources,
@@ -85,7 +85,7 @@ function NewDashboardPrompt() {
       <Card className="bg-card border-border/50 border-dashed">
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <Plus className="h-4 w-4" />
+            <IconPlus className="h-4 w-4" />
             Create a Dashboard
           </CardTitle>
           <CardDescription>
@@ -157,7 +157,7 @@ export default function Index() {
                   to="/data-sources"
                   className="text-xs text-primary hover:underline flex items-center gap-1"
                 >
-                  Manage <ArrowRight className="h-3 w-3" />
+                  Manage <IconArrowRight className="h-3 w-3" />
                 </Link>
               </div>
             </CardHeader>
@@ -224,7 +224,7 @@ export default function Index() {
                   className="text-sm text-primary hover:underline flex items-center gap-1"
                 >
                   View all {dataSources.length} data sources{" "}
-                  <ArrowRight className="h-3.5 w-3.5" />
+                  <IconArrowRight className="h-3.5 w-3.5" />
                 </Link>
               </div>
             </CardContent>
@@ -243,7 +243,7 @@ export default function Index() {
                   <Card className="bg-card border-border/50 hover:border-primary/30 cursor-pointer">
                     <CardHeader className="pb-2">
                       <div className="flex items-center gap-2">
-                        <BarChart3 className="h-4 w-4 text-primary" />
+                        <IconChartBar className="h-4 w-4 text-primary" />
                         <CardTitle className="text-sm">{d.name}</CardTitle>
                       </div>
                     </CardHeader>

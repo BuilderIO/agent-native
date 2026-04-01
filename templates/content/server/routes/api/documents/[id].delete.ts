@@ -18,7 +18,10 @@ async function deleteRecursive(
     await deleteRecursive(db, child.id);
   }
 
-  // Delete this document
+  // Delete versions and document
+  await db
+    .delete(schema.documentVersions)
+    .where(eq(schema.documentVersions.documentId, id));
   await db.delete(schema.documents).where(eq(schema.documents.id, id));
 }
 

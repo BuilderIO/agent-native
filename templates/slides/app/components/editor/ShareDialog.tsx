@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { Share2, Copy, Check, Loader2, ExternalLink } from "lucide-react";
+import {
+  IconShare2,
+  IconCopy,
+  IconCheck,
+  IconLoader2,
+  IconExternalLink,
+} from "@tabler/icons-react";
 import {
   Dialog,
   DialogContent,
@@ -87,7 +93,7 @@ export default function ShareDialog({
           <>
             <DialogHeader>
               <DialogTitle className="text-white/90 flex items-center gap-2">
-                <Share2 className="w-5 h-5 text-[#609FF8]" />
+                <IconShare2 className="w-5 h-5 text-[#609FF8]" />
                 Share Presentation
               </DialogTitle>
               <DialogDescription className="text-white/50">
@@ -133,12 +139,12 @@ export default function ShareDialog({
                   >
                     {loading ? (
                       <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <IconLoader2 className="w-4 h-4 animate-spin" />
                         Creating link...
                       </>
                     ) : (
                       <>
-                        <Share2 className="w-4 h-4" />
+                        <IconShare2 className="w-4 h-4" />
                         Create Share Link
                       </>
                     )}
@@ -155,13 +161,13 @@ export default function ShareDialog({
                     <button
                       onClick={handleCopy}
                       className="flex-shrink-0 p-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] transition-colors"
-                      title="Copy link"
-                      aria-label="Copy link"
+                      title="IconCopy link"
+                      aria-label="IconCopy link"
                     >
                       {copied ? (
-                        <Check className="w-4 h-4 text-green-400" />
+                        <IconCheck className="w-4 h-4 text-green-400" />
                       ) : (
-                        <Copy className="w-4 h-4 text-white/60" />
+                        <IconCopy className="w-4 h-4 text-white/60" />
                       )}
                     </button>
                   </div>
@@ -172,7 +178,7 @@ export default function ShareDialog({
                     rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 w-full px-4 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-white/70 text-sm transition-colors"
                   >
-                    <ExternalLink className="w-3.5 h-3.5" />
+                    <IconExternalLink className="w-3.5 h-3.5" />
                     Open shared link
                   </a>
 

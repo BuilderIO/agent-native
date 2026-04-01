@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useCreateEvent } from "@/hooks/use-events";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { IconPlus } from "@tabler/icons-react";
 
 interface CreateEventPopoverProps {
   open: boolean;
@@ -103,7 +103,7 @@ export function CreateEventPopover({
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <Button size="sm" className="ml-1 h-7 gap-1.5 px-2.5 text-xs">
-          <Plus className="h-3.5 w-3.5" />
+          <IconPlus className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">New Event</span>
         </Button>
       </PopoverTrigger>

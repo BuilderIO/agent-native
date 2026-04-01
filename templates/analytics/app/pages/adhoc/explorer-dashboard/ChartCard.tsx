@@ -3,12 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  GripVertical,
-  Trash2,
-  Maximize2,
-  Minimize2,
-  ExternalLink,
-} from "lucide-react";
+  IconGripVertical,
+  IconTrash,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
+  IconExternalLink,
+} from "@tabler/icons-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { getIdToken } from "@/lib/auth";
@@ -86,7 +86,7 @@ export function DashboardChartCard({
             {...attributes}
             {...listeners}
           >
-            <GripVertical className="h-4 w-4" />
+            <IconGripVertical className="h-4 w-4" />
           </button>
           <CardTitle className="text-sm font-medium flex-1 truncate">
             {config?.name ?? configName}
@@ -98,9 +98,9 @@ export function DashboardChartCard({
               title={chart.width === 2 ? "Half width" : "Full width"}
             >
               {chart.width === 2 ? (
-                <Minimize2 className="h-3.5 w-3.5" />
+                <IconArrowsMinimize className="h-3.5 w-3.5" />
               ) : (
-                <Maximize2 className="h-3.5 w-3.5" />
+                <IconArrowsMaximize className="h-3.5 w-3.5" />
               )}
             </button>
             <button
@@ -108,14 +108,14 @@ export function DashboardChartCard({
               className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
               title="Edit in Explorer"
             >
-              <ExternalLink className="h-3.5 w-3.5" />
+              <IconExternalLink className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={onRemove}
               className="p-1 rounded text-muted-foreground hover:text-destructive transition-colors"
               title="Remove chart"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <IconTrash className="h-3.5 w-3.5" />
             </button>
           </div>
         </CardHeader>

@@ -17,6 +17,16 @@ export const documents = sqliteTable("documents", {
     .default(sql`(datetime('now'))`),
 });
 
+export const documentVersions = sqliteTable("document_versions", {
+  id: text("id").primaryKey(),
+  documentId: text("document_id").notNull(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`(datetime('now'))`),
+});
+
 export const documentSyncLinks = sqliteTable("document_sync_links", {
   documentId: text("document_id").primaryKey(),
   provider: text("provider").notNull().default("notion"),

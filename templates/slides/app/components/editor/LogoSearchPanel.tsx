@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { X, Search, Loader2 } from "lucide-react";
+import { IconX, IconSearch, IconLoader2 } from "@tabler/icons-react";
 
 const LOGO_DEV_PK = "pk_VwOyCAOgT0aBNpecT2qO-A";
 
@@ -83,7 +83,7 @@ export default function LogoSearchPanel({
       const res = await fetch(`/api/logo/search?q=${encodeURIComponent(q)}`);
       if (!res.ok) {
         const data = await res.json();
-        setError(data.error || "Search failed");
+        setError(data.error || "IconSearch failed");
         return;
       }
       const data: LogoResult[] = await res.json();
@@ -93,7 +93,7 @@ export default function LogoSearchPanel({
         setResults(data);
       }
     } catch {
-      setError("Search failed");
+      setError("IconSearch failed");
     } finally {
       setLoading(false);
     }
@@ -134,7 +134,7 @@ export default function LogoSearchPanel({
               {selectedDomain}
             </button>
           ) : (
-            "Logo Search"
+            "Logo IconSearch"
           )}
         </h3>
         <button
@@ -142,7 +142,7 @@ export default function LogoSearchPanel({
           className="text-white/30 hover:text-white/60 transition-colors"
           aria-label="Close"
         >
-          <X className="w-4 h-4" />
+          <IconX className="w-4 h-4" />
         </button>
       </div>
 
@@ -150,7 +150,7 @@ export default function LogoSearchPanel({
         <div className="px-4 pb-3 flex-shrink-0">
           <div className="flex gap-2">
             <div className="flex-1 relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
+              <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
               <input
                 ref={inputRef}
                 type="text"
@@ -159,7 +159,7 @@ export default function LogoSearchPanel({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleSearch();
                 }}
-                placeholder="Search company name (e.g. Intuit)"
+                placeholder="IconSearch company name (e.g. Intuit)"
                 className="w-full pl-8 pr-3 py-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg text-sm text-white/90 placeholder:text-white/30 outline-none focus:border-[#609FF8]/50"
               />
             </div>
@@ -169,9 +169,9 @@ export default function LogoSearchPanel({
               className="px-3 py-1.5 rounded-lg bg-[#609FF8] hover:bg-[#7AB2FA] disabled:opacity-50 text-black text-xs font-medium transition-colors"
             >
               {loading ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                "Search"
+                "IconSearch"
               )}
             </button>
           </div>
@@ -185,16 +185,16 @@ export default function LogoSearchPanel({
           </div>
         )}
 
-        {/* Search results */}
+        {/* IconSearch results */}
         {!selectedDomain && !loading && results.length === 0 && !error && (
           <div className="text-center py-6 text-white/30 text-xs">
-            Search for a company to find their logo
+            IconSearch for a company to find their logo
           </div>
         )}
 
         {!selectedDomain && loading && (
           <div className="flex items-center justify-center py-8">
-            <Loader2 className="w-4 h-4 text-white/30 animate-spin" />
+            <IconLoader2 className="w-4 h-4 text-white/30 animate-spin" />
           </div>
         )}
 
