@@ -45,3 +45,6 @@ ralph-loop.local.md
 # Wrangler local state
 .wrangler
 .claude/scheduled_tasks.lock
+
+# Shell `script` command log artifacts
+db-exec

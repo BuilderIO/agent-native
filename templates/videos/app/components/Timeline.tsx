@@ -850,7 +850,7 @@ export function Timeline({
                   }}
                 >
                   {isCamera ? (
-                    <Camera
+                    <IconCamera
                       className="flex-shrink-0"
                       size={12}
                       style={{

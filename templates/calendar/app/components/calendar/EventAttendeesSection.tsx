@@ -123,7 +123,10 @@ function RsvpControls({
             key={option.value}
             type="button"
             disabled={mutation.isPending}
-            onClick={() => handleRsvp(option.value)}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleRsvp(option.value);
+            }}
             className={cn(
               "min-w-0 flex-1 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
               active
@@ -226,7 +229,7 @@ export function EventAttendeesSection({
 
   useEffect(() => {
     setSelfStatus(event.responseStatus || "needsAction");
-  }, [event.responseStatus]);
+  }, [event.id, event.responseStatus]);
 
   const sorted = useMemo(() => sortAttendees(attendees), [attendees]);
   const selfAttendee = sorted.find((attendee) => attendee.self);

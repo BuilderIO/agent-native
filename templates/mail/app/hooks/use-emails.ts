@@ -510,9 +510,10 @@ export function useReportSpam() {
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
-      return { previous };
+      return { previous, threadId };
     },
     onError: (_err, _vars, context) => {
+      if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
@@ -545,9 +546,10 @@ export function useBlockSender() {
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
-      return { previous };
+      return { previous, threadId };
     },
     onError: (_err, _vars, context) => {
+      if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),
@@ -568,9 +570,10 @@ export function useMuteThread() {
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
-      return { previous };
+      return { previous, threadId };
     },
     onError: (_err, _id, context) => {
+      if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["emails"] }),

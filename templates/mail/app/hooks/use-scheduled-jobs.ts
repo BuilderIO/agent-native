@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { EmailMessage } from "@shared/types";
-import { suppressThread } from "./use-emails";
+import { suppressThread, unsuppressThread } from "./use-emails";
 
 export interface ScheduledJob {
   id: string;
@@ -83,9 +83,10 @@ export function useSnoozeEmail() {
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
-      return { previous };
+      return { previous, threadId };
     },
     onError: (_err, _vars, context) => {
+      if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous?.forEach(([key, data]) => qc.setQueryData(key, data));
     },
     onSettled: () => {
