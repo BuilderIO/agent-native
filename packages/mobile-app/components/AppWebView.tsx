@@ -22,28 +22,33 @@ const EXTERNAL_HOSTS = ["accounts.google.com", "oauth2.googleapis.com"];
 export default function AppWebView({ url }: AppWebViewProps) {
   const webviewRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
-  const openedExternal = useRef(false);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const lastTokenRef = useRef<string | null>(null);
 
   // Load stored session token on mount
   useEffect(() => {
-    AsyncStorage.getItem(SESSION_TOKEN_KEY).then((t) => setSessionToken(t));
+    AsyncStorage.getItem(SESSION_TOKEN_KEY).then((t) => {
+      lastTokenRef.current = t;
+      setSessionToken(t);
+    });
   }, []);
 
-  // When the app returns to foreground after external OAuth, re-read the token
-  // (it may have been set by oauth-complete) and reload the WebView.
-  // Use a short delay to let oauth-complete store the token in AsyncStorage
-  // before we read it — the deep link handler and AppState listener race.
+  // When the app returns to foreground, check if the session token was updated
+  // (e.g. by the oauth-complete deep link handler storing a new token in
+  // AsyncStorage). If it changed, update state — the resulting URL change
+  // causes the WebView to navigate to the new URL with ?_session automatically.
+  // No explicit reload() needed; changing source.uri triggers navigation.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active" && openedExternal.current) {
-        openedExternal.current = false;
+      if (state === "active") {
         setTimeout(() => {
           AsyncStorage.getItem(SESSION_TOKEN_KEY).then((t) => {
-            setSessionToken(t);
-            webviewRef.current?.reload();
+            if (t && t !== lastTokenRef.current) {
+              lastTokenRef.current = t;
+              setSessionToken(t);
+            }
           });
-        }, 500);
+        }, 1000);
       }
     });
     return () => sub.remove();
@@ -53,7 +58,6 @@ export default function AppWebView({ url }: AppWebViewProps) {
     try {
       const parsed = new URL(event.url);
       if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
-        openedExternal.current = true;
         Linking.openURL(event.url);
         return false;
       }

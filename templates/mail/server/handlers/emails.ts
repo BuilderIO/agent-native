@@ -1163,7 +1163,7 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
     subject,
     snippet: body.slice(0, 120).replace(/\n/g, " "),
     body,
-    bodyHtml: markdownToHtml(body),
+    bodyHtml: bodyToHtml(body),
     date: new Date().toISOString(),
     isRead: true,
     isStarred: false,
@@ -1284,7 +1284,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     subject: subject || "(no subject)",
     snippet: (body || "").slice(0, 120).replace(/\n/g, " "),
     body: body || "",
-    bodyHtml: markdownToHtml(body || ""),
+    bodyHtml: bodyToHtml(body || ""),
     date: new Date().toISOString(),
     isRead: true,
     isStarred: false,
@@ -1322,7 +1322,7 @@ function buildRawEmail(opts: {
 }): string {
   const boundary = `agent-native-${nanoid(12)}`;
   const textBody = markdownToPlainText(opts.body);
-  const htmlBody = markdownToHtml(opts.body);
+  const htmlBody = bodyToHtml(opts.body);
   const lines = [
     `From: ${opts.from}`,
     `To: ${opts.to}`,
@@ -1435,6 +1435,63 @@ function markdownToPlainText(markdown: string): string {
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?:;])/g, "$1$2")
     .trim();
+}
+
+/**
+ * Split a compose body at the reply/forward quote separator.
+ * Returns null for non-reply bodies (no separator found).
+ */
+function splitReplyQuote(body: string): {
+  newContent: string;
+  attribution: string;
+  quotedBody: string;
+} | null {
+  const replyMatch = body.match(/\n?\n?— On (.+? wrote):\n/);
+  const fwdMatch = body.match(/\n?\n?(— Forwarded message —)\n/);
+  const match = replyMatch || fwdMatch;
+  if (!match || match.index === undefined) return null;
+
+  const newContent = body.slice(0, match.index);
+  const attribution = replyMatch ? `On ${match[1]}:` : "Forwarded message";
+  const afterSeparator = body.slice(match.index + match[0].length);
+  return { newContent, attribution, quotedBody: afterSeparator };
+}
+
+/**
+ * Convert quoted content into Gmail-compatible HTML blockquote.
+ * Strips leading `> ` prefixes from each line before converting to HTML.
+ */
+function quotedContentToHtml(attribution: string, quotedBody: string): string {
+  const stripped = quotedBody
+    .split("\n")
+    .map((line) => {
+      if (line.startsWith("> ")) return line.slice(2);
+      if (line === ">") return "";
+      return line;
+    })
+    .join("\n");
+  const innerHtml = markdownToHtml(stripped);
+  return (
+    `<div class="gmail_quote">` +
+    `<div class="gmail_attr">${escapeHtml(attribution)}</div>` +
+    `<blockquote class="gmail_quote" style="margin:0 0 0 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">` +
+    innerHtml +
+    `</blockquote></div>`
+  );
+}
+
+/**
+ * Convert a compose body to HTML, properly formatting reply/forward quotes
+ * with Gmail-compatible blockquote structure so email clients can clip them.
+ */
+function bodyToHtml(body: string): string {
+  const split = splitReplyQuote(body);
+  if (split) {
+    const newHtml = markdownToHtml(split.newContent);
+    const quoteHtml = quotedContentToHtml(split.attribution, split.quotedBody);
+    return newHtml + quoteHtml;
+  }
+  return markdownToHtml(body);
 }
 
 // ─── Delete draft ─────────────────────────────────────────────────────────────

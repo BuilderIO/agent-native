@@ -1507,17 +1507,112 @@ function PlainTextBody({
 const IFRAME_BG_DARK = "#17181a";
 const IFRAME_BG_LIGHT = "#ffffff";
 
+// ─── Color utilities for light-background detection ─────────────────────────
+
+const DARK_NAMED_COLORS: Record<string, [number, number, number]> = {
+  black: [0, 0, 0],
+  navy: [0, 0, 128],
+  darkblue: [0, 0, 139],
+  darkgreen: [0, 100, 0],
+  maroon: [128, 0, 0],
+  darkred: [139, 0, 0],
+  brown: [165, 42, 42],
+  purple: [128, 0, 128],
+  indigo: [75, 0, 130],
+  midnightblue: [25, 25, 112],
+  darkslategray: [47, 79, 79],
+  darkslategrey: [47, 79, 79],
+  dimgray: [105, 105, 105],
+  dimgrey: [105, 105, 105],
+  gray: [128, 128, 128],
+  grey: [128, 128, 128],
+};
+
+function parseColorToRgb(
+  color: string,
+): { r: number; g: number; b: number } | null {
+  const c = color.trim().toLowerCase();
+
+  if (DARK_NAMED_COLORS[c]) {
+    const [r, g, b] = DARK_NAMED_COLORS[c];
+    return { r, g, b };
+  }
+
+  // Hex: #RGB or #RRGGBB
+  const hexMatch = c.match(/^#([0-9a-f]{3,8})$/);
+  if (hexMatch) {
+    const hex = hexMatch[1];
+    if (hex.length === 3) {
+      return {
+        r: parseInt(hex[0] + hex[0], 16),
+        g: parseInt(hex[1] + hex[1], 16),
+        b: parseInt(hex[2] + hex[2], 16),
+      };
+    }
+    if (hex.length >= 6) {
+      return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16),
+      };
+    }
+  }
+
+  // rgb(r, g, b) or rgba(r, g, b, a)
+  const rgbMatch = c.match(
+    /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/,
+  );
+  if (rgbMatch) {
+    const alpha = rgbMatch[4] !== undefined ? parseFloat(rgbMatch[4]) : 1;
+    if (alpha < 0.5) return null;
+    return {
+      r: parseInt(rgbMatch[1]),
+      g: parseInt(rgbMatch[2]),
+      b: parseInt(rgbMatch[3]),
+    };
+  }
+
+  return null;
+}
+
+function relativeLuminance(r: number, g: number, b: number): number {
+  const [rs, gs, bs] = [r, g, b].map((ch) => {
+    const s = ch / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
+}
+
+function isDarkColor(colorStr: string): boolean {
+  const rgb = parseColorToRgb(colorStr);
+  if (!rgb) return false;
+  return relativeLuminance(rgb.r, rgb.g, rgb.b) < 0.4;
+}
+
 /**
- * Detect if an HTML email has its own custom color/background styling.
- * Emails with custom styling were designed for specific backgrounds — we render
- * them on white instead of inverting to dark mode (like Superhuman does).
+ * Detect if an HTML email expects a light background.
+ * Checks for explicit background colors (existing) AND explicit dark text
+ * colors (new) — both indicate the email was designed for a light background.
+ * When true, we render on white instead of applying dark mode styling.
  */
-function emailHasCustomStyling(html: string): boolean {
+function emailExpectsLightBackground(html: string): boolean {
+  // Fast path: skip DOMParser for truly plain emails
+  const lower = html.toLowerCase();
+  if (
+    !lower.includes("style") &&
+    !lower.includes("bgcolor") &&
+    !lower.includes("<font") &&
+    !lower.includes("color")
+  ) {
+    return false;
+  }
+
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
 
-  // bgcolor on ANY element — this attribute is exclusively used in HTML emails
-  // to set structural background colors; it's never set by accident
+  // ── Background signals (existing checks) ──
+
+  // bgcolor on ANY element
   if (doc.querySelector("[bgcolor]")) return true;
 
   // background-color on <body> inline style
@@ -1525,28 +1620,58 @@ function emailHasCustomStyling(html: string): boolean {
   const bodyStyle = body?.getAttribute("style") || "";
   if (/background(-color)?:/i.test(bodyStyle)) return true;
 
-  // background-color on direct children of <body> (outer wrapper divs/tables)
+  // background-color on direct children of <body>
   for (const child of Array.from(body?.children ?? [])) {
     const style = child.getAttribute("style") || "";
     if (/background(-color)?:/i.test(style)) return true;
   }
 
-  // background-color in <style> blocks targeting structural email selectors
+  // background-color in <style> blocks targeting structural selectors
   const styleTags = doc.querySelectorAll("style");
   for (const tag of styleTags) {
     const text = tag.textContent || "";
-    // html/body/table/td/div element selectors
     if (
       /(?:html|body|table|td|th|div)\s*\{[^}]*background(-color)?:/im.test(text)
     )
       return true;
-    // common email wrapper class names
     if (
       /\.(?:wrapper|container|email|body|content|main|outer)\s*\{[^}]*background(-color)?:/im.test(
         text,
       )
     )
       return true;
+  }
+
+  // ── Dark text color signals ──
+
+  // <font color="..."> with dark color (legacy HTML email pattern)
+  const fontEls = doc.querySelectorAll("font[color]");
+  for (const el of fontEls) {
+    const c = el.getAttribute("color") || "";
+    if (c && isDarkColor(c)) return true;
+  }
+
+  // Inline style color: on any element
+  const styledEls = doc.querySelectorAll('[style*="color"]');
+  let checked = 0;
+  for (const el of styledEls) {
+    if (checked++ > 50) return true; // heavily styled → assume light bg
+    const style = el.getAttribute("style") || "";
+    // Match `color:` but not `background-color:` or `border-color:`
+    const colorMatch = style.match(/(?<![a-z-])color\s*:\s*([^;!]+)/i);
+    if (colorMatch) {
+      const colorVal = colorMatch[1].trim();
+      if (isDarkColor(colorVal)) return true;
+    }
+  }
+
+  // color: in <style> blocks targeting text-bearing selectors
+  for (const tag of styleTags) {
+    const text = tag.textContent || "";
+    const ruleMatch = text.match(
+      /(?:html|body|table|td|th|div|p|span|li|a)\s*(?:,\s*\w+\s*)*\{[^}]*(?<![a-z-])color\s*:\s*([^;}]+)/im,
+    );
+    if (ruleMatch && isDarkColor(ruleMatch[1].trim())) return true;
   }
 
   return false;
@@ -1700,9 +1825,12 @@ function HtmlEmailBody({
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const sanitizedHtml = useMemo(() => sanitizeEmailHtml(html), [html]);
-  const isCustomStyled = useMemo(() => emailHasCustomStyling(html), [html]);
+  const expectsLightBg = useMemo(
+    () => emailExpectsLightBackground(html),
+    [html],
+  );
   const IFRAME_BG =
-    isCustomStyled || !isDark ? IFRAME_BG_LIGHT : IFRAME_BG_DARK;
+    expectsLightBg || !isDark ? IFRAME_BG_LIGHT : IFRAME_BG_DARK;
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
 
@@ -1739,7 +1867,7 @@ function HtmlEmailBody({
     setShowImagesForThread(true);
   };
 
-  const useDarkIframeCss = !isCustomStyled && isDark;
+  const useDarkIframeCss = !expectsLightBg && isDark;
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -2019,7 +2147,7 @@ function HtmlEmailBody({
   }, [
     processedHtml,
     sanitizedHtml.headHtml,
-    isCustomStyled,
+    expectsLightBg,
     isDark,
     useDarkIframeCss,
     IFRAME_BG,
@@ -2152,7 +2280,7 @@ function HtmlEmailBody({
           border: "none",
           background: IFRAME_BG,
           colorScheme: useDarkIframeCss ? "dark" : "light",
-          borderRadius: isCustomStyled ? "6px" : undefined,
+          borderRadius: expectsLightBg ? "6px" : undefined,
         }}
         title="Email content"
       />

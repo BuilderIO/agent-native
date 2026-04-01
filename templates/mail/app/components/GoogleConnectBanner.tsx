@@ -119,22 +119,35 @@ export function GoogleConnectBanner({
   // When auth URL is ready, open it and poll for connection
   useEffect(() => {
     if (authUrl.data?.url) {
-      window.open(authUrl.data.url, "_blank");
+      // In a React Native WebView, window.open() is silently blocked (WKWebView
+      // doesn't support it without onOpenWindow). Use window.location.href
+      // instead — the native WebView's URL interceptor catches Google domains
+      // and opens Safari. The navigation is cancelled so the page stays intact.
+      const isNativeWebView =
+        typeof (window as any).ReactNativeWebView !== "undefined";
+      if (isNativeWebView) {
+        window.location.href = authUrl.data.url;
+      } else {
+        window.open(authUrl.data.url, "_blank");
+      }
       setWantAuthUrl(false);
 
-      // Poll for connection status while user completes OAuth in other tab
-      const interval = setInterval(async () => {
-        const res = await fetch("/api/google/status").catch(() => null);
-        if (res?.ok) {
-          const data = await res.json();
-          if (data.connected) {
-            clearInterval(interval);
-            window.location.reload();
+      // Poll for connection status while user completes OAuth in other tab.
+      // On mobile the native app reloads the WebView on return, so skip polling.
+      if (!isNativeWebView) {
+        const interval = setInterval(async () => {
+          const res = await fetch("/api/google/status").catch(() => null);
+          if (res?.ok) {
+            const data = await res.json();
+            if (data.connected) {
+              clearInterval(interval);
+              window.location.reload();
+            }
           }
-        }
-      }, 2000);
+        }, 2000);
 
-      return () => clearInterval(interval);
+        return () => clearInterval(interval);
+      }
     }
   }, [authUrl.data]);
 
@@ -153,22 +166,30 @@ export function GoogleConnectBanner({
   // When add-account URL is ready, open it and poll for new account
   useEffect(() => {
     if (!wantAddAccount || !addAccountUrl.data?.url) return;
-    window.open(addAccountUrl.data.url, "_blank");
+    const isNativeWebView =
+      typeof (window as any).ReactNativeWebView !== "undefined";
+    if (isNativeWebView) {
+      window.location.href = addAccountUrl.data.url;
+    } else {
+      window.open(addAccountUrl.data.url, "_blank");
+    }
     setWantAddAccount(false);
 
-    const prevCount = accounts.length;
-    const interval = setInterval(async () => {
-      const res = await fetch("/api/google/status").catch(() => null);
-      if (res?.ok) {
-        const data = await res.json();
-        if (data.accounts?.length > prevCount) {
-          clearInterval(interval);
-          window.location.reload();
+    if (!isNativeWebView) {
+      const prevCount = accounts.length;
+      const interval = setInterval(async () => {
+        const res = await fetch("/api/google/status").catch(() => null);
+        if (res?.ok) {
+          const data = await res.json();
+          if (data.accounts?.length > prevCount) {
+            clearInterval(interval);
+            window.location.reload();
+          }
         }
-      }
-    }, 2000);
+      }, 2000);
 
-    return () => clearInterval(interval);
+      return () => clearInterval(interval);
+    }
   }, [wantAddAccount, addAccountUrl.data, accounts.length]);
 
   function handleConnect() {
