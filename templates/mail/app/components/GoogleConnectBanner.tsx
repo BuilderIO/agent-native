@@ -44,7 +44,7 @@ const STEPS = [
   {
     title: "Configure OAuth consent screen",
     description:
-      'Set the app name to anything (e.g. "My IconMail"), choose "External" user type, and add your email as a test user. If you see an overview page, consent is already configured — skip to the next step.',
+      'Set the app name to anything (e.g. "My Mail"), choose "External" user type, and add your email as a test user. If you see an overview page, consent is already configured — skip to the next step.',
     url: "https://console.cloud.google.com/apis/credentials/consent",
     linkText: "Configure consent screen",
   },
@@ -57,7 +57,7 @@ const STEPS = [
     showRedirectUri: true,
   },
   {
-    title: "IconUpload credentials JSON",
+    title: "Upload credentials JSON",
     description:
       'Click "Download JSON" on the credentials page, then upload it here.',
     showUpload: true,
@@ -111,7 +111,7 @@ export function GoogleConnectBanner({
     }
   }, []);
 
-  // IconCheck if credentials are already configured on mount
+  // Check if credentials are already configured on mount
   useEffect(() => {
     fetchStatus();
   }, [fetchStatus]);
@@ -403,7 +403,7 @@ export function GoogleConnectBanner({
                                   ) : (
                                     <IconUpload className="h-3 w-3" />
                                   )}
-                                  {saving ? "Saving..." : "IconUpload JSON"}
+                                  {saving ? "Saving..." : "Upload JSON"}
                                 </Button>
                               </div>
                             )}
@@ -669,7 +669,7 @@ export function GoogleConnectBanner({
                                 ) : (
                                   <IconUpload className="h-3 w-3" />
                                 )}
-                                {saving ? "Saving..." : "IconUpload JSON"}
+                                {saving ? "Saving..." : "Upload JSON"}
                               </Button>
                             </div>
                           )}

@@ -407,7 +407,7 @@ export function DocumentToolbar({ documentId }: DocumentToolbarProps) {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="IconSearch Notion pages..."
+                    placeholder="Search Notion pages..."
                     className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground"
                   />
                 </div>

@@ -86,7 +86,7 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
         <button
           className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-muted-foreground hover:text-foreground"
           onClick={() => setIsSearching(!isSearching)}
-          title="IconSearch"
+          title="Search"
         >
           <IconSearch size={14} />
         </button>
@@ -98,7 +98,7 @@ export function DocumentSidebar({ activeDocumentId }: DocumentSidebarProps) {
           <input
             autoFocus
             type="text"
-            placeholder="IconSearch pages..."
+            placeholder="Search pages..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {

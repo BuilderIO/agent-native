@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router";
 import {
   IconCalendar,
-  IconUsers,
   IconSettings,
   IconLink,
   IconExternalLink,
@@ -43,8 +42,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 const navItems = [
   { path: "/", label: "Calendar", icon: IconCalendar },
   { path: "/booking-links", label: "Booking Links", icon: IconLink },
-  { path: "/bookings", label: "Bookings", icon: IconUsers },
-  { path: "/settings", label: "IconSettings", icon: IconSettings },
+  { path: "/settings", label: "Settings", icon: IconSettings },
 ];
 
 interface SidebarProps {

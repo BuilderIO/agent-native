@@ -81,13 +81,13 @@ export default function Sidebar({
           <button
             className="sidebar-item"
             onClick={onSettingsClick}
-            title="App IconSettings"
-            aria-label="IconSettings"
+            title="App Settings"
+            aria-label="Settings"
           >
             <span className="icon-wrapper">
               <IconSettings size={18} strokeWidth={1.75} />
             </span>
-            <span className="item-label">IconSettings</span>
+            <span className="item-label">Settings</span>
           </button>
         </div>
       )}

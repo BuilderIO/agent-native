@@ -120,7 +120,7 @@ export default function ExplorerPage() {
             disabled={isSaving}
           >
             <IconDeviceFloppy className="h-4 w-4 mr-1" />
-            {isSaving ? "Saving..." : "IconDeviceFloppy"}
+            {isSaving ? "Saving..." : "Save"}
           </Button>
 
           {/* Load / manage saved configs */}
@@ -140,7 +140,7 @@ export default function ExplorerPage() {
               {currentId && (
                 <DropdownMenuItem onClick={handleSaveAs}>
                   <IconDeviceFloppy className="h-4 w-4 mr-2" />
-                  IconDeviceFloppy As...
+                  Save As...
                 </DropdownMenuItem>
               )}
               {savedConfigs.length > 0 && <DropdownMenuSeparator />}
@@ -208,7 +208,7 @@ export default function ExplorerPage() {
       <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>IconDeviceFloppy Explorer</DialogTitle>
+            <DialogTitle>Save Explorer</DialogTitle>
           </DialogHeader>
           <Input
             placeholder="Dashboard name..."
@@ -221,7 +221,7 @@ export default function ExplorerPage() {
             <Button variant="outline" onClick={() => setSaveDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSaveConfirm}>IconDeviceFloppy</Button>
+            <Button onClick={handleSaveConfirm}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

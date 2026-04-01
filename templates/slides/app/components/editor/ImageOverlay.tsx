@@ -97,7 +97,7 @@ export default function ImageOverlay({
         className="image-overlay-btn"
       >
         <IconUpload className="w-3.5 h-3.5 text-white/50" />
-        IconUpload
+        Upload
       </button>
       <button
         onClick={() => {
@@ -107,7 +107,7 @@ export default function ImageOverlay({
         className="image-overlay-btn"
       >
         <IconSearch className="w-3.5 h-3.5 text-white/50" />
-        IconSearch
+        Search
       </button>
       <button
         onClick={() => {

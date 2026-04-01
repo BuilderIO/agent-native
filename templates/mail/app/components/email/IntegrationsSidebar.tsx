@@ -7,6 +7,7 @@ import {
   useHubSpotContact,
   useGongCalls,
   usePylonContact,
+  isAuthError,
 } from "@/hooks/use-integrations";
 import { useApolloPerson } from "@/hooks/use-apollo";
 import type { ApolloPersonResult } from "@shared/types";
@@ -532,13 +533,62 @@ function IntegrationKeyEntry({
   );
 }
 
+// ─── Integration Notice (error / no-data) ──────────────────────────────────
+
+function IntegrationNotice({
+  email,
+  error,
+  provider,
+}: {
+  email: string;
+  error: unknown;
+  provider: string;
+}) {
+  const authErr = isAuthError(error);
+  return (
+    <div className="px-4 py-3">
+      <p className="text-[13px] font-medium text-foreground truncate">
+        {email}
+      </p>
+      {authErr ? (
+        <p className="text-[11px] text-amber-400/80 mt-1">
+          {provider} API key is invalid or expired — reconnect in settings
+        </p>
+      ) : error ? (
+        <p className="text-[11px] text-red-400/70 mt-1">
+          Could not reach {provider}
+        </p>
+      ) : (
+        <p className="text-[11px] text-muted-foreground/50 mt-1">
+          No data found in {provider}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─── Apollo Section ─────────────────────────────────────────────────────────
 
 function ApolloSection({ email }: { email: string }) {
-  const { data: person, isLoading } = useApolloPerson(email);
+  const { data: person, isLoading, error } = useApolloPerson(email);
 
   if (isLoading) return <SectionLoading />;
-  if (!person) return null;
+  if (error) {
+    return <IntegrationNotice email={email} error={error} provider="Apollo" />;
+  }
+  if (!person) {
+    // No enrichment data — show basic info (email + domain)
+    return (
+      <div className="px-4 pt-4 pb-3">
+        <h3 className="text-[14px] font-semibold text-foreground truncate">
+          {email}
+        </h3>
+        <p className="text-[11px] text-muted-foreground/50">
+          {email.split("@")[1]}
+        </p>
+      </div>
+    );
+  }
 
   const name =
     person.first_name || person.last_name
@@ -729,9 +779,20 @@ function ApolloSection({ email }: { email: string }) {
 // ─── HubSpot Section ────────────────────────────────────────────────────────
 
 function HubSpotSection({ email }: { email: string }) {
-  const { data: contact, isLoading } = useHubSpotContact(email);
+  const {
+    data: contact,
+    isLoading,
+    error,
+  } = useHubSpotContact(email) as {
+    data: Record<string, any> | undefined;
+    isLoading: boolean;
+    error: unknown;
+  };
 
   if (isLoading) return <SectionLoading />;
+  if (error) {
+    return <IntegrationNotice email={email} error={error} provider="HubSpot" />;
+  }
   if (!contact) return null;
 
   const name = [contact.firstName, contact.lastName].filter(Boolean).join(" ");
@@ -810,10 +871,23 @@ function HubSpotSection({ email }: { email: string }) {
 // ─── Gong Section ───────────────────────────────────────────────────────────
 
 function GongSection({ email }: { email: string }) {
-  const { data: calls, isLoading } = useGongCalls(email);
+  const {
+    data: calls,
+    isLoading,
+    error,
+  } = useGongCalls(email) as {
+    data: any[] | undefined;
+    isLoading: boolean;
+    error: unknown;
+  };
 
   if (isLoading) return <SectionLoading />;
-  if (!calls || calls.length === 0) return null;
+  if (!calls || calls.length === 0) {
+    if (error) {
+      return <IntegrationNotice email={email} error={error} provider="Gong" />;
+    }
+    return null;
+  }
 
   return (
     <>
@@ -849,10 +923,19 @@ function GongSection({ email }: { email: string }) {
 // ─── Pylon Section ──────────────────────────────────────────────────────────
 
 function PylonSection({ email }: { email: string }) {
-  const { data, isLoading } = usePylonContact(email);
+  const { data, isLoading, error } = usePylonContact(email) as {
+    data: Record<string, any> | undefined;
+    isLoading: boolean;
+    error: unknown;
+  };
 
   if (isLoading) return <SectionLoading />;
-  if (!data || (!data.account && data.issues?.length === 0)) return null;
+  if (!data || (!data.account && data.issues?.length === 0)) {
+    if (error) {
+      return <IntegrationNotice email={email} error={error} provider="Pylon" />;
+    }
+    return null;
+  }
 
   return (
     <>

@@ -61,19 +61,19 @@ const commands: CommandItem[] = [
       editor.chain().focus().toggleHeading({ level: 3 }).run(),
   },
   {
-    title: "Bullet IconList",
+    title: "Bullet List",
     description: "Unordered list",
     icon: IconList,
     action: (editor) => editor.chain().focus().toggleBulletList().run(),
   },
   {
-    title: "Numbered IconList",
+    title: "Numbered List",
     description: "Ordered list",
     icon: IconListNumbers,
     action: (editor) => editor.chain().focus().toggleOrderedList().run(),
   },
   {
-    title: "To-do IconList",
+    title: "To-do List",
     description: "Checklist items",
     icon: IconSquareCheck,
     action: (editor) => editor.chain().focus().toggleTaskList().run(),
@@ -92,7 +92,7 @@ const commands: CommandItem[] = [
     action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
   },
   {
-    title: "IconQuote",
+    title: "Quote",
     description: "Block quote",
     icon: IconQuote,
     action: (editor) => editor.chain().focus().toggleBlockquote().run(),

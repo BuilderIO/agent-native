@@ -168,7 +168,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <NavItem
             to="/settings"
             icon={<IconSettings className="h-4 w-4" />}
-            label="IconSettings"
+            label="Settings"
             active={isActive("/settings")}
             collapsed={sidebarCollapsed}
           />

@@ -391,7 +391,7 @@ export default function EditorSidebar({
   // Arrow key navigation for slides
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "IconArrowUp" && e.key !== "ArrowDown") return;
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
       // Don't intercept if user is typing in an input/textarea or contenteditable
       const tag = (e.target as HTMLElement)?.tagName;
       if (
@@ -406,7 +406,7 @@ export default function EditorSidebar({
       if (currentIndex === -1) return;
 
       const nextIndex =
-        e.key === "IconArrowUp"
+        e.key === "ArrowUp"
           ? Math.max(0, currentIndex - 1)
           : Math.min(slides.length - 1, currentIndex + 1);
 

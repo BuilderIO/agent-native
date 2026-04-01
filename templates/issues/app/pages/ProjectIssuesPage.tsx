@@ -68,7 +68,7 @@ export function ProjectIssuesPage({
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="IconSearch..."
+              placeholder="Search..."
               className="h-8 w-48 rounded-md border border-border bg-background pl-8 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </form>

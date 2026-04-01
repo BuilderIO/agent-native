@@ -551,7 +551,7 @@ export function ComposeModal({
                     <IconBold className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>IconBold</TooltipContent>
+                <TooltipContent>Bold</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -564,7 +564,7 @@ export function ComposeModal({
                     <IconItalic className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>IconItalic</TooltipContent>
+                <TooltipContent>Italic</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>

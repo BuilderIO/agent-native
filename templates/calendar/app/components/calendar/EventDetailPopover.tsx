@@ -151,7 +151,7 @@ function extractMeetingLink(event: CalendarEvent): {
   pin?: string;
   passcode?: string;
 } | null {
-  // IconCheck conferenceData first
+  // Check conferenceData first
   if (event.conferenceData?.entryPoints) {
     const videoEntry = event.conferenceData.entryPoints.find(
       (ep) => ep.entryPointType === "video",
@@ -396,7 +396,7 @@ function AttendeeAvatar({
   );
 }
 
-/** IconCheck if a string looks like a URL */
+/** Check if a string looks like a URL */
 function isUrl(str: string): boolean {
   return /^https?:\/\//i.test(str.trim());
 }

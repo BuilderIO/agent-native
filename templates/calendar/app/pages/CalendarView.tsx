@@ -463,7 +463,7 @@ export default function CalendarView() {
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
                   <p>
-                    IconKeyboard shortcuts{" "}
+                    Keyboard shortcuts{" "}
                     <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
                       ?
                     </kbd>

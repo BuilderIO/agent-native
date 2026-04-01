@@ -850,7 +850,7 @@ export function Timeline({
                   }}
                 >
                   {isCamera ? (
-                    <IconCamera
+                    <Camera
                       className="flex-shrink-0"
                       size={12}
                       style={{
@@ -1001,7 +1001,7 @@ export function Timeline({
                 });
               }
 
-              // IconCamera/Cursor track: only show keyframes, no track bar
+              // Camera/Cursor track: only show keyframes, no track bar
               if (isCamera || isCursor) {
                 const trackColor = isCamera ? CAMERA_COLOR : CURSOR_COLOR;
 
@@ -1944,7 +1944,7 @@ export function Timeline({
       {contextMenu &&
         (() => {
           const trackName =
-            contextMenu.trackId === "camera" ? "IconCamera" : "Cursor";
+            contextMenu.trackId === "camera" ? "Camera" : "Cursor";
 
           // Estimate menu height (header ~36px + 2 options ~28px each + padding ~8px = ~100px)
           const estimatedMenuHeight = 100;

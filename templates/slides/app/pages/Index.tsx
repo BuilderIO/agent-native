@@ -74,8 +74,8 @@ export default function Index() {
             <a
               href="/settings"
               className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/50 hover:text-white/80 transition-all"
-              title="IconSettings"
-              aria-label="IconSettings"
+              title="Settings"
+              aria-label="Settings"
             >
               <IconSettings className="w-3.5 h-3.5" />
             </a>
