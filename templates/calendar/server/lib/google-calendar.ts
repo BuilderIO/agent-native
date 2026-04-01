@@ -462,7 +462,7 @@ export async function deleteEvent(
 
 /**
  * Update the current user's RSVP status for an event.
- * Uses PATCH with attendees containing only the self entry.
+ * Fetches the full attendees list first to avoid overwriting other guests.
  */
 export async function rsvpEvent(
   googleEventId: string,

@@ -214,8 +214,8 @@ export function InboxPage() {
     return filtered;
   }, [rawEmails, view, activeLabel, pinnedUserLabels, activeAccounts]);
 
-  // Clear multi-selection when navigating to a different view or thread
-  useEffect(() => setSelectedIds(new Set()), [view, threadId]);
+  // Clear multi-selection when navigating to a different view, thread, or label tab
+  useEffect(() => setSelectedIds(new Set()), [view, threadId, activeLabel]);
 
   // Sync current navigation state to file (write-only, so agent can read it)
   const searchQ = searchParams.get("q") ?? undefined;

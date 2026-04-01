@@ -263,7 +263,7 @@ export async function pullDocumentFromNotion(
     .update(schema.documents)
     .set({
       title: pageContent.title || document.title,
-      content: pageContent.content || document.content,
+      content: pageContent.content ?? document.content,
       icon: pageContent.icon,
       updatedAt,
     })

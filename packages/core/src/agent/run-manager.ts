@@ -78,7 +78,37 @@ export function startRun(
       send({ type: "error", error: err?.message ?? "Unknown error" });
     })
     .finally(() => {
-      // Notify all remaining subscribers that the run is done
+      // Send a terminal event so every subscriber's ReadableStream controller
+      // gets closed.  Without this, SSE connections hang open forever when
+      // the agent errors out in a way that bypasses the normal `send()` path.
+      if (run.status === "errored" || run.status === "completed") {
+        const terminal: RunEvent = {
+          seq: run.events.length,
+          event:
+            run.status === "errored"
+              ? { type: "error", error: "Agent run ended unexpectedly" }
+              : { type: "done" },
+        };
+        // Only emit if the last event isn't already terminal — avoid duplicates
+        const last = run.events[run.events.length - 1];
+        if (
+          !last ||
+          (last.event.type !== "done" &&
+            last.event.type !== "error" &&
+            last.event.type !== "missing_api_key" &&
+            last.event.type !== "loop_limit")
+        ) {
+          run.events.push(terminal);
+          for (const subscriber of run.subscribers) {
+            try {
+              subscriber(terminal);
+            } catch {
+              // ignore — subscriber will be cleaned up below
+            }
+          }
+        }
+      }
+      // Clean up subscriber references
       for (const subscriber of run.subscribers) {
         run.subscribers.delete(subscriber);
       }
