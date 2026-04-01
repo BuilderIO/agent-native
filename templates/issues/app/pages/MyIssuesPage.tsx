@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useSearchParams, useParams, useNavigate } from "react-router";
 import { IconPlus, IconSearch, IconCircleDot } from "@tabler/icons-react";
+import { AgentToggleButton } from "@agent-native/core/client";
 import { useIssues } from "@/hooks/use-issues";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { IssueList } from "@/components/issues/IssueList";
@@ -72,6 +73,7 @@ export function MyIssuesPage({ selectedIssueKey: propKey }: MyIssuesPageProps) {
             <IconPlus className="h-3.5 w-3.5" />
             New
           </button>
+          <AgentToggleButton className="h-8 w-8 rounded-md border border-border bg-background" />
         </div>
 
         {/* List */}

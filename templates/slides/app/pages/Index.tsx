@@ -6,7 +6,7 @@ import DeckCard from "@/components/deck/DeckCard";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
-import { FeedbackButton } from "@/components/FeedbackButton";
+
 import { Button } from "@/components/ui/button";
 import { AgentToggleButton } from "@agent-native/core/client";
 
@@ -70,7 +70,6 @@ export default function Index() {
             Slides
           </span>
           <div className="flex items-center gap-2">
-            <FeedbackButton />
             <a
               href="/settings"
               className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/50 hover:text-white/80 transition-all"

@@ -110,16 +110,21 @@ export function FormBuilderPage() {
   const agentPromptRef = useRef<HTMLTextAreaElement>(null);
   const { send, codeRequiredDialog } = useSendToAgentChat();
 
-  // Local state for text inputs — prevents polling-driven refetches from
-  // resetting input values while the user is typing.
+  // Local state for text inputs and fields — prevents polling-driven refetches
+  // from resetting input values while the user is typing or losing optimistic
+  // updates (e.g. newly added fields).
   const [localTitle, setLocalTitle] = useState(form?.title ?? "");
   const [localDescription, setLocalDescription] = useState(
     form?.description ?? "",
   );
+  const [localFields, setLocalFields] = useState<FormField[]>(
+    form?.fields || [],
+  );
   const titleFocused = useRef(false);
   const descriptionFocused = useRef(false);
+  const fieldsDirty = useRef(false);
 
-  // Sync from server when not focused (e.g. agent updates the title)
+  // Sync from server when not dirty (e.g. agent updates the fields)
   useEffect(() => {
     if (form && !titleFocused.current) setLocalTitle(form.title);
   }, [form?.title]);
@@ -127,6 +132,9 @@ export function FormBuilderPage() {
     if (form && !descriptionFocused.current)
       setLocalDescription(form.description || "");
   }, [form?.description]);
+  useEffect(() => {
+    if (form && !fieldsDirty.current) setLocalFields(form.fields || []);
+  }, [form?.fields]);
 
   // Debounced save
   const saveTimeout = useRef<ReturnType<typeof setTimeout>>();
@@ -134,7 +142,11 @@ export function FormBuilderPage() {
     (data: Parameters<typeof updateForm.mutate>[0]) => {
       clearTimeout(saveTimeout.current);
       saveTimeout.current = setTimeout(() => {
-        updateForm.mutate(data);
+        updateForm.mutate(data, {
+          onSettled: () => {
+            fieldsDirty.current = false;
+          },
+        });
       }, 500);
     },
     [updateForm],
@@ -170,10 +182,12 @@ export function FormBuilderPage() {
     );
   }
 
-  const fields = form.fields || [];
+  const fields = localFields;
   const selectedField = fields.find((f) => f.id === selectedFieldId);
 
   function updateFields(newFields: FormField[]) {
+    setLocalFields(newFields);
+    fieldsDirty.current = true;
     save({ id: form.id, fields: newFields });
   }
 
@@ -436,7 +450,7 @@ export function FormBuilderPage() {
                   >
                     <GripVertical className="h-4 w-4 text-muted-foreground" />
                   </div>
-                  <FieldRenderer field={field} preview disabled />
+                  <FieldRenderer field={field} preview />
                 </div>
               ))}
             </div>

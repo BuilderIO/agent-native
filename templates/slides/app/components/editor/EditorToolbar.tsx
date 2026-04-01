@@ -15,7 +15,7 @@ import {
   IconSettings,
 } from "@tabler/icons-react";
 import type { Slide, SlideLayout } from "@/context/DeckContext";
-import { FeedbackButton } from "@/components/FeedbackButton";
+
 import { AgentToggleButton } from "@agent-native/core/client";
 
 interface EditorToolbarProps {
@@ -367,8 +367,6 @@ export default function EditorToolbar({
       >
         <IconShare2 className="w-3.5 h-3.5" />
       </button>
-
-      <FeedbackButton />
 
       {/* Present button */}
       <Link

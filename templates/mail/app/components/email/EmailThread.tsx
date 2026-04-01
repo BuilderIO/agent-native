@@ -1583,8 +1583,6 @@ const DARK_NAMED_COLORS: Record<string, [number, number, number]> = {
   darkslategrey: [47, 79, 79],
   dimgray: [105, 105, 105],
   dimgrey: [105, 105, 105],
-  gray: [128, 128, 128],
-  grey: [128, 128, 128],
 };
 
 function parseColorToRgb(
@@ -1642,17 +1640,20 @@ function relativeLuminance(r: number, g: number, b: number): number {
   return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
 }
 
-function isDarkColor(colorStr: string): boolean {
+// Would this color be illegible on our dark background (#17181a, luminance ~0.01)?
+// Only flags truly dark colors — threshold 0.1 catches black through ~#555.
+// Colors like #666+ are readable on dark bg and should NOT trigger light mode.
+function isIllegiblyDark(colorStr: string): boolean {
   const rgb = parseColorToRgb(colorStr);
   if (!rgb) return false;
-  return relativeLuminance(rgb.r, rgb.g, rgb.b) < 0.4;
+  return relativeLuminance(rgb.r, rgb.g, rgb.b) < 0.1;
 }
 
 /**
- * Detect if an HTML email expects a light background.
- * Checks for explicit background colors (existing) AND explicit dark text
- * colors (new) — both indicate the email was designed for a light background.
- * When true, we render on white instead of applying dark mode styling.
+ * Detect if an HTML email would be illegible on a dark background.
+ * This is an escape hatch — we WANT dark mode as much as possible.
+ * Only bail to white when the email has significant dark text or
+ * structural light backgrounds that would make content unreadable.
  */
 function emailExpectsLightBackground(html: string): boolean {
   // Fast path: skip DOMParser for truly plain emails
@@ -1668,69 +1669,69 @@ function emailExpectsLightBackground(html: string): boolean {
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
-
-  // ── Background signals (existing checks) ──
-
-  // bgcolor on ANY element
-  if (doc.querySelector("[bgcolor]")) return true;
-
-  // background-color on <body> inline style
   const body = doc.body;
-  const bodyStyle = body?.getAttribute("style") || "";
-  if (/background(-color)?:/i.test(bodyStyle)) return true;
 
-  // background-color on direct children of <body>
-  for (const child of Array.from(body?.children ?? [])) {
-    const style = child.getAttribute("style") || "";
-    if (/background(-color)?:/i.test(style)) return true;
+  // ── Structural light backgrounds ──
+  // Only trigger on body/html-level backgrounds — these define the entire email canvas.
+  // Ignore bgcolor on inner elements (table cells, etc.) — our dark CSS can coexist.
+
+  const bodyStyle = body?.getAttribute("style") || "";
+  if (/background(-color)?:/i.test(bodyStyle)) {
+    // Body has an explicit background — email was designed for a specific look
+    return true;
   }
 
-  // background-color in <style> blocks targeting structural selectors
+  // bgcolor on body or html
+  const bodyBg = body?.getAttribute("bgcolor");
+  const htmlEl = doc.documentElement;
+  const htmlBg = htmlEl?.getAttribute("bgcolor");
+  if (bodyBg || htmlBg) return true;
+
+  // background-color in <style> blocks on html/body only
   const styleTags = doc.querySelectorAll("style");
   for (const tag of styleTags) {
     const text = tag.textContent || "";
-    if (
-      /(?:html|body|table|td|th|div)\s*\{[^}]*background(-color)?:/im.test(text)
-    )
-      return true;
-    if (
-      /\.(?:wrapper|container|email|body|content|main|outer)\s*\{[^}]*background(-color)?:/im.test(
-        text,
-      )
-    )
-      return true;
+    if (/(?:html|body)\s*\{[^}]*background(-color)?:/im.test(text)) return true;
   }
 
-  // ── Dark text color signals ──
+  // ── Dark text that would be illegible ──
+  // Count how many text characters are styled with illegibly dark colors.
+  // Only bail if a significant portion of the email text is affected.
 
-  // <font color="..."> with dark color (legacy HTML email pattern)
+  let darkTextChars = 0;
+  const DARK_CHAR_THRESHOLD = 100; // need 100+ chars of dark text to trigger
+
+  // <font color="..."> with dark color (legacy HTML emails)
   const fontEls = doc.querySelectorAll("font[color]");
   for (const el of fontEls) {
     const c = el.getAttribute("color") || "";
-    if (c && isDarkColor(c)) return true;
-  }
-
-  // Inline style color: on any element
-  const styledEls = doc.querySelectorAll('[style*="color"]');
-  let checked = 0;
-  for (const el of styledEls) {
-    if (checked++ > 50) return true; // heavily styled → assume light bg
-    const style = el.getAttribute("style") || "";
-    // Match `color:` but not `background-color:` or `border-color:`
-    const colorMatch = style.match(/(?<![a-z-])color\s*:\s*([^;!]+)/i);
-    if (colorMatch) {
-      const colorVal = colorMatch[1].trim();
-      if (isDarkColor(colorVal)) return true;
+    if (c && isIllegiblyDark(c)) {
+      darkTextChars += (el.textContent || "").trim().length;
+      if (darkTextChars >= DARK_CHAR_THRESHOLD) return true;
     }
   }
 
-  // color: in <style> blocks targeting text-bearing selectors
+  // Inline style color: on elements
+  const styledEls = doc.querySelectorAll('[style*="color"]');
+  let checked = 0;
+  for (const el of styledEls) {
+    if (checked++ > 100) break;
+    const style = el.getAttribute("style") || "";
+    const colorMatch = style.match(/(?<![a-z-])color\s*:\s*([^;!]+)/i);
+    if (colorMatch && isIllegiblyDark(colorMatch[1].trim())) {
+      darkTextChars += (el.textContent || "").trim().length;
+      if (darkTextChars >= DARK_CHAR_THRESHOLD) return true;
+    }
+  }
+
+  // color: in <style> blocks on body/td/p — broad text selectors
+  // Only trigger if it targets elements that carry most of the text
   for (const tag of styleTags) {
     const text = tag.textContent || "";
     const ruleMatch = text.match(
-      /(?:html|body|table|td|th|div|p|span|li|a)\s*(?:,\s*\w+\s*)*\{[^}]*(?<![a-z-])color\s*:\s*([^;}]+)/im,
+      /(?:body|td|p)\s*(?:,\s*(?:body|td|p)\s*)*\{[^}]*(?<![a-z-])color\s*:\s*([^;}]+)/im,
     );
-    if (ruleMatch && isDarkColor(ruleMatch[1].trim())) return true;
+    if (ruleMatch && isIllegiblyDark(ruleMatch[1].trim())) return true;
   }
 
   return false;

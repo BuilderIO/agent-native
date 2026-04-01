@@ -178,21 +178,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* Main content */}
-      <main className="relative flex-1 overflow-hidden">
-        <div className="absolute right-3 top-3 z-10">
-          <AgentToggleButton />
-        </div>
-        {isConnected || isActive("/settings") ? (
-          children
-        ) : (
-          <JiraConnectBanner />
-        )}
-      </main>
-
-      {/* Agent sidebar */}
       <AgentSidebar>
-        <>{/* Agent panel content managed by core */}</>
+        {/* Main content */}
+        <main className="flex min-w-0 flex-1 overflow-hidden">
+          {isConnected || isActive("/settings") ? (
+            children
+          ) : (
+            <JiraConnectBanner />
+          )}
+        </main>
       </AgentSidebar>
 
       {/* Command palette */}

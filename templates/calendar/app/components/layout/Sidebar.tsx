@@ -10,6 +10,7 @@ import {
   IconPlus,
   IconX,
   IconPalette,
+  IconKeyboard,
 } from "@tabler/icons-react";
 import {
   startOfMonth,
@@ -26,6 +27,11 @@ import {
 } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
@@ -484,7 +490,29 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         )}
 
         {/* Theme toggle */}
-        <div className="border-t border-border px-3 py-2 flex items-center">
+        <div className="flex items-center gap-1 border-t border-border px-3 py-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground"
+                onClick={() =>
+                  window.dispatchEvent(new Event("calendar:open-shortcuts"))
+                }
+              >
+                <IconKeyboard className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p>
+                Keyboard shortcuts{" "}
+                <kbd className="ml-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
+                  ?
+                </kbd>
+              </p>
+            </TooltipContent>
+          </Tooltip>
           <ThemeToggle />
         </div>
       </aside>

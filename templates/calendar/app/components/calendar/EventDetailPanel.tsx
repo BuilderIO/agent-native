@@ -11,7 +11,6 @@ import {
   IconTrash,
   IconEdit,
   IconExternalLink,
-  IconUser,
   IconLayoutSidebarRightCollapse,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
@@ -24,10 +23,8 @@ import {
 import { cn } from "@/lib/utils";
 import { getEventAutoColor } from "@/lib/event-colors";
 import type { CalendarEvent } from "@shared/api";
-import {
-  AttendeeApolloPopover,
-  ResearchMeetingButton,
-} from "@/components/calendar/ApolloPanel";
+import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
+import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 
 interface EventDetailPanelProps {
@@ -183,40 +180,7 @@ export function EventDetailPanel({
 
                 {/* Attendees */}
                 {event.attendees && event.attendees.length > 0 && (
-                  <div className="flex items-start gap-2.5">
-                    <IconUser className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                    <div className="flex-1 space-y-1.5">
-                      {event.attendees.map((attendee, i) => (
-                        <AttendeeApolloPopover
-                          key={attendee.email + i}
-                          attendee={attendee}
-                        >
-                          <div className="flex items-center gap-2 rounded-md hover:bg-muted/40 transition-colors -mx-1 px-1 py-0.5 cursor-pointer">
-                            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground shrink-0">
-                              {(attendee.displayName || attendee.email)
-                                .charAt(0)
-                                .toUpperCase()}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-foreground truncate">
-                                {attendee.displayName || attendee.email}
-                              </p>
-                              {attendee.displayName && (
-                                <p className="text-[11px] text-muted-foreground/60 truncate">
-                                  {attendee.email}
-                                </p>
-                              )}
-                            </div>
-                            {attendee.organizer && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium shrink-0">
-                                Org
-                              </span>
-                            )}
-                          </div>
-                        </AttendeeApolloPopover>
-                      ))}
-                    </div>
-                  </div>
+                  <EventAttendeesSection event={event} />
                 )}
 
                 {/* Research Meeting */}
