@@ -1,6 +1,26 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { IssueListParams } from "@shared/types";
 
+class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+async function apiFetch(url: string, opts?: RequestInit) {
+  const res = await fetch(url, opts);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(
+      body.statusMessage || body.error || `Request failed (${res.status})`,
+      res.status,
+    );
+  }
+  return res.json();
+}
+
 export function useIssues(params: IssueListParams) {
   const searchParams = new URLSearchParams();
   if (params.view) searchParams.set("view", params.view);
@@ -14,26 +34,27 @@ export function useIssues(params: IssueListParams) {
 
   return useQuery({
     queryKey: ["issues", params],
-    queryFn: async () => {
-      const res = await fetch(`/api/issues?${searchParams}`);
-      if (!res.ok) throw new Error("Failed to fetch issues");
-      return res.json();
-    },
+    queryFn: () => apiFetch(`/api/issues?${searchParams}`),
     staleTime: 30_000,
     refetchInterval: 60_000,
+    retry: (failureCount, error) => {
+      // Don't retry auth errors — user needs to reconnect
+      if (error instanceof ApiError && error.status === 401) return false;
+      return failureCount < 2;
+    },
   });
 }
 
 export function useIssue(issueKey: string | undefined) {
   return useQuery({
     queryKey: ["issue", issueKey],
-    queryFn: async () => {
-      const res = await fetch(`/api/issues/${issueKey}`);
-      if (!res.ok) throw new Error("Failed to fetch issue");
-      return res.json();
-    },
+    queryFn: () => apiFetch(`/api/issues/${issueKey}`),
     enabled: !!issueKey,
     staleTime: 30_000,
+    retry: (failureCount, error) => {
+      if (error instanceof ApiError && error.status === 401) return false;
+      return failureCount < 2;
+    },
   });
 }
 

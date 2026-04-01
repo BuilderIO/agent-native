@@ -20,12 +20,14 @@ export function MyIssuesPage({ selectedIssueKey: propKey }: MyIssuesPageProps) {
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
 
-  const { data, isLoading } = useIssues({
+  const { data, isLoading, error } = useIssues({
     view: "my-issues",
     q: search || undefined,
   });
 
   const issues = data?.issues || [];
+  const isAuthError =
+    error && "status" in error && (error as any).status === 401;
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,7 +76,24 @@ export function MyIssuesPage({ selectedIssueKey: propKey }: MyIssuesPageProps) {
 
         {/* List */}
         <div className="flex-1 overflow-y-auto">
-          {isLoading ? (
+          {isAuthError ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center px-6">
+              <div className="mb-3 text-2xl">🔑</div>
+              <p className="text-sm font-medium text-foreground">
+                Jira connection expired
+              </p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+                Your Atlassian session has expired. Reconnect to continue
+                viewing issues.
+              </p>
+              <a
+                href="/settings"
+                className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+              >
+                Reconnect in Settings
+              </a>
+            </div>
+          ) : isLoading ? (
             <div className="space-y-1 p-2">
               {Array.from({ length: 8 }).map((_, i) => (
                 <div key={i} className="flex items-center gap-3 px-4 py-2.5">

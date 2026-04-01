@@ -179,7 +179,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-hidden">
+      <main className="relative flex-1 overflow-hidden">
+        <div className="absolute right-3 top-3 z-10">
+          <AgentToggleButton />
+        </div>
         {isConnected || isActive("/settings") ? (
           children
         ) : (
@@ -191,7 +194,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       <AgentSidebar>
         <>{/* Agent panel content managed by core */}</>
       </AgentSidebar>
-      <AgentToggleButton />
 
       {/* Command palette */}
       <CommandPalette open={cmdOpen} onOpenChange={setCmdOpen} />
