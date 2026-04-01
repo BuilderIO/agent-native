@@ -1348,25 +1348,84 @@ const ExpandedMessageCard = forwardRef<
 
       {/* Attachments */}
       {email.attachments && email.attachments.length > 0 && (
-        <div className="px-4 pb-4 flex flex-wrap gap-2">
-          {email.attachments.map((att) => (
-            <div
-              key={att.id}
-              className="flex items-center gap-2 rounded-lg bg-accent/60 px-3 py-2 text-xs hover:bg-accent transition-colors cursor-pointer"
-            >
-              <svg
-                viewBox="0 0 16 16"
-                fill="currentColor"
-                className="h-3 w-3 text-muted-foreground shrink-0"
-              >
-                <path d="M11.28 1.47a.75.75 0 0 1 0 1.06L5.56 8.25a2.5 2.5 0 0 0 3.536 3.536l5.72-5.72a.75.75 0 0 1 1.06 1.06l-5.72 5.72a4 4 0 0 1-5.656-5.656l5.72-5.72a.75.75 0 0 1 1.06 0z" />
-              </svg>
-              <span className="text-foreground/80">{att.filename}</span>
-              <span className="text-muted-foreground">
-                {formatFileSize(att.size)}
-              </span>
+        <div className="px-4 pb-4">
+          {/* Image thumbnails */}
+          {email.attachments.some((a) => a.mimeType.startsWith("image/")) && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {email.attachments
+                .filter((a) => a.mimeType.startsWith("image/"))
+                .map((att) => {
+                  const url = `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}&mimeType=${encodeURIComponent(att.mimeType)}`;
+                  return (
+                    <a
+                      key={att.id}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block rounded-lg overflow-hidden border border-border/40 hover:border-border bg-accent/30 hover:bg-accent/50"
+                      title={att.filename}
+                    >
+                      <img
+                        src={url}
+                        alt={att.filename}
+                        className="h-32 max-w-[200px] object-cover"
+                        loading="lazy"
+                      />
+                    </a>
+                  );
+                })}
             </div>
-          ))}
+          )}
+          {/* Non-image files + download all */}
+          <div className="flex flex-wrap items-center gap-2">
+            {email.attachments
+              .filter((a) => !a.mimeType.startsWith("image/"))
+              .map((att) => (
+                <a
+                  key={att.id}
+                  href={`/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`}
+                  download={att.filename}
+                  className="flex items-center gap-2 rounded-lg bg-accent/60 px-3 py-2 text-xs hover:bg-accent cursor-pointer"
+                >
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                    className="h-3 w-3 text-muted-foreground shrink-0"
+                  >
+                    <path d="M11.28 1.47a.75.75 0 0 1 0 1.06L5.56 8.25a2.5 2.5 0 0 0 3.536 3.536l5.72-5.72a.75.75 0 0 1 1.06 1.06l-5.72 5.72a4 4 0 0 1-5.656-5.656l5.72-5.72a.75.75 0 0 1 1.06 0z" />
+                  </svg>
+                  <span className="text-foreground/80 truncate max-w-[180px]">
+                    {att.filename}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {formatFileSize(att.size)}
+                  </span>
+                </a>
+              ))}
+            {email.attachments.length > 1 && (
+              <button
+                onClick={() => {
+                  for (const att of email.attachments!) {
+                    const a = document.createElement("a");
+                    a.href = `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`;
+                    a.download = att.filename;
+                    a.click();
+                  }
+                }}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  className="h-3 w-3"
+                >
+                  <path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14H2.75z" />
+                  <path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969z" />
+                </svg>
+                Download all
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

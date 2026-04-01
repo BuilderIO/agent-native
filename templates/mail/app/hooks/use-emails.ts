@@ -49,6 +49,64 @@ function delayedInvalidate(
   }, ms);
 }
 
+// ─── Optimistic sent message ────────────────────────────────────────────────
+// Used to show a reply in the thread immediately when the user clicks Send,
+// before the 5-second undo delay fires the actual mutation.
+
+export function useAddOptimisticReply() {
+  const qc = useQueryClient();
+
+  return (data: {
+    to: string;
+    cc?: string;
+    bcc?: string;
+    subject: string;
+    body: string;
+    replyToId?: string;
+    replyToThreadId?: string;
+    accountEmail?: string;
+  }): (() => void) | undefined => {
+    const settings = qc.getQueryData<UserSettings>(["settings"]);
+    const threadId = data.replyToThreadId || data.replyToId;
+    if (!threadId) return;
+
+    const optimisticMessage: EmailMessage = {
+      id: makeTempId("sent"),
+      threadId,
+      from: {
+        name: settings?.name || settings?.email || data.accountEmail || "Me",
+        email: data.accountEmail || settings?.email || "",
+      },
+      to: parseRecipients(data.to),
+      ...(data.cc ? { cc: parseRecipients(data.cc) } : {}),
+      subject: data.subject || "(no subject)",
+      snippet: data.body.slice(0, 120).replace(/\n/g, " "),
+      body: data.body,
+      date: new Date().toISOString(),
+      isRead: true,
+      isStarred: false,
+      isSent: true,
+      isArchived: false,
+      isTrashed: false,
+      labelIds: ["sent"],
+      ...(data.accountEmail ? { accountEmail: data.accountEmail } : {}),
+    };
+
+    qc.setQueryData<EmailMessage[]>(["thread-messages", threadId], (old) =>
+      [...(old ?? []), optimisticMessage].sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+      ),
+    );
+
+    // Return undo function that removes the optimistic message
+    return () => {
+      qc.setQueryData<EmailMessage[]>(["thread-messages", threadId], (old) =>
+        (old ?? []).filter((m) => m.id !== optimisticMessage.id),
+      );
+    };
+  };
+}
+
 // ─── Thread suppression ─────────────────────────────────────────────────────
 // Gmail's search index has eventual consistency that can exceed the delay above.
 // When we archive/trash/snooze/etc., we track the thread ID so that stale data

@@ -22,7 +22,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useSendEmail } from "@/hooks/use-emails";
+import { useSendEmail, useAddOptimisticReply } from "@/hooks/use-emails";
 import { useAliases } from "@/hooks/use-aliases";
 import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
 import { SendLaterButton } from "./SendLaterButton";
@@ -165,6 +165,7 @@ export function ComposeModal({
 
   const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
+  const addOptimisticReply = useAddOptimisticReply();
   const scheduleEmail = useScheduleEmail();
   const { data: aliases = [] } = useAliases();
   const { allAccounts } = useAccountFilter();
@@ -206,6 +207,19 @@ export function ComposeModal({
       fetch(`/api/emails/draft/${savedDraftId}`, { method: "DELETE" });
     }
 
+    // Show optimistic reply in the thread immediately (for replies)
+    const undoOptimistic = draftSnapshot.replyToId
+      ? addOptimisticReply({
+          to: expandAliasTokens(draftSnapshot.to, aliases),
+          cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
+          subject: draftSnapshot.subject,
+          body: draftSnapshot.body,
+          replyToId: draftSnapshot.replyToId,
+          replyToThreadId: draftSnapshot.replyToThreadId,
+          accountEmail: draftSnapshot.accountEmail,
+        })
+      : undefined;
+
     let cancelled = false;
 
     const handleUndo = () => {
@@ -215,6 +229,7 @@ export function ComposeModal({
       clearTimeout(sendTimer);
       clearTimeout(transitionTimer);
       toast.dismiss(toastId);
+      undoOptimistic?.();
       // Reopen composer with the saved draft
       const { id: _id, ...reopenData } = draftSnapshot;
       onReopen(reopenData);
