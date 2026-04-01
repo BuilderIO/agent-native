@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useParseDate, useSnoozeEmail } from "@/hooks/use-scheduled-jobs";
 import { toast } from "sonner";
@@ -82,7 +81,6 @@ export function SnoozeModal({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const presets = getPresets();
 
-  const queryClient = useQueryClient();
   const snoozeEmail = useSnoozeEmail();
   const parseDate = useParseDate();
 
@@ -172,9 +170,6 @@ export function SnoozeModal({
           runAt: opt.date.getTime(),
           accountEmail,
         })
-        .then(() => {
-          queryClient.invalidateQueries({ queryKey: ["emails"] });
-        })
         .catch((err: any) => {
           const msg = err?.message ?? "";
           if (
@@ -190,7 +185,7 @@ export function SnoozeModal({
           }
         });
     },
-    [accountEmail, emailId, snoozeEmail, queryClient, onSnoozed, onClose],
+    [accountEmail, emailId, snoozeEmail, onSnoozed, onClose],
   );
 
   const handleKeyDown = useCallback(

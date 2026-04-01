@@ -48,6 +48,9 @@ const LIST_BLOCK_TYPES = new Set([
   "to_do",
   "toggle",
 ]);
+const TOGGLE_MARKER = "▶";
+const TOGGLE_MARKER_OPEN = "▾";
+const VISUAL_INDENT = "\u00A0\u00A0";
 
 export type NotionPageContent = {
   pageId: string;
@@ -102,6 +105,10 @@ function trimTrailingBlankLines(lines: string[]): string[] {
 
 function splitMarkdownLines(text: string, indent = ""): string[] {
   return text.split("\n").map((line) => (line ? `${indent}${line}` : ""));
+}
+
+function visualIndent(level: number): string {
+  return VISUAL_INDENT.repeat(level);
 }
 
 function isListBlock(block: NotionBlock | undefined): boolean {
@@ -243,29 +250,210 @@ function paragraphBlock(text: string) {
   };
 }
 
+type ParsedLine =
+  | { kind: "blank"; indent: number }
+  | { kind: "code-fence"; indent: number; language: string }
+  | { kind: "divider"; indent: number }
+  | { kind: "heading"; indent: number; level: number; text: string }
+  | { kind: "todo"; indent: number; text: string; checked: boolean }
+  | { kind: "bullet"; indent: number; text: string }
+  | { kind: "numbered"; indent: number; text: string }
+  | { kind: "quote"; indent: number; text: string }
+  | { kind: "toggle"; indent: number; text: string }
+  | { kind: "paragraph"; indent: number; text: string };
+
+function getLineIndent(rawLine: string): { indent: number; text: string } {
+  let index = 0;
+  let indent = 0;
+
+  while (index < rawLine.length) {
+    if (rawLine.startsWith(VISUAL_INDENT, index)) {
+      indent++;
+      index += VISUAL_INDENT.length;
+      continue;
+    }
+    if (rawLine.startsWith("  ", index)) {
+      indent++;
+      index += 2;
+      continue;
+    }
+    if (rawLine[index] === "\t") {
+      indent++;
+      index += 1;
+      continue;
+    }
+    break;
+  }
+
+  return {
+    indent,
+    text: rawLine.slice(index),
+  };
+}
+
+function parseMarkdownLine(rawLine: string): ParsedLine {
+  const { indent, text } = getLineIndent(rawLine);
+  const trimmed = text.trim();
+
+  if (!trimmed) return { kind: "blank", indent };
+
+  if (/^```/.test(trimmed)) {
+    return {
+      kind: "code-fence",
+      indent,
+      language: trimmed.slice(3).trim() || "plain text",
+    };
+  }
+  if (/^---+$/.test(trimmed)) return { kind: "divider", indent };
+
+  const headingMatch = trimmed.match(/^(#{1,3})\s+(.*)$/);
+  if (headingMatch) {
+    return {
+      kind: "heading",
+      indent,
+      level: headingMatch[1].length,
+      text: headingMatch[2],
+    };
+  }
+
+  const todoMatch = trimmed.match(/^[-*]\s+\[( |x)\]\s+(.*)$/i);
+  if (todoMatch) {
+    return {
+      kind: "todo",
+      indent,
+      checked: todoMatch[1].toLowerCase() === "x",
+      text: todoMatch[2],
+    };
+  }
+
+  const toggleMatch = trimmed.match(/^(?:[-*]\s+)?(?:▶|▾)\s+(.*)$/);
+  if (toggleMatch) {
+    return { kind: "toggle", indent, text: toggleMatch[1] };
+  }
+
+  const bulletMatch = trimmed.match(/^[-*]\s+(.*)$/);
+  if (bulletMatch) {
+    return { kind: "bullet", indent, text: bulletMatch[1] };
+  }
+
+  const numberedMatch = trimmed.match(/^\d+\.\s+(.*)$/);
+  if (numberedMatch) {
+    return { kind: "numbered", indent, text: numberedMatch[1] };
+  }
+
+  const quoteMatch = trimmed.match(/^>\s?(.*)$/);
+  if (quoteMatch) {
+    return { kind: "quote", indent, text: quoteMatch[1] };
+  }
+
+  return { kind: "paragraph", indent, text };
+}
+
+function makeNotionBlockFromParsedLine(
+  line: Exclude<ParsedLine, { kind: "blank" } | { kind: "code-fence" }>,
+) {
+  switch (line.kind) {
+    case "divider":
+      return { object: "block", type: "divider", divider: {} };
+    case "heading": {
+      const key =
+        line.level === 1
+          ? "heading_1"
+          : line.level === 2
+            ? "heading_2"
+            : "heading_3";
+      return {
+        object: "block",
+        type: key,
+        [key]: { rich_text: markdownInlineToRichText(line.text) },
+      };
+    }
+    case "todo":
+      return {
+        object: "block",
+        type: "to_do",
+        to_do: {
+          checked: line.checked,
+          rich_text: markdownInlineToRichText(line.text),
+        },
+      };
+    case "bullet":
+      return {
+        object: "block",
+        type: "bulleted_list_item",
+        bulleted_list_item: { rich_text: markdownInlineToRichText(line.text) },
+      };
+    case "numbered":
+      return {
+        object: "block",
+        type: "numbered_list_item",
+        numbered_list_item: { rich_text: markdownInlineToRichText(line.text) },
+      };
+    case "quote":
+      return {
+        object: "block",
+        type: "quote",
+        quote: { rich_text: markdownInlineToRichText(line.text) },
+      };
+    case "toggle":
+      return {
+        object: "block",
+        type: "toggle",
+        toggle: { rich_text: markdownInlineToRichText(line.text) },
+      };
+    case "paragraph":
+      return paragraphBlock(line.text);
+  }
+}
+
 export function markdownToNotionBlocks(markdown: string): any[] {
   const lines = markdown.replace(/\r\n/g, "\n").split("\n");
   const blocks: any[] = [];
+  const blockStack: any[] = [];
+
+  function attachBlock(indent: number, block: any) {
+    if (indent <= 0) {
+      blocks.push(block);
+      blockStack.length = 0;
+      blockStack[0] = block;
+      return;
+    }
+
+    const parent = blockStack[indent - 1];
+    if (!parent) {
+      blocks.push(block);
+      blockStack.length = 0;
+      blockStack[0] = block;
+      return;
+    }
+
+    parent.children ||= [];
+    parent.children.push(block);
+    blockStack.length = indent;
+    blockStack[indent] = block;
+  }
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
+    const parsed = parseMarkdownLine(lines[i]);
 
-    if (!trimmed) continue;
+    if (parsed.kind === "blank") continue;
 
-    if (/^```/.test(trimmed)) {
-      const language = trimmed.slice(3).trim() || "plain text";
+    if (parsed.kind === "code-fence") {
       const codeLines: string[] = [];
       i++;
-      while (i < lines.length && !/^```/.test(lines[i].trim())) {
-        codeLines.push(lines[i]);
+      while (
+        i < lines.length &&
+        parseMarkdownLine(lines[i]).kind !== "code-fence"
+      ) {
+        const { text } = getLineIndent(lines[i]);
+        codeLines.push(text);
         i++;
       }
-      blocks.push({
+      attachBlock(parsed.indent, {
         object: "block",
         type: "code",
         code: {
-          language,
+          language: parsed.language,
           rich_text: [
             { type: "text", text: { content: codeLines.join("\n") } },
           ],
@@ -274,94 +462,21 @@ export function markdownToNotionBlocks(markdown: string): any[] {
       continue;
     }
 
-    if (/^---+$/.test(trimmed)) {
-      blocks.push({ object: "block", type: "divider", divider: {} });
-      continue;
-    }
-
-    const headingMatch = trimmed.match(/^(#{1,3})\s+(.*)$/);
-    if (headingMatch) {
-      const level = headingMatch[1].length;
-      const key =
-        level === 1 ? "heading_1" : level === 2 ? "heading_2" : "heading_3";
-      blocks.push({
-        object: "block",
-        type: key,
-        [key]: {
-          rich_text: markdownInlineToRichText(headingMatch[2]),
-        },
-      });
-      continue;
-    }
-
-    const todoMatch = trimmed.match(/^[-*]\s+\[( |x)\]\s+(.*)$/i);
-    if (todoMatch) {
-      blocks.push({
-        object: "block",
-        type: "to_do",
-        to_do: {
-          checked: todoMatch[1].toLowerCase() === "x",
-          rich_text: markdownInlineToRichText(todoMatch[2]),
-        },
-      });
-      continue;
-    }
-
-    const bulletMatch = trimmed.match(/^[-*]\s+(.*)$/);
-    if (bulletMatch) {
-      blocks.push({
-        object: "block",
-        type: "bulleted_list_item",
-        bulleted_list_item: {
-          rich_text: markdownInlineToRichText(bulletMatch[1]),
-        },
-      });
-      continue;
-    }
-
-    const numberedMatch = trimmed.match(/^\d+\.\s+(.*)$/);
-    if (numberedMatch) {
-      blocks.push({
-        object: "block",
-        type: "numbered_list_item",
-        numbered_list_item: {
-          rich_text: markdownInlineToRichText(numberedMatch[1]),
-        },
-      });
-      continue;
-    }
-
-    const quoteMatch = trimmed.match(/^>\s?(.*)$/);
-    if (quoteMatch) {
-      blocks.push({
-        object: "block",
-        type: "quote",
-        quote: {
-          rich_text: markdownInlineToRichText(quoteMatch[1]),
-        },
-      });
-      continue;
-    }
-
-    const paragraphLines = [trimmed];
-    while (i + 1 < lines.length) {
-      const next = lines[i + 1].trim();
-      if (
-        !next ||
-        /^#{1,3}\s/.test(next) ||
-        /^[-*]\s+\[( |x)\]\s+/i.test(next) ||
-        /^[-*]\s+/.test(next) ||
-        /^\d+\.\s+/.test(next) ||
-        /^>\s?/.test(next) ||
-        /^```/.test(next) ||
-        /^---+$/.test(next)
-      ) {
-        break;
+    if (parsed.kind === "paragraph" && parsed.indent === 0) {
+      const paragraphLines = [parsed.text];
+      while (i + 1 < lines.length) {
+        const next = parseMarkdownLine(lines[i + 1]);
+        if (next.kind !== "paragraph" || next.indent !== 0) {
+          break;
+        }
+        paragraphLines.push(next.text);
+        i++;
       }
-      paragraphLines.push(next);
-      i++;
+      attachBlock(0, paragraphBlock(paragraphLines.join(" ")));
+      continue;
     }
-    blocks.push(paragraphBlock(paragraphLines.join(" ")));
+
+    attachBlock(parsed.indent, makeNotionBlockFromParsedLine(parsed as any));
   }
 
   return blocks.length > 0 ? blocks : [paragraphBlock("")];
@@ -387,36 +502,41 @@ function childrenToMarkdown(
   return trimTrailingBlankLines(lines);
 }
 
-/**
- * Convert children of a paragraph block into bullet points.
- * Notion represents indented text as child paragraphs — markdown has no
- * equivalent, so we render them as nested bullets for visual indentation.
- */
-function paragraphChildrenToBullets(
+function nestedParagraphChildrenToMarkdown(
   children: NotionBlock[],
   warnings: string[],
-  indent: string,
+  depth: number,
 ): string[] {
   const lines: string[] = [];
   for (const child of children) {
     if (child.type === "paragraph") {
       const childText = richTextToMarkdown(child.paragraph?.rich_text || []);
       if (childText) {
-        lines.push(`${indent}- ${childText}`);
+        lines.push(...splitMarkdownLines(childText, visualIndent(depth)));
       }
-      // Recursively convert grandchildren too
       if (child.children?.length) {
         lines.push(
-          ...paragraphChildrenToBullets(
+          ...nestedParagraphChildrenToMarkdown(
             child.children,
             warnings,
-            indent + "  ",
+            depth + 1,
+          ),
+        );
+      }
+    } else if (child.type === "toggle") {
+      const toggleText = richTextToMarkdown(child.toggle?.rich_text || []);
+      lines.push(`${visualIndent(depth)}${TOGGLE_MARKER} ${toggleText}`);
+      if (child.children?.length) {
+        lines.push(
+          ...nestedParagraphChildrenToMarkdown(
+            child.children,
+            warnings,
+            depth + 1,
           ),
         );
       }
     } else {
-      // Non-paragraph children (bullets, toggles, etc.) render normally
-      lines.push(...blockToMarkdown(child, warnings, indent));
+      lines.push(...blockToMarkdown(child, warnings, "  ".repeat(depth)));
     }
   }
   return lines;
@@ -478,7 +598,7 @@ function blockToMarkdown(
       break;
     case "toggle":
       lines.push(
-        `${indent}- ▶ ${richTextToMarkdown(block.toggle?.rich_text || [])}`,
+        `${indent}${TOGGLE_MARKER} ${richTextToMarkdown(block.toggle?.rich_text || [])}`,
       );
       break;
     case "image": {
@@ -492,12 +612,13 @@ function blockToMarkdown(
   }
 
   if (block.children?.length) {
-    if (block.type === "paragraph") {
-      // Notion indented paragraphs become children of a paragraph block.
-      // Markdown doesn't support indented paragraphs natively, so convert
-      // child paragraphs into nested bullet points for visual indentation.
+    if (block.type === "paragraph" || block.type === "toggle") {
       lines.push(
-        ...paragraphChildrenToBullets(block.children, warnings, childIndent),
+        ...nestedParagraphChildrenToMarkdown(
+          block.children,
+          warnings,
+          indent ? Math.floor(indent.length / 2) + 1 : 1,
+        ),
       );
     } else {
       lines.push(...childrenToMarkdown(block.children, warnings, childIndent));

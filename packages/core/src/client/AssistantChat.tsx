@@ -338,7 +338,8 @@ function ToolCallFallback({
   result,
 }: ToolCallMessagePartProps) {
   const [expanded, setExpanded] = useState(false);
-  const isRunning = result === undefined;
+  const thread = useThread();
+  const isRunning = result === undefined && thread.isRunning;
   const argsStr = Object.entries(args as Record<string, unknown>)
     .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
     .join(", ");
@@ -370,15 +371,30 @@ function ToolCallFallback({
                 strokeDasharray="31 62"
               />
             </svg>
-          ) : (
+          ) : result !== undefined ? (
             <CheckIcon className="h-3 w-3 text-emerald-500" />
+          ) : (
+            <svg
+              className="h-3 w-3 text-muted-foreground"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
+              <rect
+                x="6"
+                y="6"
+                width="12"
+                height="12"
+                rx="2"
+                fill="currentColor"
+              />
+            </svg>
           )}
         </span>
         <span className="truncate min-w-0">
           <span className="font-medium">{toolName}</span>
           {argsStr && <span className="opacity-60 ml-1">({argsStr})</span>}
         </span>
-        {!isRunning && (
+        {!isRunning && result !== undefined && (
           <ChevronDownIcon
             className={cn(
               "ml-auto h-3 w-3 shrink-0 opacity-40",

@@ -49,16 +49,57 @@ function delayedInvalidate(
   }, ms);
 }
 
+// ─── Thread suppression ─────────────────────────────────────────────────────
+// Gmail's search index has eventual consistency that can exceed the delay above.
+// When we archive/trash/snooze/etc., we track the thread ID so that stale data
+// from subsequent refetches is filtered out via `select` in useEmails.
+
+const suppressedThreads = new Map<
+  string,
+  { action: string; timestamp: number }
+>();
+const SUPPRESS_DURATION = 60_000; // 60s — covers Gmail's consistency window
+
+/** Suppress a thread from appearing in views it was removed from. */
+export function suppressThread(
+  threadId: string,
+  action: "archive" | "trash" | "spam" | "block" | "mute" | "snooze",
+) {
+  suppressedThreads.set(threadId, { action, timestamp: Date.now() });
+}
+
+function isSuppressedInView(threadId: string, view: string): boolean {
+  const entry = suppressedThreads.get(threadId);
+  if (!entry) return false;
+  if (Date.now() - entry.timestamp > SUPPRESS_DURATION) {
+    suppressedThreads.delete(threadId);
+    return false;
+  }
+  // Don't suppress in the "destination" view for the action
+  if (entry.action === "archive" && view === "archive") return false;
+  if (entry.action === "trash" && view === "trash") return false;
+  return true;
+}
+
+function filterSuppressed(
+  emails: EmailMessage[],
+  view: string,
+): EmailMessage[] {
+  if (suppressedThreads.size === 0) return emails;
+  return emails.filter((e) => !isSuppressedInView(e.threadId || e.id, view));
+}
+
 // ─── Emails ──────────────────────────────────────────────────────────────────
 
 export function useEmails(view: string = "inbox", search?: string) {
-  return useQuery<EmailMessage[]>({
+  return useQuery<EmailMessage[], Error, EmailMessage[]>({
     queryKey: ["emails", view, search],
     queryFn: () => {
       const params = new URLSearchParams({ view });
       if (search) params.set("q", search);
       return apiFetch(`/api/emails?${params}`);
     },
+    select: (data) => filterSuppressed(data, view),
     staleTime: 15_000,
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
@@ -180,6 +221,7 @@ export function useArchiveEmail() {
         .flatMap(([, data]) => data ?? [])
         .find((e) => e.id === id);
       const threadId = target?.threadId || id;
+      suppressThread(threadId, "archive");
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => (e.threadId || e.id) !== threadId),
       );
@@ -225,6 +267,7 @@ export function useTrashEmail() {
         .flatMap(([, data]) => data ?? [])
         .find((e) => e.id === id);
       const threadId = target?.threadId || id;
+      suppressThread(threadId, "trash");
       // Remove all thread messages from all cached email queries
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => (e.threadId || e.id) !== threadId),
@@ -383,6 +426,7 @@ export function useReportSpam() {
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],
       });
+      suppressThread(threadId, "spam");
       // Filter out entire thread, not just the single message
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => (e.threadId || e.id) !== threadId),
@@ -417,6 +461,7 @@ export function useBlockSender() {
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],
       });
+      suppressThread(threadId, "block");
       // Filter out entire thread, not just the single message
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => (e.threadId || e.id) !== threadId),
@@ -440,6 +485,7 @@ export function useMuteThread() {
       const previous = qc.getQueriesData<EmailMessage[]>({
         queryKey: ["emails"],
       });
+      suppressThread(threadId, "mute");
       qc.setQueriesData<EmailMessage[]>({ queryKey: ["emails"] }, (old) =>
         old?.filter((e) => (e.threadId || e.id) !== threadId),
       );

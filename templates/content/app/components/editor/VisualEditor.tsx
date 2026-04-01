@@ -116,7 +116,7 @@ export function VisualEditor({
             if (level === 2) return "Heading 2";
             return "Heading 3";
           }
-          return "Type '/' for commands...";
+          return "Type /generate to generate...";
         },
         showOnlyWhenEditable: true,
         showOnlyCurrent: true,
@@ -191,7 +191,7 @@ export function VisualEditor({
   return (
     <div className="visual-editor-wrapper">
       <BubbleToolbar editor={editor} />
-      <SlashCommandMenu editor={editor} />
+      <SlashCommandMenu editor={editor} documentId={documentId} />
       <LinkHoverPreview editor={editor} />
       <TableHoverControls editor={editor} />
       <EditorContent editor={editor} />
